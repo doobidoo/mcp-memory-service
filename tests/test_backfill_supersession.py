@@ -520,3 +520,336 @@ def test_resolve_db_path_with_explicit_path(backfill_module, tmp_path):
     result = backfill_module.resolve_db_path(None)
     assert isinstance(result, Path)
     assert result.name == "sqlite_vec.db" or result.name.endswith(".db")
+
+
+def assert_unique_versions_in_chain(conn: sqlite3.Connection, chain_hashes: list[str]):
+    """Generic assert: versions within a chain must be unique (no duplicates).
+    
+    This catches the P1.5 collision bug where multiple nodes get the same version.
+    """
+    versions = []
+    for content_hash in chain_hashes:
+        row = conn.execute(
+            "SELECT version FROM memories WHERE content_hash = ?", (content_hash,)
+        ).fetchone()
+        if row and row[0] is not None:
+            versions.append(row[0])
+    
+    # All non-NULL versions must be unique
+    assert len(versions) == len(set(versions)), f"Version collision detected in chain: versions={versions}"
+
+
+def test_backfill_p15_core_legacy_chain_with_anchor_avoids_collision(temp_db, backfill_module):
+    """P1.5 core case: v1->v2 legacy + v3 anchor (parent=v2, version=2).
+    
+    BUG FIXED: Algorithm now detects that assigning v2=version=1 would collide with v1.version=1.
+    EXPECTED (after fix): v3 unchanged (version=2), v2=NULL (collision avoided), v1=1 (unchanged).
+    
+    This test verifies the collision detection and avoidance logic.
+    """
+    conn, _ = temp_db
+    
+    # Setup the P1.5 scenario:
+    # v1 -> v2 (legacy metadata link)
+    # v3 is already anchored by #1348: parent_id=v2, version=2
+    v1_hash = "p15a" + "0" * 60
+    v2_hash = "p15b" + "0" * 60  
+    v3_hash = "p15c" + "0" * 60
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    v2_metadata = json.dumps({"superseded_by": v3_hash})
+    
+    # Insert chain: v1 and v2 are legacy (no parent_id, version=1)
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)", 
+        (v2_hash, v2_metadata)
+    )
+    # v3 is already anchored by #1348 (has parent_id=v2, version=2)
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', ?, 2, NULL)",
+        (v3_hash, v2_hash)  # parent_id=v2, version=2 (anchor)
+    )
+    conn.commit()
+    
+    # Execute backfill
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # Should process the legacy links v1->v2, v2->v3  
+    assert stats["superseded_filled"] == 2
+    assert stats["scanned"] == 2
+    
+    # CRITICAL: Check for P1.5 version collision bug
+    # v3 should remain unchanged (anchor)
+    v3_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v3_hash,)
+    ).fetchone()
+    assert v3_row[0] == v2_hash  # parent_id unchanged
+    assert v3_row[1] == 2        # version unchanged (anchor)
+    
+    # v2 should avoid collision with v1.version=1 by being set to NULL
+    v2_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    assert v2_row[0] == v1_hash  # parent_id set to v1
+    assert v2_row[1] is None     # version=NULL (collision avoided)
+    
+    # v1 remains unchanged (old rows are not updated by backfill)
+    v1_row = conn.execute(
+        "SELECT version FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()
+    assert v1_row[0] == 1  # version unchanged (old row)
+    
+    # MOST IMPORTANT: No version collision in the chain
+    # This assertion should PASS with the fix (collision avoided by setting v2=NULL)
+    assert_unique_versions_in_chain(conn, [v1_hash, v2_hash, v3_hash])
+
+
+def test_backfill_p15_simple_legacy_with_anchor_avoids_collision(temp_db, backfill_module):
+    """P1.5 simple case: v1->v2, v2 already anchor (parent=v1, version=2).
+    
+    EXPECTED: v1=1 (v2-1), v2 unchanged. No collision.
+    Current bug: algorithm might assign v2=version=2, creating collision with existing v2.version=2.
+    """
+    conn, _ = temp_db
+    
+    # Setup: v1 -> v2, v2 already anchored by #1348
+    v1_hash = "p15d" + "0" * 60
+    v2_hash = "p15e" + "0" * 60
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    
+    # v1 is legacy
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)
+    )
+    # v2 is already anchored by #1348 (parent=v1, version=2) - this simulates #1348 having processed this link
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', ?, 2, NULL)",
+        (v2_hash, v1_hash)  # parent_id=v1, version=2
+    )
+    conn.commit()
+    
+    # Execute backfill  
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # Should process v1->v2 supersession in metadata
+    assert stats["superseded_filled"] == 1
+    assert stats["parent_filled"] == 0  # v2 already has parent_id, shouldn't overwrite
+    assert stats["version_filled"] == 0  # v2 already has version, shouldn't overwrite
+    assert stats["scanned"] == 1
+    
+    # v2 should remain unchanged (was already processed by #1348)
+    v2_row = conn.execute(
+        "SELECT parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    assert v2_row[0] == v1_hash  # parent_id unchanged
+    assert v2_row[1] == 2        # version unchanged
+    
+    # v1 should remain version=1 (legacy state, not updated by backfill)
+    v1_row = conn.execute(
+        "SELECT version FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()
+    assert v1_row[0] == 1  # version unchanged (old rows don't get version updates)
+    
+    # No collision check
+    assert_unique_versions_in_chain(conn, [v1_hash, v2_hash])
+
+
+def test_backfill_idempotent_double_run_no_changes_second_time(temp_db, backfill_module):
+    """Idempotency: running backfill twice should not change anything on second run.
+    
+    Expected: first run processes everything, second run has all stats=0.
+    """
+    conn, _ = temp_db
+    
+    # Setup: simple chain v1->v2
+    v1_hash = "idem1" + "0" * 59
+    v2_hash = "idem2" + "0" * 59
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', '', 1, NULL)",
+        (v2_hash,)
+    )
+    conn.commit()
+    
+    # First run
+    stats1 = backfill_module.backfill(conn, apply=True)
+    assert stats1["superseded_filled"] == 1
+    assert stats1["parent_filled"] == 1
+    assert stats1["version_filled"] == 1
+    assert stats1["scanned"] == 1
+    
+    # Take snapshot after first run
+    v1_after_first = conn.execute(
+        "SELECT superseded_by, parent_id, version FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()
+    v2_after_first = conn.execute(
+        "SELECT superseded_by, parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    
+    # Second run (should be idempotent)
+    stats2 = backfill_module.backfill(conn, apply=True)
+    
+    # Second run should find nothing to do
+    assert stats2["superseded_filled"] == 0  # v1.superseded_by already set
+    assert stats2["parent_filled"] == 0     # v2.parent_id already set  
+    assert stats2["version_filled"] == 0    # v2.version already set
+    assert stats2["scanned"] == 1           # Still scans v1 (has metadata), but finds superseded_by column already filled
+    
+    # Database should be unchanged after second run
+    v1_after_second = conn.execute(
+        "SELECT superseded_by, parent_id, version FROM memories WHERE content_hash = ?", (v1_hash,)
+    ).fetchone()
+    v2_after_second = conn.execute(
+        "SELECT superseded_by, parent_id, version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    
+    assert v1_after_first == v1_after_second
+    assert v2_after_first == v2_after_second
+
+
+def test_backfill_unique_versions_assertion_in_all_existing_cases(temp_db, backfill_module):
+    """Apply unique versions assertion to existing multi-step chain cases.
+    
+    This ensures our new assertion catches P1.5 collision bugs in existing test patterns.
+    """
+    conn, _ = temp_db
+    
+    # Use the same setup as test_backfill_multi_step_chain_exact_versions
+    v1_hash = "uniq1" + "0" * 59
+    v2_hash = "uniq2" + "0" * 59
+    v3_hash = "uniq3" + "0" * 59
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    v2_metadata = json.dumps({"superseded_by": v3_hash})
+    
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', '', 1, NULL)",
+        (v3_hash,)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v2_hash, v2_metadata)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)
+    )
+    conn.commit()
+    
+    # Execute backfill
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # Apply our generic unique versions assertion
+    assert_unique_versions_in_chain(conn, [v1_hash, v2_hash, v3_hash])
+    
+    # Also verify the expected monotonic sequence
+    v1_version = conn.execute("SELECT version FROM memories WHERE content_hash = ?", (v1_hash,)).fetchone()[0]
+    v2_version = conn.execute("SELECT version FROM memories WHERE content_hash = ?", (v2_hash,)).fetchone()[0] 
+    v3_version = conn.execute("SELECT version FROM memories WHERE content_hash = ?", (v3_hash,)).fetchone()[0]
+    
+    # Should be monotonic: 1, 2, 3
+    assert v1_version == 1
+    assert v2_version == 2
+    assert v3_version == 3
+
+
+def test_assert_unique_versions_detects_collision(temp_db):
+    """Verify that our assert_unique_versions_in_chain function correctly detects collisions.
+    
+    This test should PASS - it's testing our test helper function itself.
+    """
+    conn, _ = temp_db
+    
+    # Setup a scenario with duplicate versions (manually created)
+    v1_hash = "dup1" + "0" * 60
+    v2_hash = "dup2" + "0" * 60
+    
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', '', 2, NULL)",  # Both have version=2
+        (v1_hash,)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', '', 2, NULL)",  # Both have version=2 
+        (v2_hash,)
+    )
+    conn.commit()
+    
+    # Our assertion should detect this collision
+    try:
+        assert_unique_versions_in_chain(conn, [v1_hash, v2_hash])
+        assert False, "Expected assertion to fail due to version collision"
+    except AssertionError as e:
+        assert "Version collision detected" in str(e)
+        assert "versions=[2, 2]" in str(e)
+
+
+def test_p15_bug_collision_detected_by_unique_versions_assertion(temp_db, backfill_module):
+    """Test shows that P1.5 collision bug has been FIXED.
+    
+    With the anchor-aware numbering fix, collision is avoided by setting conflicting
+    versions to NULL, so unique_versions_assertion should now PASS.
+    """
+    conn, _ = temp_db
+    
+    # Same P1.5 setup
+    v1_hash = "p15x" + "0" * 60
+    v2_hash = "p15y" + "0" * 60  
+    v3_hash = "p15z" + "0" * 60
+    
+    v1_metadata = json.dumps({"superseded_by": v2_hash})
+    v2_metadata = json.dumps({"superseded_by": v3_hash})
+    
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)",
+        (v1_hash, v1_metadata)
+    )
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, ?, '', '', 1, NULL)", 
+        (v2_hash, v2_metadata)
+    )
+    # v3 is anchor with version=2
+    conn.execute(
+        "INSERT INTO memories (content_hash, metadata, superseded_by, parent_id, version, deleted_at) "
+        "VALUES (?, '', '', ?, 2, NULL)",
+        (v3_hash, v2_hash)
+    )
+    conn.commit()
+    
+    # Execute backfill (no longer creates collision - bug is fixed!)
+    stats = backfill_module.backfill(conn, apply=True)
+    
+    # The fix should avoid collision by setting v2 version to NULL
+    # So unique_versions_assertion should now PASS
+    assert_unique_versions_in_chain(conn, [v1_hash, v2_hash, v3_hash])
+    
+    # Verify the collision avoidance: v2 should have NULL version
+    v2_row = conn.execute(
+        "SELECT version FROM memories WHERE content_hash = ?", (v2_hash,)
+    ).fetchone()
+    assert v2_row[0] is None  # v2 version set to NULL to avoid collision

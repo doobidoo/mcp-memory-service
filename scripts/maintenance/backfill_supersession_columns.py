@@ -90,17 +90,18 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
     # the version, by numbering each chain from its root so multi-step chains
     # v1->v2->v3 get 1,2,3 instead of colliding at 2 (Greptile P1.2 + P1.4).
     edges: dict[str, str] = {}  # old_hash -> winner_hash
-    # cache of which content_hashes exist (live) and their already-set parent_id
-    live_parent: dict[str, object] = {}
+    # cache of which content_hashes exist (live) and their already-set parent_id/version
+    live_cache: dict[str, object] = {}
 
-    def _live_parent(h: str):
-        if h not in live_parent:
+    def _live(h: str):
+        """Return (parent_id, version) for a live hash, or "__missing__" if not found."""
+        if h not in live_cache:
             r = conn.execute(
-                "SELECT parent_id FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                "SELECT parent_id, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (h,),
             ).fetchone()
-            live_parent[h] = (r[0] if r else "__missing__")
-        return live_parent[h]
+            live_cache[h] = (r if r else "__missing__")
+        return live_cache[h]
 
     orphans: list[str] = []
 
@@ -115,7 +116,7 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
         if not (_valid_hash(winner) and not col_superseded):
             continue
 
-        if _live_parent(winner) == "__missing__":
+        if _live(winner) == "__missing__":
             # #1352: pointing the column at a deleted winner would hide this row
             # with no way back. Leave it visible; report for operator review.
             stats["winner_gone"] += 1
@@ -127,25 +128,109 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
         stats["superseded_filled"] += 1
         edges[content_hash] = winner
 
-    # Walk each chain from its root and assign monotonic versions. Root = an old_hash
-    # that is not itself the winner of another edge. version(root)=1, each successor +1.
-    # Only fill parent_id/version where the row isn't already linked, so re-runs and
-    # rows already versioned by #1348 are left untouched (idempotent).
+    # Walk each chain and assign versions using anchor-aware numbering (P1.5 fix).
+    # For each chain ordered root->tip:
+    # - Find PIVOT = first node with existing version (anchor from #1348) 
+    # - Number forward (pivot+1, +2...) and backward (pivot-1, -2...) from pivot
+    # - If backward numbering would create version < 1, leave those nodes with version NULL
+    # - Nodes already linked (have parent_id) are NEVER overwritten (idempotency)
     winners = set(edges.values())
     roots = [old for old in edges if old not in winners]
     new_links: dict[str, tuple[str, int]] = {}  # winner -> (parent, version)
     seen: set[str] = set()
+    
     for root in roots:
-        node, version, parent = root, 1, None
-        while node in edges:
+        # Build the complete chain from root to tip (including final winner)
+        chain = []
+        node = root
+        while True:
+            chain.append(node)
+            if node not in edges:
+                break
             nxt = edges[node]
             if nxt in seen:  # defensive: cycle / diamond, stop
                 break
-            version += 1
-            if not _live_parent(nxt):  # winner not already linked
-                new_links[nxt] = (node, version)
-            seen.add(nxt)
+            seen.add(node)
             node = nxt
+            
+        # Add the final winner to the chain if it exists
+        if chain and chain[-1] in edges:
+            final_winner = edges[chain[-1]]
+            if _live(final_winner) != "__missing__":
+                chain.append(final_winner)
+        
+        # Find pivot: first node in chain that has existing parent_id (anchor)
+        pivot_idx = None
+        pivot_version = None
+        
+        for i, node_hash in enumerate(chain):
+            live_info = _live(node_hash)
+            if live_info != "__missing__":
+                parent_id, version = live_info
+                if parent_id:  # This node already has parent_id (anchor from #1348)
+                    pivot_idx = i
+                    pivot_version = version
+                    break
+        
+        # If no anchor found, pivot is root with version 1 (pure legacy chain - P1.4 case)
+        if pivot_idx is None:
+            pivot_idx = 0
+            pivot_version = 1
+        
+        # Number the chain from pivot, but only process edges (old->winner relationships)
+        for i, node_hash in enumerate(chain[:-1]):  # Exclude last node since it has no outgoing edge
+            if node_hash in edges:  # This is an old node, process its winner
+                winner_hash = edges[node_hash]
+                winner_idx = i + 1  # Winner is at next position in chain
+                
+                live_info = _live(winner_hash)
+                if live_info == "__missing__":
+                    continue  # Skip missing winners
+                
+                parent_id, existing_version = live_info
+                
+                # Skip nodes already linked (idempotency) 
+                if parent_id:
+                    continue
+                
+                # Calculate version based on winner's position relative to pivot
+                if winner_idx == pivot_idx:
+                    # This winner IS the pivot
+                    new_version = pivot_version
+                elif winner_idx < pivot_idx:
+                    # Winner is before pivot: count backward
+                    new_version = pivot_version - (pivot_idx - winner_idx)
+                else:
+                    # Winner is after pivot: count forward  
+                    new_version = pivot_version + (winner_idx - pivot_idx)
+                
+                # Check if this version would collide with any existing version in the chain
+                version_collision = False
+                if new_version >= 1:
+                    for check_i, check_node_hash in enumerate(chain):
+                        if check_i == winner_idx:
+                            continue  # Skip self
+                        check_live_info = _live(check_node_hash)
+                        if check_live_info != "__missing__":
+                            _, check_version = check_live_info
+                            if check_version == new_version:
+                                version_collision = True
+                                break
+                
+                # Only set version if >= 1 and no collision, otherwise leave NULL and warn
+                if new_version >= 1 and not version_collision:
+                    new_links[winner_hash] = (node_hash, new_version)
+                else:
+                    # Set only parent_id, leave version NULL
+                    new_links[winner_hash] = (node_hash, None)
+                    if new_version < 1:
+                        log.warning("chain has inconsistent anchor version; left version unset for 1 row(s)")
+                    elif version_collision:
+                        log.warning("version collision detected; left version unset for 1 row(s)")
+    
+    # Filter new_links into those with versions and those without
+    links_with_version = {k: v for k, v in new_links.items() if v[1] is not None}
+    links_without_version = {k: v for k, v in new_links.items() if v[1] is None}
 
     if orphans:
         log.warning("%d row(s) point at a deleted/missing winner in metadata; left "
@@ -153,7 +238,7 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
                     len(orphans), ", ".join(h[:8] for h in orphans[:5]))
 
     stats["parent_filled"] = len(new_links)
-    stats["version_filled"] = len(new_links)
+    stats["version_filled"] = len(links_with_version)
 
     if apply:
         for winner, old_hash in old_updates:
@@ -161,10 +246,17 @@ def backfill(conn: sqlite3.Connection, apply: bool) -> dict[str, int]:
                 "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
                 (winner, old_hash),
             )
-        for winner, (parent_hash, new_version) in new_links.items():
+        # Update links that have both parent_id and version
+        for winner, (parent_hash, new_version) in links_with_version.items():
             conn.execute(
                 "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
                 (parent_hash, new_version, winner),
+            )
+        # Update links that have only parent_id (version stays NULL due to version < 1)
+        for winner, (parent_hash, _) in links_without_version.items():
+            conn.execute(
+                "UPDATE memories SET parent_id = ?, version = NULL WHERE content_hash = ?",
+                (parent_hash, winner),
             )
         conn.commit()
 
