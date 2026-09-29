@@ -3,10 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
+    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
   pull_request:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
+    # '*.md' matches the repository root only. changelog.d/ is listed on its own so
+    # a docs-only PR that carries a fragment does not start the full test matrix.
+    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
 
 jobs:
   version-drift-check:
