@@ -18,13 +18,13 @@ except ImportError:
 
 from ...compat import _sanitize_log_value
 from ...utils.system_detection import get_torch_device
+from ..shared import _embedding_cache_get, _embedding_cache_put, _embedding_cache_size, _embedding_cache_clear
 
 logger = logging.getLogger(__name__)
 
 # Module-level caches
 _MODEL_CACHE = {}
 _DIMENSION_CACHE = {}
-_EMBEDDING_CACHE = {}
 
 # Module-level flag: emit hash-fallback warning only once per process
 _HASH_FALLBACK_WARNED = False
@@ -34,14 +34,13 @@ def clear_model_caches() -> dict:
     """Clear embedding model caches to free memory."""
     import gc  # inline import: only needed by this cache-clearing helper
 
-    global _MODEL_CACHE, _EMBEDDING_CACHE, _DIMENSION_CACHE
+    global _MODEL_CACHE, _DIMENSION_CACHE
 
     model_count = len(_MODEL_CACHE)
-    embedding_count = len(_EMBEDDING_CACHE)
+    embedding_count = _embedding_cache_clear()
 
     _MODEL_CACHE.clear()
     _DIMENSION_CACHE.clear()
-    _EMBEDDING_CACHE.clear()
 
     collected = gc.collect()
 
@@ -62,7 +61,7 @@ def get_model_cache_stats() -> dict:
     return {
         "model_count": len(_MODEL_CACHE),
         "model_keys": list(_MODEL_CACHE.keys()),
-        "embedding_count": len(_EMBEDDING_CACHE)
+        "embedding_count": _embedding_cache_size()
     }
 
 
@@ -480,9 +479,10 @@ class EmbeddingsMixin:
 
         try:
             if self.enable_cache:
-                cache_key = hash(text)
-                if cache_key in _EMBEDDING_CACHE:
-                    return _EMBEDDING_CACHE[cache_key]
+                cache_key = f"{self.embedding_model_name}::{text}"
+                cached = _embedding_cache_get(cache_key)
+                if cached is not None:
+                    return cached
 
             embedding = self.embedding_model.encode([text], convert_to_numpy=True)[0]
             if hasattr(embedding, "tolist"):
@@ -500,7 +500,7 @@ class EmbeddingsMixin:
                 raise ValueError("Embedding contains invalid values (NaN or infinity)")
 
             if self.enable_cache:
-                _EMBEDDING_CACHE[cache_key] = embedding_list
+                _embedding_cache_put(cache_key, embedding_list)
 
             return embedding_list
 
