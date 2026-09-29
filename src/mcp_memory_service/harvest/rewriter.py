@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..compat import _sanitize_log_value
+from ..config.locale import get_active_locales
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ class RewriteResult:
 class HarvestRewriter:
     """Rewrites harvest candidates into standalone insights using an LLM.
 
-    Respects HARVEST_LOCALE for multilingual output — responds in the same
+    Respects MCP_LOCALE (or HARVEST_LOCALE) for multilingual output — responds in the same
     language as the input text.
     """
 
@@ -181,7 +182,7 @@ class HarvestRewriter:
         self._provider = os.environ.get("HARVEST_LLM_PROVIDER", "groq")
         self._model = os.environ.get("HARVEST_LLM_MODEL", "llama-3.3-70b-versatile")
         self._api_key = os.environ.get("GROQ_API_KEY", "")
-        self._locale = os.environ.get("HARVEST_LOCALE", "en")
+        self._locale = ",".join(get_active_locales())
         self._locale_instruction = self._build_locale_instruction()
 
     @property
@@ -195,7 +196,7 @@ class HarvestRewriter:
         return any(is_usable_provider(p) for p in self._providers) or bool(self._api_key)
 
     def _build_locale_instruction(self) -> str:
-        """Build locale instruction from HARVEST_LOCALE env var."""
+        """Build locale instruction from the active locales (MCP_LOCALE / HARVEST_LOCALE)."""
         locales = [l.strip() for l in self._locale.split(",")]
         instructions = []
         for loc in locales:
