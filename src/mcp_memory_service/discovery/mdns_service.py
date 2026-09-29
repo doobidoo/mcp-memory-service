@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from zeroconf import Zeroconf, ServiceInfo, ServiceListener
 from zeroconf.asyncio import AsyncZeroconf, AsyncServiceBrowser
 
+from ..compat import _sanitize_log_value
 from ..config import (
     MDNS_SERVICE_NAME,
     MDNS_SERVICE_TYPE,
@@ -126,7 +127,7 @@ class ServiceAdvertiser:
             server=f"{self.service_name.replace(' ', '-').lower()}.local."
         )
         
-        logger.info(f"Created service info: {full_service_name} at {local_ip}:{self.port}")
+        logger.info("Created service info: %s at %s:%s", full_service_name, local_ip, self.port)
         return service_info
     
     async def start(self) -> bool:
@@ -142,11 +143,11 @@ class ServiceAdvertiser:
             await self._zeroconf.async_register_service(self._service_info)
             self._registered = True
             
-            logger.info(f"mDNS service advertisement started for {self.service_name}")
+            logger.info("mDNS service advertisement started for %s", self.service_name)
             return True
             
         except Exception as e:
-            logger.error(f"Failed to start mDNS service advertisement: {e}")
+            logger.error("Failed to start mDNS service advertisement: %s", _sanitize_log_value(e))
             return False
     
     async def stop(self) -> None:
@@ -163,10 +164,10 @@ class ServiceAdvertiser:
             self._zeroconf = None
             self._service_info = None
             
-            logger.info(f"mDNS service advertisement stopped for {self.service_name}")
+            logger.info("mDNS service advertisement stopped for %s", self.service_name)
             
         except Exception as e:
-            logger.error(f"Error stopping mDNS service advertisement: {e}")
+            logger.error("Error stopping mDNS service advertisement: %s", _sanitize_log_value(e))
     
     def __del__(self):
         """Cleanup on deletion."""
@@ -190,19 +191,19 @@ class DiscoveryListener(ServiceListener):
                 service_details = self._parse_service_info(info)
                 self.services[name] = service_details
                 
-                logger.info(f"Discovered MCP Memory Service: {service_details.name} at {service_details.url}")
+                logger.info("Discovered MCP Memory Service: %s at %s", _sanitize_log_value(service_details.name), _sanitize_log_value(service_details.url))
                 
                 if self.callback:
                     self.callback(service_details)
                     
             except Exception as e:
-                logger.error(f"Error parsing discovered service {name}: {e}")
+                logger.error("Error parsing discovered service %s: %s", _sanitize_log_value(name), _sanitize_log_value(e))
     
     def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         """Called when a service is removed."""
         if name in self.services:
             service_details = self.services.pop(name)
-            logger.info(f"MCP Memory Service removed: {service_details.name}")
+            logger.info("MCP Memory Service removed: %s", _sanitize_log_value(service_details.name))
     
     def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
         """Called when a service is updated."""
@@ -212,13 +213,13 @@ class DiscoveryListener(ServiceListener):
                 service_details = self._parse_service_info(info)
                 self.services[name] = service_details
                 
-                logger.info(f"MCP Memory Service updated: {service_details.name}")
+                logger.info("MCP Memory Service updated: %s", _sanitize_log_value(service_details.name))
                 
                 if self.callback:
                     self.callback(service_details)
                     
             except Exception as e:
-                logger.error(f"Error parsing updated service {name}: {e}")
+                logger.error("Error parsing updated service %s: %s", _sanitize_log_value(name), _sanitize_log_value(e))
     
     def _parse_service_info(self, info: ServiceInfo) -> ServiceDetails:
         """Parse ServiceInfo into ServiceDetails."""
@@ -282,16 +283,16 @@ class ServiceDiscovery:
             )
             
             self._discovering = True
-            logger.info(f"Starting mDNS discovery for {self.service_type}")
+            logger.info("Starting mDNS discovery for %s", self.service_type)
             
             # Wait for discovery timeout
             await asyncio.sleep(self.discovery_timeout)
             
             services = list(self._listener.services.values())
-            logger.info(f"Discovered {len(services)} MCP Memory Services")
+            logger.info("Discovered %d MCP Memory Services", len(services))
             
         except Exception as e:
-            logger.error(f"Error during service discovery: {e}")
+            logger.error("Error during service discovery: %s", _sanitize_log_value(e))
         
         finally:
             await self.stop_discovery()
@@ -318,11 +319,11 @@ class ServiceDiscovery:
             )
             
             self._discovering = True
-            logger.info(f"Started continuous mDNS discovery for {self.service_type}")
+            logger.info("Started continuous mDNS discovery for %s", self.service_type)
             return True
             
         except Exception as e:
-            logger.error(f"Error starting continuous service discovery: {e}")
+            logger.error("Error starting continuous service discovery: %s", _sanitize_log_value(e))
             return False
     
     async def stop_discovery(self) -> None:
@@ -345,7 +346,7 @@ class ServiceDiscovery:
             logger.info("mDNS service discovery stopped")
             
         except Exception as e:
-            logger.error(f"Error stopping service discovery: {e}")
+            logger.error("Error stopping service discovery: %s", _sanitize_log_value(e))
     
     def get_discovered_services(self) -> List[ServiceDetails]:
         """Get currently discovered services."""
