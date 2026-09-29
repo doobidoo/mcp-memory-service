@@ -53,6 +53,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/graph.py",
     "mcp_memory_service/storage/mixins/migrations.py",
     "mcp_memory_service/storage/mixins/embeddings.py",
+    "mcp_memory_service/discovery/mdns_service.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -75,6 +76,11 @@ EXTERNAL_NAMES = frozenset({
     # guarded logger call (storage/graph.py) is already wrapped; listing the
     # name keeps a later unwrap from passing the ratchet green.
     "max_hops",
+    # The ServiceDetails a mDNS listener builds from another host's announcement
+    # (discovery/mdns_service.py): its name and url are chosen by that host. The
+    # object name is listed rather than `name`/`url`, which are ordinary internal
+    # identifiers elsewhere in the guarded modules.
+    "service_details",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -236,6 +242,22 @@ def test_lazy_scan_flags_caller_controlled_max_hops():
     wrapped = 'logger.debug("within %s hops", _sanitize_log_value(max_hops))\n'
     assert _lazy_findings(bare)
     assert not _lazy_findings(wrapped)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_mdns_service_details():
+    """service_details is parsed from a mDNS announcement made by another host.
+
+    Every guarded logger call in discovery/mdns_service.py already wraps its
+    fields, so the module scan stays green whether or not the object is
+    listed. This is the sample that fails if the entry is dropped from
+    EXTERNAL_NAMES; a bare `name` stays unlisted on purpose.
+    """
+    bare = 'logger.info("Discovered: %s", service_details.name)\n'
+    wrapped = 'logger.info("Discovered: %s", _sanitize_log_value(service_details.name))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("Discovered: %s", name)\n')
 
 
 @pytest.mark.unit
