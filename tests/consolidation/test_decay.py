@@ -131,26 +131,55 @@ class TestExponentialDecayCalculator:
         # Without subtype mapping this falls back to the 30-day default
         assert scores[0].metadata['retention_period'] == 180
 
-    def test_env_config_includes_ontology_retention_keys(self):
-        """Production env config must expose ontology keys, not only legacy ones (#1355)."""
-        from mcp_memory_service.config.consolidation import CONSOLIDATION_CONFIG
+    @staticmethod
+    def _reload_consolidation_config(monkeypatch, **overrides):
+        """Reload the env-driven consolidation config under a clean retention env.
 
-        retention = CONSOLIDATION_CONFIG['retention_periods']
-        for base_type in ('decision', 'learning', 'pattern', 'error', 'observation'):
-            assert base_type in retention
+        The developer's own MCP_RETENTION_* environment (or .env) must not leak
+        into assertions about shipped defaults, so the variables are removed
+        before reloading; overrides can then be applied explicitly.
+        """
+        import os
+        import importlib
+        from mcp_memory_service.config import consolidation as consolidation_module
+
+        for name in [n for n in os.environ if n.startswith('MCP_RETENTION_')]:
+            monkeypatch.delenv(name, raising=False)
+        for name, value in overrides.items():
+            monkeypatch.setenv(name, str(value))
+        return importlib.reload(consolidation_module)
+
+    def test_env_config_includes_ontology_retention_keys(self, monkeypatch):
+        """Production env config must expose all ontology base types, not only legacy keys (#1355)."""
+        module = self._reload_consolidation_config(monkeypatch)
+
+        retention = module.CONSOLIDATION_CONFIG['retention_periods']
+        for base_type in ('decision', 'learning', 'pattern', 'error', 'observation',
+                          'planning', 'ceremony', 'milestone', 'stakeholder',
+                          'meeting', 'research', 'communication'):
+            assert base_type in retention, f'{base_type} missing from retention_periods'
         # Legacy keys remain for backward compatibility
         for legacy_type in ('critical', 'reference', 'standard', 'temporary'):
             assert legacy_type in retention
         assert retention['decision'] == 365
         assert retention['learning'] == 180
+        assert retention['pattern'] == 90
+
+    def test_env_config_retention_override(self, monkeypatch):
+        """MCP_RETENTION_* overrides reach the production retention config (#1355)."""
+        module = self._reload_consolidation_config(monkeypatch, MCP_RETENTION_RESEARCH='120')
+
+        retention = module.CONSOLIDATION_CONFIG['retention_periods']
+        assert retention['research'] == 120
+        assert retention['decision'] == 365  # untouched defaults survive
 
     @pytest.mark.asyncio
-    async def test_env_config_drives_decay_retention(self):
+    async def test_env_config_drives_decay_retention(self, monkeypatch):
         """With the production env config, ontology types drive retention (#1355)."""
-        from mcp_memory_service.config.consolidation import CONSOLIDATION_CONFIG
         from mcp_memory_service.consolidation.base import ConsolidationConfig
 
-        calculator = ExponentialDecayCalculator(ConsolidationConfig(**CONSOLIDATION_CONFIG))
+        module = self._reload_consolidation_config(monkeypatch)
+        calculator = ExponentialDecayCalculator(ConsolidationConfig(**module.CONSOLIDATION_CONFIG))
 
         now = datetime.now()
         mem_time = now - timedelta(days=60)
