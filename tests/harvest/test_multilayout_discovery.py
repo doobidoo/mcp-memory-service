@@ -254,6 +254,21 @@ def test_resolve_sessions_flat_id_roundtrip(tmp_path):
     assert len(resolved) == 1 and resolved[0].name == "foo.jsonl"
 
 
+def test_session_id_flat_messages_keeps_stem(tmp_path):
+    """A messages.jsonl that is NOT a workspace nesting (e.g. at the project
+    root) must keep its stem, not be turned into a composite id that can't be
+    resolved back (G5 P1.2)."""
+    from mcp_memory_service.harvest.harvester import SessionHarvester
+    from pathlib import Path
+
+    h = SessionHarvester(project_dir=tmp_path)
+    # A flat messages.jsonl right at the project root: only one dir level.
+    flat_root = tmp_path / "messages.jsonl"
+    sid = h._session_id(flat_root)
+    # Round-trips: {tmp_path}/messages.jsonl exists as the flat id 'messages'.
+    assert "/" not in sid, f"flat messages.jsonl got a composite id: {sid}"
+
+
 def test_session_id_shared_logic_flat_and_nested(tmp_path):
     """The scheduler reuses harvester._session_id, so both agree: a workspace
     messages.jsonl keys by its parent dir name, a flat file by its stem. This is

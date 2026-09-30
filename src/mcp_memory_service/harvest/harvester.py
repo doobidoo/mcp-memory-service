@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from .models import HarvestCandidate, HarvestConfig, HarvestResult
 from .parser import TranscriptParser
@@ -48,25 +48,60 @@ class SessionHarvester:
     def _session_id(self, filepath: Path, base_dir: Path = None) -> str:
         """Stable, unique session id for a session file.
 
-        A Kiro workspace session is always named ``messages.jsonl`` inside
-        ``.../{workspace_hash}/{session_dir}/messages.jsonl``, so its ``stem``
-        collides at ``"messages"``. The session-dir name alone is not unique
-        either — the same session-dir id recurs under different workspace hashes
-        — so key a workspace session by ``{workspace_hash}/{session_dir}`` (the
-        two path components above the file). That is globally unique and reverses
-        directly to the file (see ``_resolve_sessions``).
+        A Kiro workspace session is ``messages.jsonl`` nested exactly two
+        directory levels under the sessions root
+        (``{root}/{workspace_hash}/{session_dir}/messages.jsonl``), so its
+        ``stem`` collides at ``"messages"`` and the session-dir name alone
+        recurs across workspaces. Such a file is keyed by
+        ``{workspace_hash}/{session_dir}`` — globally unique and reversible via
+        ``_resolve_session_id``.
 
-        Every other layout (CLI ``cli/foo.jsonl``, OpenClaw ``*.trajectory.jsonl``,
-        Claude) keeps ``filepath.stem`` — the id already recorded in the harvest
-        tracker for thousands of sessions. The rule is SEMANTIC, not positional,
-        so the id does not change when harvest is pointed at the sessions root vs.
-        a subdirectory, keeping existing dedup intact. ``base_dir`` is accepted
-        for backward-compatible call sites and ignored.
+        A ``messages.jsonl`` that is not in that two-level nesting (e.g. flat at
+        the sessions root) is not a workspace session and keeps its stem, so the
+        id stays resolvable. Every other layout (CLI ``cli/foo.jsonl``, OpenClaw,
+        Claude) also keeps ``filepath.stem`` — the id already in the harvest
+        tracker for thousands of sessions. Semantic, not positional: the id does
+        not change with the directory harvest is pointed at, keeping dedup intact.
+
+        ``base_dir`` defaults to ``self.project_dir``; it anchors the nesting
+        test so a flat ``messages.jsonl`` is not mistaken for a workspace one.
         """
         if filepath.name == "messages.jsonl":
-            parent = filepath.parent
-            return f"{parent.parent.name}/{parent.name}"
+            root = Path(base_dir) if base_dir is not None else self.project_dir
+            try:
+                rel_parts = filepath.resolve().relative_to(Path(root).resolve()).parts
+            except (ValueError, OSError):
+                rel_parts = filepath.parts
+            # Workspace nesting is exactly {hash}/{session}/messages.jsonl:
+            # two directory components above the file, relative to the root.
+            if len(rel_parts) >= 3:
+                return f"{rel_parts[-3]}/{rel_parts[-2]}"
         return filepath.stem
+
+    def _resolve_session_id(self, sid: str, base_dir: Path) -> Optional[Path]:
+        """Reverse a session id to its file, or None if it escapes base_dir or
+        does not exist. Shared by _resolve_sessions and verify_session_coverage
+        so both agree on how flat and workspace ids map back to paths.
+
+        - flat id ``foo``            -> ``{base_dir}/foo.jsonl``
+        - workspace id ``hash/sess`` -> ``{base_dir}/hash/sess/messages.jsonl``
+        session_ids are caller-controlled, so both candidates are resolved and
+        containment-checked (reject ``../`` traversal) before any I/O.
+        """
+        base = base_dir.resolve()
+        flat = (base_dir / f"{sid}.jsonl").resolve()
+        nested = (base_dir / sid / "messages.jsonl").resolve()
+        if not (flat.is_relative_to(base) or nested.is_relative_to(base)):
+            logger.warning(
+                "Rejected out-of-directory session id %s",
+                _sanitize_log_value(str(sid)),
+            )
+            return None
+        if flat.is_relative_to(base) and flat.exists():
+            return flat
+        if nested.is_relative_to(base) and nested.exists():
+            return nested
+        return None
 
     def _get_classifier(self):
         """Lazy-init LLM classifier."""
@@ -298,20 +333,16 @@ class SessionHarvester:
             )
 
         # The session_id is caller-controlled and is turned into a filesystem
-        # path. Resolve it and confirm it stays under project_dir, rejecting
-        # traversal (e.g. "../other/transcript") before any I/O — otherwise both
-        # the existence check and _resolve_sessions would read a JSONL outside
-        # the configured session directory (repo directive: validate user paths).
+        # path. _resolve_session_id resolves both flat ({id}.jsonl) and workspace
+        # ({hash}/{session}/messages.jsonl) ids, confirms containment under
+        # project_dir (rejecting "../" traversal), and returns None otherwise —
+        # the same mapping _resolve_sessions uses, so a workspace session can be
+        # verified (and thus safely deleted), not just flat ones.
         base_dir = Path(self.project_dir).resolve()
-        session_path = (base_dir / f"{session_id}.jsonl").resolve()
-        contained = session_path.is_relative_to(base_dir)
-        session_found = contained and session_path.exists()
+        session_path = self._resolve_session_id(session_id, self.project_dir)
+        session_found = session_path is not None
 
-        if not contained:
-            logger.warning(
-                "Rejected out-of-directory session id %s",
-                _sanitize_log_value(session_id),
-            )
+        if session_path is None and not (base_dir / f"{session_id}.jsonl").resolve().is_relative_to(base_dir):
             return {
                 "session_id": session_id, "coverage": 0.0, "total_insights": 0,
                 "missing_insights": [], "low_quality_matches": [],
@@ -372,27 +403,10 @@ class SessionHarvester:
         """Find session files based on config."""
         if config.session_ids:
             resolved: List[Path] = []
-            base = self.project_dir.resolve()
             for sid in config.session_ids:
-                # session_ids is caller-controlled; reconstruct the path and
-                # reject anything that escapes project_dir (e.g. "../../etc/x"),
-                # mirroring the guard in verify_session_coverage.
-                flat = (self.project_dir / f"{sid}.jsonl").resolve()
-                nested = (self.project_dir / sid / "messages.jsonl").resolve()
-                if not (flat.is_relative_to(base) or nested.is_relative_to(base)):
-                    logger.warning(
-                        "Rejected out-of-directory session id %s",
-                        _sanitize_log_value(str(sid)),
-                    )
-                    continue
-                # Flat layout: {project_dir}/{sid}.jsonl (CLI, Claude, OpenClaw).
-                if flat.is_relative_to(base) and flat.exists():
-                    resolved.append(flat)
-                    continue
-                # Workspace layout: id is {workspace_hash}/{session_dir};
-                # the file is {project_dir}/{id}/messages.jsonl.
-                if nested.is_relative_to(base) and nested.exists():
-                    resolved.append(nested)
+                path = self._resolve_session_id(sid, self.project_dir)
+                if path is not None:
+                    resolved.append(path)
             return resolved
         return self.parser.find_sessions(self.project_dir, count=config.sessions)
 
