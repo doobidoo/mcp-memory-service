@@ -215,9 +215,9 @@ def test_coverage_records_language_per_kind(tmp_path):
 
     assert report["text"]["seen"] == 2
     assert report["text"]["extracted"] == 2
-    # New: per-kind language sub-tally.
-    assert report["text"]["languages"]["pt"] == 1
-    assert report["text"]["languages"]["en"] == 1
+    # Per-kind language sub-tally, split by outcome (extracted vs dropped).
+    assert report["text"]["languages"]["extracted"]["pt"] == 1
+    assert report["text"]["languages"]["extracted"]["en"] == 1
 
 
 def test_coverage_language_counts_dropped_text(tmp_path):
@@ -238,12 +238,12 @@ def test_coverage_language_counts_dropped_text(tmp_path):
 
     # v4 tool_result text is rich data → extracted, and its language is recorded.
     assert report["tool_result"]["seen"] == 1
-    assert report["tool_result"]["languages"]["pt"] == 1
+    assert report["tool_result"]["languages"]["extracted"]["pt"] == 1
 
 
 def test_coverage_language_sum_equals_seen_for_text_kinds(tmp_path):
-    """For any text-bearing kind, the language sub-tally sums to that kind's
-    'seen' — every text block gets exactly one language label (pt/en/unknown)."""
+    """For any text-bearing kind, the language sub-tally (both outcome buckets)
+    sums to that kind's 'seen' — every text block gets one language label."""
     parser = TranscriptParser()
     lines = [
         {"kind": "AssistantMessage", "data": {"content": [
@@ -258,10 +258,13 @@ def test_coverage_language_sum_equals_seen_for_text_kinds(tmp_path):
     report = parser.coverage_report()
 
     langs = report["text"]["languages"]
-    assert sum(langs.values()) == report["text"]["seen"] == 3
-    assert langs["pt"] == 1
-    assert langs["en"] == 1
-    assert langs["unknown"] == 1
+    total = sum(langs["extracted"].values()) + sum(langs["dropped"].values())
+    assert total == report["text"]["seen"] == 3
+    # All three are extracted (none exceeds the 10k cutoff); "SELECT 1;" has no
+    # pt/en signal so it lands in extracted/unknown.
+    assert langs["extracted"]["pt"] == 1
+    assert langs["extracted"]["en"] == 1
+    assert langs["extracted"]["unknown"] == 1
 
 
 def test_coverage_non_text_blocks_have_no_language(tmp_path):
@@ -297,7 +300,7 @@ def test_language_report_is_isolated_from_mutation(tmp_path):
     parser.parse_file(fp)
 
     r1 = parser.coverage_report()
-    r1["text"]["languages"]["pt"] = 99  # mutate returned nested dict
+    r1["text"]["languages"]["extracted"]["pt"] = 99  # mutate returned nested dict
 
     r2 = parser.coverage_report()
-    assert r2["text"]["languages"]["pt"] == 1, "language counts leaked through a shallow copy"
+    assert r2["text"]["languages"]["extracted"]["pt"] == 1, "language counts leaked through a shallow copy"

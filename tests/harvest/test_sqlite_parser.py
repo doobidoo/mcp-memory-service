@@ -124,7 +124,11 @@ def test_parse_sqlite_feeds_coverage_with_language(tmp_path):
 
     # Some text-bearing kind was seen, and pt was detected.
     assert report, "coverage report empty after SQLite parse"
-    total_pt = sum(k.get("languages", {}).get("pt", 0) for k in report.values())
+    total_pt = sum(
+        k.get("languages", {}).get("extracted", {}).get("pt", 0)
+        + k.get("languages", {}).get("dropped", {}).get("pt", 0)
+        for k in report.values()
+    )
     assert total_pt >= 1, "no pt-BR recorded from SQLite content"
 
 

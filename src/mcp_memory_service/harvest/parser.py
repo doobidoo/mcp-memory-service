@@ -60,17 +60,18 @@ class TranscriptParser:
         else:
             entry["dropped"] += 1
         # --- I0-lang: language dimension (R0.4) ----------------------------
-        # Record the detected language ONLY for text-bearing blocks. A block
-        # without text (tool_use, invalid-payload) passes text=None and gets no
-        # language tally — language applies to natural-language content, and the
-        # gap we want to measure (dropped design prose / tool-result text) is
-        # text. This is MEASUREMENT, not inference: a cheap pt/en heuristic
-        # isolated in _detect_language, upgradable to langid/fastText later
-        # without touching the rest of the instrument.
+        # Record the detected language ONLY for text-bearing blocks, split by
+        # OUTCOME (extracted vs dropped). A block without text (tool_use,
+        # invalid-payload) passes text=None and gets no language tally. Splitting
+        # by outcome lets the report answer "how much of the DROPPED content is
+        # pt-BR?" separately from the kept content — the coverage-gap metric,
+        # which a single merged counter could not show. Measurement, not
+        # inference: a cheap pt/en heuristic isolated in _detect_language.
         if text is not None:
-            langs = entry.setdefault("languages", {})
+            langs = entry.setdefault("languages", {"extracted": {}, "dropped": {}})
+            bucket = langs["extracted" if was_extracted else "dropped"]
             lang = self._detect_language(text)
-            langs[lang] = langs.get(lang, 0) + 1
+            bucket[lang] = bucket.get(lang, 0) + 1
 
     # Cheap, zero-dependency pt-BR vs. English detector for the Phase 0 language
     # dimension. Deliberately NOT a full langid model: the goal is to quantify
@@ -94,7 +95,10 @@ class TranscriptParser:
         """Return "pt", "en", or "unknown" for a text block (cheap heuristic)."""
         if not text:
             return "unknown"
-        tokens = re.findall(r"[a-zA-Zà-ÿÀ-ŸçÇãõáéíóúâêôàü]+", text.lower())
+        # Text is already lower-cased; [a-zà-ÿ] covers ASCII letters plus the
+        # Latin-1 accented range (á, ã, ç, é, ê, õ, ü, ...) without the duplicate
+        # chars / overlapping ranges CodeQL flags.
+        tokens = re.findall(r"[a-zà-ÿ]+", text.lower())
         if len(tokens) < 3:
             return "unknown"
         token_set = set(tokens)
@@ -112,10 +116,13 @@ class TranscriptParser:
     def coverage_report(self) -> dict:
         """Per-kind coverage since this parser instance was created.
 
-        Returns {kind: {"seen": n, "extracted": n, "dropped": n, "languages": {...}}}.
+        Returns {kind: {"seen": n, "extracted": n, "dropped": n,
+        "languages": {"extracted": {lang: n}, "dropped": {lang: n}}}}.
         The "languages" sub-tally (I0-lang, R0.4) counts detected language per
-        text-bearing block; it is absent for non-text kinds. Empty until
-        something is parsed. Read-only; does not affect harvesting.
+        text-bearing block, split by outcome so the report can show how much of
+        the DROPPED content (the coverage gap) is pt-BR vs. the kept content. It
+        is absent for non-text kinds. Empty until something is parsed. Read-only;
+        does not affect harvesting.
 
         Accumulates across multiple parse_file() calls on the same instance (by
         design — a harvest run aggregates coverage over many sessions). Create a
@@ -254,6 +261,11 @@ class TranscriptParser:
                 except (json.JSONDecodeError, TypeError):
                     logger.debug("parse_sqlite: skipping malformed conversation value")
                     continue
+                # Valid JSON that is not an object (e.g. null, []) has no
+                # .get — skip the row instead of letting AttributeError abort
+                # the whole database read.
+                if not isinstance(obj, dict):
+                    continue
                 history = obj.get("history")
                 if isinstance(history, list):
                     messages.extend(self._extract_history_turns(history))
@@ -312,6 +324,13 @@ class TranscriptParser:
                     else:
                         self._record_coverage(kind, was_extracted=False, text=text or None)
                     break
+                else:
+                    # No known variant matched. Record the unsupported turn under
+                    # its actual variant key so the coverage instrument still
+                    # shows what the parser dropped (a future format gap must be
+                    # measurable, not silently invisible).
+                    unknown_key = next(iter(assistant), "unknown")
+                    self._record_coverage(f"sqlite:{unknown_key}", was_extracted=False)
         return results
 
     def _parse_claude_line(self, obj: dict) -> List[ParsedMessage]:
