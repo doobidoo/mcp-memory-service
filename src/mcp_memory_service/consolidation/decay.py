@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from .base import ConsolidationBase, ConsolidationConfig
 from ..models.memory import Memory
+from ..models.ontology import get_parent_type
 
 @dataclass
 class RelevanceScore:
@@ -47,6 +48,23 @@ class ExponentialDecayCalculator(ConsolidationBase):
     def __init__(self, config: ConsolidationConfig):
         super().__init__(config)
         self.retention_periods = config.retention_periods
+
+    def _get_retention_period(self, memory_type: str) -> int:
+        """Resolve the retention period (in days) for a memory type.
+
+        Retention periods are keyed by ontology base type, so subtypes
+        (e.g. 'bug', 'insight') are mapped to their parent base type
+        ('error', 'learning') before lookup. Legacy types keep their exact
+        entries. Anything unresolved falls back to the 30-day default.
+        """
+        if memory_type in self.retention_periods:
+            return self.retention_periods[memory_type]
+
+        parent = get_parent_type(memory_type)
+        if parent and parent in self.retention_periods:
+            return self.retention_periods[parent]
+
+        return 30
         
     async def process(self, memories: List[Memory], **kwargs) -> List[RelevanceScore]:
         """Calculate relevance scores for all memories."""
@@ -94,7 +112,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
 
         # Get retention period for memory type
         memory_type = self._extract_memory_type(memory)
-        retention_period = self.retention_periods.get(memory_type, 30)
+        retention_period = self._get_retention_period(memory_type)
 
         # Calculate exponential decay factor
         decay_factor = math.exp(-age_days / retention_period)
