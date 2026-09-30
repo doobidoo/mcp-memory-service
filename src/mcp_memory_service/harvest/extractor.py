@@ -6,6 +6,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from ..compat import _sanitize_log_value
+from ..config.locale import get_active_locales
 from .models import HarvestCandidate
 from .parser import ParsedMessage
 from .patterns import load_patterns
@@ -30,9 +31,6 @@ META_TERMS = {"harvest", "extractor", "bootstrap", "pipeline", "rewriter", "clas
 
 # Default meta filter from environment
 DEFAULT_META_FILTER = os.environ.get("HARVEST_META_FILTER", "true").lower() in ("true", "1", "yes")
-
-# Default locale from environment, fallback to English
-DEFAULT_LOCALE = os.environ.get("HARVEST_LOCALE", "en")
 
 
 def _split_sentences(text: str) -> List[str]:
@@ -83,16 +81,17 @@ class PatternExtractor:
     """Extracts harvest candidates from parsed messages using regex patterns.
 
     Supports multiple locales via pattern plugin files.
-    Set HARVEST_LOCALE env var to load additional locales (e.g., "en,pt_BR").
+    Set MCP_LOCALE (or the older HARVEST_LOCALE) to load additional locales
+    (e.g., "en,pt_BR").
     """
 
     def __init__(self, locale: str = None):
         """Initialize with locale-specific patterns.
 
         Args:
-            locale: Comma-separated locale codes. Defaults to HARVEST_LOCALE env or "en".
+            locale: Comma-separated locale codes. Defaults to MCP_LOCALE (or HARVEST_LOCALE) or "en".
         """
-        self._locale = locale or DEFAULT_LOCALE
+        self._locale = locale or ",".join(get_active_locales())
         self._patterns: Dict[str, List[Tuple[re.Pattern, float]]] = load_patterns(self._locale)
         if self._patterns:
             total = sum(len(v) for v in self._patterns.values())

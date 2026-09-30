@@ -3,7 +3,9 @@
 import os
 import re
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
+
+from ..config.locale import get_active_locales
 
 
 class BootstrapFormatter:
@@ -143,15 +145,22 @@ class KiroFormatter(BootstrapFormatter):
         return "\n".join(lines)
 
 
-_FORMATTERS: Dict[str, BootstrapFormatter] = {
-    "claude": ClaudeFormatter(),
-    "kiro": KiroFormatter(locale=os.environ.get("HARVEST_LOCALE", "en").split(",")[-1]),
+def _kiro_formatter() -> KiroFormatter:
+    # Read the locale when the formatter is asked for, not at import time,
+    # so a later MCP_LOCALE / HARVEST_LOCALE change is not ignored.
+    locales = get_active_locales()
+    return KiroFormatter(locale=locales[-1] if locales else "en")
+
+
+_FORMATTERS: Dict[str, Callable[[], BootstrapFormatter]] = {
+    "claude": ClaudeFormatter,
+    "kiro": _kiro_formatter,
 }
 
 
 def get_formatter(name: str) -> BootstrapFormatter:
     """Get formatter by name. Returns claude (default) if unknown."""
-    return _FORMATTERS.get(name, _FORMATTERS["claude"])
+    return _FORMATTERS.get(name, _FORMATTERS["claude"])()
 
 
 def get_formatter_for_agent(agent_id: str) -> BootstrapFormatter:

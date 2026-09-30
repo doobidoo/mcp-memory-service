@@ -15,7 +15,13 @@ except ImportError:
 @pytest.fixture(autouse=True)
 def set_harvest_locale(monkeypatch):
     """Tests expect pt_BR keywords in meta/temporal filter."""
+    from mcp_memory_service.config.locale import get_active_locales
+
+    monkeypatch.delenv("MCP_LOCALE", raising=False)
     monkeypatch.setenv("HARVEST_LOCALE", "pt_BR")
+    get_active_locales.cache_clear()
+    yield
+    get_active_locales.cache_clear()
 
 
 class TestMetaFilterExpanded:
