@@ -824,7 +824,6 @@ class TestCloudflareTimeBasedDeletion:
 
             assert memories == []
 
-    @pytest.mark.xfail(reason="Pre-existing bug: Invalid memory_type 'reference' - should be 'observation'")
     @pytest.mark.asyncio
     async def test_get_by_exact_content_parse_rows(self, cloudflare_storage):
         """Test get_by_exact_content properly parses multiple memory rows."""
@@ -840,7 +839,7 @@ class TestCloudflareTimeBasedDeletion:
                         "id": 1,
                         "content_hash": "hash1",
                         "content": content,
-                        "memory_type": "standard",
+                        "memory_type": "note",
                         "created_at": 1234567890,
                         "metadata_json": "{}"
                     },
@@ -871,7 +870,7 @@ class TestCloudflareTimeBasedDeletion:
             # Verify both memories parsed
             assert len(memories) == 2
             assert memories[0].content_hash == "hash1"
-            assert memories[0].memory_type == "standard"
+            assert memories[0].memory_type == "note"
             assert memories[1].content_hash == "hash2"
             assert memories[1].memory_type == "reference"
             assert memories[1].metadata == {"source": "test"}

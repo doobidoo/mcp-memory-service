@@ -56,7 +56,8 @@ async def repair_missing_embeddings(database_path: str) -> None:
 
         cur = s.conn.execute("""
             SELECT id, content FROM memories
-            WHERE id NOT IN (SELECT rowid FROM memory_embeddings)
+            WHERE deleted_at IS NULL
+              AND id NOT IN (SELECT rowid FROM memory_embeddings)
             """)
         rows = cur.fetchall()
         log.info("Missing embeddings: %d", len(rows))

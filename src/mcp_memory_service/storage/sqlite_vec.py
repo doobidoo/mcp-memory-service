@@ -38,7 +38,6 @@ from .mixins.embeddings import (
     _HashEmbeddingModel,
     _MODEL_CACHE,
     _DIMENSION_CACHE,
-    _EMBEDDING_CACHE,
     SENTENCE_TRANSFORMERS_AVAILABLE,
 )
 

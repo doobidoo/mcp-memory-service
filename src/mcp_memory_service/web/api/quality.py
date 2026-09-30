@@ -126,13 +126,15 @@ async def rate_memory(
         memory.metadata['user_feedback'] = request.feedback
         memory.metadata['user_rating_timestamp'] = time.time()
 
-        # Recalculate quality score with user rating weighted higher
-        # User rating: 0.6 weight, AI/implicit: 0.4 weight
-        user_score = (request.rating + 1) / 2.0  # Convert -1,0,1 to 0.0,0.5,1.0
+        # Quality model split (#1312): keep computed_quality (machine) separate from
+        # user_rating (human), preserve computed_quality, materialize effective score.
+        from ...quality.config import effective_quality
+        computed = memory.metadata.get('computed_quality')
+        if computed is None:
+            computed = memory.metadata.get('quality_score', 0.5)
+            memory.metadata['computed_quality'] = computed
         old_score = memory.metadata.get('quality_score', 0.5)
-
-        # Combine scores
-        new_quality_score = 0.6 * user_score + 0.4 * old_score
+        new_quality_score = effective_quality(computed=computed, user_rating=request.rating)
         memory.metadata['quality_score'] = new_quality_score
 
         # Track historical ratings
@@ -213,8 +215,10 @@ async def evaluate_memory_quality(
         scorer = QualityScorer()
         old_score = memory.metadata.get('quality_score', 0.5)
 
-        # Calculate quality score (this updates memory.metadata internally)
-        quality_score = await scorer.calculate_quality_score(memory, query)
+        # Calculate quality score (this updates memory.metadata internally:
+        # writes computed_quality + materialized effective quality_score, #1312)
+        await scorer.calculate_quality_score(memory, query)
+        quality_score = memory.metadata.get('quality_score', 0.5)
 
         # Extract component scores from metadata
         ai_score = None
@@ -228,6 +232,7 @@ async def evaluate_memory_quality(
         # Prepare updates with only the quality-related fields
         updates = {
             'quality_score': quality_score,
+            'computed_quality': memory.metadata.get('computed_quality', quality_score),
             'quality_provider': quality_provider,
         }
         if ai_scores:

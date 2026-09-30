@@ -15,6 +15,7 @@ except ImportError:
 
 from ...models.memory import Memory, MemoryQueryResult
 from ...utils.hashing import generate_content_hash
+from ...compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +265,7 @@ class MetadataMixin:
 
         except Exception as e:
             if self.conn:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             logger.error(f"Batch update failed: {e}")
             logger.error(traceback.format_exc())
             return [False] * len(memories)
@@ -287,7 +288,7 @@ class MetadataMixin:
         except Exception as e:
             logger.error(f"mark_superseded_batch failed: {e}")
             if self.conn:
-                self.conn.rollback()
+                await self._run_in_thread(self.conn.rollback)
             return 0
 
     @staticmethod
@@ -570,7 +571,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -579,7 +580,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type = row
+            old_hash, old_tags_str, old_type, old_version = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
@@ -596,12 +597,66 @@ class MetadataMixin:
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
-            meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
-            if reason:
-                meta_updates["metadata"]["evolution_reason"] = reason
-            await self.update_memory_metadata(content_hash, meta_updates, preserve_timestamps=True)
+            # Link the lineage via the migration-011 COLUMNS (not only metadata JSON),
+            # so default retrieval (superseded_by IS NULL), get_memory_history
+            # (parent_id/version) and mark_superseded_batch see a consistent chain (#1318).
+            #
+            # Atomicity: the new-row link and the old-row supersede run in a single
+            # transaction. If it fails, we roll back AND remove the just-stored new
+            # row (store() already committed it separately), so a failed versioning
+            # never leaves an orphaned, unlinked new version behind.
+            new_version = (old_version or 1) + 1
 
-            logger.info(f"Memory evolved: {old_hash[:8]} → {new_hash[:8]}")
+            def _link_and_supersede():
+                try:
+                    # new row: parent + version
+                    self.conn.execute(
+                        "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+                        (old_hash, new_version, new_hash),
+                    )
+                    # old row: superseded_by column (drops it from default search) +
+                    # metadata trace, in the same transaction. Conditional on the old
+                    # row still being current (superseded_by IS NULL) so concurrent
+                    # versioned updates of the same memory don't fork history silently.
+                    mcur = self.conn.execute(
+                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                        (old_hash,),
+                    )
+                    mrow = mcur.fetchone()
+                    old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
+                    old_meta["superseded_by"] = new_hash
+                    if reason:
+                        old_meta["evolution_reason"] = reason
+                    cur = self.conn.execute(
+                        "UPDATE memories SET superseded_by = ?, metadata = ? "
+                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
+                        (new_hash, json.dumps(old_meta), old_hash),
+                    )
+                    if cur.rowcount == 0:
+                        # Another versioned update already superseded this row (or it
+                        # vanished). Abort rather than fork the chain.
+                        raise RuntimeError(
+                            f"old version {old_hash[:8]} is no longer current (concurrent update)"
+                        )
+                    self.conn.commit()
+                except Exception:
+                    self.conn.rollback()
+                    raise
+
+            try:
+                await self._execute_with_retry(_link_and_supersede)
+            except Exception as link_err:
+                # Compensate the already-committed store(): drop the orphan new row.
+                try:
+                    await self.delete(new_hash)
+                except Exception:
+                    logger.error("Failed to clean up orphan version %s after link failure",
+                                 _sanitize_log_value(new_hash[:8]))
+                logger.error("update_memory_versioned link failed: %s", _sanitize_log_value(str(link_err)))
+                return False, f"Failed to link version: {link_err}", None
+
+            logger.info("Memory evolved: %s → %s (v%d)",
+                        _sanitize_log_value(old_hash[:8]), _sanitize_log_value(new_hash[:8]), new_version)
             return True, "Memory versioned successfully", new_hash
 
         except Exception as e:

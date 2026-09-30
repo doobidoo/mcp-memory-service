@@ -34,11 +34,14 @@ from ..compat import _sanitize_log_value
 logger = logging.getLogger(__name__)
 
 # Vectorize caps topK at 50 when a query returns values or metadata
-# (100 otherwise). Every query here sets returnMetadata="all", so topK
-# must be clamped to this ceiling or the API rejects the request with a
-# 4xx and the retrieval raises instead of returning results.
+# (100 otherwise). Nothing on the query path reads match metadata: the
+# memory is loaded from D1 by the match id, which store() writes as both
+# the Vectorize id and the indexed memories.vector_id column. So every
+# query here sets returnMetadata="none" and topK must be clamped to this
+# ceiling or the API rejects the request with a 4xx and the retrieval
+# raises instead of returning results.
 # https://developers.cloudflare.com/vectorize/platform/limits/
-_VECTORIZE_MAX_TOPK_WITH_METADATA = 50
+_VECTORIZE_MAX_TOPK = 100
 
 
 def _recall_ceiling_info(
@@ -64,7 +67,7 @@ def _recall_ceiling_info(
     as long as the caller asked) the first ``n_results`` are the true top
     matches and nothing beyond the cut could have displaced them.
     """
-    ceiling = _VECTORIZE_MAX_TOPK_WITH_METADATA
+    ceiling = _VECTORIZE_MAX_TOPK
     ceiling_reached = candidates_returned >= ceiling
     return {
         "neighbour_ceiling": ceiling,
@@ -775,14 +778,14 @@ class CloudflareStorage(MemoryStorage):
             
             # Search Vectorize (without namespace for now). With tags the
             # query over-fetches (n_results * 3) and filters client-side, but
-            # the metadata ceiling clamps what Vectorize will hand back, so
+            # the topK ceiling clamps what Vectorize will hand back, so
             # both numbers are kept to report the truncation below (#1236).
             candidates_wanted = n_results * 3 if tags else n_results
-            top_k = min(candidates_wanted, _VECTORIZE_MAX_TOPK_WITH_METADATA)
+            top_k = min(candidates_wanted, _VECTORIZE_MAX_TOPK)
             search_payload = {
                 "vector": query_embedding,
                 "topK": top_k,
-                "returnMetadata": "all",
+                "returnMetadata": "none",
                 "returnValues": False
             }
             
@@ -843,7 +846,7 @@ class CloudflareStorage(MemoryStorage):
                     "%s-neighbour ceiling (wanted %s, requested %s, returned %s; %s dropped by the "
                     "tag filter, %s results returned). A memory matching the query beyond the "
                     "ceiling is unreachable from this call.",
-                    _VECTORIZE_MAX_TOPK_WITH_METADATA, _sanitize_log_value(candidates_wanted),
+                    _VECTORIZE_MAX_TOPK, _sanitize_log_value(candidates_wanted),
                     _sanitize_log_value(top_k), len(matches), dropped_by_tag_filter, len(results),
                 )
 
@@ -862,24 +865,28 @@ class CloudflareStorage(MemoryStorage):
             return []
     
     async def _load_memory_from_match(self, match: Dict[str, Any]) -> Optional[Memory]:
-        """Load full memory from Vectorize match."""
+        """Load full memory from a Vectorize match id."""
         try:
             vector_id = match.get("id")
-            metadata = match.get("metadata", {})
-            content_hash = metadata.get("content_hash")
-            
-            if not content_hash:
-                logger.warning("No content_hash in vector metadata: %s", _sanitize_log_value(vector_id))
+
+            if not vector_id:
+                logger.warning("Vectorize match without an id: %s", _sanitize_log_value(match))
                 return None
-            
-            # Load from D1
-            sql = "SELECT * FROM memories WHERE content_hash = ?"
-            payload = {"sql": sql, "params": [content_hash]}
+
+            # Load from D1 by vector_id: store() writes memory.content_hash
+            # as both the Vectorize id and this column, so the lookup needs
+            # nothing from the match metadata (queries run with
+            # returnMetadata="none", which keeps the topK ceiling at 100).
+            # Exclude soft-deleted rows: _delete_vectorize_vector only warns
+            # on failure, so delete() can tombstone D1 while the vector
+            # survives, and a match on it must not resurface the memory.
+            sql = "SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL"
+            payload = {"sql": sql, "params": [vector_id]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
-            
+
             if not result.get("success") or not result.get("result", [{}])[0].get("results"):
-                logger.warning("Memory not found in D1: %s", _sanitize_log_value(content_hash))
+                logger.warning("Memory not found in D1: %s", _sanitize_log_value(vector_id))
                 return None
             
             row = result["result"][0]["results"][0]
@@ -903,7 +910,7 @@ class CloudflareStorage(MemoryStorage):
             # Reconstruct Memory object
             memory = Memory(
                 content=content,
-                content_hash=content_hash,
+                content_hash=row.get("content_hash"),
                 tags=tags,
                 memory_type=row.get("memory_type"),
                 metadata=metadata,
@@ -1893,8 +1900,8 @@ class CloudflareStorage(MemoryStorage):
                     # Search Vectorize with semantic query
                     search_payload = {
                         "vector": query_embedding,
-                        "topK": min(n_results, _VECTORIZE_MAX_TOPK_WITH_METADATA),
-                        "returnMetadata": "all",
+                        "topK": min(n_results, _VECTORIZE_MAX_TOPK),
+                        "returnMetadata": "none",
                         "returnValues": False
                     }
 

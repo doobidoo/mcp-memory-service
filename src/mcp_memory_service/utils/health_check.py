@@ -22,7 +22,7 @@ Extracted from server/handlers/utility.py Phase 3.1 refactoring.
 import os
 import logging
 from abc import ABC, abstractmethod
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Callable
 
 from ..config import SQLITE_VEC_PATH
 
@@ -94,6 +94,109 @@ def _apply_embedding_integrity(conn: Any, stats: Dict[str, Any]) -> None:
         stats["integrity_hint"] = " ".join(hints)
 
 
+def _collect_sqlite_stats(conn: Any, storage: Any) -> Dict[str, Any]:
+    """Collect all SQLite statistics in a single pass (for use within _run_in_thread).
+    
+    This helper performs all SQLite queries atomically within one lock acquisition.
+    Raises LookupError if required tables are missing.
+    """
+    try:
+        # Check for required tables
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memories'"
+        )
+        if not cursor.fetchone():
+            raise LookupError("SQLite database is missing required 'memories' table")
+
+        # Count live memories (repo rule: exclude soft-deleted tombstones so the
+        # health count matches the live memory count, not the physical row count).
+        cursor = conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
+        memory_count = cursor.fetchone()[0]
+
+        # Check if embedding tables exist
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'"
+        )
+        has_embeddings = cursor.fetchone() is not None
+
+        # Collect stats
+        stats = {
+            "status": "healthy",
+            "backend": "sqlite-vec",
+            "total_memories": memory_count,
+            "has_embedding_tables": has_embeddings,
+        }
+
+        # Apply embedding integrity check if we have embeddings
+        if has_embeddings:
+            _apply_embedding_integrity(conn, stats)
+
+        return stats
+
+    except Exception as e:
+        if "no such table" in str(e).lower():
+            raise LookupError(f"Required table missing: {e}")
+        raise
+
+
+def _collect_hybrid_sqlite_stats(conn: Any) -> Dict[str, Any]:
+    """Collect SQLite-specific statistics for hybrid storage (for use within _run_in_thread).
+    
+    This is the SQLite-only portion of hybrid health checks.
+    Raises LookupError if required tables are missing.
+    """
+    try:
+        # Check for required tables
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memories'"
+        )
+        if not cursor.fetchone():
+            raise LookupError("SQLite database is missing required 'memories' table")
+
+        # Count live memories (repo rule: exclude soft-deleted tombstones so the
+        # health count matches the live memory count, not the physical row count).
+        cursor = conn.execute('SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL')
+        memory_count = cursor.fetchone()[0]
+
+        # Check if embedding tables exist
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'"
+        )
+        has_embeddings = cursor.fetchone() is not None
+
+        # Collect stats (note: hybrid uses 'has_embeddings', not 'has_embedding_tables')
+        stats = {
+            "status": "healthy",
+            "backend": "hybrid", 
+            "total_memories": memory_count,
+            "has_embeddings": has_embeddings,
+        }
+
+        # Apply embedding integrity check if we have embeddings
+        if has_embeddings:
+            _apply_embedding_integrity(conn, stats)
+
+        return stats
+
+    except Exception as e:
+        if "no such table" in str(e).lower():
+            raise LookupError(f"Required table missing: {e}")
+        raise
+
+
+async def _run_locked(storage: Any, operation: Callable, *args) -> Any:
+    """Run operation through storage._run_in_thread if available, otherwise fallback direct.
+    
+    This provides defensive compatibility with storage backends that may not have
+    the _run_in_thread method.
+    """
+    if hasattr(storage, '_run_in_thread') and callable(storage._run_in_thread):
+        return await storage._run_in_thread(operation, *args)
+    else:
+        # Fallback for storage that doesn't implement _run_in_thread
+        return operation(*args)
+
+
 class HealthCheckStrategy(ABC):
     """Abstract base class for storage health check strategies."""
 
@@ -121,49 +224,25 @@ class SqliteHealthChecker(HealthCheckStrategy):
             return False, "SQLite database connection is not initialized", {}
 
         try:
-            # Check for required tables
-            cursor = storage.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories'"
-            )
-            if not cursor.fetchone():
-                return False, "SQLite database is missing required tables", {}
+            # Collect SQLite statistics through the locked executor
+            stats = await _run_locked(storage, _collect_sqlite_stats, storage.conn, storage)
 
-            # Count memories
-            cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
-            memory_count = cursor.fetchone()[0]
-
-            # Check if embedding tables exist
-            cursor = storage.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'"
-            )
-            has_embeddings = cursor.fetchone() is not None
-
-            # Check embedding model
+            # Check embedding model (non-SQLite operation, done outside closure)
             has_model = hasattr(storage, 'embedding_model') and storage.embedding_model is not None
+            stats["has_embedding_model"] = has_model
+            stats["embedding_model"] = storage.embedding_model_name if hasattr(storage, 'embedding_model_name') else "none"
 
-            # Collect stats
-            stats = {
-                "status": "healthy",
-                "backend": "sqlite-vec",
-                "total_memories": memory_count,
-                "has_embedding_tables": has_embeddings,
-                "has_embedding_model": has_model,
-                "embedding_model": storage.embedding_model_name if hasattr(storage, 'embedding_model_name') else "none"
-            }
-
-            # Get database file size
+            # Get database file size (non-SQLite operation, done outside closure)
             db_path = storage.db_path if hasattr(storage, 'db_path') else None
             if db_path and os.path.exists(db_path):
                 file_size = os.path.getsize(db_path)
                 stats["database_size_bytes"] = file_size
                 stats["database_size_mb"] = round(file_size / (1024 * 1024), 2)
 
-            # Surface rowid desync / orphan embeddings (write-path health)
-            if has_embeddings:
-                _apply_embedding_integrity(storage.conn, stats)
-
             return True, "SQLite-vec database validation successful", stats
 
+        except LookupError as e:
+            return False, f"SQLite database validation error: {str(e)}", {}
         except Exception as e:
             logger.error(f"SQLite health check error: {e}")
             return False, f"SQLite database validation error: {str(e)}", {
@@ -239,28 +318,10 @@ class HybridHealthChecker(HealthCheckStrategy):
                     "backend": "hybrid"
                 }
 
-            # Check for required tables
-            cursor = primary_storage.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memories'"
-            )
-            if not cursor.fetchone():
-                return False, "Hybrid storage: SQLite database is missing required tables", {
-                    "status": "error",
-                    "error": "SQLite database is missing required tables",
-                    "backend": "hybrid"
-                }
+            # Collect SQLite statistics through the locked executor (primary storage)
+            stats = await _run_locked(primary_storage, _collect_hybrid_sqlite_stats, primary_storage.conn)
 
-            # Count memories
-            cursor = primary_storage.conn.execute('SELECT COUNT(*) FROM memories')
-            memory_count = cursor.fetchone()[0]
-
-            # Check if embedding tables exist
-            cursor = primary_storage.conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_embeddings'"
-            )
-            has_embeddings = cursor.fetchone() is not None
-
-            # Check secondary (Cloudflare) status
+            # Check secondary (Cloudflare) status (non-SQLite operation, done outside closure)
             cloudflare_status = "not_configured"
             if hasattr(storage, 'secondary') and storage.secondary:
                 sync_service = getattr(storage, 'sync_service', None)
@@ -269,23 +330,20 @@ class HybridHealthChecker(HealthCheckStrategy):
                 else:
                     cloudflare_status = "configured"
 
-            # Collect stats
-            stats = {
-                "status": "healthy",
-                "backend": "hybrid",
-                "total_memories": memory_count,
-                "has_embeddings": has_embeddings,
-                "database_path": getattr(primary_storage, 'db_path', SQLITE_VEC_PATH),
-                "cloudflare_sync": cloudflare_status
-            }
+            # Add non-SQLite metadata to stats
+            stats["database_path"] = getattr(primary_storage, 'db_path', SQLITE_VEC_PATH)
+            stats["cloudflare_sync"] = cloudflare_status
 
-            # Surface rowid desync / orphan embeddings on the primary SQLite store
-            if has_embeddings:
-                _apply_embedding_integrity(primary_storage.conn, stats)
-
+            memory_count = stats["total_memories"]
             message = f"Hybrid storage validation successful ({memory_count} memories, Cloudflare: {cloudflare_status})"
             return True, message, stats
 
+        except LookupError as e:
+            return False, f"Hybrid storage validation error: {str(e)}", {
+                "status": "error",
+                "error": str(e),
+                "backend": "hybrid"
+            }
         except Exception as e:
             logger.error(f"Hybrid health check error: {e}")
             return False, f"Hybrid storage validation error: {str(e)}", {

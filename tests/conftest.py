@@ -112,16 +112,17 @@ def _clear_embedding_caches():
     """Reset embedding caches after each test for isolation."""
     import mcp_memory_service.storage.mixins.embeddings as emb_mod
     from mcp_memory_service.storage.mixins.embeddings import (
-        _MODEL_CACHE, _DIMENSION_CACHE, _EMBEDDING_CACHE
+        _MODEL_CACHE, _DIMENSION_CACHE
     )
+    from mcp_memory_service.storage.shared import _embedding_cache_clear
     # SETUP: only reset warning flag (allow model reuse like main)
     emb_mod._HASH_FALLBACK_WARNED = False
-    _EMBEDDING_CACHE.clear()
+    _embedding_cache_clear()
     yield
     # TEARDOWN: full cleanup (prevent ONNX/ST leak to next test)
     _MODEL_CACHE.clear()
     _DIMENSION_CACHE.clear()
-    _EMBEDDING_CACHE.clear()
+    _embedding_cache_clear()
     emb_mod._HASH_FALLBACK_WARNED = False
 
 

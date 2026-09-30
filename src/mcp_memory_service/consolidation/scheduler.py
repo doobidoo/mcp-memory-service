@@ -275,7 +275,7 @@ class ConsolidationScheduler:
             already = await self._read_harvest_tracker(memory_service)
             all_config = HarvestConfig(sessions=9999, project_path=session_dir)
             all_sessions = harvester._resolve_sessions(all_config)
-            pending = [s for s in all_sessions if s.stem not in already]
+            pending = [s for s in all_sessions if harvester._session_id(s) not in already]
             if not pending:
                 self.logger.info("Scheduled harvest: all %d sessions already harvested", len(all_sessions))
                 return
@@ -285,7 +285,7 @@ class ConsolidationScheduler:
                 dry_run=False,
                 use_llm=use_llm,
                 project_path=session_dir,
-                session_ids=[s.stem for s in pending[:page_size]],
+                session_ids=[harvester._session_id(s) for s in pending[:page_size]],
             )
             results = await harvester.harvest_and_store(config)
             stored = sum(getattr(r, "stored", 0) or 0 for r in results)

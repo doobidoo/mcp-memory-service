@@ -32,7 +32,6 @@ def test_http_server_starts():
     # version/timestamp are only in /api/health/detailed (requires auth)
 
 
-@pytest.mark.xfail(reason="Pre-existing bug: module 'mcp_memory_service' has no attribute 'web'")
 def test_server_modules_importable():
     """Test that all server modules can be imported without errors.
 

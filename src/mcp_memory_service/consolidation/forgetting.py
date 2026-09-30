@@ -161,8 +161,14 @@ class ControlledForgettingEngine(ConsolidationBase):
                     last_accessed = last_accessed.replace(tzinfo=timezone.utc)
                 days_since_access = (current_time - last_accessed).days
 
-                # Quality-based retention thresholds
-                quality_score = memory.quality_score
+                # Quality-based retention thresholds.
+                # Read computed_quality (machine score), NOT the effective quality_score:
+                # a human down-vote de-ranks search but must not push a memory toward
+                # deletion — forgetting is not reversible the way ranking is (#1312).
+                # Fallback to quality_score for memories stored before the split.
+                quality_score = memory.metadata.get(
+                    "computed_quality", memory.quality_score
+                )
 
                 if quality_score >= 0.7:
                     # High quality: Keep longer

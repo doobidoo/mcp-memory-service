@@ -28,6 +28,9 @@ from .base import ConsolidationError
 from ..compat import _sanitize_log_value
 
 
+logger = logging.getLogger(__name__)
+
+
 class HealthStatus(Enum):
     """Health status levels."""
     HEALTHY = "healthy"
@@ -98,7 +101,7 @@ class ConsolidationHealthMonitor:
     def __init__(self, config=None, consolidator=None):
         self.config = config
         self.consolidator = consolidator
-        self.logger = logging.getLogger(__name__)
+        self.logger = logger
         self._scheduler_ref = None
 
         # Health metrics storage
@@ -566,6 +569,34 @@ class ConsolidationHealthMonitor:
                     checks['read_operations'] = 'functional'
                     checks['memory_count'] = stats.get(
                         'total_memories', 'unknown')
+                    primary = getattr(storage, 'primary', None)
+                    if primary is not None:
+                        sqlite_storage = primary
+                        conn = getattr(primary, 'conn', None)
+                    else:
+                        sqlite_storage = storage
+                        conn = getattr(storage, 'conn', None)
+                    missing = None
+                    if conn:
+                        try:
+                            from ..utils.health_check import _check_embedding_integrity
+                            integrity = await sqlite_storage._run_in_thread(
+                                _check_embedding_integrity, conn)
+
+                            if integrity:
+                                missing = integrity.get('missing_embeddings', 0)
+                            else:
+                                checks['embedding_integrity'] = 'unverifiable'
+                                status = HealthStatus.DEGRADED
+                        except Exception as e:
+                            logger.warning("Embedding integrity check failed: %s", e)
+                            checks['embedding_integrity'] = f'error: {type(e).__name__}'
+                            status = HealthStatus.DEGRADED
+                    if missing is None and 'embedding_integrity' not in checks:
+                        missing = stats.get('missing_embeddings', 0)
+                    if isinstance(missing, int) and missing > 0:
+                        checks['missing_embeddings'] = missing
+                        status = HealthStatus.DEGRADED
             elif hasattr(storage, 'count_all_memories'):
                 count = await storage.count_all_memories()
                 checks['storage_connection'] = 'connected'
