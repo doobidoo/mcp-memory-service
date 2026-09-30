@@ -18,7 +18,6 @@ import logging
 import os
 from typing import Dict, Any, Optional
 from datetime import datetime
-from pathlib import Path
 
 try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
