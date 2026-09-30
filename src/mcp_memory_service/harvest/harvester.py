@@ -14,6 +14,7 @@ from .parser import TranscriptParser
 from .extractor import PatternExtractor
 from .patterns import load_filters
 from ..compat import _sanitize_log_value
+from ..config.locale import get_active_locales
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class SessionHarvester:
         self._classifier = None
 
         # Load filters from locale YAMLs
-        locale = os.environ.get("HARVEST_LOCALE", "en")
+        locale = ",".join(get_active_locales())
         filters = load_filters(locale)
         self._meta_keywords = filters["meta_keywords"]
         self._temporal_re = re.compile(
