@@ -37,6 +37,14 @@ CONSOLIDATION_CONFIG = {
     # Decay settings
     'decay_enabled': os.getenv('MCP_DECAY_ENABLED', 'true').lower() == 'true',
     'retention_periods': {
+        # Ontology base types (see docs/memory-ontology.md). Stored memory_type
+        # values use this taxonomy, so these keys are what decay lookup hits.
+        'decision': safe_get_int_env('MCP_RETENTION_DECISION', 365, min_value=1, max_value=3650),
+        'learning': safe_get_int_env('MCP_RETENTION_LEARNING', 180, min_value=1, max_value=3650),
+        'pattern': safe_get_int_env('MCP_RETENTION_PATTERN', 90, min_value=1, max_value=3650),
+        'error': safe_get_int_env('MCP_RETENTION_ERROR', 30, min_value=1, max_value=3650),
+        'observation': safe_get_int_env('MCP_RETENTION_OBSERVATION', 30, min_value=1, max_value=3650),
+        # Legacy types kept for backward compatibility
         'critical': safe_get_int_env('MCP_RETENTION_CRITICAL', 365, min_value=1, max_value=3650),
         'reference': safe_get_int_env('MCP_RETENTION_REFERENCE', 180, min_value=1, max_value=3650),
         'standard': safe_get_int_env('MCP_RETENTION_STANDARD', 30, min_value=1, max_value=3650),
