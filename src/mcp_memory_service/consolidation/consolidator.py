@@ -23,7 +23,7 @@ import logging
 import time
 
 from .base import ConsolidationConfig, ConsolidationReport, ConsolidationError
-from .decay import ExponentialDecayCalculator
+from .decay import ExponentialDecayCalculator, RelevanceScore
 from .associations import CreativeAssociationEngine
 from .clustering import SemanticClusteringEngine
 from .compression import SemanticCompressionEngine
@@ -404,7 +404,7 @@ class DreamInspiredConsolidator:
 
     async def _run_relevance_phase(
         self, memories: List[Memory], time_horizon: str
-    ) -> List:
+    ) -> List[RelevanceScore]:
         """Phase 1/6: score memories by relevance and persist the scores.
 
         Skipped when decay is disabled (#1354). The flag is checked here rather
@@ -752,7 +752,7 @@ class DreamInspiredConsolidator:
 
     async def _update_relevance_scores(
         self, memories: List[Memory], time_horizon: str, persist: bool = True
-    ) -> List:
+    ) -> List[RelevanceScore]:
         """Calculate relevance scores; write them to memory metadata when *persist*."""
         # Get connection and access data
         connections = await self._get_memory_connections()

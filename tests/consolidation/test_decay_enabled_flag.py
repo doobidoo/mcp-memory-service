@@ -10,11 +10,14 @@ is stored afterwards.
 """
 
 import dataclasses
+import importlib
 import os
 import time
 
 import pytest
 
+from mcp_memory_service.config import consolidation as config_mod
+from mcp_memory_service.consolidation.base import ConsolidationConfig
 from mcp_memory_service.consolidation.consolidator import DreamInspiredConsolidator
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -60,6 +63,30 @@ def _config(consolidation_config, decay_enabled, forgetting_enabled=False):
     )
 
 
+def _config_from_env(decay_env):
+    """A ConsolidationConfig built the way server_impl.py and web/app.py build it.
+
+    CONSOLIDATION_CONFIG reads MCP_DECAY_ENABLED at import time, so the module is
+    reloaded under the variable and again afterwards to restore it. A private
+    MonkeyPatch keeps the reload from undoing the ``storage`` fixture's own patches.
+    """
+    with pytest.MonkeyPatch.context() as env:
+        env.setenv("MCP_DECAY_ENABLED", decay_env)
+        try:
+            reloaded = importlib.reload(config_mod)
+            built = ConsolidationConfig(**reloaded.CONSOLIDATION_CONFIG)
+        finally:
+            env.undo()
+            importlib.reload(config_mod)
+    return dataclasses.replace(
+        built,
+        clustering_enabled=False,
+        associations_enabled=False,
+        compression_enabled=False,
+        forgetting_enabled=False,
+    )
+
+
 @pytest.fixture
 async def storage(temp_db_path, monkeypatch):
     monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
@@ -90,6 +117,20 @@ async def test_decay_disabled_writes_no_relevance_metadata(storage, unique_conte
 
     assert report.memories_processed == 1
     assert await _decay_keys_written(storage, content_hash) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "decay_env, expected_keys", [("false", []), ("true", list(DECAY_KEYS))], ids=["env-false", "env-true"]
+)
+async def test_env_flag_reaches_the_consolidator(storage, unique_content, decay_env, expected_keys):
+    """MCP_DECAY_ENABLED -> CONSOLIDATION_CONFIG -> ConsolidationConfig -> consolidate()."""
+    content_hash = await _store(storage, unique_content, "nightly backup moved to three", time.time() - 3600)
+    consolidator = DreamInspiredConsolidator(storage, _config_from_env(decay_env))
+
+    await consolidator.consolidate("daily")
+
+    assert await _decay_keys_written(storage, content_hash) == expected_keys
 
 
 @pytest.mark.asyncio
