@@ -63,3 +63,12 @@ def test_mcp_locale_wins_over_harvest_locale(monkeypatch):
     assert PatternExtractor()._locale == "pt_BR"
     assert HarvestRewriter()._locale == "pt_BR"
     assert "SEMPRE" in get_formatter("kiro").format([], [], ["usar WAL"], {})
+
+
+def test_kiro_bootstrap_ignores_a_stale_locale_cache(monkeypatch):
+    # Something else (NLI at import) already resolved the locale as English.
+    # Deliberately no cache_clear after setting MCP_LOCALE.
+    assert get_active_locales() == ["en"]
+    monkeypatch.setenv("MCP_LOCALE", "pt_BR")
+    assert get_active_locales() == ["pt_BR"]
+    assert "SEMPRE" in get_formatter("kiro").format([], [], ["usar WAL"], {})
