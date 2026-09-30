@@ -66,6 +66,15 @@ class ConsolidationConfig:
         'error': 30,          # Bugs, failures, exceptions
         'observation': 30,    # Code edits, file access, searches, commands
 
+        # Remaining ontology base types (observation-tier default)
+        'planning': 30,       # Sprint goals, backlog items, estimates
+        'ceremony': 30,       # Sprint reviews, standups, retros
+        'milestone': 30,      # Deliverables, dependencies, risks
+        'stakeholder': 30,    # Requirements, feedback, approvals
+        'meeting': 30,        # Action items, attendee notes, minutes
+        'research': 30,       # Findings, comparisons, recommendations
+        'communication': 30,  # Email/chat summaries, announcements
+
         # Legacy types for backward compatibility (mapped to new types)
         'critical': 365,      # Maps to decision
         'reference': 180,     # Maps to learning
