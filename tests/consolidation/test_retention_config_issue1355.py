@@ -173,6 +173,9 @@ class TestSubtypeMemoriesInheritBaseRetention:
                 _memory(subtype, age_days=100, now=now), now, {}, {}
             )
             assert score.metadata['retention_period'] == base_days, subtype
+            # The parent only selects the period; the score keeps the stored
+            # subtype, which forgetting.py archives with the memory.
+            assert score.metadata['memory_type'] == subtype
 
     @pytest.mark.asyncio
     async def test_env_override_reaches_subtype_memories(self, monkeypatch):
