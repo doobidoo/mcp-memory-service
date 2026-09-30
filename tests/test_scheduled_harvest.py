@@ -83,6 +83,8 @@ async def test_run_scheduled_harvest_calls_harvest_and_store(monkeypatch):
             captured["memory_service"] = memory_service
         def _resolve_sessions(self, config):
             return [FakeSession("s1"), FakeSession("s2")]
+        def _session_id(self, filepath, base_dir=None):
+            return filepath.stem
         async def harvest_and_store(self, config):
             captured["config"] = config
             r = MagicMock(); r.stored = 2; r.found = 4; r.session_id = "s1"
@@ -120,6 +122,8 @@ async def test_run_scheduled_harvest_skips_already_harvested(monkeypatch):
         def __init__(self, project_dir, memory_service=None): pass
         def _resolve_sessions(self, config):
             return [FakeSession("s1"), FakeSession("s2")]
+        def _session_id(self, filepath, base_dir=None):
+            return filepath.stem
         async def harvest_and_store(self, config):
             called["harvest"] += 1
             return []

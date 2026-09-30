@@ -138,7 +138,7 @@ measures: [Memory Quality Guide](../guides/memory-quality-guide.md).
 - Archive location:
   - `MCP_CONSOLIDATION_ARCHIVE_PATH` or `MCP_MEMORY_ARCHIVE_PATH` (default `${BASE_DIR}/consolidation_archive`).
 - Config knobs:
-  - Decay: `MCP_DECAY_ENABLED`, retention by type: `MCP_RETENTION_CRITICAL`, `MCP_RETENTION_REFERENCE`, `MCP_RETENTION_STANDARD`, `MCP_RETENTION_TEMPORARY`.
+  - Decay: `MCP_DECAY_ENABLED`, retention by type: `MCP_RETENTION_DECISION`, `MCP_RETENTION_LEARNING`, `MCP_RETENTION_PATTERN`, `MCP_RETENTION_ERROR`, `MCP_RETENTION_OBSERVATION`; for memories stored under legacy type names, use the independently configured `MCP_RETENTION_CRITICAL`, `MCP_RETENTION_REFERENCE`, `MCP_RETENTION_STANDARD`, `MCP_RETENTION_TEMPORARY`. Subtypes inherit their base type's period (e.g. an `insight` memory decays on the `learning` period).
   - Associations: `MCP_ASSOCIATIONS_ENABLED`, `MCP_ASSOCIATION_MIN_SIMILARITY`, `MCP_ASSOCIATION_MAX_SIMILARITY`, `MCP_ASSOCIATION_MAX_PAIRS`.
     - `MCP_CONSOLIDATION_AUTO_SUPERSEDE` (default `true`): when relationship inference labels an association `contradicts` with confidence ≥ 0.75, the older memory is marked superseded and drops out of default retrieval. Set to `false` to keep the `contradicts` edges in the graph and leave both memories visible. The setting only prevents future supersession: memories that are already superseded stay hidden until their `superseded_by` is cleared, which is a separate step.
   - Clustering: `MCP_CLUSTERING_ENABLED`, `MCP_CLUSTERING_MIN_SIZE`, `MCP_CLUSTERING_ALGORITHM`.
