@@ -27,6 +27,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+from ..compat import _sanitize_log_value
 from ..config import (
     BACKUPS_PATH,
     BACKUP_ENABLED,
@@ -63,7 +64,8 @@ class BackupService:
         # Load existing backup metadata
         self._load_backup_metadata()
 
-        logger.info(f"BackupService initialized: backups_dir={self.backups_dir}, db_path={self.db_path}")
+        logger.info("BackupService initialized: backups_dir=%s, db_path=%s",
+                    _sanitize_log_value(self.backups_dir), _sanitize_log_value(self.db_path))
 
     def _load_backup_metadata(self):
         """Load metadata about existing backups."""
@@ -127,7 +129,7 @@ class BackupService:
                 self.last_backup_time = created_at.timestamp()
                 self.backup_count += 1
 
-                logger.info(f"Created backup: {backup_filename} ({backup_size} bytes) in {backup_duration:.2f}s")
+                logger.info("Created backup: %s (%d bytes) in %.2fs", backup_filename, backup_size, backup_duration)
 
                 # Cleanup old backups (outside of duration calculation)
                 await self.cleanup_old_backups()
@@ -143,7 +145,7 @@ class BackupService:
                 }
 
             except Exception as e:
-                logger.error(f"Failed to create backup: {e}")
+                logger.error("Failed to create backup: %s", _sanitize_log_value(e))
                 return {
                     'success': False,
                     'error': str(e),
@@ -183,7 +185,7 @@ class BackupService:
             backups.sort(key=lambda x: x['created_timestamp'], reverse=True)
 
         except Exception as e:
-            logger.error(f"Error listing backups: {e}")
+            logger.error("Error listing backups: %s", _sanitize_log_value(e))
 
         return backups
 
@@ -220,7 +222,8 @@ class BackupService:
                         should_remove = True
                         reason = f"older than {BACKUP_RETENTION} days"
                 except (ValueError, KeyError) as e:
-                    logger.warning(f"Could not parse timestamp for backup {backup.get('filename', 'unknown')}: {e}")
+                    logger.warning("Could not parse timestamp for backup %s: %s",
+                                   _sanitize_log_value(backup.get('filename', 'unknown')), _sanitize_log_value(e))
 
                 if should_remove:
                     try:
@@ -230,19 +233,19 @@ class BackupService:
                             'filename': backup['filename'],
                             'reason': reason
                         })
-                        logger.info(f"Removed old backup: {backup['filename']} ({reason})")
+                        logger.info("Removed old backup: %s (%s)", _sanitize_log_value(backup['filename']), reason)
                     except Exception as e:
                         errors.append({
                             'filename': backup['filename'],
                             'error': str(e)
                         })
-                        logger.error(f"Failed to remove backup {backup['filename']}: {e}")
+                        logger.error("Failed to remove backup %s: %s", _sanitize_log_value(backup['filename']), _sanitize_log_value(e))
 
             # Update count more efficiently by subtracting removed count
             self.backup_count = max(0, self.backup_count - len(removed))
 
         except Exception as e:
-            logger.error(f"Error during backup cleanup: {e}")
+            logger.error("Error during backup cleanup: %s", _sanitize_log_value(e))
             errors.append({'error': str(e)})
 
         return {
@@ -280,13 +283,13 @@ class BackupService:
                 current_backup = self.db_path.with_suffix('.db.pre_restore')
                 # Use asyncio.to_thread to avoid blocking the event loop
                 await asyncio.to_thread(shutil.copy2, str(self.db_path), str(current_backup))
-                logger.info(f"Created pre-restore backup: {current_backup}")
+                logger.info("Created pre-restore backup: %s", _sanitize_log_value(current_backup))
 
             # Restore from backup
             # Use asyncio.to_thread to avoid blocking the event loop
             await asyncio.to_thread(shutil.copy2, str(backup_path), str(self.db_path))
 
-            logger.info(f"Restored database from backup: {filename}")
+            logger.info("Restored database from backup: %s", _sanitize_log_value(filename))
 
             return {
                 'success': True,
@@ -295,7 +298,7 @@ class BackupService:
             }
 
         except Exception as e:
-            logger.error(f"Failed to restore backup: {e}")
+            logger.error("Failed to restore backup: %s", _sanitize_log_value(e))
             return {
                 'success': False,
                 'error': str(e)
@@ -402,7 +405,7 @@ class BackupScheduler:
 
         self.is_running = True
         self._task = asyncio.create_task(self._schedule_loop())
-        logger.info(f"BackupScheduler started with {BACKUP_INTERVAL} interval")
+        logger.info("BackupScheduler started with %s interval", _sanitize_log_value(BACKUP_INTERVAL))
 
     async def stop(self):
         """Stop the backup scheduler."""
@@ -442,9 +445,9 @@ class BackupScheduler:
                         description=f"Scheduled {BACKUP_INTERVAL} backup"
                     )
                     if result['success']:
-                        logger.info(f"Scheduled backup completed: {result['filename']}")
+                        logger.info("Scheduled backup completed: %s", _sanitize_log_value(result['filename']))
                     else:
-                        logger.error(f"Scheduled backup failed: {result.get('error')}")
+                        logger.error("Scheduled backup failed: %s", _sanitize_log_value(result.get('error')))
 
                 # Sleep for a check interval (every 5 minutes)
                 await asyncio.sleep(300)
@@ -452,7 +455,7 @@ class BackupScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in backup scheduler loop: {e}")
+                logger.error("Error in backup scheduler loop: %s", _sanitize_log_value(e))
                 await asyncio.sleep(60)  # Wait before retrying
 
     def get_status(self) -> Dict[str, Any]:

@@ -55,6 +55,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/embeddings.py",
     "mcp_memory_service/discovery/mdns_service.py",
     "mcp_memory_service/sync/importer.py",
+    "mcp_memory_service/backup/scheduler.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -89,6 +90,12 @@ EXTERNAL_NAMES = frozenset({
     # it is an ordinary internal identifier elsewhere.
     "json_file",
     "source_machine",
+    # The backup service (backup/scheduler.py) logs names it did not choose:
+    # the `filename` a caller hands restore_backup(), and each backup["filename"]
+    # list_backups() reads off the backups directory. The name the service
+    # generates itself is `backup_filename`, a different token, and it stays
+    # unlisted on purpose.
+    "filename",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -287,6 +294,28 @@ def test_lazy_scan_flags_importer_inputs():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("  %s: done", source)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_backup_filenames():
+    """filename reaches backup/scheduler.py from its callers and from the disk.
+
+    restore_backup() is handed one; list_backups() reads one off every file
+    in the backups directory and cleanup logs it back. Every guarded logger
+    call in the scheduler already wraps them, so the module scan stays green
+    whether or not the name is listed. These are the samples that fail if
+    the entry is dropped from EXTERNAL_NAMES; the service's own generated
+    `backup_filename` stays unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.info("Restored %s", filename)\n',
+         'logger.info("Restored %s", _sanitize_log_value(filename))\n'),
+        ('logger.info("Removed %s", backup["filename"])\n',
+         'logger.info("Removed %s", _sanitize_log_value(backup["filename"]))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("Created %s", backup_filename)\n')
 
 
 @pytest.mark.unit
