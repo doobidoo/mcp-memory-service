@@ -455,7 +455,9 @@ class DreamInspiredConsolidator:
         report: ConsolidationReport,
     ) -> None:
         """Run the conditional consolidation phases (1-6) and update *report*."""
-        await self._run_relevance_phase(memories, time_horizon)
+        # Phase 1: Relevance scoring (decay) - only if enabled
+        if self.config.decay_enabled:
+            await self._run_relevance_phase(memories, time_horizon)
 
         clusters: list = []
         if self.config.clustering_enabled and check_horizon_requirements(
@@ -486,8 +488,14 @@ class DreamInspiredConsolidator:
 
         # Forgetting gets its own candidate selector that reaches beyond the
         # horizon window into the stale tail (Codeberg #325).
-        if self.config.forgetting_enabled and check_horizon_requirements(
-            time_horizon, "forgetting", self.ENABLED_PHASES
+        # Forgetting implies decay is enabled (it needs relevance scores),
+        # so skip if decay is disabled.
+        if (
+            self.config.forgetting_enabled
+            and self.config.decay_enabled
+            and check_horizon_requirements(
+                time_horizon, "forgetting", self.ENABLED_PHASES
+            )
         ):
             await self._run_forgetting_phase(time_horizon, report)
 
