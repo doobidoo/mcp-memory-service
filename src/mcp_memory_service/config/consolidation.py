@@ -37,6 +37,16 @@ CONSOLIDATION_CONFIG = {
     # Decay settings
     'decay_enabled': os.getenv('MCP_DECAY_ENABLED', 'true').lower() == 'true',
     'retention_periods': {
+        # Base ontology types (from Phase 0 Ontology Foundation): the values
+        # _calculate_memory_relevance looks up by memory_type. Without these
+        # keys every ontology-typed memory hit the 30-day fallback (#1355).
+        'decision': safe_get_int_env('MCP_RETENTION_DECISION', 365, min_value=1, max_value=3650),
+        'learning': safe_get_int_env('MCP_RETENTION_LEARNING', 180, min_value=1, max_value=3650),
+        'pattern': safe_get_int_env('MCP_RETENTION_PATTERN', 90, min_value=1, max_value=3650),
+        'error': safe_get_int_env('MCP_RETENTION_ERROR', 30, min_value=1, max_value=3650),
+        'observation': safe_get_int_env('MCP_RETENTION_OBSERVATION', 30, min_value=1, max_value=3650),
+
+        # Legacy types for backward compatibility (mapped to new types)
         'critical': safe_get_int_env('MCP_RETENTION_CRITICAL', 365, min_value=1, max_value=3650),
         'reference': safe_get_int_env('MCP_RETENTION_REFERENCE', 180, min_value=1, max_value=3650),
         'standard': safe_get_int_env('MCP_RETENTION_STANDARD', 30, min_value=1, max_value=3650),
