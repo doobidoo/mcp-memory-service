@@ -109,6 +109,79 @@ class TestExponentialDecayCalculator:
         assert critical_score.metadata['retention_period'] > temp_score.metadata['retention_period']
     
     @pytest.mark.asyncio
+    async def test_subtype_maps_to_base_type_retention(self, decay_calculator):
+        """Ontology subtypes use their base type's retention period (#1355)."""
+        now = datetime.now()
+        mem_time = now - timedelta(days=60)
+
+        subtype_memory = Memory(
+            content="Insight memory",
+            content_hash="insight",
+            tags=["test"],
+            memory_type="insight",  # subtype of 'learning' (180d retention)
+            embedding=[0.1] * 320,
+            created_at=mem_time.timestamp(),
+            created_at_iso=mem_time.isoformat() + 'Z',
+            updated_at=mem_time.timestamp(),
+            updated_at_iso=mem_time.isoformat() + 'Z'
+        )
+
+        scores = await decay_calculator.process([subtype_memory])
+
+        # Without subtype mapping this falls back to the 30-day default
+        assert scores[0].metadata['retention_period'] == 180
+
+    def test_env_config_includes_ontology_retention_keys(self):
+        """Production env config must expose ontology keys, not only legacy ones (#1355)."""
+        from mcp_memory_service.config.consolidation import CONSOLIDATION_CONFIG
+
+        retention = CONSOLIDATION_CONFIG['retention_periods']
+        for base_type in ('decision', 'learning', 'pattern', 'error', 'observation'):
+            assert base_type in retention
+        # Legacy keys remain for backward compatibility
+        for legacy_type in ('critical', 'reference', 'standard', 'temporary'):
+            assert legacy_type in retention
+        assert retention['decision'] == 365
+        assert retention['learning'] == 180
+
+    @pytest.mark.asyncio
+    async def test_env_config_drives_decay_retention(self):
+        """With the production env config, ontology types drive retention (#1355)."""
+        from mcp_memory_service.config.consolidation import CONSOLIDATION_CONFIG
+        from mcp_memory_service.consolidation.base import ConsolidationConfig
+
+        calculator = ExponentialDecayCalculator(ConsolidationConfig(**CONSOLIDATION_CONFIG))
+
+        now = datetime.now()
+        mem_time = now - timedelta(days=60)
+
+        def make_memory(content_hash, memory_type):
+            return Memory(
+                content=f"{content_hash} memory",
+                content_hash=content_hash,
+                tags=["test"],
+                memory_type=memory_type,
+                embedding=[0.1] * 320,
+                created_at=mem_time.timestamp(),
+                created_at_iso=mem_time.isoformat() + 'Z',
+                updated_at=mem_time.timestamp(),
+                updated_at_iso=mem_time.isoformat() + 'Z'
+            )
+
+        scores = await calculator.process([
+            make_memory("decision", "decision"),
+            make_memory("observation", "observation"),
+        ])
+
+        decision_score = next(s for s in scores if s.memory_hash == "decision")
+        observation_score = next(s for s in scores if s.memory_hash == "observation")
+
+        # Before the fix both fall back to the 30-day default
+        assert decision_score.metadata['retention_period'] == 365
+        assert observation_score.metadata['retention_period'] == 30
+        assert decision_score.decay_factor > observation_score.decay_factor
+
+    @pytest.mark.asyncio
     async def test_connections_boost_relevance(self, decay_calculator):
         """Test that memories with connections get relevance boost."""
         memory = Memory(
