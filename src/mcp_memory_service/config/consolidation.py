@@ -44,6 +44,14 @@ CONSOLIDATION_CONFIG = {
         'pattern': safe_get_int_env('MCP_RETENTION_PATTERN', 90, min_value=1, max_value=3650),
         'error': safe_get_int_env('MCP_RETENTION_ERROR', 30, min_value=1, max_value=3650),
         'observation': safe_get_int_env('MCP_RETENTION_OBSERVATION', 30, min_value=1, max_value=3650),
+        # Remaining ontology base types (observation-tier default)
+        'planning': safe_get_int_env('MCP_RETENTION_PLANNING', 30, min_value=1, max_value=3650),
+        'ceremony': safe_get_int_env('MCP_RETENTION_CEREMONY', 30, min_value=1, max_value=3650),
+        'milestone': safe_get_int_env('MCP_RETENTION_MILESTONE', 30, min_value=1, max_value=3650),
+        'stakeholder': safe_get_int_env('MCP_RETENTION_STAKEHOLDER', 30, min_value=1, max_value=3650),
+        'meeting': safe_get_int_env('MCP_RETENTION_MEETING', 30, min_value=1, max_value=3650),
+        'research': safe_get_int_env('MCP_RETENTION_RESEARCH', 30, min_value=1, max_value=3650),
+        'communication': safe_get_int_env('MCP_RETENTION_COMMUNICATION', 30, min_value=1, max_value=3650),
         # Legacy types kept for backward compatibility
         'critical': safe_get_int_env('MCP_RETENTION_CRITICAL', 365, min_value=1, max_value=3650),
         'reference': safe_get_int_env('MCP_RETENTION_REFERENCE', 180, min_value=1, max_value=3650),
