@@ -169,7 +169,17 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             # Handle 2-digit years
             if year and year < 100:
                 year = 2000 + year if year < 50 else 1900 + year
-                
+            
+            # If no explicit year was provided, select the most recent occurrence
+            if not specific_date_match.group(3):
+                current_date = date.today()
+                candidate_this_year = date(current_year, month, day)
+                if candidate_this_year > current_date:
+                    # Date hasn't occurred yet this year, use last year
+                    year = current_year - 1
+                else:
+                    year = current_year
+            
             try:
                 specific_date = date(year, month, day)
                 start_dt = datetime.combine(specific_date, time.min)
@@ -302,11 +312,45 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         if quarter_match:
             quarter = quarter_match.group(1).lower()
             year_str = quarter_match.group(2)
-            year = int(year_str) if year_str else datetime.now().year
             
             # Map textual quarter to number
-            quarter_num = {"first": 1, "1st": 1, "second": 2, "2nd": 2, 
-                          "third": 3, "3rd": 3, "fourth": 4, "4th": 4}[quarter]
+            quarter_map = {"first": 1, "1st": 1, "second": 2, "2nd": 2, 
+                          "third": 3, "3rd": 3, "fourth": 4, "4th": 4}
+            quarter_num = quarter_map[quarter]
+            
+            # If no year provided, find the most recent completed quarter
+            if year_str:
+                year = int(year_str)
+            else:
+                now = datetime.now()
+                current_year = now.year
+                current_month = now.month
+                
+                # Determine current quarter (1-4)
+                current_quarter = (current_month - 1) // 3 + 1
+                
+                quarter_num_int = quarter_num
+                if quarter_num_int < current_quarter:
+                    # Requested quarter already completed this year
+                    year = now.year
+                elif quarter_num_int == current_quarter:
+                    # Current quarter - check if it has ended
+                    quarter_end_month = current_quarter * 3
+                    quarter_end_day = 30 if quarter_end_month in [4, 6, 9, 11] else 31
+                    quarter_end = date(now.year, quarter_end_month, quarter_end_day)
+                    today = date.today()
+                    if today > quarter_end:
+                        # Current quarter has ended
+                        year = now.year
+                    else:
+                        # Current quarter not ended yet, use previous quarter/year
+                        if quarter_num_int == 1:
+                            year = now.year - 1
+                        else:
+                            year = now.year
+                else:
+                    # Requested quarter is in the future this year, use last year
+                    year = now.year - 1
             
             # Calculate quarter start and end dates
             quarter_month = (quarter_num - 1) * 3 + 1
