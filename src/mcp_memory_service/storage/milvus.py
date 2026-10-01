@@ -97,6 +97,7 @@ from .shared import (
     _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads,
 )
+from ..metrics import observe_embedding_duration
 from ..models.memory import Memory, MemoryQueryResult
 from ..utils.hashing import generate_content_hash
 
@@ -654,7 +655,13 @@ class MilvusMemoryStorage(MemoryStorage):
         if cached is not None:
             return cached
 
-        raw = self.embedding_model.encode([text], convert_to_numpy=True)[0]
+        embedding_start = time.perf_counter()
+        try:
+            raw = self.embedding_model.encode([text], convert_to_numpy=True)[0]
+        finally:
+            observe_embedding_duration(
+                "milvus", time.perf_counter() - embedding_start
+            )
         embedding = raw.tolist() if hasattr(raw, "tolist") else list(raw)
         self._validate_embedding(embedding)
         _embedding_cache_put(cache_key, embedding)

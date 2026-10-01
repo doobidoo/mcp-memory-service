@@ -6,6 +6,7 @@ import math
 import os
 import struct
 import sys
+import time
 import traceback
 from typing import List
 
@@ -17,6 +18,7 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 from ...compat import _sanitize_log_value
+from ...metrics import observe_embedding_duration
 from ...utils.system_detection import get_torch_device
 from ..shared import _embedding_cache_get, _embedding_cache_put, _embedding_cache_size, _embedding_cache_clear
 
@@ -527,7 +529,15 @@ class EmbeddingsMixin:
                 if cached is not None:
                     return cached
 
-            embedding = self.embedding_model.encode([text], convert_to_numpy=True)[0]
+            embedding_start = time.perf_counter()
+            try:
+                embedding = self.embedding_model.encode(
+                    [text], convert_to_numpy=True
+                )[0]
+            finally:
+                observe_embedding_duration(
+                    "sqlite_vec", time.perf_counter() - embedding_start
+                )
             if hasattr(embedding, "tolist"):
                 embedding_list = embedding.tolist()
             else:

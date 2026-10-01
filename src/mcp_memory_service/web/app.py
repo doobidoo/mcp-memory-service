@@ -68,6 +68,7 @@ from .api.configuration import router as configuration_router
 from .api.oauth_status import router as oauth_status_router
 from .api.conflicts import router as conflicts_router
 from .api.harvest import router as harvest_router
+from .metrics import install_metrics
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -315,6 +316,8 @@ def create_app() -> FastAPI:
     # exempt. Added last so it runs first (outermost) on the inbound path.
     from .body_limit import BodySizeLimitMiddleware
     app.add_middleware(BodySizeLimitMiddleware)
+
+    install_metrics(app)
 
     # Include API routers
     logger.info("Including API routers...")
