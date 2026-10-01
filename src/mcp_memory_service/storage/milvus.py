@@ -2961,6 +2961,15 @@ class MilvusMemoryStorage(MemoryStorage):
         memories.sort(key=lambda m: len(m.content or ""), reverse=True)
         return memories[:n]
 
+    @staticmethod
+    def _is_recallable_memory(memory: Memory) -> bool:
+        """Return whether a Milvus row is live enough for recall()."""
+        metadata = memory.metadata or {}
+        return (
+            metadata.get("superseded_by") in (None, "")
+            and metadata.get("deleted_at") is None
+        )
+
     def _time_window_filter(
         self,
         start_timestamp: Optional[float] = None,
@@ -3042,7 +3051,7 @@ class MilvusMemoryStorage(MemoryStorage):
             live = [
                 result
                 for result in ranked
-                if not (result.memory.metadata or {}).get("superseded_by")
+                if self._is_recallable_memory(result.memory)
             ]
 
             if len(live) >= n_results:
@@ -3060,7 +3069,7 @@ class MilvusMemoryStorage(MemoryStorage):
         hits: List[Dict[str, Any]] = []
         for row in rows:
             memory = self._entity_to_memory(row, include_embedding=True)
-            if memory is None or (memory.metadata or {}).get("superseded_by"):
+            if memory is None or not self._is_recallable_memory(memory):
                 continue
             if not memory.embedding:
                 continue
@@ -3100,7 +3109,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         def remember_live(memories: List[Memory]) -> None:
             for memory in memories:
-                if not (memory.metadata or {}).get("superseded_by"):
+                if self._is_recallable_memory(memory):
                     candidates[memory.content_hash] = memory
             if len(candidates) > max(batch_size, n_results * 4):
                 newest = sorted(
@@ -3222,6 +3231,8 @@ class MilvusMemoryStorage(MemoryStorage):
                                 old_handler.close()
                             except Exception:  # noqa: BLE001 — best effort
                                 pass
+                        async with self._write_lock:
+                            self._reconnect_lite_client()
                         iterator = None
                         continue
                     raise

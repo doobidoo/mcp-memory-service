@@ -567,6 +567,54 @@ class TestRecallSupersededBacklog:
         storage._iterate_all_rows.assert_not_awaited()
 
 
+class TestRecallSoftDeletedRows:
+    @pytest.mark.asyncio
+    async def test_time_only_recall_hides_soft_deleted(self):
+        storage = _make_storage()
+        rows = [
+            Memory(
+                content="deleted",
+                content_hash="deleted",
+                metadata={"deleted_at": "2026-10-01T00:00:00Z"},
+                created_at=1000.0,
+            ),
+            Memory(content="live", content_hash="live", created_at=999.0),
+        ]
+
+        async def _query_window(filter_expr, limit, offset=0):
+            page = rows[offset:offset + limit]
+            return page, len(page)
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
+
+        results = await storage.recall(n_results=2)
+
+        assert [result.memory.content_hash for result in results] == ["live"]
+
+    @pytest.mark.asyncio
+    async def test_semantic_recall_hides_soft_deleted(self):
+        storage = _make_storage()
+        deleted = _entity(
+            "deleted",
+            "deleted",
+            created_at=1000.0,
+            metadata={"deleted_at": "2026-10-01T00:00:00Z"},
+        )
+        live = _entity("live", "live", created_at=999.0)
+
+        async def _run_search(embedding, filter_expr, fetch_n):
+            return [
+                {"id": deleted["id"], "distance": 0.9, "entity": deleted, **deleted},
+                {"id": live["id"], "distance": 0.8, "entity": live, **live},
+            ]
+
+        storage._run_search = AsyncMock(side_effect=_run_search)
+
+        results = await storage.recall(query="probe", n_results=1)
+
+        assert [result.memory.content_hash for result in results] == ["live"]
+
+
 class TestPagedTimeWindowIterator:
     @pytest.mark.asyncio
     async def test_restarts_iterator_from_same_checkpoint_after_channel_death(self):
@@ -574,17 +622,27 @@ class TestPagedTimeWindowIterator:
         storage._is_lite = True
         storage._write_lock = asyncio.Lock()
 
+        dead_client = MagicMock()
         dead_iterator = MagicMock()
         dead_iterator.next.side_effect = ValueError(
             "Cannot invoke RPC on closed channel!"
         )
+        dead_client.query_iterator.return_value = dead_iterator
+
+        recovered_client = MagicMock()
         recovered_iterator = MagicMock()
         recovered_iterator.next.side_effect = [
             [_entity("h1", "one", created_at=1.0)],
             [],
         ]
-        storage._call_client = AsyncMock(
-            side_effect=[dead_iterator, recovered_iterator]
+        recovered_client.query_iterator.return_value = recovered_iterator
+
+        storage.client = dead_client
+        storage._reconnect_lite_client = MagicMock(
+            side_effect=lambda: setattr(storage, "client", recovered_client)
+        )
+        storage._call_client = MilvusMemoryStorage._call_client.__get__(
+            storage, MilvusMemoryStorage
         )
 
         pages = [
@@ -596,12 +654,13 @@ class TestPagedTimeWindowIterator:
 
         assert [(len(memories), raw_count) for memories, raw_count in pages] == [(1, 1)]
         assert pages[0][0][0].content_hash == "h1"
-        assert storage._call_client.await_count == 2
-        first_call = storage._call_client.await_args_list[0]
-        second_call = storage._call_client.await_args_list[1]
-        assert first_call.kwargs["iterator_cp_file"] == second_call.kwargs["iterator_cp_file"]
+        dead_client.query_iterator.assert_called_once()
+        recovered_client.query_iterator.assert_called_once()
+        first_call = dead_client.query_iterator.call_args.kwargs
+        second_call = recovered_client.query_iterator.call_args.kwargs
+        assert first_call["iterator_cp_file"] == second_call["iterator_cp_file"]
         recovered_iterator.close.assert_called_once_with()
-        dead_iterator.close.assert_not_called()
+        storage._reconnect_lite_client.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_yields_raw_page_count_when_row_conversion_fails(self):
