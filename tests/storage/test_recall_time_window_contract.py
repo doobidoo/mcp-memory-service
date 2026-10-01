@@ -92,7 +92,7 @@ class TestMilvusRecallContract:
 
         captured = {}
 
-        async def fake_query_window(filter_expr, limit):
+        async def fake_query_window(filter_expr, limit, offset=0):
             captured["filter_expr"] = filter_expr
             captured["limit"] = limit
             return [
