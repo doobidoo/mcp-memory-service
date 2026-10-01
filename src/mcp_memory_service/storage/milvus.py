@@ -2989,13 +2989,19 @@ class MilvusMemoryStorage(MemoryStorage):
 
         time_filter = self._time_window_filter(start_timestamp, end_timestamp)
 
+        # The time window and the superseded filter both drop candidates after
+        # the ANN query, so always over-fetch. Asking for exactly n_results made
+        # a window whose top hits are superseded come back short, or empty, even
+        # though live memories remained inside it.
+        fetch_n = min(n_results * 3, _MILVUS_MAX_LIMIT)
+
         if query:
             query_embedding = self._embed_query(query)
             if query_embedding is None:
                 return []
-            hits = await self._run_search(query_embedding, time_filter, n_results)
+            hits = await self._run_search(query_embedding, time_filter, fetch_n)
             # Rank everything, then drop superseded rows before trimming, exactly
-            # like retrieve() does — otherwise the window can come back empty.
+            # like retrieve() does.
             ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
             ranked = [r for r in ranked if not r.memory.metadata.get("superseded_by")]
             return ranked[:n_results]
@@ -3004,11 +3010,11 @@ class MilvusMemoryStorage(MemoryStorage):
             memory
             for memory in await self._query_memories(
                 filter_expr=time_filter,
-                limit=n_results,
+                limit=fetch_n,
                 sort_desc_key="created_at",
             )
             if not (memory.metadata or {}).get("superseded_by")
-        ]
+        ][:n_results]
         return [
             MemoryQueryResult(
                 memory=memory,

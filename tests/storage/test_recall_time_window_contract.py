@@ -54,11 +54,16 @@ class TestMilvusRecallContract:
         async def fake_run_search(embedding, filter_expr, limit):
             captured["filter_expr"] = filter_expr
             captured["limit"] = limit
-            # The stale row ranks higher; it must still not be returned.
-            return [
-                _result("stale", "obsolete answer", score=0.9, superseded_by="current"),
-                _result("current", "current answer", score=0.4),
+            # Every hit the query returns at the *naive* limit is superseded, and
+            # the one live row only exists beyond it. Without over-fetching the
+            # caller gets nothing back even though a live memory is in the window.
+            hits = [
+                _result(f"stale-{i}", f"obsolete answer {i}", score=0.9, superseded_by="current")
+                for i in range(limit)
             ]
+            if limit > 5:
+                hits[-1] = _result("current", "current answer", score=0.1)
+            return hits
 
         storage._run_search = fake_run_search
 
@@ -73,6 +78,10 @@ class TestMilvusRecallContract:
         assert "created_at >= 100.0" in captured["filter_expr"]
         assert "created_at <= 200.0" in captured["filter_expr"], (
             "the window must be applied while selecting candidates, not after ranking"
+        )
+        assert captured["limit"] > 5, (
+            "recall must over-fetch: superseded hits are dropped after the ANN "
+            "query and would otherwise starve the requested result count"
         )
         assert [r.memory.content_hash for r in results] == ["current"]
 
