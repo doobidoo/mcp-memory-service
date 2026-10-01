@@ -36,6 +36,18 @@ class _Storage:
     async def get_recent_memories(self, n):
         return []
 
+    # The overview defaults to the ``default`` store scope, so provide the
+    # storage contract methods the scoped path calls. The log assertions below
+    # only exercise get_stats()/get_recent_memories().
+    async def get_memory_timestamps(self, days, store=None):
+        return []
+
+    async def count_all_memories(self, store=None):
+        return 0
+
+    async def get_all_tags_with_counts(self, store=None):
+        return []
+
 
 def _messages(caplog):
     return [record.getMessage() for record in caplog.records if record.name == LOGGER]

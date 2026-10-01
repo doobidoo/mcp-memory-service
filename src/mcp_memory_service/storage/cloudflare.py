@@ -1132,7 +1132,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Error in exact content match (Cloudflare): %s", _sanitize_log_value(str(e)))
             return []
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
         try:
             # Query D1 for the memory. Soft-deleted rows must not resurface here:
@@ -1714,7 +1714,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to get all tags: %s", _sanitize_log_value(e))
             return []
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all tags with their usage counts."""
         try:
             sql = """
@@ -1811,7 +1811,7 @@ class CloudflareStorage(MemoryStorage):
 
         return timestamps
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         """
         Get memory creation timestamps only, without loading full memory objects.
 
@@ -1858,7 +1858,7 @@ class CloudflareStorage(MemoryStorage):
         # Return JSON string representation of the array
         return json.dumps(tags)
     
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
 
