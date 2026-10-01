@@ -116,3 +116,53 @@ async def test_versioned_update_nonexistent_memory(tmp_path):
     assert new_hash is None
 
     await storage.close()
+
+
+def test_memory_update_schema_declares_versioned_fields():
+    """updates schema must declare every field the versioned handler reads.
+
+    handle_update_memory_metadata() hard-requires updates["content"] (and reads
+    updates["reason"]) when versioned=true. If the schema omits them, clients
+    that build arguments from the declared properties can never satisfy the
+    requirement.
+    """
+    from mcp_memory_service.tools.registry import TOOL_REGISTRY
+
+    tool = next(t for t in TOOL_REGISTRY if t.name == "memory_update")
+    updates_props = tool.input_schema["properties"]["updates"]["properties"]
+
+    assert "content" in updates_props
+    assert "reason" in updates_props
+
+
+@pytest.mark.asyncio
+async def test_inplace_update_strips_versioned_only_fields():
+    """content/reason are versioned-only and must not reach update_memory_metadata.
+
+    Otherwise content advances updated_at via the structural-change check and
+    reason falls through into custom metadata — callers following the schema
+    would change timestamps or metadata they did not intend to change.
+    """
+    from mcp_memory_service.server.handlers.memory import handle_update_memory_metadata
+
+    server = MagicMock()
+    storage = AsyncMock()
+    storage.update_memory_metadata = AsyncMock(return_value=(True, "Updated"))
+    server._ensure_storage_initialized = AsyncMock(return_value=storage)
+
+    result = await handle_update_memory_metadata(server, {
+        "content_hash": "abc123",
+        "updates": {
+            "content": "new content",
+            "reason": "some reason",
+            "tags": ["keep"],
+            "priority": "urgent",
+        },
+    })
+
+    assert "Successfully" in result[0].text
+    received = storage.update_memory_metadata.call_args.kwargs["updates"]
+    assert "content" not in received
+    assert "reason" not in received
+    assert received["tags"] == ["keep"]
+    assert received["priority"] == "urgent"
