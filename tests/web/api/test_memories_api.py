@@ -336,6 +336,40 @@ def test_store_all_write_is_rejected_with_400(test_app):
 
 
 @pytest.mark.integration
+def test_hash_write_rejects_store_all(test_app):
+    """`store='all'` is a read scope, including for hash-level writes (#1106)."""
+    update_target = test_app.post(
+        "/api/memories", json={"content": "All-scope update target", "store": "home"}
+    )
+    delete_target = test_app.post(
+        "/api/memories", json={"content": "All-scope delete target", "store": "work"}
+    )
+    assert update_target.status_code == 200, update_target.text
+    assert delete_target.status_code == 200, delete_target.text
+
+    update_hash = update_target.json()["memory"]["content_hash"]
+    delete_hash = delete_target.json()["memory"]["content_hash"]
+
+    updated = test_app.put(
+        f"/api/memories/{update_hash}",
+        params={"store": "all"},
+        json={"tags": ["must-not-be-written"]},
+    )
+    deleted = test_app.delete(
+        f"/api/memories/{delete_hash}", params={"store": "all"}
+    )
+
+    assert updated.status_code == 400, updated.text
+    assert deleted.status_code == 400, deleted.text
+    assert test_app.get(
+        f"/api/memories/{update_hash}", params={"store": "home"}
+    ).status_code == 200
+    assert test_app.get(
+        f"/api/memories/{delete_hash}", params={"store": "work"}
+    ).status_code == 200
+
+
+@pytest.mark.integration
 def test_memory_type_distribution_excludes_soft_deleted(test_app):
     """Soft-deleted tombstones must not inflate the type breakdown (#1106)."""
     for content in ("Keep me in home", "Delete me from home"):

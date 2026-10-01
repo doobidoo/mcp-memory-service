@@ -623,7 +623,6 @@ async def get_memory_type_distribution(
         # For Hybrid storage, access underlying SQLite primary storage
         elif hasattr(storage, 'primary') and hasattr(storage.primary, 'conn') and storage.primary.conn:
             # Hybrid storage - access underlying SQLite storage
-            import sqlite3
             cursor = storage.primary.conn.cursor()
             cursor.execute(f"""
                 SELECT
@@ -641,7 +640,6 @@ async def get_memory_type_distribution(
             total_memories = cursor.fetchone()[0]
         elif hasattr(storage, 'conn') and storage.conn:
             # Direct SQLite storage
-            import sqlite3
             cursor = storage.conn.cursor()
             cursor.execute(f"""
                 SELECT
@@ -696,16 +694,19 @@ async def get_relationship_type_distribution(
     """
     try:
         scope = resolve_store(store)
-        if scope is None:
-            return await storage.get_relationship_type_distribution()
-
         conn = getattr(storage, "conn", None)
         primary = getattr(storage, "primary", None)
         if conn is None and primary is not None:
             conn = getattr(primary, "conn", None)
         if conn is not None:
+            store_clause = ""
+            store_params: tuple = ()
+            if scope is not None:
+                store_clause = "AND source.store = ? AND target.store = ?"
+                store_params = (scope, scope)
+
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     CASE
                         WHEN mg.relationship_type IS NULL OR mg.relationship_type = '' THEN 'untyped'
@@ -714,17 +715,20 @@ async def get_relationship_type_distribution(
                     COUNT(*) AS count
                 FROM memory_graph mg
                 JOIN memories source ON source.content_hash = mg.source_hash
-                 AND source.store = ? AND source.deleted_at IS NULL
+                 AND source.deleted_at IS NULL
                 JOIN memories target ON target.content_hash = mg.target_hash
-                 AND target.store = ? AND target.deleted_at IS NULL
+                 AND target.deleted_at IS NULL
+                WHERE 1 = 1 {store_clause}
                 GROUP BY rel_type
                 ORDER BY count DESC, rel_type ASC
                 """,
-                (scope, scope),
+                store_params,
             ).fetchall()
             return {row[0]: row[1] for row in rows}
 
-        graph_data = await storage.get_graph_visualization_data(limit=10000, min_connections=1)
+        graph_data = await storage.get_graph_visualization_data(
+            limit=10000, min_connections=1, store=scope
+        )
         allowed = {memory.content_hash for memory in await storage.get_all_memories(store=scope)}
         distribution = Counter(
             edge.get("relationship_type") or "untyped"

@@ -349,6 +349,12 @@ async def delete_memory(
     within the requested ``store`` scope first, so a hash owned by another
     partition cannot be deleted through a different scope.
     """
+    if store == "all":
+        raise HTTPException(
+            status_code=400,
+            detail="store='all' is only valid for read scopes",
+        )
+
     try:
         existing = await storage.get_by_hash(content_hash, store=resolve_store(store))
         if not existing:
@@ -391,6 +397,12 @@ async def update_memory(
     This endpoint allows updating only the metadata aspects of a memory while preserving
     the original content and creation timestamp. Only provided fields will be updated.
     """
+    if store == "all":
+        raise HTTPException(
+            status_code=400,
+            detail="store='all' is only valid for read scopes",
+        )
+
     try:
         # First, check that the memory exists inside the requested store scope
         existing_memory = await storage.get_by_hash(content_hash, store=resolve_store(store))

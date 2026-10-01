@@ -857,6 +857,15 @@ class RetrieveMixin:
 
             def _get_graph_nodes():
                 node_params = []
+                target_join = """
+                    INNER JOIN memories target
+                      ON target.content_hash = mg.target_hash
+                     AND target.deleted_at IS NULL
+                """
+                if store is not None:
+                    target_join += " AND target.store = ?"
+                    node_params.append(store)
+
                 store_filter = ""
                 if store is not None:
                     store_filter = " AND m.store = ?"
@@ -874,6 +883,7 @@ class RetrieveMixin:
                         COUNT(DISTINCT mg.target_hash) as connection_count
                     FROM memories m
                     INNER JOIN memory_graph mg ON m.content_hash = mg.source_hash
+                """ + target_join + """
                     WHERE m.deleted_at IS NULL
                       -- has_entity rows point at an entity NAME, not a memory
                       -- hash, so the edge loop below always drops them. Counting
