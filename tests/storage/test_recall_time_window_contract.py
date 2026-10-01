@@ -54,16 +54,15 @@ class TestMilvusRecallContract:
         async def fake_run_search(embedding, filter_expr, limit):
             captured["filter_expr"] = filter_expr
             captured["limit"] = limit
-            # Every hit the query returns at the *naive* limit is superseded, and
-            # the one live row only exists beyond it. Without over-fetching the
-            # caller gets nothing back even though a live memory is in the window.
-            hits = [
+            # The naive window is entirely superseded. A wider ANN pass finds the
+            # one live row, and returning fewer hits than requested tells recall
+            # the collection is exhausted instead of triggering a full fallback.
+            if limit > 5:
+                return [_result("current", "current answer", score=0.1)]
+            return [
                 _result(f"stale-{i}", f"obsolete answer {i}", score=0.9, superseded_by="current")
                 for i in range(limit)
             ]
-            if limit > 5:
-                hits[-1] = _result("current", "current answer", score=0.1)
-            return hits
 
         storage._run_search = fake_run_search
 
@@ -91,18 +90,24 @@ class TestMilvusRecallContract:
         storage = object.__new__(MilvusMemoryStorage)
         storage._ensure_initialized = lambda: True
 
-        async def fake_query_memories(filter_expr, limit, sort_desc_key):
+        captured = {}
+
+        async def fake_iterate_rows(filter_expr, include_embeddings=False):
+            captured["filter_expr"] = filter_expr
             return [
                 Memory(content="obsolete", content_hash="stale", metadata={"superseded_by": "current"}),
                 Memory(content="current", content_hash="current"),
             ]
 
-        storage._query_memories = fake_query_memories
+        storage._iterate_all_rows = fake_iterate_rows
+        storage._entity_to_memory = lambda row, include_embedding=False: row
 
         results = await MilvusMemoryStorage.recall(
             storage, query=None, n_results=5, start_timestamp=100.0, end_timestamp=200.0
         )
 
+        assert "created_at >= 100.0" in captured["filter_expr"]
+        assert "created_at <= 200.0" in captured["filter_expr"]
         assert [r.memory.content_hash for r in results] == ["current"]
 
 
