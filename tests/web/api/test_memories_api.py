@@ -442,3 +442,55 @@ def test_semantic_time_search_does_not_leak_out_of_window(test_app):
     assert inside.status_code == 200, inside.text
     contents = {result["memory"]["content"] for result in inside.json()["results"]}
     assert contents == {"Window probe about rivers"}
+
+
+@pytest.mark.integration
+def test_by_time_search_selects_candidates_with_the_window(test_app, initialized_storage, monkeypatch):
+    """The time window must reach storage *during* candidate selection (#1106).
+
+    An earlier revision pushed the window into `retrieve()`, which Milvus accepts
+    but never reads: the search then post-filtered a windowless top-N, so
+    out-of-window neighbours could fill the pool and the window came back empty.
+    The route now selects through `recall()`, which every backend applies the
+    window in. This test fails if that regresses to retrieve()+post-filter.
+    """
+    calls = {"recall": [], "retrieve": []}
+    real_recall = initialized_storage.recall
+
+    async def spy_recall(**kwargs):
+        calls["recall"].append(kwargs)
+        return await real_recall(**kwargs)
+
+    async def spy_retrieve(**kwargs):
+        calls["retrieve"].append(kwargs)
+        return []
+
+    monkeypatch.setattr(initialized_storage, "recall", spy_recall)
+    monkeypatch.setattr(initialized_storage, "retrieve", spy_retrieve)
+
+    stored = test_app.post(
+        "/api/memories",
+        json={"content": "Candidate selection probe", "store": "home"},
+    )
+    assert stored.status_code == 200, stored.text
+
+    response = test_app.post(
+        "/api/search/by-time",
+        json={
+            "query": "today",
+            "semantic_query": "candidate selection",
+            "n_results": 5,
+            "store": "home",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    assert calls["recall"], "by-time search must select candidates through recall()"
+    kwargs = calls["recall"][0]
+    assert kwargs["start_timestamp"] is not None
+    assert kwargs["end_timestamp"] is not None
+    assert kwargs["store"] == "home"
+    assert calls["retrieve"] == [], (
+        "the window must be applied while selecting candidates, not after a "
+        "windowless retrieve()"
+    )

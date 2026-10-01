@@ -2994,13 +2994,21 @@ class MilvusMemoryStorage(MemoryStorage):
             if query_embedding is None:
                 return []
             hits = await self._run_search(query_embedding, time_filter, n_results)
-            return self._rank_and_trim(hits, query, n_results, min_confidence=0.0)
+            # Rank everything, then drop superseded rows before trimming, exactly
+            # like retrieve() does — otherwise the window can come back empty.
+            ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
+            ranked = [r for r in ranked if not r.memory.metadata.get("superseded_by")]
+            return ranked[:n_results]
 
-        memories = await self._query_memories(
-            filter_expr=time_filter,
-            limit=n_results,
-            sort_desc_key="created_at",
-        )
+        memories = [
+            memory
+            for memory in await self._query_memories(
+                filter_expr=time_filter,
+                limit=n_results,
+                sort_desc_key="created_at",
+            )
+            if not (memory.metadata or {}).get("superseded_by")
+        ]
         return [
             MemoryQueryResult(
                 memory=memory,

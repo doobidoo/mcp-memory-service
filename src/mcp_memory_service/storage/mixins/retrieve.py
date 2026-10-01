@@ -1071,6 +1071,10 @@ class RetrieveMixin:
                     memory_filter = "deleted_at IS NULL"
                     if time_where:
                         memory_filter += f" AND {time_where}"
+                    # recall() is a retrieval path, so it must hide superseded
+                    # rows exactly like retrieve() does. mark_superseded_batch()
+                    # only writes the column, so this cannot be filtered later.
+                    memory_filter += " AND (superseded_by IS NULL OR superseded_by = '')"
                     filter_params = list(params)
                     if store is not None:
                         # Scope the KNN candidates to the requested partition so
@@ -1151,6 +1155,9 @@ class RetrieveMixin:
             where_parts = ["deleted_at IS NULL"]
             if time_where:
                 where_parts.append(time_where)
+            # Keep the time-only branch consistent with the semantic one: a
+            # superseded memory is not a current answer either way.
+            where_parts.append("(superseded_by IS NULL OR superseded_by = '')")
             tail_params = list(params)
             if store is not None:
                 where_parts.append("store = ?")

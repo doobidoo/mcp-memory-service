@@ -148,3 +148,36 @@ class TestAutoSupersedOnContradiction:
         ).fetchone()
         assert row is not None
         assert row[0] == h_new
+
+
+class TestRecallSupersededFilter:
+    """recall() is a retrieval path and must hide superseded rows (#1106).
+
+    web/api/search.py::time_search and the MCP time-recall handlers all go
+    through recall(). It previously ignored the superseded_by column, so a
+    by-time search could surface a memory that ordinary semantic search hides.
+    """
+
+    @pytest.mark.asyncio
+    async def test_recall_excludes_superseded_with_semantic_query(self, storage):
+        h1 = await _store(storage, "The cache layer uses Redis 7")
+        h2 = await _store(storage, "The cache layer uses Memcached 1.6")
+        _mark_superseded(storage, h1, h2)
+
+        results = await storage.recall(query="cache layer", n_results=10)
+        hashes = {r.memory.content_hash for r in results}
+
+        assert h1 not in hashes, "superseded memory leaked into a semantic recall"
+        assert h2 in hashes
+
+    @pytest.mark.asyncio
+    async def test_recall_excludes_superseded_without_query(self, storage):
+        h1 = await _store(storage, "The queue runs on RabbitMQ")
+        h2 = await _store(storage, "The queue runs on Kafka")
+        _mark_superseded(storage, h1, h2)
+
+        results = await storage.recall(query=None, n_results=10)
+        hashes = {r.memory.content_hash for r in results}
+
+        assert h1 not in hashes, "superseded memory leaked into a time-only recall"
+        assert h2 in hashes
