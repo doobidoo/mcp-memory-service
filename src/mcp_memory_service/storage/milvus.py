@@ -3136,15 +3136,21 @@ class MilvusMemoryStorage(MemoryStorage):
                     heapq.heappush(intervals, (-range_end, newer_start, range_end))
 
                 exact_filter = self._time_window_filter(timestamp, timestamp)
-                offset = 0
+                after_id: Optional[str] = None
+                guarantee_timestamp: Optional[int] = None
                 while True:
-                    exact = await self._query_time_window(
-                        exact_filter, batch_size, offset=offset
+                    exact, page_session_ts = await self._query_time_window_page(
+                        exact_filter,
+                        batch_size,
+                        after_id=after_id,
+                        guarantee_timestamp=guarantee_timestamp,
                     )
+                    if guarantee_timestamp is None:
+                        guarantee_timestamp = page_session_ts
                     remember_live(exact)
                     if len(candidates) >= n_results or len(exact) < batch_size:
                         break
-                    offset += len(exact)
+                    after_id = exact[-1].content_hash
                 continue
 
             if range_end - range_start <= 1e-6:
@@ -3174,18 +3180,43 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         time_filter: str,
         limit: int,
-        offset: int = 0,
     ) -> List[Memory]:
         """Return a bounded page of scalar-query rows inside a time window."""
-        try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=time_filter or "",
-                output_fields=list(self._OUTPUT_FIELDS_BASE),
-                limit=limit,
-                offset=offset,
+        memories, _ = await self._query_time_window_page(time_filter, limit)
+        return memories
+
+    async def _query_time_window_page(
+        self,
+        time_filter: str,
+        limit: int,
+        after_id: Optional[str] = None,
+        guarantee_timestamp: Optional[int] = None,
+    ) -> Tuple[List[Memory], Optional[int]]:
+        """Return one PK-cursor page and its Milvus snapshot timestamp.
+
+        ``query_iterator`` uses ``id > last_pk`` plus a session timestamp to
+        produce stable pages without an offset ceiling. Reproduce that protocol
+        through ``_call_client`` so every page, including reconnect retries,
+        uses the shared client path.
+        """
+        query_filter = time_filter or ""
+        if after_id is not None:
+            safe_after_id = escape_expr_value(after_id)
+            query_filter = self._combine_filter(
+                query_filter, f'id > "{safe_after_id}"'
             )
+
+        query_kwargs: Dict[str, Any] = {
+            "collection_name": self.collection_name,
+            "filter": query_filter,
+            "output_fields": list(self._OUTPUT_FIELDS_BASE),
+            "limit": limit,
+        }
+        if guarantee_timestamp is not None:
+            query_kwargs["guarantee_timestamp"] = guarantee_timestamp
+
+        try:
+            rows = await self._call_client("query", **query_kwargs)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Milvus time-window query failed: %s",
@@ -3198,7 +3229,14 @@ class MilvusMemoryStorage(MemoryStorage):
             memory = self._entity_to_memory(row)
             if memory is not None:
                 memories.append(memory)
-        return memories
+
+        extra = getattr(rows, "extra", {}) or {}
+        raw_session_ts = extra.get("iterator_session_ts")
+        try:
+            session_ts = int(raw_session_ts) if raw_session_ts else None
+        except (TypeError, ValueError):
+            session_ts = None
+        return memories, session_ts
 
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         return await self.get_all_memories(limit=n, offset=0)

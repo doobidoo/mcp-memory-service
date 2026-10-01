@@ -471,8 +471,6 @@ class TestRecallSupersededBacklog:
                 )
             ]
             lower, upper = min(bounds), max(bounds)
-            if lower == upper == 1000.0:
-                exact_pages.append((filter_expr, limit, offset))
             matches = [
                 memory
                 for memory in stale + live
@@ -480,7 +478,15 @@ class TestRecallSupersededBacklog:
             ]
             return matches[offset:offset + limit]
 
+        async def _query_page(
+            filter_expr, limit, after_id=None, guarantee_timestamp=None
+        ):
+            exact_pages.append(after_id)
+            start_index = 0 if after_id is None else int(after_id.rsplit("-", 1)[1]) + 1
+            return stale[start_index:start_index + limit], 12345
+
         storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._query_time_window_page = _query_page
         storage._iterate_all_rows = AsyncMock(
             side_effect=AssertionError("same-timestamp backlog must not full-scan")
         )
@@ -494,14 +500,14 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ]
-        assert [page[2] for page in exact_pages] == [0, 100], (
-            "dense timestamp should drain through bounded offset pages"
+        assert exact_pages == [None, "stale-99"], (
+            "dense timestamp should drain through stable PK cursor pages"
         )
         storage._iterate_all_rows.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_dense_timestamp_beyond_query_cap_uses_paged_scan(self, monkeypatch):
-        """A saturated timestamp must not hold the client lock for a full scan."""
+        """A saturated timestamp must page by PK cursor without an offset cap."""
         monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 100)
         storage = _make_storage()
         stale = [
@@ -511,7 +517,7 @@ class TestRecallSupersededBacklog:
                 metadata={"superseded_by": "current"},
                 created_at=1000.0,
             )
-            for i in range(100)
+            for i in range(150)
         ]
         live = [
             Memory(content=f"live {i}", content_hash=f"live-{i}", created_at=500.0 - i)
@@ -526,13 +532,21 @@ class TestRecallSupersededBacklog:
                     r"created_at [<>=]+ ([0-9.eE+-]+)", filter_expr
                 )
             ]
+            if min(bounds) == max(bounds) == 1000.0:
+                raise AssertionError("exact timestamp must use the PK cursor path")
             if max(bounds) < 1000.0:
                 return live[offset:offset + limit]
-            if min(bounds) == max(bounds) == 1000.0:
-                pages.append((filter_expr, limit, offset))
             return stale[offset:offset + limit]
 
+        async def _query_page(
+            filter_expr, limit, after_id=None, guarantee_timestamp=None
+        ):
+            pages.append((after_id, guarantee_timestamp))
+            start_index = 0 if after_id is None else int(after_id.rsplit("-", 1)[1]) + 1
+            return stale[start_index:start_index + limit], 12345
+
         storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._query_time_window_page = _query_page
         storage._iterate_all_rows = AsyncMock(
             side_effect=AssertionError("exact-timestamp fallback must be paged")
         )
@@ -546,9 +560,7 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ]
-        assert [page[2] for page in pages] == [0, 100], (
-            "the saturated timestamp must be scanned in bounded offset pages"
-        )
+        assert pages == [(None, None), ("stale-99", 12345)]
         storage._iterate_all_rows.assert_not_awaited()
 
 
@@ -573,34 +585,60 @@ class TestPagedTimeWindowQuery:
             storage, MilvusMemoryStorage
         )
 
-        rows = await storage._query_time_window(
-            "created_at >= 0.0", 10, offset=20
+        memories, session_ts = await storage._query_time_window_page(
+            "created_at >= 0.0",
+            10,
+            after_id="h-9",
+            guarantee_timestamp=123,
         )
 
-        assert rows == []
+        assert memories == []
+        assert session_ts is None
         dead_client.query.assert_called_once()
         recovered_client.query.assert_called_once_with(
             collection_name="unit_test_collection",
-            filter="created_at >= 0.0",
+            filter='(created_at >= 0.0) and (id > "h-9")',
             output_fields=list(MilvusMemoryStorage._OUTPUT_FIELDS_BASE),
             limit=10,
-            offset=20,
+            guarantee_timestamp=123,
         )
         storage._reconnect_lite_client.assert_called_once_with()
 
+    @pytest.mark.asyncio
+    async def test_query_time_window_page_returns_snapshot_timestamp(self):
+        class _RowsWithExtra(list):
+            extra = {"iterator_session_ts": 9876}
+
+        storage = _make_storage()
+        storage._call_client = AsyncMock(
+            return_value=_RowsWithExtra([_entity("h1", "one", created_at=1.0)])
+        )
+
+        memories, session_ts = await storage._query_time_window_page(
+            "created_at >= 0.0", 10
+        )
+
+        assert [memory.content_hash for memory in memories] == ["h1"]
+        assert session_ts == 9876
 
     @pytest.mark.asyncio
-    async def test_query_time_window_forwards_offset(self):
+    async def test_query_time_window_page_uses_pk_cursor_and_snapshot(self):
         storage = _make_storage()
         storage._call_client = AsyncMock(return_value=[])
 
-        await storage._query_time_window("created_at >= 0.0", 10, offset=20)
+        _memories, session_ts = await storage._query_time_window_page(
+            "created_at >= 0.0",
+            10,
+            after_id="h-9",
+            guarantee_timestamp=123,
+        )
 
+        assert session_ts is None
         storage._call_client.assert_awaited_once_with(
             "query",
             collection_name="unit_test_collection",
-            filter="created_at >= 0.0",
+            filter='(created_at >= 0.0) and (id > "h-9")',
             output_fields=list(MilvusMemoryStorage._OUTPUT_FIELDS_BASE),
             limit=10,
-            offset=20,
+            guarantee_timestamp=123,
         )
