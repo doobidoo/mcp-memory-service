@@ -1846,14 +1846,40 @@ class MilvusMemoryStorage(MemoryStorage):
         if not matched:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        count, hashes = await self._delete_matching_parts(tag_filter, "")
+        hashes = await self._collect_hashes(tag_filter)
         if not hashes:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
+        deleted_hashes: List[str] = []
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            try:
+                await self._call_client(
+                    "delete",
+                    collection_name=self.collection_name,
+                    ids=chunk,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "delete_by_tags failed after %d/%d memories: %s",
+                    len(deleted_hashes),
+                    len(hashes),
+                    _sanitize_log_value(exc),
+                )
+                if deleted_hashes:
+                    return (
+                        len(deleted_hashes),
+                        f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
+                        f"before deletion failed: {_sanitize_log_value(exc)}",
+                        deleted_hashes,
+                    )
+                return 0, f"Deletion failed: {_sanitize_log_value(exc)}", []
+            deleted_hashes.extend(chunk)
+
         return (
-            count,
-            f"Successfully deleted {count} memories matching {len(tags)} tag(s)",
-            hashes,
+            len(deleted_hashes),
+            f"Successfully deleted {len(deleted_hashes)} memories matching {len(tags)} tag(s)",
+            deleted_hashes,
         )
 
     async def delete_by_timeframe(
@@ -4162,6 +4188,40 @@ class MilvusMemoryStorage(MemoryStorage):
                     memories.append(memory)
         return memories
 
+    async def _fetch_live_hashes(self, hashes: List[str]) -> set[str]:
+        """Return the subset of ``hashes`` with a live memory row.
+
+        Graph ranking only needs primary keys and tombstone status, so this uses
+        bounded scalar queries instead of loading full memory records for every
+        endpoint in a potentially large graph.
+        """
+        if not hashes or not self._ensure_initialized():
+            return set()
+
+        live: set[str] = set()
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            id_list = ", ".join(f'"{escape_expr_value(value)}"' for value in chunk)
+            try:
+                rows = await self._call_client(
+                    "query",
+                    collection_name=self.collection_name,
+                    filter=f"id in [{id_list}]",
+                    output_fields=["id", "metadata"],
+                    limit=len(chunk),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Batch live-hash query failed: %s",
+                    _sanitize_log_value(exc),
+                )
+                continue
+            for row in rows or []:
+                row_id = row.get("id")
+                if row_id and self._row_is_live(row):
+                    live.add(row_id)
+        return live
+
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
@@ -4202,26 +4262,10 @@ class MilvusMemoryStorage(MemoryStorage):
         if not rows:
             return empty
 
-        # Resolve the live memory rows before ranking. SQLite's node query joins
-        # both the source and target memories with ``deleted_at IS NULL``; if
-        # Milvus ranks first, a dead target can fill the requested node limit and
-        # crowd out live memories. Fetching all candidates once also lets the
-        # node-building loop reuse these rows instead of issuing a second RPC.
-        candidate_hashes = sorted({
-            value
-            for row in rows
-            if row.get("relationship_type") != "has_entity"
-            for value in (row.get("source_hash"), row.get("target_hash"))
-            if value
-        })
-        if not candidate_hashes:
-            return empty
-        live_memories = await self._fetch_memories_by_hashes(candidate_hashes)
-        memories_by_hash = {memory.content_hash: memory for memory in live_memories}
-        if not memories_by_hash:
-            return empty
-
-        # Connection count per source = number of distinct live targets.
+        # Build raw source candidates first, then resolve liveness in bounded
+        # batches. SQLite's node query joins both endpoint memories with
+        # ``deleted_at IS NULL``; if Milvus ranks first, a dead target can fill
+        # the requested node limit and crowd out live memories.
         targets_by_source: Dict[str, set] = {}
         for row in rows:
             # has_entity targets are entity keys, not memory hashes. They are
@@ -4231,16 +4275,50 @@ class MilvusMemoryStorage(MemoryStorage):
                 continue
             src = row.get("source_hash")
             tgt = row.get("target_hash")
-            if src in memories_by_hash and tgt in memories_by_hash:
+            if src and tgt:
                 targets_by_source.setdefault(src, set()).add(tgt)
 
+        candidates = sorted(
+            targets_by_source.items(),
+            key=lambda item: len(item[1]),
+            reverse=True,
+        )
+        if not candidates:
+            return empty
+
+        selected_counts: Dict[str, int] = {}
+        batch_size = max(10, min(limit * 2, 100))
+        index = 0
+        while index < len(candidates):
+            if len(selected_counts) >= limit:
+                cutoff = min(selected_counts.values())
+                if len(candidates[index][1]) <= cutoff:
+                    break
+
+            batch = candidates[index:index + batch_size]
+            lookup_hashes = {src for src, _targets in batch}
+            for _src, targets in batch:
+                lookup_hashes.update(targets)
+            live_hashes = await self._fetch_live_hashes(sorted(lookup_hashes))
+
+            for src, targets in batch:
+                if src not in live_hashes:
+                    continue
+                connection_count = len(targets & live_hashes)
+                if connection_count >= min_connections:
+                    selected_counts[src] = connection_count
+
+            if len(selected_counts) > limit:
+                selected_counts = dict(sorted(
+                    selected_counts.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:limit])
+            index += len(batch)
+
         ranked = sorted(
-            (
-                (src, len(targets))
-                for src, targets in targets_by_source.items()
-                if len(targets) >= min_connections
-            ),
-            key=lambda pair: pair[1],
+            selected_counts.items(),
+            key=lambda item: item[1],
             reverse=True,
         )[:limit]
         if not ranked:
@@ -4249,9 +4327,10 @@ class MilvusMemoryStorage(MemoryStorage):
         connection_counts = dict(ranked)
         node_hashes = set(connection_counts)
 
+        memories = await self._fetch_memories_by_hashes(sorted(node_hashes))
         memories = [
-            memories_by_hash[content_hash]
-            for content_hash in node_hashes
+            memory for memory in memories
+            if memory.content_hash in node_hashes
         ]
         nodes = []
         for memory in memories:

@@ -56,6 +56,7 @@ def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
     storage._lock = None
     storage._call_client = AsyncMock()
     storage._generate_embedding = MagicMock(return_value=[0.1, 0.2, 0.3, 0.4])
+    storage._fetch_live_hashes = AsyncMock(side_effect=lambda hashes: set(hashes))
     return storage
 
 
@@ -226,12 +227,11 @@ class TestGraphVisualizationData:
             _edge("live-source", "live-target"),
         ])
         live_hashes = {"live-source", "live-target"}
+        storage._fetch_live_hashes = AsyncMock(
+            side_effect=lambda hashes: set(hashes) & live_hashes
+        )
         storage._fetch_memories_by_hashes = AsyncMock(
-            side_effect=lambda hashes: [
-                _memory(content_hash)
-                for content_hash in hashes
-                if content_hash in live_hashes
-            ]
+            side_effect=lambda hashes: [_memory(h) for h in hashes]
         )
 
         result = await storage.get_graph_visualization_data(limit=1)
@@ -239,6 +239,23 @@ class TestGraphVisualizationData:
         assert [n["id"] for n in result["nodes"]] == ["live-source"]
         assert result["nodes"][0]["connections"] == 1
         assert result["edges"] == []
+
+    @pytest.mark.asyncio
+    async def test_bounded_graph_loads_only_selected_source_records(self):
+        """A small graph request must not fetch full rows for every endpoint."""
+        storage = _make_storage()
+        storage._drain_all_graph_edges = AsyncMock(return_value=[
+            _edge("a", "b"), _edge("c", "d"), _edge("e", "f"),
+        ])
+        storage._fetch_memories_by_hashes = AsyncMock(
+            side_effect=lambda hashes: [_memory(h) for h in hashes]
+        )
+
+        result = await storage.get_graph_visualization_data(limit=1)
+
+        requested = storage._fetch_memories_by_hashes.await_args.args[0]
+        assert len(requested) == 1
+        assert len(result["nodes"]) == 1
 
     @pytest.mark.asyncio
     async def test_quality_score_read_from_metadata(self):
@@ -386,6 +403,22 @@ class TestUntaggedMemories:
         assert count == storage._GET_BY_ID_CHUNK + 1
         assert len(hashes) == count
         assert storage._call_client.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_reports_partial_failure(self):
+        storage = _make_storage()
+        all_hashes = [f"h{i}" for i in range(storage._GET_BY_ID_CHUNK + 1)]
+        storage._collect_hashes = AsyncMock(return_value=all_hashes)
+        storage._call_client = AsyncMock(
+            side_effect=[None, RuntimeError("second chunk failed")]
+        )
+
+        count, message, hashes = await storage.delete_by_tags(["shared"])
+
+        assert count == storage._GET_BY_ID_CHUNK
+        assert hashes == all_hashes[:storage._GET_BY_ID_CHUNK]
+        assert "Deleted 500 of 501 memories" in message
+        assert "second chunk failed" in message
 
 
 class TestDrainRowsLock:
