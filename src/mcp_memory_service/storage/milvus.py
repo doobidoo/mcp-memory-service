@@ -2989,32 +2989,21 @@ class MilvusMemoryStorage(MemoryStorage):
 
         time_filter = self._time_window_filter(start_timestamp, end_timestamp)
 
-        # The time window and the superseded filter both drop candidates after
-        # the ANN query, so always over-fetch. Asking for exactly n_results made
-        # a window whose top hits are superseded come back short, or empty, even
-        # though live memories remained inside it.
-        fetch_n = min(n_results * 3, _MILVUS_MAX_LIMIT)
-
         if query:
             query_embedding = self._embed_query(query)
             if query_embedding is None:
                 return []
-            hits = await self._run_search(query_embedding, time_filter, fetch_n)
-            # Rank everything, then drop superseded rows before trimming, exactly
-            # like retrieve() does.
-            ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
-            ranked = [r for r in ranked if not r.memory.metadata.get("superseded_by")]
-            return ranked[:n_results]
-
-        memories = [
-            memory
-            for memory in await self._query_memories(
-                filter_expr=time_filter,
-                limit=fetch_n,
-                sort_desc_key="created_at",
+            return await self._recall_active_semantic(
+                query=query,
+                query_embedding=query_embedding,
+                time_filter=time_filter,
+                n_results=n_results,
             )
-            if not (memory.metadata or {}).get("superseded_by")
-        ][:n_results]
+
+        memories = await self._recall_active_time_window(
+            time_filter=time_filter,
+            n_results=n_results,
+        )
         return [
             MemoryQueryResult(
                 memory=memory,
@@ -3023,6 +3012,81 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             for memory in memories
         ]
+
+    async def _recall_active_semantic(
+        self,
+        query: str,
+        query_embedding: List[float],
+        time_filter: str,
+        n_results: int,
+    ) -> List[MemoryQueryResult]:
+        """Return the top live semantic hits without starving behind tombstones.
+
+        ANN search applies the time window but cannot filter supersession because
+        ``superseded_by`` lives inside the serialized metadata column. Grow the
+        ANN window until we have enough live hits, the collection is exhausted,
+        or Milvus' per-query cap is reached. In the final pathological case,
+        scan matching rows once and rank the live subset client-side.
+        """
+        if n_results <= 0:
+            return []
+
+        fetch_n = max(1, min(n_results, _MILVUS_MAX_LIMIT))
+        while True:
+            hits = await self._run_search(query_embedding, time_filter, fetch_n)
+            ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
+            live = [
+                result
+                for result in ranked
+                if not (result.memory.metadata or {}).get("superseded_by")
+            ]
+
+            if len(live) >= n_results:
+                return live[:n_results]
+            if len(hits) < fetch_n:
+                return live[:n_results]
+            if fetch_n >= _MILVUS_MAX_LIMIT:
+                break
+            fetch_n = min(fetch_n * 2, _MILVUS_MAX_LIMIT)
+
+        # The fixed cap can still hide live rows behind a longer tombstone
+        # backlog. QueryIterator has no ANN limit, so use a bounded fallback
+        # scan and rank only live rows client-side.
+        rows = await self._iterate_all_rows(time_filter, include_embeddings=True)
+        hits: List[Dict[str, Any]] = []
+        for row in rows:
+            memory = self._entity_to_memory(row, include_embedding=True)
+            if memory is None or (memory.metadata or {}).get("superseded_by"):
+                continue
+            if not memory.embedding:
+                continue
+            similarity = self._cosine_similarity(query_embedding, memory.embedding)
+            hits.append({
+                "id": memory.content_hash,
+                "distance": max(0.0, min(1.0, similarity)),
+                **row,
+            })
+        ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
+        return ranked[:n_results]
+
+    async def _recall_active_time_window(
+        self,
+        time_filter: str,
+        n_results: int,
+    ) -> List[Memory]:
+        """Return newest live memories after excluding superseded rows first."""
+        if n_results <= 0:
+            return []
+
+        rows = await self._iterate_all_rows(time_filter)
+        memories = []
+        for row in rows:
+            memory = self._entity_to_memory(row)
+            if memory is None or (memory.metadata or {}).get("superseded_by"):
+                continue
+            memories.append(memory)
+        memories.sort(key=lambda memory: memory.created_at or 0.0, reverse=True)
+        return memories[:n_results]
 
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         return await self.get_all_memories(limit=n, offset=0)

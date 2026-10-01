@@ -66,6 +66,7 @@ def _entity(
     content: str,
     created_at: Optional[float] = None,
     tags: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     now = time.time()
     return {
@@ -73,7 +74,7 @@ def _entity(
         "content": content,
         "tags": tags,
         "memory_type": "note",
-        "metadata": json.dumps({}),
+        "metadata": json.dumps(metadata or {}),
         "created_at": created_at if created_at is not None else now,
         "updated_at": created_at if created_at is not None else now,
         "created_at_iso": None,
@@ -298,3 +299,75 @@ async def test_largest_memories_returns_memory_objects():
     result = await storage.get_largest_memories(n=1)
 
     assert isinstance(result[0], Memory)
+
+
+class TestRecallSupersededBacklog:
+    """recall() must filter superseded rows *before* applying the limit.
+
+    A fixed over-fetch multiple only moves the threshold: if the newest or
+    best-ranked ``k * n_results`` candidates are all superseded, the caller still
+    gets fewer results than requested — or none — while live memories sit beyond
+    that window. Both branches must keep scanning until they have n_results live
+    rows or the collection is genuinely exhausted.
+    """
+
+    N_RESULTS = 3
+    SUPERSEDED_TOTAL = 40  # greater than 3x, 4x and 8x of N_RESULTS
+
+    @pytest.mark.asyncio
+    async def test_semantic_recall_past_a_superseded_backlog(self):
+        storage = _make_storage()
+        superseded_total = self.SUPERSEDED_TOTAL
+        n_results = self.N_RESULTS
+
+        async def _run_search(embedding, filter_expr, fetch_n):
+            hits = []
+            for i in range(min(fetch_n, superseded_total)):
+                ent = _entity(
+                    f"stale-{i}", f"obsolete {i}", metadata={"superseded_by": "current"}
+                )
+                hits.append({"id": ent["id"], "distance": 0.9, "entity": ent, **ent})
+            if fetch_n > superseded_total:
+                for i in range(n_results):
+                    ent = _entity(f"live-{i}", f"live {i}")
+                    hits.append({"id": ent["id"], "distance": 0.1, "entity": ent, **ent})
+            return hits
+
+        storage._run_search = AsyncMock(side_effect=_run_search)
+
+        results = await storage.recall(query="probe", n_results=n_results)
+
+        assert [r.memory.content_hash for r in results] == [
+            "live-0",
+            "live-1",
+            "live-2",
+        ], "a superseded backlog longer than any fixed multiple starved the result"
+
+    @pytest.mark.asyncio
+    async def test_time_only_recall_past_a_superseded_backlog(self):
+        storage = _make_storage()
+        superseded_total = self.SUPERSEDED_TOTAL
+        n_results = self.N_RESULTS
+
+        # Newest rows are all superseded; the live ones are older.
+        rows = [
+            _entity(
+                f"stale-{i}",
+                f"obsolete {i}",
+                created_at=float(1000 - i),
+                metadata={"superseded_by": "current"},
+            )
+            for i in range(superseded_total)
+        ] + [
+            _entity(f"live-{i}", f"live {i}", created_at=float(500 - i))
+            for i in range(n_results)
+        ]
+        storage._iterate_all_rows = AsyncMock(return_value=rows)
+
+        results = await storage.recall(query=None, n_results=n_results)
+
+        assert [r.memory.content_hash for r in results] == [
+            "live-0",
+            "live-1",
+            "live-2",
+        ], "the time-only branch limited before filtering out superseded rows"
