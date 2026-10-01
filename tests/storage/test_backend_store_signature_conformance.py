@@ -63,6 +63,15 @@ STORE_CONTRACT_METHODS = [
     "count_all_memories",
     "search_memories",
     "delete_memories",
+    # Added with the HTTP store-scope work (#1106): web/api now passes store=
+    # to these as well. Milvus.retrieve was missing the keyword entirely, so a
+    # by-time search with a semantic query raised TypeError -> HTTP 500.
+    "retrieve",
+    "recall",
+    "get_by_hash",
+    "get_memory_timestamps",
+    "get_all_tags_with_counts",
+    "get_graph_visualization_data",
 ]
 
 # Methods that web/api/*.py calls on `storage` WITHOUT a hasattr guard, i.e.
