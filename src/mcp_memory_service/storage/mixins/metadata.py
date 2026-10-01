@@ -749,3 +749,61 @@ class MetadataMixin:
         except Exception as e:
             logger.error(f"get_memory_history error: {e}")
             return []
+
+    async def list_superseded_orphans(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """List live memories whose ``superseded_by`` points at a missing winner.
+
+        Diagnostic / read-only (bug #1352). A loser row is "orphaned" when its
+        ``superseded_by`` column references a winner that no longer exists as a
+        live row — because the winner was deleted or purged. Such losers stay
+        hidden from default retrieval (``superseded_by IS NULL`` filter) with no
+        surviving winner to point at, so they are invisible forever until the
+        column is cleared. This surfaces them; it does NOT modify anything.
+
+        A winner is "missing" when there is no row with that ``content_hash`` and
+        ``deleted_at IS NULL`` (absent entirely, or soft-deleted).
+
+        Returns a list of dicts: ``content_hash``, ``superseded_by`` (the dangling
+        winner hash), ``content`` (truncated), and ``created_at``.
+        """
+        try:
+            if not self.conn:
+                return []
+
+            def _query():
+                cursor = self.conn.execute(
+                    """
+                    SELECT loser.content_hash,
+                           loser.superseded_by,
+                           substr(loser.content, 1, 200),
+                           loser.created_at
+                    FROM memories AS loser
+                    WHERE loser.deleted_at IS NULL
+                      AND loser.superseded_by IS NOT NULL
+                      AND loser.superseded_by != ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM memories AS winner
+                          WHERE winner.content_hash = loser.superseded_by
+                            AND winner.deleted_at IS NULL
+                      )
+                    ORDER BY loser.created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_query)
+            return [
+                {
+                    "content_hash": r[0],
+                    "superseded_by": r[1],
+                    "content": r[2],
+                    "created_at": r[3],
+                }
+                for r in rows
+            ]
+
+        except Exception as e:
+            logger.error(f"list_superseded_orphans error: {e}")
+            return []
