@@ -28,6 +28,8 @@ tests/test_milvus_graph_entities.py.
 
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
@@ -242,46 +244,39 @@ class TestGraphVisualizationData:
 class TestGetTypeCounts:
 
     @pytest.mark.asyncio
-    async def test_groups_by_memory_type(self, monkeypatch):
+    async def test_groups_by_memory_type(self):
         storage = _make_storage()
-        monkeypatch.setattr(
-            storage, "_drain_memory_types",
-            lambda: [
+        storage._drain_rows = AsyncMock(return_value=[
                 {"id": "1", "memory_type": "note"},
                 {"id": "2", "memory_type": "note"},
                 {"id": "3", "memory_type": "decision"},
-            ],
-        )
+        ])
 
         result = await storage.get_type_counts()
 
         assert result == {"note": 2, "decision": 1}
 
     @pytest.mark.asyncio
-    async def test_missing_type_is_untyped(self, monkeypatch):
+    async def test_missing_type_is_untyped(self):
         storage = _make_storage()
-        monkeypatch.setattr(
-            storage, "_drain_memory_types",
-            lambda: [{"id": "1", "memory_type": None}, {"id": "2", "memory_type": ""}],
-        )
+        storage._drain_rows = AsyncMock(return_value=[
+            {"id": "1", "memory_type": None},
+            {"id": "2", "memory_type": ""},
+        ])
 
         assert await storage.get_type_counts() == {"untyped": 2}
 
     @pytest.mark.asyncio
-    async def test_soft_deleted_rows_are_not_counted(self, monkeypatch):
+    async def test_soft_deleted_rows_are_not_counted(self):
         storage = _make_storage()
-        monkeypatch.setattr(
-            storage,
-            "_drain_memory_types",
-            lambda: [
+        storage._drain_rows = AsyncMock(return_value=[
                 {"id": "1", "memory_type": "note", "metadata": "{}"},
                 {
                     "id": "2",
                     "memory_type": "note",
                     "metadata": '{"deleted_at": 123}',
                 },
-            ],
-        )
+        ])
 
         assert await storage.get_type_counts() == {"note": 1}
 
@@ -294,13 +289,13 @@ class TestUntaggedMemories:
     @pytest.mark.asyncio
     async def test_count_uses_server_side_filter(self):
         storage = _make_storage()
-        storage._drain_query_rows = MagicMock(return_value=[
+        storage._drain_rows = AsyncMock(return_value=[
             {"id": f"h{i}", "metadata": "{}"} for i in range(7)
         ])
 
         assert await storage.count_untagged_memories() == 7
 
-        args = storage._drain_query_rows.call_args.args
+        args = storage._drain_rows.await_args.args
         # Tags are stored with sentinel commas, so both forms mean "no tags".
         assert args[0] == 'tags == "" or tags == ","'
         assert args[1] == ["id", "metadata"]
@@ -308,7 +303,7 @@ class TestUntaggedMemories:
     @pytest.mark.asyncio
     async def test_count_excludes_soft_deleted_rows(self):
         storage = _make_storage()
-        storage._drain_query_rows = MagicMock(return_value=[
+        storage._drain_rows = AsyncMock(return_value=[
             {"id": "live", "metadata": "{}"},
             {"id": "deleted", "metadata": '{"deleted_at": 123}'},
         ])
@@ -318,7 +313,7 @@ class TestUntaggedMemories:
     @pytest.mark.asyncio
     async def test_count_returns_zero_on_error(self):
         storage = _make_storage()
-        storage._drain_query_rows = MagicMock(side_effect=RuntimeError("boom"))
+        storage._drain_rows = AsyncMock(side_effect=RuntimeError("boom"))
 
         assert await storage.count_untagged_memories() == 0
 
@@ -349,6 +344,57 @@ class TestUntaggedMemories:
         assert count == storage._GET_BY_ID_CHUNK + 1
         assert len(hashes) == count
         assert storage._call_client.await_count == 2
+
+
+class TestDrainRowsLock:
+
+    @pytest.mark.asyncio
+    async def test_full_iterator_scan_holds_write_lock(self):
+        storage = _make_storage()
+        storage._write_lock = asyncio.Lock()
+        storage._call_client = MilvusMemoryStorage._call_client.__get__(
+            storage, MilvusMemoryStorage,
+        )
+        scan_started = threading.Event()
+        release_scan = threading.Event()
+        delete_started = threading.Event()
+
+        class Iterator:
+            def __init__(self):
+                self.first = True
+
+            def next(self):
+                if self.first:
+                    self.first = False
+                    scan_started.set()
+                    assert release_scan.wait(timeout=3)
+                    return [{"id": "h1"}]
+                return []
+
+            def close(self):
+                pass
+
+        class Client:
+            def query_iterator(self, **_kwargs):
+                return Iterator()
+
+            def delete(self, **_kwargs):
+                delete_started.set()
+
+        storage.client = Client()
+
+        scan = asyncio.create_task(storage._drain_rows("", ["id"]))
+        assert await asyncio.to_thread(scan_started.wait, 3)
+        competitor = asyncio.create_task(storage._call_client(
+            "delete", collection_name=storage.collection_name, ids=["h1"],
+        ))
+        await asyncio.sleep(0.1)
+        assert not delete_started.is_set()
+
+        release_scan.set()
+        assert await scan == [{"id": "h1"}]
+        await competitor
+        assert delete_started.is_set()
 
 
 # -- update_memory_versioned --------------------------------------------------
@@ -437,12 +483,17 @@ class TestUpdateMemoryVersioned:
     @pytest.mark.asyncio
     async def test_failed_lineage_write_rolls_back_new_version(self):
         storage = _make_storage()
-        storage.get_by_hash = AsyncMock(return_value=_memory("oldhash", "v1"))
+        # The second lookup represents the old delete() cleanup path: Milvus
+        # Lite can acknowledge the store before the new row is visible, so the
+        # rollback must not depend on get_by_hash() seeing it.
+        storage.get_by_hash = AsyncMock(side_effect=[
+            _memory("oldhash", "v1"),
+            None,
+        ])
         storage.store = AsyncMock(return_value=(True, "ok"))
         storage.update_memory_metadata = AsyncMock(
             return_value=(False, "metadata upsert failed")
         )
-        storage.delete = AsyncMock(return_value=(True, "ok"))
 
         ok, message, new_hash = await storage.update_memory_versioned(
             "oldhash", "v2",
@@ -451,9 +502,30 @@ class TestUpdateMemoryVersioned:
         assert ok is False
         assert new_hash is None
         assert "Failed to link new version" in message
-        storage.delete.assert_awaited_once_with(
-            storage.store.await_args.args[0].content_hash
+        cleanup_hash = storage.store.await_args.args[0].content_hash
+        storage._call_client.assert_awaited_once_with(
+            "delete",
+            collection_name=storage.collection_name,
+            ids=[cleanup_hash],
         )
+
+    @pytest.mark.asyncio
+    async def test_rollback_failure_is_reported(self):
+        storage = _make_storage()
+        storage.get_by_hash = AsyncMock(return_value=_memory("oldhash", "v1"))
+        storage.store = AsyncMock(return_value=(True, "ok"))
+        storage.update_memory_metadata = AsyncMock(
+            return_value=(False, "metadata upsert failed")
+        )
+        storage._call_client = AsyncMock(side_effect=RuntimeError("delete unavailable"))
+
+        ok, message, new_hash = await storage.update_memory_versioned(
+            "oldhash", "v2",
+        )
+
+        assert ok is False
+        assert new_hash is None
+        assert "rollback may have left an orphan" in message
 
     @pytest.mark.asyncio
     async def test_already_superseded_memory_is_rejected(self):

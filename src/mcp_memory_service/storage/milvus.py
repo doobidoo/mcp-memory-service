@@ -1950,9 +1950,7 @@ class MilvusMemoryStorage(MemoryStorage):
         require_live: bool = False,
     ) -> List[str]:
         output_fields = ["id", "metadata"] if require_live else ["id"]
-        rows = await asyncio.to_thread(
-            self._drain_query_rows, filter_expr, output_fields,
-        )
+        rows = await self._drain_rows(filter_expr, output_fields)
         return [
             row["id"]
             for row in rows
@@ -2275,19 +2273,22 @@ class MilvusMemoryStorage(MemoryStorage):
                 meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
                 if reason:
                     meta_updates["metadata"]["evolution_reason"] = reason
-                linked, link_message = await self.update_memory_metadata(
-                    content_hash, meta_updates, preserve_timestamps=True,
-                )
+                try:
+                    linked, link_message = await self.update_memory_metadata(
+                        content_hash, meta_updates, preserve_timestamps=True,
+                    )
+                except Exception as link_exc:  # noqa: BLE001
+                    cleaned = await self._cleanup_unlinked_version(new_hash)
+                    message = f"Failed to link new version: {link_exc}"
+                    if not cleaned:
+                        message += "; rollback may have left an orphan"
+                    return False, message, None
                 if not linked:
-                    try:
-                        await self.delete(new_hash)
-                    except Exception as cleanup_exc:  # noqa: BLE001
-                        logger.error(
-                            "Failed to clean up unlinked version %s: %s",
-                            _sanitize_log_value(new_hash[:8]),
-                            _sanitize_log_value(cleanup_exc),
-                        )
-                    return False, f"Failed to link new version: {link_message}", None
+                    cleaned = await self._cleanup_unlinked_version(new_hash)
+                    message = f"Failed to link new version: {link_message}"
+                    if not cleaned:
+                        message += "; rollback may have left an orphan"
+                    return False, message, None
 
                 logger.info(
                     "Memory evolved: %s → %s",
@@ -2299,6 +2300,23 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(exc))
             return False, str(exc), None
+
+    async def _cleanup_unlinked_version(self, content_hash: str) -> bool:
+        """Delete a just-stored version without waiting for read visibility."""
+        try:
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to clean up unlinked version %s: %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return False
 
     async def update_memories_batch(
         self, memories: List[Memory], preserve_timestamps: bool = False
@@ -2927,9 +2945,7 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0
 
         try:
-            rows = await asyncio.to_thread(
-                self._drain_query_rows, _UNTAGGED_FILTER, ["id", "metadata"],
-            )
+            rows = await self._drain_rows(_UNTAGGED_FILTER, ["id", "metadata"])
             return sum(
                 1
                 for row in rows
@@ -2966,8 +2982,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return {}
 
         try:
-            rows = await asyncio.to_thread(
-                self._drain_memory_types,
+            rows = await self._drain_rows(
+                "", ["id", "memory_type", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_type_counts failed: %s", _sanitize_log_value(exc))
@@ -3024,9 +3040,19 @@ class MilvusMemoryStorage(MemoryStorage):
                 pass
         return rows
 
-    def _drain_memory_types(self) -> List[Dict[str, Any]]:
-        """Sync helper draining memory_type for every row via QueryIterator."""
-        return self._drain_query_rows("", ["id", "memory_type", "metadata"])
+    async def _drain_rows(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Hold the client lock for a full QueryIterator scan."""
+        lock = getattr(self, "_write_lock", None) or asyncio.Lock()
+        async with lock:
+            if self.client is None:
+                return []
+            return await asyncio.to_thread(
+                self._drain_query_rows, filter_expr, output_fields,
+            )
 
     async def is_deleted(self, content_hash: str) -> bool:
         """Check if a memory carries a soft-delete tombstone.
