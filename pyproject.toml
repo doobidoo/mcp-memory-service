@@ -75,6 +75,8 @@ dev = [
     "pytest-subtests>=0.10.0",
     "black>=26.3.1",
     "ruff>=0.1.0",
+    # Exercise the optional metrics contract paths in the default CI job.
+    "prometheus-client>=0.20.0,<1",
 ]
 # Optional Prometheus metrics endpoint. Disabled by default and imported lazily.
 metrics = [

@@ -71,9 +71,13 @@ ml = [
     "sentence-transformers>=2.2.2",
     "torch>=2.0.0"
 ]
-# Full installation (lite + ml)
+# Optional Prometheus metrics endpoint. Disabled by default and imported lazily.
+metrics = [
+    "prometheus-client>=0.20.0,<1"
+]
+# Full installation (lite + ml + metrics)
 full = [
-    "mcp-memory-service-lite[ml]"
+    "mcp-memory-service-lite[ml,metrics]"
 ]
 
 [project.scripts]

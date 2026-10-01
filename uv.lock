@@ -1423,6 +1423,7 @@ clustering = [
 ]
 dev = [
     { name = "black" },
+    { name = "prometheus-client" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
@@ -1437,6 +1438,7 @@ full = [
     { name = "onnxruntime", version = "1.23.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "onnxruntime", version = "1.24.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "onnxscript" },
+    { name = "prometheus-client" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
@@ -1526,6 +1528,7 @@ requires-dist = [
     { name = "onnxruntime", marker = "extra == 'nli'", specifier = ">=1.17.0" },
     { name = "onnxruntime", marker = "extra == 'sqlite'", specifier = ">=1.14.1" },
     { name = "onnxscript", marker = "extra == 'ml'", specifier = ">=0.1.0" },
+    { name = "prometheus-client", marker = "extra == 'dev'", specifier = ">=0.20.0,<1" },
     { name = "prometheus-client", marker = "extra == 'metrics'", specifier = ">=0.20.0,<1" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.12.0" },
