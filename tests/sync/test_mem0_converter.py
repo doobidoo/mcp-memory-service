@@ -51,7 +51,7 @@ def test_maps_real_mem0_fields_and_preserves_timestamps(tmp_path):
     assert first["tags"] == [
         "user:alice",
         "agent:agent-1",
-        "run:run-1",
+        "sys:mem0-run:run-1",
     ]
     assert first["metadata"]["agent_id"] == "agent-1"
     assert first["metadata"]["mem0_user_id"] == "alice"
@@ -59,6 +59,10 @@ def test_maps_real_mem0_fields_and_preserves_timestamps(tmp_path):
     assert first["metadata"]["mem0_run_id"] == "run-1"
     assert first["metadata"]["mem0_record_id"] == "point-1"
     assert first["metadata"]["topic"] == "preferences"
+    assert (
+        first["metadata"]["mem0_source_payload"]["text_lemmatized"]
+        == "user like dark mode"
+    )
 
 
 def test_accepts_platform_get_all_and_export_array_shapes(tmp_path):
@@ -99,6 +103,87 @@ def test_accepts_platform_get_all_and_export_array_shapes(tmp_path):
             "two",
             "three",
         }
+
+
+def test_preserves_fields_that_exist_only_in_source_payload(tmp_path):
+    input_path = tmp_path / "source-payload.json"
+    output_path = tmp_path / "source-payload-converted.json"
+    _write_json(
+        input_path,
+        [
+            {
+                "id": "m1",
+                "memory": "Keep payload fields",
+                "created_at": "2026-05-01T00:00:00Z",
+                "source_payload": {
+                    "data": "Keep payload fields",
+                    "text_lemmatized": "keep payload field",
+                },
+            }
+        ],
+    )
+
+    convert_mem0_export(input_path, output_path)
+
+    metadata = _read_json(output_path)["memories"][0]["metadata"]
+    assert metadata["mem0_source_payload"]["text_lemmatized"] == "keep payload field"
+
+
+def test_merges_duplicate_content_with_distinct_identities(tmp_path):
+    input_path = tmp_path / "duplicates.json"
+    output_path = tmp_path / "duplicates-converted.json"
+    _write_json(
+        input_path,
+        [
+            {
+                "id": "m1",
+                "memory": "Shared preference",
+                "created_at": "2026-05-01T00:00:00Z",
+                "user_id": "alice",
+                "agent_id": "agent-a",
+                "run_id": "run-a",
+            },
+            {
+                "id": "m2",
+                "memory": "Shared preference",
+                "created_at": "2026-05-02T00:00:00Z",
+                "user_id": "bob",
+                "agent_id": "agent-b",
+                "run_id": "run-b",
+            },
+        ],
+    )
+
+    result = convert_mem0_export(input_path, output_path)
+
+    assert result["converted"] == 1
+    memory = _read_json(output_path)["memories"][0]
+    assert {
+        "user:alice",
+        "user:bob",
+        "agent:agent-a",
+        "agent:agent-b",
+        "sys:mem0-run:run-a",
+        "sys:mem0-run:run-b",
+    } <= set(memory["tags"])
+    assert memory["metadata"]["mem0_record_id"] == ["m1", "m2"]
+    assert memory["metadata"]["mem0_user_id"] == ["alice", "bob"]
+    assert memory["metadata"]["agent_id"] == "agent-a"
+
+
+def test_uses_conversion_time_when_timestamp_is_missing(tmp_path):
+    input_path = tmp_path / "missing-time.json"
+    output_path = tmp_path / "missing-time-converted.json"
+    _write_json(input_path, [{"id": "m1", "memory": "No source timestamp"}])
+
+    before = datetime.now(timezone.utc).timestamp()
+    convert_mem0_export(input_path, output_path)
+    after = datetime.now(timezone.utc).timestamp()
+
+    memory = _read_json(output_path)["memories"][0]
+    assert before <= memory["created_at"] <= after
+    assert memory["updated_at"] == memory["created_at"]
+    assert memory["metadata"]["mem0_timestamp_source"] == "conversion_time"
 
 
 @pytest.mark.parametrize(
@@ -166,9 +251,12 @@ async def test_real_sqlite_vec_import_duplicate_and_authorship(temp_db_path, tmp
             memory for memory in memories if memory.content == "User likes dark mode"
         )
         assert first_memory.agent_id == "agent-1"
-        assert {"user:alice", "agent:agent-1", "run:run-1", "source:mem0"} <= set(
-            first_memory.tags
-        )
+        assert {
+            "user:alice",
+            "agent:agent-1",
+            "sys:mem0-run:run-1",
+            "source:mem0",
+        } <= set(first_memory.tags)
         assert first_memory.metadata["mem0_run_id"] == "run-1"
         assert (
             first_memory.created_at

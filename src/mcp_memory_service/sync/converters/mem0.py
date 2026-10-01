@@ -137,12 +137,15 @@ def _parse_record(
     timestamp_source = "record"
 
     if created_at_raw is None:
-        if fallback_timestamp is None:
-            raise Mem0ExportError(
-                f"Invalid mem0 record {index}: created_at is required"
-            )
-        created_at_raw = fallback_timestamp
-        timestamp_source = "exported_at"
+        if updated_at_raw is not None:
+            created_at_raw = updated_at_raw
+            timestamp_source = "updated_at"
+        elif fallback_timestamp is not None:
+            created_at_raw = fallback_timestamp
+            timestamp_source = "exported_at"
+        else:
+            created_at_raw = datetime.now(timezone.utc).timestamp()
+            timestamp_source = "conversion_time"
 
     created_at = _parse_timestamp(created_at_raw, field="created_at", index=index)
     updated_at = (
@@ -161,7 +164,7 @@ def _parse_record(
     if agent_id:
         tags.append(f"agent:{agent_id}")
     if run_id:
-        tags.append(f"run:{run_id}")
+        tags.append(f"sys:mem0-run:{run_id}")
 
     source_metadata = record.get("metadata", {})
     if source_metadata is None:
@@ -171,6 +174,8 @@ def _parse_record(
             f"Invalid mem0 record {index}: metadata must be an object"
         )
     metadata = dict(source_metadata)
+    if source_payload:
+        metadata["mem0_source_payload"] = dict(source_payload)
 
     metadata_fields = {
         "mem0_record_id": record.get("id"),
@@ -190,7 +195,7 @@ def _parse_record(
     categories = _record_value(record, source_payload, "categories")
     if categories is not None:
         metadata["mem0_categories"] = categories
-    if timestamp_source == "exported_at":
+    if timestamp_source != "record":
         metadata["mem0_timestamp_source"] = timestamp_source
 
     if agent_id:
@@ -206,6 +211,48 @@ def _parse_record(
         "memory_type": record.get("memory_type", "note"),
         "metadata": metadata,
     }
+
+
+def _merge_metadata(target: dict[str, Any], source: Mapping[str, Any]) -> None:
+    """Merge duplicate-record metadata without dropping conflicting values."""
+    for key, value in source.items():
+        if key not in target:
+            target[key] = value
+            continue
+
+        current = target[key]
+        if current == value or key == "agent_id":
+            # Keep the first canonical author; agent tags retain every identity.
+            continue
+
+        if not isinstance(current, list):
+            current = [current]
+        if value not in current:
+            current.append(value)
+        target[key] = current
+
+
+def _merge_duplicate_content(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse content-hash collisions while retaining every mem0 identity."""
+    merged: list[dict[str, Any]] = []
+    by_content_hash: dict[str, dict[str, Any]] = {}
+
+    for memory in memories:
+        content_hash = memory["content_hash"]
+        existing = by_content_hash.get(content_hash)
+        if existing is None:
+            by_content_hash[content_hash] = memory
+            merged.append(memory)
+            continue
+
+        for tag in memory["tags"]:
+            if tag not in existing["tags"]:
+                existing["tags"].append(tag)
+        _merge_metadata(existing["metadata"], memory["metadata"])
+        existing["created_at"] = min(existing["created_at"], memory["created_at"])
+        existing["updated_at"] = max(existing["updated_at"], memory["updated_at"])
+
+    return merged
 
 
 def _normalize_exported_at(value: Any, fallback: Any) -> float | None:
@@ -233,10 +280,12 @@ def convert_mem0_export(input_path: Path, output_path: Path) -> dict[str, Any]:
         source_metadata.get("exported_at"),
         payload.get("exported_at") if isinstance(payload, dict) else None,
     )
-    memories = [
-        _parse_record(record, index, fallback_timestamp)
-        for index, record in enumerate(records)
-    ]
+    memories = _merge_duplicate_content(
+        [
+            _parse_record(record, index, fallback_timestamp)
+            for index, record in enumerate(records)
+        ]
+    )
 
     output = {
         "export_metadata": {
