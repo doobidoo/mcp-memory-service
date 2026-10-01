@@ -231,3 +231,47 @@ def test_list_memories_tag_match_any_vs_all_different_results(test_app):
     # ANY should return more results than ALL
     assert any_total > all_total
     assert all_total >= 1
+
+
+@pytest.mark.integration
+def test_http_store_scope_memory_search_tags_and_analytics(test_app):
+    home = "Home store alpha memory about the garden"
+    work = "Work store beta memory about the roadmap"
+    for content, store, tag in ((home, "home", "home-only"), (work, "work", "work-only")):
+        response = test_app.post(
+            "/api/memories",
+            json={"content": content, "tags": [tag], "store": store},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["success"] is True, response.text
+
+    listed = test_app.get("/api/memories", params={"store": "home"}).json()
+    assert listed["total"] == 1
+    assert [memory["content"] for memory in listed["memories"]] == [home]
+    assert test_app.get("/api/memories").json()["total"] == 0
+
+    searched = test_app.post(
+        "/api/search",
+        json={"query": home, "n_results": 10, "store": "home"},
+    )
+    assert searched.status_code == 200, searched.text
+    assert {result["memory"]["content"] for result in searched.json()["results"]} == {home}
+    assert test_app.post("/api/search", json={"query": home}).json()["results"] == []
+
+    tags = test_app.get("/api/tags", params={"store": "home"}).json()["tags"]
+    assert tags == [{"tag": "home-only", "count": 1}]
+    assert test_app.get("/api/tags").json()["tags"] == []
+
+    home_types = test_app.get("/api/analytics/memory-types", params={"store": "home"}).json()
+    assert home_types["total_memories"] == 1
+    assert test_app.get("/api/analytics/memory-types").json()["total_memories"] == 0
+    all_types = test_app.get("/api/analytics/memory-types", params={"store": "all"}).json()
+    assert all_types["total_memories"] == 2
+
+    stats = test_app.get("/api/analytics/storage-stats", params={"store": "home"}).json()
+    previews = [item["preview"] for item in stats["largest_memories"]]
+    assert previews and all("Home store" in preview for preview in previews)
+    all_stats = test_app.get("/api/analytics/storage-stats", params={"store": "all"}).json()
+    all_previews = [item["preview"] for item in all_stats["largest_memories"]]
+    assert any("Home store" in preview for preview in all_previews)
+    assert any("Work store" in preview for preview in all_previews)

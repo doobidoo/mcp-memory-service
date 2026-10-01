@@ -18,6 +18,7 @@ Memory CRUD endpoints for the HTTP interface.
 
 import logging
 import socket
+from collections import Counter
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
@@ -30,6 +31,7 @@ from ...services.memory_service import MemoryService
 from ...config import INCLUDE_HOSTNAME
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
+from .store_scope import resolve_store
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
 
 # OAuth authentication imports
@@ -48,6 +50,7 @@ class MemoryCreateRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default={}, description="Additional metadata for the memory")
     client_hostname: Optional[str] = Field(None, description="Client machine hostname for source tracking")
     conversation_id: Optional[str] = Field(None, description="Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar.")
+    store: str = Field("default", description="Target store partition (default: 'default'). Use 'all' only for read scopes.")
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -164,6 +167,12 @@ async def store_memory(
             if agent_tag not in tags:
                 tags.append(agent_tag)
 
+        if request.store == "all":
+            raise HTTPException(
+                status_code=400,
+                detail="store='all' is only valid for read scopes",
+            )
+
         # Use injected MemoryService for consistent business logic (hostname tagging handled internally)
         result = await memory_service.store_memory(
             content=request.content,
@@ -172,6 +181,7 @@ async def store_memory(
             metadata=request.metadata,
             client_hostname=client_hostname,
             conversation_id=request.conversation_id,
+            store=request.store,
         )
 
         if result["success"]:
@@ -258,6 +268,7 @@ async def list_memories(
     tag: Optional[str] = Query(None, description="Filter by tag"),
     memory_type: Optional[str] = Query(None, description="Filter by memory type"),
     tag_match: Optional[str] = Query("any", description="Tag matching mode: 'any' (OR) or 'all' (AND)"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -276,7 +287,8 @@ async def list_memories(
             page_size=page_size,
             tags=tags_list,
             memory_type=memory_type,
-            tag_match=tag_match
+            tag_match=tag_match,
+            store=resolve_store(store),
         )
 
         return MemoryListResponse(
@@ -419,6 +431,7 @@ async def update_memory(
 
 @router.get("/tags", response_model=TagListResponse, tags=["tags"])
 async def get_tags(
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -429,8 +442,24 @@ async def get_tags(
     sorted by count in descending order.
     """
     try:
-        # Get tags with counts from storage
-        tag_data = await storage.get_all_tags_with_counts()
+        # Get tags with counts from storage. The storage-wide tag query is
+        # useful for the legacy all-store view; scoped reads must derive counts
+        # from the same filtered memory set as list/search.
+        scope = resolve_store(store)
+        if scope is None:
+            tag_data = await storage.get_all_tags_with_counts()
+        else:
+            memories = await storage.get_all_memories(store=scope)
+            tag_counts = Counter(
+                tag
+                for memory in memories
+                for tag in (memory.tags or [])
+                if tag
+            )
+            tag_data = [
+                {"tag": tag, "count": count}
+                for tag, count in sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))
+            ]
 
         # Convert to response format
         tags = [TagResponse(tag=item["tag"], count=item["count"]) for item in tag_data]
@@ -456,6 +485,7 @@ class SessionCreateRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Stable session identifier; auto-generated UUID if omitted")
     tags: List[str] = Field(default=[], description="Additional tags. 'session:<id>' is always added automatically.")
     metadata: Dict[str, Any] = Field(default={}, description="Optional extra metadata")
+    store: str = Field("default", description="Target store partition (default: 'default'). Use 'all' only for read scopes.")
 
 
 class SessionCreateResponse(BaseModel):
@@ -484,6 +514,12 @@ async def store_session(
     if not lines:
         raise HTTPException(status_code=422, detail="All turns have empty content")
 
+    if request.store == "all":
+        raise HTTPException(
+            status_code=400,
+            detail="store='all' is only valid for read scopes",
+        )
+
     content = "\n".join(lines)
     tags = [f"session:{session_id}"] + request.tags
 
@@ -493,6 +529,7 @@ async def store_session(
             tags=tags,
             memory_type="session",
             metadata=request.metadata,
+            store=request.store,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Storage error: {str(e)}")
