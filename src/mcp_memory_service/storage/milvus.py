@@ -3115,7 +3115,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 nth_newest = min(
                     memory.created_at or 0.0 for memory in candidates.values()
                 )
-                if range_end < nth_newest:
+                if range_end <= nth_newest:
                     continue
 
             range_filter = self._time_window_filter(range_start, range_end)
@@ -3124,6 +3124,35 @@ class MilvusMemoryStorage(MemoryStorage):
 
             if len(memories) < batch_size:
                 continue
+
+            timestamps = {memory.created_at or 0.0 for memory in memories}
+            if len(timestamps) == 1:
+                timestamp = timestamps.pop()
+                older_end = math.nextafter(timestamp, float("-inf"))
+                newer_start = math.nextafter(timestamp, float("inf"))
+                if range_start <= older_end:
+                    heapq.heappush(intervals, (-older_end, range_start, older_end))
+                if newer_start <= range_end:
+                    heapq.heappush(intervals, (-range_end, newer_start, range_end))
+
+                exact_filter = self._time_window_filter(timestamp, timestamp)
+                exact_limit = batch_size
+                while True:
+                    exact = await self._query_time_window(exact_filter, exact_limit)
+                    remember_live(exact)
+                    if len(exact) < exact_limit or exact_limit >= _MILVUS_MAX_LIMIT:
+                        break
+                    exact_limit = min(exact_limit * 2, _MILVUS_MAX_LIMIT)
+                if exact_limit >= _MILVUS_MAX_LIMIT and len(exact) == exact_limit:
+                    rows = await self._iterate_all_rows(exact_filter)
+                    fallback_memories = []
+                    for row in rows:
+                        memory = self._entity_to_memory(row)
+                        if memory is not None:
+                            fallback_memories.append(memory)
+                    remember_live(fallback_memories)
+                continue
+
             if range_end - range_start <= 1e-6:
                 if len(candidates) >= n_results:
                     continue

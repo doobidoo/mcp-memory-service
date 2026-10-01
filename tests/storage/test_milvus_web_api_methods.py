@@ -437,3 +437,59 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ], "the time-only branch limited before filtering out superseded rows"
+
+    @pytest.mark.asyncio
+    async def test_time_only_recall_handles_dense_superseded_timestamp(self):
+        storage = _make_storage()
+        n_results = self.N_RESULTS
+        memories = [
+            Memory(
+                content=f"obsolete {i}",
+                content_hash=f"stale-{i}",
+                metadata={"superseded_by": "current"},
+                created_at=1000.0,
+            )
+            for i in range(100)
+        ] + [
+            Memory(
+                content=f"live {i}",
+                content_hash=f"live-{i}",
+                created_at=float(500 - i),
+            )
+            for i in range(n_results)
+        ]
+        exact_calls = 0
+
+        async def _query_window(filter_expr, limit):
+            nonlocal exact_calls
+            bounds = [
+                float(value)
+                for value in re.findall(
+                    r"created_at [<>=]+ ([0-9.eE+-]+)", filter_expr
+                )
+            ]
+            lower, upper = min(bounds), max(bounds)
+            if lower == upper == 1000.0:
+                exact_calls += 1
+            matches = [
+                memory
+                for memory in memories
+                if lower <= (memory.created_at or 0.0) <= upper
+            ]
+            return matches[:limit] if len(matches) > limit else matches
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._iterate_all_rows = AsyncMock(
+            side_effect=AssertionError("same-timestamp backlog must not full-scan")
+        )
+
+        results = await storage.recall(
+            start_timestamp=0.0, end_timestamp=1000.0, n_results=n_results
+        )
+
+        assert [result.memory.content_hash for result in results] == [
+            "live-0",
+            "live-1",
+            "live-2",
+        ]
+        assert exact_calls <= 2, "dense timestamp should be resolved without recursive splits"
