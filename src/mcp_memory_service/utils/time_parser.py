@@ -101,6 +101,62 @@ def _resolve_yearless_date(
             return candidate
     return None
 
+_YEARLESS_MD = re.compile(r"^(\d{1,2})[/-](\d{1,2})$")
+
+
+def _anchor_yearless_range(
+    start_expr: str,
+    end_expr: str,
+    start_ts: Optional[float],
+    end_ts: Optional[float],
+) -> Tuple[Optional[float], Optional[float]]:
+    """Keep a yearless ``between M/D and M/D`` range in one annual window.
+
+    Independent rollback of both sides can invert a range ("between 1/31
+    and 12/25" in September) or stretch it across extra years ("between
+    2/29 and 12/25": Feb 29 walks back to the previous leap year while
+    the end stays in its own most recent occurrence). Anchor both ends on
+    the end's window instead: a same-year window starts in the end's
+    year, a cross-year window the year before, and when the start
+    month/day does not exist there (Feb 29 in a non-leap year) the whole
+    window moves back to the year where it does (issue #1347).
+
+    Sides that are not a bare yearless month/day (explicit years, month
+    names, relative expressions) keep the original behavior: only the
+    inverted-yearless-start re-anchor applies to them.
+    """
+    if start_ts is None or end_ts is None:
+        return start_ts, end_ts
+    start_match = _YEARLESS_MD.match(start_expr.strip().lower())
+    end_match = _YEARLESS_MD.match(end_expr.strip().lower())
+    if start_match is None or end_match is None:
+        if start_ts > end_ts:
+            end_year = datetime.fromtimestamp(end_ts).year
+            reanchored_ts, _ = parse_time_expression(start_expr, base_year=end_year)
+            if reanchored_ts is not None and reanchored_ts <= end_ts:
+                start_ts = reanchored_ts
+        return start_ts, end_ts
+    sm, sd = int(start_match.group(1)), int(start_match.group(2))
+    em, ed = int(end_match.group(1)), int(end_match.group(2))
+    today = date.today()
+    end_year = datetime.fromtimestamp(end_ts).year
+    cross_year = (sm, sd) > (em, ed)
+    start = _resolve_yearless_date(
+        sm, sd, today, end_year - 1 if cross_year else end_year
+    )
+    if start is None:
+        return start_ts, end_ts
+    end = _resolve_yearless_date(
+        em, ed, today, start.year + 1 if cross_year else start.year
+    )
+    if end is None or end < start:
+        return start_ts, end_ts
+    return (
+        datetime.combine(start, time.min).timestamp(),
+        datetime.combine(end, time.max).timestamp(),
+    )
+
+
 def _calculate_season_date_range(
     period: str,
     season_info: Dict[str, int],
@@ -169,14 +225,11 @@ def parse_time_expression(
             end_expr = date_range_match.group(2)
             start_ts, _ = parse_time_expression(start_expr)
             _, end_ts = parse_time_expression(end_expr)
-            # Independent rollback can invert a yearless range ("between 1/31
-            # and 12/25" in September): re-anchor the start to the end's year
-            # so the span keeps its order inside one calendar year.
-            if start_ts is not None and end_ts is not None and start_ts > end_ts:
-                end_year = datetime.fromtimestamp(end_ts).year
-                reanchored_ts, _ = parse_time_expression(start_expr, base_year=end_year)
-                if reanchored_ts is not None and reanchored_ts <= end_ts:
-                    start_ts = reanchored_ts
+            # Both sides roll back independently; keep the result inside
+            # one annual window (see _anchor_yearless_range).
+            start_ts, end_ts = _anchor_yearless_range(
+                start_expr, end_expr, start_ts, end_ts
+            )
             return start_ts, end_ts
         
         # Check for full ISO dates (YYYY-MM-DD) FIRST

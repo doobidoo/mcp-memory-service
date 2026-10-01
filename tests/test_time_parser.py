@@ -394,6 +394,54 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).date() == date(2025, 1, 31)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2025, 12, 25)  # noqa: DTZ006
 
+    @pytest.mark.parametrize(
+        ("query", "expected_start", "expected_end"),
+        [
+            # Feb 29 start walks back to 2024; the end must follow into the
+            # same annual window instead of staying at its own 2025 rollback.
+            ("between 2/29 and 12/25", date(2024, 2, 29), date(2024, 12, 25)),
+            # Cross-year window starting on Feb 29: 2025 has no Feb 29, so
+            # the last complete window is 2024-02-29 through 2025-01-31.
+            ("between 2/29 and 1/31", date(2024, 2, 29), date(2025, 1, 31)),
+            # Cross-year window ending on Feb 29: last complete occurrence
+            # starts in 2023, not an inverted 2025 -> 2024 span.
+            ("between 12/25 and 2/29", date(2023, 12, 25), date(2024, 2, 29)),
+            # Cross-year window whose 2026 occurrence is not complete yet
+            # (checked with its own frozen date below).
+        ],
+    )
+    def test_between_leap_day_ranges_stay_in_one_annual_window(
+        self, monkeypatch, query, expected_start, expected_end
+    ):
+        """A yearless range with Feb 29 keeps both ends in one annual window."""
+        _freeze_clock(monkeypatch, date(2026, 9, 25))
+
+        start_ts, end_ts = parse_time_expression(query)
+
+        assert start_ts is not None and end_ts is not None
+        assert datetime.fromtimestamp(start_ts).date() == expected_start  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == expected_end  # noqa: DTZ006
+
+    def test_between_leap_day_range_after_window_year(self, monkeypatch):
+        """`between 2/29 and 12/25` in 2027 still picks the 2024 window."""
+        _freeze_clock(monkeypatch, date(2027, 6, 15))
+
+        start_ts, end_ts = parse_time_expression("between 2/29 and 12/25")
+
+        assert start_ts is not None and end_ts is not None
+        assert datetime.fromtimestamp(start_ts).date() == date(2024, 2, 29)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2024, 12, 25)  # noqa: DTZ006
+
+    def test_between_cross_year_range_before_window_completes(self, monkeypatch):
+        """`between 12/25 and 3/1` in January uses the last completed window."""
+        _freeze_clock(monkeypatch, date(2026, 1, 10))
+
+        start_ts, end_ts = parse_time_expression("between 12/25 and 3/1")
+
+        assert start_ts is not None and end_ts is not None
+        assert datetime.fromtimestamp(start_ts).date() == date(2024, 12, 25)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2025, 3, 1)  # noqa: DTZ006
+
     def test_explicit_quarter_year_without_of_is_respected(self, monkeypatch):
         """`4th quarter 2026` keeps the explicit year even before Q4 starts."""
         _freeze_clock(monkeypatch, date(2026, 9, 25))
