@@ -1617,6 +1617,7 @@ class MilvusMemoryStorage(MemoryStorage):
         include_superseded: bool = False,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         logger.debug("retrieve() entry — self.client is None: %r", self.client is None)
         if not self._ensure_initialized():

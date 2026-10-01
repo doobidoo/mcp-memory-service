@@ -398,6 +398,14 @@ async def time_search(
                 end_time=end_ts,
                 store=scope,
             )
+            # Defensive: sqlite-vec and hybrid apply the window in storage, but a
+            # backend may accept start_time/end_time without using them, so an
+            # out-of-range memory could still surface here.
+            query_results = [
+                result for result in query_results
+                if (start_ts is None or (result.memory.created_at or 0) >= start_ts)
+                and (end_ts is None or (result.memory.created_at or 0) <= end_ts)
+            ]
         else:
             # Time-only search: storage applies the date window, the store scope
             # and the limit in one query instead of loading the entire partition.

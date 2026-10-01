@@ -110,7 +110,7 @@ class MemoryStorage(ABC):
         return final_results
     
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
 
         Args:

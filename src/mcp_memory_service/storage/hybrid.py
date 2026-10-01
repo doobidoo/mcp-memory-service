@@ -1501,7 +1501,16 @@ class HybridMemoryStorage(MemoryStorage):
 
     async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default") -> List[MemoryQueryResult]:
         """Retrieve memories from primary storage (fast)."""
-        return await self.primary.retrieve(query, n_results, tags, min_confidence=min_confidence, include_superseded=include_superseded, store=store)
+        return await self.primary.retrieve(
+            query,
+            n_results,
+            tags,
+            min_confidence=min_confidence,
+            include_superseded=include_superseded,
+            start_time=start_time,
+            end_time=end_time,
+            store=store,
+        )
 
     async def search(self, query: str, n_results: int = 5, min_similarity: float = 0.0) -> List[MemoryQueryResult]:
         """Search memories in primary storage."""
