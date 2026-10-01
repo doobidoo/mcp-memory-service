@@ -104,12 +104,30 @@ class MetadataMixin:
 
             protected_fields = {
                 "content", "content_hash", "tags", "memory_type", "metadata",
-                "embedding", "created_at", "created_at_iso", "updated_at", "updated_at_iso"
+                "embedding", "created_at", "created_at_iso", "updated_at", "updated_at_iso",
+                "superseded_by"
             }
 
             for key, value in updates.items():
                 if key not in protected_fields:
                     new_metadata[key] = value
+
+            # superseded_by column update (fix for bug #1352).
+            # Only touch the column when the caller explicitly asks: reading the
+            # current value and rewriting it on every unrelated update would race
+            # with mark_superseded_batch()/resolve_conflict() and silently undo a
+            # supersession recorded between our read and write (Greptile P1).
+            update_superseded_by = "superseded_by" in updates
+            if update_superseded_by:
+                new_superseded_by = updates["superseded_by"]
+                if new_superseded_by == "":          # empty string clears the column
+                    new_superseded_by = None
+                # Reconcile the legacy JSON value so an export or a JSON-reading
+                # backend does not keep hiding the memory after the column changes.
+                if new_superseded_by is None:
+                    new_metadata.pop("superseded_by", None)
+                else:
+                    new_metadata["superseded_by"] = new_superseded_by
 
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
@@ -128,24 +146,23 @@ class MetadataMixin:
                 updated_at_iso = now_iso
 
             def _do_update():
+                set_clauses = [
+                    "tags = ?", "memory_type = ?", "metadata = ?",
+                    "updated_at = ?", "updated_at_iso = ?",
+                    "created_at = ?", "created_at_iso = ?",
+                ]
+                params = [
+                    new_tags, new_type, json.dumps(new_metadata),
+                    updated_at, updated_at_iso, created_at, created_at_iso,
+                ]
+                if update_superseded_by:
+                    set_clauses.append("superseded_by = ?")
+                    params.append(new_superseded_by)
+                params.append(content_hash)
                 self.conn.execute(
-                    """
-                    UPDATE memories SET
-                        tags = ?, memory_type = ?, metadata = ?,
-                        updated_at = ?, updated_at_iso = ?,
-                        created_at = ?, created_at_iso = ?
-                    WHERE content_hash = ? AND deleted_at IS NULL
-                """,
-                    (
-                        new_tags,
-                        new_type,
-                        json.dumps(new_metadata),
-                        updated_at,
-                        updated_at_iso,
-                        created_at,
-                        created_at_iso,
-                        content_hash,
-                    ),
+                    f"UPDATE memories SET {', '.join(set_clauses)} "
+                    "WHERE content_hash = ? AND deleted_at IS NULL",
+                    tuple(params),
                 )
                 self.conn.commit()
 
@@ -158,9 +175,11 @@ class MetadataMixin:
                 updated_fields.append("memory_type")
             if "metadata" in updates:
                 updated_fields.append("custom_metadata")
+            if "superseded_by" in updates:
+                updated_fields.append("superseded_by")
 
             for key in updates.keys():
-                if key not in protected_fields and key not in ["tags", "memory_type", "metadata"]:
+                if key not in protected_fields and key not in ["tags", "memory_type", "metadata", "superseded_by"]:
                     updated_fields.append(key)
 
             updated_fields.append("updated_at")
@@ -729,4 +748,62 @@ class MetadataMixin:
 
         except Exception as e:
             logger.error(f"get_memory_history error: {e}")
+            return []
+
+    async def list_superseded_orphans(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """List live memories whose ``superseded_by`` points at a missing winner.
+
+        Diagnostic / read-only (bug #1352). A loser row is "orphaned" when its
+        ``superseded_by`` column references a winner that no longer exists as a
+        live row — because the winner was deleted or purged. Such losers stay
+        hidden from default retrieval (``superseded_by IS NULL`` filter) with no
+        surviving winner to point at, so they are invisible forever until the
+        column is cleared. This surfaces them; it does NOT modify anything.
+
+        A winner is "missing" when there is no row with that ``content_hash`` and
+        ``deleted_at IS NULL`` (absent entirely, or soft-deleted).
+
+        Returns a list of dicts: ``content_hash``, ``superseded_by`` (the dangling
+        winner hash), ``content`` (truncated), and ``created_at``.
+        """
+        try:
+            if not self.conn:
+                return []
+
+            def _query():
+                cursor = self.conn.execute(
+                    """
+                    SELECT loser.content_hash,
+                           loser.superseded_by,
+                           substr(loser.content, 1, 200),
+                           loser.created_at
+                    FROM memories AS loser
+                    WHERE loser.deleted_at IS NULL
+                      AND loser.superseded_by IS NOT NULL
+                      AND loser.superseded_by != ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM memories AS winner
+                          WHERE winner.content_hash = loser.superseded_by
+                            AND winner.deleted_at IS NULL
+                      )
+                    ORDER BY loser.created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                return cursor.fetchall()
+
+            rows = await self._execute_with_retry(_query)
+            return [
+                {
+                    "content_hash": r[0],
+                    "superseded_by": r[1],
+                    "content": r[2],
+                    "created_at": r[3],
+                }
+                for r in rows
+            ]
+
+        except Exception as e:
+            logger.error(f"list_superseded_orphans error: {e}")
             return []
