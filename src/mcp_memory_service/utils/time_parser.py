@@ -161,17 +161,22 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         # Check for specific dates (MM/DD/YYYY)
         specific_date_match = PATTERNS["specific_date"].search(query)
         if specific_date_match:
-            month, day, year = specific_date_match.groups()
+            month, day, year_str = specific_date_match.groups()
             month = int(month)
             day = int(day)
+            year_given = year_str is not None
             current_year = datetime.now().year
-            year = int(year) if year else current_year
+            year = int(year_str) if year_given else current_year
             # Handle 2-digit years
-            if year and year < 100:
+            if year_given and year < 100:
                 year = 2000 + year if year < 50 else 1900 + year
-                
+
             try:
                 specific_date = date(year, month, day)
+                # A yearless date still ahead this year refers to its most
+                # recent (past) occurrence, same rule as holidays and seasons.
+                if not year_given and specific_date > date.today():
+                    specific_date = date(year - 1, month, day)
                 start_dt = datetime.combine(specific_date, time.min)
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
@@ -302,14 +307,18 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
         if quarter_match:
             quarter = quarter_match.group(1).lower()
             year_str = quarter_match.group(2)
-            year = int(year_str) if year_str else datetime.now().year
-            
+            year_given = year_str is not None
+            year = int(year_str) if year_given else datetime.now().year
+
             # Map textual quarter to number
-            quarter_num = {"first": 1, "1st": 1, "second": 2, "2nd": 2, 
+            quarter_num = {"first": 1, "1st": 1, "second": 2, "2nd": 2,
                           "third": 3, "3rd": 3, "fourth": 4, "4th": 4}[quarter]
-            
-            # Calculate quarter start and end dates
+
+            # A yearless quarter that has not started yet this year refers to
+            # its most recent (past) occurrence, same rule as holidays/seasons.
             quarter_month = (quarter_num - 1) * 3 + 1
+            if not year_given and date(year, quarter_month, 1) > date.today():
+                year -= 1
             start_dt = datetime(year, quarter_month, 1, 0, 0, 0)
             
             if quarter_month + 3 > 12:

@@ -251,6 +251,102 @@ class TestTimeParser:
         assert end_dt.year == 2024
         assert end_dt.month == 3
         assert end_dt.day == 31
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            # Yearless dates still ahead this year resolve to last year's.
+            ("12/25", date(2025, 12, 25)),
+            ("10-01", date(2025, 10, 1)),
+            # Dates already behind us this year resolve to this year's.
+            ("1/31", date(2026, 1, 31)),
+            ("9/25", date(2026, 9, 25)),
+            # Explicit years are respected even when they are in the future.
+            ("12/25/2026", date(2026, 12, 25)),
+            ("12/25/26", date(2026, 12, 25)),
+        ],
+    )
+    def test_yearless_dates_are_most_recent_occurrences(
+        self, monkeypatch, query, expected
+    ):
+        """A yearless date never selects a future window (issue #1347)."""
+        today = date(2026, 9, 25)
+
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return cls.fromordinal(today.toordinal())
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(today.year, today.month, today.day, 12, tzinfo=tz)
+
+        monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+        monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+        start_ts, _ = parse_time_expression(query)
+
+        assert datetime.fromtimestamp(start_ts).date() == expected  # noqa: DTZ006
+
+    @pytest.mark.parametrize(
+        ("query", "expected_start", "expected_end"),
+        [
+            # A yearless quarter that has not started yet resolves to last year's.
+            ("fourth quarter", date(2025, 10, 1), date(2025, 12, 31)),
+            ("4th quarter", date(2025, 10, 1), date(2025, 12, 31)),
+            # Quarters started or completed this year resolve to this year's.
+            ("2nd quarter", date(2026, 4, 1), date(2026, 6, 30)),
+            ("third quarter", date(2026, 7, 1), date(2026, 9, 30)),
+            # Explicit years are respected even when they are in the future.
+            ("first quarter of 2027", date(2027, 1, 1), date(2027, 3, 31)),
+        ],
+    )
+    def test_yearless_quarters_are_most_recent_occurrences(
+        self, monkeypatch, query, expected_start, expected_end
+    ):
+        """A yearless quarter never selects a future window (issue #1347)."""
+        today = date(2026, 9, 25)
+
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return cls.fromordinal(today.toordinal())
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(today.year, today.month, today.day, 12, tzinfo=tz)
+
+        monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+        monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+        start_ts, end_ts = parse_time_expression(query)
+
+        assert datetime.fromtimestamp(start_ts).date() == expected_start  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == expected_end  # noqa: DTZ006
+
+    def test_cross_year_date_range_is_not_inverted(self, monkeypatch):
+        """'between 12/1 and 1/31' spans last December into this January (issue #1347)."""
+        today = date(2026, 9, 25)
+
+        class FixedDate(date):
+            @classmethod
+            def today(cls):
+                return cls.fromordinal(today.toordinal())
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(today.year, today.month, today.day, 12, tzinfo=tz)
+
+        monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+        monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+        start_ts, end_ts = parse_time_expression("between 12/1 and 1/31")
+
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 12, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 1, 31)  # noqa: DTZ006
     
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
