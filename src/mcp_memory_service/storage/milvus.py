@@ -95,6 +95,7 @@ from .shared import (
     _safe_json_loads,
 )
 from ..models.memory import Memory, MemoryQueryResult
+from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,9 @@ _ID_MAX_LEN = 128
 
 # Milvus per-call limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
+
+# Structurally empty tag encodings used by the storage schema.
+_UNTAGGED_FILTER = 'tags == "" or tags == ","'
 
 # Reciprocal Rank Fusion smoothing constant for hybrid search.
 # k=60 is the standard default from the RRF paper (Cormack et al., 2009).
@@ -157,6 +161,22 @@ class MilvusMemoryStorage(MemoryStorage):
     @property
     def supports_chunking(self) -> bool:
         return True
+
+    @property
+    def lite_db_path(self) -> Optional[str]:
+        """Local Milvus Lite file backing this store, or None if remote.
+
+        Deliberately NOT named ``db_path``: a large amount of code duck-types
+        SQLite backends with ``hasattr(storage, 'db_path')`` and would then
+        treat this store as SQLite (opening it with sqlite3, or building a
+        SQLite GraphStorage against it). Callers that genuinely want the
+        Milvus Lite file ask for it by this name.
+        """
+        uri = self.uri or ""
+        if "://" in uri:
+            # http://, https://, grpc:// … are server / Zilliz Cloud endpoints.
+            return None
+        return os.path.abspath(os.path.expanduser(uri)) if uri else None
 
     def __init__(
         self,
@@ -238,8 +258,16 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Initialization ------------------------------------------------------
 
-    async def initialize(self) -> None:
-        """Connect to Milvus, load the embedding model, and ensure the collection exists."""
+    async def initialize(self, strict_dimension_check: bool = True) -> None:
+        """Connect to Milvus, load the embedding model, and ensure the collection exists.
+
+        Args:
+            strict_dimension_check: Accepted for parity with sqlite_vec, whose
+                callers (e.g. read-only diagnostics) pass False to open a
+                dimension-mismatched database instead of crashing. Milvus never
+                fails initialization on a mismatch — ``_ensure_collection``
+                logs and continues — so this backend has nothing to relax.
+        """
         if self._initialized:
             return
 
@@ -393,6 +421,22 @@ class MilvusMemoryStorage(MemoryStorage):
             except (TypeError, ValueError):
                 return None
         return None
+
+    def _get_existing_db_embedding_dimension(self) -> Optional[int]:
+        """Return the vector dimension recorded in the live collection.
+
+        Named to match the sqlite_vec probe so ``memory status`` reports the
+        stored dimension on this backend too, instead of printing "n/a" and
+        hiding a model/collection dimension mismatch.
+        """
+        if self.client is None:
+            return None
+        try:
+            info = self.client.describe_collection(collection_name=self.collection_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("describe_collection failed during dimension probe: %s", _sanitize_log_value(exc))
+            return None
+        return self._extract_vector_dim(info)
 
     def _validate_existing_collection(self) -> None:
         """Warn if the on-disk collection's vector dim disagrees with our model.
@@ -1412,7 +1456,11 @@ class MilvusMemoryStorage(MemoryStorage):
         for idx in insert_indices:
             results[idx] = outcome
 
-    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+    async def store_batch(
+        self, memories: List[Memory], store: str = "default"
+    ) -> List[Tuple[bool, str]]:
+        # `store` accepted for BaseStorage parity (multi-store, issue #133).
+        # Single-collection backend — see store() for the full rationale.
         if not memories:
             return []
         if not self._ensure_initialized():
@@ -1458,19 +1506,25 @@ class MilvusMemoryStorage(MemoryStorage):
             return "", False
         return tag_filter, True
 
-    def _hit_to_row(self, hit: Dict[str, Any]) -> Dict[str, Any]:
+    def _hit_to_row(self, hit: Any) -> Dict[str, Any]:
         """Flatten a MilvusClient search hit into a plain row dict.
 
         Different pymilvus versions return output_fields inlined on the hit,
-        or nested under an ``entity`` key. Handle both consistently.
+        or nested under an ``entity`` key. Handle both consistently. Hits are
+        plain dicts on some versions and ``pymilvus.client.search_result.Hit``
+        objects on others (2.5+), so duck-type the mapping access — an
+        isinstance(dict) check silently drops every field except ``id``.
         """
-        entity = hit.get("entity") if isinstance(hit, dict) else None
+        get = getattr(hit, "get", None)
+        if get is None:
+            return {}
+        entity = get("entity")
         row = dict(entity) if entity else {}
         for field in self._OUTPUT_FIELDS:
-            if field in hit and field not in row:
-                row[field] = hit[field]
-        if "id" not in row and "id" in hit:
-            row["id"] = hit["id"]
+            if field not in row:
+                value = get(field)
+                if value is not None:
+                    row[field] = value
         return row
 
     def _hit_to_result(
@@ -1617,7 +1671,13 @@ class MilvusMemoryStorage(MemoryStorage):
         include_superseded: bool = False,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        store: Optional[str] = "default",
     ) -> List[MemoryQueryResult]:
+        # `store` accepted for BaseStorage parity (multi-store, issue #133).
+        # Single-collection backend — see store() for the full rationale.
+        # MemoryStorage.search_memories/retrieve_with_quality_boost pass this
+        # through; this backend overrides both today, but the signature has to
+        # match so it stays substitutable if either override is ever dropped.
         logger.debug("retrieve() entry — self.client is None: %r", self.client is None)
         if not self._ensure_initialized():
             return []
@@ -1854,34 +1914,48 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return count, f"Deleted {count} memories before {before_date}{suffix}"
 
-    async def _delete_matching(self, filter_expr: str, success_template: str) -> Tuple[int, str]:
-        count, hashes = await self._delete_matching_parts(filter_expr, success_template)
+    async def _delete_matching(
+        self,
+        filter_expr: str,
+        success_template: str,
+        require_live: bool = False,
+    ) -> Tuple[int, str]:
+        count, hashes = await self._delete_matching_parts(
+            filter_expr, success_template, require_live=require_live,
+        )
         if count > 0:
             return count, success_template.format(count=count)
         return 0, "No memories found"
 
     async def _delete_matching_parts(
-        self, filter_expr: str, _success_template: str
+        self,
+        filter_expr: str,
+        _success_template: str,
+        require_live: bool = False,
     ) -> Tuple[int, List[str]]:
-        hashes = await self._collect_hashes(filter_expr)
+        hashes = await self._collect_hashes(filter_expr, require_live=require_live)
         if not hashes:
             return 0, []
-        await self._call_client(
-            "delete",
-            collection_name=self.collection_name,
-            ids=hashes,
-        )
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=hashes[start:start + self._GET_BY_ID_CHUNK],
+            )
         return len(hashes), hashes
 
-    async def _collect_hashes(self, filter_expr: str) -> List[str]:
-        rows = await self._call_client(
-            "query",
-            collection_name=self.collection_name,
-            filter=filter_expr,
-            output_fields=["id"],
-            limit=_MILVUS_MAX_LIMIT,
-        )
-        return [row["id"] for row in rows if row.get("id")]
+    async def _collect_hashes(
+        self,
+        filter_expr: str,
+        require_live: bool = False,
+    ) -> List[str]:
+        output_fields = ["id", "metadata"] if require_live else ["id"]
+        rows = await self._drain_rows(filter_expr, output_fields)
+        return [
+            row["id"]
+            for row in rows
+            if row.get("id") and (not require_live or self._row_is_live(row))
+        ]
 
     # -- Reads ---------------------------------------------------------------
 
@@ -2145,6 +2219,104 @@ class MilvusMemoryStorage(MemoryStorage):
             memory.content_hash, updates, preserve_timestamps=False
         )
         return success
+
+    async def update_memory_versioned(
+        self,
+        content_hash: str,
+        new_content: str,
+        new_tags: Optional[List[str]] = None,
+        new_memory_type: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Non-destructive versioned update: store a new revision, supersede the old.
+
+        Matches the sqlite_vec contract — the original memory is kept and
+        annotated with ``superseded_by`` rather than overwritten, so
+        ``memory_update`` with a versioned update works on this backend.
+        """
+        if not self._ensure_initialized():
+            return False, "Milvus storage not initialized", None
+
+        try:
+            lock = getattr(self, "_versioned_update_lock", None)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._versioned_update_lock = lock
+
+            async with lock:
+                existing = await self.get_by_hash(content_hash)
+                if existing is None:
+                    return False, f"Memory {content_hash} not found", None
+                if (existing.metadata or {}).get("superseded_by") is not None:
+                    return False, f"Memory {content_hash} is no longer current", None
+
+                resolved_tags = (
+                    list(new_tags) if new_tags is not None else list(existing.tags or [])
+                )
+                resolved_type = (
+                    new_memory_type if new_memory_type is not None else existing.memory_type
+                )
+
+                new_hash = generate_content_hash(new_content)
+                new_memory = Memory(
+                    content=new_content,
+                    content_hash=new_hash,
+                    tags=resolved_tags,
+                    memory_type=resolved_type,
+                )
+                store_ok, store_msg = await self.store(
+                    new_memory, skip_semantic_dedup=True,
+                )
+                if not store_ok:
+                    return False, f"Failed to store new version: {store_msg}", None
+
+                meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
+                if reason:
+                    meta_updates["metadata"]["evolution_reason"] = reason
+                try:
+                    linked, link_message = await self.update_memory_metadata(
+                        content_hash, meta_updates, preserve_timestamps=True,
+                    )
+                except Exception as link_exc:  # noqa: BLE001
+                    cleaned = await self._cleanup_unlinked_version(new_hash)
+                    message = f"Failed to link new version: {link_exc}"
+                    if not cleaned:
+                        message += "; rollback may have left an orphan"
+                    return False, message, None
+                if not linked:
+                    cleaned = await self._cleanup_unlinked_version(new_hash)
+                    message = f"Failed to link new version: {link_message}"
+                    if not cleaned:
+                        message += "; rollback may have left an orphan"
+                    return False, message, None
+
+                logger.info(
+                    "Memory evolved: %s → %s",
+                    _sanitize_log_value(content_hash[:8]),
+                    _sanitize_log_value(new_hash[:8]),
+                )
+                return True, "Memory versioned successfully", new_hash
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error("update_memory_versioned error: %s", _sanitize_log_value(exc))
+            return False, str(exc), None
+
+    async def _cleanup_unlinked_version(self, content_hash: str) -> bool:
+        """Delete a just-stored version without waiting for read visibility."""
+        try:
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to clean up unlinked version %s: %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return False
 
     async def update_memories_batch(
         self, memories: List[Memory], preserve_timestamps: bool = False
@@ -2761,17 +2933,135 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("count_memories_by_tag failed: %s", _sanitize_log_value(exc))
             return 0
 
+    async def count_untagged_memories(self) -> int:
+        """Count memories with no tags.
+
+        Tags are stored as a comma-delimited string with sentinel commas, so an
+        untagged memory holds either ``""`` or ``","``. Both are matched here;
+        the equivalent SQLite check is
+        ``tags IS NULL OR tags = '' OR length(trim(tags)) = 0``.
+        """
+        if not self._ensure_initialized():
+            return 0
+
+        try:
+            rows = await self._drain_rows(_UNTAGGED_FILTER, ["id", "metadata"])
+            return sum(
+                1
+                for row in rows
+                if row.get("id") and self._row_is_live(row)
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("count_untagged_memories failed: %s", _sanitize_log_value(exc))
+            return 0
+
+    async def delete_untagged_memories(self) -> Tuple[int, str]:
+        """Delete every memory that has no tags.
+
+        Deletion is hard here (see the module docstring), so unlike SQLite
+        there is no tombstone to sync — the rows are removed outright.
+        """
+        if not self._ensure_initialized():
+            return 0, "Milvus storage not initialized"
+
+        return await self._delete_matching(
+            _UNTAGGED_FILTER,
+            "Successfully deleted {count} memories without tags",
+            require_live=True,
+        )
+
+    async def get_type_counts(self) -> Dict[str, int]:
+        """Return memory counts grouped by memory_type.
+
+        Mirrors the SQLite aggregate the analytics endpoint prefers, including
+        its mapping of NULL/empty types to ``"untyped"``. Without this the
+        endpoint falls back to sampling the 1000 most recent memories, which
+        misreports the distribution on any store larger than that.
+        """
+        if not self._ensure_initialized():
+            return {}
+
+        try:
+            rows = await self._drain_rows(
+                "", ["id", "memory_type", "metadata"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_type_counts failed: %s", _sanitize_log_value(exc))
+            return {}
+
+        counts: Dict[str, int] = {}
+        for row in rows:
+            if not self._row_is_live(row):
+                continue
+            mem_type = row.get("memory_type") or "untyped"
+            counts[mem_type] = counts.get(mem_type, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: kv[1], reverse=True))
+
+    @staticmethod
+    def _row_is_live(row: Dict[str, Any]) -> bool:
+        """Return False for rows carrying an explicit soft-delete tombstone."""
+        metadata = _safe_json_loads(row.get("metadata", ""), "milvus_live_row")
+        return metadata.get("deleted_at") is None
+
+    def _drain_query_rows(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Drain every row matching ``filter_expr`` via QueryIterator."""
+        assert self.client is not None
+        fields = list(output_fields)
+        if "id" not in fields:
+            fields.append("id")
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr,
+            output_fields=fields,
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        seen_ids: set = set()
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    async def _drain_rows(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Hold the client lock for a full QueryIterator scan."""
+        lock = getattr(self, "_write_lock", None) or asyncio.Lock()
+        async with lock:
+            if self.client is None:
+                return []
+            return await asyncio.to_thread(
+                self._drain_query_rows, filter_expr, output_fields,
+            )
+
     async def is_deleted(self, content_hash: str) -> bool:
-        """Check if a memory has been soft-deleted.
+        """Check if a memory carries a soft-delete tombstone.
 
-        In Milvus, a soft-deleted memory has metadata.deleted_at set.
-        If the memory doesn't exist at all, returns False (not soft-deleted,
-        just gone).
-
-        Uses its own lookup rather than get_by_hash(): get_by_hash() now hides
-        tombstones, so routing through it would make is_deleted() always False —
-        the exact inversion of its purpose (hybrid sync relies on it to avoid
-        resurrecting memories deleted on another device).
+        ``delete()`` on this backend is a hard delete (see the module
+        docstring), so it never produces a tombstone and a deleted memory is
+        simply absent. This still reports True for a memory explicitly marked
+        via ``update_memory_metadata(..., {"deleted_at": ...})``, which is the
+        only way a tombstone arises here.
         """
         if not self._ensure_initialized():
             return False
@@ -2797,10 +3087,12 @@ class MilvusMemoryStorage(MemoryStorage):
         return metadata.get("deleted_at") is not None
 
     async def purge_deleted(self, older_than_days: int = 30) -> int:
-        """Permanently delete soft-deleted memories older than specified days.
+        """Permanently remove tombstoned memories older than the threshold.
 
-        Finds memories with metadata.deleted_at set and created_at older
-        than the threshold, then hard-deletes them from Milvus.
+        ``delete()`` here is a hard delete, so tombstones only exist when
+        something explicitly set ``metadata.deleted_at`` — in practice this
+        returns 0. Kept for contract parity with sqlite_vec, which the hybrid
+        backend drives through this method.
         """
         if not self._ensure_initialized():
             return 0
@@ -2877,8 +3169,11 @@ class MilvusMemoryStorage(MemoryStorage):
 
         unique_tags = len(await self.get_all_tags())
 
-        return {
+        stats: Dict[str, Any] = {
             "backend": "milvus",
+            # Consumers (analytics overview, health) read "storage_backend";
+            # without it the dashboard reports the backend as "unknown".
+            "storage_backend": "milvus",
             "uri": self.uri,
             "collection": self.collection_name,
             "total_memories": total,
@@ -2887,6 +3182,21 @@ class MilvusMemoryStorage(MemoryStorage):
             "embedding_model": self.embedding_model_name,
             "embedding_dimension": self.embedding_dimension,
         }
+
+        # Milvus Lite is a local file, so its on-disk size is knowable and the
+        # dashboard's size widgets work. Server/Zilliz deployments have no
+        # local file — omit the keys there rather than reporting a bogus 0.
+        db_file = self.lite_db_path
+        if db_file is not None:
+            try:
+                size_bytes = os.path.getsize(db_file)
+            except OSError:
+                size_bytes = None
+            if size_bytes is not None:
+                stats["database_size_bytes"] = size_bytes
+                stats["database_size_mb"] = round(size_bytes / (1024 * 1024), 2)
+
+        return stats
 
     @staticmethod
     def _extract_count(rows: Any) -> int:
@@ -3447,37 +3757,21 @@ class MilvusMemoryStorage(MemoryStorage):
         Uses ``query_iterator`` to handle arbitrarily large graph collections
         without hitting the single-query limit cap.
         """
-        graph_collection = f"{self.collection_name}_graph"
-
-        if not self._ensure_initialized():
-            return {}
-
-        # Check if graph collection exists
-        try:
-            has_graph = await self._call_client(
-                "has_collection",
-                collection_name=graph_collection,
-            )
-            if not has_graph:
-                return {}
-        except Exception:  # noqa: BLE001
-            return {}
-
-        # Drain all edges via QueryIterator (handles large graphs)
-        try:
-            async with self._write_lock:
-                if self.client is None:
-                    return {}
-                rows = await asyncio.to_thread(
-                    self._drain_graph_edges, graph_collection,
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("get_memory_connections: failed to query graph collection: %s", _sanitize_log_value(exc))
-            return {}
+        rows = await self._drain_all_graph_edges(
+            "get_memory_connections",
+            output_fields=[
+                "id", "source_hash", "target_hash", "relationship_type",
+            ],
+        )
 
         # Count occurrences of each hash (as source or target)
         connections: Dict[str, int] = {}
         for row in rows:
+            # Entity links are an index, not memory associations. Their target
+            # is an entity key rather than a memory hash, and counting the
+            # source row would inflate the memory's retention/relevance score.
+            if row.get("relationship_type") == "has_entity":
+                continue
             src = row.get("source_hash")
             tgt = row.get("target_hash")
             if src:
@@ -3487,7 +3781,215 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return connections
 
-    def _drain_graph_edges(self, graph_collection: str) -> List[Dict[str, Any]]:
+    async def _drain_all_graph_edges(
+        self,
+        caller: str,
+        output_fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Drain every edge from ``{collection_name}_graph``.
+
+        Returns an empty list when storage is uninitialized, when the graph
+        collection has never been created, or when the scan fails — graph data
+        is advisory for every caller here, so a missing graph degrades to "no
+        edges" rather than raising.
+        """
+        graph_collection = f"{self.collection_name}_graph"
+
+        if not self._ensure_initialized():
+            return []
+
+        try:
+            has_graph = await self._call_client(
+                "has_collection",
+                collection_name=graph_collection,
+            )
+            if not has_graph:
+                return []
+        except Exception:  # noqa: BLE001
+            return []
+
+        try:
+            async with self._write_lock:
+                if self.client is None:
+                    return []
+                return await asyncio.to_thread(
+                    self._drain_graph_edges, graph_collection, output_fields,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "%s: failed to query graph collection: %s",
+                _sanitize_log_value(caller),
+                _sanitize_log_value(exc),
+            )
+            return []
+
+    async def get_relationship_type_distribution(self) -> Dict[str, int]:
+        """Return edge counts per relationship type from the graph collection.
+
+        Mirrors the SQLite ``GROUP BY relationship_type`` aggregate, including
+        its mapping of NULL/empty types to ``"untyped"``. Milvus has no
+        GROUP BY, so the edges are drained and counted in Python.
+        """
+        rows = await self._drain_all_graph_edges(
+            "get_relationship_type_distribution",
+            output_fields=["id", "relationship_type"],
+        )
+
+        distribution: Dict[str, int] = {}
+        for row in rows:
+            rel_type = row.get("relationship_type") or "untyped"
+            distribution[rel_type] = distribution.get(rel_type, 0) + 1
+
+        # Match SQLite's ORDER BY count DESC so callers rendering the raw dict
+        # show the dominant relationship types first.
+        return dict(
+            sorted(distribution.items(), key=lambda kv: kv[1], reverse=True)
+        )
+
+    _GET_BY_ID_CHUNK = 500
+
+    async def _fetch_memories_by_hashes(self, hashes: List[str]) -> List[Memory]:
+        """Fetch memories by primary key, chunked to bound each RPC's size.
+
+        Hashes with no surviving row are silently skipped — callers here treat
+        a missing memory as "not renderable", not as an error.
+        """
+        if not hashes or not self._ensure_initialized():
+            return []
+
+        memories: List[Memory] = []
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            try:
+                rows = await self._call_client(
+                    "get",
+                    collection_name=self.collection_name,
+                    ids=chunk,
+                    output_fields=list(self._OUTPUT_FIELDS),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Batch hash fetch failed: %s", _sanitize_log_value(exc))
+                continue
+            for row in rows or []:
+                memory = self._entity_to_memory(row)
+                if memory is not None and memory.metadata.get("deleted_at") is None:
+                    memories.append(memory)
+        return memories
+
+    async def get_graph_visualization_data(
+        self,
+        limit: int = 100,
+        min_connections: int = 1,
+    ) -> Dict[str, Any]:
+        """Return D3-compatible graph data for the analytics dashboard.
+
+        Node connection counts use DISTINCT targets per source, matching
+        SQLite's ``COUNT(DISTINCT mg.target_hash)``. Edges are restricted to
+        pairs where both endpoints made the node cut, so the rendered graph has
+        no dangling edges.
+        """
+        empty: Dict[str, Any] = {
+            "nodes": [],
+            "edges": [],
+            "meta": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "min_connections": min_connections,
+                "limit": limit,
+            },
+        }
+
+        if limit <= 0:
+            return empty
+
+        rows = await self._drain_all_graph_edges(
+            "get_graph_visualization_data",
+            output_fields=[
+                "id", "source_hash", "target_hash",
+                "relationship_type", "similarity", "connection_types",
+            ],
+        )
+        if not rows:
+            return empty
+
+        # Connection count per source = number of distinct targets.
+        targets_by_source: Dict[str, set] = {}
+        for row in rows:
+            # has_entity targets are entity keys, not memory hashes. They are
+            # never renderable nodes, so counting them makes isolated memories
+            # appear connected and can incorrectly pass min_connections.
+            if row.get("relationship_type") == "has_entity":
+                continue
+            src = row.get("source_hash")
+            tgt = row.get("target_hash")
+            if src and tgt:
+                targets_by_source.setdefault(src, set()).add(tgt)
+
+        ranked = sorted(
+            (
+                (src, len(targets))
+                for src, targets in targets_by_source.items()
+                if len(targets) >= min_connections
+            ),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )[:limit]
+        if not ranked:
+            return empty
+
+        connection_counts = dict(ranked)
+        node_hashes = set(connection_counts)
+
+        memories = await self._fetch_memories_by_hashes(list(node_hashes))
+        nodes = []
+        for memory in memories:
+            metadata = memory.metadata or {}
+            nodes.append({
+                "id": memory.content_hash,
+                "type": memory.memory_type or "untyped",
+                "content": (memory.content or "")[:100],
+                "connections": connection_counts.get(memory.content_hash, 0),
+                "created_at": memory.created_at,
+                "updated_at": memory.updated_at,
+                "quality_score": metadata.get("quality_score", 0.5),
+                "tags": list(memory.tags or []),
+            })
+
+        # A hash can carry edges without a surviving memory row (Milvus deletes
+        # are hard, and edge cleanup is best-effort). Drop those from the edge
+        # set too so nodes and edges stay consistent.
+        rendered = {node["id"] for node in nodes}
+        edges = [
+            {
+                "source": row["source_hash"],
+                "target": row["target_hash"],
+                "relationship_type": row.get("relationship_type") or "related",
+                "similarity": (
+                    row["similarity"] if row.get("similarity") is not None else 0.5
+                ),
+                "connection_types": row.get("connection_types") or "",
+            }
+            for row in rows
+            if row.get("source_hash") in rendered and row.get("target_hash") in rendered
+        ]
+
+        nodes.sort(key=lambda n: n["connections"], reverse=True)
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "meta": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "min_connections": min_connections,
+                "limit": limit,
+            },
+        }
+
+    def _drain_graph_edges(
+        self,
+        graph_collection: str,
+        output_fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """Sync helper that drains all edges from the graph collection.
 
         Deduplicates by primary-key ``id`` to defend against the same Milvus
@@ -3497,7 +3999,7 @@ class MilvusMemoryStorage(MemoryStorage):
         iterator = self.client.query_iterator(
             collection_name=graph_collection,
             filter="",
-            output_fields=["id", "source_hash", "target_hash"],
+            output_fields=output_fields or ["id", "source_hash", "target_hash"],
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
