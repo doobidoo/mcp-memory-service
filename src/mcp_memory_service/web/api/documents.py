@@ -664,15 +664,25 @@ async def remove_document(
                     # (we already deleted them, so we'll use a generic message)
                     filename = f"Document (upload_id: {upload_id[:8]}...)"
 
-            except Exception:
-                logger.warning("Could not delete memories by upload tag")
-                # If deletion fails and we don't know about this upload, return 404
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Could not delete memories by upload tag: %s",
+                    _sanitize_log_value(exc),
+                )
+                # If deletion fails and we don't know about this upload, return 404.
+                # Otherwise keep the session so the caller can retry rather than
+                # reporting success after a partial/failed memory deletion.
                 if not session:
                     raise HTTPException(
                         status_code=404,
                         detail="Upload ID not found"
-                    )
-                memories_deleted = 0
+                    ) from exc
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to delete document memories",
+                ) from exc
 
         # Remove upload session if it exists
         if session:

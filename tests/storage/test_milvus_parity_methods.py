@@ -37,7 +37,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from mcp_memory_service.models.memory import Memory
-from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+from mcp_memory_service.storage.milvus import MilvusDeleteError, MilvusMemoryStorage
 
 
 def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
@@ -413,12 +413,26 @@ class TestUntaggedMemories:
             side_effect=[None, RuntimeError("second chunk failed")]
         )
 
-        count, message, hashes = await storage.delete_by_tags(["shared"])
+        with pytest.raises(MilvusDeleteError) as exc_info:
+            await storage.delete_by_tags(["shared"])
 
-        assert count == storage._GET_BY_ID_CHUNK
-        assert hashes == all_hashes[:storage._GET_BY_ID_CHUNK]
-        assert "Deleted 500 of 501 memories" in message
-        assert "second chunk failed" in message
+        assert exc_info.value.deleted_count == storage._GET_BY_ID_CHUNK
+        assert exc_info.value.deleted_hashes == all_hashes[:storage._GET_BY_ID_CHUNK]
+        assert "Deleted 500 of 501 memories" in str(exc_info.value)
+        assert "second chunk failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_failure_is_not_reported_as_no_matches(self):
+        storage = _make_storage()
+        storage._collect_hashes = AsyncMock(return_value=["only"])
+        storage._call_client = AsyncMock(side_effect=RuntimeError("first chunk failed"))
+
+        with pytest.raises(MilvusDeleteError) as exc_info:
+            await storage.delete_by_tags(["shared"])
+
+        assert exc_info.value.deleted_count == 0
+        assert exc_info.value.deleted_hashes == []
+        assert "first chunk failed" in str(exc_info.value)
 
 
 class TestDrainRowsLock:

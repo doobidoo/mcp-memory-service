@@ -126,6 +126,20 @@ _MILVUS_MAX_LIMIT = 16384
 # Structurally empty tag encodings used by the storage schema.
 _UNTAGGED_FILTER = 'tags == "" or tags == ","'
 
+
+class MilvusDeleteError(RuntimeError):
+    """A chunked delete failed, possibly after earlier chunks were removed."""
+
+    def __init__(
+        self,
+        message: str,
+        deleted_count: int = 0,
+        deleted_hashes: Optional[List[str]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.deleted_count = deleted_count
+        self.deleted_hashes = list(deleted_hashes or [])
+
 # Reciprocal Rank Fusion smoothing constant for hybrid search.
 # k=60 is the standard default from the RRF paper (Cormack et al., 2009).
 RRF_RANKER_K = 60
@@ -1867,13 +1881,15 @@ class MilvusMemoryStorage(MemoryStorage):
                     _sanitize_log_value(exc),
                 )
                 if deleted_hashes:
-                    return (
-                        len(deleted_hashes),
+                    raise MilvusDeleteError(
                         f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
                         f"before deletion failed: {_sanitize_log_value(exc)}",
-                        deleted_hashes,
-                    )
-                return 0, f"Deletion failed: {_sanitize_log_value(exc)}", []
+                        deleted_count=len(deleted_hashes),
+                        deleted_hashes=deleted_hashes,
+                    ) from exc
+                raise MilvusDeleteError(
+                    f"Deletion failed: {_sanitize_log_value(exc)}",
+                ) from exc
             deleted_hashes.extend(chunk)
 
         return (
