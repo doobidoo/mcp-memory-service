@@ -35,6 +35,7 @@ Design notes:
 """
 
 import asyncio
+import heapq
 import json
 import logging
 import math
@@ -3001,7 +3002,8 @@ class MilvusMemoryStorage(MemoryStorage):
             )
 
         memories = await self._recall_active_time_window(
-            time_filter=time_filter,
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
             n_results=n_results,
         )
         return [
@@ -3071,49 +3073,79 @@ class MilvusMemoryStorage(MemoryStorage):
 
     async def _recall_active_time_window(
         self,
-        time_filter: str,
+        start_timestamp: Optional[float],
+        end_timestamp: Optional[float],
         n_results: int,
     ) -> List[Memory]:
-        """Return live memories without scanning the whole window by default.
+        """Return newest live memories with bounded, newest-first range queries.
 
-        Time-only recall has no ANN ranking to push Milvus-side, so grow a
-        bounded scalar-query window until it yields enough live rows or the
-        result set is exhausted. Only a pathologically long superseded backlog
-        that fills ``_MILVUS_MAX_LIMIT`` falls back to the iterator scan.
+        Milvus has no server-side ``order_by``. Query the original time window,
+        splitting a saturated range until each piece fits in one bounded RPC.
+        Ranges are explored newest-first so a full scan is unnecessary unless a
+        single timestamp contains a pathologically long superseded backlog.
         """
         if n_results <= 0:
             return []
 
-        fetch_n = max(1, min(n_results, _MILVUS_MAX_LIMIT))
-        while True:
-            memories = await self._query_time_window(time_filter, fetch_n)
-            live = [
-                memory
-                for memory in memories
-                if not (memory.metadata or {}).get("superseded_by")
-            ]
-            if len(live) >= n_results or len(memories) < fetch_n:
-                live.sort(key=lambda memory: memory.created_at or 0.0, reverse=True)
-                return live[:n_results]
-            if fetch_n >= _MILVUS_MAX_LIMIT:
-                break
-            fetch_n = min(fetch_n * 2, _MILVUS_MAX_LIMIT)
+        lower = 0.0 if start_timestamp is None else float(start_timestamp)
+        upper = 1e18 if end_timestamp is None else float(end_timestamp)
+        if upper < lower:
+            return []
 
-        logger.warning(
-            "Milvus time-window recall exhausted %d candidates with fewer than %d live rows; "
-            "falling back to a full iterator scan",
-            _MILVUS_MAX_LIMIT,
-            n_results,
-        )
-        rows = await self._iterate_all_rows(time_filter)
-        memories = []
-        for row in rows:
-            memory = self._entity_to_memory(row)
-            if memory is None or (memory.metadata or {}).get("superseded_by"):
+        batch_size = max(100, min(n_results * 4, _MILVUS_MAX_LIMIT))
+        intervals = [(-upper, lower, upper)]
+        candidates: Dict[str, Memory] = {}
+
+        def remember_live(memories: List[Memory]) -> None:
+            for memory in memories:
+                if not (memory.metadata or {}).get("superseded_by"):
+                    candidates[memory.content_hash] = memory
+            if len(candidates) > max(batch_size, n_results * 4):
+                newest = sorted(
+                    candidates.values(),
+                    key=lambda memory: memory.created_at or 0.0,
+                    reverse=True,
+                )[:n_results]
+                candidates.clear()
+                candidates.update({memory.content_hash: memory for memory in newest})
+
+        while intervals:
+            _, range_start, range_end = heapq.heappop(intervals)
+            if len(candidates) >= n_results:
+                nth_newest = min(
+                    memory.created_at or 0.0 for memory in candidates.values()
+                )
+                if range_end < nth_newest:
+                    continue
+
+            range_filter = self._time_window_filter(range_start, range_end)
+            memories = await self._query_time_window(range_filter, batch_size)
+            remember_live(memories)
+
+            if len(memories) < batch_size:
                 continue
-            memories.append(memory)
-        memories.sort(key=lambda memory: memory.created_at or 0.0, reverse=True)
-        return memories[:n_results]
+            if range_end - range_start <= 1e-6:
+                if len(candidates) >= n_results:
+                    continue
+                rows = await self._iterate_all_rows(range_filter)
+                fallback_memories = []
+                for row in rows:
+                    memory = self._entity_to_memory(row)
+                    if memory is not None:
+                        fallback_memories.append(memory)
+                remember_live(fallback_memories)
+                continue
+
+            midpoint = (range_start + range_end) / 2
+            heapq.heappush(intervals, (-midpoint, range_start, midpoint))
+            heapq.heappush(intervals, (-range_end, midpoint, range_end))
+
+        newest = sorted(
+            candidates.values(),
+            key=lambda memory: memory.created_at or 0.0,
+            reverse=True,
+        )
+        return newest[:n_results]
 
     async def _query_time_window(
         self,
@@ -3134,7 +3166,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 "Milvus time-window query failed: %s",
                 _sanitize_log_value(exc),
             )
-            return []
+            raise
 
         memories: List[Memory] = []
         for row in rows:

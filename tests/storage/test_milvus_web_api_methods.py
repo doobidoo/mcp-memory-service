@@ -30,6 +30,7 @@ tests mock the client instead and actually run.
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock
@@ -210,15 +211,18 @@ class TestRecall:
         assert [r.memory.content_hash for r in results] == ["new", "old"]
         assert "created_at >= 50.0" in captured["filter"]
         assert "created_at <= 400.0" in captured["filter"]
-        assert captured["limit"] == 5
+        assert captured["limit"] == 100
 
     @pytest.mark.asyncio
     async def test_time_only_recall_respects_n_results(self):
         storage = _make_storage()
+        captured: Dict[str, Any] = {}
+
         async def _query_window(filter_expr, limit):
+            captured["limit"] = limit
             return [
                 Memory(content=f"memory {i}", content_hash=f"h{i}", created_at=float(i))
-                for i in range(limit)
+                for i in range(3)
             ]
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
@@ -226,7 +230,46 @@ class TestRecall:
         results = await storage.recall(n_results=3)
 
         assert len(results) == 3
-        storage._query_time_window.assert_awaited_once_with("", 3)
+        assert captured["limit"] == 100
+
+    @pytest.mark.asyncio
+    async def test_time_only_recall_finds_newest_beyond_first_query_page(self):
+        storage = _make_storage()
+        memories = [
+            Memory(content=f"memory {i}", content_hash=f"h{i}", created_at=float(i))
+            for i in range(120)
+        ]
+
+        async def _query_window(filter_expr, limit):
+            bounds = [
+                float(value)
+                for value in re.findall(
+                    r"created_at [<>=]+ ([0-9.eE+-]+)", filter_expr
+                )
+            ]
+            lower, upper = min(bounds), max(bounds)
+            matches = [
+                memory
+                for memory in memories
+                if lower <= (memory.created_at or 0.0) <= upper
+            ]
+            return matches[:limit] if len(matches) > limit else matches
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
+
+        results = await storage.recall(
+            start_timestamp=0.0, end_timestamp=119.0, n_results=3
+        )
+
+        assert [result.memory.content_hash for result in results] == ["h119", "h118", "h117"]
+
+    @pytest.mark.asyncio
+    async def test_time_only_recall_propagates_query_failure(self):
+        storage = _make_storage()
+        storage._query_time_window = AsyncMock(side_effect=RuntimeError("milvus down"))
+
+        with pytest.raises(RuntimeError, match="milvus down"):
+            await storage.recall(n_results=1)
 
     @pytest.mark.asyncio
     async def test_semantic_recall_applies_the_time_window_to_the_search(self):

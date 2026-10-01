@@ -108,7 +108,7 @@ class TestMilvusRecallContract:
 
         assert "created_at >= 100.0" in captured["filter_expr"]
         assert "created_at <= 200.0" in captured["filter_expr"]
-        assert captured["limit"] == 5
+        assert captured["limit"] == 100
         assert [r.memory.content_hash for r in results] == ["current"]
 
 
