@@ -1,6 +1,7 @@
 """Convert mem0 exports into MemoryImporter-compatible JSON."""
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -23,9 +24,22 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _normalize_path(value: str | Path, *, field: str) -> Path:
+    """Expand user paths and reject empty or non-path values."""
+    if not isinstance(value, (str, Path)):
+        raise Mem0ExportError(f"Invalid {field} path: expected a string or Path")
+    if isinstance(value, str) and not value.strip():
+        raise Mem0ExportError(f"Invalid {field} path: path is empty")
+
+    try:
+        return Path(value).expanduser()
+    except (RuntimeError, TypeError) as exc:
+        raise Mem0ExportError(f"Invalid {field} path {value!r}: {exc}") from exc
+
+
 def _load_export_records(
     payload: Any,
-) -> tuple[list[Mapping[str, Any]], dict[str, Any]]:
+) -> tuple[list[Any], dict[str, Any]]:
     if isinstance(payload, list):
         records = payload
         source_metadata: dict[str, Any] = {}
@@ -64,10 +78,6 @@ def _load_export_records(
         raise Mem0ExportError(
             "Unsupported mem0 export: memory collection is not an array"
         )
-
-    for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            raise Mem0ExportError(f"Invalid mem0 record {index}: expected an object")
 
     return records, source_metadata
 
@@ -115,11 +125,51 @@ def _record_value(
     return value
 
 
+def _record_tags(record: Mapping[str, Any]) -> list[str]:
+    raw_tags = record.get("tags")
+    if not isinstance(raw_tags, list):
+        return []
+    return [tag.strip() for tag in raw_tags if isinstance(tag, str) and tag.strip()]
+
+
+def _identity_payload(
+    *,
+    user_id: Any,
+    agent_id: Any,
+    run_id: Any,
+    tags: list[str],
+) -> dict[str, Any]:
+    return {
+        "user_id": str(user_id) if user_id else None,
+        "agent_id": str(agent_id) if agent_id else None,
+        "run_id": str(run_id) if run_id else None,
+        "tags": sorted(tags),
+    }
+
+
+def _generate_dedupe_hash(content: str, identity: Mapping[str, Any]) -> str:
+    """Scope mem0 dedupe identity without changing the shared content hash helper."""
+    if not any(identity.values()):
+        return generate_content_hash(content)
+
+    payload = json.dumps(
+        {
+            "kind": "mem0_identity_scoped",
+            "content": content.strip().lower(),
+            "identity": identity,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _parse_record(
     record: Mapping[str, Any], index: int, fallback_timestamp: Any
 ) -> dict[str, Any]:
     source_payload = record.get("source_payload")
-    if not isinstance(source_payload, dict):
+    if not isinstance(source_payload, Mapping):
         source_payload = {}
 
     content = record.get("memory")
@@ -158,7 +208,7 @@ def _parse_record(
     agent_id = _record_value(record, source_payload, "agent_id")
     run_id = _record_value(record, source_payload, "run_id")
 
-    tags = []
+    tags = _record_tags(record)
     if user_id:
         tags.append(f"user:{user_id}")
     if agent_id:
@@ -169,7 +219,7 @@ def _parse_record(
     source_metadata = record.get("metadata", {})
     if source_metadata is None:
         source_metadata = {}
-    if not isinstance(source_metadata, dict):
+    if not isinstance(source_metadata, Mapping):
         raise Mem0ExportError(
             f"Invalid mem0 record {index}: metadata must be an object"
         )
@@ -202,57 +252,21 @@ def _parse_record(
         # Memory.agent_id is metadata-backed; this is the canonical author field.
         metadata["agent_id"] = agent_id
 
+    identity = _identity_payload(
+        user_id=user_id,
+        agent_id=agent_id,
+        run_id=run_id,
+        tags=tags,
+    )
     return {
         "content": content,
-        "content_hash": generate_content_hash(content),
+        "content_hash": _generate_dedupe_hash(content, identity),
         "tags": tags,
         "created_at": created_at,
         "updated_at": updated_at,
         "memory_type": record.get("memory_type", "note"),
         "metadata": metadata,
     }
-
-
-def _merge_metadata(target: dict[str, Any], source: Mapping[str, Any]) -> None:
-    """Merge duplicate-record metadata without dropping conflicting values."""
-    for key, value in source.items():
-        if key not in target:
-            target[key] = value
-            continue
-
-        current = target[key]
-        if current == value or key == "agent_id":
-            # Keep the first canonical author; agent tags retain every identity.
-            continue
-
-        if not isinstance(current, list):
-            current = [current]
-        if value not in current:
-            current.append(value)
-        target[key] = current
-
-
-def _merge_duplicate_content(memories: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse content-hash collisions while retaining every mem0 identity."""
-    merged: list[dict[str, Any]] = []
-    by_content_hash: dict[str, dict[str, Any]] = {}
-
-    for memory in memories:
-        content_hash = memory["content_hash"]
-        existing = by_content_hash.get(content_hash)
-        if existing is None:
-            by_content_hash[content_hash] = memory
-            merged.append(memory)
-            continue
-
-        for tag in memory["tags"]:
-            if tag not in existing["tags"]:
-                existing["tags"].append(tag)
-        _merge_metadata(existing["metadata"], memory["metadata"])
-        existing["created_at"] = min(existing["created_at"], memory["created_at"])
-        existing["updated_at"] = max(existing["updated_at"], memory["updated_at"])
-
-    return merged
 
 
 def _normalize_exported_at(value: Any, fallback: Any) -> float | None:
@@ -262,10 +276,28 @@ def _normalize_exported_at(value: Any, fallback: Any) -> float | None:
     return _parse_timestamp(candidate, field="exported_at", index=0)
 
 
-def convert_mem0_export(input_path: Path, output_path: Path) -> dict[str, Any]:
+def _conversion_warning(
+    *, record_index: int | None, code: str, action: str, message: str
+) -> dict[str, Any]:
+    return {
+        "record_index": record_index,
+        "code": code,
+        "action": action,
+        "message": message,
+    }
+
+
+def convert_mem0_export(
+    input_path: str | Path, output_path: str | Path
+) -> dict[str, Any]:
     """Convert a mem0 export file into the MemoryImporter JSON format."""
-    input_path = Path(input_path)
-    output_path = Path(output_path)
+    input_path = _normalize_path(input_path, field="input")
+    output_path = _normalize_path(output_path, field="output")
+
+    if not input_path.is_file():
+        raise Mem0ExportError(f"Input path is not a file: {input_path}")
+    if output_path.exists() and output_path.is_dir():
+        raise Mem0ExportError(f"Output path is a directory: {output_path}")
 
     try:
         with open(input_path, "r", encoding="utf-8") as source:
@@ -276,23 +308,75 @@ def convert_mem0_export(input_path: Path, output_path: Path) -> dict[str, Any]:
         ) from exc
 
     records, source_metadata = _load_export_records(payload)
-    fallback_timestamp = _normalize_exported_at(
-        source_metadata.get("exported_at"),
-        payload.get("exported_at") if isinstance(payload, dict) else None,
-    )
-    memories = _merge_duplicate_content(
-        [
-            _parse_record(record, index, fallback_timestamp)
-            for index, record in enumerate(records)
-        ]
-    )
+    warnings: list[dict[str, Any]] = []
 
+    try:
+        fallback_timestamp = _normalize_exported_at(
+            source_metadata.get("exported_at"),
+            payload.get("exported_at") if isinstance(payload, dict) else None,
+        )
+    except Mem0ExportError as exc:
+        fallback_timestamp = None
+        warnings.append(
+            _conversion_warning(
+                record_index=None,
+                code="invalid_exported_at",
+                action="ignored",
+                message=str(exc),
+            )
+        )
+
+    memories = []
+    for index, record in enumerate(records):
+        if not isinstance(record, Mapping):
+            warnings.append(
+                _conversion_warning(
+                    record_index=index,
+                    code="invalid_record",
+                    action="skipped",
+                    message=f"Invalid mem0 record {index}: expected an object",
+                )
+            )
+            continue
+
+        try:
+            memory = _parse_record(record, index, fallback_timestamp)
+        except Mem0ExportError as exc:
+            warnings.append(
+                _conversion_warning(
+                    record_index=index,
+                    code="invalid_record",
+                    action="skipped",
+                    message=str(exc),
+                )
+            )
+            continue
+
+        timestamp_source = memory["metadata"].get("mem0_timestamp_source")
+        if timestamp_source:
+            warnings.append(
+                _conversion_warning(
+                    record_index=index,
+                    code="missing_created_at",
+                    action=f"used_{timestamp_source}",
+                    message=(
+                        f"mem0 record {index} has no created_at; "
+                        f"used {timestamp_source}"
+                    ),
+                )
+            )
+        memories.append(memory)
+
+    skipped = sum(1 for warning in warnings if warning["action"] == "skipped")
     output = {
         "export_metadata": {
             "source_machine": "mem0",
             "export_timestamp": _utc_now_iso(),
+            "source_record_count": len(records),
             "total_memories": len(memories),
-            "converter_version": "1.0.0",
+            "skipped_records": skipped,
+            "conversion_warnings": warnings,
+            "converter_version": "1.1.0",
             "source_export": {
                 key: value
                 for key, value in source_metadata.items()
@@ -302,12 +386,19 @@ def convert_mem0_export(input_path: Path, output_path: Path) -> dict[str, Any]:
         "memories": memories,
     }
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as target:
-        json.dump(output, target, indent=2, ensure_ascii=False)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as target:
+            json.dump(output, target, indent=2, ensure_ascii=False)
+    except OSError as exc:
+        raise Mem0ExportError(
+            f"Could not write converted export {output_path}: {exc}"
+        ) from exc
 
     return {
         "converted": len(memories),
+        "skipped": skipped,
+        "warnings": len(warnings),
         "output_file": str(output_path),
         "source_kind": source_metadata.get("kind", "mem0_export"),
     }
@@ -330,6 +421,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     sys.stdout.write(
         f"Converted {result['converted']} memories to {result['output_file']}\n"
     )
+    if result["skipped"] or result["warnings"]:
+        sys.stderr.write(
+            f"Wrote {result['warnings']} conversion warning(s); "
+            f"see export_metadata.conversion_warnings in {result['output_file']}\n"
+        )
     return 0
 
 
