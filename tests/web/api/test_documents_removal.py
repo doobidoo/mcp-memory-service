@@ -26,3 +26,21 @@ async def test_remove_document_keeps_session_when_memory_delete_fails(monkeypatc
     assert exc_info.value.status_code == 500
     assert upload_id in documents.upload_sessions
     documents.upload_sessions.clear()
+
+
+@pytest.mark.asyncio
+async def test_remove_document_without_session_returns_retryable_error(monkeypatch):
+    documents.upload_sessions.clear()
+
+    class Storage:
+        async def delete_by_tags(self, tags):
+            raise RuntimeError("delete failed")
+
+    monkeypatch.setattr(documents, "get_storage", lambda: Storage())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await documents.remove_document(upload_id="missing-upload", user=None)
+
+    assert exc_info.value.status_code == 500
+    assert "retry" not in exc_info.value.detail.lower()
+    assert exc_info.value.detail == "Failed to delete document memories"

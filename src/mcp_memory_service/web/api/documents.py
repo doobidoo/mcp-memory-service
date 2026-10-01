@@ -671,14 +671,10 @@ async def remove_document(
                     "Could not delete memories by upload tag: %s",
                     _sanitize_log_value(exc),
                 )
-                # If deletion fails and we don't know about this upload, return 404.
-                # Otherwise keep the session so the caller can retry rather than
-                # reporting success after a partial/failed memory deletion.
-                if not session:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Upload ID not found"
-                    ) from exc
+                # A storage error is retryable, whether or not the in-memory
+                # session survived a restart. Never translate it to 404: that
+                # tells the caller the upload does not exist instead of that its
+                # memories may still be present.
                 raise HTTPException(
                     status_code=500,
                     detail="Failed to delete document memories",
