@@ -30,6 +30,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 
+from ...compat import _sanitize_log_value
 from ...storage.base import MemoryStorage
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage
@@ -1094,7 +1095,10 @@ async def get_storage_stats(
                 size_row = size_cursor.fetchone()
                 total_size_mb = (float(size_row[0]) if size_row and size_row[0] is not None else 0.0) / (1024 * 1024)
             except Exception as e:
-                logger.warning(f"Failed to compute scoped content size: {e}")
+                logger.warning(
+                    "Failed to compute scoped content size: %s",
+                    _sanitize_log_value(e),
+                )
                 total_size_mb = None
 
         if total_size_mb is None:
