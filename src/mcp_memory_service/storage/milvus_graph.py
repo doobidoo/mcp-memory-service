@@ -47,6 +47,7 @@ except ImportError:
     DataType = None  # type: ignore
 
 from .milvus_expr import escape_expr_value
+from ..compat import _sanitize_log_value
 from ..models.ontology import is_symmetric_relationship, validate_relationship
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,56 @@ class MilvusGraphStorage:
             fn = getattr(self.client, method_name)
             return await asyncio.to_thread(fn, *args, **kwargs)
 
+    def _drain_query_rows(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Drain every row matching ``filter_expr`` via QueryIterator."""
+        assert self.client is not None
+        fields = list(output_fields)
+        if "id" not in fields:
+            fields.append("id")
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr,
+            output_fields=fields,
+            batch_size=1000,
+        )
+        rows: List[Dict[str, Any]] = []
+        seen_ids: Set[str] = set()
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return rows
+
+    async def _drain_edges(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Run a full graph scan while holding the Milvus client lock."""
+        async with self._lock:
+            if self.client is None:
+                return []
+            return await asyncio.to_thread(
+                self._drain_query_rows, filter_expr, output_fields,
+            )
+
     # -- CRUD ----------------------------------------------------------------
 
     async def store_association(
@@ -357,18 +408,14 @@ class MilvusGraphStorage:
                 expr += f' and relationship_type in [{safe_rts}]'
 
         try:
-            results = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=expr,
-                output_fields=[
+            return await self._drain_edges(
+                expr,
+                [
                     "source_hash", "target_hash", "similarity",
                     "connection_types", "metadata", "relationship_type",
                     "created_at",
                 ],
-                limit=_MILVUS_MAX_LIMIT,
             )
-            return results or []
         except Exception as exc:
             logger.error("Edge query failed (%s IN ...): %s", field, exc)
             return []
@@ -401,18 +448,14 @@ class MilvusGraphStorage:
             expr = f'({expr}) and {rt_filter}'
 
         try:
-            results = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=expr,
-                output_fields=[
+            return await self._drain_edges(
+                expr,
+                [
                     "source_hash", "target_hash", "similarity",
                     "connection_types", "metadata", "relationship_type",
                     "created_at",
                 ],
-                limit=_MILVUS_MAX_LIMIT,
             )
-            return results or []
         except Exception as exc:
             logger.error("Edge query (both directions) failed: %s", exc)
             return []
@@ -875,18 +918,14 @@ class MilvusGraphStorage:
         if extra_filter:
             expr = f'{expr} and {extra_filter}'
         try:
-            results = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=expr,
-                output_fields=output_fields or [
+            return await self._drain_edges(
+                expr,
+                output_fields or [
                     "source_hash", "target_hash", "metadata", "created_at",
                 ],
-                limit=_MILVUS_MAX_LIMIT,
             )
-            return results or []
         except Exception as exc:  # noqa: BLE001
-            logger.error("Entity edge query failed: %s", exc)
+            logger.error("Entity edge query failed: %s", _sanitize_log_value(exc))
             return []
 
     async def store_entity_link(
@@ -926,7 +965,7 @@ class MilvusGraphStorage:
             )
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to store entity link: %s", exc)
+            logger.error("Failed to store entity link: %s", _sanitize_log_value(exc))
             return False
 
     async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
@@ -991,7 +1030,7 @@ class MilvusGraphStorage:
         if not memory_hash:
             return []
 
-        h_esc = memory_hash.replace('"', '\\"')
+        h_esc = escape_expr_value(memory_hash)
         rows = await self._query_entity_edges(
             extra_filter=f'source_hash == "{h_esc}"',
             output_fields=["metadata"],
@@ -1113,18 +1152,18 @@ class MilvusGraphStorage:
         self, relationship_type: str
     ) -> List[Dict[str, Any]]:
         """Fetch every edge of a single relationship type."""
-        safe_rt = relationship_type.replace('"', '\\"')
+        safe_rt = escape_expr_value(relationship_type)
         try:
-            results = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=f'relationship_type == "{safe_rt}"',
-                output_fields=["source_hash", "target_hash"],
-                limit=_MILVUS_MAX_LIMIT,
+            return await self._drain_edges(
+                f'relationship_type == "{safe_rt}"',
+                ["source_hash", "target_hash"],
             )
-            return results or []
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to drain edges for %s: %s", relationship_type, exc)
+            logger.error(
+                "Failed to drain edges for %s: %s",
+                _sanitize_log_value(relationship_type),
+                _sanitize_log_value(exc),
+            )
             return []
 
     async def common_neighbors(
@@ -1149,14 +1188,17 @@ class MilvusGraphStorage:
         neighbors = self._neighbors_of(own_edges, memory_hash)
 
         source_degree = len(neighbors)
-        neighbor_set = set(neighbors)
+        neighbor_counts: Dict[str, int] = {}
+        for neighbor in neighbors:
+            neighbor_counts[neighbor] = neighbor_counts.get(neighbor, 0) + 1
+        neighbor_set = set(neighbor_counts)
         if not neighbor_set:
             return []
 
         # 2-hop: neighbours of neighbours, counted with multiplicity so the
         # shared_count matches the SQL COUNT(*) over the join.
         second = await self._query_edges_both(neighbor_set)
-        counts = self._count_second_hop(second, neighbor_set, memory_hash)
+        counts = self._count_second_hop(second, neighbor_counts, memory_hash)
 
         candidates = [
             (h, c, source_degree)
@@ -1186,17 +1228,23 @@ class MilvusGraphStorage:
     @staticmethod
     def _count_second_hop(
         edges: List[Dict[str, Any]],
-        neighbor_set: Set[str],
+        neighbor_counts: Dict[str, int],
         memory_hash: str,
     ) -> Dict[str, int]:
-        """Count how many of the source's neighbours each 2-hop node touches."""
+        """Count SQL self-join matches for each 2-hop node.
+
+        Symmetric edges are stored in both directions, so each direct edge to a
+        shared neighbour contributes twice to the source's ``my_neighbors`` CTE
+        and each incident edge is counted once per such row. Multiplying by the
+        neighbour multiplicity preserves that SQL COUNT(*) semantics.
+        """
         counts: Dict[str, int] = {}
         for edge in edges:
             src = edge.get("source_hash")
             tgt = edge.get("target_hash")
             for near, far in ((src, tgt), (tgt, src)):
-                if near in neighbor_set and far and far != memory_hash:
-                    counts[far] = counts.get(far, 0) + 1
+                if near in neighbor_counts and far and far != memory_hash:
+                    counts[far] = counts.get(far, 0) + neighbor_counts[near]
         return counts
 
     async def close(self) -> None:

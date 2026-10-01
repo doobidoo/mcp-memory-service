@@ -221,6 +221,20 @@ class TestGraphVisualizationData:
         node_a = next(n for n in result["nodes"] if n["id"] == "a")
         assert node_a["quality_score"] == 0.91
 
+    @pytest.mark.asyncio
+    async def test_entity_edges_do_not_count_as_connections(self):
+        """has_entity targets are not memory nodes and must not affect the cut."""
+        storage = _make_storage()
+        storage._drain_all_graph_edges = AsyncMock(return_value=[
+            _edge("a", "ent:entity-key", "has_entity"),
+        ])
+        storage._fetch_memories_by_hashes = AsyncMock(return_value=[_memory("a")])
+
+        result = await storage.get_graph_visualization_data()
+
+        assert result["nodes"] == []
+        assert result["edges"] == []
+
 
 # -- get_type_counts ----------------------------------------------------------
 
@@ -253,6 +267,24 @@ class TestGetTypeCounts:
 
         assert await storage.get_type_counts() == {"untyped": 2}
 
+    @pytest.mark.asyncio
+    async def test_soft_deleted_rows_are_not_counted(self, monkeypatch):
+        storage = _make_storage()
+        monkeypatch.setattr(
+            storage,
+            "_drain_memory_types",
+            lambda: [
+                {"id": "1", "memory_type": "note", "metadata": "{}"},
+                {
+                    "id": "2",
+                    "memory_type": "note",
+                    "metadata": '{"deleted_at": 123}',
+                },
+            ],
+        )
+
+        assert await storage.get_type_counts() == {"note": 1}
+
 
 # -- count_untagged_memories / delete_untagged_memories -----------------------
 
@@ -262,19 +294,31 @@ class TestUntaggedMemories:
     @pytest.mark.asyncio
     async def test_count_uses_server_side_filter(self):
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[{"count(*)": 7}])
+        storage._drain_query_rows = MagicMock(return_value=[
+            {"id": f"h{i}", "metadata": "{}"} for i in range(7)
+        ])
 
         assert await storage.count_untagged_memories() == 7
 
-        kwargs = storage._call_client.await_args.kwargs
+        args = storage._drain_query_rows.call_args.args
         # Tags are stored with sentinel commas, so both forms mean "no tags".
-        assert kwargs["filter"] == 'tags == "" or tags == ","'
-        assert kwargs["output_fields"] == ["count(*)"]
+        assert args[0] == 'tags == "" or tags == ","'
+        assert args[1] == ["id", "metadata"]
+
+    @pytest.mark.asyncio
+    async def test_count_excludes_soft_deleted_rows(self):
+        storage = _make_storage()
+        storage._drain_query_rows = MagicMock(return_value=[
+            {"id": "live", "metadata": "{}"},
+            {"id": "deleted", "metadata": '{"deleted_at": 123}'},
+        ])
+
+        assert await storage.count_untagged_memories() == 1
 
     @pytest.mark.asyncio
     async def test_count_returns_zero_on_error(self):
         storage = _make_storage()
-        storage._call_client = AsyncMock(side_effect=RuntimeError("boom"))
+        storage._drain_query_rows = MagicMock(side_effect=RuntimeError("boom"))
 
         assert await storage.count_untagged_memories() == 0
 
@@ -287,6 +331,24 @@ class TestUntaggedMemories:
 
         assert count == 3
         assert storage._delete_matching.await_args.args[0] == 'tags == "" or tags == ","'
+        assert storage._delete_matching.await_args.kwargs["require_live"] is True
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_large_result_sets(self):
+        storage = _make_storage()
+        storage._collect_hashes = AsyncMock(
+            return_value=[f"h{i}" for i in range(storage._GET_BY_ID_CHUNK + 1)]
+        )
+
+        count, hashes = await storage._delete_matching_parts(
+            'tags == "" or tags == ","',
+            "",
+            require_live=True,
+        )
+
+        assert count == storage._GET_BY_ID_CHUNK + 1
+        assert len(hashes) == count
+        assert storage._call_client.await_count == 2
 
 
 # -- update_memory_versioned --------------------------------------------------
@@ -371,6 +433,46 @@ class TestUpdateMemoryVersioned:
         assert ok is False
         assert new_hash is None
         storage.update_memory_metadata.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_failed_lineage_write_rolls_back_new_version(self):
+        storage = _make_storage()
+        storage.get_by_hash = AsyncMock(return_value=_memory("oldhash", "v1"))
+        storage.store = AsyncMock(return_value=(True, "ok"))
+        storage.update_memory_metadata = AsyncMock(
+            return_value=(False, "metadata upsert failed")
+        )
+        storage.delete = AsyncMock(return_value=(True, "ok"))
+
+        ok, message, new_hash = await storage.update_memory_versioned(
+            "oldhash", "v2",
+        )
+
+        assert ok is False
+        assert new_hash is None
+        assert "Failed to link new version" in message
+        storage.delete.assert_awaited_once_with(
+            storage.store.await_args.args[0].content_hash
+        )
+
+    @pytest.mark.asyncio
+    async def test_already_superseded_memory_is_rejected(self):
+        storage = _make_storage()
+        storage.get_by_hash = AsyncMock(return_value=_memory(
+            "oldhash",
+            "v1",
+            metadata={"superseded_by": "existing-newer-version"},
+        ))
+        storage.store = AsyncMock(return_value=(True, "ok"))
+
+        ok, message, new_hash = await storage.update_memory_versioned(
+            "oldhash", "v2",
+        )
+
+        assert ok is False
+        assert new_hash is None
+        assert "no longer current" in message
+        storage.store.assert_not_awaited()
 
 
 # -- get_stats / lite_db_path -------------------------------------------------

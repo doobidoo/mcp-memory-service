@@ -120,6 +120,9 @@ _ID_MAX_LEN = 128
 # Milvus per-call limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
 
+# Structurally empty tag encodings used by the storage schema.
+_UNTAGGED_FILTER = 'tags == "" or tags == ","'
+
 # Reciprocal Rank Fusion smoothing constant for hybrid search.
 # k=60 is the standard default from the RRF paper (Cormack et al., 2009).
 RRF_RANKER_K = 60
@@ -1911,34 +1914,50 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return count, f"Deleted {count} memories before {before_date}{suffix}"
 
-    async def _delete_matching(self, filter_expr: str, success_template: str) -> Tuple[int, str]:
-        count, hashes = await self._delete_matching_parts(filter_expr, success_template)
+    async def _delete_matching(
+        self,
+        filter_expr: str,
+        success_template: str,
+        require_live: bool = False,
+    ) -> Tuple[int, str]:
+        count, hashes = await self._delete_matching_parts(
+            filter_expr, success_template, require_live=require_live,
+        )
         if count > 0:
             return count, success_template.format(count=count)
         return 0, "No memories found"
 
     async def _delete_matching_parts(
-        self, filter_expr: str, _success_template: str
+        self,
+        filter_expr: str,
+        _success_template: str,
+        require_live: bool = False,
     ) -> Tuple[int, List[str]]:
-        hashes = await self._collect_hashes(filter_expr)
+        hashes = await self._collect_hashes(filter_expr, require_live=require_live)
         if not hashes:
             return 0, []
-        await self._call_client(
-            "delete",
-            collection_name=self.collection_name,
-            ids=hashes,
-        )
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=hashes[start:start + self._GET_BY_ID_CHUNK],
+            )
         return len(hashes), hashes
 
-    async def _collect_hashes(self, filter_expr: str) -> List[str]:
-        rows = await self._call_client(
-            "query",
-            collection_name=self.collection_name,
-            filter=filter_expr,
-            output_fields=["id"],
-            limit=_MILVUS_MAX_LIMIT,
+    async def _collect_hashes(
+        self,
+        filter_expr: str,
+        require_live: bool = False,
+    ) -> List[str]:
+        output_fields = ["id", "metadata"] if require_live else ["id"]
+        rows = await asyncio.to_thread(
+            self._drain_query_rows, filter_expr, output_fields,
         )
-        return [row["id"] for row in rows if row.get("id")]
+        return [
+            row["id"]
+            for row in rows
+            if row.get("id") and (not require_live or self._row_is_live(row))
+        ]
 
     # -- Reads ---------------------------------------------------------------
 
@@ -2221,41 +2240,61 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, "Milvus storage not initialized", None
 
         try:
-            existing = await self.get_by_hash(content_hash)
-            if existing is None:
-                return False, f"Memory {content_hash} not found", None
+            lock = getattr(self, "_versioned_update_lock", None)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._versioned_update_lock = lock
 
-            resolved_tags = (
-                list(new_tags) if new_tags is not None else list(existing.tags or [])
-            )
-            resolved_type = (
-                new_memory_type if new_memory_type is not None else existing.memory_type
-            )
+            async with lock:
+                existing = await self.get_by_hash(content_hash)
+                if existing is None:
+                    return False, f"Memory {content_hash} not found", None
+                if (existing.metadata or {}).get("superseded_by") is not None:
+                    return False, f"Memory {content_hash} is no longer current", None
 
-            new_hash = generate_content_hash(new_content)
-            new_memory = Memory(
-                content=new_content,
-                content_hash=new_hash,
-                tags=resolved_tags,
-                memory_type=resolved_type,
-            )
-            store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
-            if not store_ok:
-                return False, f"Failed to store new version: {store_msg}", None
+                resolved_tags = (
+                    list(new_tags) if new_tags is not None else list(existing.tags or [])
+                )
+                resolved_type = (
+                    new_memory_type if new_memory_type is not None else existing.memory_type
+                )
 
-            meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
-            if reason:
-                meta_updates["metadata"]["evolution_reason"] = reason
-            await self.update_memory_metadata(
-                content_hash, meta_updates, preserve_timestamps=True
-            )
+                new_hash = generate_content_hash(new_content)
+                new_memory = Memory(
+                    content=new_content,
+                    content_hash=new_hash,
+                    tags=resolved_tags,
+                    memory_type=resolved_type,
+                )
+                store_ok, store_msg = await self.store(
+                    new_memory, skip_semantic_dedup=True,
+                )
+                if not store_ok:
+                    return False, f"Failed to store new version: {store_msg}", None
 
-            logger.info(
-                "Memory evolved: %s → %s",
-                _sanitize_log_value(content_hash[:8]),
-                _sanitize_log_value(new_hash[:8]),
-            )
-            return True, "Memory versioned successfully", new_hash
+                meta_updates: Dict[str, Any] = {"metadata": {"superseded_by": new_hash}}
+                if reason:
+                    meta_updates["metadata"]["evolution_reason"] = reason
+                linked, link_message = await self.update_memory_metadata(
+                    content_hash, meta_updates, preserve_timestamps=True,
+                )
+                if not linked:
+                    try:
+                        await self.delete(new_hash)
+                    except Exception as cleanup_exc:  # noqa: BLE001
+                        logger.error(
+                            "Failed to clean up unlinked version %s: %s",
+                            _sanitize_log_value(new_hash[:8]),
+                            _sanitize_log_value(cleanup_exc),
+                        )
+                    return False, f"Failed to link new version: {link_message}", None
+
+                logger.info(
+                    "Memory evolved: %s → %s",
+                    _sanitize_log_value(content_hash[:8]),
+                    _sanitize_log_value(new_hash[:8]),
+                )
+                return True, "Memory versioned successfully", new_hash
 
         except Exception as exc:  # noqa: BLE001
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(exc))
@@ -2888,13 +2927,14 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter='tags == "" or tags == ","',
-                output_fields=["count(*)"],
+            rows = await asyncio.to_thread(
+                self._drain_query_rows, _UNTAGGED_FILTER, ["id", "metadata"],
             )
-            return self._extract_count(rows)
+            return sum(
+                1
+                for row in rows
+                if row.get("id") and self._row_is_live(row)
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("count_untagged_memories failed: %s", _sanitize_log_value(exc))
             return 0
@@ -2909,8 +2949,9 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0, "Milvus storage not initialized"
 
         return await self._delete_matching(
-            'tags == "" or tags == ","',
+            _UNTAGGED_FILTER,
             "Successfully deleted {count} memories without tags",
+            require_live=True,
         )
 
     async def get_type_counts(self) -> Dict[str, int]:
@@ -2934,17 +2975,32 @@ class MilvusMemoryStorage(MemoryStorage):
 
         counts: Dict[str, int] = {}
         for row in rows:
+            if not self._row_is_live(row):
+                continue
             mem_type = row.get("memory_type") or "untyped"
             counts[mem_type] = counts.get(mem_type, 0) + 1
         return dict(sorted(counts.items(), key=lambda kv: kv[1], reverse=True))
 
-    def _drain_memory_types(self) -> List[Dict[str, Any]]:
-        """Sync helper draining memory_type for every row via QueryIterator."""
+    @staticmethod
+    def _row_is_live(row: Dict[str, Any]) -> bool:
+        """Return False for rows carrying an explicit soft-delete tombstone."""
+        metadata = _safe_json_loads(row.get("metadata", ""), "milvus_live_row")
+        return metadata.get("deleted_at") is None
+
+    def _drain_query_rows(
+        self,
+        filter_expr: str,
+        output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Drain every row matching ``filter_expr`` via QueryIterator."""
         assert self.client is not None
+        fields = list(output_fields)
+        if "id" not in fields:
+            fields.append("id")
         iterator = self.client.query_iterator(
             collection_name=self.collection_name,
-            filter="",
-            output_fields=["id", "memory_type"],
+            filter=filter_expr,
+            output_fields=fields,
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
@@ -2967,6 +3023,10 @@ class MilvusMemoryStorage(MemoryStorage):
             except Exception:  # noqa: BLE001
                 pass
         return rows
+
+    def _drain_memory_types(self) -> List[Dict[str, Any]]:
+        """Sync helper draining memory_type for every row via QueryIterator."""
+        return self._drain_query_rows("", ["id", "memory_type", "metadata"])
 
     async def is_deleted(self, content_hash: str) -> bool:
         """Check if a memory carries a soft-delete tombstone.
@@ -3671,11 +3731,21 @@ class MilvusMemoryStorage(MemoryStorage):
         Uses ``query_iterator`` to handle arbitrarily large graph collections
         without hitting the single-query limit cap.
         """
-        rows = await self._drain_all_graph_edges("get_memory_connections")
+        rows = await self._drain_all_graph_edges(
+            "get_memory_connections",
+            output_fields=[
+                "id", "source_hash", "target_hash", "relationship_type",
+            ],
+        )
 
         # Count occurrences of each hash (as source or target)
         connections: Dict[str, int] = {}
         for row in rows:
+            # Entity links are an index, not memory associations. Their target
+            # is an entity key rather than a memory hash, and counting the
+            # source row would inflate the memory's retention/relevance score.
+            if row.get("relationship_type") == "has_entity":
+                continue
             src = row.get("source_hash")
             tgt = row.get("target_hash")
             if src:
@@ -3776,7 +3846,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 continue
             for row in rows or []:
                 memory = self._entity_to_memory(row)
-                if memory is not None:
+                if memory is not None and memory.metadata.get("deleted_at") is None:
                     memories.append(memory)
         return memories
 
@@ -3819,6 +3889,11 @@ class MilvusMemoryStorage(MemoryStorage):
         # Connection count per source = number of distinct targets.
         targets_by_source: Dict[str, set] = {}
         for row in rows:
+            # has_entity targets are entity keys, not memory hashes. They are
+            # never renderable nodes, so counting them makes isolated memories
+            # appear connected and can incorrectly pass min_connections.
+            if row.get("relationship_type") == "has_entity":
+                continue
             src = row.get("source_hash")
             tgt = row.get("target_hash")
             if src and tgt:

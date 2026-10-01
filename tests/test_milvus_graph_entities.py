@@ -247,6 +247,14 @@ class TestCommonNeighbors:
         # counts neighbour rows the same way the SQL self-join does.
         assert all(degree > 0 for _, _, degree in result)
 
+    async def test_symmetric_edge_count_matches_sqlite(self, graph):
+        """Symmetric storage duplicates must count the same way SQL does."""
+        await graph.store_association(HASH_A, HASH_B, 0.9, ["semantic"])
+        await graph.store_association(HASH_C, HASH_B, 0.9, ["semantic"])
+        await graph.store_association(HASH_A, HASH_D, 0.9, ["semantic"])
+
+        assert await graph.common_neighbors(HASH_A) == [(HASH_C, 4, 4)]
+
     async def test_min_shared_filter(self, graph):
         await graph.store_association(HASH_A, HASH_B, 0.9, ["semantic"])
         await graph.store_association(HASH_C, HASH_B, 0.9, ["semantic"])

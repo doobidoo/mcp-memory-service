@@ -76,7 +76,11 @@ def _mem(content: str, tags=None, memory_type="note") -> Memory:
     )
 
 
-async def _insert_tagless_row(storage, content_hash: str) -> None:
+async def _insert_tagless_row(
+    storage,
+    content_hash: str,
+    metadata: str = "{}",
+) -> None:
     """Insert a row with a structurally empty tags field.
 
     Memory.__post_init__ rewrites an empty tag list to ["untagged"], so a row
@@ -94,7 +98,7 @@ async def _insert_tagless_row(storage, content_hash: str) -> None:
             "content_lower": "legacy row",
             "tags": "",
             "memory_type": "note",
-            "metadata": "{}",
+            "metadata": metadata,
             "created_at": now,
             "updated_at": now,
             "created_at_iso": "",
@@ -137,6 +141,21 @@ class TestUntaggedFilterIsValidMilvusSyntax:
         await storage.store(_mem("no tags supplied", tags=[]))
         assert await storage.count_untagged_memories() == 0
 
+    async def test_soft_deleted_rows_are_excluded_from_count_and_delete(self, storage):
+        await _insert_tagless_row(storage, "l" * 64)
+        await _insert_tagless_row(
+            storage,
+            "m" * 64,
+            metadata='{"deleted_at": 123.0}',
+        )
+
+        assert await _settle(storage.count_untagged_memories, lambda v: v == 1) == 1
+        count, _ = await storage.delete_untagged_memories()
+
+        assert count == 1
+        assert await storage.count_untagged_memories() == 0
+        assert await storage.is_deleted("m" * 64) is True
+
 
 class TestTypeCounts:
 
@@ -150,6 +169,16 @@ class TestTypeCounts:
     async def test_empty_store(self, storage):
         assert await storage.get_type_counts() == {}
 
+    async def test_soft_deleted_rows_are_excluded(self, storage):
+        await storage.store(_mem("live", tags=["t"], memory_type="note"))
+        await _insert_tagless_row(
+            storage,
+            "m" * 64,
+            metadata='{"deleted_at": 123.0}',
+        )
+        # The raw row has no memory_type, so it would otherwise count as untyped.
+        assert await storage.get_type_counts() == {"note": 1}
+
 
 class TestGraphAnalyticsAgainstRealGraphCollection:
 
@@ -159,6 +188,21 @@ class TestGraphAnalyticsAgainstRealGraphCollection:
         result = await storage.get_graph_visualization_data()
         assert result["nodes"] == []
         assert result["meta"]["total_nodes"] == 0
+
+    async def test_memory_connections_ignore_entity_links(self, storage):
+        graph = await storage._get_graph_storage()
+        memory_hash = "a" * 64
+        related_hash = "b" * 64
+        await graph.store_association(memory_hash, related_hash, 0.9, ["semantic"])
+        await graph.store_entity_link(memory_hash, "fastapi", "technology")
+
+        connections = await _settle(
+            storage.get_memory_connections,
+            lambda result: result.get(memory_hash) == 2,
+        )
+
+        # `related` stores both directions; the has_entity row is excluded.
+        assert connections == {memory_hash: 2, related_hash: 2}
 
     async def test_distribution_and_visualization(self, storage, milvus_uri):
         a = _mem("alpha body", tags=["t"])
@@ -234,6 +278,31 @@ class TestVersionedUpdate:
         assert old.metadata.get("evolution_reason") == "typo"
         assert new.content == "revised text"
         assert new.tags == ["keep"]
+
+    async def test_same_old_version_cannot_be_superseded_twice(self, storage):
+        original = _mem("original text", tags=["keep"], memory_type="note")
+        await storage.store(original)
+
+        first_ok, first_msg, first_hash = await storage.update_memory_versioned(
+            original.content_hash, "first revision", reason="first",
+        )
+        assert first_ok, first_msg
+        await _settle(
+            lambda: storage.get_by_hash(original.content_hash),
+            lambda value: value is not None
+            and value.metadata.get("superseded_by") == first_hash,
+        )
+
+        second_ok, second_msg, second_hash = await storage.update_memory_versioned(
+            original.content_hash, "second revision", reason="second",
+        )
+
+        assert second_ok is False
+        assert second_hash is None
+        assert "no longer current" in second_msg
+        old = await storage.get_by_hash(original.content_hash)
+        assert old is not None
+        assert old.metadata.get("superseded_by") == first_hash
 
 
 class TestStatsShape:
