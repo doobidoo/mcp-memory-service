@@ -162,12 +162,15 @@ class TestGraphVisualizationData:
 
         result = await storage.get_graph_visualization_data()
 
-        assert {n["id"] for n in result["nodes"]} == {"a", "b", "c"}
+        # Nodes are memory rows that are edge sources, matching SQLite's
+        # INNER JOIN on source_hash. b/c are targets only, so their candidate
+        # rows keep 'a' connection-eligible but are not rendered as nodes.
+        assert {n["id"] for n in result["nodes"]} == {"a"}
         node_a = next(n for n in result["nodes"] if n["id"] == "a")
         assert node_a["connections"] == 2
         assert node_a["type"] == "note"
-        assert result["meta"]["total_nodes"] == 3
-        assert result["meta"]["total_edges"] == 2
+        assert result["meta"]["total_nodes"] == 1
+        assert result["meta"]["total_edges"] == 0
 
     @pytest.mark.asyncio
     async def test_min_connections_filters_nodes(self):
@@ -203,12 +206,38 @@ class TestGraphVisualizationData:
     async def test_edges_to_unrendered_nodes_dropped(self):
         """No dangling edges: both endpoints must be in the node set."""
         storage = _make_storage()
-        storage._drain_all_graph_edges = AsyncMock(return_value=[_edge("a", "gone")])
-        storage._fetch_memories_by_hashes = AsyncMock(return_value=[_memory("a")])
+        storage._drain_all_graph_edges = AsyncMock(return_value=[_edge("a", "b")])
+        storage._fetch_memories_by_hashes = AsyncMock(
+            return_value=[_memory("a"), _memory("b")]
+        )
 
         result = await storage.get_graph_visualization_data()
 
         assert [n["id"] for n in result["nodes"]] == ["a"]
+        assert result["edges"] == []
+
+    @pytest.mark.asyncio
+    async def test_deleted_targets_do_not_consume_node_limit(self):
+        """Ranking must ignore edges to rows that no longer exist."""
+        storage = _make_storage()
+        storage._drain_all_graph_edges = AsyncMock(return_value=[
+            _edge("dead-source", "gone-1"),
+            _edge("dead-source", "gone-2"),
+            _edge("live-source", "live-target"),
+        ])
+        live_hashes = {"live-source", "live-target"}
+        storage._fetch_memories_by_hashes = AsyncMock(
+            side_effect=lambda hashes: [
+                _memory(content_hash)
+                for content_hash in hashes
+                if content_hash in live_hashes
+            ]
+        )
+
+        result = await storage.get_graph_visualization_data(limit=1)
+
+        assert [n["id"] for n in result["nodes"]] == ["live-source"]
+        assert result["nodes"][0]["connections"] == 1
         assert result["edges"] == []
 
     @pytest.mark.asyncio
@@ -340,6 +369,19 @@ class TestUntaggedMemories:
             "",
             require_live=True,
         )
+
+        assert count == storage._GET_BY_ID_CHUNK + 1
+        assert len(hashes) == count
+        assert storage._call_client.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_chunks_large_result_sets(self):
+        storage = _make_storage()
+        storage._collect_hashes = AsyncMock(
+            return_value=[f"h{i}" for i in range(storage._GET_BY_ID_CHUNK + 1)]
+        )
+
+        count, _message, hashes = await storage.delete_by_tags(["shared"])
 
         assert count == storage._GET_BY_ID_CHUNK + 1
         assert len(hashes) == count

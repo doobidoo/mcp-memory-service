@@ -1846,18 +1846,13 @@ class MilvusMemoryStorage(MemoryStorage):
         if not matched:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        hashes = await self._collect_hashes(tag_filter)
+        count, hashes = await self._delete_matching_parts(tag_filter, "")
         if not hashes:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        await self._call_client(
-            "delete",
-            collection_name=self.collection_name,
-            ids=hashes,
-        )
         return (
-            len(hashes),
-            f"Successfully deleted {len(hashes)} memories matching {len(tags)} tag(s)",
+            count,
+            f"Successfully deleted {count} memories matching {len(tags)} tag(s)",
             hashes,
         )
 
@@ -4207,7 +4202,26 @@ class MilvusMemoryStorage(MemoryStorage):
         if not rows:
             return empty
 
-        # Connection count per source = number of distinct targets.
+        # Resolve the live memory rows before ranking. SQLite's node query joins
+        # both the source and target memories with ``deleted_at IS NULL``; if
+        # Milvus ranks first, a dead target can fill the requested node limit and
+        # crowd out live memories. Fetching all candidates once also lets the
+        # node-building loop reuse these rows instead of issuing a second RPC.
+        candidate_hashes = sorted({
+            value
+            for row in rows
+            if row.get("relationship_type") != "has_entity"
+            for value in (row.get("source_hash"), row.get("target_hash"))
+            if value
+        })
+        if not candidate_hashes:
+            return empty
+        live_memories = await self._fetch_memories_by_hashes(candidate_hashes)
+        memories_by_hash = {memory.content_hash: memory for memory in live_memories}
+        if not memories_by_hash:
+            return empty
+
+        # Connection count per source = number of distinct live targets.
         targets_by_source: Dict[str, set] = {}
         for row in rows:
             # has_entity targets are entity keys, not memory hashes. They are
@@ -4217,7 +4231,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 continue
             src = row.get("source_hash")
             tgt = row.get("target_hash")
-            if src and tgt:
+            if src in memories_by_hash and tgt in memories_by_hash:
                 targets_by_source.setdefault(src, set()).add(tgt)
 
         ranked = sorted(
@@ -4235,7 +4249,10 @@ class MilvusMemoryStorage(MemoryStorage):
         connection_counts = dict(ranked)
         node_hashes = set(connection_counts)
 
-        memories = await self._fetch_memories_by_hashes(list(node_hashes))
+        memories = [
+            memories_by_hash[content_hash]
+            for content_hash in node_hashes
+        ]
         nodes = []
         for memory in memories:
             metadata = memory.metadata or {}
