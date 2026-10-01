@@ -1058,7 +1058,6 @@ async def get_storage_stats(
         total_memories = stats.get("primary_stats", {}).get("total_memories") or stats.get("total_memories") or 0
 
         if scope is None:
-            scoped_memories = None
             recent_memories = await storage.get_recent_memories(n=100)
             largest_memories_objs = await storage.get_largest_memories(n=10)
         else:
