@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
 # OAuth config no longer needed - auth is always enabled
+from ...compat import _sanitize_log_value
 from ..dependencies import get_storage
 
 # OAuth authentication imports
@@ -55,7 +56,7 @@ async def fetch_storage_stats(storage: MemoryStorage) -> Dict[str, Any]:
         try:
             return await storage.get_stats()
         except Exception as e:
-            logger.warning(f"Failed to retrieve storage stats: {e}")
+            logger.warning("Failed to retrieve storage stats: %s", _sanitize_log_value(e))
             return {}
     return {}
 
@@ -383,9 +384,9 @@ async def get_analytics_overview(
         if hasattr(storage, 'get_stats'):
             try:
                 stats = await storage.get_stats()
-                logger.info(f"Storage stats: {stats}")  # Debug logging
+                logger.info("Storage stats: %s", _sanitize_log_value(stats))  # Debug logging
             except Exception as e:
-                logger.warning(f"Failed to retrieve storage stats: {e}")
+                logger.warning("Failed to retrieve storage stats: %s", _sanitize_log_value(e))
                 stats = {}
         else:
             stats = {}
@@ -404,7 +405,7 @@ async def get_analytics_overview(
             recent_memories = await storage.get_recent_memories(n=5000)
             memories_this_month = sum(1 for m in recent_memories if m.created_at and m.created_at > month_ago_ts)
         except Exception as e:
-            logger.warning(f"Failed to calculate monthly memories: {e}")
+            logger.warning("Failed to calculate monthly memories: %s", _sanitize_log_value(e))
             memories_this_month = 0
 
         return AnalyticsOverview(
@@ -418,7 +419,7 @@ async def get_analytics_overview(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get analytics overview: {str(e)}")
+        logger.error("Failed to get analytics overview: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get analytics overview: {str(e)}")
 
 
@@ -522,7 +523,7 @@ async def get_memory_growth(
                 current_date += timedelta(days=interval_days)
 
         except Exception as e:
-            logger.warning(f"Failed to calculate memory growth: {str(e)}")
+            logger.warning("Failed to calculate memory growth: %s", _sanitize_log_value(e))
             # Return empty data if calculation fails
             data_points = []
 
@@ -534,7 +535,7 @@ async def get_memory_growth(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get memory growth data: {str(e)}")
+        logger.error("Failed to get memory growth data: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get memory growth data: {str(e)}")
 
 
@@ -581,7 +582,7 @@ async def get_tag_usage_analytics(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get tag usage analytics: {str(e)}")
+        logger.error("Failed to get tag usage analytics: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get tag usage analytics: {str(e)}")
 
 
@@ -659,7 +660,7 @@ async def get_memory_type_distribution(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get memory type distribution: {str(e)}")
+        logger.error("Failed to get memory type distribution: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get memory type distribution: {str(e)}")
 
 
@@ -679,7 +680,7 @@ async def get_relationship_type_distribution(
         return distribution
 
     except Exception as e:
-        logger.error(f"Failed to get relationship type distribution: {str(e)}")
+        logger.error("Failed to get relationship type distribution: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get relationship type distribution: {str(e)}")
 
 
@@ -710,7 +711,7 @@ async def get_graph_visualization(
         return GraphVisualizationData(**graph_data)
 
     except Exception as e:
-        logger.error(f"Failed to get graph visualization data: {str(e)}")
+        logger.error("Failed to get graph visualization data: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get graph visualization data: {str(e)}")
 
 
@@ -819,7 +820,7 @@ async def get_activity_heatmap(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get activity heatmap: {str(e)}")
+        logger.error("Failed to get activity heatmap: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get activity heatmap: {str(e)}")
 
 
@@ -923,7 +924,7 @@ async def get_top_tags_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get top tags report: {str(e)}")
+        logger.error("Failed to get top tags report: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get top tags report: {str(e)}")
 
 
@@ -991,7 +992,7 @@ async def get_activity_breakdown(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get activity breakdown: {str(e)}")
+        logger.error("Failed to get activity breakdown: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get activity breakdown: {str(e)}")
 
 
@@ -1063,5 +1064,5 @@ async def get_storage_stats(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get storage stats: {str(e)}")
+        logger.error("Failed to get storage stats: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get storage stats: {str(e)}")

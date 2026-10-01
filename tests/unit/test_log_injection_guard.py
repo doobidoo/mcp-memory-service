@@ -56,6 +56,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/discovery/mdns_service.py",
     "mcp_memory_service/sync/importer.py",
     "mcp_memory_service/backup/scheduler.py",
+    "mcp_memory_service/web/api/analytics.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
