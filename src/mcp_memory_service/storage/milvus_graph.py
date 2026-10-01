@@ -205,8 +205,10 @@ class MilvusGraphStorage:
         )
 
         index_params = self.client.prepare_index_params()
-        index_params.add_index(field_name="source_hash", index_type="Trie")
-        index_params.add_index(field_name="target_hash", index_type="Trie")
+        # INVERTED is the scalar index supported by Milvus Lite 3.x; Trie was
+        # removed there and rejects collection creation outright.
+        index_params.add_index(field_name="source_hash", index_type="INVERTED")
+        index_params.add_index(field_name="target_hash", index_type="INVERTED")
         index_params.add_index(
             field_name="_dummy_vec",
             index_type="AUTOINDEX",

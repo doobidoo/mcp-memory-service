@@ -431,7 +431,7 @@ class MilvusMemoryStorage(MemoryStorage):
         try:
             info = self.client.describe_collection(collection_name=self.collection_name)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("describe_collection failed during dimension probe: %s", exc)
+            logger.debug("describe_collection failed during dimension probe: %s", _sanitize_log_value(exc))
             return None
         return self._extract_vector_dim(info)
 
@@ -2250,11 +2250,15 @@ class MilvusMemoryStorage(MemoryStorage):
                 content_hash, meta_updates, preserve_timestamps=True
             )
 
-            logger.info("Memory evolved: %s → %s", content_hash[:8], new_hash[:8])
+            logger.info(
+                "Memory evolved: %s → %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(new_hash[:8]),
+            )
             return True, "Memory versioned successfully", new_hash
 
         except Exception as exc:  # noqa: BLE001
-            logger.error("update_memory_versioned error: %s", exc)
+            logger.error("update_memory_versioned error: %s", _sanitize_log_value(exc))
             return False, str(exc), None
 
     async def update_memories_batch(
@@ -2892,7 +2896,7 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             return self._extract_count(rows)
         except Exception as exc:  # noqa: BLE001
-            logger.error("count_untagged_memories failed: %s", exc)
+            logger.error("count_untagged_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
     async def delete_untagged_memories(self) -> Tuple[int, str]:
@@ -2925,7 +2929,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 self._drain_memory_types,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("get_type_counts failed: %s", exc)
+            logger.warning("get_type_counts failed: %s", _sanitize_log_value(exc))
             return {}
 
         counts: Dict[str, int] = {}
@@ -3718,7 +3722,8 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "%s: failed to query graph collection: %s",
-                _sanitize_log_value(caller), exc,
+                _sanitize_log_value(caller),
+                _sanitize_log_value(exc),
             )
             return []
 
@@ -3767,7 +3772,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     output_fields=list(self._OUTPUT_FIELDS),
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Batch hash fetch failed: %s", exc)
+                logger.warning("Batch hash fetch failed: %s", _sanitize_log_value(exc))
                 continue
             for row in rows or []:
                 memory = self._entity_to_memory(row)
