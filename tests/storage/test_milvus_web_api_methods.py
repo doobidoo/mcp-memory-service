@@ -29,6 +29,7 @@ tests mock the client instead and actually run.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -37,6 +38,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import mcp_memory_service.storage.milvus as milvus_module
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.milvus import MilvusMemoryStorage
 
@@ -442,7 +444,7 @@ class TestRecallSupersededBacklog:
     async def test_time_only_recall_handles_dense_superseded_timestamp(self):
         storage = _make_storage()
         n_results = self.N_RESULTS
-        memories = [
+        stale = [
             Memory(
                 content=f"obsolete {i}",
                 content_hash=f"stale-{i}",
@@ -450,7 +452,8 @@ class TestRecallSupersededBacklog:
                 created_at=1000.0,
             )
             for i in range(100)
-        ] + [
+        ]
+        live = [
             Memory(
                 content=f"live {i}",
                 content_hash=f"live-{i}",
@@ -458,10 +461,9 @@ class TestRecallSupersededBacklog:
             )
             for i in range(n_results)
         ]
-        exact_calls = 0
+        exact_pages = []
 
         async def _query_window(filter_expr, limit):
-            nonlocal exact_calls
             bounds = [
                 float(value)
                 for value in re.findall(
@@ -469,16 +471,19 @@ class TestRecallSupersededBacklog:
                 )
             ]
             lower, upper = min(bounds), max(bounds)
-            if lower == upper == 1000.0:
-                exact_calls += 1
             matches = [
                 memory
-                for memory in memories
+                for memory in stale + live
                 if lower <= (memory.created_at or 0.0) <= upper
             ]
             return matches[:limit] if len(matches) > limit else matches
 
+        async def _paged_exact(filter_expr, batch_size):
+            exact_pages.append((filter_expr, batch_size))
+            yield stale[:batch_size]
+
         storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._iter_time_window_batches = _paged_exact
         storage._iterate_all_rows = AsyncMock(
             side_effect=AssertionError("same-timestamp backlog must not full-scan")
         )
@@ -492,4 +497,98 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ]
-        assert exact_calls <= 2, "dense timestamp should be resolved without recursive splits"
+        assert len(exact_pages) == 1, "dense timestamp should use one paged scan"
+        storage._iterate_all_rows.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_dense_timestamp_beyond_query_cap_uses_paged_scan(self, monkeypatch):
+        """A saturated timestamp must not hold the client lock for a full scan."""
+        monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 100)
+        storage = _make_storage()
+        stale = [
+            Memory(
+                content=f"obsolete {i}",
+                content_hash=f"stale-{i}",
+                metadata={"superseded_by": "current"},
+                created_at=1000.0,
+            )
+            for i in range(100)
+        ]
+        live = [
+            Memory(content=f"live {i}", content_hash=f"live-{i}", created_at=500.0 - i)
+            for i in range(3)
+        ]
+        pages = []
+
+        async def _query_window(filter_expr, limit):
+            bounds = [
+                float(value)
+                for value in re.findall(
+                    r"created_at [<>=]+ ([0-9.eE+-]+)", filter_expr
+                )
+            ]
+            if max(bounds) < 1000.0:
+                return live[:limit]
+            return stale[:limit]
+
+        async def _paged_exact(filter_expr, batch_size):
+            pages.append((filter_expr, batch_size))
+            yield stale[:batch_size]
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._iter_time_window_batches = _paged_exact
+        storage._iterate_all_rows = AsyncMock(
+            side_effect=AssertionError("exact-timestamp fallback must be paged")
+        )
+
+        results = await storage.recall(
+            start_timestamp=0.0, end_timestamp=1000.0, n_results=3
+        )
+
+        assert [result.memory.content_hash for result in results] == [
+            "live-0",
+            "live-1",
+            "live-2",
+        ]
+        assert pages, "the saturated timestamp must be scanned in bounded pages"
+        storage._iterate_all_rows.assert_not_awaited()
+
+
+class TestPagedTimeWindowIterator:
+    @pytest.mark.asyncio
+    async def test_releases_lock_between_batches_and_closes_iterator(self):
+        storage = _make_storage()
+        storage._write_lock = asyncio.Lock()
+        iterator = MagicMock()
+
+        first_next_started = asyncio.Event()
+        contender_acquired = asyncio.Event()
+
+        def _next():
+            first_next_started.set()
+            return [_entity("h1", "one", created_at=1.0)]
+
+        iterator.next.side_effect = _next
+        storage._call_client = AsyncMock(return_value=iterator)
+
+        async def _consume():
+            pages = []
+            batches = storage._iter_time_window_batches("created_at >= 0.0", 1)
+            async for page in batches:
+                pages.append(page)
+                await contender_acquired.wait()
+                break
+            await batches.aclose()
+            return pages
+
+        async def _contend_for_lock():
+            await first_next_started.wait()
+            async with storage._write_lock:
+                contender_acquired.set()
+
+        pages, _ = await asyncio.wait_for(
+            asyncio.gather(_consume(), _contend_for_lock()), timeout=1.0
+        )
+
+        assert [[memory.content_hash for memory in page] for page in pages] == [["h1"]]
+        iterator.close.assert_called_once_with()

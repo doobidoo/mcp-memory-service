@@ -35,6 +35,7 @@ Design notes:
 """
 
 import asyncio
+from contextlib import aclosing
 import heapq
 import json
 import logging
@@ -44,7 +45,7 @@ import time
 import traceback
 from collections import Counter
 from datetime import datetime, timezone, timedelta, date
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 # Disable wandb BEFORE importing sentence-transformers — same rationale as
 # sqlite_vec.py (Issue #311). Safe to set even when transformers is unused.
@@ -3136,21 +3137,13 @@ class MilvusMemoryStorage(MemoryStorage):
                     heapq.heappush(intervals, (-range_end, newer_start, range_end))
 
                 exact_filter = self._time_window_filter(timestamp, timestamp)
-                exact_limit = batch_size
-                while True:
-                    exact = await self._query_time_window(exact_filter, exact_limit)
-                    remember_live(exact)
-                    if len(exact) < exact_limit or exact_limit >= _MILVUS_MAX_LIMIT:
-                        break
-                    exact_limit = min(exact_limit * 2, _MILVUS_MAX_LIMIT)
-                if exact_limit >= _MILVUS_MAX_LIMIT and len(exact) == exact_limit:
-                    rows = await self._iterate_all_rows(exact_filter)
-                    fallback_memories = []
-                    for row in rows:
-                        memory = self._entity_to_memory(row)
-                        if memory is not None:
-                            fallback_memories.append(memory)
-                    remember_live(fallback_memories)
+                async with aclosing(
+                    self._iter_time_window_batches(exact_filter, batch_size)
+                ) as batches:
+                    async for exact in batches:
+                        remember_live(exact)
+                        if len(candidates) >= n_results:
+                            break
                 continue
 
             if range_end - range_start <= 1e-6:
@@ -3175,6 +3168,49 @@ class MilvusMemoryStorage(MemoryStorage):
             reverse=True,
         )
         return newest[:n_results]
+
+    async def _iter_time_window_batches(
+        self,
+        time_filter: str,
+        batch_size: int,
+    ) -> AsyncIterator[List[Memory]]:
+        """Yield time-window rows in bounded pages.
+
+        ``_iterate_all_rows`` holds the shared client lock across the entire
+        iteration. Dense timestamps can therefore block unrelated storage calls
+        for an unbounded time. This path instead acquires the lock once per
+        pymilvus RPC and lets the caller stop as soon as it has enough live rows.
+        """
+        batch_size = max(1, min(batch_size, _MILVUS_MAX_LIMIT))
+        iterator = await self._call_client(
+            "query_iterator",
+            collection_name=self.collection_name,
+            filter=time_filter or "",
+            output_fields=list(self._OUTPUT_FIELDS_BASE),
+            batch_size=batch_size,
+        )
+        try:
+            while True:
+                async with self._write_lock:
+                    batch = await asyncio.to_thread(iterator.next)
+                if not batch:
+                    break
+                memories: List[Memory] = []
+                for row in batch:
+                    memory = self._entity_to_memory(row)
+                    if memory is not None:
+                        memories.append(memory)
+                if memories:
+                    yield memories
+        finally:
+            try:
+                async with self._write_lock:
+                    await asyncio.to_thread(iterator.close)
+            except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                logger.debug(
+                    "Milvus query iterator close failed (ignored): %s",
+                    _sanitize_log_value(exc),
+                )
 
     async def _query_time_window(
         self,
