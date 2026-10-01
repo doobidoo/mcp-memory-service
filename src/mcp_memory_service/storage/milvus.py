@@ -90,7 +90,7 @@ except ImportError:
 from .base import MemoryStorage
 from .milvus_expr import escape_expr_value
 from .shared import (
-    _embedding_cache_get, _embedding_cache_put, _embedding_cache_size,
+    _embedding_cache_get, _embedding_cache_put,
     _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads,
 )
@@ -3074,10 +3074,37 @@ class MilvusMemoryStorage(MemoryStorage):
         time_filter: str,
         n_results: int,
     ) -> List[Memory]:
-        """Return newest live memories after excluding superseded rows first."""
+        """Return live memories without scanning the whole window by default.
+
+        Time-only recall has no ANN ranking to push Milvus-side, so grow a
+        bounded scalar-query window until it yields enough live rows or the
+        result set is exhausted. Only a pathologically long superseded backlog
+        that fills ``_MILVUS_MAX_LIMIT`` falls back to the iterator scan.
+        """
         if n_results <= 0:
             return []
 
+        fetch_n = max(1, min(n_results, _MILVUS_MAX_LIMIT))
+        while True:
+            memories = await self._query_time_window(time_filter, fetch_n)
+            live = [
+                memory
+                for memory in memories
+                if not (memory.metadata or {}).get("superseded_by")
+            ]
+            if len(live) >= n_results or len(memories) < fetch_n:
+                live.sort(key=lambda memory: memory.created_at or 0.0, reverse=True)
+                return live[:n_results]
+            if fetch_n >= _MILVUS_MAX_LIMIT:
+                break
+            fetch_n = min(fetch_n * 2, _MILVUS_MAX_LIMIT)
+
+        logger.warning(
+            "Milvus time-window recall exhausted %d candidates with fewer than %d live rows; "
+            "falling back to a full iterator scan",
+            _MILVUS_MAX_LIMIT,
+            n_results,
+        )
         rows = await self._iterate_all_rows(time_filter)
         memories = []
         for row in rows:
@@ -3087,6 +3114,34 @@ class MilvusMemoryStorage(MemoryStorage):
             memories.append(memory)
         memories.sort(key=lambda memory: memory.created_at or 0.0, reverse=True)
         return memories[:n_results]
+
+    async def _query_time_window(
+        self,
+        time_filter: str,
+        limit: int,
+    ) -> List[Memory]:
+        """Return at most ``limit`` scalar-query rows inside a time window."""
+        try:
+            rows = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=time_filter or "",
+                output_fields=list(self._OUTPUT_FIELDS_BASE),
+                limit=limit,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Milvus time-window query failed: %s",
+                _sanitize_log_value(exc),
+            )
+            return []
+
+        memories: List[Memory] = []
+        for row in rows:
+            memory = self._entity_to_memory(row)
+            if memory is not None:
+                memories.append(memory)
+        return memories
 
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         return await self.get_all_memories(limit=n, offset=0)

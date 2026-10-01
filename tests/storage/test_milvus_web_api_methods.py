@@ -195,31 +195,38 @@ class TestRecall:
         storage = _make_storage()
         captured: Dict[str, Any] = {}
 
-        async def _iterate(filter_expr, **kwargs):
+        async def _query_window(filter_expr, limit):
             captured["filter"] = filter_expr
+            captured["limit"] = limit
             return [
-                _entity("old", "old memory", created_at=100.0),
-                _entity("new", "new memory", created_at=300.0),
+                Memory(content="old memory", content_hash="old", created_at=100.0),
+                Memory(content="new memory", content_hash="new", created_at=300.0),
             ]
 
-        storage._iterate_all_rows = AsyncMock(side_effect=_iterate)
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
 
         results = await storage.recall(start_timestamp=50.0, end_timestamp=400.0)
 
         assert [r.memory.content_hash for r in results] == ["new", "old"]
         assert "created_at >= 50.0" in captured["filter"]
         assert "created_at <= 400.0" in captured["filter"]
+        assert captured["limit"] == 5
 
     @pytest.mark.asyncio
     async def test_time_only_recall_respects_n_results(self):
         storage = _make_storage()
-        storage._iterate_all_rows = AsyncMock(return_value=[
-            _entity(f"h{i}", f"memory {i}", created_at=float(i)) for i in range(10)
-        ])
+        async def _query_window(filter_expr, limit):
+            return [
+                Memory(content=f"memory {i}", content_hash=f"h{i}", created_at=float(i))
+                for i in range(limit)
+            ]
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
 
         results = await storage.recall(n_results=3)
 
         assert len(results) == 3
+        storage._query_time_window.assert_awaited_once_with("", 3)
 
     @pytest.mark.asyncio
     async def test_semantic_recall_applies_the_time_window_to_the_search(self):
@@ -362,7 +369,23 @@ class TestRecallSupersededBacklog:
             _entity(f"live-{i}", f"live {i}", created_at=float(500 - i))
             for i in range(n_results)
         ]
-        storage._iterate_all_rows = AsyncMock(return_value=rows)
+        memories = [
+            Memory(
+                content=row["content"],
+                content_hash=row["id"],
+                metadata=json.loads(row["metadata"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+        async def _query_window(filter_expr, limit):
+            return memories[:limit]
+
+        storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._iterate_all_rows = AsyncMock(
+            side_effect=AssertionError("bounded recall must not full-scan")
+        )
 
         results = await storage.recall(query=None, n_results=n_results)
 

@@ -92,15 +92,15 @@ class TestMilvusRecallContract:
 
         captured = {}
 
-        async def fake_iterate_rows(filter_expr, include_embeddings=False):
+        async def fake_query_window(filter_expr, limit):
             captured["filter_expr"] = filter_expr
+            captured["limit"] = limit
             return [
                 Memory(content="obsolete", content_hash="stale", metadata={"superseded_by": "current"}),
                 Memory(content="current", content_hash="current"),
             ]
 
-        storage._iterate_all_rows = fake_iterate_rows
-        storage._entity_to_memory = lambda row, include_embedding=False: row
+        storage._query_time_window = fake_query_window
 
         results = await MilvusMemoryStorage.recall(
             storage, query=None, n_results=5, start_timestamp=100.0, end_timestamp=200.0
@@ -108,6 +108,7 @@ class TestMilvusRecallContract:
 
         assert "created_at >= 100.0" in captured["filter_expr"]
         assert "created_at <= 200.0" in captured["filter_expr"]
+        assert captured["limit"] == 5
         assert [r.memory.content_hash for r in results] == ["current"]
 
 
