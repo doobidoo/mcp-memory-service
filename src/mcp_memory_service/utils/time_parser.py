@@ -74,10 +74,32 @@ PATTERNS = {
     "specific_date": re.compile(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?'),
     "full_date": re.compile(r'(\d{4})-(\d{1,2})-(\d{1,2})'),
     "named_period": re.compile(r'(spring|summer|winter|fall|autumn|christmas|new\s*year|valentine|halloween|thanksgiving|spring\s*break|summer\s*break|winter\s*break)'),    "half_year": re.compile(r'(first|second)\s+half\s+of\s+(\d{4})'),
-    "quarter": re.compile(r'(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter(?:\s+of\s+(\d{4}))?'),
+    "quarter": re.compile(r'(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter(?:\s+(?:of\s+)?(\d{4}))?'),
 }
 
 _MAX_TIME_QUERY_LEN = 500  # guard against ReDoS on user-supplied input
+
+def _resolve_yearless_date(
+    month: int, day: int, today: date, anchor_year: Optional[int] = None
+) -> Optional[date]:
+    """Resolve a yearless month/day to its most recent real occurrence.
+
+    Without ``anchor_year``, return the latest occurrence on or before
+    ``today``, walking back over years where the combination does not exist
+    (Feb 29 in non-leap years). With ``anchor_year``, return the occurrence
+    in or before that year so both ends of a date range can share one year.
+
+    Returns None when no calendar year contains the month/day (e.g. 2/30).
+    """
+    latest = today if anchor_year is None else date(anchor_year, 12, 31)
+    for year in range(latest.year, latest.year - 200, -1):
+        try:
+            candidate = date(year, month, day)
+        except ValueError:
+            continue
+        if candidate <= latest:
+            return candidate
+    return None
 
 def _calculate_season_date_range(
     period: str,
@@ -118,12 +140,16 @@ def _calculate_season_date_range(
 
     return start_dt, end_dt
 
-def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]:
+def parse_time_expression(
+    query: str, base_year: Optional[int] = None
+) -> Tuple[Optional[float], Optional[float]]:
     """
     Parse a natural language time expression and return timestamp range.
 
     Args:
         query: A natural language query with time expressions
+        base_year: Optional year to resolve yearless dates/quarters against,
+            used to keep both ends of a date range inside one calendar year
 
     Returns:
         Tuple of (start_timestamp, end_timestamp), either may be None
@@ -143,6 +169,14 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             end_expr = date_range_match.group(2)
             start_ts, _ = parse_time_expression(start_expr)
             _, end_ts = parse_time_expression(end_expr)
+            # Independent rollback can invert a yearless range ("between 1/31
+            # and 12/25" in September): re-anchor the start to the end's year
+            # so the span keeps its order inside one calendar year.
+            if start_ts is not None and end_ts is not None and start_ts > end_ts:
+                end_year = datetime.fromtimestamp(end_ts).year
+                reanchored_ts, _ = parse_time_expression(start_expr, base_year=end_year)
+                if reanchored_ts is not None and reanchored_ts <= end_ts:
+                    start_ts = reanchored_ts
             return start_ts, end_ts
         
         # Check for full ISO dates (YYYY-MM-DD) FIRST
@@ -172,11 +206,17 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
                 year = 2000 + year if year < 50 else 1900 + year
 
             try:
-                specific_date = date(year, month, day)
-                # A yearless date still ahead this year refers to its most
-                # recent (past) occurrence, same rule as holidays and seasons.
-                if not year_given and specific_date > date.today():
-                    specific_date = date(year - 1, month, day)
+                if year_given:
+                    specific_date = date(year, month, day)
+                else:
+                    # A yearless date refers to its most recent (past)
+                    # occurrence, same rule as holidays and seasons. Feb 29
+                    # resolves to the previous leap year instead of failing.
+                    specific_date = _resolve_yearless_date(
+                        month, day, date.today(), base_year
+                    )
+                    if specific_date is None:
+                        raise ValueError(f"no calendar year contains {month:02d}/{day:02d}")
                 start_dt = datetime.combine(specific_date, time.min)
                 end_dt = datetime.combine(specific_date, time.max)
                 return start_dt.timestamp(), end_dt.timestamp()
@@ -317,8 +357,11 @@ def parse_time_expression(query: str) -> Tuple[Optional[float], Optional[float]]
             # A yearless quarter that has not started yet this year refers to
             # its most recent (past) occurrence, same rule as holidays/seasons.
             quarter_month = (quarter_num - 1) * 3 + 1
-            if not year_given and date(year, quarter_month, 1) > date.today():
-                year -= 1
+            if not year_given:
+                if base_year is not None:
+                    year = base_year
+                elif date(year, quarter_month, 1) > date.today():
+                    year -= 1
             start_dt = datetime(year, quarter_month, 1, 0, 0, 0)
             
             if quarter_month + 3 > 12:

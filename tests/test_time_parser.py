@@ -19,6 +19,23 @@ from mcp_memory_service.utils.time_parser import (
     get_named_period_range
 )
 
+def _freeze_clock(monkeypatch, today: date) -> None:
+    """Pin date.today()/datetime.now() seen by parse_time_expression to `today`."""
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls.fromordinal(today.toordinal())
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(today.year, today.month, today.day, 12, tzinfo=tz)
+
+    monkeypatch.setitem(parse_time_expression.__globals__, "date", FixedDate)
+    monkeypatch.setitem(parse_time_expression.__globals__, "datetime", FixedDateTime)
+
+
 
 class TestTimeParser:
     """Test time parsing functionality"""
@@ -347,6 +364,44 @@ class TestTimeParser:
 
         assert datetime.fromtimestamp(start_ts).date() == date(2025, 12, 1)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2026, 1, 31)  # noqa: DTZ006
+
+    @pytest.mark.parametrize(
+        ("today", "expected"),
+        [
+            (date(2028, 1, 15), date(2024, 2, 29)),  # before Feb 29 of a leap year
+            (date(2028, 3, 1), date(2028, 2, 29)),  # after Feb 29 of a leap year
+            (date(2026, 9, 25), date(2024, 2, 29)),  # non-leap current year
+        ],
+    )
+    def test_yearless_feb_29_resolves_to_most_recent_leap_year(
+        self, monkeypatch, today, expected
+    ):
+        """`2/29` picks the latest real Feb 29 on or before today."""
+        _freeze_clock(monkeypatch, today)
+
+        start_ts, _ = parse_time_expression("2/29")
+
+        assert start_ts is not None
+        assert datetime.fromtimestamp(start_ts).date() == expected  # noqa: DTZ006
+
+    def test_between_ranges_never_invert_after_rollback(self, monkeypatch):
+        """`between 1/31 and 12/25` spans one calendar year, not an inverted window."""
+        _freeze_clock(monkeypatch, date(2026, 9, 25))
+
+        start_ts, end_ts = parse_time_expression("between 1/31 and 12/25")
+
+        assert start_ts is not None and end_ts is not None
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 1, 31)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2025, 12, 25)  # noqa: DTZ006
+
+    def test_explicit_quarter_year_without_of_is_respected(self, monkeypatch):
+        """`4th quarter 2026` keeps the explicit year even before Q4 starts."""
+        _freeze_clock(monkeypatch, date(2026, 9, 25))
+
+        start_ts, end_ts = parse_time_expression("4th quarter 2026")
+
+        assert datetime.fromtimestamp(start_ts).date() == date(2026, 10, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 12, 31)  # noqa: DTZ006
     
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
