@@ -764,7 +764,7 @@ class BackgroundSyncService:
             self.backoff_time = 60
             self.sync_stats['cloudflare_available'] = True
 
-        except Exception as e:
+        except Exception:
             # Mark Cloudflare as potentially unavailable
             self.sync_stats['cloudflare_available'] = False
             raise

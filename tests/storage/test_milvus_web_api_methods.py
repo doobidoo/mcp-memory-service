@@ -572,20 +572,15 @@ class TestRecallSoftDeletedRows:
     async def test_time_only_recall_hides_soft_deleted(self):
         storage = _make_storage()
         rows = [
-            Memory(
-                content="deleted",
-                content_hash="deleted",
-                metadata={"deleted_at": "2026-10-01T00:00:00Z"},
+            _entity(
+                "deleted",
+                "deleted",
                 created_at=1000.0,
+                metadata={"deleted_at": "2026-10-01T00:00:00Z"},
             ),
-            Memory(content="live", content_hash="live", created_at=999.0),
+            _entity("live", "live", created_at=999.0),
         ]
-
-        async def _query_window(filter_expr, limit, offset=0):
-            page = rows[offset:offset + limit]
-            return page, len(page)
-
-        storage._query_time_window = AsyncMock(side_effect=_query_window)
+        storage._call_client = AsyncMock(return_value=rows)
 
         results = await storage.recall(n_results=2)
 
@@ -601,14 +596,12 @@ class TestRecallSoftDeletedRows:
             metadata={"deleted_at": "2026-10-01T00:00:00Z"},
         )
         live = _entity("live", "live", created_at=999.0)
-
-        async def _run_search(embedding, filter_expr, fetch_n):
-            return [
+        storage._call_client = AsyncMock(
+            return_value=[[
                 {"id": deleted["id"], "distance": 0.9, "entity": deleted, **deleted},
                 {"id": live["id"], "distance": 0.8, "entity": live, **live},
-            ]
-
-        storage._run_search = AsyncMock(side_effect=_run_search)
+            ]]
+        )
 
         results = await storage.recall(query="probe", n_results=1)
 
@@ -617,8 +610,12 @@ class TestRecallSoftDeletedRows:
 
 class TestPagedTimeWindowIterator:
     @pytest.mark.asyncio
-    async def test_restarts_iterator_from_same_checkpoint_after_channel_death(self):
+    async def test_reconnects_client_and_restarts_iterator_from_same_checkpoint(
+        self, monkeypatch
+    ):
         storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
         storage._is_lite = True
         storage._write_lock = asyncio.Lock()
 
@@ -638,9 +635,8 @@ class TestPagedTimeWindowIterator:
         recovered_client.query_iterator.return_value = recovered_iterator
 
         storage.client = dead_client
-        storage._reconnect_lite_client = MagicMock(
-            side_effect=lambda: setattr(storage, "client", recovered_client)
-        )
+        client_factory = MagicMock(return_value=recovered_client)
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
         storage._call_client = MilvusMemoryStorage._call_client.__get__(
             storage, MilvusMemoryStorage
         )
@@ -660,7 +656,35 @@ class TestPagedTimeWindowIterator:
         second_call = recovered_client.query_iterator.call_args.kwargs
         assert first_call["iterator_cp_file"] == second_call["iterator_cp_file"]
         recovered_iterator.close.assert_called_once_with()
-        storage._reconnect_lite_client.assert_called_once_with()
+        client_factory.assert_called_once_with(uri=storage.uri)
+
+    @pytest.mark.asyncio
+    async def test_iterator_non_channel_error_propagates_without_reconnect(
+        self, monkeypatch
+    ):
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+
+        iterator = MagicMock()
+        iterator.next.side_effect = RuntimeError("iterator exploded")
+        client = MagicMock()
+        client.query_iterator.return_value = iterator
+        storage.client = client
+        client_factory = MagicMock()
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
+        storage._call_client = MilvusMemoryStorage._call_client.__get__(
+            storage, MilvusMemoryStorage
+        )
+
+        with pytest.raises(RuntimeError, match="iterator exploded"):
+            async for _ in storage._iter_time_window_batches("created_at >= 0.0", 1):
+                pass
+
+        client_factory.assert_not_called()
+        iterator.close.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_yields_raw_page_count_when_row_conversion_fails(self):

@@ -1203,7 +1203,7 @@ class MemoryStorage(ABC):
                         start_time = start_timestamp
                     if end_timestamp is not None:
                         end_time = end_timestamp
-                except Exception as e:
+                except Exception:
                     # Continue without time filter rather than failing
                     pass
 

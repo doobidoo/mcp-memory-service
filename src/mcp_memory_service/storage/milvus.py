@@ -3257,12 +3257,20 @@ class MilvusMemoryStorage(MemoryStorage):
                     )
             try:
                 os.unlink(checkpoint_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug(
+                    "Milvus iterator checkpoint cleanup skipped for %s: %s",
+                    _sanitize_log_value(checkpoint_path),
+                    _sanitize_log_value(exc),
+                )
             try:
                 os.rmdir(checkpoint_dir)
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug(
+                    "Milvus iterator checkpoint directory cleanup skipped for %s: %s",
+                    _sanitize_log_value(checkpoint_dir),
+                    _sanitize_log_value(exc),
+                )
 
     async def _query_time_window(
         self,

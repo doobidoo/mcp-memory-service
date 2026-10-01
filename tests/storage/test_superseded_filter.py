@@ -5,7 +5,6 @@ import pytest
 import pytest_asyncio
 import tempfile
 import shutil
-from unittest.mock import AsyncMock, MagicMock
 
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
