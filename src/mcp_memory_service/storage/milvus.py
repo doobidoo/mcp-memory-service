@@ -35,16 +35,18 @@ Design notes:
 """
 
 import asyncio
+from contextlib import aclosing
 import heapq
 import json
 import logging
 import math
 import os
+import tempfile
 import time
 import traceback
 from collections import Counter
 from datetime import datetime, timezone, timedelta, date
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 # Disable wandb BEFORE importing sentence-transformers — same rationale as
 # sqlite_vec.py (Issue #311). Safe to set even when transformers is unused.
@@ -3119,10 +3121,12 @@ class MilvusMemoryStorage(MemoryStorage):
                     continue
 
             range_filter = self._time_window_filter(range_start, range_end)
-            memories = await self._query_time_window(range_filter, batch_size)
+            memories, raw_count = await self._query_time_window(
+                range_filter, batch_size
+            )
             remember_live(memories)
 
-            if len(memories) < batch_size:
+            if raw_count < batch_size:
                 continue
 
             timestamps = {memory.created_at or 0.0 for memory in memories}
@@ -3136,21 +3140,13 @@ class MilvusMemoryStorage(MemoryStorage):
                     heapq.heappush(intervals, (-range_end, newer_start, range_end))
 
                 exact_filter = self._time_window_filter(timestamp, timestamp)
-                after_id: Optional[str] = None
-                guarantee_timestamp: Optional[int] = None
-                while True:
-                    exact, page_session_ts = await self._query_time_window_page(
-                        exact_filter,
-                        batch_size,
-                        after_id=after_id,
-                        guarantee_timestamp=guarantee_timestamp,
-                    )
-                    if guarantee_timestamp is None:
-                        guarantee_timestamp = page_session_ts
-                    remember_live(exact)
-                    if len(candidates) >= n_results or len(exact) < batch_size:
-                        break
-                    after_id = exact[-1].content_hash
+                async with aclosing(
+                    self._iter_time_window_batches(exact_filter, batch_size)
+                ) as batches:
+                    async for exact, raw_count in batches:
+                        remember_live(exact)
+                        if len(candidates) >= n_results or raw_count < batch_size:
+                            break
                 continue
 
             if range_end - range_start <= 1e-6:
@@ -3176,47 +3172,101 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return newest[:n_results]
 
+    async def _iter_time_window_batches(
+        self,
+        time_filter: str,
+        batch_size: int,
+    ) -> AsyncIterator[Tuple[List[Memory], int]]:
+        """Yield bounded recall pages and their raw Milvus row counts.
+
+        ``QueryIterator`` owns the official PK-cursor + snapshot protocol. If
+        Milvus Lite's channel dies, recreate the iterator from the same
+        checkpoint file so the reconnect resumes that snapshot and cursor
+        instead of calling ``next()`` on the stale object.
+        """
+        batch_size = max(1, min(batch_size, _MILVUS_MAX_LIMIT))
+        checkpoint_dir = tempfile.mkdtemp(prefix="mcp-milvus-recall-")
+        checkpoint_path = os.path.join(checkpoint_dir, "iterator.cp")
+        iterator = None
+        reconnect_attempts = 0
+        try:
+            while True:
+                if iterator is None:
+                    iterator = await self._call_client(
+                        "query_iterator",
+                        collection_name=self.collection_name,
+                        filter=time_filter or "",
+                        output_fields=list(self._OUTPUT_FIELDS_BASE),
+                        batch_size=batch_size,
+                        iterator_cp_file=checkpoint_path,
+                    )
+
+                try:
+                    async with self._write_lock:
+                        batch = await asyncio.to_thread(iterator.next)
+                except Exception as exc:  # noqa: BLE001
+                    if (
+                        self._is_lite
+                        and self._is_lite_dead_channel_error(exc)
+                        and reconnect_attempts < 2
+                    ):
+                        reconnect_attempts += 1
+                        logger.warning(
+                            "Milvus Lite channel died while paging recall; "
+                            "resuming iterator from checkpoint: %s",
+                            _sanitize_log_value(exc),
+                        )
+                        old_handler = getattr(iterator, "_cp_file_handler", None)
+                        if old_handler is not None:
+                            try:
+                                old_handler.close()
+                            except Exception:  # noqa: BLE001 — best effort
+                                pass
+                        iterator = None
+                        continue
+                    raise
+
+                if not batch:
+                    break
+                memories: List[Memory] = []
+                for row in batch:
+                    memory = self._entity_to_memory(row)
+                    if memory is not None:
+                        memories.append(memory)
+                yield memories, len(batch)
+        finally:
+            if iterator is not None:
+                try:
+                    async with self._write_lock:
+                        await asyncio.to_thread(iterator.close)
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    logger.debug(
+                        "Milvus query iterator close failed (ignored): %s",
+                        _sanitize_log_value(exc),
+                    )
+            try:
+                os.unlink(checkpoint_path)
+            except OSError:
+                pass
+            try:
+                os.rmdir(checkpoint_dir)
+            except OSError:
+                pass
+
     async def _query_time_window(
         self,
         time_filter: str,
         limit: int,
-    ) -> List[Memory]:
-        """Return a bounded page of scalar-query rows inside a time window."""
-        memories, _ = await self._query_time_window_page(time_filter, limit)
-        return memories
-
-    async def _query_time_window_page(
-        self,
-        time_filter: str,
-        limit: int,
-        after_id: Optional[str] = None,
-        guarantee_timestamp: Optional[int] = None,
-    ) -> Tuple[List[Memory], Optional[int]]:
-        """Return one PK-cursor page and its Milvus snapshot timestamp.
-
-        ``query_iterator`` uses ``id > last_pk`` plus a session timestamp to
-        produce stable pages without an offset ceiling. Reproduce that protocol
-        through ``_call_client`` so every page, including reconnect retries,
-        uses the shared client path.
-        """
-        query_filter = time_filter or ""
-        if after_id is not None:
-            safe_after_id = escape_expr_value(after_id)
-            query_filter = self._combine_filter(
-                query_filter, f'id > "{safe_after_id}"'
-            )
-
-        query_kwargs: Dict[str, Any] = {
-            "collection_name": self.collection_name,
-            "filter": query_filter,
-            "output_fields": list(self._OUTPUT_FIELDS_BASE),
-            "limit": limit,
-        }
-        if guarantee_timestamp is not None:
-            query_kwargs["guarantee_timestamp"] = guarantee_timestamp
-
+    ) -> Tuple[List[Memory], int]:
+        """Return a bounded page and its raw scalar-query row count."""
         try:
-            rows = await self._call_client("query", **query_kwargs)
+            rows = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=time_filter or "",
+                output_fields=list(self._OUTPUT_FIELDS_BASE),
+                limit=limit,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Milvus time-window query failed: %s",
@@ -3229,14 +3279,7 @@ class MilvusMemoryStorage(MemoryStorage):
             memory = self._entity_to_memory(row)
             if memory is not None:
                 memories.append(memory)
-
-        extra = getattr(rows, "extra", {}) or {}
-        raw_session_ts = extra.get("iterator_session_ts")
-        try:
-            session_ts = int(raw_session_ts) if raw_session_ts else None
-        except (TypeError, ValueError):
-            session_ts = None
-        return memories, session_ts
+        return memories, len(rows)
 
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         return await self.get_all_memories(limit=n, offset=0)

@@ -201,10 +201,11 @@ class TestRecall:
         async def _query_window(filter_expr, limit, offset=0):
             captured["filter"] = filter_expr
             captured["limit"] = limit
-            return [
+            rows = [
                 Memory(content="old memory", content_hash="old", created_at=100.0),
                 Memory(content="new memory", content_hash="new", created_at=300.0),
             ]
+            return rows, len(rows)
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
 
@@ -222,10 +223,11 @@ class TestRecall:
 
         async def _query_window(filter_expr, limit, offset=0):
             captured["limit"] = limit
-            return [
+            rows = [
                 Memory(content=f"memory {i}", content_hash=f"h{i}", created_at=float(i))
                 for i in range(3)
             ]
+            return rows, len(rows)
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
 
@@ -255,7 +257,8 @@ class TestRecall:
                 for memory in memories
                 if lower <= (memory.created_at or 0.0) <= upper
             ]
-            return matches[offset:offset + limit]
+            page = matches[offset:offset + limit]
+            return page, len(page)
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
 
@@ -425,7 +428,8 @@ class TestRecallSupersededBacklog:
         ]
 
         async def _query_window(filter_expr, limit, offset=0):
-            return memories[:limit]
+            page = memories[:limit]
+            return page, len(page)
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
         storage._iterate_all_rows = AsyncMock(
@@ -476,17 +480,15 @@ class TestRecallSupersededBacklog:
                 for memory in stale + live
                 if lower <= (memory.created_at or 0.0) <= upper
             ]
-            return matches[offset:offset + limit]
+            page = matches[offset:offset + limit]
+            return page, len(page)
 
-        async def _query_page(
-            filter_expr, limit, after_id=None, guarantee_timestamp=None
-        ):
-            exact_pages.append(after_id)
-            start_index = 0 if after_id is None else int(after_id.rsplit("-", 1)[1]) + 1
-            return stale[start_index:start_index + limit], 12345
+        async def _batches(filter_expr, batch_size):
+            exact_pages.append((filter_expr, batch_size))
+            yield stale, len(stale)
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
-        storage._query_time_window_page = _query_page
+        storage._iter_time_window_batches = _batches
         storage._iterate_all_rows = AsyncMock(
             side_effect=AssertionError("same-timestamp backlog must not full-scan")
         )
@@ -500,14 +502,15 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ]
-        assert exact_pages == [None, "stale-99"], (
-            "dense timestamp should drain through stable PK cursor pages"
-        )
+        assert len(exact_pages) == 1
+        assert "created_at >= 1000.0" in exact_pages[0][0]
+        assert "created_at <= 1000.0" in exact_pages[0][0]
+        assert exact_pages[0][1] == 100
         storage._iterate_all_rows.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_dense_timestamp_beyond_query_cap_uses_paged_scan(self, monkeypatch):
-        """A saturated timestamp must page by PK cursor without an offset cap."""
+        """A saturated timestamp must page without the scalar-query offset cap."""
         monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 100)
         storage = _make_storage()
         stale = [
@@ -533,20 +536,20 @@ class TestRecallSupersededBacklog:
                 )
             ]
             if min(bounds) == max(bounds) == 1000.0:
-                raise AssertionError("exact timestamp must use the PK cursor path")
+                raise AssertionError("exact timestamp must use the iterator path")
             if max(bounds) < 1000.0:
-                return live[offset:offset + limit]
-            return stale[offset:offset + limit]
+                page = live[offset:offset + limit]
+                return page, len(page)
+            page = stale[offset:offset + limit]
+            return page, len(page)
 
-        async def _query_page(
-            filter_expr, limit, after_id=None, guarantee_timestamp=None
-        ):
-            pages.append((after_id, guarantee_timestamp))
-            start_index = 0 if after_id is None else int(after_id.rsplit("-", 1)[1]) + 1
-            return stale[start_index:start_index + limit], 12345
+        async def _batches(filter_expr, batch_size):
+            pages.extend([stale[:batch_size], stale[batch_size:]])
+            yield stale[:batch_size], batch_size
+            yield stale[batch_size:], len(stale) - batch_size
 
         storage._query_time_window = AsyncMock(side_effect=_query_window)
-        storage._query_time_window_page = _query_page
+        storage._iter_time_window_batches = _batches
         storage._iterate_all_rows = AsyncMock(
             side_effect=AssertionError("exact-timestamp fallback must be paged")
         )
@@ -560,85 +563,96 @@ class TestRecallSupersededBacklog:
             "live-1",
             "live-2",
         ]
-        assert pages == [(None, None), ("stale-99", 12345)]
+        assert [len(page) for page in pages] == [100, 50]
         storage._iterate_all_rows.assert_not_awaited()
 
 
-class TestPagedTimeWindowQuery:
+class TestPagedTimeWindowIterator:
     @pytest.mark.asyncio
-    async def test_query_time_window_uses_call_client_reconnect(self):
+    async def test_restarts_iterator_from_same_checkpoint_after_channel_death(self):
         storage = _make_storage()
         storage._is_lite = True
         storage._write_lock = asyncio.Lock()
 
-        dead_client = MagicMock()
-        dead_client.query.side_effect = ValueError(
+        dead_iterator = MagicMock()
+        dead_iterator.next.side_effect = ValueError(
             "Cannot invoke RPC on closed channel!"
         )
-        recovered_client = MagicMock()
-        recovered_client.query.return_value = []
-        storage.client = dead_client
-        storage._reconnect_lite_client = MagicMock(
-            side_effect=lambda: setattr(storage, "client", recovered_client)
-        )
-        storage._call_client = MilvusMemoryStorage._call_client.__get__(
-            storage, MilvusMemoryStorage
-        )
-
-        memories, session_ts = await storage._query_time_window_page(
-            "created_at >= 0.0",
-            10,
-            after_id="h-9",
-            guarantee_timestamp=123,
-        )
-
-        assert memories == []
-        assert session_ts is None
-        dead_client.query.assert_called_once()
-        recovered_client.query.assert_called_once_with(
-            collection_name="unit_test_collection",
-            filter='(created_at >= 0.0) and (id > "h-9")',
-            output_fields=list(MilvusMemoryStorage._OUTPUT_FIELDS_BASE),
-            limit=10,
-            guarantee_timestamp=123,
-        )
-        storage._reconnect_lite_client.assert_called_once_with()
-
-    @pytest.mark.asyncio
-    async def test_query_time_window_page_returns_snapshot_timestamp(self):
-        class _RowsWithExtra(list):
-            extra = {"iterator_session_ts": 9876}
-
-        storage = _make_storage()
+        recovered_iterator = MagicMock()
+        recovered_iterator.next.side_effect = [
+            [_entity("h1", "one", created_at=1.0)],
+            [],
+        ]
         storage._call_client = AsyncMock(
-            return_value=_RowsWithExtra([_entity("h1", "one", created_at=1.0)])
+            side_effect=[dead_iterator, recovered_iterator]
         )
 
-        memories, session_ts = await storage._query_time_window_page(
-            "created_at >= 0.0", 10
-        )
+        pages = [
+            page
+            async for page in storage._iter_time_window_batches(
+                "created_at >= 0.0", 1
+            )
+        ]
 
-        assert [memory.content_hash for memory in memories] == ["h1"]
-        assert session_ts == 9876
+        assert [(len(memories), raw_count) for memories, raw_count in pages] == [(1, 1)]
+        assert pages[0][0][0].content_hash == "h1"
+        assert storage._call_client.await_count == 2
+        first_call = storage._call_client.await_args_list[0]
+        second_call = storage._call_client.await_args_list[1]
+        assert first_call.kwargs["iterator_cp_file"] == second_call.kwargs["iterator_cp_file"]
+        recovered_iterator.close.assert_called_once_with()
+        dead_iterator.close.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_query_time_window_page_uses_pk_cursor_and_snapshot(self):
+    async def test_yields_raw_page_count_when_row_conversion_fails(self):
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[])
+        storage._write_lock = asyncio.Lock()
+        storage._entity_to_memory = MagicMock(
+            side_effect=[
+                None,
+                Memory(content="one", content_hash="h1", created_at=1.0),
+            ]
+        )
+        iterator = MagicMock()
+        iterator.next.side_effect = [[{"id": "bad"}, _entity("h1", "one")], []]
+        storage._call_client = AsyncMock(return_value=iterator)
 
-        _memories, session_ts = await storage._query_time_window_page(
-            "created_at >= 0.0",
-            10,
-            after_id="h-9",
-            guarantee_timestamp=123,
+        pages = [
+            page
+            async for page in storage._iter_time_window_batches(
+                "created_at >= 0.0", 2
+            )
+        ]
+
+        assert len(pages) == 1
+        memories, raw_count = pages[0]
+        assert [memory.content_hash for memory in memories] == ["h1"]
+        assert raw_count == 2
+        iterator.close.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_recall_continues_after_unparseable_full_page(self):
+        storage = _make_storage()
+        stale = [
+            Memory(
+                content=f"obsolete {i}",
+                content_hash=f"stale-{i}",
+                metadata={"superseded_by": "current"},
+                created_at=1000.0,
+            )
+            for i in range(100)
+        ]
+        live = Memory(content="live", content_hash="live", created_at=1000.0)
+
+        async def _batches(filter_expr, batch_size):
+            yield [], batch_size
+            yield [live], 1
+
+        storage._query_time_window = AsyncMock(return_value=(stale, len(stale)))
+        storage._iter_time_window_batches = _batches
+
+        results = await storage.recall(
+            start_timestamp=1000.0, end_timestamp=1000.0, n_results=1
         )
 
-        assert session_ts is None
-        storage._call_client.assert_awaited_once_with(
-            "query",
-            collection_name="unit_test_collection",
-            filter='(created_at >= 0.0) and (id > "h-9")',
-            output_fields=list(MilvusMemoryStorage._OUTPUT_FIELDS_BASE),
-            limit=10,
-            guarantee_timestamp=123,
-        )
+        assert [result.memory.content_hash for result in results] == ["live"]

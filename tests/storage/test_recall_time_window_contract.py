@@ -95,10 +95,11 @@ class TestMilvusRecallContract:
         async def fake_query_window(filter_expr, limit, offset=0):
             captured["filter_expr"] = filter_expr
             captured["limit"] = limit
-            return [
+            rows = [
                 Memory(content="obsolete", content_hash="stale", metadata={"superseded_by": "current"}),
                 Memory(content="current", content_hash="current"),
             ]
+            return rows, len(rows)
 
         storage._query_time_window = fake_query_window
 
