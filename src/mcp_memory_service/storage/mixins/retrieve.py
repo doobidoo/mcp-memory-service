@@ -449,18 +449,28 @@ class RetrieveMixin:
             logger.error(traceback.format_exc())
             return []
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
-        """Get a memory by its content hash."""
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
+        """Get a memory by its content hash.
+
+        When ``store`` is provided the lookup is scoped to that partition, so a
+        hash belonging to another store is reported as missing. ``None`` keeps
+        the historical unscoped lookup.
+        """
         try:
             if not self.conn:
                 return None
 
             def _get_by_hash():
-                cursor = self.conn.execute('''
+                sql = '''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
                     FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-                ''', (content_hash,))
+                '''
+                lookup_params = [content_hash]
+                if store is not None:
+                    sql += " AND store = ?"
+                    lookup_params.append(store)
+                cursor = self.conn.execute(sql, tuple(lookup_params))
                 return cursor.fetchone()
 
             row = await self._execute_with_retry(_get_by_hash)
@@ -684,33 +694,33 @@ class RetrieveMixin:
             logger.error("Error getting largest memories: %s", _sanitize_log_value(e))
             return []
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
-        """Get memory creation timestamps only, without loading full memory objects."""
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
+        """Get memory creation timestamps only, without loading full memory objects.
+
+        When ``store`` is provided, timestamps are limited to that partition.
+        """
         try:
             await self.initialize()
 
             def _get_timestamps():
+                conditions = ["deleted_at IS NULL"]
+                ts_params: List[Any] = []
                 if days is not None:
                     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-                    cutoff_timestamp = cutoff.timestamp()
-                    cursor = self.conn.execute(
-                        """
-                        SELECT created_at
-                        FROM memories
-                        WHERE created_at >= ? AND deleted_at IS NULL
-                        ORDER BY created_at DESC
-                        """,
-                        (cutoff_timestamp,)
-                    )
-                else:
-                    cursor = self.conn.execute(
-                        """
-                        SELECT created_at
-                        FROM memories
-                        WHERE deleted_at IS NULL
-                        ORDER BY created_at DESC
-                        """
-                    )
+                    conditions.append("created_at >= ?")
+                    ts_params.append(cutoff.timestamp())
+                if store is not None:
+                    conditions.append("store = ?")
+                    ts_params.append(store)
+                cursor = self.conn.execute(
+                    """
+                    SELECT created_at
+                    FROM memories
+                    WHERE """ + " AND ".join(conditions) + """
+                    ORDER BY created_at DESC
+                    """,
+                    tuple(ts_params),
+                )
                 return cursor.fetchall()
 
             rows = await self._execute_with_retry(_get_timestamps)
@@ -773,17 +783,25 @@ class RetrieveMixin:
             logger.error("Error counting memories: %s", _sanitize_log_value(e))
             return 0
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
-        """Get all tags with their usage counts."""
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all tags with their usage counts.
+
+        When ``store`` is provided, counts are limited to that partition.
+        """
         try:
             await self.initialize()
 
             def _get_tags():
-                cursor = self.conn.execute('''
+                sql = '''
                     SELECT tags
                     FROM memories
                     WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
-                ''')
+                '''
+                if store is not None:
+                    sql += " AND store = ?"
+                    cursor = self.conn.execute(sql, (store,))
+                else:
+                    cursor = self.conn.execute(sql)
                 return cursor.fetchall()
 
             rows = await self._execute_with_retry(_get_tags)
@@ -842,15 +860,36 @@ class RetrieveMixin:
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
-        min_connections: int = 1
+        min_connections: int = 1,
+        store: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Get graph data for visualization in D3.js-compatible format."""
+        """Get graph data for visualization in D3.js-compatible format.
+
+        When ``store`` is provided the node selection (including ``limit``) is
+        restricted to that partition, so another store's densely connected
+        nodes cannot crowd out the requested scope.
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
                 return _empty_graph_visualization(limit, min_connections)
 
             def _get_graph_nodes():
+                node_params = []
+                target_join = """
+                    INNER JOIN memories target
+                      ON target.content_hash = mg.target_hash
+                     AND target.deleted_at IS NULL
+                """
+                if store is not None:
+                    target_join += " AND target.store = ?"
+                    node_params.append(store)
+
+                store_filter = ""
+                if store is not None:
+                    store_filter = " AND m.store = ?"
+                    node_params.append(store)
+                node_params.extend([min_connections, limit])
                 cursor = self.conn.execute("""
                     SELECT
                         m.content_hash,
@@ -863,6 +902,7 @@ class RetrieveMixin:
                         COUNT(DISTINCT mg.target_hash) as connection_count
                     FROM memories m
                     INNER JOIN memory_graph mg ON m.content_hash = mg.source_hash
+                """ + target_join + """
                     WHERE m.deleted_at IS NULL
                       -- has_entity rows point at an entity NAME, not a memory
                       -- hash, so the edge loop below always drops them. Counting
@@ -873,11 +913,12 @@ class RetrieveMixin:
                       -- would silently drop those rows instead of keeping them. The
                       -- edge loop already reads NULL as 'related'.
                       AND COALESCE(mg.relationship_type, 'related') != 'has_entity'
+                """ + store_filter + """
                     GROUP BY m.content_hash
                     HAVING connection_count >= ?
                     ORDER BY connection_count DESC
                     LIMIT ?
-                """, (min_connections, limit))
+                """, tuple(node_params))
                 return cursor.fetchall()
 
             nodes = []
@@ -1029,7 +1070,7 @@ class RetrieveMixin:
 
         return json.dumps(tags)
 
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """Retrieve memories with combined time filtering and optional semantic search."""
         try:
             if not self.conn:
@@ -1059,6 +1100,16 @@ class RetrieveMixin:
                     memory_filter = "deleted_at IS NULL"
                     if time_where:
                         memory_filter += f" AND {time_where}"
+                    # recall() is a retrieval path, so it must hide superseded
+                    # rows exactly like retrieve() does. mark_superseded_batch()
+                    # only writes the column, so this cannot be filtered later.
+                    memory_filter += " AND (superseded_by IS NULL OR superseded_by = '')"
+                    filter_params = list(params)
+                    if store is not None:
+                        # Scope the KNN candidates to the requested partition so
+                        # another store's hits cannot consume the k budget.
+                        memory_filter += " AND store = ?"
+                        filter_params.append(store)
 
                     base_query = f'''
                         SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
@@ -1075,7 +1126,7 @@ class RetrieveMixin:
 
                     base_query += " ORDER BY e.distance"
 
-                    query_params = [serialize_float32(query_embedding), n_results] + params
+                    query_params = [serialize_float32(query_embedding), n_results] + filter_params
 
                     def _recall_semantic(bq=base_query, qp=query_params):
                         cursor = self.conn.execute(bq, qp)
@@ -1130,21 +1181,27 @@ class RetrieveMixin:
                     logger.error("Error in semantic search with time filter: %s", _sanitize_log_value(query_error))
                     logger.info("Falling back to time-based retrieval")
 
+            where_parts = ["deleted_at IS NULL"]
+            if time_where:
+                where_parts.append(time_where)
+            # Keep the time-only branch consistent with the semantic one: a
+            # superseded memory is not a current answer either way.
+            where_parts.append("(superseded_by IS NULL OR superseded_by = '')")
+            tail_params = list(params)
+            if store is not None:
+                where_parts.append("store = ?")
+                tail_params.append(store)
+
             base_query = '''
                 SELECT content_hash, content, tags, memory_type, metadata,
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
+                WHERE ''' + " AND ".join(where_parts) + '''
+                ORDER BY created_at DESC LIMIT ?
             '''
+            tail_params.append(n_results)
 
-            if time_where:
-                base_query += f" WHERE deleted_at IS NULL AND {time_where}"
-            else:
-                base_query += " WHERE deleted_at IS NULL"
-
-            base_query += " ORDER BY created_at DESC LIMIT ?"
-            params.append(n_results)
-
-            def _recall_timebased(bq=base_query, p=params):
+            def _recall_timebased(bq=base_query, p=tuple(tail_params)):
                 cursor = self.conn.execute(bq, p)
                 return cursor.fetchall()
 

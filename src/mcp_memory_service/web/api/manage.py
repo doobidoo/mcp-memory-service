@@ -212,7 +212,7 @@ async def bulk_delete_memories(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Bulk delete failed: {str(e)}")
+        logger.error("Bulk delete failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Bulk delete operation failed: {str(e)}")
 
 
@@ -241,7 +241,7 @@ async def cleanup_duplicates(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Duplicate cleanup failed: {str(e)}")
+        logger.error("Duplicate cleanup failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Duplicate cleanup failed: {str(e)}")
 
 
@@ -270,7 +270,7 @@ async def count_untagged_memories(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Count untagged failed: {str(e)}")
+        logger.error("Count untagged failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Count untagged failed: {str(e)}")
 
 
@@ -346,7 +346,7 @@ async def delete_untagged_memories(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Delete untagged failed: {str(e)}")
+        logger.error("Delete untagged failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Delete untagged failed: {str(e)}")
 
 
@@ -386,7 +386,7 @@ async def get_tag_statistics(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get tag statistics: {str(e)}")
+        logger.error("Failed to get tag statistics: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get tag statistics: {str(e)}")
 
 
@@ -425,7 +425,7 @@ async def rename_tag(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Tag rename failed: {str(e)}")
+        logger.error("Tag rename failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Tag rename failed: {str(e)}")
 
 
@@ -458,5 +458,9 @@ async def perform_system_operation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"System operation {_sanitize_log_value(operation)} failed: {str(e)}")
+        logger.error(
+            "System operation %s failed: %s",
+            _sanitize_log_value(operation),
+            _sanitize_log_value(e),
+        )
         raise HTTPException(status_code=500, detail=f"System operation failed: {str(e)}")
