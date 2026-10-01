@@ -262,21 +262,17 @@ jobs:
     # Milvus code. That is the gap pyproject's pymilvus pin comment points at
     # (issue #1112): a break in the backend is silent here.
     #
-    # Two legs. `pinned` installs the extra as declared (pymilvus <3) and is
-    # the gate. `3.x-probe` overrides pymilvus to the 3.x line the pin holds
-    # back and is informational (continue-on-error): it answers "does the
-    # backend already work on 3.x?" on every run, so widening the pin is a
-    # decision made on evidence rather than a guess. Flip the probe to gating
-    # in the same PR that widens the bound.
+    # Two gating legs. `2.x` holds the lower supported pymilvus line, while
+    # `3.x` installs the extra as declared so the current release line remains
+    # covered after the upper bound was removed (issue #1112).
     strategy:
       fail-fast: false
       matrix:
         include:
-          - leg: pinned
+          - leg: 2.x
+            pymilvus: "pymilvus>=2.5.0,<3.0.0"
+          - leg: 3.x
             pymilvus: ""
-          - leg: 3.x-probe
-            pymilvus: "pymilvus>=3.0.0,<4.0.0"
-    continue-on-error: ${{ matrix.leg == '3.x-probe' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
