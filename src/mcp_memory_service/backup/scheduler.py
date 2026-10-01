@@ -40,6 +40,36 @@ from ..config import (
 logger = logging.getLogger(__name__)
 
 
+def _default_backup_source() -> Optional[str]:
+    """Resolve the local database file to back up for the configured backend.
+
+    Milvus Lite stores everything in a single local SQLite file, so the same
+    sqlite3 online-backup path used for sqlite_vec applies unchanged. Remote
+    backends (Milvus server, Zilliz Cloud, Cloudflare) have no local file and
+    resolve to None, which surfaces as an explicit "not supported" error rather
+    than a misleading "database file not found" against the sqlite_vec path.
+    """
+    try:
+        from ..config import STORAGE_BACKEND
+    except Exception:  # noqa: BLE001
+        return SQLITE_VEC_PATH
+
+    if STORAGE_BACKEND == "milvus":
+        try:
+            from ..config import MILVUS_URI
+        except Exception:  # noqa: BLE001
+            return None
+        uri = MILVUS_URI or ""
+        # "://" marks a server / Zilliz Cloud endpoint, which has no local file.
+        return None if (not uri or "://" in uri) else uri
+
+    if STORAGE_BACKEND == "cloudflare":
+        return None
+
+    # sqlite_vec and hybrid (whose primary is sqlite_vec).
+    return SQLITE_VEC_PATH
+
+
 class BackupService:
     """Service for creating and managing database backups."""
 
@@ -48,11 +78,12 @@ class BackupService:
 
         Args:
             backups_dir: Directory to store backups (defaults to BACKUPS_PATH)
-            db_path: Path to database file (defaults to SQLITE_VEC_PATH)
+            db_path: Path to database file (defaults to the configured
+                backend's local file; None for remote-only backends)
         """
         self.backups_dir = Path(backups_dir or BACKUPS_PATH)
         # Determine database path with clear fallback logic
-        db_path_str = db_path or SQLITE_VEC_PATH
+        db_path_str = db_path or _default_backup_source()
         self.db_path = Path(db_path_str) if db_path_str else None
         self.last_backup_time: Optional[float] = None
         self.backup_count: int = 0
@@ -90,7 +121,18 @@ class BackupService:
         Returns:
             Dict with backup details
         """
-        if not self.db_path or not self.db_path.exists():
+        if not self.db_path:
+            return {
+                'success': False,
+                'error': (
+                    'File-based backup is not available for this storage backend '
+                    '(no local database file). Use the backend\'s own snapshot '
+                    'or export tooling instead.'
+                ),
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+
+        if not self.db_path.exists():
             return {
                 'success': False,
                 'error': f'Database file not found: {self.db_path}',

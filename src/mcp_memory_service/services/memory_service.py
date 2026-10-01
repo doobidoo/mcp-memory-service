@@ -986,7 +986,18 @@ class MemoryService:
             extractor = EntityExtractor(
                 domain_extractors=EntityExtractor.get_domain_extractors()
             )
-            entities = extractor.extract_entities(memory.content, memory.metadata)
+            # tags is a top-level Memory attribute, metadata is the custom-key
+            # dict — merge so the extractor's metadata-tag branch fires. Same
+            # fix as server/handlers/graph.py (#218); this write path was still
+            # discarding every tag before the extractor saw it.
+            extraction_metadata = dict(memory.metadata or {})
+            merged_tags = list(dict.fromkeys([
+                *extraction_metadata.get('tags', []), *(memory.tags or []),
+            ]))
+            if merged_tags:
+                extraction_metadata['tags'] = merged_tags
+
+            entities = extractor.extract_entities(memory.content, extraction_metadata)
             if not entities:
                 return
 

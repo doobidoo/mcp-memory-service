@@ -34,6 +34,25 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
+def _empty_graph_visualization(limit: int, min_connections: int) -> Dict[str, Any]:
+    """Empty graph payload including the "meta" key the API response requires.
+
+    The /api/analytics/graph-visualization response model has meta as a
+    required field, so an error path returning only nodes/edges surfaces as a
+    500 rather than an empty graph.
+    """
+    return {
+        "nodes": [],
+        "edges": [],
+        "meta": {
+            "total_nodes": 0,
+            "total_edges": 0,
+            "min_connections": min_connections,
+            "limit": limit,
+        },
+    }
+
+
 def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -853,7 +872,7 @@ class RetrieveMixin:
         try:
             if not self.conn:
                 logger.error("Database not initialized")
-                return {"nodes": [], "edges": []}
+                return _empty_graph_visualization(limit, min_connections)
 
             def _get_graph_nodes():
                 node_params = []
@@ -979,10 +998,10 @@ class RetrieveMixin:
 
         except sqlite3.Error as e:
             logger.error("Database error getting graph visualization data: %s", _sanitize_log_value(e))
-            return {"nodes": [], "edges": []}
+            return _empty_graph_visualization(limit, min_connections)
         except Exception as e:
             logger.error("Unexpected error getting graph visualization data: %s", _sanitize_log_value(e))
-            return {"nodes": [], "edges": []}
+            return _empty_graph_visualization(limit, min_connections)
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage statistics."""

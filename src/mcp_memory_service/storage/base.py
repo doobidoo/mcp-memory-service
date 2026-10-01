@@ -1069,7 +1069,19 @@ class MemoryStorage(ABC):
                 ]
             }
         """
-        return {"nodes": [], "edges": []}
+        # Includes "meta" because the /api/analytics/graph-visualization
+        # response model requires it — returning only nodes/edges made the
+        # endpoint 500 on every backend that fell through to this default.
+        return {
+            "nodes": [],
+            "edges": [],
+            "meta": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "min_connections": min_connections,
+                "limit": limit,
+            },
+        }
 
     async def search_memories(
         self,

@@ -331,7 +331,13 @@ class DreamInspiredConsolidator:
             self.graph_storage = None
 
     def _resolve_tracker_db_path(self) -> Optional[Path]:
-        """Resolve path for the run tracker SQLite DB (next to main memory DB)."""
+        """Resolve path for the run tracker SQLite DB (next to main memory DB).
+
+        The tracker is always SQLite regardless of the memory backend — it only
+        records run watermarks. Returning None disables it, which silently
+        pins incremental consolidation to its 24h bootstrap window forever, so
+        every backend needs a resolvable location.
+        """
         db_path = None
         if hasattr(self.storage, "primary") and hasattr(self.storage.primary, "db_path"):
             db_path = getattr(self.storage.primary, "db_path", None)
@@ -339,6 +345,21 @@ class DreamInspiredConsolidator:
             db_path = getattr(self.storage, "db_path", None)
         if isinstance(db_path, (str, Path)):
             return Path(db_path).parent / "consolidation_runs.db"
+
+        # Milvus Lite: co-locate with the local Milvus file.
+        lite_path = getattr(self.storage, "lite_db_path", None)
+        if isinstance(lite_path, (str, Path)):
+            return Path(lite_path).parent / "consolidation_runs.db"
+
+        # Remote backends (Milvus server, Zilliz, Cloudflare) have no local
+        # data file — fall back to the configured base directory so the
+        # watermark still persists across runs.
+        try:
+            from ..config import BASE_DIR
+            if BASE_DIR:
+                return Path(BASE_DIR) / "consolidation_runs.db"
+        except Exception:  # noqa: BLE001
+            self.logger.debug("BASE_DIR unavailable for consolidation run tracker")
         return None
 
     async def consolidate(self, time_horizon: str, **kwargs) -> ConsolidationReport:
