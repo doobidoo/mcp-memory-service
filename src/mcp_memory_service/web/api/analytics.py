@@ -393,45 +393,30 @@ async def get_analytics_overview(
             stats = {}
 
         scope = resolve_store(store)
+        week_ago_ts = (datetime.now(timezone.utc) - timedelta(days=7)).timestamp()
+        month_ago_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+
         if scope is None:
+            # Legacy all-store path: keep the aggregates storage already computes
+            # across the whole database.
             scoped_recent = await storage.get_recent_memories(n=5000)
-        else:
-            scoped_recent = await storage.get_all_memories(store=scope, limit=5000)
-
-        # Keep the legacy aggregate for all-store callers, but derive scoped
-        # metrics from the same partition as list/search.
-        if scope is None:
             memories_this_week = stats.get("memories_this_week", 0)
-        else:
-            week_ago_ts = (datetime.now(timezone.utc) - timedelta(days=7)).timestamp()
-            memories_this_week = sum(
-                1 for memory in scoped_recent
-                if memory.created_at and memory.created_at > week_ago_ts
+            total_memories = stats.get("total_memories", 0)
+            unique_tags = stats.get("unique_tags", 0)
+            memories_this_month = sum(
+                1 for m in scoped_recent if m.created_at and m.created_at > month_ago_ts
             )
-
-        # Calculate memories this month
-        # TODO: Add memories_this_month to storage.get_stats() for consistency
-        month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        month_ago_ts = month_ago.timestamp()
-        memories_this_month = 0
-        try:
-            # Use larger sample for monthly calculation
-            # Note: This may be inaccurate if there are >5000 memories
-            memories_this_month = sum(1 for m in scoped_recent if m.created_at and m.created_at > month_ago_ts)
-        except Exception as e:
-            logger.warning(f"Failed to calculate monthly memories: {e}")
-            memories_this_month = 0
-
-        total_memories = (
-            stats.get("total_memories", 0)
-            if scope is None
-            else await storage.count_all_memories(store=scope)
-        )
-        unique_tags = (
-            stats.get("unique_tags", 0)
-            if scope is None
-            else len({tag for memory in scoped_recent for tag in (memory.tags or []) if tag})
-        )
+        else:
+            # Scoped path: derive every metric from storage counts. Sampling the
+            # newest 5,000 rows made these numbers depend on the partition size
+            # (a larger store silently under-reported its recent activity and tags).
+            week_timestamps = await storage.get_memory_timestamps(days=7, store=scope)
+            month_timestamps = await storage.get_memory_timestamps(days=30, store=scope)
+            memories_this_week = sum(1 for ts in week_timestamps if ts and ts > week_ago_ts)
+            memories_this_month = sum(1 for ts in month_timestamps if ts and ts > month_ago_ts)
+            total_memories = await storage.count_all_memories(store=scope)
+            tag_rows = await storage.get_all_tags_with_counts(store=scope)
+            unique_tags = len(tag_rows)
 
         return AnalyticsOverview(
             total_memories=total_memories,
@@ -511,17 +496,18 @@ async def get_memory_growth(
             start_timestamp = start_date.timestamp()
             end_timestamp = end_date.timestamp()
 
-            # Get memories in date range from the requested partition.
-            memories_in_range = [
-                memory for memory in await storage.get_all_memories(store=resolve_store(store))
-                if memory.created_at and start_timestamp <= memory.created_at <= end_timestamp
+            # Fetch timestamps only for the requested partition, then keep the
+            # date window. Loading full memory rows (content + embeddings) here
+            # made a short window scale with the whole store.
+            timestamps_in_range = [
+                ts for ts in await storage.get_memory_timestamps(store=resolve_store(store))
+                if ts and start_timestamp <= ts <= end_timestamp
             ]
 
             # Group by date
-            for memory in memories_in_range:
-                if memory.created_at:
-                    mem_date = datetime.fromtimestamp(memory.created_at, tz=timezone.utc).date()
-                    date_counts[mem_date] += 1
+            for ts in timestamps_in_range:
+                mem_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                date_counts[mem_date] += 1
 
             # Create data points
             current_date = start_date.date()
@@ -620,8 +606,14 @@ async def get_memory_type_distribution(
     """
     try:
         scope = resolve_store(store)
-        store_clause = "" if scope is None else " WHERE store = ?"
-        store_params = () if scope is None else (scope,)
+        # Soft-deleted rows are tombstones and must not be counted, otherwise the
+        # type breakdown disagrees with the scoped listing and the overview.
+        if scope is None:
+            store_clause = " WHERE deleted_at IS NULL"
+            store_params: tuple = ()
+        else:
+            store_clause = " WHERE deleted_at IS NULL AND store = ?"
+            store_params = (scope,)
 
         # Try to get accurate counts from storage layer if available
         if hasattr(storage, 'get_type_counts'):
@@ -770,23 +762,13 @@ async def get_graph_visualization(
     Nodes are memories, colored by type. Edges are typed relationships.
     """
     try:
-        graph_data = await storage.get_graph_visualization_data(limit, min_connections)
         scope = resolve_store(store)
-        if scope is not None:
-            allowed = {memory.content_hash for memory in await storage.get_all_memories(store=scope)}
-            nodes = [node for node in graph_data.get("nodes", []) if node.get("id") in allowed]
-            allowed_ids = {node.get("id") for node in nodes}
-            edges = [
-                edge for edge in graph_data.get("edges", [])
-                if edge.get("source") in allowed_ids and edge.get("target") in allowed_ids
-            ]
-            graph_data = dict(graph_data)
-            graph_data["nodes"] = nodes
-            graph_data["edges"] = edges
-            meta = dict(graph_data.get("meta") or {})
-            meta["node_count"] = len(nodes)
-            meta["edge_count"] = len(edges)
-            graph_data["meta"] = meta
+        # Scope the selection inside storage so ``limit`` picks the most connected
+        # nodes *of the requested store*. Filtering afterwards let another store's
+        # nodes consume the global top slots and left the scoped view empty.
+        graph_data = await storage.get_graph_visualization_data(
+            limit, min_connections, store=scope
+        )
         return GraphVisualizationData(**graph_data)
 
     except Exception as e:
@@ -847,9 +829,11 @@ async def get_activity_heatmap(
     Returns daily activity counts for the specified period, with activity levels for color coding.
     """
     try:
+        # Only timestamps are needed; ``days + 1`` keeps the inclusive date
+        # boundary of the original in-Python window while staying in storage.
         timestamps = [
-            memory.created_at for memory in await storage.get_all_memories(store=resolve_store(store))
-            if memory.created_at is not None
+            ts for ts in await storage.get_memory_timestamps(days=days + 1, store=resolve_store(store))
+            if ts is not None
         ]
 
         # Group by date
@@ -996,8 +980,8 @@ async def get_activity_breakdown(
         # Get last 90 days of timestamps (adequate for all granularity levels).
         cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=90)).timestamp()
         timestamps = [
-            memory.created_at for memory in await storage.get_all_memories(store=resolve_store(store))
-            if memory.created_at is not None and memory.created_at >= cutoff_ts
+            ts for ts in await storage.get_memory_timestamps(days=90, store=resolve_store(store))
+            if ts is not None and ts >= cutoff_ts
         ]
 
         # Group by granularity using helper function
@@ -1071,7 +1055,6 @@ async def get_storage_stats(
             stats = {}
 
         scope = resolve_store(store)
-        total_size_mb = stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb") or 0
         total_memories = stats.get("primary_stats", {}).get("total_memories") or stats.get("total_memories") or 0
 
         if scope is None:
@@ -1081,9 +1064,38 @@ async def get_storage_stats(
         else:
             scoped_memories = await storage.get_all_memories(store=scope)
             total_memories = len(scoped_memories)
-            total_size_mb = sum(len(memory.content or "") for memory in scoped_memories) / (1024 * 1024)
             recent_memories = sorted(scoped_memories, key=lambda memory: memory.created_at or 0, reverse=True)[:100]
             largest_memories_objs = sorted(scoped_memories, key=lambda memory: len(memory.content or ""), reverse=True)[:10]
+
+        # ``total_size_mb`` reports the content bytes held by the selected scope.
+        # It previously mixed two units: the database file size for the all-store
+        # view and the summed content length for a named store, so the two numbers
+        # were not comparable. Aggregate in SQL when the backend exposes a raw
+        # connection so the value stays consistent across scopes.
+        total_size_mb = None
+        raw_conn = getattr(storage, "conn", None)
+        if raw_conn is None:
+            raw_conn = getattr(getattr(storage, "primary", None), "conn", None)
+        if raw_conn is not None:
+            try:
+                if scope is None:
+                    size_cursor = raw_conn.execute(
+                        "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE deleted_at IS NULL"
+                    )
+                else:
+                    size_cursor = raw_conn.execute(
+                        "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories "
+                        "WHERE deleted_at IS NULL AND store = ?",
+                        (scope,),
+                    )
+                size_row = size_cursor.fetchone()
+                total_size_mb = (float(size_row[0]) if size_row and size_row[0] is not None else 0.0) / (1024 * 1024)
+            except Exception as e:
+                logger.warning(f"Failed to compute scoped content size: {e}")
+                total_size_mb = None
+
+        if total_size_mb is None:
+            total_size_mb = stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb") or 0
 
         # Get recent memories for average size calculation (smaller sample)
 

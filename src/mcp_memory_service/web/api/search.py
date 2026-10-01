@@ -388,31 +388,26 @@ async def time_search(
         semantic_query = request.semantic_query.strip() if request.semantic_query else ""
         scope = resolve_store(request.store)
         if semantic_query:
+            # Apply the time window inside the vector query: out-of-range
+            # neighbours must not consume the candidate budget and hide the
+            # in-range matches the caller asked for.
             query_results = await storage.retrieve(
                 query=semantic_query,
                 n_results=candidate_pool_size,
+                start_time=start_ts,
+                end_time=end_ts,
                 store=scope,
             )
-            query_results = [
-                result for result in query_results
-                if (start_ts is None or (result.memory.created_at or 0) >= start_ts)
-                and (end_ts is None or (result.memory.created_at or 0) <= end_ts)
-            ]
         else:
-            scoped_memories = await storage.get_all_memories(store=scope)
-            scoped_memories = [
-                memory for memory in scoped_memories
-                if (start_ts is None or (memory.created_at or 0) >= start_ts)
-                and (end_ts is None or (memory.created_at or 0) <= end_ts)
-            ]
-            query_results = [
-                MemoryQueryResult(
-                    memory=memory,
-                    relevance_score=0.0,
-                    debug_info={"backend": "http", "query_type": "time_based"},
-                )
-                for memory in scoped_memories[:candidate_pool_size]
-            ]
+            # Time-only search: storage applies the date window, the store scope
+            # and the limit in one query instead of loading the entire partition.
+            query_results = await storage.recall(
+                query=None,
+                n_results=candidate_pool_size,
+                start_timestamp=start_ts,
+                end_timestamp=end_ts,
+                store=scope,
+            )
 
         # If semantic query was provided, results are already ranked by relevance
         # Otherwise, sort by recency (newest first)

@@ -397,7 +397,7 @@ class MemoryStorage(ABC):
         raise NotImplementedError("Subclasses must implement get_by_exact_content")
 
     @abstractmethod
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """
         Get a memory by its content hash using direct O(1) lookup.
 
@@ -837,7 +837,7 @@ class MemoryStorage(ABC):
         """Get all unique tags in the storage. Override for specific implementations."""
         return []
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all tags with their usage counts, ordered by count descending.
 
         Returns a list of ``{"tag": str, "count": int}``. Declared here because
@@ -857,6 +857,7 @@ class MemoryStorage(ABC):
         n_results: int = 5,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None,
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         """Retrieve memories by time window, optionally ranked by a semantic query.
 
@@ -992,7 +993,7 @@ class MemoryStorage(ABC):
         """
         return {}
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         """
         Get memory creation timestamps only, without loading full memory objects.
 
@@ -1032,7 +1033,8 @@ class MemoryStorage(ABC):
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
-        min_connections: int = 1
+        min_connections: int = 1,
+        store: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get graph data for visualization in D3.js-compatible format.

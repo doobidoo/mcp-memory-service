@@ -1736,9 +1736,9 @@ class HybridMemoryStorage(MemoryStorage):
 
         return stats
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all tags with their usage counts from primary storage."""
-        return await self.primary.get_all_tags_with_counts()
+        return await self.primary.get_all_tags_with_counts(store=store)
 
     async def get_all_tags(self) -> List[str]:
         """Get all unique tags from primary storage."""
@@ -1752,7 +1752,7 @@ class HybridMemoryStorage(MemoryStorage):
         """Get largest memories by content length from primary storage."""
         return await self.primary.get_largest_memories(n)
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         """
         Get memory creation timestamps only, without loading full memory objects.
 
@@ -1764,7 +1764,7 @@ class HybridMemoryStorage(MemoryStorage):
         Returns:
             List of Unix timestamps (float) in descending order (newest first)
         """
-        return await self.primary.get_memory_timestamps(days)
+        return await self.primary.get_memory_timestamps(days, store)
 
     async def get_relationship_type_distribution(self) -> Dict[str, int]:
         """
@@ -1780,7 +1780,8 @@ class HybridMemoryStorage(MemoryStorage):
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
-        min_connections: int = 1
+        min_connections: int = 1,
+        store: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get graph data for visualization in D3.js-compatible format.
@@ -1794,9 +1795,9 @@ class HybridMemoryStorage(MemoryStorage):
         Returns:
             Dictionary with "nodes" and "edges" keys in D3.js format
         """
-        return await self.primary.get_graph_visualization_data(limit, min_connections)
+        return await self.primary.get_graph_visualization_data(limit, min_connections, store=store)
 
-    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def recall(self, query: Optional[str] = None, n_results: int = 5, start_timestamp: Optional[float] = None, end_timestamp: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """
         Retrieve memories with combined time filtering and optional semantic search.
 
@@ -1809,7 +1810,7 @@ class HybridMemoryStorage(MemoryStorage):
         Returns:
             List of MemoryQueryResult objects.
         """
-        return await self.primary.recall(query=query, n_results=n_results, start_timestamp=start_timestamp, end_timestamp=end_timestamp)
+        return await self.primary.recall(query=query, n_results=n_results, start_timestamp=start_timestamp, end_timestamp=end_timestamp, store=store)
 
     async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
         """Recall memories using natural language time expressions."""
@@ -1844,9 +1845,9 @@ class HybridMemoryStorage(MemoryStorage):
             agent_id=agent_id,
         )
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash from primary storage."""
-        return await self.primary.get_by_hash(content_hash)
+        return await self.primary.get_by_hash(content_hash, store=store)
 
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None) -> int:
         """Get total count of memories from primary storage."""

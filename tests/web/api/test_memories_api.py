@@ -275,3 +275,127 @@ def test_http_store_scope_memory_search_tags_and_analytics(test_app):
     all_previews = [item["preview"] for item in all_stats["largest_memories"]]
     assert any("Home store" in preview for preview in all_previews)
     assert any("Work store" in preview for preview in all_previews)
+
+
+@pytest.mark.integration
+def test_hash_crud_respects_store_scope(test_app):
+    """Hash-level CRUD must not cross store boundaries (#1106).
+
+    Before the fix a client scoped to the default store could read, update or
+    delete a memory that lived in another partition just by knowing its hash.
+    """
+    response = test_app.post(
+        "/api/memories",
+        json={"content": "Work store roadmap entry", "store": "work"},
+    )
+    assert response.status_code == 200, response.text
+    content_hash = response.json()["memory"]["content_hash"]
+
+    # The default scope must treat it as missing.
+    assert test_app.get(f"/api/memories/{content_hash}").status_code == 404
+    assert (
+        test_app.put(f"/api/memories/{content_hash}", json={"tags": ["hijacked"]}).status_code
+        == 404
+    )
+    assert test_app.delete(f"/api/memories/{content_hash}").status_code == 404
+
+    # `all` is the explicit federated read scope.
+    assert (
+        test_app.get(f"/api/memories/{content_hash}", params={"store": "all"}).status_code == 200
+    )
+
+    # The owning scope still reads and deletes it.
+    own = test_app.get(f"/api/memories/{content_hash}", params={"store": "work"})
+    assert own.status_code == 200
+    assert own.json()["content"] == "Work store roadmap entry"
+
+    assert (
+        test_app.delete(f"/api/memories/{content_hash}", params={"store": "work"}).status_code
+        == 200
+    )
+    assert (
+        test_app.get(f"/api/memories/{content_hash}", params={"store": "work"}).status_code == 404
+    )
+
+
+@pytest.mark.integration
+def test_store_all_write_is_rejected_with_400(test_app):
+    """`store='all'` is read-only: the API must answer 400, not 500 (#1106)."""
+    response = test_app.post(
+        "/api/memories",
+        json={"content": "must not be stored", "store": "all"},
+    )
+    assert response.status_code == 400, response.text
+    assert "read scopes" in response.json()["detail"]
+
+    session = test_app.post(
+        "/api/sessions",
+        json={"turns": [{"role": "user", "content": "hi"}], "store": "all"},
+    )
+    assert session.status_code == 400, session.text
+
+
+@pytest.mark.integration
+def test_memory_type_distribution_excludes_soft_deleted(test_app):
+    """Soft-deleted tombstones must not inflate the type breakdown (#1106)."""
+    for content in ("Keep me in home", "Delete me from home"):
+        stored = test_app.post(
+            "/api/memories", json={"content": content, "store": "home"}
+        )
+        assert stored.status_code == 200, stored.text
+
+    before = test_app.get("/api/analytics/memory-types", params={"store": "home"}).json()
+    assert before["total_memories"] == 2
+
+    memories = test_app.get("/api/memories", params={"store": "home"}).json()["memories"]
+    target = next(m for m in memories if m["content"].startswith("Delete me"))
+    deleted = test_app.delete(
+        f"/api/memories/{target['content_hash']}", params={"store": "home"}
+    )
+    assert deleted.status_code == 200, deleted.text
+
+    after = test_app.get("/api/analytics/memory-types", params={"store": "home"}).json()
+    assert after["total_memories"] == 1
+
+
+@pytest.mark.integration
+def test_time_search_applies_store_scope(test_app):
+    """Time-only search stays inside the requested partition (#1106)."""
+    for content, store in (("Home timeline entry", "home"), ("Work timeline entry", "work")):
+        stored = test_app.post("/api/memories", json={"content": content, "store": store})
+        assert stored.status_code == 200, stored.text
+
+    # "today" is a window that contains the rows just created; "last week" is
+    # the previous calendar week and would legitimately return nothing.
+    response = test_app.post(
+        "/api/search/by-time",
+        json={"query": "today", "n_results": 10, "store": "home"},
+    )
+    assert response.status_code == 200, response.text
+    contents = {result["memory"]["content"] for result in response.json()["results"]}
+    assert contents == {"Home timeline entry"}
+
+
+@pytest.mark.integration
+def test_overview_scoped_metrics_count_beyond_sample(test_app):
+    """Overview counts must not be capped by an internal sample size (#1106)."""
+    for index in range(5):
+        stored = test_app.post(
+            "/api/memories",
+            json={
+                "content": f"Scoped overview memory {index}",
+                "store": "home",
+                "tags": ["ov-scope"],
+            },
+        )
+        assert stored.status_code == 200, stored.text
+    stored = test_app.post(
+        "/api/memories", json={"content": "Other store memory", "store": "work"}
+    )
+    assert stored.status_code == 200, stored.text
+
+    overview = test_app.get("/api/analytics/overview", params={"store": "home"}).json()
+    assert overview["total_memories"] == 5
+    assert overview["memories_this_week"] == 5
+    assert overview["memories_this_month"] == 5
+    assert overview["unique_tags"] == 1

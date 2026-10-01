@@ -256,6 +256,10 @@ async def store_memory(
                 content_hash=None
             )
             
+    except HTTPException:
+        # Validation errors (e.g. store='all' on a write) must reach the client
+        # as their real status code instead of being flattened to 500.
+        raise
     except Exception as e:
         logger.error(f"Failed to store memory: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to store memory. Please try again.")
@@ -306,17 +310,19 @@ async def list_memories(
 @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
 async def get_memory(
     content_hash: str,
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Get a specific memory by its content hash.
-    
+
     Retrieves a single memory entry using its unique content hash identifier.
+    The lookup honours the same ``store`` scope as the list endpoint, so a hash
+    that belongs to another partition is reported as not found.
     """
     try:
-        # Use the new get_by_hash method for direct hash lookup
-        memory = await storage.get_by_hash(content_hash)
+        memory = await storage.get_by_hash(content_hash, store=resolve_store(store))
         
         if not memory:
             raise HTTPException(status_code=404, detail="Memory not found")
@@ -332,15 +338,22 @@ async def get_memory(
 @router.delete("/memories/{content_hash}", response_model=MemoryDeleteResponse, tags=["memories"])
 async def delete_memory(
     content_hash: str,
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_write_access)
 ):
     """
     Delete a memory by its content hash.
-    
-    Permanently removes a memory entry from the storage.
+
+    Permanently removes a memory entry from the storage. The hash is resolved
+    within the requested ``store`` scope first, so a hash owned by another
+    partition cannot be deleted through a different scope.
     """
     try:
+        existing = await storage.get_by_hash(content_hash, store=resolve_store(store))
+        if not existing:
+            raise HTTPException(status_code=404, detail="Memory not found")
+
         success, message = await storage.delete(content_hash)
         
         # Broadcast SSE event for memory deletion
@@ -357,6 +370,8 @@ async def delete_memory(
             content_hash=content_hash
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete memory: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete memory. Please try again.")
@@ -366,6 +381,7 @@ async def delete_memory(
 async def update_memory(
     content_hash: str,
     request: MemoryUpdateRequest,
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_write_access)
 ):
@@ -376,8 +392,8 @@ async def update_memory(
     the original content and creation timestamp. Only provided fields will be updated.
     """
     try:
-        # First, check if the memory exists
-        existing_memory = await storage.get_by_hash(content_hash)
+        # First, check that the memory exists inside the requested store scope
+        existing_memory = await storage.get_by_hash(content_hash, store=resolve_store(store))
         if not existing_memory:
             raise HTTPException(status_code=404, detail=f"Memory with hash {content_hash} not found")
 

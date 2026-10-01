@@ -1885,7 +1885,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Reads ---------------------------------------------------------------
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         if not self._ensure_initialized():
             return None
 
@@ -2931,7 +2931,7 @@ class MilvusMemoryStorage(MemoryStorage):
             seen.update(tags)
         return sorted(seen)
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Tags with usage counts, ordered by count descending then tag ascending.
 
         web/api/memories.py::get_tags calls this without a hasattr guard, so its
@@ -2976,6 +2976,7 @@ class MilvusMemoryStorage(MemoryStorage):
         n_results: int = 5,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None,
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         """Time-windowed retrieval, semantically ranked when a query is given.
 
@@ -3249,7 +3250,7 @@ class MilvusMemoryStorage(MemoryStorage):
             include_embeddings=include_embeddings,
         )
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         if not self._ensure_initialized():
             return []
 
