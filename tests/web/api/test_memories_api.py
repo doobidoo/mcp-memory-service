@@ -399,3 +399,46 @@ def test_overview_scoped_metrics_count_beyond_sample(test_app):
     assert overview["memories_this_week"] == 5
     assert overview["memories_this_month"] == 5
     assert overview["unique_tags"] == 1
+
+
+@pytest.mark.integration
+def test_semantic_time_search_does_not_leak_out_of_window(test_app):
+    """A semantic by-time search must not return memories outside the window.
+
+    The route goes through `recall()`, the one storage method whose contract is
+    "time-windowed retrieval, semantically ranked when a query is given". Using
+    `retrieve()` instead let out-of-window neighbours fill the candidate pool and
+    either hid in-window matches or leaked results from outside the range (#1106).
+    """
+    stored = test_app.post(
+        "/api/memories",
+        json={"content": "Window probe about rivers", "store": "home"},
+    )
+    assert stored.status_code == 200, stored.text
+
+    # "yesterday" excludes the row just written.
+    outside = test_app.post(
+        "/api/search/by-time",
+        json={
+            "query": "yesterday",
+            "semantic_query": "rivers",
+            "n_results": 10,
+            "store": "home",
+        },
+    )
+    assert outside.status_code == 200, outside.text
+    assert outside.json()["results"] == []
+
+    # "today" includes it.
+    inside = test_app.post(
+        "/api/search/by-time",
+        json={
+            "query": "today",
+            "semantic_query": "rivers",
+            "n_results": 10,
+            "store": "home",
+        },
+    )
+    assert inside.status_code == 200, inside.text
+    contents = {result["memory"]["content"] for result in inside.json()["results"]}
+    assert contents == {"Window probe about rivers"}

@@ -387,35 +387,30 @@ async def time_search(
         candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
         semantic_query = request.semantic_query.strip() if request.semantic_query else ""
         scope = resolve_store(request.store)
-        if semantic_query:
-            # Apply the time window inside the vector query: out-of-range
-            # neighbours must not consume the candidate budget and hide the
-            # in-range matches the caller asked for.
-            query_results = await storage.retrieve(
-                query=semantic_query,
-                n_results=candidate_pool_size,
-                start_time=start_ts,
-                end_time=end_ts,
-                store=scope,
-            )
-            # Defensive: sqlite-vec and hybrid apply the window in storage, but a
-            # backend may accept start_time/end_time without using them, so an
-            # out-of-range memory could still surface here.
-            query_results = [
-                result for result in query_results
-                if (start_ts is None or (result.memory.created_at or 0) >= start_ts)
-                and (end_ts is None or (result.memory.created_at or 0) <= end_ts)
-            ]
-        else:
-            # Time-only search: storage applies the date window, the store scope
-            # and the limit in one query instead of loading the entire partition.
-            query_results = await storage.recall(
-                query=None,
-                n_results=candidate_pool_size,
-                start_timestamp=start_ts,
-                end_timestamp=end_ts,
-                store=scope,
-            )
+
+        # One storage call serves both shapes. ``recall()`` is the method whose
+        # contract is "time-windowed retrieval, semantically ranked when a query
+        # is given", and every backend applies the window inside its own query:
+        # sqlite-vec filters within the KNN, Milvus adds a created_at filter,
+        # Cloudflare builds a D1 WHERE clause, hybrid forwards to its primary.
+        # ``retrieve()`` only honours start_time/end_time on some backends, which
+        # made a semantic by-time search return nothing whenever out-of-window
+        # neighbours filled the candidate pool.
+        query_results = await storage.recall(
+            query=semantic_query or None,
+            n_results=candidate_pool_size,
+            start_timestamp=start_ts,
+            end_timestamp=end_ts,
+            store=scope,
+        )
+
+        # Safety net: never surface a memory outside the requested window, even if
+        # a backend accepts the bounds without applying them.
+        query_results = [
+            result for result in query_results
+            if (start_ts is None or (result.memory.created_at or 0) >= start_ts)
+            and (end_ts is None or (result.memory.created_at or 0) <= end_ts)
+        ]
 
         # If semantic query was provided, results are already ranked by relevance
         # Otherwise, sort by recency (newest first)
