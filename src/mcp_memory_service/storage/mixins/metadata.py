@@ -68,7 +68,7 @@ class MetadataMixin:
                 cursor = self.conn.execute(
                     """
                     SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
-                           updated_at, updated_at_iso
+                           updated_at, updated_at_iso, superseded_by
                     FROM memories WHERE content_hash = ? AND deleted_at IS NULL
                 """,
                     (content_hash,),
@@ -79,7 +79,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory with hash {content_hash} not found"
 
-            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso, current_updated_at, current_updated_at_iso = row
+            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso, current_updated_at, current_updated_at_iso, current_superseded_by = row
 
             current_metadata = self._safe_json_loads(current_metadata_str, "update_memory_metadata")
 
@@ -104,12 +104,19 @@ class MetadataMixin:
 
             protected_fields = {
                 "content", "content_hash", "tags", "memory_type", "metadata",
-                "embedding", "created_at", "created_at_iso", "updated_at", "updated_at_iso"
+                "embedding", "created_at", "created_at_iso", "updated_at", "updated_at_iso",
+                "superseded_by"
             }
 
             for key, value in updates.items():
                 if key not in protected_fields:
                     new_metadata[key] = value
+
+            # Handle superseded_by column update (fix for bug #1352)
+            new_superseded_by = updates['superseded_by'] if 'superseded_by' in updates else current_superseded_by
+            # Treat empty string as None (clear the column)
+            if new_superseded_by == '':
+                new_superseded_by = None
 
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
@@ -133,7 +140,8 @@ class MetadataMixin:
                     UPDATE memories SET
                         tags = ?, memory_type = ?, metadata = ?,
                         updated_at = ?, updated_at_iso = ?,
-                        created_at = ?, created_at_iso = ?
+                        created_at = ?, created_at_iso = ?,
+                        superseded_by = ?
                     WHERE content_hash = ? AND deleted_at IS NULL
                 """,
                     (
@@ -144,6 +152,7 @@ class MetadataMixin:
                         updated_at_iso,
                         created_at,
                         created_at_iso,
+                        new_superseded_by,
                         content_hash,
                     ),
                 )
@@ -158,9 +167,11 @@ class MetadataMixin:
                 updated_fields.append("memory_type")
             if "metadata" in updates:
                 updated_fields.append("custom_metadata")
+            if "superseded_by" in updates:
+                updated_fields.append("superseded_by")
 
             for key in updates.keys():
-                if key not in protected_fields and key not in ["tags", "memory_type", "metadata"]:
+                if key not in protected_fields and key not in ["tags", "memory_type", "metadata", "superseded_by"]:
                     updated_fields.append(key)
 
             updated_fields.append("updated_at")
