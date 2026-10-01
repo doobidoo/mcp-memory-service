@@ -68,7 +68,7 @@ class MetadataMixin:
                 cursor = self.conn.execute(
                     """
                     SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
-                           updated_at, updated_at_iso, superseded_by
+                           updated_at, updated_at_iso
                     FROM memories WHERE content_hash = ? AND deleted_at IS NULL
                 """,
                     (content_hash,),
@@ -79,7 +79,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory with hash {content_hash} not found"
 
-            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso, current_updated_at, current_updated_at_iso, current_superseded_by = row
+            content, current_tags, current_type, current_metadata_str, created_at, created_at_iso, current_updated_at, current_updated_at_iso = row
 
             current_metadata = self._safe_json_loads(current_metadata_str, "update_memory_metadata")
 
@@ -112,11 +112,22 @@ class MetadataMixin:
                 if key not in protected_fields:
                     new_metadata[key] = value
 
-            # Handle superseded_by column update (fix for bug #1352)
-            new_superseded_by = updates['superseded_by'] if 'superseded_by' in updates else current_superseded_by
-            # Treat empty string as None (clear the column)
-            if new_superseded_by == '':
-                new_superseded_by = None
+            # superseded_by column update (fix for bug #1352).
+            # Only touch the column when the caller explicitly asks: reading the
+            # current value and rewriting it on every unrelated update would race
+            # with mark_superseded_batch()/resolve_conflict() and silently undo a
+            # supersession recorded between our read and write (Greptile P1).
+            update_superseded_by = "superseded_by" in updates
+            if update_superseded_by:
+                new_superseded_by = updates["superseded_by"]
+                if new_superseded_by == "":          # empty string clears the column
+                    new_superseded_by = None
+                # Reconcile the legacy JSON value so an export or a JSON-reading
+                # backend does not keep hiding the memory after the column changes.
+                if new_superseded_by is None:
+                    new_metadata.pop("superseded_by", None)
+                else:
+                    new_metadata["superseded_by"] = new_superseded_by
 
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
@@ -135,26 +146,23 @@ class MetadataMixin:
                 updated_at_iso = now_iso
 
             def _do_update():
+                set_clauses = [
+                    "tags = ?", "memory_type = ?", "metadata = ?",
+                    "updated_at = ?", "updated_at_iso = ?",
+                    "created_at = ?", "created_at_iso = ?",
+                ]
+                params = [
+                    new_tags, new_type, json.dumps(new_metadata),
+                    updated_at, updated_at_iso, created_at, created_at_iso,
+                ]
+                if update_superseded_by:
+                    set_clauses.append("superseded_by = ?")
+                    params.append(new_superseded_by)
+                params.append(content_hash)
                 self.conn.execute(
-                    """
-                    UPDATE memories SET
-                        tags = ?, memory_type = ?, metadata = ?,
-                        updated_at = ?, updated_at_iso = ?,
-                        created_at = ?, created_at_iso = ?,
-                        superseded_by = ?
-                    WHERE content_hash = ? AND deleted_at IS NULL
-                """,
-                    (
-                        new_tags,
-                        new_type,
-                        json.dumps(new_metadata),
-                        updated_at,
-                        updated_at_iso,
-                        created_at,
-                        created_at_iso,
-                        new_superseded_by,
-                        content_hash,
-                    ),
+                    f"UPDATE memories SET {', '.join(set_clauses)} "
+                    "WHERE content_hash = ? AND deleted_at IS NULL",
+                    tuple(params),
                 )
                 self.conn.commit()
 

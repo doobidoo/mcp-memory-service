@@ -101,3 +101,71 @@ async def test_update_memory_metadata_cannot_unset_superseded_by(storage):
         f"BUG #1352: superseded_by should be NULL after unsetting, "
         f"but remains '{row_after[4]}'. The column is not updated by update_memory_metadata."
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_set_superseded_by_via_api(storage):
+    """update_memory_metadata can SET superseded_by (not only clear it)."""
+    winner = _make_memory("winner set-path content")
+    loser = _make_memory("loser set-path content")
+    await storage.store(winner)
+    await storage.store(loser)
+
+    ok, msg = await storage.update_memory_metadata(
+        loser.content_hash, {"superseded_by": winner.content_hash}
+    )
+    assert ok, msg
+    row = await _get_row(storage, loser.content_hash)
+    assert row[4] == winner.content_hash
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_empty_string_clears_superseded_by(storage):
+    """An empty string normalizes to NULL (clears the column)."""
+    winner = _make_memory("winner empty content")
+    loser = _make_memory("loser empty content")
+    await storage.store(winner)
+    await storage.store(loser)
+
+    def _set():
+        storage.conn.execute(
+            "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+            (winner.content_hash, loser.content_hash),
+        )
+        storage.conn.commit()
+    await storage._execute_with_retry(_set)
+
+    ok, msg = await storage.update_memory_metadata(loser.content_hash, {"superseded_by": ""})
+    assert ok, msg
+    row = await _get_row(storage, loser.content_hash)
+    assert row[4] in (None, "")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_unrelated_update_preserves_superseded_by(storage):
+    """An update that does NOT ask for superseded_by must leave it untouched.
+
+    Guards the race Greptile flagged: rewriting the read-back value on every
+    update would silently undo a supersession recorded between read and write.
+    """
+    winner = _make_memory("winner preserve content")
+    loser = _make_memory("loser preserve content")
+    await storage.store(winner)
+    await storage.store(loser)
+
+    def _set():
+        storage.conn.execute(
+            "UPDATE memories SET superseded_by = ? WHERE content_hash = ?",
+            (winner.content_hash, loser.content_hash),
+        )
+        storage.conn.commit()
+    await storage._execute_with_retry(_set)
+
+    # Update only tags — superseded_by not in updates
+    ok, msg = await storage.update_memory_metadata(loser.content_hash, {"tags": ["x"]})
+    assert ok, msg
+    row = await _get_row(storage, loser.content_hash)
+    assert row[4] == winner.content_hash, "unrelated update must not erase superseded_by"
