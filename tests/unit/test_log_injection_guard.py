@@ -57,6 +57,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/sync/importer.py",
     "mcp_memory_service/backup/scheduler.py",
     "mcp_memory_service/web/api/analytics.py",
+    "mcp_memory_service/storage/mixins/base.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -97,6 +98,15 @@ EXTERNAL_NAMES = frozenset({
     # generates itself is `backup_filename`, a different token, and it stays
     # unlisted on purpose.
     "filename",
+    # What storage/mixins/base.py logs that it did not produce: the `json_str`
+    # excerpt `_safe_json_loads` prints on a decode error is the `metadata`
+    # column read back off a row; `pragma_name`/`pragma_value` are split out of
+    # `MCP_MEMORY_SQLITE_PRAGMAS` (migrations.py wraps the same pair already);
+    # `db_path` is the configured path, as #1394 listed the backup paths.
+    "json_str",
+    "pragma_name",
+    "pragma_value",
+    "db_path",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -317,6 +327,33 @@ def test_lazy_scan_flags_backup_filenames():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("Created %s", backup_filename)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_base_mixin_inputs():
+    """What storage/mixins/base.py logs from outside: stored text, env pragmas, the path.
+
+    `_safe_json_loads` logs an excerpt of the metadata column it failed to
+    parse; `_connect_and_load_extension` logs each pragma pair split out of
+    the environment; `__init__` logs the configured database path. Every
+    guarded logger call in the module already wraps them, so the module scan
+    stays green whether or not the names are listed. These are the samples
+    that fail if an entry is dropped from EXTERNAL_NAMES; the `context` label
+    (a literal at every call site) and the parsed `timeout_seconds` stay
+    unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.error("bad json: %s", json_str[:100])\n',
+         'logger.error("bad json: %s", _sanitize_log_value(json_str[:100]))\n'),
+        ('logger.debug("pragma %s=%s", pragma_name, pragma_value)\n',
+         'logger.debug("pragma %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))\n'),
+        ('logger.info("storage at %s", self.db_path)\n',
+         'logger.info("storage at %s", _sanitize_log_value(self.db_path))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.error("bad json in %s", context)\n')
+    assert not _lazy_findings('logger.info("timeout %ss", timeout_seconds)\n')
 
 
 @pytest.mark.unit
