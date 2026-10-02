@@ -11,7 +11,9 @@ import pytest
 import pytest_asyncio
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.quality.metadata_codec import decompress_metadata_from_sync
 from mcp_memory_service.storage.cloudflare import CloudflareStorage
+from mcp_memory_service.storage.hybrid import BackgroundSyncService, HybridMemoryStorage
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
 
@@ -202,3 +204,58 @@ async def test_cloudflare_reports_failed_metadata_update(monkeypatch):
 
     assert not success
     assert "D1 unavailable" in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preserve_timestamps", [True, False])
+@pytest.mark.parametrize(
+    "change", [{}, {"tags": ["changed"]}, {"memory_type": "decision"}]
+)
+async def test_hybrid_batch_sync_keeps_primary_timestamps(
+    metadata_storage, temp_db_path, preserve_timestamps, change
+):
+    """A queued batch update must copy primary state, including its update time."""
+    secondary, secondary_db, content_hash, metadata_column = metadata_storage
+    hybrid = HybridMemoryStorage(f"{temp_db_path}/hybrid-primary.db")
+    await hybrid.primary.initialize()
+    hybrid.secondary = secondary
+    hybrid.sync_service = BackgroundSyncService(hybrid.primary, secondary)
+    try:
+        memory = await secondary.get_by_hash(content_hash)
+        assert memory is not None
+        success, message = await hybrid.primary.store(memory)
+        assert success, message
+        before = timestamp_fields(hybrid.primary.conn, content_hash)
+        memory.metadata["relevance_score"] = 0.75
+        for key, value in change.items():
+            setattr(memory, key, value)
+
+        assert await hybrid.update_memories_batch(
+            [memory], preserve_timestamps=preserve_timestamps
+        ) == [True]
+
+        primary_times = timestamp_fields(hybrid.primary.conn, content_hash)
+        if preserve_timestamps and not change:
+            assert primary_times == before
+        else:
+            assert primary_times[:2] == before[:2]
+            assert primary_times[2] > before[2]
+
+        operation = hybrid.sync_service.operation_queue.get_nowait()
+        await hybrid.sync_service._process_single_operation(operation)
+        hybrid.sync_service.operation_queue.task_done()
+
+        assert timestamp_fields(secondary_db, content_hash) == primary_times
+        metadata = secondary_db.execute(
+            f"SELECT {metadata_column} FROM memories WHERE content_hash = ?",
+            (content_hash,),
+        ).fetchone()[0]
+        assert (
+            decompress_metadata_from_sync(json.loads(metadata))["relevance_score"]
+            == 0.75
+        )
+        synced = await secondary.get_by_hash(content_hash)
+        assert synced.tags == memory.tags
+        assert synced.memory_type == memory.memory_type
+    finally:
+        await hybrid.primary.close()

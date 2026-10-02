@@ -1695,17 +1695,26 @@ class HybridMemoryStorage(MemoryStorage):
         if self.sync_service:
             for idx, (memory, success) in enumerate(zip(memories, results)):
                 if success:
-                    operation = SyncOperation(
-                        operation='update',
-                        content_hash=memory.content_hash,
-                        updates={
-                            'tags': memory.tags,
-                            'metadata': memory.metadata,
-                            'memory_type': memory.memory_type
-                        }
-                    )
-                    # Don't await - queue asynchronously for background processing
                     try:
+                        # The primary classifies actual structural changes and may
+                        # preserve its timestamps without modifying the input object.
+                        persisted = await self.primary.get_by_hash(memory.content_hash)
+                        if persisted is None:
+                            continue
+                        operation = SyncOperation(
+                            operation='update',
+                            content_hash=persisted.content_hash,
+                            updates={
+                                'tags': persisted.tags,
+                                'metadata': persisted.metadata,
+                                'memory_type': persisted.memory_type,
+                                'created_at': persisted.created_at,
+                                'created_at_iso': persisted.created_at_iso,
+                                'updated_at': persisted.updated_at,
+                                'updated_at_iso': persisted.updated_at_iso,
+                            },
+                            preserve_timestamps=False  # Apply the primary's timestamps.
+                        )
                         await self.sync_service.enqueue_operation(operation)
                     except Exception as e:
                         logger.warning("Failed to queue sync for %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
