@@ -1490,8 +1490,8 @@ class CloudflareStorage(MemoryStorage):
                 else:
                     update_fields.append("updated_at_iso = ?")
                     params.append(now_iso)
-            else:
-                # preserve_timestamps=True: only update updated_at to current time
+            elif any(key in updates for key in ("tags", "memory_type", "content")):
+                # Match sqlite-vec: metadata-only updates keep the stored timestamps.
                 update_fields.append("updated_at = ?")
                 update_fields.append("updated_at_iso = ?")
                 params.extend([now, now_iso])
