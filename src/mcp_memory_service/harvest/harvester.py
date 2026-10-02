@@ -184,6 +184,14 @@ class SessionHarvester:
         for filepath in session_files:
             result = self._harvest_file(filepath, config)
             results.append(result)
+        
+        # Get coverage report aggregated across the run and add to all results
+        coverage = self.parser.coverage_report()
+        if coverage:
+            logger.info("Harvest coverage: %s", self._format_coverage_summary(coverage))
+        for result in results:
+            result.coverage = coverage
+            
         return results
 
     async def harvest_and_store(self, config: HarvestConfig) -> List[HarvestResult]:
@@ -227,7 +235,35 @@ class SessionHarvester:
                 result.stored = stored
 
             results.append(result)
+        
+        # Get coverage report aggregated across the run and add to all results
+        coverage = self.parser.coverage_report()
+        if coverage:
+            logger.info("Harvest coverage: %s", self._format_coverage_summary(coverage))
+        for result in results:
+            result.coverage = coverage
+            
         return results
+
+    def _format_coverage_summary(self, coverage: dict) -> str:
+        """Format coverage report for readable logging."""
+        if not coverage:
+            return "empty"
+        
+        parts = []
+        for kind, stats in coverage.items():
+            seen = stats.get("seen", 0)
+            extracted = stats.get("extracted", 0)
+            dropped = stats.get("dropped", 0)
+
+            if seen > 0:
+                # kind is read raw from the session JSON (external) — sanitise it
+                # before it reaches the log line (py/log-injection, same guard the
+                # rest of this module applies to external values).
+                safe_kind = _sanitize_log_value(str(kind))
+                parts.append(f"{safe_kind}: {seen} seen, {extracted} extracted, {dropped} dropped")
+
+        return "; ".join(parts) if parts else "empty"
 
     @staticmethod
     def _provenance(candidate, session_id=None):
