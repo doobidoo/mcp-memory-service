@@ -24,12 +24,14 @@ def test_extract_skips_code_and_keeps_line_numbers():
         "inline `[nor](this.md)` here\n"
         "[ref]: ../b.md\n"
         '<a href="c.md">c</a> ![img](img/x.png)\n'
+        "- <https://pypi.org/project/x/>\n"
     )
     assert links.extract_links(text) == [
         (1, "docs/a.md"),
         (6, "../b.md"),
         (7, "c.md"),
         (7, "img/x.png"),
+        (8, "https://pypi.org/project/x/"),
     ]
 
 
@@ -59,6 +61,14 @@ def test_check_internal_reports_only_missing_targets(tmp_path, monkeypatch):
         "[ok](docs/ok.md)\n[gone](docs/gone.md)\n[web](https://example.org)\n")
     monkeypatch.setattr(links, "REPO_ROOT", tmp_path)
     assert links.check_internal(["README.md"]) == ["README.md:2: docs/gone.md"]
+
+
+def test_deleted_but_unstaged_source_is_skipped(tmp_path, monkeypatch):
+    # git ls-files still lists a file deleted from the working tree until the
+    # deletion is staged; it has no links left to check.
+    monkeypatch.setattr(links, "REPO_ROOT", tmp_path)
+    assert links.check_internal(["gone.md"]) == []
+    assert links.external_links(["gone.md"]) == {}
 
 
 def test_external_links_skip_own_repo_local_auth_only_and_placeholders(tmp_path, monkeypatch):

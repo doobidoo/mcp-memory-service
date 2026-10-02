@@ -50,6 +50,7 @@ INLINE_CODE = re.compile(r"`[^`\n]+`")
 INLINE_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)")
 REFERENCE_LINK = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)", re.M)
 HTML_LINK = re.compile(r"""(?:href|src)\s*=\s*["']([^"']+)["']""")
+AUTOLINK = re.compile(r"<(https?://[^>\s]+)>")
 
 BROKEN_STATUS = {404, 410}
 USER_AGENT = "Mozilla/5.0 (compatible; mcp-memory-service-link-check)"
@@ -70,7 +71,7 @@ def extract_links(text: str) -> list[tuple[int, str]]:
     """Return (line, target) for every link outside code."""
     text = INLINE_CODE.sub(_blank, FENCE.sub(_blank, text))
     found = []
-    for pattern in (INLINE_LINK, REFERENCE_LINK, HTML_LINK):
+    for pattern in (INLINE_LINK, REFERENCE_LINK, HTML_LINK, AUTOLINK):
         for m in pattern.finditer(text):
             found.append((text.count("\n", 0, m.start(1)) + 1, m.group(1)))
     return sorted(found)
@@ -91,11 +92,18 @@ def internal_target(source: str, target: str) -> Path | None:
     return (REPO_ROOT / source).parent / path
 
 
+def read_source(source: str) -> str:
+    """Contents of a tracked file, or "" if it was deleted but not yet staged."""
+    try:
+        return (REPO_ROOT / source).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
 def check_internal(files: list[str]) -> list[str]:
     broken = []
     for source in files:
-        text = (REPO_ROOT / source).read_text(encoding="utf-8", errors="replace")
-        for line, target in extract_links(text):
+        for line, target in extract_links(read_source(source)):
             path = internal_target(source, target)
             if path is not None and not os.path.exists(path):
                 broken.append(f"{source}:{line}: {target}")
@@ -113,8 +121,7 @@ def external_links(files: list[str]) -> dict[str, list[str]]:
     """Map each external URL to the places that use it."""
     urls: dict[str, list[str]] = {}
     for source in files:
-        text = (REPO_ROOT / source).read_text(encoding="utf-8", errors="replace")
-        for line, target in extract_links(text):
+        for line, target in extract_links(read_source(source)):
             if target.startswith(("http://", "https://")) and not _not_probed(target):
                 urls.setdefault(target.split("#", 1)[0], []).append(f"{source}:{line}")
     return urls

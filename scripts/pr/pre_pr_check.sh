@@ -344,7 +344,8 @@ if [ $LINK_EXIT -eq 0 ]; then
     check_status "Internal Markdown links resolve" 0
 else
     check_status "Internal Markdown links resolve" 1
-    echo "$LINK_OUTPUT" | grep '^BROKEN' | sed 's/^/     /'
+    # No BROKEN lines means the script itself failed; show its traceback instead.
+    { echo "$LINK_OUTPUT" | grep '^BROKEN' || echo "$LINK_OUTPUT" | tail -15; } | sed 's/^/     /'
 fi
 
 # Check 7: Docstring coverage
