@@ -22,19 +22,17 @@ These packages are minimal **redirect placeholders** registered on PyPI to preve
 
 ## Building & uploading
 
-The canonical upload path is the manual GitHub Actions workflow [`.github/workflows/publish-placeholders.yml`](../../.github/workflows/publish-placeholders.yml). It uses the existing `PYPI_TOKEN` secret, so no PyPI token ever needs to live on a maintainer's local machine.
+The placeholders are published at `0.0.1` and do not need re-uploading. The GitHub
+Actions workflow that used to upload them, `.github/workflows/publish-placeholders.yml`,
+was removed in b91eb17b, and `release.yml` is now the only workflow allowed to publish.
+If a placeholder ever has to be rebuilt or re-uploaded, use the local commands below,
+then verify the project pages render:
 
-**To run:**
+- <https://pypi.org/project/agent-memory-service/>
+- <https://pypi.org/project/ai-memory-service/>
+- <https://pypi.org/project/memory-for-agents/>
 
-1. GitHub → **Actions** → **Publish PyPI Placeholders** → **Run workflow**.
-2. Inputs: `target=pypi`, `skip_existing=true`. Click **Run workflow**.
-3. Each package runs as its own matrix job (`fail-fast: false`), so a single name failing does not block the others.
-4. After the run, verify the project pages render:
-   - <https://pypi.org/project/agent-memory-service/>
-   - <https://pypi.org/project/ai-memory-service/>
-   - <https://pypi.org/project/memory-for-agents/>
-
-**Local fallback** (only if you need to rebuild artifacts or test offline):
+**Local build:**
 
 ```bash
 cd tools/pypi-placeholders

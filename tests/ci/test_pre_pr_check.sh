@@ -171,6 +171,22 @@ test_gate_wires_docs_only_skip() {
     || { echo "   docs-only branch does not report both checks as SKIP"; return 1; }
 }
 
+# --- Test: the link check runs in the gate and on every pull request ---
+# ci.yml skips docs-only PRs, which are the ones that break links, so links.yml
+# must not inherit a paths filter.
+test_link_check_is_wired() {
+  local wf="$REPO_ROOT/.github/workflows/links.yml"
+  grep -q '"\$PYTHON_BIN" scripts/ci/check_md_links.py' "$GATE" \
+    || { echo "   gate does not run check_md_links.py"; return 1; }
+  grep -q 'run: python3 scripts/ci/check_md_links.py$' "$wf" \
+    || { echo "   links.yml does not run the internal check"; return 1; }
+  grep -q 'run: python3 scripts/ci/check_md_links.py --external$' "$wf" \
+    || { echo "   links.yml does not run the external check"; return 1; }
+  grep -qE '^\s*(paths|paths-ignore):' "$wf" \
+    && { echo "   links.yml must not filter by path"; return 1; }
+  return 0
+}
+
 run_test "failing command substitution does not abort the script" test_failing_command_substitution_does_not_abort
 run_test "gate guards the coverage run with set +e" test_gate_guards_the_coverage_run
 run_test "quality_gate.sh exits 3 when it skips" test_quality_gate_skip_uses_exit_3
@@ -179,6 +195,7 @@ run_test "local test selection matches CI" test_selection_matches_ci
 run_test "docs-only detection matches ci.yml paths-ignore" test_docs_only_matches_ci_paths_ignore
 run_test "committed code plus a staged doc is not docs-only" test_pr_changed_files_sees_committed_code
 run_test "gate wires docs-only detection to SKIP" test_gate_wires_docs_only_skip
+run_test "link check runs in the gate and on every PR" test_link_check_is_wired
 
 echo ""
 echo "passed: $PASS, failed: $FAIL"

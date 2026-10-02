@@ -519,7 +519,7 @@ After updating from repository, verify these settings match your preferences:
 - `minRelevanceScore`: Repository default is `0.4` (not `0.25`)
 - `commitLookback`: Repository default is `14` days (not `7`)
 
-**See also:** [CLAUDE.md § Configuration Management](../../CLAUDE.md#configuration-management) for complete troubleshooting guide.
+**See also:** [CLAUDE.md § Configuration](../CLAUDE.md#configuration) and the [troubleshooting directive](../.claude/directives/troubleshooting.md).
 
 ---
 

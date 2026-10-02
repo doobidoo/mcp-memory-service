@@ -331,11 +331,11 @@ python scripts/import_to_cloudflare.py --input cloudflare_export.json
 
 ### From Legacy ChromaDB Data
 
-ChromaDB was removed in v8.0.0. If you still have ChromaDB data, export it from the [`chromadb-legacy`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy) branch first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)) and then import the resulting JSON into Cloudflare:
+ChromaDB was removed in v8.0.0. If you still have ChromaDB data, export it from the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)) and then import the resulting JSON into Cloudflare:
 
 ```bash
-# On the chromadb-legacy branch — produce a backup JSON
-git checkout chromadb-legacy
+# On the chromadb-legacy-final tag — produce a backup JSON
+git checkout chromadb-legacy-final
 python scripts/migration/migrate_chroma_to_sqlite.py --backup ~/chromadb_backup.json
 
 # Back on main — switch to Cloudflare and import

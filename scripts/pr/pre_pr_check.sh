@@ -331,6 +331,22 @@ else
     bash scripts/ci/check_dead_refs.sh || true
 fi
 
+# Check 6.9: Internal Markdown links
+# Relative links and own-repo blob/tree links in every tracked .md file must
+# resolve. Whole-tree and offline, so it runs for docs-only changes too; CI runs
+# the same script in links.yml, which has no paths-ignore.
+echo -e "\n${YELLOW}[6.9/9]${NC} Checking internal Markdown links..."
+set +e
+LINK_OUTPUT=$("$PYTHON_BIN" scripts/ci/check_md_links.py 2>&1)
+LINK_EXIT=$?
+set -e
+if [ $LINK_EXIT -eq 0 ]; then
+    check_status "Internal Markdown links resolve" 0
+else
+    check_status "Internal Markdown links resolve" 1
+    echo "$LINK_OUTPUT" | grep '^BROKEN' | sed 's/^/     /'
+fi
+
 # Check 7: Docstring coverage
 echo -e "\n${YELLOW}[7/9]${NC} Checking docstring coverage..."
 MISSING_DOCSTRINGS=0
