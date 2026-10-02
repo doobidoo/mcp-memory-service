@@ -2,7 +2,7 @@
 # Test harness for the reporting behaviour of scripts/pr/pre_pr_check.sh
 # Plain bash, same shape as test_check_versions.sh (bats not available).
 #
-# The gate itself runs the full suite and takes minutes, so these tests do not
+# The gate itself runs pytest and can take minutes, so these tests do not
 # execute it. They cover the two reporting defects that made the gate unusable:
 #
 #   1. a failing test run aborted the script under `set -e` before its own
@@ -176,6 +176,19 @@ test_gate_wires_docs_only_skip() {
     || { echo "   docs-only branch does not report both checks as SKIP"; return 1; }
 }
 
+# --- Test: step 3 runs the selected tests, with the full suite still reachable ---
+# The selection itself is covered by tests/ci/test_select_tests.sh.
+test_gate_wires_test_selection() {
+  grep -q 'scripts/pr/lib/select_tests.py" --repo "\$REPO_ROOT"' "$GATE" \
+    || { echo "   step 3 does not ask select_tests.py what to run"; return 1; }
+  grep -q 'PRE_PR_FULL_SUITE' "$GATE" \
+    || { echo "   PRE_PR_FULL_SUITE no longer forces the full suite"; return 1; }
+  grep -q '\[ -z "\$CHANGED_FILES" \]' "$GATE" \
+    || { echo "   a change without a base must run the full suite"; return 1; }
+  grep -q 'COVERAGE_OUTPUT=$($PYTEST_BIN "${TEST_ARGS\[@\]}"' "$GATE" \
+    || { echo "   pytest does not run the selected targets"; return 1; }
+}
+
 # --- Test: the link check runs in the gate and on every pull request ---
 # ci.yml skips docs-only PRs, which are the ones that break links, so links.yml
 # must not inherit a paths filter.
@@ -200,6 +213,7 @@ run_test "local test selection matches CI" test_selection_matches_ci
 run_test "docs-only detection matches ci.yml paths-ignore" test_docs_only_matches_ci_paths_ignore
 run_test "committed code plus a staged doc is not docs-only" test_pr_changed_files_sees_committed_code
 run_test "gate wires docs-only detection to SKIP" test_gate_wires_docs_only_skip
+run_test "gate runs the selected tests, full suite on request" test_gate_wires_test_selection
 run_test "link check runs in the gate and on every PR" test_link_check_is_wired
 
 echo ""
