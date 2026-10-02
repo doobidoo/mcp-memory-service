@@ -582,7 +582,7 @@ For issues and questions:
 1. **Documentation**: Check this guide and API documentation
 2. **GitHub Issues**: Report bugs at the project repository
 3. **Cloudflare Support**: For Cloudflare service-specific issues
-4. **Community**: Join the project Discord/community channels
+4. **Community**: Ask in [GitHub Discussions](https://github.com/doobidoo/mcp-memory-service/discussions)
 
 ## Performance Benchmarks
 
