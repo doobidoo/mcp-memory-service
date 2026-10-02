@@ -61,7 +61,7 @@ At the end of any session that produces a decision, root cause, or reusable less
 
 ### Source Control & Hosting
 
-- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `changelog.yml` (changelog fragment check, runs on every PR), `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`, and `triage-digest.yml` (daily maintainer digest, see `scripts/maintenance/github_triage_digest.py`). Issues, PRs and releases are there, and so is the tag push that starts a release.
+- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `changelog.yml` (changelog fragment check, runs on every PR), `links.yml` (internal Markdown links on every PR, external links weekly), `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`, and `triage-digest.yml` (daily maintainer digest, see `scripts/maintenance/github_triage_digest.py`). Issues, PRs and releases are there, and so is the tag push that starts a release.
 - **Only GitHub-owned actions are allowed, and SHA pinning is enforced.** The repository is set to `allowed_actions: selected` with `github_owned_allowed: true`, an empty `patterns_allowed` list, and `sha_pinning_required: true`. A third-party action therefore does not fail at review, it fails at run time. That is why `release.yml` shells out to raw `docker buildx` instead of using the `docker/*` actions. Before adding any `uses:` that is not `actions/*` or `github/*`, the allowlist has to be widened deliberately.
 - **A ruleset caps a single push at two refs.** `Pushes can not update more than 2 branches or tags`. Bulk tag pushes have to be batched in pairs; this is why the historical tag import ran as 15 pushes rather than one.
 - **Two rulesets guard `main`.** `ProtectMain` requires one approval and lets admins bypass it, so `gh pr merge --admin` still merges a solo PR. `ResolveThreads` requires every review thread to be resolved and has **no bypass actors**. A PR with an open thread therefore cannot merge by any route (`--admin`, web UI, API) until the thread is answered and resolved. Rulesets stack, so this is not a mistake to "fix" by adding a bypass.
@@ -347,6 +347,11 @@ the release notes.
   as check 6.8 of `pre_pr_check.sh` and as a step in the `shell-tests` job of `ci.yml`,
   but it scans only `docs/` and `README.md`, so `CONTRIBUTING.md` and `SECURITY.md` are
   outside its reach. Widening the scan targets is still open.
+- Moving, renaming or deleting a file: `scripts/ci/check_md_links.py` checks that every
+  relative and own-repo `blob/main` link in every tracked `.md` file still resolves
+  (check 6.9 of `pre_pr_check.sh`, and `links.yml` on every PR, docs-only ones
+  included). External links are checked only weekly by the same workflow; there, only
+  404, 410 and connection failures count, and the frozen Codeberg archive is skipped.
 
 ### Extension points
 
