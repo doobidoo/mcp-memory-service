@@ -200,8 +200,32 @@ test_gate_wires_test_selection() {
     || { echo "   a change without a base must run the full suite"; return 1; }
   grep -q 'COVERAGE_OUTPUT=$("${PYTEST_CMD\[@\]}" "${TEST_ARGS\[@\]}"' "$GATE" \
     || { echo "   pytest does not run the selected targets"; return 1; }
-  grep -q '\*.sh) SH_COUNT=' "$GATE" \
+  grep -q 'SH_OUTPUT=$(bash "$t" 2>&1)' "$GATE" \
     || { echo "   selected tests/ci harnesses are not run with bash"; return 1; }
+}
+
+# --- Test: a failing selected harness shows why, not just its name ---
+# Runs the gate's own selection loop against fake harnesses: one passing, one
+# reporting "not ok" with detail, one crashing before it reports anything.
+test_gate_shows_failing_harness_output() {
+  local dir out
+  dir="$(mktemp -d)"
+  printf 'echo "ok - fine"\n' > "$dir/test_pass.sh"
+  printf 'echo "ok - first"\necho "not ok - second"\necho "   expected 1, got 2"\nexit 1\n' > "$dir/test_fail.sh"
+  printf 'echo "starting"\necho "boom: unbound variable"\nexit 2\n' > "$dir/test_crash.sh"
+  out=$(
+    RED="" NC=""
+    check_status() { echo "STATUS $1 = $2"; }
+    TEST_ARGS=()
+    TEST_TARGETS=$(printf '%s\n' "$dir/test_pass.sh" "$dir/test_fail.sh" "$dir/test_crash.sh")
+    eval "$(awk '/^    SH_FAILED=""$/{p=1} p{print} p && /^    fi$/{exit}' "$GATE")"
+  )
+  rm -rf "$dir"
+  [[ "$out" == *"STATUS Shell tests (3 selected) = 1"* ]] || { echo "   failure not reported: $out"; return 1; }
+  [[ "$out" == *"not ok - second"* && "$out" == *"expected 1, got 2"* ]] || { echo "   'not ok' detail missing: $out"; return 1; }
+  [[ "$out" == *"boom: unbound variable"* ]] || { echo "   crashed harness output missing: $out"; return 1; }
+  [[ "$out" == *"test_pass.sh"* ]] && { echo "   passing harness listed as failed: $out"; return 1; }
+  return 0
 }
 
 # --- Test: the link check runs in the gate and on every pull request ---
@@ -229,6 +253,7 @@ run_test "docs-only detection matches ci.yml paths-ignore" test_docs_only_matche
 run_test "committed code plus a staged doc is not docs-only" test_pr_changed_files_sees_committed_code
 run_test "gate wires docs-only detection to SKIP" test_gate_wires_docs_only_skip
 run_test "gate runs the selected tests, full suite on request" test_gate_wires_test_selection
+run_test "a failing selected harness shows its output" test_gate_shows_failing_harness_output
 run_test "link check runs in the gate and on every PR" test_link_check_is_wired
 
 echo ""

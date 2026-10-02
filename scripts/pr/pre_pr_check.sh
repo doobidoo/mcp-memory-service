@@ -173,7 +173,17 @@ elif [ -n "$TEST_TARGETS" ]; then
     SH_COUNT=0
     while IFS= read -r t; do
         case "$t" in
-            *.sh) SH_COUNT=$((SH_COUNT + 1)); bash "$t" > /dev/null 2>&1 || SH_FAILED="$SH_FAILED $t" ;;
+            *.sh)
+                SH_COUNT=$((SH_COUNT + 1))
+                if ! SH_OUTPUT=$(bash "$t" 2>&1); then
+                    # Harnesses print "not ok - <name>" plus indented detail; keep
+                    # that, as the pytest branch keeps FAILED lines. A harness that
+                    # crashed before reporting gets its last lines instead.
+                    SH_DETAIL=$(echo "$SH_OUTPUT" | grep -A3 '^not ok' | head -20)
+                    [ -n "$SH_DETAIL" ] || SH_DETAIL=$(echo "$SH_OUTPUT" | tail -5)
+                    SH_FAILED="$SH_FAILED$t"$'\n'"$(echo "$SH_DETAIL" | sed 's/^/  /')"$'\n'
+                fi
+                ;;
             *) TEST_ARGS+=("$t") ;;
         esac
     done <<< "$TEST_TARGETS"
@@ -182,7 +192,8 @@ elif [ -n "$TEST_TARGETS" ]; then
             check_status "Shell tests ($SH_COUNT selected)" 0
         else
             check_status "Shell tests ($SH_COUNT selected)" 1
-            echo -e "${RED}   Failed:${SH_FAILED} (rerun with bash <file> for details)${NC}"
+            echo -e "${RED}   Failed:${NC}"
+            printf '%s' "$SH_FAILED" | sed 's/^/     /'
         fi
     fi
 fi
