@@ -45,5 +45,5 @@ wrangler deploy
 ## Related Documentation
 
 - [Docker Deployment Guide](../docs/deployment/docker.md) - Comprehensive Docker setup
-- [Installation Guide](../docs/installation/master-guide.md) - General installation
+- [Setup Guide](../docs/setup-guide.md) - General installation
 - [Development Guide](../docs/technical/development.md) - Development setup
