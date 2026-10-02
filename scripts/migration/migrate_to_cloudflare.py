@@ -46,27 +46,29 @@ class DataMigrator:
             storage = SqliteVecMemoryStorage(sqlite_path)
             await storage.initialize()
             
-            # Get all memories
+            # Page through every row in fixed steps over the counted total.
+            # get_recent_memories(n) always returns the newest n, so looping on it
+            # exported the same batch over and over. The offset advances by the
+            # page size, not by what came back: get_all_memories() drops rows it
+            # cannot convert, and counting only those returned would re-read rows
+            # on the next page. store=None covers every store; both calls filter
+            # deleted rows the same way.
             memories = []
-            stats = await storage.get_stats()
-            total_memories = stats.get('total_memories', 0)
-            
+            total_memories = await storage.count_all_memories(store=None)
             logger.info("Found %d memories to export", total_memories)
-            
-            # Page through every memory. get_recent_memories(n) always returns the
-            # newest n, so looping on it exported the same first batch over and
-            # over and never reached older memories. store=None covers all stores.
-            batch_size = 100
-            exported_count = 0
 
-            while True:
+            batch_size = 100
+            for offset in range(0, total_memories, batch_size):
                 batch = await storage.get_all_memories(
-                    limit=batch_size, offset=exported_count, store=None)
+                    limit=batch_size, offset=offset, store=None)
                 if not batch:
-                    break
+                    # get_all_memories() returns [] on a read error as well; an
+                    # export that silently stops here would look complete.
+                    raise RuntimeError(
+                        f"no memories readable at offset {offset} of {total_memories}")
 
                 for memory in batch:
-                    memory_data = {
+                    memories.append({
                         'content': memory.content,
                         'content_hash': memory.content_hash,
                         'tags': memory.tags,
@@ -76,11 +78,13 @@ class DataMigrator:
                         'created_at_iso': memory.created_at_iso,
                         'updated_at': memory.updated_at,
                         'updated_at_iso': memory.updated_at_iso
-                    }
-                    memories.append(memory_data)
-                    exported_count += 1
-                
-                logger.info("Exported %d/%d memories", exported_count, total_memories)
+                    })
+
+                logger.info("Exported %d/%d memories", len(memories), total_memories)
+
+            if len(memories) < total_memories:
+                logger.warning("%d of %d memories could not be read and were not exported",
+                               total_memories - len(memories), total_memories)
 
             logger.info("Successfully exported %d memories from SQLite-vec", len(memories))
             return memories
