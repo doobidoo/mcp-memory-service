@@ -514,6 +514,23 @@ class TestUpdateMemoryVersioned:
         assert meta_args.kwargs["preserve_timestamps"] is True
 
     @pytest.mark.asyncio
+    async def test_inherits_custom_metadata_without_lineage_keys(self):
+        storage = _make_storage()
+        storage.get_by_hash = AsyncMock(return_value=_memory(
+            "oldhash", "v1", metadata={"source": "runbook", "ticket": "OPS-17"}
+        ))
+        storage.store = AsyncMock(return_value=(True, "ok"))
+        storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
+
+        await storage.update_memory_versioned("oldhash", "v2", reason="corrected")
+
+        stored: Memory = storage.store.await_args.args[0]
+        assert stored.metadata.get("source") == "runbook"
+        assert stored.metadata.get("ticket") == "OPS-17"
+        assert "superseded_by" not in stored.metadata
+        assert "evolution_reason" not in stored.metadata
+
+    @pytest.mark.asyncio
     async def test_inherits_tags_and_type_when_not_overridden(self):
         storage = _make_storage()
         storage.get_by_hash = AsyncMock(
