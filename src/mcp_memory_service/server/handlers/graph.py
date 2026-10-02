@@ -23,6 +23,7 @@ Provides graph database operations including:
 
 import json
 import logging
+import traceback
 from typing import Any, Dict, List, Optional
 
 from mcp import types
@@ -53,7 +54,7 @@ async def get_graph_storage() -> Optional[GraphStorage]:
         try:
             return GraphStorage(SQLITE_VEC_PATH)
         except Exception as e:
-            logger.error("Failed to initialize GraphStorage: %s", e)
+            logger.error("Failed to initialize GraphStorage: %s", _sanitize_log_value(str(e)))
             return None
     elif STORAGE_BACKEND == 'milvus':
         try:
@@ -68,7 +69,7 @@ async def get_graph_storage() -> Optional[GraphStorage]:
             await gs.initialize()
             return gs
         except Exception as e:
-            logger.error("Failed to initialize MilvusGraphStorage: %s", e)
+            logger.error("Failed to initialize MilvusGraphStorage: %s", _sanitize_log_value(str(e)))
             return None
     return None
 
@@ -211,9 +212,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
 
     except Exception as e:
-        import traceback
-        error_msg = f"Error in memory_graph action '{_sanitize_log_value(action)}': {str(e)}"
-        logger.error("%s\n%s", error_msg, traceback.format_exc())
+        error_msg = f"Error in memory_graph action '{_sanitize_log_value(action)}': {_sanitize_log_value(str(e))}"
+        logger.error("%s\n%s", error_msg, _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(type="text", text=error_msg)]
 
 
@@ -396,7 +396,7 @@ async def handle_find_connected_memories(
         )]
 
     except Exception as e:
-        logger.error("Error finding connected memories: %s", e)
+        logger.error("Error finding connected memories: %s", _sanitize_log_value(str(e)))
         result = {
             "success": False,
             "error": str(e),
@@ -497,7 +497,7 @@ async def handle_find_shortest_path(
         )]
 
     except Exception as e:
-        logger.error("Error finding shortest path: %s", e)
+        logger.error("Error finding shortest path: %s", _sanitize_log_value(str(e)))
         result = {
             "success": False,
             "error": str(e),
@@ -606,7 +606,7 @@ async def handle_get_memory_subgraph(
         )]
 
     except Exception as e:
-        logger.error("Error extracting subgraph: %s", e)
+        logger.error("Error extracting subgraph: %s", _sanitize_log_value(str(e)))
         result = {
             "success": False,
             "error": str(e),
@@ -838,7 +838,12 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
         )]
 
     except Exception as e:
-        logger.error("Error in memory_explore: %s", e, exc_info=True)
+        # Not passing exc_info and wrapping both str(e) and the traceback: an
+        # unwrapped arg or the exc_info traceback carries raw str(e), which lets
+        # a newline in the message forge a standalone log record (#1146 follow-up).
+        logger.error("Error in memory_explore: %s\n%s",
+                     _sanitize_log_value(str(e)),
+                     _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(
             type="text",
             text=json.dumps({"success": False, "error": str(e), "entities": [], "count": 0}, indent=2)
@@ -998,7 +1003,11 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
         )]
 
     except Exception as e:
-        logger.error("Error in memory_detail: %s", e, exc_info=True)
+        # See the memory_explore path above: wrap both str(e) and the traceback
+        # and drop exc_info so a newline in the message cannot forge a log record.
+        logger.error("Error in memory_detail: %s\n%s",
+                     _sanitize_log_value(str(e)),
+                     _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(
             type="text",
             text=json.dumps({"success": False, "error": str(e),
