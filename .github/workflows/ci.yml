@@ -27,12 +27,16 @@ jobs:
     # Reuses is_docs_only() from the pre-PR gate, so CI and the local gate cannot
     # disagree about what counts as docs-only; the list matches push's
     # paths-ignore above ('*.md' at the repository root only), and
-    # tests/ci/test_pre_pr_check.sh pins the two together. Pushes to main always
-    # count as code: push keeps its own paths-ignore.
+    # tests/ci/test_pre_pr_check.sh pins the two together. The function is read
+    # from the base commit (HEAD^1), not the PR: a PR that edits is_docs_only()
+    # must not be able to classify its own code as docs-only and skip the
+    # required tests. If it cannot be read, is_docs_only is undefined, the test
+    # fails, and the tests run. Pushes to main always count as code: push keeps
+    # its own paths-ignore.
     - name: Classify the changed files
       id: classify
       run: |
-        eval "$(awk '/^is_docs_only\(\) \{/,/^\}/' scripts/pr/pre_pr_check.sh)"
+        eval "$(git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\(\) \{/,/^\}/')"
         code=true
         if [ "$GITHUB_EVENT_NAME" = pull_request ] && is_docs_only "$(git diff --name-only HEAD^1 HEAD)"; then
           code=false

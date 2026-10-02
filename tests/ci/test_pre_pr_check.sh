@@ -113,8 +113,21 @@ test_docs_only_matches_ci_paths_ignore() {
   local n
   n=$(grep -cF -- "$expected" "$ci")
   [ "$n" -eq 1 ] || { echo "   ci.yml paths-ignore changed (push only, none on pull_request); update is_docs_only()"; return 1; }
-  grep -qF -- "awk '/^is_docs_only\\(\\) \\{/,/^\\}/' scripts/pr/pre_pr_check.sh" "$ci" \
-    || { echo "   ci.yml changes job no longer reads is_docs_only() from the gate"; return 1; }
+  # Read from the base commit, so a PR cannot redefine what skips its own tests.
+  grep -qF -- "git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\\(\\) \\{/,/^\\}/'" "$ci" \
+    || { echo "   ci.yml changes job no longer reads is_docs_only() from the base commit"; return 1; }
+  # No path filter of any kind between the pull_request trigger and jobs:.
+  awk '/^  pull_request:/{pr=1} /^jobs:/{pr=0} pr && /paths/{bad=1} END{exit bad}' "$ci" \
+    || { echo "   pull_request has a path filter; required test checks would never report"; return 1; }
+  # Every test job waits for the classifier and skips only on an explicit 'false'.
+  local job
+  for job in tests-prove-fix test ml-extras-tests milvus-tests; do
+    awk -v job="  $job:" '$0==job{in_job=1; next} in_job && /^  [a-z0-9_-]+:$/{in_job=0}
+         in_job && /needs: changes/{needs=1}
+         in_job && /needs\.changes\.outputs\.code != .false./{cond=1}
+         END{exit !(needs && cond)}' "$ci" \
+      || { echo "   job '$job' is not gated on the changes classifier"; return 1; }
+  done
 
   eval "$(awk '/^is_docs_only\(\) \{/,/^\}/' "$GATE")"
   declare -F is_docs_only >/dev/null || { echo "   is_docs_only() not found in gate"; return 1; }

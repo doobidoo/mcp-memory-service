@@ -213,7 +213,7 @@ that never reports blocks the PR permanently. Auto-merge consequently waited for
 alone: #1416 merged while `Tests with ML Extras` was still running.
 
 `ci.yml` now starts on every pull request. Its `changes` job runs `is_docs_only()` from
-`scripts/pr/pre_pr_check.sh` over the PR diff, and the test jobs skip when it reports
+`scripts/pr/pre_pr_check.sh`, read from the base commit so a PR cannot redefine it, over the PR diff, and the test jobs skip when it reports
 docs-only. A job skipped through `if:` reports success to a required check, so
 `Tests + Coverage` and `Tests with ML Extras (transformers paths)` can be required. The
 milvus matrix cannot: skipped, it reports under its unexpanded name
