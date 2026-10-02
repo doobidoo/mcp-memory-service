@@ -212,8 +212,8 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
             return [types.TextContent(type="text", text=f"Error: Unknown action '{action}'")]
 
     except Exception as e:
-        error_msg = f"Error in memory_graph action '{_sanitize_log_value(action)}': {_sanitize_log_value(str(e))}"
-        logger.error("%s\n%s", error_msg, _sanitize_log_value(traceback.format_exc()))
+        error_msg = f"Error in memory_graph action '{_sanitize_log_value(action)}': {str(e)}"
+        logger.error("%s\n%s", _sanitize_log_value(error_msg), _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(type="text", text=error_msg)]
 
 
