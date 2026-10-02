@@ -1,5 +1,5 @@
 # Changelog fragment check, split out of ci.yml so it runs on every pull request.
-# ci.yml skips changelog.d/-only diffs through paths-ignore; this check must not,
+# ci.yml skips its test jobs on changelog.d/-only diffs; this check must not,
 # because a misnamed fragment is silently dropped by collect_changelog.py at release.
 
 name: Changelog
