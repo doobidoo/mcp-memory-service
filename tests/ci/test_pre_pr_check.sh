@@ -198,8 +198,10 @@ test_gate_wires_test_selection() {
     || { echo "   PRE_PR_FULL_SUITE no longer forces the full suite"; return 1; }
   grep -q '\[ -z "\$CHANGED_FILES" \]' "$GATE" \
     || { echo "   a change without a base must run the full suite"; return 1; }
-  grep -q 'COVERAGE_OUTPUT=$($PYTEST_BIN "${TEST_ARGS\[@\]}"' "$GATE" \
+  grep -q 'COVERAGE_OUTPUT=$("${PYTEST_CMD\[@\]}" "${TEST_ARGS\[@\]}"' "$GATE" \
     || { echo "   pytest does not run the selected targets"; return 1; }
+  grep -q '\*.sh) SH_COUNT=' "$GATE" \
+    || { echo "   selected tests/ci harnesses are not run with bash"; return 1; }
 }
 
 # --- Test: the link check runs in the gate and on every pull request ---

@@ -25,6 +25,8 @@ echo "from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage" 
 echo "from mcp_memory_service.web import app" > "$FIX/tests/unit/test_from_import.py"
 echo "SCRIPT = 'scripts/ci/check_links.py'" > "$FIX/tests/unit/test_script.py"
 echo "x = 1" > "$FIX/tests/storage/test_other.py"
+mkdir -p "$FIX/tests/ci" "$FIX/scripts/pr" && touch "$FIX/scripts/pr/gate.sh"
+echo 'GATE="$REPO_ROOT/scripts/pr/gate.sh"' > "$FIX/tests/ci/test_gate.sh"
 # Benchmarks never count as an importer: the gate ignores tests/benchmarks.
 echo "from mcp_memory_service.orphan import thing" > "$FIX/tests/benchmarks/test_bench.py"
 
@@ -63,6 +65,10 @@ check "a changed test file selects itself" "tests/storage/test_other.py" tests/s
 check "a deleted test file selects nothing" "" tests/unit/test_gone.py
 check "a script selects the tests that mention it" "tests/unit/test_script.py" scripts/ci/check_links.py
 check "a script no test mentions selects nothing" "" scripts/ci/untested.py
+check "a gate script selects the tests/ci harness that exercises it" \
+  "tests/ci/test_gate.sh" scripts/pr/gate.sh
+check "a changed tests/ci harness selects itself" "tests/ci/test_gate.sh" tests/ci/test_gate.sh
+check "a .sh outside tests/ci is not a test file" "" tests/fixtures/test_helper.sh
 
 echo ""
 echo "passed: $PASS, failed: $FAIL"

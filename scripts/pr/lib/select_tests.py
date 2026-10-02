@@ -23,8 +23,9 @@ Rules, in order:
   when one exists. A src/ module with neither selects ALL: nothing narrower is
   known to cover it.
 - Any other changed file (scripts/, tools/, workflows, ...) selects the test
-  files that mention its path or, for a .py file, its module name. None is fine:
-  much of scripts/ has no Python test.
+  files that mention its path or, for a .py or .sh file, its name without the
+  extension. That includes the tests/ci/test_*.sh harnesses, which the gate runs
+  with bash. None is fine: much of scripts/ has no test.
 
 This is a heuristic for a local signal, not a gate. CI runs the full suite as a
 required check, and PRE_PR_FULL_SUITE=1 makes the gate run it locally too.
@@ -40,7 +41,10 @@ SRC_PREFIX = "src/"
 
 
 def is_test_file(path: str) -> bool:
+    """A pytest file, or a tests/ci/test_*.sh harness (the gate runs those with bash)."""
     name = Path(path).name
+    if name.endswith(".sh"):
+        return name.startswith("test_") and Path(path).parent.name == "ci"
     return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
 
 
@@ -82,7 +86,7 @@ def targets_for(f: str, repo: Path, texts: dict[str, str]) -> set[str] | None:
             hits.add(f"tests/{parts[2]}")
         return hits or None
     patterns = [re.compile(re.escape(f))]
-    if f.endswith(".py"):
+    if f.endswith((".py", ".sh")):
         patterns.append(re.compile(r"\b" + re.escape(Path(f).stem) + r"\b"))
     return mentions(texts, patterns)
 
@@ -92,7 +96,7 @@ def select(changed: list[str], repo: Path) -> list[str] | str:
     if any(forces_full_suite(f) for f in changed):
         return "ALL"
     test_files = sorted(
-        p for p in repo.glob("tests/**/*.py")
+        p for p in [*repo.glob("tests/**/*.py"), *repo.glob("tests/ci/*.sh")]
         if is_test_file(str(p)) and "benchmarks" not in p.parts
     )
     texts = {str(p.relative_to(repo)): p.read_text(errors="replace") for p in test_files}

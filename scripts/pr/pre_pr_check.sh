@@ -49,7 +49,8 @@ else
     PIP_BIN="$(command -v pip3 || command -v pip)"
     PYTEST_BIN="$(command -v pytest)"
 fi
-[ -x "$PYTEST_BIN" ] || PYTEST_BIN="$PYTHON_BIN -m pytest"
+# An array, so a path with spaces survives and the fallback needs no word splitting.
+if [ -x "$PYTEST_BIN" ]; then PYTEST_CMD=("$PYTEST_BIN"); else PYTEST_CMD=("$PYTHON_BIN" -m pytest); fi
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║         Pre-PR Quality Gate - MCP Memory Service             ║${NC}"
@@ -164,15 +165,32 @@ if [ "$TEST_TARGETS" = ALL ]; then
         "$PIP_BIN" install pytest-cov > /dev/null 2>&1
     fi
 elif [ -n "$TEST_TARGETS" ]; then
-    while IFS= read -r t; do TEST_ARGS+=("$t"); done <<< "$TEST_TARGETS"
-    echo -e "${YELLOW}   ${#TEST_ARGS[@]} test target(s) reached by this change (PRE_PR_FULL_SUITE=1 for all):${NC}"
-    printf '     %s\n' "${TEST_ARGS[@]}"
+    echo -e "${YELLOW}   Test targets reached by this change (PRE_PR_FULL_SUITE=1 for all):${NC}"
+    printf '%s\n' "$TEST_TARGETS" | sed 's/^/     /'
+    # tests/ci/*.sh harnesses run with bash, the rest with pytest. The full suite
+    # (ALL) stays pytest-only; CI's shell-tests job runs every harness.
+    SH_FAILED=""
+    SH_COUNT=0
+    while IFS= read -r t; do
+        case "$t" in
+            *.sh) SH_COUNT=$((SH_COUNT + 1)); bash "$t" > /dev/null 2>&1 || SH_FAILED="$SH_FAILED $t" ;;
+            *) TEST_ARGS+=("$t") ;;
+        esac
+    done <<< "$TEST_TARGETS"
+    if [ "$SH_COUNT" -gt 0 ]; then
+        if [ -z "$SH_FAILED" ]; then
+            check_status "Shell tests ($SH_COUNT selected)" 0
+        else
+            check_status "Shell tests ($SH_COUNT selected)" 1
+            echo -e "${RED}   Failed:${SH_FAILED} (rerun with bash <file> for details)${NC}"
+        fi
+    fi
 fi
 
 if [ ${#TEST_ARGS[@]} -eq 0 ]; then
     check_status "Test suite" 3
     check_status "Test coverage" 3
-    echo -e "${YELLOW}   No change the Python suite can reach - tests not run (CI runs the full suite)${NC}"
+    echo -e "${YELLOW}   No Python test reached by this change - pytest not run (CI runs the full suite)${NC}"
 else
 # `set +e` around the assignment is load-bearing: under `set -e` a failing
 # pytest inside $(...) aborts this script immediately, so the TEST_EXIT_CODE
@@ -181,7 +199,7 @@ else
 # The flags mirror .github/workflows/ci.yml (tests/ci/test_pre_pr_check.sh pins
 # the two together). Benchmarks stay out; test_cli_interfaces.py shells to `uv run`.
 set +e
-COVERAGE_OUTPUT=$($PYTEST_BIN "${TEST_ARGS[@]}" -q --tb=short \
+COVERAGE_OUTPUT=$("${PYTEST_CMD[@]}" "${TEST_ARGS[@]}" -q --tb=short \
     --ignore=tests/benchmarks \
     --ignore=tests/integration/test_cli_interfaces.py \
     -m "not benchmark" \
