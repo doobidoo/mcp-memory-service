@@ -76,7 +76,18 @@ def _unleak_type(content: str, fallback_type: str):
         if not full_content:
             # Truly empty after unwrapping (e.g., "TYPE:" with nothing after)
             return None, fallback_type
-            
+        
+        # P1-d fix: Single unknown word should be dropped (label), multi-word should be kept (prose)
+        # P1-d: an invalid "type" that is a single token is a bare unknown label
+        # (e.g. "TYPE: frobnicate"), not an insight — drop it. Multi-word content
+        # is genuine prose and is kept. Trade-off (intentional): a legitimate
+        # single-token insight after an invalid type (e.g. "TYPE: git-push-force")
+        # is sacrificed; such tokens are overwhelmingly labels, and dropping one
+        # rare command beats storing label noise. Do not "fix" this without data.
+        words = full_content.split()
+        if len(words) == 1:
+            return None, fallback_type
+
         return full_content, fallback_type
 
 

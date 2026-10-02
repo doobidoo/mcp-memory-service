@@ -164,3 +164,43 @@ def test_batch_parser_drops_angle_degenerate():
     items = [{"content": "x", "memory_type": "learning"}]
     out = r._parse_batch_response("1. <type>: bug", items)
     assert out[0] is None
+
+
+# ---------------------------------------------------------------------------
+# P1-d: Single unknown word after TYPE:/`<type>:` should be dropped (labels)
+# Multi-word should be kept (prose). This is the dividing line for invalid types.
+# ---------------------------------------------------------------------------
+
+def test_single_unknown_word_type_dropped():
+    """P1-d: ``TYPE: frobnicate`` (single unknown word) → None (not a valid type, not prose)."""
+    content, mem_type = _unleak_type("TYPE: frobnicate", "learning")
+    assert content is None
+    assert mem_type == "learning"
+
+
+def test_single_unknown_word_angle_type_dropped():
+    """P1-d: ``<type>: frobnicate`` (single unknown word) → None."""
+    content, mem_type = _unleak_type("<type>: frobnicate", "learning")
+    assert content is None
+    assert mem_type == "learning"
+
+
+def test_single_word_with_punctuation_dropped():
+    """P1-d: ``TYPE: whatever.`` (single word + punctuation) → None (still a label)."""
+    content, mem_type = _unleak_type("TYPE: whatever.", "learning")
+    assert content is None
+    assert mem_type == "learning"
+
+
+def test_p1a_regression_protection_multiword_prose_kept():
+    """P1-d: Ensure P1-a doesn't regress - ``TYPE: Nunca usar force push`` → kept (multi-word prose)."""
+    content, mem_type = _unleak_type("TYPE: Nunca usar force push", "learning")
+    assert content == "Nunca usar force push"
+    assert mem_type == "learning"
+
+
+def test_multiword_invalid_type_kept_as_prose():
+    """P1-d: ``TYPE: frobnicate the whole thing`` (multi-word with invalid type) → kept as prose."""
+    content, mem_type = _unleak_type("TYPE: frobnicate the whole thing", "learning")
+    assert content == "frobnicate the whole thing"
+    assert mem_type == "learning"
