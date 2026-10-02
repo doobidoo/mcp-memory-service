@@ -190,8 +190,7 @@ class MetadataMixin:
 
         except Exception as e:
             error_msg = f"Error updating memory metadata: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
+            logger.error("%s\n%s", _sanitize_log_value(error_msg), traceback.format_exc())
             return False, error_msg
 
     async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
@@ -285,8 +284,7 @@ class MetadataMixin:
         except Exception as e:
             if self.conn:
                 await self._run_in_thread(self.conn.rollback)
-            logger.error("Batch update failed: %s", _sanitize_log_value(str(e)))
-            logger.error(traceback.format_exc())
+            logger.error("Batch update failed: %s\n%s", _sanitize_log_value(str(e)), traceback.format_exc())
             return [False] * len(memories)
 
     async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:

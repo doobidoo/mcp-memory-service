@@ -4,9 +4,11 @@
 This calls two of its methods on a mixin with a stubbed executor and reads
 what the logger emitted. ``get_conflicts`` logs the exception text of a
 failed query; ``_record_conflicts`` logs the first characters of the hash it
-was handed. A newline inside either must come out as a literal ``\\n`` in a
-single record, not as a second line that reads like a forged entry. Both
-tests fail against ``main``. Part of #1146.
+was handed; ``update_memory_metadata`` logs the exception text of a failed
+read as the whole message, one line above the gate's pattern. A newline
+inside any of them must come out as a literal ``\\n``, not as a second line
+that reads like a forged entry. All three tests fail against ``main``.
+Part of #1146.
 """
 
 import logging
@@ -62,3 +64,22 @@ async def test_record_conflicts_hash_stays_in_one_record(caplog):
     assert "\n" not in messages[0]
     assert messages[0] == "Recorded 0 conflict(s) for ab\\nINFO "
     assert "\nINFO forged" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_error_message_is_sanitised(caplog):
+    async def failing(operation, *args, **kwargs):
+        raise RuntimeError("database is locked" + FORGED)
+
+    with caplog.at_level(logging.ERROR, logger=LOGGER):
+        ok, message = await _mixin(failing).update_memory_metadata("abc123", {"tags": ["x"]})
+
+    assert ok is False
+    messages = _messages(caplog)
+    assert len(messages) == 1
+    # The traceback that follows reproduces the exception text on its own
+    # lines, as it does everywhere this codebase logs format_exc(); what must
+    # not carry the newline is the message in front of it.
+    head, _, trace = messages[0].partition("Traceback")
+    assert head == "Error updating memory metadata: database is locked\\nINFO forged line\n"
+    assert trace
