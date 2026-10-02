@@ -15,6 +15,50 @@ logger = logging.getLogger(__name__)
 
 VALID_TYPES = {"decision", "bug", "convention", "learning", "context"}
 
+# The leaked-wrapper payload can also arrive truncated by the LLM mid-sentence
+# ("TYPE: convention — Usar subagent dedic"); when a *confirmed* leak unwraps to
+# a sub-sentence fragment we drop it. This threshold applies ONLY to the leaked
+# path — never to clean content, which is returned untouched regardless of size.
+_MIN_LEAKED_PAYLOAD_CHARS = 25
+
+# Models sometimes echo the literal placeholder word "TYPE" from the prompt
+# instead of substituting the real type, e.g. "TYPE: convention — <text>".
+# This strips that leaked wrapper and recovers the real type + content.
+# Narrow by design: only fires on a literal "TYPE:" prefix (colon required) or
+# the bare word "TYPE" alone — never on legitimate content that merely starts
+# with the word "type" (e.g. "Type hints in Python ...").
+_LEAKED_TYPE_RE = re.compile(
+    r'^TYPE\s*:\s*(\w+)?\s*(?:[-—:]\s*)?(.*)$',
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _unleak_type(content: str, fallback_type: str):
+    """Strip a leaked ``TYPE: <realtype> <sep> text`` wrapper.
+
+    Returns ``(content, memory_type)``. When the content is just a label with
+    no substance (``TYPE: bug``, ``TYPE``), returns ``(None, _)`` so the caller
+    drops the degenerate candidate instead of storing noise. Legitimate content
+    that happens to start with the word "type" (no colon) is left untouched,
+    and clean content is never dropped for being short — only a *confirmed*
+    leaked wrapper that unwraps to a truncated fragment is dropped.
+    """
+    stripped = content.strip()
+    # Bare "TYPE" alone (degenerate label echo).
+    if stripped.upper() == "TYPE":
+        return None, fallback_type
+    m = _LEAKED_TYPE_RE.match(stripped)
+    if not m:
+        # Clean content (no TYPE: leak) — return as-is, no length gate.
+        return stripped, fallback_type
+    leaked_type = (m.group(1) or "").lower()
+    rest = m.group(2).strip()
+    if len(rest) < _MIN_LEAKED_PAYLOAD_CHARS:
+        # Confirmed leak unwrapping to "TYPE: bug" / "TYPE:" / truncated fragment.
+        return None, fallback_type
+    mem_type = leaked_type if leaked_type in VALID_TYPES else fallback_type
+    return rest, mem_type
+
 
 @dataclass
 class LLMProvider:
@@ -100,7 +144,7 @@ Additional rules:
 - If no clear insight exists, respond with exactly: SKIP
 - IMPORTANT: Respond in the SAME LANGUAGE as the input text{locale_instruction}
 
-Format: TYPE: content
+Format: <type>: content   (replace <type> with one of the valid types below — do NOT write the word "TYPE")
 Valid types: decision, bug, convention, learning, context
 
 Examples:
@@ -134,13 +178,14 @@ EXTRACT if you find ANY of these inside the text:
 
 Respond in the SAME LANGUAGE as each input text.
 
-Format — one line per memory, numbered:
-1. TYPE: insight
+Format — one line per memory, numbered. Replace <type> with one of the valid types (do NOT write the literal word "TYPE"):
+1. <type>: insight
 2. SKIP
-3. TYPE: insight
+3. <type>: insight
 ...
 
 Valid types: decision, bug, convention, learning, context
+Example: "1. convention: Nunca usar strReplace em arquivos append-only."
 
 {memories}"""
 
@@ -314,11 +359,18 @@ class HarvestRewriter:
                 parsed_type = type_match.group(1).lower()
                 insight = type_match.group(2).strip()
                 if parsed_type in VALID_TYPES:
-                    results[idx] = self._stamp(RewriteResult(content=insight, memory_type=parsed_type), provider, model)
+                    insight, mem_type = _unleak_type(insight, parsed_type)
+                    if insight:
+                        results[idx] = self._stamp(RewriteResult(content=insight, memory_type=mem_type), provider, model)
                 else:
-                    results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']), provider, model)
+                    # parsed_type not valid (e.g. leaked "TYPE") — unleak the whole content
+                    insight, mem_type = _unleak_type(content, items[idx]['memory_type'])
+                    if insight:
+                        results[idx] = self._stamp(RewriteResult(content=insight, memory_type=mem_type), provider, model)
             else:
-                results[idx] = self._stamp(RewriteResult(content=content, memory_type=items[idx]['memory_type']), provider, model)
+                insight, mem_type = _unleak_type(content, items[idx]['memory_type'])
+                if insight:
+                    results[idx] = self._stamp(RewriteResult(content=insight, memory_type=mem_type), provider, model)
 
         return results
 
@@ -346,12 +398,21 @@ class HarvestRewriter:
             parsed_type = match.group(1).lower()
             content = match.group(2).strip()
             if parsed_type in VALID_TYPES:
-                return self._stamp(RewriteResult(content=content, memory_type=parsed_type), provider, model)
-            # Unknown type — use content with suggested_type
-            return self._stamp(RewriteResult(content=response, memory_type=suggested_type), provider, model)
+                content, mem_type = _unleak_type(content, parsed_type)
+                if not content:
+                    return None
+                return self._stamp(RewriteResult(content=content, memory_type=mem_type), provider, model)
+            # Unknown/leaked type prefix (e.g. "TYPE") — unleak the full response
+            content, mem_type = _unleak_type(response, suggested_type)
+            if not content:
+                return None
+            return self._stamp(RewriteResult(content=content, memory_type=mem_type), provider, model)
 
         # No type prefix — use full response with suggested_type
-        return self._stamp(RewriteResult(content=response, memory_type=suggested_type), provider, model)
+        content, mem_type = _unleak_type(response, suggested_type)
+        if not content:
+            return None
+        return self._stamp(RewriteResult(content=content, memory_type=mem_type), provider, model)
 
     async def _call_llm(self, prompt: str, timeout: float) -> tuple[str, Optional[str], Optional[str]]:
         """Call LLM with provider fallback chain.
