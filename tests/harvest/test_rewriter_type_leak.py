@@ -82,3 +82,68 @@ def test_legit_content_starting_with_type_word_is_untouched():
     assert res is not None
     assert res.content == "Type hints em Python melhoram legibilidade e catch de bugs."
     assert res.memory_type == "learning"
+
+
+# === P1 Bug Tests (from Greptile findings) ===
+
+def test_p1a_prose_after_type_should_keep_whole_text():
+    """P1-a: TYPE: Nunca usar force push → keep WHOLE text 'Nunca usar force push', not 'usar force push'."""
+    r = _mk()
+    # When content after TYPE: is prose (not a valid type), keep everything after TYPE:
+    res = r._parse_response("TYPE: Nunca usar force push em branches protegidos", "convention")
+    assert res is not None
+    assert res.content == "Nunca usar force push em branches protegidos"
+    assert not res.content.startswith("usar force push")  # Should NOT strip first word
+
+
+def test_p1b_short_valid_insight_should_not_be_dropped():
+    """P1-b: 'TYPE: convention — Nunca force push.' (17 chars) should be KEPT, not dropped."""
+    r = _mk()
+    # Short but complete insight with valid type should not be dropped
+    res = r._parse_response("TYPE: convention — Nunca force push.", "learning")
+    assert res is not None
+    assert res.memory_type == "convention"
+    assert res.content == "Nunca force push."
+    assert len(res.content) < 25  # Confirm it's short but still kept
+
+
+def test_p1c_angle_bracket_type_should_be_unwrapped():
+    """P1-c: '<type>: convention — texto' should unwrap <type>: prefix same as TYPE:."""
+    r = _mk()
+    # Both single and batch parsers should handle <type>: prefix
+    res = r._parse_response("<type>: convention — Nunca force push", "learning")
+    assert res is not None
+    assert res.memory_type == "convention"
+    assert res.content == "Nunca force push"
+    assert not res.content.startswith("<type>:")
+
+
+def test_p1c_batch_angle_bracket_type_unwrapping():
+    """P1-c batch: '1. <type>: texto' should unwrap <type>: prefix."""
+    r = _mk()
+    items = [{"content": "x", "memory_type": "learning"}]
+    resp = "1. <type>: convention — Usar subagent dedicado"
+    out = r._parse_batch_response(resp, items)
+    assert out[0] is not None
+    assert out[0].memory_type == "convention"
+    assert out[0].content == "Usar subagent dedicado"
+    assert not out[0].content.startswith("<type>:")
+
+
+def test_still_drop_true_degenerates():
+    """Should still drop true degenerates: bare labels without meaningful content."""
+    r = _mk()
+    # These should still be dropped as they have no meaningful content
+    assert r._parse_response("TYPE: bug", "learning") is None  # Valid type but no content
+    assert r._parse_response("TYPE", "learning") is None       # Bare TYPE
+    assert r._parse_response("<type>", "learning") is None     # Bare <type>
+    assert r._parse_response("<type>: bug", "learning") is None  # Valid type but no content
+
+
+def test_prose_starting_with_typescript_untouched():
+    """Legitimate prose starting with 'typescript' (no colon) should be untouched."""
+    r = _mk()
+    res = r._parse_response("typescript interfaces provide better type safety than any", "learning")
+    assert res is not None
+    assert res.content == "typescript interfaces provide better type safety than any"
+    assert res.memory_type == "learning"

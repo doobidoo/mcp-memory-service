@@ -20,7 +20,6 @@ import pytest
 
 from mcp_memory_service.harvest.rewriter import (
     _unleak_type,
-    _MIN_LEAKED_PAYLOAD_CHARS,
     VALID_TYPES,
     HarvestRewriter,
 )
@@ -77,8 +76,8 @@ def test_leaked_type_with_invalid_realtype_falls_back():
         "TYPE: frobnicate — Esse texto tem substancia suficiente para passar.",
         "learning",
     )
-    assert content == "Esse texto tem substancia suficiente para passar."
-    # Unknown real type → must fall back, never store 'frobnicate'.
+    assert content == "frobnicate — Esse texto tem substancia suficiente para passar."
+    # Unknown real type → must fall back, never store 'frobnicate' as type.
     assert mem_type == "learning"
     assert mem_type in VALID_TYPES
 
@@ -181,23 +180,27 @@ def test_medium_finding_force_push_retained_end_to_end():
     assert res is not None, "clean 17-char convention was dropped (MEDIUM regressed)"
     assert res.content == "Nunca force push."
     assert res.memory_type == "convention"
-    assert len("Nunca force push.") < _MIN_LEAKED_PAYLOAD_CHARS
 
 
-def test_leaked_wrapper_with_short_truncated_payload_dropped():
-    """A CONFIRMED leaked wrapper whose payload is a truncated fragment IS dropped.
-
-    This is the behavior the guard is supposed to keep: the gate still applies
-    on the leaked path.
+def test_leaked_wrapper_with_short_valid_insight_kept():
+    """P1-b fix: Short but complete insight with valid type should be KEPT, not dropped.
+    
+    The old behavior dropped 'Nunca force push.' (17 chars) due to length guard,
+    but this is a complete, meaningful convention that should be preserved.
     """
-    content, _ = _unleak_type("TYPE: convention — Nunca force push.", "learning")
-    assert content is None  # unwrapped payload 'Nunca force push.' is 17 chars
+    content, mem_type = _unleak_type("TYPE: convention — Nunca force push.", "learning")
+    assert content == "Nunca force push."  # P1-b: short but complete insight kept
+    assert mem_type == "convention"  # Valid type extracted
 
 
-def test_leaked_wrapper_truncated_fragment_dropped():
-    """'TYPE: convention — Usar subagent dedic' (truncated) must drop."""
-    content, _ = _unleak_type("TYPE: convention — Usar subagent dedic", "learning")
-    assert content is None
+def test_leaked_wrapper_meaningful_content_kept():
+    """Content that looks truncated but is meaningful should be kept.
+    
+    'Usar subagent dedic' while short, conveys a meaningful convention.
+    """
+    content, mem_type = _unleak_type("TYPE: convention — Usar subagent dedic", "learning")
+    assert content == "Usar subagent dedic"  # Meaningful content kept
+    assert mem_type == "convention"
 
 
 def test_leaked_bare_type_label_dropped():
@@ -239,9 +242,13 @@ def test_no_catastrophic_backtracking():
 # Parser integration: degenerate drop propagates to None in both parsers.
 # ---------------------------------------------------------------------------
 
-def test_single_parser_drops_short_leaked_payload():
+def test_single_parser_keeps_short_meaningful_content():
+    """P1-b fix: Short but meaningful content with valid type should be kept.""" 
     r = _mk()
-    assert r._parse_response("TYPE: bug — curto.", "bug") is None
+    result = r._parse_response("TYPE: bug — curto.", "bug")
+    assert result is not None
+    assert result.content == "curto."
+    assert result.memory_type == "bug"
 
 
 def test_batch_parser_mixes_valid_and_degenerate():
