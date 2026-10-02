@@ -102,14 +102,19 @@ test_selection_matches_ci() {
 }
 
 # --- Test: docs-only detection agrees with ci.yml paths-ignore ---
-# The gate skips the suite exactly when CI does. If ci.yml's list changes, this
-# fails until is_docs_only() is updated to match.
+# The gate skips the suite exactly when CI does. On pull_request, CI skips through
+# its `changes` job, which evaluates this same is_docs_only(); on push, through
+# paths-ignore. If push's list changes, this fails until is_docs_only() is updated
+# to match. pull_request must carry no paths-ignore: the test jobs are required
+# checks, and a workflow that never starts never reports them.
 test_docs_only_matches_ci_paths_ignore() {
   local ci="$REPO_ROOT/.github/workflows/ci.yml"
   local expected="paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']"
   local n
   n=$(grep -cF -- "$expected" "$ci")
-  [ "$n" -eq 2 ] || { echo "   ci.yml paths-ignore changed (push + pull_request); update is_docs_only()"; return 1; }
+  [ "$n" -eq 1 ] || { echo "   ci.yml paths-ignore changed (push only, none on pull_request); update is_docs_only()"; return 1; }
+  grep -qF -- "awk '/^is_docs_only\\(\\) \\{/,/^\\}/' scripts/pr/pre_pr_check.sh" "$ci" \
+    || { echo "   ci.yml changes job no longer reads is_docs_only() from the gate"; return 1; }
 
   eval "$(awk '/^is_docs_only\(\) \{/,/^\}/' "$GATE")"
   declare -F is_docs_only >/dev/null || { echo "   is_docs_only() not found in gate"; return 1; }

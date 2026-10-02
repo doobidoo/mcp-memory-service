@@ -105,9 +105,9 @@ else
     echo -e "${RED}   See the FINDINGS list above - it names the check that failed${NC}"
 fi
 
-# True when every given file matches the pull_request paths-ignore list in
+# True when every given file matches the push paths-ignore list in
 # .github/workflows/ci.yml, i.e. CI would not run the test matrix for this change
-# either. In `case`, `*` also matches `/`, so `.github/*.md` covers
+# either. ci.yml's `changes` job evaluates this very function on pull requests. In `case`, `*` also matches `/`, so `.github/*.md` covers
 # `.github/**/*.md`; the `*/*` arm keeps `*.md` to the repository root, as in CI.
 # An empty list is not docs-only. tests/ci/test_pre_pr_check.sh pins this to ci.yml.
 is_docs_only() {
@@ -140,7 +140,7 @@ if is_docs_only "$(pr_changed_files)"; then
     # Same files CI skips; running the suite here would only re-test main.
     check_status "Test suite" 3
     check_status "Test coverage" 3
-    echo -e "${YELLOW}   Docs-only change (matches ci.yml paths-ignore) - tests not run${NC}"
+    echo -e "${YELLOW}   Docs-only change (CI skips its tests too) - tests not run${NC}"
 else
 # Check if pytest-cov is installed
 if ! "$PYTHON_BIN" -c "import pytest_cov" 2>/dev/null; then
