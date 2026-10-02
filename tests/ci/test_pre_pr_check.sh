@@ -101,11 +101,84 @@ test_selection_matches_ci() {
   grep -q -- '-m "not benchmark"' "$GATE" || { echo "   gate does not deselect benchmark marker"; return 1; }
 }
 
+# --- Test: docs-only detection agrees with ci.yml paths-ignore ---
+# The gate skips the suite exactly when CI does. If ci.yml's list changes, this
+# fails until is_docs_only() is updated to match.
+test_docs_only_matches_ci_paths_ignore() {
+  local ci="$REPO_ROOT/.github/workflows/ci.yml"
+  local expected="paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']"
+  local n
+  n=$(grep -cF -- "$expected" "$ci")
+  [ "$n" -eq 2 ] || { echo "   ci.yml paths-ignore changed (push + pull_request); update is_docs_only()"; return 1; }
+
+  eval "$(awk '/^is_docs_only\(\) \{/,/^\}/' "$GATE")"
+  declare -F is_docs_only >/dev/null || { echo "   is_docs_only() not found in gate"; return 1; }
+
+  local f
+  for f in SPONSORS.md docs/a/b.md docs/x.png changelog.d/1.md .github/ISSUE_TEMPLATE/bug.md LICENSE NOTICE .gitignore; do
+    is_docs_only "$f" || { echo "   '$f' should count as docs-only"; return 1; }
+  done
+  for f in src/x.py claude-hooks/README.md tests/README.md .github/workflows/ci.yml pyproject.toml; do
+    is_docs_only "$f" && { echo "   '$f' must not count as docs-only"; return 1; }
+  done
+  is_docs_only $'README.md\nsrc/x.py' && { echo "   mixed change must not count as docs-only"; return 1; }
+  is_docs_only $'README.md\ndocs/a.md' || { echo "   multi-file docs change should count as docs-only"; return 1; }
+  is_docs_only "" && { echo "   an empty file list must not count as docs-only"; return 1; }
+  return 0
+}
+
+# --- Test: committed code plus a staged doc is not a docs-only PR ---
+# The gate reads the index, but CI judges the whole PR diff. A branch that already
+# committed code and only stages a README must still run the suite.
+test_pr_changed_files_sees_committed_code() {
+  eval "$(awk '/^is_docs_only\(\) \{/,/^\}/' "$GATE")"
+  eval "$(awk '/^pr_changed_files\(\) \{/,/^\}/' "$GATE")"
+  declare -F pr_changed_files >/dev/null || { echo "   pr_changed_files() not found in gate"; return 1; }
+
+  local repo files
+  repo="$(mktemp -d)"
+  (
+    cd "$repo" || exit 1
+    git init -q
+    git -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+    git update-ref refs/remotes/origin/main HEAD
+    mkdir src && echo "x = 1" > src/x.py && git add src/x.py
+    git -c user.name=t -c user.email=t@t commit -q -m code
+    echo "doc" > README.md && git add README.md
+  ) || { rm -rf "$repo"; echo "   could not build the fixture repo"; return 1; }
+
+  files=$(cd "$repo" && pr_changed_files)
+  [[ "$files" == *"src/x.py"* ]] || { rm -rf "$repo"; echo "   committed src/x.py missing: '$files'"; return 1; }
+  [[ "$files" == *"README.md"* ]] || { rm -rf "$repo"; echo "   staged README.md missing: '$files'"; return 1; }
+  is_docs_only "$files" && { rm -rf "$repo"; echo "   committed code + staged doc counted as docs-only"; return 1; }
+
+  # Without origin/main there is no base: nothing is printed, so the suite runs.
+  files=$(cd "$repo" && git update-ref -d refs/remotes/origin/main && pr_changed_files)
+  rm -rf "$repo"
+  [ -z "$files" ] || { echo "   expected no files without a base, got '$files'"; return 1; }
+  is_docs_only "$files" && { echo "   no base must not count as docs-only"; return 1; }
+  return 0
+}
+
+# --- Test: the gate wires the classifier to the PR diff and reports SKIP ---
+test_gate_wires_docs_only_skip() {
+  grep -q '^if is_docs_only "\$(pr_changed_files)"; then$' "$GATE" \
+    || { echo "   step 3 does not classify pr_changed_files"; return 1; }
+  awk '/^if is_docs_only /{start=NR}
+       start && /check_status "Test suite" 3/ && NR-start < 5 {suite=1}
+       start && /check_status "Test coverage" 3/ && NR-start < 5 {cov=1}
+       END{exit !(suite && cov)}' "$GATE" \
+    || { echo "   docs-only branch does not report both checks as SKIP"; return 1; }
+}
+
 run_test "failing command substitution does not abort the script" test_failing_command_substitution_does_not_abort
 run_test "gate guards the coverage run with set +e" test_gate_guards_the_coverage_run
 run_test "quality_gate.sh exits 3 when it skips" test_quality_gate_skip_uses_exit_3
 run_test "gate maps exit 3 to SKIP, not PASS" test_gate_maps_exit_3_to_skip
 run_test "local test selection matches CI" test_selection_matches_ci
+run_test "docs-only detection matches ci.yml paths-ignore" test_docs_only_matches_ci_paths_ignore
+run_test "committed code plus a staged doc is not docs-only" test_pr_changed_files_sees_committed_code
+run_test "gate wires docs-only detection to SKIP" test_gate_wires_docs_only_skip
 
 echo ""
 echo "passed: $PASS, failed: $FAIL"

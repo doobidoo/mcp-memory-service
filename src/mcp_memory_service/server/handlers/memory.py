@@ -1324,6 +1324,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             else:
                 return [types.TextContent(type="text", text=f"Failed versioned update: {message}")]
 
+        # content and reason apply to versioned updates only; strip them so they
+        # cannot advance updated_at or leak into custom metadata on this path.
+        updates = {k: v for k, v in updates.items() if k not in ("content", "reason")}
+
         # Call the storage method
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
