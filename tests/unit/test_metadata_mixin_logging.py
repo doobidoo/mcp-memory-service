@@ -75,6 +75,7 @@ async def test_update_metadata_error_message_is_sanitised(caplog):
         ok, message = await _mixin(failing).update_memory_metadata("abc123", {"tags": ["x"]})
 
     assert ok is False
+    assert message.startswith("Error updating memory metadata: ")
     messages = _messages(caplog)
     assert len(messages) == 1
     # The traceback that follows reproduces the exception text on its own
