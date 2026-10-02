@@ -1,5 +1,5 @@
 # Markdown link checks, split out of ci.yml for the same reason as changelog.yml:
-# ci.yml skips docs-only diffs through paths-ignore, and those are exactly the
+# ci.yml skips its test jobs on docs-only diffs, and those are exactly the
 # changes that break links. A moved or deleted file breaks them too, so there is
 # no paths filter at all; the internal check is offline and takes about a second.
 #

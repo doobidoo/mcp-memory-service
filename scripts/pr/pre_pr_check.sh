@@ -49,7 +49,8 @@ else
     PIP_BIN="$(command -v pip3 || command -v pip)"
     PYTEST_BIN="$(command -v pytest)"
 fi
-[ -x "$PYTEST_BIN" ] || PYTEST_BIN="$PYTHON_BIN -m pytest"
+# An array, so a path with spaces survives and the fallback needs no word splitting.
+if [ -x "$PYTEST_BIN" ]; then PYTEST_CMD=("$PYTEST_BIN"); else PYTEST_CMD=("$PYTHON_BIN" -m pytest); fi
 
 echo -e "${BLUE}╔═══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║         Pre-PR Quality Gate - MCP Memory Service             ║${NC}"
@@ -105,9 +106,9 @@ else
     echo -e "${RED}   See the FINDINGS list above - it names the check that failed${NC}"
 fi
 
-# True when every given file matches the pull_request paths-ignore list in
+# True when every given file matches the push paths-ignore list in
 # .github/workflows/ci.yml, i.e. CI would not run the test matrix for this change
-# either. In `case`, `*` also matches `/`, so `.github/*.md` covers
+# either. ci.yml's `changes` job evaluates this very function on pull requests. In `case`, `*` also matches `/`, so `.github/*.md` covers
 # `.github/**/*.md`; the `*/*` arm keeps `*.md` to the repository root, as in CI.
 # An empty list is not docs-only. tests/ci/test_pre_pr_check.sh pins this to ci.yml.
 is_docs_only() {
@@ -140,35 +141,88 @@ if is_docs_only "$(pr_changed_files)"; then
     # Same files CI skips; running the suite here would only re-test main.
     check_status "Test suite" 3
     check_status "Test coverage" 3
-    echo -e "${YELLOW}   Docs-only change (matches ci.yml paths-ignore) - tests not run${NC}"
+    echo -e "${YELLOW}   Docs-only change (CI skips its tests too) - tests not run${NC}"
 else
-# Check if pytest-cov is installed
-if ! "$PYTHON_BIN" -c "import pytest_cov" 2>/dev/null; then
-    echo -e "${YELLOW}   Installing pytest-cov...${NC}"
-    "$PIP_BIN" install pytest-cov > /dev/null 2>&1
+# Only the tests this change can reach (scripts/pr/lib/select_tests.py). The full
+# suite is CI's required `Tests + Coverage` job on the same PR, and repeating it
+# here took minutes. PRE_PR_FULL_SUITE=1 runs it locally anyway; so does a change
+# without a base to diff against, or one the selector maps to ALL.
+CHANGED_FILES=$(pr_changed_files)
+if [ -n "${PRE_PR_FULL_SUITE:-}" ] || [ -z "$CHANGED_FILES" ]; then
+    TEST_TARGETS=ALL
+else
+    TEST_TARGETS=$(echo "$CHANGED_FILES" | "$PYTHON_BIN" "$REPO_ROOT/scripts/pr/lib/select_tests.py" --repo "$REPO_ROOT")
+fi
+TEST_ARGS=()
+COV_ARGS=()
+if [ "$TEST_TARGETS" = ALL ]; then
+    TEST_ARGS=(tests/)
+    COV_ARGS=(--cov=src/mcp_memory_service --cov-report=term-missing)
+    echo -e "${YELLOW}   Full suite${NC}"
+    # Check if pytest-cov is installed
+    if ! "$PYTHON_BIN" -c "import pytest_cov" 2>/dev/null; then
+        echo -e "${YELLOW}   Installing pytest-cov...${NC}"
+        "$PIP_BIN" install pytest-cov > /dev/null 2>&1
+    fi
+elif [ -n "$TEST_TARGETS" ]; then
+    echo -e "${YELLOW}   Test targets reached by this change (PRE_PR_FULL_SUITE=1 for all):${NC}"
+    printf '%s\n' "$TEST_TARGETS" | sed 's/^/     /'
+    # tests/ci/*.sh harnesses run with bash, the rest with pytest. The full suite
+    # (ALL) stays pytest-only; CI's shell-tests job runs every harness.
+    SH_FAILED=""
+    SH_COUNT=0
+    while IFS= read -r t; do
+        case "$t" in
+            *.sh)
+                SH_COUNT=$((SH_COUNT + 1))
+                if ! SH_OUTPUT=$(bash "$t" 2>&1); then
+                    # Harnesses print "not ok - <name>" plus indented detail; keep
+                    # that, as the pytest branch keeps FAILED lines. A harness that
+                    # crashed before reporting gets its last lines instead.
+                    SH_DETAIL=$(echo "$SH_OUTPUT" | grep -A3 '^not ok' | head -20)
+                    [ -n "$SH_DETAIL" ] || SH_DETAIL=$(echo "$SH_OUTPUT" | tail -5)
+                    SH_FAILED="$SH_FAILED$t"$'\n'"$(echo "$SH_DETAIL" | sed 's/^/  /')"$'\n'
+                fi
+                ;;
+            *) TEST_ARGS+=("$t") ;;
+        esac
+    done <<< "$TEST_TARGETS"
+    if [ "$SH_COUNT" -gt 0 ]; then
+        if [ -z "$SH_FAILED" ]; then
+            check_status "Shell tests ($SH_COUNT selected)" 0
+        else
+            check_status "Shell tests ($SH_COUNT selected)" 1
+            echo -e "${RED}   Failed:${NC}"
+            printf '%s' "$SH_FAILED" | sed 's/^/     /'
+        fi
+    fi
 fi
 
-# Run tests with coverage.
+if [ ${#TEST_ARGS[@]} -eq 0 ]; then
+    check_status "Test suite" 3
+    check_status "Test coverage" 3
+    echo -e "${YELLOW}   No Python test reached by this change - pytest not run (CI runs the full suite)${NC}"
+else
 # `set +e` around the assignment is load-bearing: under `set -e` a failing
 # pytest inside $(...) aborts this script immediately, so the TEST_EXIT_CODE
 # handling below never ran and a failing suite looked like the gate itself
 # crashing with no message.
-# The selection mirrors .github/workflows/ci.yml so that a green gate here
-# means the same thing CI will say (tests/ci/test_pre_pr_check.sh pins the two
-# together). Benchmarks stay out; test_cli_interfaces.py shells to `uv run`.
+# The flags mirror .github/workflows/ci.yml (tests/ci/test_pre_pr_check.sh pins
+# the two together). Benchmarks stay out; test_cli_interfaces.py shells to `uv run`.
 set +e
-COVERAGE_OUTPUT=$($PYTEST_BIN tests/ -q --tb=short \
+COVERAGE_OUTPUT=$("${PYTEST_CMD[@]}" "${TEST_ARGS[@]}" -q --tb=short \
     --ignore=tests/benchmarks \
     --ignore=tests/integration/test_cli_interfaces.py \
     -m "not benchmark" \
     --timeout=120 \
-    --cov=src/mcp_memory_service \
-    --cov-report=term-missing 2>&1)
+    "${COV_ARGS[@]}" 2>&1)
 TEST_EXIT_CODE=$?
 set -e
 COVERAGE_PERCENT=$(echo "$COVERAGE_OUTPUT" | grep "TOTAL" | awk '{print $4}' | sed 's/%//')
+echo "$COVERAGE_OUTPUT" | tail -1 | sed 's/^/     /'
 
-if [ $TEST_EXIT_CODE -eq 0 ]; then
+if [ $TEST_EXIT_CODE -eq 0 ] || [ $TEST_EXIT_CODE -eq 5 ]; then
+    # 5: pytest collected nothing, e.g. a selected file holds only benchmarks.
     check_status "Test suite" 0
 else
     check_status "Test suite" 1
@@ -186,7 +240,11 @@ fi
 # stable". The deterministic subset currently sits near 60%, so a hard 80% here
 # meant this gate could not be passed by anyone, on any branch.
 COVERAGE_TARGET=80
-if [ -n "$COVERAGE_PERCENT" ] && [ "$COVERAGE_PERCENT" -ge "$COVERAGE_TARGET" ]; then
+if [ "$TEST_TARGETS" != ALL ]; then
+    # A selected run covers a slice of the package; its total says nothing.
+    check_status "Test coverage (target ${COVERAGE_TARGET}%)" 3
+    echo -e "${YELLOW}   Not measured for a selected run; CI reports it${NC}"
+elif [ -n "$COVERAGE_PERCENT" ] && [ "$COVERAGE_PERCENT" -ge "$COVERAGE_TARGET" ]; then
     check_status "Test coverage (target ${COVERAGE_TARGET}%)" 0
     echo -e "${GREEN}   Current coverage: ${COVERAGE_PERCENT}%${NC}"
 else
@@ -194,6 +252,7 @@ else
     echo -e "${YELLOW}   Current coverage: ${COVERAGE_PERCENT}% (target: ${COVERAGE_TARGET}%, advisory)${NC}"
     echo -e "${YELLOW}   Add tests for the code this PR touches; the target is not enforced yet${NC}"
 fi
+fi  # no test targets
 fi  # is_docs_only (body left unindented: tests/ci/test_pre_pr_check.sh anchors on column 0)
 
 # Check 3.5: Handler coverage check
