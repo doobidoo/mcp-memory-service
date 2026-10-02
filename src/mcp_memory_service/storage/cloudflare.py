@@ -1491,10 +1491,37 @@ class CloudflareStorage(MemoryStorage):
                     update_fields.append("updated_at_iso = ?")
                     params.append(now_iso)
             elif any(key in updates for key in ("tags", "memory_type", "content")):
-                # Match sqlite-vec: metadata-only updates keep the stored timestamps.
-                update_fields.append("updated_at = ?")
-                update_fields.append("updated_at_iso = ?")
-                params.extend([now, now_iso])
+                # Hybrid batches include tags/type even for metadata-only changes.
+                # Compare stored values before treating them as structural changes.
+                structural_change = "content" in updates
+                if "tags" in updates or "memory_type" in updates:
+                    payload = {
+                        "sql": "SELECT m.memory_type, "
+                               "(SELECT json_group_array(t.name) FROM memory_tags mt "
+                               "JOIN tags t ON t.id = mt.tag_id "
+                               "WHERE mt.memory_id = m.id) AS tags_json "
+                               "FROM memories m WHERE m.content_hash = ?",
+                        "params": [content_hash]
+                    }
+                    response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+                    result = response.json()
+                    if not result.get("success"):
+                        raise ValueError(f"Failed to read memory for update: {result}")
+                    rows = result.get("result", [{}])[0].get("results", [])
+                    if not rows:
+                        return False, "Memory not found"
+                    current = rows[0]
+                    if "memory_type" in updates:
+                        structural_change = structural_change or updates["memory_type"] != current["memory_type"]
+                    if "tags" in updates:
+                        current_tags = json.loads(current["tags_json"])
+                        structural_change = structural_change or set(updates["tags"]) != set(current_tags)
+                if structural_change:
+                    now = time.time()
+                    now_iso = datetime.fromtimestamp(now, timezone.utc).isoformat()
+                    update_fields.append("updated_at = ?")
+                    update_fields.append("updated_at_iso = ?")
+                    params.extend([now, now_iso])
             
             if not update_fields:
                 return True, "No updates needed"

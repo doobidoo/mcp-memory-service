@@ -207,14 +207,21 @@ async def test_cloudflare_reports_failed_metadata_update(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("metadata_storage", ["cloudflare"], indirect=True)
 @pytest.mark.parametrize("preserve_timestamps", [True, False])
 @pytest.mark.parametrize(
-    "change", [{}, {"tags": ["changed"]}, {"memory_type": "decision"}]
+    "change,remote_update",
+    [
+        ({}, False),
+        ({"tags": ["changed"]}, False),
+        ({"memory_type": "decision"}, False),
+        ({}, True),
+    ],
 )
-async def test_hybrid_batch_sync_keeps_primary_timestamps(
-    metadata_storage, temp_db_path, preserve_timestamps, change
+async def test_hybrid_batch_sync_timestamp_preservation(
+    metadata_storage, temp_db_path, preserve_timestamps, change, remote_update
 ):
-    """A queued batch update must copy primary state, including its update time."""
+    """Only metadata annotations preserve time, including a newer cloud time."""
     secondary, secondary_db, content_hash, metadata_column = metadata_storage
     hybrid = HybridMemoryStorage(f"{temp_db_path}/hybrid-primary.db")
     await hybrid.primary.initialize()
@@ -230,9 +237,19 @@ async def test_hybrid_batch_sync_keeps_primary_timestamps(
         for key, value in change.items():
             setattr(memory, key, value)
 
+        statements = []
+        hybrid.primary.conn.set_trace_callback(statements.append)
         assert await hybrid.update_memories_batch(
             [memory], preserve_timestamps=preserve_timestamps
         ) == [True]
+        hybrid.primary.conn.set_trace_callback(None)
+        assert (
+            sum(
+                "SELECT" in sql.upper() and "FROM MEMORIES" in sql.upper()
+                for sql in statements
+            )
+            == 1
+        )
 
         primary_times = timestamp_fields(hybrid.primary.conn, content_hash)
         if preserve_timestamps and not change:
@@ -242,10 +259,31 @@ async def test_hybrid_batch_sync_keeps_primary_timestamps(
             assert primary_times[2] > before[2]
 
         operation = hybrid.sync_service.operation_queue.get_nowait()
+        if remote_update:
+            remote_updated_at = time.time() - 30.0
+            success, message = await secondary.update_memory_metadata(
+                content_hash,
+                {
+                    "metadata": {"other_device": True},
+                    "updated_at": remote_updated_at,
+                    "updated_at_iso": datetime.fromtimestamp(
+                        remote_updated_at, timezone.utc
+                    ).isoformat(),
+                },
+                preserve_timestamps=False,
+            )
+            assert success, message
+        remote_times = timestamp_fields(secondary_db, content_hash)
         await hybrid.sync_service._process_single_operation(operation)
         hybrid.sync_service.operation_queue.task_done()
 
-        assert timestamp_fields(secondary_db, content_hash) == primary_times
+        secondary_times = timestamp_fields(secondary_db, content_hash)
+        assert secondary_times[:2] == primary_times[:2]
+        if preserve_timestamps and not change:
+            assert secondary_times == remote_times
+        else:
+            assert secondary_times[2] >= max(primary_times[2], remote_times[2])
+            assert secondary_times[3] != before[3]
         metadata = secondary_db.execute(
             f"SELECT {metadata_column} FROM memories WHERE content_hash = ?",
             (content_hash,),
