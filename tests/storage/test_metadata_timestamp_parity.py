@@ -54,6 +54,7 @@ async def metadata_storage(request, temp_db_path, monkeypatch):
             assert method == "POST" and url == f"{storage.d1_url}/query"
             payload = kwargs["json"]
             try:
+                previous_changes = db.total_changes
                 if payload["sql"].count(";") > 1:
                     db.executescript(payload["sql"])
                     rows, row_id = [], 0
@@ -64,7 +65,15 @@ async def metadata_storage(request, temp_db_path, monkeypatch):
                 db.commit()
                 result = {
                     "success": True,
-                    "result": [{"results": rows, "meta": {"last_row_id": row_id}}],
+                    "result": [
+                        {
+                            "results": rows,
+                            "meta": {
+                                "last_row_id": row_id,
+                                "changes": db.total_changes - previous_changes,
+                            },
+                        }
+                    ],
                 }
             except sqlite3.Error as error:
                 result = {"success": False, "errors": [str(error)]}
@@ -274,8 +283,18 @@ async def test_hybrid_batch_sync_timestamp_preservation(
             )
             assert success, message
         remote_times = timestamp_fields(secondary_db, content_hash)
+        requests = []
+        query_d1 = secondary._retry_request
+
+        async def record_request(method, url, **kwargs):
+            requests.append(kwargs["json"]["sql"])
+            return await query_d1(method, url, **kwargs)
+
+        secondary._retry_request = record_request
         await hybrid.sync_service._process_single_operation(operation)
         hybrid.sync_service.operation_queue.task_done()
+        if not change:
+            assert len(requests) == 1
 
         secondary_times = timestamp_fields(secondary_db, content_hash)
         assert secondary_times[:2] == primary_times[:2]
@@ -297,3 +316,91 @@ async def test_hybrid_batch_sync_timestamp_preservation(
         assert synced.memory_type == memory.memory_type
     finally:
         await hybrid.primary.close()
+
+
+@pytest.mark.asyncio
+async def test_deleted_memory_is_not_updated(metadata_storage):
+    """A metadata update must not mutate a tombstoned memory or its tags."""
+    storage, db, content_hash, metadata_column = metadata_storage
+    before = timestamp_fields(db, content_hash)
+    metadata = db.execute(
+        f"SELECT {metadata_column} FROM memories WHERE content_hash = ?",
+        (content_hash,),
+    ).fetchone()[0]
+    db.execute(
+        "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
+        (time.time(), content_hash),
+    )
+    db.commit()
+
+    success, _ = await storage.update_memory_metadata(
+        content_hash,
+        {"metadata": {"annotated": True}, "tags": [], "memory_type": "decision"},
+    )
+
+    assert not success
+    assert timestamp_fields(db, content_hash) == before
+    assert (
+        db.execute(
+            f"SELECT {metadata_column} FROM memories WHERE content_hash = ?",
+            (content_hash,),
+        ).fetchone()[0]
+        == metadata
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata_storage", ["cloudflare"], indirect=True)
+@pytest.mark.parametrize("field", ["tags", "memory_type"])
+async def test_concurrent_structural_change_advances_time(
+    metadata_storage, monkeypatch, field
+):
+    """Compare against the values present when D1 executes the actual UPDATE."""
+    storage, db, content_hash, _ = metadata_storage
+    query_d1 = storage._retry_request
+    concurrent_time = time.time() - 30.0
+    changed = False
+
+    async def change_before_update(method, url, **kwargs):
+        nonlocal changed
+        if not changed and kwargs["json"]["sql"].startswith("UPDATE memories SET"):
+            changed = True
+            if field == "memory_type":
+                db.execute(
+                    "UPDATE memories SET memory_type = 'decision' WHERE content_hash = ?",
+                    (content_hash,),
+                )
+            else:
+                db.execute("INSERT INTO tags(name) VALUES ('other-device')")
+                db.execute(
+                    "DELETE FROM memory_tags WHERE memory_id = (SELECT id FROM memories WHERE content_hash = ?)",
+                    (content_hash,),
+                )
+                db.execute(
+                    "INSERT INTO memory_tags(memory_id, tag_id) SELECT m.id, t.id FROM memories m, tags t WHERE m.content_hash = ? AND t.name = 'other-device'",
+                    (content_hash,),
+                )
+            db.execute(
+                "UPDATE memories SET updated_at = ?, updated_at_iso = ? WHERE content_hash = ?",
+                (
+                    concurrent_time,
+                    datetime.fromtimestamp(concurrent_time, timezone.utc).isoformat(),
+                    content_hash,
+                ),
+            )
+            db.commit()
+        return await query_d1(method, url, **kwargs)
+
+    monkeypatch.setattr(storage, "_retry_request", change_before_update)
+    success, message = await storage.update_memory_metadata(
+        content_hash,
+        {
+            "metadata": {"annotated": True},
+            "tags": ["original"],
+            "memory_type": "observation",
+        },
+    )
+
+    assert success, message
+    assert changed
+    assert timestamp_fields(db, content_hash)[2] > concurrent_time

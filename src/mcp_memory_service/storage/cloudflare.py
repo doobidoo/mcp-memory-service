@@ -1467,6 +1467,14 @@ class CloudflareStorage(MemoryStorage):
             now = time.time()
             now_iso = datetime.now(timezone.utc).isoformat()  # match float UTC epoch
 
+            tag_change_sql = (
+                "EXISTS (SELECT t.name FROM memory_tags mt JOIN tags t ON t.id = mt.tag_id "
+                "WHERE mt.memory_id = memories.id EXCEPT SELECT value FROM json_each(?)) "
+                "OR EXISTS (SELECT value FROM json_each(?) EXCEPT SELECT t.name "
+                "FROM memory_tags mt JOIN tags t ON t.id = mt.tag_id WHERE mt.memory_id = memories.id)"
+            )
+            tag_params = [json.dumps(updates["tags"])] * 2 if "tags" in updates else []
+
             if not preserve_timestamps:
                 # When preserve_timestamps=False, use timestamps from updates dict if provided
                 # This allows syncing timestamps from source (e.g., SQLite → Cloudflare)
@@ -1492,43 +1500,31 @@ class CloudflareStorage(MemoryStorage):
                     params.append(now_iso)
             elif any(key in updates for key in ("tags", "memory_type", "content")):
                 # Hybrid batches include tags/type even for metadata-only changes.
-                # Compare stored values before treating them as structural changes.
-                structural_change = "content" in updates
-                if "tags" in updates or "memory_type" in updates:
-                    payload = {
-                        "sql": "SELECT m.memory_type, "
-                               "(SELECT json_group_array(t.name) FROM memory_tags mt "
-                               "JOIN tags t ON t.id = mt.tag_id "
-                               "WHERE mt.memory_id = m.id) AS tags_json "
-                               "FROM memories m WHERE m.content_hash = ?",
-                        "params": [content_hash]
-                    }
-                    response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
-                    result = response.json()
-                    if not result.get("success"):
-                        raise ValueError(f"Failed to read memory for update: {result}")
-                    rows = result.get("result", [{}])[0].get("results", [])
-                    if not rows:
-                        return False, "Memory not found"
-                    current = rows[0]
-                    if "memory_type" in updates:
-                        structural_change = structural_change or updates["memory_type"] != current["memory_type"]
-                    if "tags" in updates:
-                        current_tags = json.loads(current["tags_json"])
-                        structural_change = structural_change or set(updates["tags"]) != set(current_tags)
-                if structural_change:
-                    now = time.time()
-                    now_iso = datetime.fromtimestamp(now, timezone.utc).isoformat()
-                    update_fields.append("updated_at = ?")
-                    update_fields.append("updated_at_iso = ?")
-                    params.extend([now, now_iso])
+                # Classify changes inside the UPDATE, without a read/write gap.
+                conditions = []
+                condition_params = []
+                if "content" in updates:
+                    conditions.append("1")
+                if "memory_type" in updates:
+                    conditions.append("memory_type IS NOT ?")
+                    condition_params.append(updates["memory_type"])
+                if "tags" in updates:
+                    conditions.append(f"({tag_change_sql})")
+                    condition_params.extend(tag_params)
+                condition = " OR ".join(conditions)
+                for column, value in (("updated_at", now), ("updated_at_iso", now_iso)):
+                    update_fields.append(f"{column} = CASE WHEN {condition} THEN ? ELSE {column} END")
+                    params.extend(condition_params + [value])
             
             if not update_fields:
                 return True, "No updates needed"
             
             # Update memory record
-            sql = f"UPDATE memories SET {', '.join(update_fields)} WHERE content_hash = ?"
+            sql = f"UPDATE memories SET {', '.join(update_fields)} WHERE content_hash = ? AND deleted_at IS NULL RETURNING id"
             params.append(content_hash)
+            if "tags" in updates:
+                sql += f", ({tag_change_sql}) AS tags_changed"
+                params.extend(tag_params)
             
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
@@ -1536,10 +1532,16 @@ class CloudflareStorage(MemoryStorage):
             
             if not result.get("success"):
                 raise ValueError(f"Failed to update memory: {result}")
+
+            update_result = result.get("result", [{}])[0]
+            if update_result.get("meta", {}).get("changes") == 0:
+                return False, "Memory not found"
             
             # Handle tag updates if provided
             if "tags" in updates:
-                await self._update_memory_tags(content_hash, updates["tags"])
+                rows = update_result.get("results", [])
+                if not rows or rows[0]["tags_changed"]:
+                    await self._update_memory_tags(content_hash, updates["tags"])
             
             logger.info("Successfully updated memory metadata: %s", _sanitize_log_value(content_hash))
             return True, "Memory metadata updated successfully"
