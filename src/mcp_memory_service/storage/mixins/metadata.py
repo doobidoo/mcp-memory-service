@@ -132,7 +132,12 @@ class MetadataMixin:
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
 
-            structural_change = any(k in updates for k in ("tags", "memory_type", "content"))
+            structural_change = (
+                set(new_tags.split(",") if new_tags else [])
+                != set(current_tags.split(",") if current_tags else [])
+                or new_type != current_type
+                or "content" in updates
+            )
             if preserve_timestamps and not structural_change:
                 updated_at = current_updated_at if current_updated_at else now
                 updated_at_iso = current_updated_at_iso if current_updated_at_iso else now_iso
@@ -239,8 +244,9 @@ class MetadataMixin:
                         new_type = memory.memory_type if memory.memory_type else current_type
 
                         structural_change = (
-                            new_tags != current_tags or
-                            new_type != current_type
+                            set(new_tags.split(",") if new_tags else [])
+                            != set(current_tags.split(",") if current_tags else [])
+                            or new_type != current_type
                         )
                         if preserve_timestamps and not structural_change:
                             mem_updated_at = current_updated_at if current_updated_at else now

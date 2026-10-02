@@ -132,8 +132,55 @@ async def test_metadata_only_preserves_timestamps(metadata_storage, use_default)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "stored_tags,updates",
+    [
+        (["original"], {"tags": ["original"]}),
+        (["original"], {"memory_type": "observation"}),
+        (["original"], {"tags": ["original"], "memory_type": "observation"}),
+        (["alpha", "beta"], {"tags": ["beta", "alpha"]}),
+        (["original"], {"tags": ["original", "original"]}),
+    ],
+)
+async def test_unchanged_structural_fields_preserve_timestamps(
+    metadata_storage, stored_tags, updates
+):
+    """Repeated fields, including equivalent tag sets, are metadata-only writes."""
+    storage, db, content_hash, metadata_column = metadata_storage
+    if stored_tags != ["original"]:
+        success, message = await storage.update_memory_metadata(
+            content_hash, {"tags": stored_tags}, preserve_timestamps=False
+        )
+        assert success, message
+    before = timestamp_fields(db, content_hash)
+
+    success, message = await storage.update_memory_metadata(
+        content_hash,
+        {**updates, "metadata": {"annotated": True}},
+        preserve_timestamps=True,
+    )
+
+    assert success, message
+    assert timestamp_fields(db, content_hash) == before
+    metadata = db.execute(
+        f"SELECT {metadata_column} FROM memories WHERE content_hash = ?",
+        (content_hash,),
+    ).fetchone()[0]
+    assert json.loads(metadata)["annotated"] is True
+    memory = await storage.get_by_hash(content_hash)
+    assert memory is not None
+    assert set(memory.tags) == set(stored_tags)
+    assert memory.memory_type == "observation"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "updates",
-    [{"tags": []}, {"memory_type": "decision"}, {"content": "replacement"}],
+    [
+        {"tags": []},
+        {"memory_type": "decision"},
+        {"content": "replacement"},
+        {"content": "Memory whose metadata will be annotated"},
+    ],
 )
 async def test_structural_updates_advance_updated_at(metadata_storage, updates):
     """The preservation flag still allows structural fields to advance time."""
@@ -219,16 +266,22 @@ async def test_cloudflare_reports_failed_metadata_update(monkeypatch):
 @pytest.mark.parametrize("metadata_storage", ["cloudflare"], indirect=True)
 @pytest.mark.parametrize("preserve_timestamps", [True, False])
 @pytest.mark.parametrize(
-    "change,remote_update",
+    "change,remote_update,structural_change",
     [
-        ({}, False),
-        ({"tags": ["changed"]}, False),
-        ({"memory_type": "decision"}, False),
-        ({}, True),
+        ({}, False, False),
+        ({"tags": ["changed"]}, False, True),
+        ({"memory_type": "decision"}, False, True),
+        ({}, True, False),
+        ({"tags": ["original", "original"]}, False, False),
     ],
 )
 async def test_hybrid_batch_sync_timestamp_preservation(
-    metadata_storage, temp_db_path, preserve_timestamps, change, remote_update
+    metadata_storage,
+    temp_db_path,
+    preserve_timestamps,
+    change,
+    remote_update,
+    structural_change,
 ):
     """Only metadata annotations preserve time, including a newer cloud time."""
     secondary, secondary_db, content_hash, metadata_column = metadata_storage
@@ -261,7 +314,7 @@ async def test_hybrid_batch_sync_timestamp_preservation(
         )
 
         primary_times = timestamp_fields(hybrid.primary.conn, content_hash)
-        if preserve_timestamps and not change:
+        if preserve_timestamps and not structural_change:
             assert primary_times == before
         else:
             assert primary_times[:2] == before[:2]
@@ -293,12 +346,12 @@ async def test_hybrid_batch_sync_timestamp_preservation(
         secondary._retry_request = record_request
         await hybrid.sync_service._process_single_operation(operation)
         hybrid.sync_service.operation_queue.task_done()
-        if not change:
+        if not structural_change:
             assert len(requests) == 1
 
         secondary_times = timestamp_fields(secondary_db, content_hash)
         assert secondary_times[:2] == primary_times[:2]
-        if preserve_timestamps and not change:
+        if preserve_timestamps and not structural_change:
             assert secondary_times == remote_times
         else:
             assert secondary_times[2] >= max(primary_times[2], remote_times[2])
@@ -312,7 +365,7 @@ async def test_hybrid_batch_sync_timestamp_preservation(
             == 0.75
         )
         synced = await secondary.get_by_hash(content_hash)
-        assert synced.tags == memory.tags
+        assert set(synced.tags) == set(memory.tags)
         assert synced.memory_type == memory.memory_type
     finally:
         await hybrid.primary.close()
@@ -347,6 +400,40 @@ async def test_deleted_memory_is_not_updated(metadata_storage):
         ).fetchone()[0]
         == metadata
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata_storage", ["cloudflare"], indirect=True)
+@pytest.mark.parametrize("deleted", [False, True])
+async def test_cloudflare_missing_record_uses_returned_rows(metadata_storage, deleted):
+    """Empty RETURNING rows fail even when D1 omits its changes metadata."""
+    storage, db, content_hash, _ = metadata_storage
+    if deleted:
+        db.execute(
+            "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
+            (time.time(), content_hash),
+        )
+        db.commit()
+    else:
+        content_hash = "missing-memory"
+    requests = []
+    query_d1 = storage._retry_request
+
+    async def query_without_meta(method, url, **kwargs):
+        requests.append(kwargs["json"]["sql"])
+        response = await query_d1(method, url, **kwargs)
+        result = response.json()
+        result["result"][0].pop("meta", None)
+        return httpx.Response(200, json=result)
+
+    storage._retry_request = query_without_meta
+    success, message = await storage.update_memory_metadata(
+        content_hash, {"metadata": {"annotated": True}, "tags": []}
+    )
+
+    assert not success
+    assert "not found" in message.lower()
+    assert len(requests) == 1
 
 
 @pytest.mark.asyncio

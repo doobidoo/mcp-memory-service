@@ -1534,14 +1534,13 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"Failed to update memory: {result}")
 
             update_result = result.get("result", [{}])[0]
-            if update_result.get("meta", {}).get("changes") == 0:
+            rows = update_result.get("results", [])
+            if not rows:
                 return False, "Memory not found"
             
             # Handle tag updates if provided
-            if "tags" in updates:
-                rows = update_result.get("results", [])
-                if not rows or rows[0]["tags_changed"]:
-                    await self._update_memory_tags(content_hash, updates["tags"])
+            if "tags" in updates and rows[0]["tags_changed"]:
+                await self._update_memory_tags(content_hash, updates["tags"])
             
             logger.info("Successfully updated memory metadata: %s", _sanitize_log_value(content_hash))
             return True, "Memory metadata updated successfully"
