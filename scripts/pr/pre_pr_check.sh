@@ -105,12 +105,13 @@ else
     echo -e "${RED}   See the FINDINGS list above - it names the check that failed${NC}"
 fi
 
-# True when every staged file matches the pull_request paths-ignore list in
+# True when every given file matches the pull_request paths-ignore list in
 # .github/workflows/ci.yml, i.e. CI would not run the test matrix for this change
 # either. In `case`, `*` also matches `/`, so `.github/*.md` covers
 # `.github/**/*.md`; the `*/*` arm keeps `*.md` to the repository root, as in CI.
-# tests/ci/test_pre_pr_check.sh pins this list to ci.yml.
+# An empty list is not docs-only. tests/ci/test_pre_pr_check.sh pins this to ci.yml.
 is_docs_only() {
+    [ -n "$1" ] || return 1
     local f
     while IFS= read -r f; do
         case "$f" in
@@ -122,10 +123,20 @@ is_docs_only() {
     done <<< "$1"
 }
 
+# Every file the PR changes against origin/main: committed on the branch, staged,
+# and unstaged. CI judges the whole PR diff and the suite runs on the working
+# tree, so the staged files alone are not enough. Prints nothing without a base,
+# which makes is_docs_only fail and the suite run.
+pr_changed_files() {
+    local base
+    base=$(git merge-base HEAD origin/main 2>/dev/null) || return 0
+    { git diff --name-only "$base"; git diff --cached --name-only "$base"; } | sort -u
+}
+
 # Check 3: Run test suite with coverage
 echo -e "\n${YELLOW}[3/9]${NC} Running test suite with coverage..."
 
-if is_docs_only "$STAGED_FILES"; then
+if is_docs_only "$(pr_changed_files)"; then
     # Same files CI skips; running the suite here would only re-test main.
     check_status "Test suite" 3
     check_status "Test coverage" 3
