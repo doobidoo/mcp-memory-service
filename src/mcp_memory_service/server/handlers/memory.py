@@ -1314,6 +1314,15 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                     text="Error: versioned update requires 'content' field in updates."
                 )]
 
+            # Validate before any write: a truthy non-dict (a list, a string) would
+            # only fail at .items() below, after update_memory_versioned() has
+            # already superseded the old row.
+            caller_metadata = updates.get("metadata")
+            if caller_metadata is not None and not isinstance(caller_metadata, dict):
+                return [types.TextContent(
+                    type="text",
+                    text="Error: metadata must be a dictionary of custom fields."
+                )]
             success, message, new_hash = await storage.update_memory_versioned(
                 content_hash=content_hash,
                 new_content=new_content,
@@ -1323,10 +1332,40 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             )
 
             if success:
+                # The new version inherits the old row's custom metadata, and the
+                # schema tells callers that fields passed in metadata override those
+                # inherited values, so apply them after the write. Same merge
+                # evolve_memory() uses: caller keys win over the inherited ones.
+                # tags/type are excluded — they are dedicated Memory fields and
+                # already went through new_tags/new_memory_type above. superseded_by
+                # and evolution_reason are lineage keys the storage layer owns: a
+                # caller-supplied superseded_by makes Milvus hide this very version
+                # from search (milvus.py:1721), and evolution_reason describes the
+                # parent row, not this one.
+                final_metadata = {
+                    k: v for k, v in (caller_metadata or {}).items()
+                    if k not in ("tags", "type", "superseded_by", "evolution_reason")
+                }
+                overrides_applied = True
+                if final_metadata:
+                    meta_ok, meta_msg = await storage.update_memory_metadata(
+                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                    )
+                    overrides_applied = meta_ok
+                    if not meta_ok:
+                        message = f"{message} (metadata overrides were NOT applied: {meta_msg})"
                 logger.info("Versioned update: %s -> %s", _sanitize_log_value(content_hash), _sanitize_log_value(new_hash))
+                # Say which of the two happened: the version is committed either
+                # way, so a caller cannot tell a failed override from a clean run
+                # unless the text separates them.
+                status = (
+                    "Versioned update successful."
+                    if overrides_applied
+                    else "Versioned update created the new version, but the metadata overrides were not applied."
+                )
                 return [types.TextContent(
                     type="text",
-                    text=f"Versioned update successful. New hash: {new_hash}, parent hash: {content_hash}. {message}"
+                    text=f"{status} New hash: {new_hash}, parent hash: {content_hash}. {message}"
                 )]
             else:
                 return [types.TextContent(type="text", text=f"Failed versioned update: {message}")]

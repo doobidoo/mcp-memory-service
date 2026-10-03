@@ -594,7 +594,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version, metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -603,11 +603,22 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type, old_version = row
+            old_hash, old_tags_str, old_type, old_version, old_metadata_str = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
             resolved_type = new_memory_type if new_memory_type is not None else old_type
+
+            # The new version inherits the old row's custom metadata, so keys a
+            # client stored (source, agent fields, ...) survive a versioned
+            # update. Lineage keys stay on the old row only (#1408).
+            inherited_metadata = (
+                self._safe_json_loads(old_metadata_str, "update_memory_versioned")
+                if old_metadata_str
+                else {}
+            )
+            inherited_metadata.pop("superseded_by", None)
+            inherited_metadata.pop("evolution_reason", None)
 
             new_hash = generate_content_hash(new_content)
             new_memory = Memory(
@@ -615,6 +626,7 @@ class MetadataMixin:
                 content_hash=new_hash,
                 tags=resolved_tags,
                 memory_type=resolved_type,
+                metadata=inherited_metadata,
             )
             store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
             if not store_ok:
