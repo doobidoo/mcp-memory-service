@@ -97,6 +97,20 @@ tool: memory_search
 args: { "query": "OAuth refactor", "limit": 5, "max_response_chars": 30000 }
 ```
 
+Query-aware summary with source hashes (opt-in; requires a configured Harvest LLM
+provider chain or `GROQ_API_KEY`):
+
+```
+tool: memory_search
+args: { "query": "What caused the replication consistency issue?", "summarize": true }
+```
+
+The successful response is JSON containing `summary`, `source_hashes`, a metadata
+`snapshot`, and counts of summarized/omitted records. Original memories stay
+stored; failures return raw results with a warning. See
+[token-efficient retrieval](../guides/token-efficient-retrieval.md#2-query-aware-search-summaries)
+for provider configuration, budgets, source validation, and follow-up retrieval.
+
 Overview, then drill in:
 
 ```
@@ -106,4 +120,3 @@ args: { "query": "authentication design", "max_entities": 5 }
 tool: memory_detail
 args: { "entity_id": "authentication-design", "limit": 20 }
 ```
-

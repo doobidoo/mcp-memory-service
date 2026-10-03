@@ -54,6 +54,22 @@ class TestToolRegistry:
         names = [t.name for t in TOOL_REGISTRY]
         assert len(names) == len(set(names)), f"Duplicates: {[n for n in names if names.count(n) > 1]}"
 
+    def test_memory_search_exposes_opt_in_summarize_flag(self):
+        from mcp_memory_service.tools.registry import TOOL_REGISTRY
+
+        search_tool = next(
+            tool for tool in TOOL_REGISTRY
+            if tool.name == "memory_search"
+        )
+
+        summarize = search_tool.input_schema["properties"].get("summarize")
+
+        assert summarize is not None
+        assert summarize["type"] == "boolean"
+        assert summarize.get("default") is False
+        assert "summarize" not in search_tool.input_schema.get("required", [])
+        assert search_tool.annotations["readOnlyHint"] is True
+
     def test_tool_has_required_fields(self):
         from mcp_memory_service.tools.registry import TOOL_REGISTRY
         for tool in TOOL_REGISTRY:
