@@ -21,7 +21,8 @@ Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`,
 
 ## 3. Classify
 
-- **MERGE**: green, no open threads, no conflicts
+- **MERGE**: green, no open threads, no conflicts, automated-review findings (Greptile
+  summary and confidence) read, and for contributor PRs the diff reviewed (`/pr-review`)
 - **QUICK-FIX**: under 10 minutes (rebase, answer a thread, approve a run) — name the fix
 - **DECISION**: needs the maintainer's judgment
 - **SKIP**: draft, red for a real reason, large
@@ -33,9 +34,10 @@ Then STOP. Merge nothing.
 
 ## 5. After approval
 
-- Merge one at a time: `gh pr merge <N> --squash --admin`. Re-fetch head SHA and
-  threads immediately before each merge.
+- Merge one at a time: `gh pr merge <N> --squash --admin --match-head-commit <sha>`.
+  Immediately before each merge, re-fetch the head SHA, its threads and its check-runs;
+  if the SHA changed or a required check is not green, stop and re-classify that PR.
 - Strict policy: after each merge, update the next PR and wait for green CI.
-- Run `collect_changelog.py` only after the last merge (it deletes the fragments).
+- Do not run `collect_changelog.py` — collecting fragments belongs to `/release`.
 - Finally remove the worktrees and sync the GitLab mirror with a proven fast-forward
   (see CLAUDE.md "Source Control & Hosting").
