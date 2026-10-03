@@ -67,7 +67,7 @@ ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
 2. **Gemini CLI** (Fallback) - 2-3s, OAuth may interrupt commits
 3. **Skip checks** - If neither available
 
-See [`.claude/agents/code-quality-guard.md`](../.claude/agents/code-quality-guard.md) for quality standards.
+See `.claude/agents/code-quality-guard.md` (local developer config, untracked since 00995fe7) for quality standards.
 
 ## gemini-pr-automator
 
@@ -96,7 +96,7 @@ bash scripts/pr/detect_breaking_changes.sh main <BRANCH>
 
 **Time Savings**: ~10-30 minutes per PR vs manual iteration.
 
-See [`.claude/agents/gemini-pr-automator.md`](../.claude/agents/gemini-pr-automator.md) for workflows.
+See `.claude/agents/gemini-pr-automator.md` (local developer config, untracked since 00995fe7) for workflows.
 
 ## amp-automation
 
@@ -108,7 +108,7 @@ See [`.claude/agents/gemini-pr-automator.md`](../.claude/agents/gemini-pr-automa
 
 **Use cases**: Focused refactorings, pre-PR quality checks, parallel analysis (no OAuth needed).
 
-See [`.claude/agents/amp-automation.md`](../.claude/agents/amp-automation.md) for details.
+See `.claude/agents/amp-automation.md` (local developer config, untracked since 00995fe7) for details.
 
 ## Claude Branch Automation 🆕
 

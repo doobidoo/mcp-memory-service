@@ -268,7 +268,7 @@ Add new safe patterns as you identify trustworthy operations in your workflow.
 
 - [Main Hooks README](README.md) - Overview of all Claude Code hooks
 - [CONFIGURATION.md](CONFIGURATION.md) - Detailed configuration guide
-- [MCP Tool Annotations](https://modelcontextprotocol.io/docs/tools/annotations) - Upstream MCP documentation
+- [MCP Tool Annotations](https://modelcontextprotocol.io/specification/latest/schema#toolannotations) - Upstream MCP documentation
 
 ## Changelog
 

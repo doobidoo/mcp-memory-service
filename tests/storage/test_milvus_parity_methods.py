@@ -37,7 +37,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from mcp_memory_service.models.memory import Memory
-from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+from mcp_memory_service.storage.milvus import MilvusDeleteError, MilvusMemoryStorage
 
 
 def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
@@ -56,6 +56,7 @@ def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
     storage._lock = None
     storage._call_client = AsyncMock()
     storage._generate_embedding = MagicMock(return_value=[0.1, 0.2, 0.3, 0.4])
+    storage._fetch_live_hashes = AsyncMock(side_effect=lambda hashes: set(hashes))
     return storage
 
 
@@ -162,12 +163,15 @@ class TestGraphVisualizationData:
 
         result = await storage.get_graph_visualization_data()
 
-        assert {n["id"] for n in result["nodes"]} == {"a", "b", "c"}
+        # Nodes are memory rows that are edge sources, matching SQLite's
+        # INNER JOIN on source_hash. b/c are targets only, so their candidate
+        # rows keep 'a' connection-eligible but are not rendered as nodes.
+        assert {n["id"] for n in result["nodes"]} == {"a"}
         node_a = next(n for n in result["nodes"] if n["id"] == "a")
         assert node_a["connections"] == 2
         assert node_a["type"] == "note"
-        assert result["meta"]["total_nodes"] == 3
-        assert result["meta"]["total_edges"] == 2
+        assert result["meta"]["total_nodes"] == 1
+        assert result["meta"]["total_edges"] == 0
 
     @pytest.mark.asyncio
     async def test_min_connections_filters_nodes(self):
@@ -203,13 +207,55 @@ class TestGraphVisualizationData:
     async def test_edges_to_unrendered_nodes_dropped(self):
         """No dangling edges: both endpoints must be in the node set."""
         storage = _make_storage()
-        storage._drain_all_graph_edges = AsyncMock(return_value=[_edge("a", "gone")])
-        storage._fetch_memories_by_hashes = AsyncMock(return_value=[_memory("a")])
+        storage._drain_all_graph_edges = AsyncMock(return_value=[_edge("a", "b")])
+        storage._fetch_memories_by_hashes = AsyncMock(
+            return_value=[_memory("a"), _memory("b")]
+        )
 
         result = await storage.get_graph_visualization_data()
 
         assert [n["id"] for n in result["nodes"]] == ["a"]
         assert result["edges"] == []
+
+    @pytest.mark.asyncio
+    async def test_deleted_targets_do_not_consume_node_limit(self):
+        """Ranking must ignore edges to rows that no longer exist."""
+        storage = _make_storage()
+        storage._drain_all_graph_edges = AsyncMock(return_value=[
+            _edge("dead-source", "gone-1"),
+            _edge("dead-source", "gone-2"),
+            _edge("live-source", "live-target"),
+        ])
+        live_hashes = {"live-source", "live-target"}
+        storage._fetch_live_hashes = AsyncMock(
+            side_effect=lambda hashes: set(hashes) & live_hashes
+        )
+        storage._fetch_memories_by_hashes = AsyncMock(
+            side_effect=lambda hashes: [_memory(h) for h in hashes]
+        )
+
+        result = await storage.get_graph_visualization_data(limit=1)
+
+        assert [n["id"] for n in result["nodes"]] == ["live-source"]
+        assert result["nodes"][0]["connections"] == 1
+        assert result["edges"] == []
+
+    @pytest.mark.asyncio
+    async def test_bounded_graph_loads_only_selected_source_records(self):
+        """A small graph request must not fetch full rows for every endpoint."""
+        storage = _make_storage()
+        storage._drain_all_graph_edges = AsyncMock(return_value=[
+            _edge("a", "b"), _edge("c", "d"), _edge("e", "f"),
+        ])
+        storage._fetch_memories_by_hashes = AsyncMock(
+            side_effect=lambda hashes: [_memory(h) for h in hashes]
+        )
+
+        result = await storage.get_graph_visualization_data(limit=1)
+
+        requested = storage._fetch_memories_by_hashes.await_args.args[0]
+        assert len(requested) == 1
+        assert len(result["nodes"]) == 1
 
     @pytest.mark.asyncio
     async def test_quality_score_read_from_metadata(self):
@@ -345,6 +391,49 @@ class TestUntaggedMemories:
         assert len(hashes) == count
         assert storage._call_client.await_count == 2
 
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_chunks_large_result_sets(self):
+        storage = _make_storage()
+        storage._collect_hashes = AsyncMock(
+            return_value=[f"h{i}" for i in range(storage._GET_BY_ID_CHUNK + 1)]
+        )
+
+        count, _message, hashes = await storage.delete_by_tags(["shared"])
+
+        assert count == storage._GET_BY_ID_CHUNK + 1
+        assert len(hashes) == count
+        assert storage._call_client.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_reports_partial_failure(self):
+        storage = _make_storage()
+        all_hashes = [f"h{i}" for i in range(storage._GET_BY_ID_CHUNK + 1)]
+        storage._collect_hashes = AsyncMock(return_value=all_hashes)
+        storage._call_client = AsyncMock(
+            side_effect=[None, RuntimeError("second chunk failed")]
+        )
+
+        with pytest.raises(MilvusDeleteError) as exc_info:
+            await storage.delete_by_tags(["shared"])
+
+        assert exc_info.value.deleted_count == storage._GET_BY_ID_CHUNK
+        assert exc_info.value.deleted_hashes == all_hashes[:storage._GET_BY_ID_CHUNK]
+        assert "Deleted 500 of 501 memories" in str(exc_info.value)
+        assert "second chunk failed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_delete_by_tags_failure_is_not_reported_as_no_matches(self):
+        storage = _make_storage()
+        storage._collect_hashes = AsyncMock(return_value=["only"])
+        storage._call_client = AsyncMock(side_effect=RuntimeError("first chunk failed"))
+
+        with pytest.raises(MilvusDeleteError) as exc_info:
+            await storage.delete_by_tags(["shared"])
+
+        assert exc_info.value.deleted_count == 0
+        assert exc_info.value.deleted_hashes == []
+        assert "first chunk failed" in str(exc_info.value)
+
 
 class TestDrainRowsLock:
 
@@ -423,6 +512,23 @@ class TestUpdateMemoryVersioned:
         assert meta_args.args[1]["metadata"]["superseded_by"] == new_hash
         assert meta_args.args[1]["metadata"]["evolution_reason"] == "corrected"
         assert meta_args.kwargs["preserve_timestamps"] is True
+
+    @pytest.mark.asyncio
+    async def test_inherits_custom_metadata_without_lineage_keys(self):
+        storage = _make_storage()
+        storage.get_by_hash = AsyncMock(return_value=_memory(
+            "oldhash", "v1", metadata={"source": "runbook", "ticket": "OPS-17"}
+        ))
+        storage.store = AsyncMock(return_value=(True, "ok"))
+        storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
+
+        await storage.update_memory_versioned("oldhash", "v2", reason="corrected")
+
+        stored: Memory = storage.store.await_args.args[0]
+        assert stored.metadata.get("source") == "runbook"
+        assert stored.metadata.get("ticket") == "OPS-17"
+        assert "superseded_by" not in stored.metadata
+        assert "evolution_reason" not in stored.metadata
 
     @pytest.mark.asyncio
     async def test_inherits_tags_and_type_when_not_overridden(self):

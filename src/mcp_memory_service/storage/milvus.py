@@ -35,15 +35,18 @@ Design notes:
 """
 
 import asyncio
+from contextlib import aclosing
+import heapq
 import json
 import logging
 import math
 import os
+import tempfile
 import time
 import traceback
 from collections import Counter
 from datetime import datetime, timezone, timedelta, date
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 # Disable wandb BEFORE importing sentence-transformers — same rationale as
 # sqlite_vec.py (Issue #311). Safe to set even when transformers is unused.
@@ -90,7 +93,7 @@ except ImportError:
 from .base import MemoryStorage
 from .milvus_expr import escape_expr_value
 from .shared import (
-    _embedding_cache_get, _embedding_cache_put, _embedding_cache_size,
+    _embedding_cache_get, _embedding_cache_put,
     _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads,
 )
@@ -122,6 +125,20 @@ _MILVUS_MAX_LIMIT = 16384
 
 # Structurally empty tag encodings used by the storage schema.
 _UNTAGGED_FILTER = 'tags == "" or tags == ","'
+
+
+class MilvusDeleteError(RuntimeError):
+    """A chunked delete failed, possibly after earlier chunks were removed."""
+
+    def __init__(
+        self,
+        message: str,
+        deleted_count: int = 0,
+        deleted_hashes: Optional[List[str]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.deleted_count = deleted_count
+        self.deleted_hashes = list(deleted_hashes or [])
 
 # Reciprocal Rank Fusion smoothing constant for hybrid search.
 # k=60 is the standard default from the RRF paper (Cormack et al., 2009).
@@ -1671,7 +1688,7 @@ class MilvusMemoryStorage(MemoryStorage):
         include_superseded: bool = False,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
-        store: Optional[str] = "default",
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # Single-collection backend — see store() for the full rationale.
@@ -1847,15 +1864,38 @@ class MilvusMemoryStorage(MemoryStorage):
         if not hashes:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        await self._call_client(
-            "delete",
-            collection_name=self.collection_name,
-            ids=hashes,
-        )
+        deleted_hashes: List[str] = []
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            try:
+                await self._call_client(
+                    "delete",
+                    collection_name=self.collection_name,
+                    ids=chunk,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "delete_by_tags failed after %d/%d memories: %s",
+                    len(deleted_hashes),
+                    len(hashes),
+                    _sanitize_log_value(exc),
+                )
+                if deleted_hashes:
+                    raise MilvusDeleteError(
+                        f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
+                        f"before deletion failed: {_sanitize_log_value(exc)}",
+                        deleted_count=len(deleted_hashes),
+                        deleted_hashes=deleted_hashes,
+                    ) from exc
+                raise MilvusDeleteError(
+                    f"Deletion failed: {_sanitize_log_value(exc)}",
+                ) from exc
+            deleted_hashes.extend(chunk)
+
         return (
-            len(hashes),
-            f"Successfully deleted {len(hashes)} memories matching {len(tags)} tag(s)",
-            hashes,
+            len(deleted_hashes),
+            f"Successfully deleted {len(deleted_hashes)} memories matching {len(tags)} tag(s)",
+            deleted_hashes,
         )
 
     async def delete_by_timeframe(
@@ -1959,7 +1999,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Reads ---------------------------------------------------------------
 
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         if not self._ensure_initialized():
             return None
 
@@ -2257,12 +2297,19 @@ class MilvusMemoryStorage(MemoryStorage):
                     new_memory_type if new_memory_type is not None else existing.memory_type
                 )
 
+                # The new version inherits the old row's custom metadata; lineage
+                # keys stay on the old row only (#1408, same rule as sqlite_vec).
+                inherited_metadata = dict(existing.metadata or {})
+                inherited_metadata.pop("superseded_by", None)
+                inherited_metadata.pop("evolution_reason", None)
+
                 new_hash = generate_content_hash(new_content)
                 new_memory = Memory(
                     content=new_content,
                     content_hash=new_hash,
                     tags=resolved_tags,
                     memory_type=resolved_type,
+                    metadata=inherited_metadata,
                 )
                 store_ok, store_msg = await self.store(
                     new_memory, skip_semantic_dedup=True,
@@ -3241,7 +3288,7 @@ class MilvusMemoryStorage(MemoryStorage):
             seen.update(tags)
         return sorted(seen)
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Tags with usage counts, ordered by count descending then tag ascending.
 
         web/api/memories.py::get_tags calls this without a hasattr guard, so its
@@ -3267,6 +3314,15 @@ class MilvusMemoryStorage(MemoryStorage):
         memories.sort(key=lambda m: len(m.content or ""), reverse=True)
         return memories[:n]
 
+    @staticmethod
+    def _is_recallable_memory(memory: Memory) -> bool:
+        """Return whether a Milvus row is live enough for recall()."""
+        metadata = memory.metadata or {}
+        return (
+            metadata.get("superseded_by") in (None, "")
+            and metadata.get("deleted_at") is None
+        )
+
     def _time_window_filter(
         self,
         start_timestamp: Optional[float] = None,
@@ -3286,6 +3342,7 @@ class MilvusMemoryStorage(MemoryStorage):
         n_results: int = 5,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None,
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         """Time-windowed retrieval, semantically ranked when a query is given.
 
@@ -3301,13 +3358,17 @@ class MilvusMemoryStorage(MemoryStorage):
             query_embedding = self._embed_query(query)
             if query_embedding is None:
                 return []
-            hits = await self._run_search(query_embedding, time_filter, n_results)
-            return self._rank_and_trim(hits, query, n_results, min_confidence=0.0)
+            return await self._recall_active_semantic(
+                query=query,
+                query_embedding=query_embedding,
+                time_filter=time_filter,
+                n_results=n_results,
+            )
 
-        memories = await self._query_memories(
-            filter_expr=time_filter,
-            limit=n_results,
-            sort_desc_key="created_at",
+        memories = await self._recall_active_time_window(
+            start_timestamp=start_timestamp,
+            end_timestamp=end_timestamp,
+            n_results=n_results,
         )
         return [
             MemoryQueryResult(
@@ -3317,6 +3378,280 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             for memory in memories
         ]
+
+    async def _recall_active_semantic(
+        self,
+        query: str,
+        query_embedding: List[float],
+        time_filter: str,
+        n_results: int,
+    ) -> List[MemoryQueryResult]:
+        """Return the top live semantic hits without starving behind tombstones.
+
+        ANN search applies the time window but cannot filter supersession because
+        ``superseded_by`` lives inside the serialized metadata column. Grow the
+        ANN window until we have enough live hits, the collection is exhausted,
+        or Milvus' per-query cap is reached. In the final pathological case,
+        scan matching rows once and rank the live subset client-side.
+        """
+        if n_results <= 0:
+            return []
+
+        fetch_n = max(1, min(n_results, _MILVUS_MAX_LIMIT))
+        while True:
+            hits = await self._run_search(query_embedding, time_filter, fetch_n)
+            ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
+            live = [
+                result
+                for result in ranked
+                if self._is_recallable_memory(result.memory)
+            ]
+
+            if len(live) >= n_results:
+                return live[:n_results]
+            if len(hits) < fetch_n:
+                return live[:n_results]
+            if fetch_n >= _MILVUS_MAX_LIMIT:
+                break
+            fetch_n = min(fetch_n * 2, _MILVUS_MAX_LIMIT)
+
+        # The fixed cap can still hide live rows behind a longer tombstone
+        # backlog. QueryIterator has no ANN limit, so use a bounded fallback
+        # scan and rank only live rows client-side.
+        rows = await self._iterate_all_rows(time_filter, include_embeddings=True)
+        hits: List[Dict[str, Any]] = []
+        for row in rows:
+            memory = self._entity_to_memory(row, include_embedding=True)
+            if memory is None or not self._is_recallable_memory(memory):
+                continue
+            if not memory.embedding:
+                continue
+            similarity = self._cosine_similarity(query_embedding, memory.embedding)
+            hits.append({
+                "id": memory.content_hash,
+                "distance": max(0.0, min(1.0, similarity)),
+                **row,
+            })
+        ranked = self._rank_and_trim(hits, query, len(hits), min_confidence=0.0)
+        return ranked[:n_results]
+
+    async def _recall_active_time_window(
+        self,
+        start_timestamp: Optional[float],
+        end_timestamp: Optional[float],
+        n_results: int,
+    ) -> List[Memory]:
+        """Return newest live memories with bounded, newest-first range queries.
+
+        Milvus has no server-side ``order_by``. Query the original time window,
+        splitting a saturated range until each piece fits in one bounded RPC.
+        Ranges are explored newest-first so a full scan is unnecessary unless a
+        single timestamp contains a pathologically long superseded backlog.
+        """
+        if n_results <= 0:
+            return []
+
+        lower = 0.0 if start_timestamp is None else float(start_timestamp)
+        upper = 1e18 if end_timestamp is None else float(end_timestamp)
+        if upper < lower:
+            return []
+
+        batch_size = max(100, min(n_results * 4, _MILVUS_MAX_LIMIT))
+        intervals = [(-upper, lower, upper)]
+        candidates: Dict[str, Memory] = {}
+
+        def remember_live(memories: List[Memory]) -> None:
+            for memory in memories:
+                if self._is_recallable_memory(memory):
+                    candidates[memory.content_hash] = memory
+            if len(candidates) > max(batch_size, n_results * 4):
+                newest = sorted(
+                    candidates.values(),
+                    key=lambda memory: memory.created_at or 0.0,
+                    reverse=True,
+                )[:n_results]
+                candidates.clear()
+                candidates.update({memory.content_hash: memory for memory in newest})
+
+        while intervals:
+            _, range_start, range_end = heapq.heappop(intervals)
+            if len(candidates) >= n_results:
+                nth_newest = min(
+                    memory.created_at or 0.0 for memory in candidates.values()
+                )
+                if range_end <= nth_newest:
+                    continue
+
+            range_filter = self._time_window_filter(range_start, range_end)
+            memories, raw_count = await self._query_time_window(
+                range_filter, batch_size
+            )
+            remember_live(memories)
+
+            if raw_count < batch_size:
+                continue
+
+            timestamps = {memory.created_at or 0.0 for memory in memories}
+            if len(timestamps) == 1:
+                timestamp = timestamps.pop()
+                older_end = math.nextafter(timestamp, float("-inf"))
+                newer_start = math.nextafter(timestamp, float("inf"))
+                if range_start <= older_end:
+                    heapq.heappush(intervals, (-older_end, range_start, older_end))
+                if newer_start <= range_end:
+                    heapq.heappush(intervals, (-range_end, newer_start, range_end))
+
+                exact_filter = self._time_window_filter(timestamp, timestamp)
+                async with aclosing(
+                    self._iter_time_window_batches(exact_filter, batch_size)
+                ) as batches:
+                    async for exact, raw_count in batches:
+                        remember_live(exact)
+                        if len(candidates) >= n_results or raw_count < batch_size:
+                            break
+                continue
+
+            if range_end - range_start <= 1e-6:
+                if len(candidates) >= n_results:
+                    continue
+                rows = await self._iterate_all_rows(range_filter)
+                fallback_memories = []
+                for row in rows:
+                    memory = self._entity_to_memory(row)
+                    if memory is not None:
+                        fallback_memories.append(memory)
+                remember_live(fallback_memories)
+                continue
+
+            midpoint = (range_start + range_end) / 2
+            heapq.heappush(intervals, (-midpoint, range_start, midpoint))
+            heapq.heappush(intervals, (-range_end, midpoint, range_end))
+
+        newest = sorted(
+            candidates.values(),
+            key=lambda memory: memory.created_at or 0.0,
+            reverse=True,
+        )
+        return newest[:n_results]
+
+    async def _iter_time_window_batches(
+        self,
+        time_filter: str,
+        batch_size: int,
+    ) -> AsyncIterator[Tuple[List[Memory], int]]:
+        """Yield bounded recall pages and their raw Milvus row counts.
+
+        ``QueryIterator`` owns the official PK-cursor + snapshot protocol. If
+        Milvus Lite's channel dies, recreate the iterator from the same
+        checkpoint file so the reconnect resumes that snapshot and cursor
+        instead of calling ``next()`` on the stale object.
+        """
+        batch_size = max(1, min(batch_size, _MILVUS_MAX_LIMIT))
+        checkpoint_dir = tempfile.mkdtemp(prefix="mcp-milvus-recall-")
+        checkpoint_path = os.path.join(checkpoint_dir, "iterator.cp")
+        iterator = None
+        reconnect_attempts = 0
+        try:
+            while True:
+                if iterator is None:
+                    iterator = await self._call_client(
+                        "query_iterator",
+                        collection_name=self.collection_name,
+                        filter=time_filter or "",
+                        output_fields=list(self._OUTPUT_FIELDS_BASE),
+                        batch_size=batch_size,
+                        iterator_cp_file=checkpoint_path,
+                    )
+
+                try:
+                    async with self._write_lock:
+                        batch = await asyncio.to_thread(iterator.next)
+                except Exception as exc:  # noqa: BLE001
+                    if (
+                        self._is_lite
+                        and self._is_lite_dead_channel_error(exc)
+                        and reconnect_attempts < 2
+                    ):
+                        reconnect_attempts += 1
+                        logger.warning(
+                            "Milvus Lite channel died while paging recall; "
+                            "resuming iterator from checkpoint: %s",
+                            _sanitize_log_value(exc),
+                        )
+                        old_handler = getattr(iterator, "_cp_file_handler", None)
+                        if old_handler is not None:
+                            try:
+                                old_handler.close()
+                            except Exception:  # noqa: BLE001 — best effort
+                                pass
+                        async with self._write_lock:
+                            self._reconnect_lite_client()
+                        iterator = None
+                        continue
+                    raise
+
+                if not batch:
+                    break
+                memories: List[Memory] = []
+                for row in batch:
+                    memory = self._entity_to_memory(row)
+                    if memory is not None:
+                        memories.append(memory)
+                yield memories, len(batch)
+        finally:
+            if iterator is not None:
+                try:
+                    async with self._write_lock:
+                        await asyncio.to_thread(iterator.close)
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    logger.debug(
+                        "Milvus query iterator close failed (ignored): %s",
+                        _sanitize_log_value(exc),
+                    )
+            try:
+                os.unlink(checkpoint_path)
+            except OSError as exc:
+                logger.debug(
+                    "Milvus iterator checkpoint cleanup skipped for %s: %s",
+                    _sanitize_log_value(checkpoint_path),
+                    _sanitize_log_value(exc),
+                )
+            try:
+                os.rmdir(checkpoint_dir)
+            except OSError as exc:
+                logger.debug(
+                    "Milvus iterator checkpoint directory cleanup skipped for %s: %s",
+                    _sanitize_log_value(checkpoint_dir),
+                    _sanitize_log_value(exc),
+                )
+
+    async def _query_time_window(
+        self,
+        time_filter: str,
+        limit: int,
+    ) -> Tuple[List[Memory], int]:
+        """Return a bounded page and its raw scalar-query row count."""
+        try:
+            rows = await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=time_filter or "",
+                output_fields=list(self._OUTPUT_FIELDS_BASE),
+                limit=limit,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Milvus time-window query failed: %s",
+                _sanitize_log_value(exc),
+            )
+            raise
+
+        memories: List[Memory] = []
+        for row in rows:
+            memory = self._entity_to_memory(row)
+            if memory is not None:
+                memories.append(memory)
+        return memories, len(rows)
 
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         return await self.get_all_memories(limit=n, offset=0)
@@ -3559,7 +3894,7 @@ class MilvusMemoryStorage(MemoryStorage):
             include_embeddings=include_embeddings,
         )
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         if not self._ensure_initialized():
             return []
 
@@ -3876,12 +4211,50 @@ class MilvusMemoryStorage(MemoryStorage):
                     memories.append(memory)
         return memories
 
+    async def _fetch_live_hashes(self, hashes: List[str]) -> set[str]:
+        """Return the subset of ``hashes`` with a live memory row.
+
+        Graph ranking only needs primary keys and tombstone status, so this uses
+        bounded scalar queries instead of loading full memory records for every
+        endpoint in a potentially large graph.
+        """
+        if not hashes or not self._ensure_initialized():
+            return set()
+
+        live: set[str] = set()
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            id_list = ", ".join(f'"{escape_expr_value(value)}"' for value in chunk)
+            try:
+                rows = await self._call_client(
+                    "query",
+                    collection_name=self.collection_name,
+                    filter=f"id in [{id_list}]",
+                    output_fields=["id", "metadata"],
+                    limit=len(chunk),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Batch live-hash query failed: %s",
+                    _sanitize_log_value(exc),
+                )
+                continue
+            for row in rows or []:
+                row_id = row.get("id")
+                if row_id and self._row_is_live(row):
+                    live.add(row_id)
+        return live
+
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
         min_connections: int = 1,
+        store: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Return D3-compatible graph data for the analytics dashboard.
+
+        ``store`` is accepted for BaseStorage parity; this single-collection
+        backend has no partition key to apply.
 
         Node connection counts use DISTINCT targets per source, matching
         SQLite's ``COUNT(DISTINCT mg.target_hash)``. Edges are restricted to
@@ -3912,7 +4285,10 @@ class MilvusMemoryStorage(MemoryStorage):
         if not rows:
             return empty
 
-        # Connection count per source = number of distinct targets.
+        # Build raw source candidates first, then resolve liveness in bounded
+        # batches. SQLite's node query joins both endpoint memories with
+        # ``deleted_at IS NULL``; if Milvus ranks first, a dead target can fill
+        # the requested node limit and crowd out live memories.
         targets_by_source: Dict[str, set] = {}
         for row in rows:
             # has_entity targets are entity keys, not memory hashes. They are
@@ -3925,13 +4301,47 @@ class MilvusMemoryStorage(MemoryStorage):
             if src and tgt:
                 targets_by_source.setdefault(src, set()).add(tgt)
 
+        candidates = sorted(
+            targets_by_source.items(),
+            key=lambda item: len(item[1]),
+            reverse=True,
+        )
+        if not candidates:
+            return empty
+
+        selected_counts: Dict[str, int] = {}
+        batch_size = max(10, min(limit * 2, 100))
+        index = 0
+        while index < len(candidates):
+            if len(selected_counts) >= limit:
+                cutoff = min(selected_counts.values())
+                if len(candidates[index][1]) <= cutoff:
+                    break
+
+            batch = candidates[index:index + batch_size]
+            lookup_hashes = {src for src, _targets in batch}
+            for _src, targets in batch:
+                lookup_hashes.update(targets)
+            live_hashes = await self._fetch_live_hashes(sorted(lookup_hashes))
+
+            for src, targets in batch:
+                if src not in live_hashes:
+                    continue
+                connection_count = len(targets & live_hashes)
+                if connection_count >= min_connections:
+                    selected_counts[src] = connection_count
+
+            if len(selected_counts) > limit:
+                selected_counts = dict(sorted(
+                    selected_counts.items(),
+                    key=lambda item: item[1],
+                    reverse=True,
+                )[:limit])
+            index += len(batch)
+
         ranked = sorted(
-            (
-                (src, len(targets))
-                for src, targets in targets_by_source.items()
-                if len(targets) >= min_connections
-            ),
-            key=lambda pair: pair[1],
+            selected_counts.items(),
+            key=lambda item: item[1],
             reverse=True,
         )[:limit]
         if not ranked:
@@ -3940,7 +4350,11 @@ class MilvusMemoryStorage(MemoryStorage):
         connection_counts = dict(ranked)
         node_hashes = set(connection_counts)
 
-        memories = await self._fetch_memories_by_hashes(list(node_hashes))
+        memories = await self._fetch_memories_by_hashes(sorted(node_hashes))
+        memories = [
+            memory for memory in memories
+            if memory.content_hash in node_hashes
+        ]
         nodes = []
         for memory in memories:
             metadata = memory.metadata or {}

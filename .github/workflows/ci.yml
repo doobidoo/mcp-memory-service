@@ -4,13 +4,45 @@ on:
   push:
     branches: [main]
     paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
+  # No paths-ignore on pull_request: the test jobs are required checks, and a
+  # workflow that never starts never reports them, so a docs-only PR would wait
+  # forever. The `changes` job below skips the test matrix instead; a job skipped
+  # through `if:` reports success to a required check.
   pull_request:
     branches: [main]
-    # '*.md' matches the repository root only. changelog.d/ is listed on its own so
-    # a docs-only PR that carries a fragment does not start the full test matrix.
-    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    name: Classify change (docs-only)
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+    # fetch-depth: 2 so the PR merge commit has its base parent: HEAD^1..HEAD is
+    # exactly what the PR changes.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 2
+    # Reuses is_docs_only() from the pre-PR gate, so CI and the local gate cannot
+    # disagree about what counts as docs-only; the list matches push's
+    # paths-ignore above ('*.md' at the repository root only), and
+    # tests/ci/test_pre_pr_check.sh pins the two together. The function is read
+    # from the base commit (HEAD^1), not the PR: a PR that edits is_docs_only()
+    # must not be able to classify its own code as docs-only and skip the
+    # required tests. If it cannot be read, is_docs_only is undefined, the test
+    # fails, and the tests run. Pushes to main always count as code: push keeps
+    # its own paths-ignore.
+    - name: Classify the changed files
+      id: classify
+      run: |
+        eval "$(git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\(\) \{/,/^\}/')"
+        code=true
+        if [ "$GITHUB_EVENT_NAME" = pull_request ] && is_docs_only "$(git diff --name-only HEAD^1 HEAD)"; then
+          code=false
+        fi
+        echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
   version-drift-check:
     runs-on: ubuntu-latest
     name: Version Drift (site/index.html)
@@ -117,7 +149,9 @@ jobs:
     # takes effect on the next event the PR emits, so push a commit or update the
     # branch from main after labelling. scripts/ci/check_tests_prove_fix.sh has
     # the details and tests/ci/test_check_tests_prove_fix.sh covers it.
+    needs: changes
     if: >-
+      !cancelled() && needs.changes.outputs.code != 'false' &&
       github.event_name == 'pull_request' &&
       !contains(github.event.pull_request.labels.*.name, 'skip-prove-fix')
     steps:
@@ -139,12 +173,18 @@ jobs:
       run: bash scripts/ci/check_tests_prove_fix.sh "origin/$BASE_REF"
 
   # changelog-entry lives in changelog.yml: it has to validate fragments on PRs
-  # that this workflow's paths-ignore skips.
+  # whose test matrix this workflow skips.
 
+  # The test jobs below wait for `changes` and skip on a docs-only PR. The
+  # condition reads `!= 'false'` with `!cancelled()` so that a failed `changes`
+  # job runs the tests instead of skipping them: a skip reports success to a
+  # required check, and a broken classifier must not turn into a green board.
   test:
     runs-on: ubuntu-latest
     name: Tests + Coverage
     timeout-minutes: 20
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,6 +228,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Tests with ML Extras (transformers paths)
     timeout-minutes: 40
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -253,6 +295,10 @@ jobs:
     runs-on: ubuntu-latest
     name: Tests with the milvus extra (${{ matrix.leg }})
     timeout-minutes: 40
+    # Not a required check: a matrix job skipped through `if:` reports under its
+    # unexpanded name, so "(pinned)" would never arrive on a docs-only PR.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     # The 12 tests/storage/test_milvus*.py files run against Milvus Lite (a
     # single local file, no server), so they need no Docker at all — but they
     # importorskip pymilvus and milvus-lite, and MilvusMemoryStorage refuses to

@@ -38,7 +38,7 @@ def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
         arr = np.frombuffer(blob, dtype=np.float32)
         return arr.tolist()
     except Exception as e:
-        logger.warning(f"Failed to deserialize embedding: {e}")
+        logger.warning("Failed to deserialize embedding: %s", _sanitize_log_value(e))
         return None
 
 
@@ -79,7 +79,7 @@ class BaseMixin:
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else '.', exist_ok=True)
 
-        logger.info(f"Initialized SQLite-vec storage at: {self.db_path}")
+        logger.info("Initialized SQLite-vec storage at: %s", _sanitize_log_value(self.db_path))
 
     def _safe_json_loads(self, json_str: str, context: str = "") -> dict:
         """Safely parse JSON with comprehensive error handling and logging."""
@@ -88,14 +88,14 @@ class BaseMixin:
         try:
             result = json.loads(json_str)
             if not isinstance(result, dict):
-                logger.warning(f"Non-dict JSON in {context}: {type(result)}")
+                logger.warning("Non-dict JSON in %s: %s", context, _sanitize_log_value(type(result)))
                 return {}
             return result
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error in {context}: {e}, data: {json_str[:100]}...")
+            logger.error("JSON decode error in %s: %s, data: %s...", context, _sanitize_log_value(e), _sanitize_log_value(json_str[:100]))
             return {}
         except TypeError as e:
-            logger.error(f"JSON type error in {context}: {e}")
+            logger.error("JSON type error in %s: %s", context, _sanitize_log_value(e))
             return {}
 
     async def _run_in_thread(self, operation: Callable, *args):
@@ -124,12 +124,12 @@ class BaseMixin:
                 if "locked" in error_msg or "busy" in error_msg:
                     if attempt < max_retries:
                         jittered_delay = delay * (1 + random.uniform(-0.1, 0.1))
-                        logger.warning(f"Database locked, retrying in {jittered_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        logger.warning("Database locked, retrying in %.2fs (attempt %s/%s)", jittered_delay, attempt + 1, max_retries)
                         await asyncio.sleep(jittered_delay)
                         delay *= 2
                         continue
                     else:
-                        logger.error(f"Database locked after {max_retries} retries")
+                        logger.error("Database locked after %s retries", max_retries)
                 else:
                     raise
             except Exception:
@@ -221,10 +221,10 @@ To switch backends permanently, set: MCP_MEMORY_STORAGE_BACKEND=cloudflare
                 try:
                     timeout_ms = int(pragma_pair.split("=")[1].strip())
                     timeout_seconds = timeout_ms / 1000.0
-                    logger.info(f"Using custom timeout: {timeout_seconds}s from MCP_MEMORY_SQLITE_PRAGMAS")
+                    logger.info("Using custom timeout: %ss from MCP_MEMORY_SQLITE_PRAGMAS", timeout_seconds)
                     return timeout_seconds
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse busy_timeout from env: {e}, using default {timeout_seconds}s")
+                    logger.warning("Failed to parse busy_timeout from env: %s, using default %ss", _sanitize_log_value(e), timeout_seconds)
                     return timeout_seconds
 
         return timeout_seconds
@@ -296,14 +296,14 @@ SOLUTIONS:
                 if "=" in pragma_pair:
                     pragma_name, pragma_value = pragma_pair.split("=", 1)
                     default_pragmas[pragma_name.strip()] = pragma_value.strip()
-                    logger.debug(f"Custom pragma: {pragma_name}={pragma_value}")
+                    logger.debug("Custom pragma: %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))
 
         for pragma_name, pragma_value in default_pragmas.items():
             try:
                 self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
-                logger.debug(f"Applied pragma: {pragma_name}={pragma_value}")
+                logger.debug("Applied pragma: %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))
             except sqlite3.Error as e:
-                logger.warning(f"Failed to apply pragma {pragma_name}: {e}")
+                logger.warning("Failed to apply pragma %s: %s", _sanitize_log_value(pragma_name), _sanitize_log_value(e))
 
     def _reject_directory_path(self) -> None:
         """
@@ -383,7 +383,7 @@ SOLUTIONS:
             )
 
         except Exception as e:
-            logger.error(f"Error converting row to memory: {str(e)}")
+            logger.error("Error converting row to memory: %s", _sanitize_log_value(e))
             return None
 
     @staticmethod
