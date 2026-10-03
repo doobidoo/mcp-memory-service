@@ -61,6 +61,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
     "mcp_memory_service/web/api/memories.py",
+    "mcp_memory_service/web/sse.py",
+    "mcp_memory_service/server/environment.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -116,6 +118,17 @@ EXTERNAL_NAMES = frozenset({
     # server at registration, but it is still data the log did not produce.
     "client_id",
     "scope",
+    # web/sse.py logs the address a connection came from, taken off the request.
+    "client_ip",
+    # ...and the Last-Event-ID header the client resumes from.
+    "last_event_id",
+    # What server/environment.py logs about the host it runs on: the venv and
+    # site-packages paths come from the filesystem and `site`, and the installed
+    # version is whatever the package metadata says. `path` is listed above;
+    # the source version is the package's own constant and stays unlisted.
+    "venv_path",
+    "user_path",
+    "installed_version",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -384,6 +397,40 @@ def test_lazy_scan_flags_oauth_client_values():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("algorithm: %s", algorithm)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_sse_client_address():
+    """What web/sse.py logs about a connection: the address and the Last-Event-ID.
+
+    The guarded call already wraps it, so the module scan stays green whether or
+    not the name is listed; this sample fails if the entry is dropped.
+    """
+    assert _lazy_findings('logger.info("from %s", client_ip)\n')
+    assert not _lazy_findings('logger.info("from %s", _sanitize_log_value(client_ip))\n')
+    assert _lazy_findings('logger.info("after %s", last_event_id)\n')
+    assert not _lazy_findings('logger.info("after %s", _sanitize_log_value(last_event_id))\n')
+
+
+def test_lazy_scan_flags_environment_host_values():
+    """What server/environment.py logs about the host: paths and the installed version.
+
+    Every guarded logger call in the module already wraps them, so the module
+    scan stays green whether or not the names are listed. These are the samples
+    that fail if an entry is dropped from EXTERNAL_NAMES; the package's own
+    `source_version` stays unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.debug("Added venv path: %s", venv_path)\n',
+         'logger.debug("Added venv path: %s", _sanitize_log_value(venv_path))\n'),
+        ('logger.debug("Added user site-packages: %s", user_path)\n',
+         'logger.debug("Added user site-packages: %s", _sanitize_log_value(user_path))\n'),
+        ('logger.warning("Installed: v%s", installed_version)\n',
+         'logger.warning("Installed: v%s", _sanitize_log_value(installed_version))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.debug("Version check OK: v%s", source_version)\n')
 
 
 @pytest.mark.unit
