@@ -12,6 +12,10 @@ Full release cycle automation: list open PRs, merge approved, verify CI, check l
 
 Security alert triage & remediation: scan Dependabot/CodeQL/secret scanning alerts, classify severity + complexity, create fix branches, implement fixes, open PRs, save patterns to MCP Memory.
 
+### `/merge-sweep`
+
+Merge round for open PRs: check CI per head SHA, open review threads, conflicts and Dependabot bounds, classify each PR (merge / quick-fix / decision / skip), present one table, and merge one by one only after approval.
+
 ### `/refactor-function` (PoC)
 
 Automated function complexity reduction using multi-agent workflow.

@@ -483,6 +483,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   change no Python test can reach runs none. CI's `Tests + Coverage` still runs the full
   suite as a required check, and `PRE_PR_FULL_SUITE=1` runs it locally. On this branch
   the gate went from more than seven minutes to 41 seconds.
+- **`server/handlers/utility.py` and `server/handlers/documents.py` cleared of unsanitised logger calls (#1433, mrhard9090; part of #1146).**
+  The health, cache-stats and ingestion handlers logged backend and parser error text, the logged
+  health result and tracebacks through f-strings or unwrapped arguments, so a value carrying a newline
+  could write forged lines into the server log. Those values now go through `_sanitize_log_value`
+  with `%`-style lazy formatting and every line reads as before. Both modules are in `GUARDED_MODULES`,
+  and `tests/server/test_handlers_logging.py` drives the handlers under `caplog` with a newline in
+  each error.
+- **`web/api/server.py`, `web/api/mcp.py` and `web/api/oauth_status.py` cleared of unsanitised logger calls (#1434, mrhard9090; part of #1146).**
+  The restart and update endpoints logged the executable path, the exception and git/pip output, the MCP
+  endpoint logged request-driven errors, and the OAuth status endpoint logged storage errors, through
+  f-strings, so a value carrying a newline could write forged lines into the server log. Those values now
+  go through `_sanitize_log_value` with `%`-style lazy formatting and every line reads as before. The three
+  modules are in `GUARDED_MODULES`, and `tests/web/test_web_api_misc_logging.py` drives the endpoints under
+  `caplog` with a newline in each error.
+- **`/merge-sweep` command for merge rounds over open PRs (#1435).**
+  The prompt that worked for clearing cheap-to-merge PRs now lives in
+  `.claude/commands/merge-sweep.md`: it checks CI per head SHA, open review threads,
+  conflicts and Dependabot bounds, classifies each PR, and merges nothing until the
+  maintainer approves the table.
+- **`web/api/quality.py` cleared of unsanitised logger calls (#1436, mrhard9090; part of #1146).**
+  The rate, evaluate and get-quality endpoints logged the exception text of a failed request unwrapped,
+  and the rest of the module logged through f-strings, so a value carrying a newline could write forged
+  lines into the server log. Those values now go through `_sanitize_log_value` with `%`-style lazy
+  formatting and every line reads as before. The module is in `GUARDED_MODULES`, and
+  `tests/web/test_quality_api_logging.py` drives the three endpoints under `caplog` with a newline in
+  each error.
+- **`mcp_server.py` cleared of unsanitised logger calls (#1437, massimiliano1991; part of #1146).**
+  The FastMCP entry point logged the storage backend name, the storage cache key,
+  the HTTP host and the exception text of a failing graph storage straight into
+  the record. Those values now go through `_sanitize_log_value`; the cache
+  counters and timings use `%`-style lazy formatting, so every log line reads as
+  before. The module is in `GUARDED_MODULES` and the ratchet holds it; a `caplog`
+  test drives the lifespan with pre-filled caches and reads what it emits.
 
 ## [11.14.0] - 2026-09-25
 

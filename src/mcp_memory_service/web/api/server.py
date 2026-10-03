@@ -36,6 +36,8 @@ try:
 except (ImportError, AttributeError):
     __version__ = "0.0.0.dev0"
 
+from ...compat import _sanitize_log_value
+
 # OAuth authentication imports
 from ..oauth.middleware import require_read_access, require_admin_access, AuthenticationResult
 
@@ -212,9 +214,9 @@ async def _restart_server_delayed():
     except PermissionError:
         logger.error("Failed to restart server: insufficient permissions")
     except FileNotFoundError:
-        logger.error(f"Failed to restart server: executable not found: {sys.executable}")
+        logger.error("Failed to restart server: executable not found: %s", _sanitize_log_value(sys.executable))
     except Exception as e:
-        logger.error(f"Failed to restart server: {type(e).__name__} - {e}")
+        logger.error("Failed to restart server: %s - %s", _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
         sys.exit(1)
 
 
@@ -412,7 +414,7 @@ async def update_server(
     git_output, git_success = _run_git_command(['pull', 'origin', 'main'])
 
     if not git_success:
-        logger.error(f"AUDIT: Server update aborted — git pull failed: {git_output}")
+        logger.error("AUDIT: Server update aborted — git pull failed: %s", _sanitize_log_value(git_output))
         raise HTTPException(
             status_code=500,
             detail=f"Git pull failed: {git_output}",
@@ -422,7 +424,7 @@ async def update_server(
     pip_output, pip_success = _run_pip_command(['install', '-e', '.'])
 
     if not pip_success:
-        logger.error(f"AUDIT: Server update aborted — pip install failed: {pip_output}")
+        logger.error("AUDIT: Server update aborted — pip install failed: %s", _sanitize_log_value(pip_output))
         raise HTTPException(
             status_code=500,
             detail=f"Pip install failed (git pull already succeeded — repository is at the new revision but dependencies are not installed): {pip_output}",
