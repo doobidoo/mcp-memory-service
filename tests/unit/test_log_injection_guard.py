@@ -60,12 +60,15 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/server/handlers/utility.py",
+    "mcp_memory_service/server/handlers/documents.py",
     "mcp_memory_service/web/api/server.py",
     "mcp_memory_service/web/api/mcp.py",
     "mcp_memory_service/web/api/oauth_status.py",
     "mcp_memory_service/web/api/memories.py",
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
+    "mcp_memory_service/mcp_server.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -132,6 +135,7 @@ EXTERNAL_NAMES = frozenset({
     "venv_path",
     "user_path",
     "installed_version",
+    "cache_key", "HTTP_HOST",
     # Output of the git and pip commands web/api/server.py runs during an update.
     "git_output",
     "pip_output",
@@ -440,6 +444,26 @@ def test_lazy_scan_flags_environment_host_values():
 
 
 @pytest.mark.unit
+def test_lazy_scan_flags_mcp_server_cache_key_and_host():
+    """cache_key and HTTP_HOST carry environment values into mcp_server.py's log.
+
+    The cache key is the storage backend joined to the database path, both
+    read from the environment; HTTP_HOST is the bind address from the
+    environment. Every guarded logger call that hands either name is already
+    wrapped, so the module scan stays green whether or not they are listed.
+    This is the sample that fails if either entry is dropped from
+    EXTERNAL_NAMES.
+    """
+    for bare, wrapped in (
+        ('logger.info("Cached storage instance (key: %s)", cache_key)\n',
+         'logger.info("Cached storage instance (key: %s)", _sanitize_log_value(cache_key))\n'),
+        ('logger.info("Starting server on %s:%s", HTTP_HOST, HTTP_PORT)\n',
+         'logger.info("Starting server on %s:%s", _sanitize_log_value(HTTP_HOST), HTTP_PORT)\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+
+
 def test_lazy_scan_flags_update_command_output():
     """What web/api/server.py logs when an update step fails: the git and pip output."""
     for name in ("git_output", "pip_output"):

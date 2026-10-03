@@ -427,6 +427,7 @@ Key routing rules:
 - Codebase / architecture question → invoke /graphify (see the graphify section below)
 - Contributor issue, PR comment, feature proposal, off-platform message → invoke /contributor-triage
 - Reviewing an incoming PR diff → invoke /pr-review
+- Merge round over open PRs ("merge what is cheap to merge") → invoke /merge-sweep
 - Release or version bump → invoke /release, never bump by hand
 - Server won't start, MCP tools hang, sync or backend trouble → invoke /memory-service-doctor
 - Evaluating an external repo, tool, or MCP server for adoption → invoke /repo-adoption-eval
