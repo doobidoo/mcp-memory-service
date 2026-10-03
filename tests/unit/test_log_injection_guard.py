@@ -60,6 +60,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/server/environment.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -115,6 +116,13 @@ EXTERNAL_NAMES = frozenset({
     # server at registration, but it is still data the log did not produce.
     "client_id",
     "scope",
+    # What server/environment.py logs about the host it runs on: the venv and
+    # site-packages paths come from the filesystem and `site`, and the installed
+    # version is whatever the package metadata says. `path` is listed above;
+    # the source version is the package's own constant and stays unlisted.
+    "venv_path",
+    "user_path",
+    "installed_version",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -383,6 +391,28 @@ def test_lazy_scan_flags_oauth_client_values():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("algorithm: %s", algorithm)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_environment_host_values():
+    """What server/environment.py logs about the host: paths and the installed version.
+
+    Every guarded logger call in the module already wraps them, so the module
+    scan stays green whether or not the names are listed. These are the samples
+    that fail if an entry is dropped from EXTERNAL_NAMES; the package's own
+    `source_version` stays unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.debug("Added venv path: %s", venv_path)\n',
+         'logger.debug("Added venv path: %s", _sanitize_log_value(venv_path))\n'),
+        ('logger.debug("Added user site-packages: %s", user_path)\n',
+         'logger.debug("Added user site-packages: %s", _sanitize_log_value(user_path))\n'),
+        ('logger.warning("Installed: v%s", installed_version)\n',
+         'logger.warning("Installed: v%s", _sanitize_log_value(installed_version))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.debug("Version check OK: v%s", source_version)\n')
 
 
 @pytest.mark.unit
