@@ -1702,7 +1702,8 @@ class HybridMemoryStorage(MemoryStorage):
                             'tags': memory.tags,
                             'metadata': memory.metadata,
                             'memory_type': memory.memory_type
-                        }
+                        },
+                        preserve_timestamps=preserve_timestamps
                     )
                     # Don't await - queue asynchronously for background processing
                     try:
