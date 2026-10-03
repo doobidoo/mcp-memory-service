@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Union
 
 from fastapi import APIRouter, Depends, Response, Request
 from fastapi.responses import JSONResponse
+from mcp import types
 from pydantic import BaseModel, ConfigDict
 
 from ..._version import __version__
@@ -152,14 +153,41 @@ def _tool_to_dict(tool) -> Dict[str, Any]:
     }
 
 
-def _wrap_tool_result(text_contents) -> Dict[str, Any]:
-    """Pack a `list[mcp.types.TextContent]` into an MCP `tools/call` result."""
+def _wrap_tool_result(result) -> Dict[str, Any]:
+    """Pack the shared dispatcher result into an MCP ``tools/call`` result."""
+
+    if isinstance(result, types.CallToolResult):
+        payload = {
+            "content": [
+                {"type": tc.type, "text": tc.text}
+                for tc in result.content
+            ],
+        }
+        if result.isError:
+            payload["isError"] = True
+        if result.structuredContent is not None:
+            payload["structuredContent"] = result.structuredContent
+        return payload
+
     return {
         "content": [
             {"type": "text", "text": tc.text}
-            for tc in text_contents
+            for tc in result
         ]
     }
+
+
+def _connection_fallback_key(http_request: Request, user) -> str:
+    """Return a non-agent fallback key for the HTTP transport."""
+
+    client = getattr(http_request, "client", None)
+    host = getattr(client, "host", None) if client is not None else None
+    if host:
+        return f"http-ip:{host}"
+    client_id = getattr(user, "client_id", None)
+    if client_id:
+        return f"oauth-client:{client_id}"
+    return "http-unknown"
 
 
 @router.post("/")
@@ -256,13 +284,22 @@ async def mcp_endpoint(
                     status_code=403,
                 )
 
-            # Inject X-Agent-ID header if agent_id argument not explicitly provided
-            if not arguments.get("agent_id"):
-                header_agent_id = http_request.headers.get("X-Agent-ID")
-                if header_agent_id:
-                    arguments["agent_id"] = header_agent_id.strip()
+            # Inject X-Agent-ID header if agent_id argument not explicitly
+            # provided. Keep the header as a separate rate-limit identity hint
+            # because an explicit agent_id may be a search/list filter rather
+            # than the caller's identity.
+            header_agent_id = http_request.headers.get("X-Agent-ID")
+            if header_agent_id:
+                header_agent_id = header_agent_id.strip()
+            if not arguments.get("agent_id") and header_agent_id:
+                arguments["agent_id"] = header_agent_id
 
-            text_contents = await server.call_tool(tool_name, arguments)
+            text_contents = await server.call_tool(
+                tool_name,
+                arguments,
+                fallback_key=_connection_fallback_key(http_request, user),
+                agent_id_hint=header_agent_id,
+            )
             response = MCPResponse(
                 id=request.id,
                 result=_wrap_tool_result(text_contents),

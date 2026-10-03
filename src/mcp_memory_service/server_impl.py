@@ -121,6 +121,7 @@ from .models.memory import Memory
 from .utils.system_detection import (
     get_system_info,
 )
+from .utils.tool_rate_limit import ToolRateLimiter
 from .services.memory_service import MemoryService
 
 # Consolidation system imports (conditional)
@@ -271,6 +272,11 @@ class MemoryServer:
 
         # Initialize query time tracking
         self.query_times = deque(maxlen=50)  # Keep last 50 query times for averaging
+
+        # Dispatcher-level per-agent/per-tool rate limiting. The limiter is
+        # process-local and disabled by default unless the configuration env
+        # vars are set.
+        self._tool_rate_limiter = ToolRateLimiter()
 
         # Initialize progress tracking
         self.current_progress = {}  # Track ongoing operations
@@ -1511,11 +1517,91 @@ class MemoryServer:
             logger.error("Error in list_tools: %s", _sanitize_log_value(e))
             return []
 
-    async def call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
+    def _rate_limit_identity(
+        self,
+        arguments: dict,
+        fallback_key: str | None,
+        agent_id_hint: str | None,
+    ) -> str:
+        """Resolve an isolated rate-limit key for the current tool call."""
+
+        candidates = [agent_id_hint, arguments.get("agent_id")]
+        metadata = arguments.get("metadata")
+        if isinstance(metadata, dict):
+            candidates.append(metadata.get("agent_id"))
+        candidates.append(os.environ.get("MCP_AGENT_ID"))
+
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return f"agent:{candidate.strip()}"
+
+        if isinstance(fallback_key, str) and fallback_key.strip():
+            return f"fallback:{fallback_key.strip()}"
+
+        try:
+            session = self.server.request_context.session
+        except (AttributeError, LookupError):
+            session = None
+        if session is not None:
+            return f"session:{id(session)}"
+
+        # Direct calls outside a transport have no connection identity. Keep
+        # them isolated to this server instance rather than sharing a global
+        # process-wide bucket.
+        return f"server:{id(self)}"
+
+    @staticmethod
+    def _rate_limit_error(
+        tool_name: str,
+        decision,
+    ) -> types.CallToolResult:
+        """Build the standard MCP tool-error result for a denied call."""
+
+        payload = {
+            "error": {
+                "code": -32029,
+                "type": "rate_limit_exceeded",
+                "message": "MCP tool rate limit exceeded",
+                "tool": tool_name,
+                "limit_per_minute": decision.limit_per_minute,
+                "retry_after_seconds": decision.retry_after_seconds,
+            }
+        }
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(payload))],
+            isError=True,
+        )
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict | None,
+        *,
+        fallback_key: str | None = None,
+        agent_id_hint: str | None = None,
+    ) -> List[types.TextContent] | types.CallToolResult:
         """Dispatch tool call via routing table (replaces elif chain)."""
         logger.info("=== HANDLING TOOL CALL: %s ===", _sanitize_log_value(name))
         if arguments is None:
             arguments = {}
+
+        try:
+            decision = self._tool_rate_limiter.check(
+                self._rate_limit_identity(arguments, fallback_key, agent_id_hint),
+                name,
+            )
+        except Exception:
+            # A limiter failure must not take down the dispatcher. Fail open
+            # and keep the error log free of caller identities.
+            logger.exception("MCP tool rate limiter failed; allowing request")
+        else:
+            if not decision.allowed:
+                if decision.should_log:
+                    logger.warning(
+                        "MCP tool rate limit exceeded for tool %s",
+                        _sanitize_log_value(name),
+                    )
+                return self._rate_limit_error(name, decision)
 
         # Refuse before the handler resolves, so a remote caller cannot reach a
         # filesystem tool by naming it directly even though tools/list hid it.
@@ -1557,9 +1643,21 @@ class MemoryServer:
             error_response = json.dumps({"error": str(e)})
             return [types.TextContent(type="text", text=error_response)]
 
-    async def handle_call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
+    async def handle_call_tool(
+        self,
+        name: str,
+        arguments: dict | None,
+        *,
+        fallback_key: str | None = None,
+        agent_id_hint: str | None = None,
+    ) -> List[types.TextContent] | types.CallToolResult:
         """Public alias for call_tool (used by tests)."""
-        return await self.call_tool(name, arguments)
+        return await self.call_tool(
+            name,
+            arguments,
+            fallback_key=fallback_key,
+            agent_id_hint=agent_id_hint,
+        )
 
     async def handle_list_tools(self) -> List[types.Tool]:
         """Public alias for list_tools (used by tests)."""
