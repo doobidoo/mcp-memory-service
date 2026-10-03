@@ -60,6 +60,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/models/memory.py",
     "mcp_memory_service/storage/mixins/delete.py",
     "mcp_memory_service/api/client.py",
     "mcp_memory_service/api/operations.py",
@@ -185,13 +186,13 @@ def _is_sanitised(node: ast.expr) -> bool:
 
 
 def _is_guarded_logger_call(node: ast.AST) -> bool:
-    """True for `logger.<level>(...)` at one of the levels the gate guards."""
+    """True for `logger.<level>(...)` or `logging.<level>(...)` at one of the levels the gate guards."""
     return (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in GUARDED_LEVELS
         and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "logger"
+        and node.func.value.id in ("logger", "logging")
     )
 
 
@@ -500,6 +501,13 @@ def test_lazy_scan_flags_store_backend_errors():
     for name in ("vec_err", "error_msg"):
         assert _lazy_findings(f'logger.error("failed: %s", {name})\n')
         assert not _lazy_findings(f'logger.error("failed: %s", _sanitize_log_value({name}))\n')
+
+
+@pytest.mark.unit
+def test_scans_cover_logging_module_calls():
+    """A guarded module that logs through the root `logging` module is scanned too."""
+    assert _lazy_findings('logging.error("failed: %s", e)\n')
+    assert not _lazy_findings('logging.error("failed: %s", _sanitize_log_value(e))\n')
 
 
 @pytest.mark.unit
