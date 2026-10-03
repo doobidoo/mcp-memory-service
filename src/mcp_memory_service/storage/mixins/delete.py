@@ -42,7 +42,7 @@ class DeleteMixin:
                     logger.warning(
                         "Could not delete embedding for memory %s (corrupted blob?): %s — "
                         "proceeding with soft-delete; run purge_deleted() to clean orphan.",
-                        content_hash, vec_err,
+                        _sanitize_log_value(content_hash), _sanitize_log_value(vec_err),
                     )
                 self.conn.execute(
                     'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
@@ -59,7 +59,7 @@ class DeleteMixin:
             if rowcount is None:
                 return False, f"Memory with hash {content_hash} not found"
             if rowcount > 0:
-                logger.info(f"Soft-deleted memory: {content_hash}")
+                logger.info("Soft-deleted memory: %s", _sanitize_log_value(content_hash))
                 return True, f"Successfully deleted memory {content_hash}"
             else:
                 return False, f"Memory with hash {content_hash} not found"
@@ -70,7 +70,7 @@ class DeleteMixin:
             except sqlite3.OperationalError:
                 pass
             error_msg = f"Failed to delete memory: {str(e)}"
-            logger.error(error_msg)
+            logger.error("%s", _sanitize_log_value(error_msg))
             return False, error_msg
 
     # ── Consolidation Protocol Proxy Methods ──────────────────────────
@@ -102,7 +102,7 @@ class DeleteMixin:
             return await self._execute_with_retry(_check_deleted)
 
         except Exception as e:
-            logger.error(f"Failed to check if memory is deleted: {str(e)}")
+            logger.error("Failed to check if memory is deleted: %s", _sanitize_log_value(e))
             return False
 
     async def purge_deleted(self, older_than_days: int = 30) -> int:
@@ -130,7 +130,7 @@ class DeleteMixin:
                         )
                     except Exception as vec_err:
                         logger.warning(
-                            "Batch embedding purge failed (%s) — retrying per-row.", vec_err
+                            "Batch embedding purge failed (%s) — retrying per-row.", _sanitize_log_value(vec_err)
                         )
                         for rid in ids:
                             try:
@@ -140,7 +140,7 @@ class DeleteMixin:
                             except Exception as row_err:
                                 logger.warning(
                                     "Could not delete embedding rowid=%s during purge: %s",
-                                    rid, row_err,
+                                    rid, _sanitize_log_value(row_err),
                                 )
                 cursor = self.conn.execute(
                     'DELETE FROM memories WHERE deleted_at IS NOT NULL AND deleted_at < ?',
@@ -151,11 +151,11 @@ class DeleteMixin:
 
             count = await self._execute_with_retry(_purge)
             if count > 0:
-                logger.info(f"Purged {count} tombstones older than {older_than_days} days")
+                logger.info("Purged %s tombstones older than %s days", count, older_than_days)
             return count
 
         except Exception as e:
-            logger.error(f"Failed to purge deleted memories: {str(e)}")
+            logger.error("Failed to purge deleted memories: %s", _sanitize_log_value(e))
             return 0
 
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
@@ -183,7 +183,7 @@ class DeleteMixin:
                         logger.warning(
                             "Could not delete embedding rowid=%s (corrupted blob?): %s — "
                             "proceeding with soft-delete.",
-                            memory_id, vec_err,
+                            memory_id, _sanitize_log_value(vec_err),
                         )
 
                 for ch in content_hashes:
@@ -200,7 +200,7 @@ class DeleteMixin:
                 return cursor.rowcount
 
             count = await self._execute_with_retry(_delete_by_tag)
-            logger.info(f"Soft-deleted {count} memories with tag: {_sanitize_log_value(tag)}")
+            logger.info("Soft-deleted %s memories with tag: %s", count, _sanitize_log_value(tag))
 
             if count > 0:
                 return count, f"Successfully deleted {count} memories with tag '{tag}'"
@@ -209,7 +209,7 @@ class DeleteMixin:
 
         except Exception as e:
             error_msg = f"Failed to delete by tag: {str(e)}"
-            logger.error(error_msg)
+            logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg
 
     async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
@@ -241,13 +241,13 @@ class DeleteMixin:
                     except Exception as vec_err:
                         logger.warning(
                             "Batch embedding delete failed (%s) — retrying per-row to skip corrupted blobs.",
-                            vec_err,
+                            _sanitize_log_value(vec_err),
                         )
                         for mid in memory_ids:
                             try:
                                 self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (mid,))
                             except Exception as row_err:
-                                logger.warning("Could not delete embedding rowid=%s (corrupted blob?): %s", mid, row_err)
+                                logger.warning("Could not delete embedding rowid=%s (corrupted blob?): %s", mid, _sanitize_log_value(row_err))
 
                 for ch in hashes:
                     self.conn.execute(
@@ -260,7 +260,7 @@ class DeleteMixin:
                 return cursor.rowcount, hashes
 
             count, deleted_hashes = await self._execute_with_retry(_delete_by_tags)
-            logger.info(f"Soft-deleted {count} memories matching tags: {tags}")
+            logger.info("Soft-deleted %s memories matching tags: %s", count, _sanitize_log_value(tags))
 
             if count > 0:
                 return count, f"Successfully deleted {count} memories matching {len(tags)} tag(s)", deleted_hashes
@@ -269,7 +269,7 @@ class DeleteMixin:
 
         except Exception as e:
             error_msg = f"Failed to delete by tags: {str(e)}"
-            logger.error(error_msg)
+            logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg, []
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
@@ -312,7 +312,7 @@ class DeleteMixin:
             return deleted_count, f"Deleted {deleted_count} memories from {start_date} to {end_date}" + (f" with tag '{tag}'" if tag else "")
 
         except Exception as e:
-            logger.error(f"Error deleting by timeframe: {str(e)}")
+            logger.error("Error deleting by timeframe: %s", _sanitize_log_value(e))
             return 0, f"Error: {str(e)}"
 
     async def delete_before_date(self, before_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
@@ -354,7 +354,7 @@ class DeleteMixin:
             return deleted_count, f"Deleted {deleted_count} memories before {before_date}" + (f" with tag '{tag}'" if tag else "")
 
         except Exception as e:
-            logger.error(f"Error deleting before date: {str(e)}")
+            logger.error("Error deleting before date: %s", _sanitize_log_value(e))
             return 0, f"Error: {str(e)}"
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:
@@ -379,7 +379,7 @@ class DeleteMixin:
                 return cursor.rowcount
 
             count = await self._execute_with_retry(_cleanup_dups)
-            logger.info(f"Soft-deleted {count} duplicate memories")
+            logger.info("Soft-deleted %s duplicate memories", count)
 
             if count > 0:
                 return count, f"Successfully soft-deleted {count} duplicate memories"
@@ -388,5 +388,5 @@ class DeleteMixin:
 
         except Exception as e:
             error_msg = f"Failed to cleanup duplicates: {str(e)}"
-            logger.error(error_msg)
+            logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg
