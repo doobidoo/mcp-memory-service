@@ -28,6 +28,7 @@ from ...storage.base import MemoryStorage
 from ...models.memory import Memory
 from ...models.ontology import get_all_types
 from ...services.memory_service import MemoryService
+from ...compat import _sanitize_log_value
 from ...config import INCLUDE_HOSTNAME
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
@@ -209,7 +210,7 @@ async def store_memory(
                 await sse_manager.broadcast_event(event)
             except Exception as e:
                 # Don't fail the request if SSE broadcasting fails
-                logger.warning(f"Failed to broadcast memory_stored event: {e}")
+                logger.warning("Failed to broadcast memory_stored event: %s", _sanitize_log_value(e))
 
             # Surface ontology coercion: when the requested memory_type is not
             # in the ontology, Memory.__post_init__ silently rewrites it to
@@ -261,7 +262,7 @@ async def store_memory(
         # as their real status code instead of being flattened to 500.
         raise
     except Exception as e:
-        logger.error(f"Failed to store memory: {str(e)}")
+        logger.error("Failed to store memory: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail="Failed to store memory. Please try again.")
 
 
@@ -368,7 +369,7 @@ async def delete_memory(
             await sse_manager.broadcast_event(event)
         except Exception as e:
             # Don't fail the request if SSE broadcasting fails
-            logger.warning(f"Failed to broadcast memory_deleted event: {e}")
+            logger.warning("Failed to broadcast memory_deleted event: %s", _sanitize_log_value(e))
         
         return MemoryDeleteResponse(
             success=success,
@@ -379,7 +380,7 @@ async def delete_memory(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete memory: {str(e)}")
+        logger.error("Failed to delete memory: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail="Failed to delete memory. Please try again.")
 
 
