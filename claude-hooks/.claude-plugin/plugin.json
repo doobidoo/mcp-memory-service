@@ -1,6 +1,6 @@
 {
   "name": "mcp-memory-service",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Automatic memory capture and injection for Claude Code via MCP Memory Service",
   "author": {
     "name": "doobidoo"

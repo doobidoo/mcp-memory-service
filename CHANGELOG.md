@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [11.15.0] - 2026-10-03
 
 ### Added
 
@@ -289,6 +290,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `reason` and states the per-mode behavior of `metadata` and
   `preserve_timestamps`, and the handler strips `content`/`reason` from in-place
   updates so they cannot refresh `updated_at` or leak into custom metadata.
+- **Versioned updates inherit the old version's custom metadata (#1408, doobidoo).**
+  `update_memory_versioned()` built the new version from content, tags and memory type only,
+  so every custom metadata key on the old row (source, agent fields, anything a client
+  stored) was missing from the new version. The new version now inherits the old row's
+  metadata; the lineage keys `superseded_by` and `evolution_reason` stay on the old row.
+  Metadata passed to `evolve_memory()` still merges over what the new version inherited,
+  matching in-place updates.
+- **`mcp-memory-server` served the full MCP tool surface unauthenticated on any bind (GHSA-26rx-6fvr-qjqg, NotAFlightRisk).**
+  The FastMCP entry point builds its server with no auth and calls `mcp.run("streamable-http")`
+  without the bind check the SSE and Streamable HTTP transports got for GHSA-2hh8-qjxc-43x3.
+  With `MCP_HTTP_HOST=0.0.0.0`, the setting the docs use for network access, any caller
+  could read, store and delete memories, and setting `MCP_API_KEY` or OAuth changed nothing
+  because this entry point never consults either. It now refuses to start on anything but a
+  loopback address, whatever auth is configured. For network clients run
+  `memory server --streamable-http`, which enforces `MCP_API_KEY` or OAuth; note that it
+  binds `MCP_SSE_HOST` (or `--sse-host`), not `MCP_HTTP_HOST`.
 
 ### Internal
 
@@ -516,6 +533,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   counters and timings use `%`-style lazy formatting, so every log line reads as
   before. The module is in `GUARDED_MODULES` and the ratchet holds it; a `caplog`
   test drives the lifespan with pre-filled caches and reads what it emits.
+- **`storage/mixins/delete.py` cleared of unsanitised logger calls (#1439, mrhard9090; part of #1146).**
+  The delete operations logged the content hash, the tags and the backend error text through f-strings
+  or unwrapped arguments, so a value carrying a newline could write forged lines into the server log.
+  Those values now go through `_sanitize_log_value` with `%`-style lazy formatting and every line
+  reads as before. The module is in `GUARDED_MODULES`, and `tests/storage/test_delete_mixin_logging.py`
+  runs eight delete operations under `caplog` with a newline in the backend error.
+- **`utils/db_utils.py` and `utils/health_check.py` cleared of unsanitised logger calls (#1440, mrhard9090; part of #1146).**
+  Database validation, repair and the backend health checks logged the error a backend raised through
+  f-strings or unwrapped arguments, so a value carrying a newline could write forged lines into the server
+  log. Those values now go through `_sanitize_log_value` with `%`-style lazy formatting and every line
+  reads as before. Both modules are in `GUARDED_MODULES`, and `tests/utils/test_db_health_logging.py`
+  runs the validation, repair and checker functions under `caplog` with a newline in each error.
+- **`storage/mixins/store.py` cleared of unsanitised logger calls (#1441, mrhard9090; part of #1146).**
+  The store operations logged the content hash and the embedding, conflict and transaction error text
+  through f-strings or unwrapped arguments, so a value carrying a newline could write forged lines into
+  the server log. Those values now go through `_sanitize_log_value` with `%`-style lazy formatting and
+  every line reads as before. The module is in `GUARDED_MODULES`, and
+  `tests/storage/test_store_mixin_logging.py` runs `store()` and `store_batch()` under `caplog` with a
+  newline in the embedding error.
+- **`api/client.py` and `api/operations.py` cleared of unsanitised logger calls (#1442, mrhard9090; part of #1146).**
+  The code execution API logged storage, health, consolidation and scheduler errors through f-strings,
+  so a value carrying a newline could write forged lines into the server log. Those values now go
+  through `_sanitize_log_value` with `%`-style lazy formatting and every line reads as before. Both
+  modules are in `GUARDED_MODULES`, and `tests/api/test_api_logging.py` drives the failing paths
+  under `caplog` with a newline in each error.
 
 ## [11.14.0] - 2026-09-25
 
