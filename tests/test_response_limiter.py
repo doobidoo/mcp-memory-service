@@ -313,6 +313,58 @@ class TestSafeRetrieveResponse:
 # ============================================
 
 
+class TestBoundedResponse:
+    """Count the complete rendered response, retaining whole source records."""
+
+    def test_warning_and_footer_participate_in_limit(self, small_memories):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        header = "Summarization unavailable.\n\n"
+        footer = "\n\n--- Beliefs ---\nUncertainty remains."
+        full_body = format_truncated_response(small_memories, {})
+        cap = len(full_body)
+        result = format_bounded_response(small_memories, cap, header, footer)
+
+        assert len(result) <= cap
+        assert result.startswith(header)
+        assert result.endswith(footer)
+        assert "RESPONSE TRUNCATED" in result
+        assert "hash_0" in result
+        assert "hash_4" not in result
+        for memory in small_memories:
+            if memory["content_hash"] in result:
+                assert memory["content"] in result
+
+    @pytest.mark.parametrize("cap", [0, 100000])
+    def test_full_response_is_preserved_when_it_fits(self, small_memories, cap):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        result = format_bounded_response(small_memories, cap, "Warning\n", "\nBeliefs")
+
+        assert (
+            result
+            == "Warning\n" + format_truncated_response(small_memories, {}) + "\nBeliefs"
+        )
+
+    @pytest.mark.parametrize("cap", [1, 25, 100, 400])
+    def test_oversized_envelope_does_not_leak_partial_records(self, sample_memory, cap):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        header = "Summarization unavailable. " + "Very long query " * 100
+        result = format_bounded_response([sample_memory], cap, header, "Beliefs" * 200)
+
+        assert len(result) <= cap
+        assert result == header[:cap]
+        assert sample_memory["content_hash"] not in result
+        assert sample_memory["content"] not in result
+
+
 class TestResponseLimiterIntegration:
     """Integration tests for full response limiting workflow."""
 

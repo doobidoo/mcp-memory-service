@@ -218,6 +218,37 @@ def format_truncated_response(
     return "\n".join(parts)
 
 
+def format_bounded_response(
+    memories: list[dict[str, Any]],
+    max_chars: int,
+    header: str = "",
+    footer: str = "",
+) -> str:
+    """Fit the complete response by omitting whole records, including the first.
+
+    Unlike the legacy estimated limit, this counts formatting, warnings, and
+    optional sections. If even the envelope cannot fit, only the beginning of
+    the header is returned. Memory content and metadata are never sliced.
+    """
+    response = header + format_truncated_response(memories, {}) + footer
+    if max_chars <= 0 or len(response) <= max_chars:
+        return response
+
+    for shown in range(len(memories) - 1, -1, -1):
+        notice = (
+            f"[!] RESPONSE TRUNCATED: Showing {shown} of {len(memories)} results.\n"
+            f"{len(memories) - shown} result(s) omitted. "
+            "Use a narrower query or hash-based retrieval.\n\n"
+        )
+        response = (
+            header + notice + format_truncated_response(memories[:shown], {}) + footer
+        )
+        if len(response) <= max_chars:
+            return response
+
+    return header[:max_chars]
+
+
 def apply_response_limit(
     memories: List[Dict[str, Any]],
     max_chars: int = 0,

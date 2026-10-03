@@ -82,6 +82,35 @@ async def search(server, **arguments):
 
 
 @pytest.mark.asyncio
+async def test_stored_access_queries_never_leave_the_summary_path(
+    search_server, llm_post
+):
+    server, storage, rows = search_server
+    rows[0].record_access("private prior search")
+    assert await storage.update_memory(rows[0])
+    before = copy.deepcopy((await storage.get_by_hash(rows[0].content_hash)).to_dict())
+    assert before["access_queries"][0]["query"] == "private prior search"
+
+    response = await search(server, summarize=True)
+    result = json.loads(response)
+    prompt = llm_post.call_args.kwargs["json"]["messages"][0]["content"]
+
+    assert "private prior search" not in prompt
+    assert "access_queries" not in prompt
+    assert "private prior search" not in response
+    assert "access_queries" not in response
+    assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
+    source = next(
+        item
+        for item in result["snapshot"]
+        if item["content_hash"] == rows[0].content_hash
+    )
+    assert source["owner"] == "bus-team"
+    assert source["required"] == ["ordering"]
+    assert (await storage.get_by_hash(rows[0].content_hash)).to_dict() == before
+
+
+@pytest.mark.asyncio
 async def test_summary_keeps_sources_and_originals_queryable(search_server, llm_post):
     server, storage, rows = search_server
     before = [
@@ -264,12 +293,51 @@ async def test_summary_honors_response_limit_without_losing_metadata(
     search_server, llm_post
 ):
     server, _, _ = search_server
-    raw = await search(server, max_response_chars=100)
     response = await search(server, summarize=True, max_response_chars=100)
 
     assert "Summarization unavailable" in response
-    assert response.endswith(raw)
+    assert len(response) <= 100
+    assert "=== Memory" not in response
     assert '"snapshot"' not in response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [1, 25, 100, 512, 2500, 5000])
+@pytest.mark.parametrize(
+    "failure", ["provider-error", "unconfigured", "invalid-citation"]
+)
+async def test_summary_fallback_enforces_the_complete_response_budget(
+    search_server, llm_post, monkeypatch, cap, failure
+):
+    server, _, rows = search_server
+    if failure == "unconfigured":
+        monkeypatch.delenv("HARVEST_LLM_PROVIDERS")
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    elif failure == "provider-error":
+        llm_post.side_effect = httpx.ConnectError("unreachable")
+    else:
+        llm_post.return_value = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://llm.example/v1/chat/completions"),
+            json={"choices": [{"message": {"content": "Invented source [999]."}}]},
+        )
+
+    response = await search(server, summarize=True, max_response_chars=cap)
+
+    assert len(response) <= cap
+    assert response.startswith("Summarization unavailable"[:cap])
+    assert "Invented source" not in response
+    for row in rows:
+        # A returned memory must retain its complete content and hash.
+        if row.content_hash in response:
+            assert row.content in response
+    if cap == 2500:
+        assert response.count("=== Memory") == 1
+        assert "1 result(s) omitted" in response
+    if cap == 5000:
+        assert all(
+            row.content in response and row.content_hash in response for row in rows
+        )
 
 
 @pytest.mark.asyncio
@@ -308,6 +376,8 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
     )
 
     _, storage, rows = search_server
+    rows[0].record_access("HTTP private prior query")
+    assert await storage.update_memory(rows[0])
     monkeypatch.setenv("HARVEST_LLM_PROVIDERS", "test")
     monkeypatch.setenv("HARVEST_LLM_TEST_BASE_URL", "https://llm.example/v1")
     monkeypatch.setenv("HARVEST_LLM_TEST_MODEL", "summary-model")
@@ -333,6 +403,8 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
         assert request.url == "https://llm.example/v1/chat/completions"
         assert payload["max_tokens"] == 200
         assert "replication ordering" in payload["messages"][0]["content"]
+        assert "HTTP private prior query" not in request.content.decode()
+        assert "access_queries" not in request.content.decode()
         return httpx.Response(200, json={"choices": [{"message": {"content": answer}}]})
 
     # Keep real HTTP request/response serialization. Replace only the external
@@ -385,6 +457,8 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
     wire_result = response.json()
     assert "error" not in wire_result
     text = wire_result["result"]["content"][0]["text"]
+    assert "HTTP private prior query" not in text
+    assert "access_queries" not in text
     if "999" in answer:
         assert "Summarization unavailable" in text
         assert all(memory.content in text for memory in rows)
@@ -393,3 +467,5 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
         assert result["summary"] == answer
         assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
     assert len(provider_requests) == 1
+    stored = await storage.get_by_hash(rows[0].content_hash)
+    assert stored.metadata["access_queries"][0]["query"] == "HTTP private prior query"

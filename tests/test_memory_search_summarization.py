@@ -92,6 +92,30 @@ def memories():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_access_queries_are_private(llm_post, memories, nested):
+    from mcp_memory_service.services.search_summarizer import MemorySearchSummarizer
+
+    history = [{"query": "private prior search", "timestamp": 1788343200.0}]
+    source = memories[0]["metadata"] if nested else memories[0]
+    source["access_queries"] = history
+    before = copy.deepcopy(memories)
+    llm_post.return_value = llm_response("Wait for replication [1].")
+
+    result = await MemorySearchSummarizer().summarize("Why inconsistent?", memories)
+
+    prompt = llm_post.call_args.kwargs["json"]["messages"][0]["content"]
+    assert "private prior search" not in prompt
+    assert "access_queries" not in prompt
+    assert "access_queries" not in json.dumps(result.snapshot)
+    assert result.source_hashes == ["hash-a"]
+    expected_metadata = copy.deepcopy(before[0]["metadata"])
+    expected_metadata.pop("access_queries", None)
+    assert result.snapshot[0]["metadata"] == expected_metadata
+    assert memories == before
+
+
+@pytest.mark.asyncio
 async def test_summary_preserves_snapshot_and_maps_unique_citations(llm_post, memories):
     from mcp_memory_service.services.search_summarizer import MemorySearchSummarizer
 

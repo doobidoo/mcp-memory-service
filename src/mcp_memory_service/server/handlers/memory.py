@@ -1244,10 +1244,6 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                     'tags': memory.get('tags', []),
                 })
 
-            # Apply truncation
-            from ..utils.response_limiter import truncate_memories, format_truncated_response
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-
             # Build header
             header = f"Found {total} memories"
             if result.get("mode"):
@@ -1259,9 +1255,24 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             header += "\n\n"
 
             beliefs_section = await _format_beliefs_section(arguments, storage)
+            if summary_warning:
+                from ..utils.response_limiter import format_bounded_response
+
+                response_text = format_bounded_response(
+                    memory_dicts,
+                    max_response_chars,
+                    header=summary_warning + header,
+                    footer=beliefs_section,
+                )
+                return [types.TextContent(type="text", text=response_text)]
+            from ..utils.response_limiter import (
+                format_truncated_response,
+                truncate_memories,
+            )
+
+            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
             response_text = (
-                summary_warning + header
-                + format_truncated_response(truncated, meta) + beliefs_section
+                header + format_truncated_response(truncated, meta) + beliefs_section
             )
             return [types.TextContent(type="text", text=response_text)]
 

@@ -88,7 +88,10 @@ A successful MCP text response contains JSON:
 
 `snapshot` is the pre-summary keep-set: a deep copy of every non-content field in
 each record sent to the model, in citation order (`[1]` refers to its first entry).
-It includes all available metadata, not only the abbreviated fields above.
+It includes available source metadata, not only the abbreviated fields above.
+The internal `access_queries` history is excluded from both the provider input
+and snapshot, whether flattened into the record or nested under `metadata`.
+Stored access history is left intact.
 `source_hashes` lists the cited hashes in order of first use; the snapshot also
 retains sources the model did not cite. `omitted_count` reports records excluded
 by the input budget. Debug details and requested derived beliefs are included
@@ -99,9 +102,12 @@ creation timestamps, duplicate hashes, empty output, missing citations, and
 invalid or incomplete citations fail the summary path. Provider failures, missing
 configuration, and searches without a query also return normal raw results with
 a **Summarization unavailable** warning. Empty searches do not call the model.
-Fallback retains the existing `max_response_chars` behavior. If the complete
-summary response cannot fit that cap, the tool falls back rather than cutting
-source metadata.
+If the complete summary response cannot fit `max_response_chars`, the tool falls
+back rather than cutting source metadata. A positive cap bounds the entire
+summary fallback response, including warnings, headers, and requested beliefs.
+Raw memory records are omitted whole when they do not fit; very small caps may
+return only the beginning of the warning. Searches without summarization retain
+their existing response limiting behavior.
 
 The keep-set is request-local, not a persistent audit or rollback copy. Original
 memory content is never rewritten or deleted. Retrieve an original by hash through

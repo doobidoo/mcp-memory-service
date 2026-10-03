@@ -33,8 +33,9 @@ class SearchSummarizationError(ValueError):
 class SearchSummary:
     """Summary with a request-local keep-set independent of generated text.
 
-    ``snapshot`` contains every non-content field from the memories actually
-    sent to the model, in citation order. Original content remains in storage.
+    ``snapshot`` contains non-content fields from the memories actually sent
+    to the model, in citation order, excluding access query history. Original
+    content and access history remain in storage.
     """
 
     text: str
@@ -99,9 +100,21 @@ class MemorySearchSummarizer:
             if content_hash in seen_hashes:
                 raise SearchSummarizationError("Duplicate source hash in keep-set")
             seen_hashes.add(content_hash)
+            # Memory.to_dict() flattens metadata; plugins/backends may keep it
+            # nested. Previous queries belong in neither the prompt nor snapshot.
+            provider_memory = {
+                key: value for key, value in memory.items() if key != "access_queries"
+            }
+            metadata = provider_memory.get("metadata")
+            if isinstance(metadata, dict):
+                provider_memory["metadata"] = {
+                    key: value
+                    for key, value in metadata.items()
+                    if key != "access_queries"
+                }
             record = (
                 json.dumps(
-                    {"source": len(snapshot) + 1, "memory": memory},
+                    {"source": len(snapshot) + 1, "memory": provider_memory},
                     ensure_ascii=False,
                     allow_nan=False,
                 )
@@ -111,7 +124,11 @@ class MemorySearchSummarizer:
                 continue
             snapshot.append(
                 copy.deepcopy(
-                    {key: value for key, value in memory.items() if key != "content"}
+                    {
+                        key: value
+                        for key, value in provider_memory.items()
+                        if key != "content"
+                    }
                 )
             )
             prompt += record
