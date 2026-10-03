@@ -80,3 +80,28 @@ async def test_cache_stats_error_log_does_not_carry_newlines(caplog, monkeypatch
         await utility.handle_get_cache_stats(object(), {})
 
     _assert_clean(caplog, "Error in get_cache_stats: stats broke")
+
+
+@pytest.mark.asyncio
+async def test_health_result_log_does_not_carry_newlines(caplog, monkeypatch):
+    from mcp_memory_service.utils import health_check
+
+    class Checker:
+        async def check_health(self, _storage):
+            return True, f"backend ok\n{FORGED}", {"total_memories": 1}
+
+    class Storage:
+        pass
+
+    class Server(_FailingServer):
+        async def _ensure_storage_initialized(self):
+            return Storage()
+
+    monkeypatch.setattr(health_check.HealthCheckFactory, "create", staticmethod(lambda _s: Checker()))
+
+    with caplog.at_level(logging.DEBUG):
+        await utility.handle_check_database_health(Server(""), {})
+
+    messages = _messages(caplog)
+    assert any("Database health result with performance data:" in m for m in messages)
+    assert not any(f"\n{FORGED}" in m for m in messages)
