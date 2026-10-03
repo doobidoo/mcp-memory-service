@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..._version import __version__
+from ...compat import _sanitize_log_value
 from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
@@ -279,7 +280,7 @@ async def mcp_endpoint(
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
     except Exception as e:
-        logger.error(f"MCP endpoint error: {e}")
+        logger.error("MCP endpoint error: %s", _sanitize_log_value(e))
         response = MCPResponse(
             id=request.id,
             error={"code": -32603, "message": f"Internal error: {str(e)}"},
