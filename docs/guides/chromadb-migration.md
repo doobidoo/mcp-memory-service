@@ -34,6 +34,8 @@ python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_back
 python scripts/validation/validate_configuration_complete.py
 ```
 
+The `export` lines above only last for the current shell. The validator in step 5 reads the project `.env` file and the `env` block of the memory server in `claude_desktop_config.json`, and a service started by Claude Desktop reads the latter. Put `MCP_MEMORY_STORAGE_BACKEND`, `MCP_MEMORY_SQLITE_PATH` and the four `CLOUDFLARE_*` values in both places before running it, then restart the service.
+
 ### Option 2: SQLite-vec (Local Only)
 
 For single-device use without cloud synchronization.
