@@ -60,6 +60,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/health/integrity.py",
     "mcp_memory_service/models/memory.py",
     "mcp_memory_service/storage/mixins/delete.py",
     "mcp_memory_service/api/client.py",
@@ -143,6 +144,8 @@ EXTERNAL_NAMES = frozenset({
     "venv_path",
     "user_path",
     "installed_version",
+    # The path health/integrity.py exports surviving memories to, built from the database location.
+    "export_path",
     # What storage/mixins/store.py logs when the backend fails while it stores or purges:
     # the error of an embedding delete, and the message built from a transaction error.
     "vec_err",
@@ -504,6 +507,12 @@ def test_lazy_scan_flags_store_backend_errors():
 
 
 @pytest.mark.unit
+def test_lazy_scan_flags_integrity_export_path():
+    """What health/integrity.py logs about the file it exports memories to."""
+    assert _lazy_findings('logger.info("to %s", export_path)\n')
+    assert not _lazy_findings('logger.info("to %s", _sanitize_log_value(export_path))\n')
+
+
 def test_scans_cover_logging_module_calls():
     """A guarded module that logs through the root `logging` module is scanned too."""
     assert _lazy_findings('logging.error("failed: %s", e)\n')
