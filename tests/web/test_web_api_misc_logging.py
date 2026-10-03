@@ -76,3 +76,21 @@ async def test_update_abort_log_does_not_carry_newlines(caplog, monkeypatch):
             )
 
     _assert_clean(caplog, "git pull failed: fatal: no remote")
+
+
+@pytest.mark.asyncio
+async def test_update_pip_abort_log_does_not_carry_newlines(caplog, monkeypatch):
+    monkeypatch.setattr(server_api, "_run_git_command", lambda *_a, **_k: ("Already up to date.", True))
+    monkeypatch.setattr(
+        server_api, "_run_pip_command", lambda *_a, **_k: ("ERROR: no match\n" + FORGED, False)
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(HTTPException):
+            await server_api.update_server(
+                server_api.UpdateRequest(confirm=True, force=True),
+                BackgroundTasks(),
+                AuthenticationResult(authenticated=True, client_id="c", auth_method="test"),
+            )
+
+    _assert_clean(caplog, "pip install failed: ERROR: no match")

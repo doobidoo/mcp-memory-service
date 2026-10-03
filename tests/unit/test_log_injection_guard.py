@@ -132,6 +132,9 @@ EXTERNAL_NAMES = frozenset({
     "venv_path",
     "user_path",
     "installed_version",
+    # Output of the git and pip commands web/api/server.py runs during an update.
+    "git_output",
+    "pip_output",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -434,6 +437,14 @@ def test_lazy_scan_flags_environment_host_values():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("Version check OK: v%s", source_version)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_update_command_output():
+    """What web/api/server.py logs when an update step fails: the git and pip output."""
+    for name in ("git_output", "pip_output"):
+        assert _lazy_findings(f'logger.error("failed: %s", {name})\n')
+        assert not _lazy_findings(f'logger.error("failed: %s", _sanitize_log_value({name}))\n')
 
 
 @pytest.mark.unit
