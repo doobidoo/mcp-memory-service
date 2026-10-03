@@ -52,7 +52,23 @@ class _Server:
         self.storage = _Server._Storage()
 
 
-def _run(handler_name, monkeypatch, caplog):
+_ALL_ARGS = {
+    "query": "x", "entity_id": "some-entity", "entity": "some-entity",
+    "hash": "h1", "hash1": "h1", "hash2": "h2",
+}
+
+# Every graph-handler error path that logs the caught exception.
+HANDLERS = [
+    ("handle_memory_explore", {}),
+    ("handle_memory_detail", {}),
+    ("handle_find_connected_memories", {}),
+    ("handle_find_shortest_path", {}),
+    ("handle_get_memory_subgraph", {}),
+    ("handle_memory_graph", {"action": "list_entities"}),
+]
+
+
+def _run(handler_name, monkeypatch, caplog, extra=None):
     """Drive a graph handler whose storage lookup raises, return caplog.text."""
 
     async def _fake_get_graph_storage():
@@ -72,15 +88,15 @@ def _run(handler_name, monkeypatch, caplog):
     monkeypatch.setattr(graph_mod, "_retrieve_candidates", _fake_retrieve, raising=False)
     caplog.set_level(logging.DEBUG)
     handler = getattr(graph_mod, handler_name)
-    args = {"query": "x", "entity_id": "some-entity", "entity": "some-entity"}
+    args = {**_ALL_ARGS, **(extra or {})}
     asyncio.run(handler(_Server(), args))
     return caplog.text
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("handler", ["handle_memory_explore", "handle_memory_detail"])
-def test_forged_stamp_never_becomes_its_own_record(handler, monkeypatch, caplog):
-    raw = _run(handler, monkeypatch, caplog)
+@pytest.mark.parametrize("handler,extra", HANDLERS)
+def test_forged_stamp_never_becomes_its_own_record(handler, extra, monkeypatch, caplog):
+    raw = _run(handler, monkeypatch, caplog, extra)
     forged = [ln for ln in raw.splitlines() if FORGED_RECORD.match(ln.strip())]
     assert forged == [], (
         f"{handler}: the exception message forged a standalone log record — "
@@ -89,9 +105,9 @@ def test_forged_stamp_never_becomes_its_own_record(handler, monkeypatch, caplog)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("handler", ["handle_memory_explore", "handle_memory_detail"])
-def test_payload_is_escaped_not_dropped(handler, monkeypatch, caplog):
-    raw = _run(handler, monkeypatch, caplog)
+@pytest.mark.parametrize("handler,extra", HANDLERS)
+def test_payload_is_escaped_not_dropped(handler, extra, monkeypatch, caplog):
+    raw = _run(handler, monkeypatch, caplog, extra)
     assert "admin wiped all memories" in raw, f"{handler}: error path logged nothing"
     # The newline that would start a new record must be inert (escaped).
     assert "\n2099-01-01 CRITICAL" not in raw, f"{handler}: raw newline survived"
