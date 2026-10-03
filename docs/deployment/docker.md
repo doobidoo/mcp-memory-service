@@ -193,6 +193,7 @@ docker run -d -p 8000:8000 \
 | `MCP_HTTP_HOST` | `0.0.0.0` | HTTP server bind address |
 | `MCP_HTTP_PORT` | `8000` | HTTP server port |
 | `MCP_HTTP_ROOT_PATH` | empty | External path prefix removed by a reverse proxy, such as `/memory` |
+| `MCP_METRICS_ENABLED` | `false` | Expose Prometheus metrics at `/metrics`; requires the `metrics` extra |
 | `MCP_STANDALONE_MODE` | `false` | Enable standalone HTTP mode |
 | `MCP_API_KEY` | `none` | API key for authentication |
 
@@ -420,23 +421,43 @@ services:
 
 ### Monitoring with Prometheus
 
+Build the image with the optional metrics dependency:
+
+```bash
+docker build \
+  --build-arg INSTALL_EXTRA="[sqlite,metrics]" \
+  -t mcp-memory-service:metrics \
+  -f tools/docker/Dockerfile .
+```
+
+Metrics are served from the normal HTTP listener. Prometheus should scrape
+`mcp-memory-service:8000/metrics`; no separate metrics port is opened.
+
 ```yaml
 # docker-compose.monitoring.yml
 version: '3.8'
 services:
   mcp-memory-service:
+    image: mcp-memory-service:metrics
     environment:
-      - MCP_MEMORY_ENABLE_METRICS=true
-      - MCP_MEMORY_METRICS_PORT=9090
+      - MCP_METRICS_ENABLED=true
     ports:
-      - "9090:9090"
-  
+      - "8000:8000"
+
   prometheus:
     image: prom/prometheus
     ports:
       - "9091:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+```
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: mcp-memory-service
+    static_configs:
+      - targets: ["mcp-memory-service:8000"]
 ```
 
 ## Troubleshooting

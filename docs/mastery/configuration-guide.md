@@ -86,6 +86,8 @@ degrading into a silent fallback.
 - `MCP_HTTP_PORT`: Port (default `8000`).
 - `MCP_HTTP_ROOT_PATH`: External path prefix when a reverse proxy strips the
   prefix before forwarding (for example, `/memory`). Defaults to empty.
+- `MCP_METRICS_ENABLED`: Expose Prometheus metrics at `/metrics` on the HTTP
+  listener (default `false`). Requires the optional `metrics` extra.
 - `MCP_CORS_ORIGINS`: Comma-separated origins (default `*`).
 - `MCP_SSE_HEARTBEAT`: SSE heartbeat interval seconds (default 30).
 - `MCP_API_KEY`: Optional API key for HTTP.

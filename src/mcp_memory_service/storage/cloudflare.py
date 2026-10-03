@@ -27,6 +27,7 @@ from datetime import datetime, timezone, timedelta, date
 import httpx
 
 from .base import MemoryStorage
+from ..metrics import observe_embedding_duration
 from ..models.memory import Memory, MemoryQueryResult
 from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 from ..compat import _sanitize_log_value
@@ -287,6 +288,7 @@ class CloudflareStorage(MemoryStorage):
         if text_hash in self._embedding_cache:
             return self._embedding_cache[text_hash]
         
+        embedding_start = time.perf_counter()
         try:
             # Use Workers AI to generate embedding
             payload = {"text": [text]}
@@ -311,6 +313,10 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to generate embedding with Workers AI: %s", _sanitize_log_value(e))
             # TODO: Implement fallback to local sentence-transformers
             raise ValueError(f"Embedding generation failed: {e}")
+        finally:
+            observe_embedding_duration(
+                "cloudflare", time.perf_counter() - embedding_start
+            )
     
     async def initialize(self) -> None:
         """Initialize the Cloudflare storage backend."""

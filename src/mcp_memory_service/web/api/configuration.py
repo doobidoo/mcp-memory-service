@@ -73,6 +73,7 @@ PARAM_DESCRIPTIONS = {
     "MCP_HTTP_HOST": "Host address for HTTP server (default: 127.0.0.1; set to 0.0.0.0 for network access)",
     "MCP_HTTP_ROOT_PATH": "External URL path prefix when a reverse proxy strips the prefix before forwarding (for example, /memory)",
     "MCP_HTTP_ENABLED": "Enable the HTTP/HTTPS web interface",
+    "MCP_METRICS_ENABLED": "Expose Prometheus metrics at /metrics (requires the metrics extra)",
     "MCP_HTTPS_ENABLED": "Enable HTTPS with automatic or custom certificate",
     "MCP_SSL_CERT_FILE": "Path to SSL certificate file for HTTPS",
     "MCP_SSL_KEY_FILE": "Path to SSL private key file for HTTPS",
@@ -243,6 +244,7 @@ ENV_CATEGORIES = {
         "params": [
             ("MCP_MEMORY_STORAGE_BACKEND", "choice", ["sqlite_vec", "cloudflare", "hybrid", "milvus"], False),
             ("MCP_HTTP_ENABLED", "boolean", None, False),
+            ("MCP_METRICS_ENABLED", "boolean", None, False),
             ("MCP_HTTP_PORT", "integer", None, False),
             ("MCP_HTTP_HOST", "string", None, False),
             ("MCP_HTTP_ROOT_PATH", "string", None, False),
