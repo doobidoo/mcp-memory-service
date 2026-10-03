@@ -166,3 +166,49 @@ async def test_inplace_update_strips_versioned_only_fields():
     assert "reason" not in received
     assert received["tags"] == ["keep"]
     assert received["priority"] == "urgent"
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_metadata_overrides_inherited(tmp_path):
+    """updates["metadata"] wins over the inherited values on the versioned path.
+
+    update_memory_versioned() copies the old row's custom metadata onto the new
+    version, and the memory_update schema tells callers that fields they pass in
+    metadata override those inherited values. The handler has to apply them
+    after the write, otherwise the declared override silently does nothing.
+    """
+    from mcp_memory_service.server.handlers.memory import handle_update_memory_metadata
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+    storage = SqliteVecMemoryStorage(str(tmp_path / "test.db"))
+    await storage.initialize()
+    server = MagicMock()
+    server._ensure_storage_initialized = AsyncMock(return_value=storage)
+
+    original = Memory(
+        content="The backup job runs nightly at 02:00.",
+        content_hash=generate_content_hash("The backup job runs nightly at 02:00."),
+        tags=["backup"],
+        memory_type="observation",
+        metadata={"source": "runbook", "ticket": "OPS-17"},
+    )
+    ok, msg = await storage.store(original, skip_semantic_dedup=True)
+    assert ok, f"Failed to store original: {msg}"
+
+    new_content = "The backup job runs nightly at 03:00."
+    result = await handle_update_memory_metadata(server, {
+        "content_hash": original.content_hash,
+        "updates": {
+            "content": new_content,
+            "reason": "schedule change",
+            "metadata": {"source": "harvest"},
+        },
+        "versioned": True,
+    })
+
+    assert "Versioned update successful" in result[0].text
+    new = await storage.get_by_hash(generate_content_hash(new_content))
+    assert new.metadata["source"] == "harvest"
+    assert new.metadata["ticket"] == "OPS-17"
+
+    await storage.close()

@@ -1316,6 +1316,22 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             )
 
             if success:
+                # The new version inherits the old row's custom metadata, and the
+                # schema tells callers that fields passed in metadata override those
+                # inherited values, so apply them after the write. Same merge
+                # evolve_memory() uses: caller keys win over the inherited ones.
+                # tags/type are excluded — they are dedicated Memory fields and
+                # already went through new_tags/new_memory_type above.
+                final_metadata = {
+                    k: v for k, v in (updates.get("metadata") or {}).items()
+                    if k not in ("tags", "type")
+                }
+                if final_metadata:
+                    meta_ok, meta_msg = await storage.update_memory_metadata(
+                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                    )
+                    if not meta_ok:
+                        message = f"{message} (metadata update failed: {meta_msg})"
                 logger.info("Versioned update: %s -> %s", _sanitize_log_value(content_hash), _sanitize_log_value(new_hash))
                 return [types.TextContent(
                     type="text",
