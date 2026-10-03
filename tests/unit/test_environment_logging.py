@@ -7,6 +7,7 @@ this code produced, so a newline in one must not reach the log as a line break.
 """
 
 import logging
+import os
 import site
 import sys
 from types import SimpleNamespace
@@ -20,6 +21,14 @@ FORGED = "FORGED admin authenticated"
 
 def _messages(caplog):
     return [record.getMessage() for record in caplog.records]
+
+
+@pytest.fixture
+def restore_environ():
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 
 @pytest.fixture
@@ -75,12 +84,12 @@ def test_version_mismatch_does_not_carry_newlines(monkeypatch, caplog):
 
 
 @pytest.mark.unit
-def test_detected_system_does_not_carry_newlines(monkeypatch, caplog):
+def test_detected_system_does_not_carry_newlines(monkeypatch, caplog, restore_environ):
     info = SimpleNamespace(
         os_name=f"linux\n{FORGED}",
-        architecture="x86_64",
+        architecture=f"x86_64\n{FORGED}",
         memory_gb=16.0,
-        accelerator="cpu",
+        accelerator=f"cuda\n{FORGED}",
     )
     monkeypatch.setattr(environment, "get_system_info", lambda: info)
 
@@ -88,6 +97,7 @@ def test_detected_system_does_not_carry_newlines(monkeypatch, caplog):
         environment.configure_environment()
 
     messages = _messages(caplog)
-    assert any("Detected system: linux\\nFORGED admin authenticated x86_64" in m for m in messages)
+    assert any("Detected system: linux\\nFORGED admin authenticated x86_64\\nFORGED admin authenticated" in m for m in messages)
+    assert any("Accelerator: cuda\\nFORGED admin authenticated" in m for m in messages)
     assert any("Memory: 16.00 GB" in m for m in messages)
     assert not any(f"\n{FORGED}" in m for m in messages)
