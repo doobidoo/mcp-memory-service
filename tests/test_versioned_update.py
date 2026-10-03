@@ -212,3 +212,106 @@ async def test_versioned_update_metadata_overrides_inherited(tmp_path):
     assert new.metadata["ticket"] == "OPS-17"
 
     await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_drops_lineage_keys_from_caller_metadata(tmp_path):
+    """A caller cannot set superseded_by/evolution_reason on the version it creates.
+
+    Both are keys the storage layer owns. Milvus hides any memory carrying
+    superseded_by from normal search (storage/milvus.py:1721), so letting a
+    caller write one makes the version that was just created invisible.
+    evolution_reason describes the parent row, not the new one.
+    """
+    from mcp_memory_service.server.handlers.memory import handle_update_memory_metadata
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+    storage = SqliteVecMemoryStorage(str(tmp_path / "test.db"))
+    await storage.initialize()
+    server = MagicMock()
+    server._ensure_storage_initialized = AsyncMock(return_value=storage)
+
+    original_content = "The deploy window is 03:00 UTC."
+    original = Memory(
+        content=original_content,
+        content_hash=generate_content_hash(original_content),
+        tags=["ops"],
+        memory_type="observation",
+        metadata={"source": "runbook"},
+    )
+    ok, msg = await storage.store(original, skip_semantic_dedup=True)
+    assert ok, f"Failed to store original: {msg}"
+
+    new_content = "The deploy window is 04:00 UTC."
+    result = await handle_update_memory_metadata(server, {
+        "content_hash": original.content_hash,
+        "updates": {
+            "content": new_content,
+            "reason": "window moved",
+            "metadata": {
+                "source": "handbook",
+                "superseded_by": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                "evolution_reason": "not the parent of anything",
+            },
+        },
+        "versioned": True,
+    })
+
+    assert "Versioned update successful" in result[0].text
+    new = await storage.get_by_hash(generate_content_hash(new_content))
+    assert new.metadata["source"] == "handbook"
+    assert "superseded_by" not in new.metadata
+    assert "evolution_reason" not in new.metadata
+
+    # The lineage the storage layer wrote still points at the new version, so
+    # the row a caller could have hidden stays the current one.
+    old = await storage.get_by_hash(original.content_hash)
+    assert old.metadata["superseded_by"] == new.content_hash
+    assert old.metadata["evolution_reason"] == "window moved"
+
+    await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_rejects_non_dict_metadata_before_writing(tmp_path):
+    """A truthy non-dict metadata is rejected before anything is written.
+
+    Checked after update_memory_versioned() the value only fails at .items(),
+    which leaves the old memory superseded and the handler reporting an error
+    for a write that happened.
+    """
+    from mcp_memory_service.server.handlers.memory import handle_update_memory_metadata
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+    storage = SqliteVecMemoryStorage(str(tmp_path / "test.db"))
+    await storage.initialize()
+    server = MagicMock()
+    server._ensure_storage_initialized = AsyncMock(return_value=storage)
+
+    original_content = "The runbook lives in the ops wiki."
+    original = Memory(
+        content=original_content,
+        content_hash=generate_content_hash(original_content),
+        tags=["ops"],
+        memory_type="observation",
+        metadata={"source": "runbook"},
+    )
+    ok, msg = await storage.store(original, skip_semantic_dedup=True)
+    assert ok, f"Failed to store original: {msg}"
+
+    new_content = "The runbook lives in the team wiki."
+    result = await handle_update_memory_metadata(server, {
+        "content_hash": original.content_hash,
+        "updates": {
+            "content": new_content,
+            "metadata": ["source", "runbook"],
+        },
+        "versioned": True,
+    })
+
+    assert "Error: metadata must be a dictionary" in result[0].text
+    # Nothing was written: the old version is still current and no new one exists.
+    assert (await storage.get_by_hash(original.content_hash)) is not None
+    assert (await storage.get_by_hash(generate_content_hash(new_content))) is None
+
+    await storage.close()
