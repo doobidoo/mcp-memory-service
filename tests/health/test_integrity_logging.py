@@ -89,7 +89,8 @@ async def test_export_failure_log_does_not_carry_newlines(caplog, tmp_path, monk
 
 
 @pytest.mark.asyncio
-async def test_successful_export_log_does_not_carry_newlines(caplog, tmp_path):
+async def test_successful_export_log_does_not_carry_newlines(caplog, tmp_path, monkeypatch):
+    import io
     import sqlite3
 
     db_path = tmp_path / "memories.db"
@@ -104,8 +105,12 @@ async def test_successful_export_log_does_not_carry_newlines(caplog, tmp_path):
 
     monitor = IntegrityMonitor(str(db_path))
 
+    # Windows cannot create a file name with a newline, so the output file is faked and
+    # the path is only passed through to the log.
+    monkeypatch.setattr(integrity, "open", lambda *_args, **_kwargs: io.StringIO(), raising=False)
+
     with caplog.at_level(logging.DEBUG):
-        ok, count = await monitor.export_memories(str(tmp_path / f"out\n{FORGED}.json"))
+        ok, count = await monitor.export_memories(f"out\n{FORGED}.json")
 
     assert ok and count == 1
     _assert_clean(caplog, "Exported 1 memories to")
