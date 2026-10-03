@@ -881,6 +881,26 @@ async def get_cache_stats(ctx: Context) -> Dict[str, Any]:
 # MAIN ENTRY POINT
 # =============================================================================
 
+def _assert_loopback_bind(host: str, port: int) -> None:
+    """Refuse to serve this entry point anywhere but loopback.
+
+    FastMCP is built here with no auth and no token verifier, so neither
+    MCP_API_KEY nor OAuth protects it. The bind guard the other transports use
+    (`_assert_bind_is_authenticated`) lets a network bind through once a key is
+    set, which would be wrong here: the key would be configured and never
+    checked. Loopback is the only safe bind (GHSA-26rx-6fvr-qjqg).
+    """
+    from .utils.startup_orchestrator import _is_loopback_host  # inline import: only main() needs it
+    if _is_loopback_host(host):
+        return
+    raise RuntimeError(
+        f"Refusing to start mcp-memory-server on {host}:{port}. This entry point has no "
+        "authentication, and MCP_API_KEY and OAuth do not apply to it. Bind it to "
+        "127.0.0.1, or for network clients use 'memory server --streamable-http', "
+        "which enforces MCP_API_KEY or OAuth."
+    )
+
+
 def main():
     """Main entry point for the FastAPI MCP server (StreamableHTTP transport).
 
@@ -898,7 +918,7 @@ def main():
     """
     # Emit a prominent warning so users who accidentally invoke this via stdio
     # see a clear message rather than a silent misconfiguration.
-    print(
+    print(  # debug: intentional user-facing stderr notice, not leftover debug output
         "\n"
         "WARNING: mcp-memory-server uses StreamableHTTP transport, NOT stdio.\n"
         "  If you are configuring a stdio MCP client (Claude Code, Claude Desktop),\n"
@@ -906,6 +926,8 @@ def main():
         "  Starting HTTP server now...\n",
         file=sys.stderr
     )
+
+    _assert_loopback_bind(HTTP_HOST, HTTP_PORT)
 
     logger.info("Starting MCP Memory Service FastAPI server on %s:%s", _sanitize_log_value(HTTP_HOST), HTTP_PORT)
     logger.info("Storage backend: %s", _sanitize_log_value(STORAGE_BACKEND))
