@@ -1149,8 +1149,15 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             try:
                 entity_hashes = set(await graph.find_memories_by_entity(entity_filter))
             except Exception as e:
-                logger.error("Entity filter lookup failed for %s: %s",
-                             _sanitize_log_value(entity_filter), _sanitize_log_value(e), exc_info=True)
+                # Deliberately not passing exc_info: the logging module appends
+                # the formatted traceback, which carries raw str(e) and so
+                # reintroduces the newline forgery the wraps above exist to stop.
+                # Pass the traceback through the sanitizer instead, like the
+                # other error paths in this file.
+                logger.error("Entity filter lookup failed for %s: %s\n%s",
+                             _sanitize_log_value(entity_filter),
+                             _sanitize_log_value(str(e)),
+                             _sanitize_log_value(traceback.format_exc()))
                 return [types.TextContent(
                     type="text",
                     text=f"Error: entity filter lookup failed for "
