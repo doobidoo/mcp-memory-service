@@ -86,3 +86,26 @@ async def test_export_failure_log_does_not_carry_newlines(caplog, tmp_path, monk
 
     assert not ok
     _assert_clean(caplog, "Memory export failed: disk gone")
+
+
+@pytest.mark.asyncio
+async def test_successful_export_log_does_not_carry_newlines(caplog, tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "memories.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE memories (content_hash TEXT, content TEXT, created_at REAL, "
+        "metadata TEXT, tags TEXT, type TEXT)"
+    )
+    conn.execute("INSERT INTO memories VALUES ('h', 'hello', 1.0, '{}', '', 'note')")
+    conn.commit()
+    conn.close()
+
+    monitor = IntegrityMonitor(str(db_path))
+
+    with caplog.at_level(logging.DEBUG):
+        ok, count = await monitor.export_memories(str(tmp_path / f"out\n{FORGED}.json"))
+
+    assert ok and count == 1
+    _assert_clean(caplog, "Exported 1 memories to")
