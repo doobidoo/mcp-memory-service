@@ -302,6 +302,41 @@ class TestUpdateMemoryVersioned:
         )
         assert cursor.fetchone()[0] == 1
 
+    @pytest.mark.asyncio
+    async def test_versioned_update_inherits_custom_metadata(self, storage):
+        import json
+
+        h = await _store(storage, "Release checklist v1 original content")
+
+        ok, msg = await storage.update_memory_metadata(
+            h, {"metadata": {"source": "runbook", "ticket": "OPS-17", "owner": "ana"}}
+        )
+        assert ok, msg
+
+        success, msg, new_hash = await storage.update_memory_versioned(
+            h, "Release checklist v2 revised content", reason="runbook refresh"
+        )
+        assert success
+
+        def _meta(content_hash):
+            row = storage.conn.execute(
+                "SELECT metadata FROM memories WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            return json.loads(row[0]) if row and row[0] else {}
+
+        new_meta = _meta(new_hash)
+        assert new_meta.get("source") == "runbook"
+        assert new_meta.get("ticket") == "OPS-17"
+        assert new_meta.get("owner") == "ana"
+        # Lineage keys belong to the old row only.
+        assert "superseded_by" not in new_meta
+        assert "evolution_reason" not in new_meta
+
+        old_meta = _meta(h)
+        assert old_meta.get("superseded_by") == new_hash
+        assert old_meta.get("evolution_reason") == "runbook refresh"
+        assert old_meta.get("source") == "runbook"
+
 
 # ── get_memory_history ───────────────────────────────────────────────
 
