@@ -138,7 +138,7 @@ class Memory:
                         return calendar.timegm(dt.timetuple())
                     except (ValueError, TypeError):
                         # If all parsing fails, return current timestamp
-                        logging.warning(f"Failed to parse timestamp '{iso_str}', using current time")
+                        logger.warning("Failed to parse timestamp '%s', using current time", _sanitize_log_value(iso_str))
                         return datetime.now().timestamp()
 
         def float_to_iso(ts: float) -> str:
