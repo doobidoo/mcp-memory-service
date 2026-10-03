@@ -881,6 +881,27 @@ async def get_cache_stats(ctx: Context) -> Dict[str, Any]:
 # MAIN ENTRY POINT
 # =============================================================================
 
+def _assert_loopback_bind(host: str, port: int) -> None:
+    """Refuse to serve this entry point anywhere but loopback.
+
+    FastMCP is built here with no auth and no token verifier, so neither
+    MCP_API_KEY nor OAuth protects it. The bind guard the other transports use
+    (`_assert_bind_is_authenticated`) lets a network bind through once a key is
+    set, which would be wrong here: the key would be configured and never
+    checked. Loopback is the only safe bind (GHSA-26rx-6fvr-qjqg).
+    """
+    from .utils.startup_orchestrator import _is_loopback_host  # inline import: only main() needs it
+    if _is_loopback_host(host):
+        return
+    raise RuntimeError(
+        f"Refusing to start mcp-memory-server on {host}:{port}. This entry point has no "
+        "authentication, and MCP_API_KEY and OAuth do not apply to it. Bind it to "
+        "127.0.0.1. For network clients run 'memory server --streamable-http' with "
+        "MCP_SSE_HOST (or --sse-host) set to the bind address, plus MCP_API_KEY or "
+        "OAuth; that transport reads MCP_SSE_HOST, not MCP_HTTP_HOST."
+    )
+
+
 def main():
     """Main entry point for the FastAPI MCP server (StreamableHTTP transport).
 
@@ -893,12 +914,17 @@ def main():
     or:
         python -m mcp_memory_service.server
 
-    This `mcp-memory-server` entry point starts an HTTP server on a port and is
-    intended for remote/HTTP-based MCP clients only.
+    This `mcp-memory-server` entry point starts an HTTP server for HTTP-based MCP
+    clients on the same machine. It has no authentication, so it refuses any
+    non-loopback bind (GHSA-26rx-6fvr-qjqg). Network clients belong on
+    `memory server --streamable-http` with MCP_SSE_HOST and MCP_API_KEY or OAuth.
     """
+    # Check what uvicorn will actually bind, before telling anyone we start.
+    _assert_loopback_bind(mcp.settings.host, mcp.settings.port)
+
     # Emit a prominent warning so users who accidentally invoke this via stdio
     # see a clear message rather than a silent misconfiguration.
-    print(
+    print(  # debug: intentional user-facing stderr notice, not leftover debug output
         "\n"
         "WARNING: mcp-memory-server uses StreamableHTTP transport, NOT stdio.\n"
         "  If you are configuring a stdio MCP client (Claude Code, Claude Desktop),\n"

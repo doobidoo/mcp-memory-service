@@ -139,3 +139,41 @@ class TestLoopbackDetection:
         "localhost" as a falsy-ish default, which fails open.
         """
         assert _is_loopback_host("") is False
+
+
+class TestFastMCPEntryPointBind:
+    """`mcp-memory-server` (mcp_server.main) builds FastMCP with no auth, so it
+    must never bind beyond loopback, whatever auth is configured
+    (GHSA-26rx-6fvr-qjqg)."""
+
+    @pytest.fixture
+    def runs(self, monkeypatch):
+        """Calls to mcp.run(), with every form of auth configured."""
+        import mcp_memory_service.config as config  # inline import: patched per test
+        mcp_server = pytest.importorskip("mcp_memory_service.mcp_server")
+        monkeypatch.setattr(config, "API_KEY", "a-key")
+        monkeypatch.setattr(config, "OAUTH_ENABLED", True)
+        calls = []
+        monkeypatch.setattr(mcp_server.mcp, "run", lambda *a, **k: calls.append(a))
+        return calls
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.5", "::", ""])
+    def test_refuses_network_bind_even_with_auth(self, runs, monkeypatch, host):
+        """Configured auth must not let it through: nothing here checks it."""
+        from mcp_memory_service import mcp_server
+        monkeypatch.setattr(mcp_server.mcp.settings, "host", host)
+        with pytest.raises(RuntimeError, match="Refusing to start mcp-memory-server"):
+            mcp_server.main()
+        assert runs == []
+
+    def test_starts_on_loopback(self, runs, monkeypatch):
+        from mcp_memory_service import mcp_server
+        monkeypatch.setattr(mcp_server.mcp.settings, "host", "127.0.0.1")
+        mcp_server.main()
+        assert runs == [("streamable-http",)]
+
+    def test_guard_reads_the_address_uvicorn_binds(self, runs):
+        """FastMCP's run_streamable_http_async binds settings.host, which is the
+        value main() checks; it has to come from MCP_HTTP_HOST."""
+        from mcp_memory_service import mcp_server
+        assert mcp_server.mcp.settings.host == mcp_server.HTTP_HOST
