@@ -31,6 +31,7 @@ except (ImportError, AttributeError):
     __version__ = "0.0.0.dev0"
 
 from ..utils.system_detection import get_system_info, AcceleratorType
+from ..compat import _sanitize_log_value
 from ..config import BACKUPS_PATH
 
 
@@ -50,7 +51,7 @@ def setup_python_paths():
     for venv_path in potential_venv_paths:
         if os.path.exists(venv_path):
             sys.path.insert(0, venv_path)
-            logger.debug(f"Added venv path: {venv_path}")
+            logger.debug("Added venv path: %s", _sanitize_log_value(venv_path))
             break
 
     # For Claude Desktop: also check if we can access global site-packages
@@ -62,16 +63,16 @@ def setup_python_paths():
         # Add user site-packages if not blocked by PYTHONNOUSERSITE
         if not os.environ.get('PYTHONNOUSERSITE') and user_path not in sys.path:
             sys.path.append(user_path)
-            logger.debug(f"Added user site-packages: {user_path}")
+            logger.debug("Added user site-packages: %s", _sanitize_log_value(user_path))
 
         # Add global site-packages if available
         for path in global_paths:
             if path not in sys.path:
                 sys.path.append(path)
-                logger.debug(f"Added global site-packages: {path}")
+                logger.debug("Added global site-packages: %s", _sanitize_log_value(path))
 
     except Exception as e:
-        logger.warning(f"Could not access site-packages: {e}")
+        logger.warning("Could not access site-packages: %s", _sanitize_log_value(e))
 
 
 # Check if UV is being used
@@ -116,8 +117,8 @@ def check_version_consistency():
         if installed_version != source_version:
             logger.warning("=" * 70)
             logger.warning("⚠️  VERSION MISMATCH DETECTED!")
-            logger.warning(f"   Source code: v{source_version}")
-            logger.warning(f"   Installed:   v{installed_version}")
+            logger.warning("   Source code: v%s", _sanitize_log_value(source_version))
+            logger.warning("   Installed:   v%s", _sanitize_log_value(installed_version))
             logger.warning("")
             logger.warning("   This usually means you need to run:")
             logger.warning("   pip install -e . --force-reinstall")
@@ -127,11 +128,11 @@ def check_version_consistency():
             logger.warning("   - In Claude Desktop: Restart the application")
             logger.warning("=" * 70)
         else:
-            logger.debug(f"Version check OK: v{source_version}")
+            logger.debug("Version check OK: v%s", _sanitize_log_value(source_version))
 
     except Exception as e:
         # Don't fail server startup on version check errors
-        logger.debug(f"Version check failed (non-critical): {e}")
+        logger.debug("Version check failed (non-critical): %s", _sanitize_log_value(e))
 
 
 # Configure environment variables based on detected system
@@ -140,9 +141,13 @@ def configure_environment():
     system_info = get_system_info()
 
     # Log system information
-    logger.info(f"Detected system: {system_info.os_name} {system_info.architecture}")
-    logger.info(f"Memory: {system_info.memory_gb:.2f} GB")
-    logger.info(f"Accelerator: {system_info.accelerator}")
+    logger.info(
+        "Detected system: %s %s",
+        _sanitize_log_value(system_info.os_name),
+        _sanitize_log_value(system_info.architecture),
+    )
+    logger.info("Memory: %.2f GB", system_info.memory_gb)
+    logger.info("Accelerator: %s", _sanitize_log_value(system_info.accelerator))
 
     # Set environment variables for better cross-platform compatibility
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"

@@ -97,7 +97,7 @@ async def search(
     if limit < 1:
         raise ValueError("Limit must be at least 1")
     if limit > 100:
-        logger.warning(f"Large limit ({limit}) may impact performance")
+        logger.warning("Large limit (%s) may impact performance", limit)
 
     # Get storage instance
     storage = await get_storage_async()
@@ -262,7 +262,7 @@ async def health() -> CompactHealthInfo:
         )
 
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
+        logger.error("Health check failed: %s", _sanitize_log_value(e))
         return CompactHealthInfo(
             status="error",
             count=0,
@@ -299,7 +299,7 @@ async def _consolidate_async(time_horizon: str) -> CompactConsolidationResult:
         start_time = time.time()
 
         # Run consolidation
-        logger.info(f"Running {_sanitize_log_value(time_horizon)} consolidation...")
+        logger.info("Running %s consolidation...", _sanitize_log_value(time_horizon))
         result = await consolidator.consolidate(time_horizon)
 
         # Calculate duration
@@ -312,7 +312,11 @@ async def _consolidate_async(time_horizon: str) -> CompactConsolidationResult:
         status = 'completed' if not result.errors else 'completed_with_errors'
 
         logger.info(
-        f"🎉 Consolidation completed successfully! Processed: {processed}, Compressed: {compressed}, Forgotten: {forgotten} (Total time: {duration:.1f}s)"
+            "🎉 Consolidation completed successfully! Processed: %s, Compressed: %s, Forgotten: %s (Total time: %.1fs)",
+            processed,
+            compressed,
+            forgotten,
+            duration,
         )
 
         return CompactConsolidationResult(
@@ -325,7 +329,7 @@ async def _consolidate_async(time_horizon: str) -> CompactConsolidationResult:
         )
 
     except Exception as e:
-        logger.error(f"Consolidation failed: {e}")
+        logger.error("Consolidation failed: %s", _sanitize_log_value(e))
         return CompactConsolidationResult(
             status="failed",
             horizon=time_horizon,
@@ -440,7 +444,7 @@ async def _scheduler_status_async() -> CompactSchedulerStatus:
             )
 
     except Exception as e:
-        logger.error(f"Failed to get scheduler status: {e}")
+        logger.error("Failed to get scheduler status: %s", _sanitize_log_value(e))
         return CompactSchedulerStatus(
             running=False,
             next_daily=None,

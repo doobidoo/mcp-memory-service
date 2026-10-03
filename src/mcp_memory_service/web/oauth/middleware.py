@@ -34,6 +34,7 @@ from ...config import (
     get_jwt_algorithm,
     get_jwt_verification_key
 )
+from ...compat import _sanitize_log_value
 from .limits import MAX_JWT_LEN, MAX_API_KEY_LEN
 
 def _www_authenticate_header() -> str:
@@ -118,14 +119,14 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
     # JWT tokens should have 3 parts separated by dots
     parts = token.split('.')
     if len(parts) != 3:
-        logger.debug(f"Invalid token format: expected 3 parts, got {len(parts)}")
+        logger.debug("Invalid token format: expected 3 parts, got %s", len(parts))
         return None
 
     try:
         algorithm = get_jwt_algorithm()
         verification_key = get_jwt_verification_key()
 
-        logger.debug(f"Validating JWT token with algorithm: {algorithm}")
+        logger.debug("Validating JWT token with algorithm: %s", algorithm)
         payload = jwt.decode(
             token,
             verification_key,
@@ -138,30 +139,30 @@ def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         required_claims = ['sub', 'iss', 'aud', 'exp', 'iat']
         missing_claims = [claim for claim in required_claims if claim not in payload]
         if missing_claims:
-            logger.warning(f"JWT token missing required claims: {missing_claims}")
+            logger.warning("JWT token missing required claims: %s", missing_claims)
             return None
 
-        logger.debug(f"JWT validation successful for subject: {payload.get('sub')}")
+        logger.debug("JWT validation successful for subject: %s", _sanitize_log_value(payload.get('sub')))
         return payload
 
     except ExpiredSignatureError:
         logger.debug("JWT validation failed: token has expired")
         return None
     except JWTClaimsError as e:
-        logger.debug(f"JWT validation failed: invalid claims - {e}")
+        logger.debug("JWT validation failed: invalid claims - %s", _sanitize_log_value(e))
         return None
     except ValueError as e:
-        logger.debug(f"JWT validation failed: configuration error - {e}")
+        logger.debug("JWT validation failed: configuration error - %s", _sanitize_log_value(e))
         return None
     except JWTError as e:
         # Catch-all for other JWT-related errors
         error_type = type(e).__name__
-        logger.debug(f"JWT validation failed: {error_type} - {e}")
+        logger.debug("JWT validation failed: %s - %s", error_type, _sanitize_log_value(e))
         return None
     except Exception as e:
         # Unexpected errors should be logged but not crash the system
         error_type = type(e).__name__
-        logger.error(f"Unexpected error during JWT validation: {error_type} - {e}")
+        logger.error("Unexpected error during JWT validation: %s - %s", error_type, _sanitize_log_value(e))
         return None
 
 
@@ -206,7 +207,11 @@ async def authenticate_bearer_token(token: str) -> AuthenticationResult:
                     error="invalid_token"
                 )
 
-            logger.debug(f"JWT authentication successful: client_id={client_id}, scope={scope}")
+            logger.debug(
+                "JWT authentication successful: client_id=%s, scope=%s",
+                _sanitize_log_value(client_id),
+                _sanitize_log_value(scope),
+            )
             return AuthenticationResult(
                 authenticated=True,
                 client_id=client_id,
@@ -226,7 +231,7 @@ async def authenticate_bearer_token(token: str) -> AuthenticationResult:
                     error="invalid_token"
                 )
 
-            logger.debug(f"OAuth storage authentication successful: client_id={client_id}")
+            logger.debug("OAuth storage authentication successful: client_id=%s", _sanitize_log_value(client_id))
             return AuthenticationResult(
                 authenticated=True,
                 client_id=client_id,
@@ -237,7 +242,7 @@ async def authenticate_bearer_token(token: str) -> AuthenticationResult:
     except Exception as e:
         # Catch any unexpected errors during authentication
         error_type = type(e).__name__
-        logger.error(f"Unexpected error during bearer token authentication: {error_type} - {e}")
+        logger.error("Unexpected error during bearer token authentication: %s - %s", error_type, _sanitize_log_value(e))
         return AuthenticationResult(
             authenticated=False,
             auth_method="oauth",
@@ -338,7 +343,7 @@ async def get_current_user(
                 return auth_result
 
             # OAuth token provided but invalid - log the attempt
-            logger.debug(f"OAuth Bearer token validation failed for enabled OAuth system")
+            logger.debug("OAuth Bearer token validation failed for enabled OAuth system")
 
         # Try API key authentication as fallback (works regardless of OAuth state)
         if API_KEY:

@@ -33,6 +33,7 @@ class HarvestResult:
     found: int
     by_type: Dict[str, int]
     stored: int = 0  # Only set when dry_run=False
+    coverage: Optional[Dict] = None  # Coverage report aggregated across the run
 
 
 @dataclass

@@ -167,11 +167,11 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                 result_lines.extend([f"   - {error}" for error in errors[:3]])
                 result_lines.append(f"   ... and {len(errors) - 3} more errors")
 
-        logger.info(f"Document ingestion completed: {chunks_stored}/{chunks_processed} chunks stored")
+        logger.info("Document ingestion completed: %s/%s chunks stored", chunks_stored, chunks_processed)
         return [types.TextContent(type="text", text="\n".join(result_lines))]
 
     except Exception as e:
-        logger.error(f"Error in document ingestion: {str(e)}")
+        logger.error("Error in document ingestion: %s", _sanitize_log_value(e))
         return [types.TextContent(
             type="text",
             text=f"Error ingesting document: {str(e)}"
@@ -263,11 +263,16 @@ async def handle_ingest_directory(server, arguments: dict) -> List[types.TextCon
             processing_time=processing_time
         )
 
-        logger.info(f"Directory ingestion completed: {stats['total_chunks_stored']}/{stats['total_chunks_processed']} chunks from {stats['files_processed']} files")
+        logger.info(
+            "Directory ingestion completed: %s/%s chunks from %s files",
+            stats['total_chunks_stored'],
+            stats['total_chunks_processed'],
+            stats['files_processed'],
+        )
         return [types.TextContent(type="text", text="\n".join(result_lines))]
 
     except Exception as e:
-        logger.error(f"Error in directory ingestion: {str(e)}")
+        logger.error("Error in directory ingestion: %s", _sanitize_log_value(e))
         return [types.TextContent(
             type="text",
             text=f"Error ingesting directory: {str(e)}"

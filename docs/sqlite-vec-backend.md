@@ -99,7 +99,7 @@ Update your Claude Desktop MCP configuration:
 
 ## Migrating Legacy ChromaDB Data
 
-ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The script is preserved on the [`chromadb-legacy`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy) branch.
+ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The script is preserved at the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag.
 
 After migration, set the environment variable and restart Claude Desktop:
 
