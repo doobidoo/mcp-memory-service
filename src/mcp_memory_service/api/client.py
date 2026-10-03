@@ -37,6 +37,7 @@ import os
 from typing import Optional
 from ..storage.base import MemoryStorage
 from ..storage.factory import create_storage_instance
+from ..compat import _sanitize_log_value
 from ..config import DATABASE_PATH, get_base_directory
 
 logger = logging.getLogger(__name__)
@@ -94,22 +95,22 @@ async def _get_storage_async() -> MemoryStorage:
                 # Fallback to cross-platform default path
                 base_dir = get_base_directory()
                 db_path = os.path.join(base_dir, "sqlite_vec.db")
-                logger.warning(f"DATABASE_PATH not configured, using default: {db_path}")
+                logger.warning("DATABASE_PATH not configured, using default: %s", _sanitize_log_value(db_path))
 
             # Ensure database directory exists
             db_dir = os.path.dirname(db_path)
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
-                logger.info(f"Created database directory: {db_dir}")
+                logger.info("Created database directory: %s", _sanitize_log_value(db_dir))
 
             # Create and initialize storage instance
             _storage_instance = await create_storage_instance(db_path)
 
-            logger.info(f"Storage backend initialized: {type(_storage_instance).__name__}")
+            logger.info("Storage backend initialized: %s", type(_storage_instance).__name__)
             return _storage_instance
 
         except Exception as e:
-            logger.error(f"Failed to initialize storage backend: {e}")
+            logger.error("Failed to initialize storage backend: %s", _sanitize_log_value(e))
             raise RuntimeError(f"Storage initialization failed: {e}") from e
 
 
@@ -189,7 +190,7 @@ def get_storage() -> MemoryStorage:
         return storage
 
     except Exception as e:
-        logger.error(f"Error getting storage instance: {e}")
+        logger.error("Error getting storage instance: %s", _sanitize_log_value(e))
         raise
 
 
@@ -222,7 +223,7 @@ def close() -> None:
             # Simply clear the instance reference
             # Async cleanup will happen via atexit or explicit close_async()
         except Exception as e:
-            logger.warning(f"Error closing storage instance: {e}")
+            logger.warning("Error closing storage instance: %s", _sanitize_log_value(e))
         finally:
             _storage_instance = None
 
@@ -250,7 +251,7 @@ async def close_async() -> None:
                 if hasattr(close_method, '__await__'):
                     await close_method
         except Exception as e:
-            logger.warning(f"Error closing storage instance: {e}")
+            logger.warning("Error closing storage instance: %s", _sanitize_log_value(e))
         finally:
             _storage_instance = None
 
