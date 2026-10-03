@@ -161,13 +161,19 @@ class TestFastMCPEntryPointBind:
     def test_refuses_network_bind_even_with_auth(self, runs, monkeypatch, host):
         """Configured auth must not let it through: nothing here checks it."""
         from mcp_memory_service import mcp_server
-        monkeypatch.setattr(mcp_server, "HTTP_HOST", host)
+        monkeypatch.setattr(mcp_server.mcp.settings, "host", host)
         with pytest.raises(RuntimeError, match="Refusing to start mcp-memory-server"):
             mcp_server.main()
         assert runs == []
 
     def test_starts_on_loopback(self, runs, monkeypatch):
         from mcp_memory_service import mcp_server
-        monkeypatch.setattr(mcp_server, "HTTP_HOST", "127.0.0.1")
+        monkeypatch.setattr(mcp_server.mcp.settings, "host", "127.0.0.1")
         mcp_server.main()
         assert runs == [("streamable-http",)]
+
+    def test_guard_reads_the_address_uvicorn_binds(self, runs):
+        """FastMCP's run_streamable_http_async binds settings.host, which is the
+        value main() checks; it has to come from MCP_HTTP_HOST."""
+        from mcp_memory_service import mcp_server
+        assert mcp_server.mcp.settings.host == mcp_server.HTTP_HOST

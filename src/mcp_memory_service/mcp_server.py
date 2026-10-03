@@ -896,8 +896,9 @@ def _assert_loopback_bind(host: str, port: int) -> None:
     raise RuntimeError(
         f"Refusing to start mcp-memory-server on {host}:{port}. This entry point has no "
         "authentication, and MCP_API_KEY and OAuth do not apply to it. Bind it to "
-        "127.0.0.1, or for network clients use 'memory server --streamable-http', "
-        "which enforces MCP_API_KEY or OAuth."
+        "127.0.0.1. For network clients run 'memory server --streamable-http' with "
+        "MCP_SSE_HOST (or --sse-host) set to the bind address, plus MCP_API_KEY or "
+        "OAuth; that transport reads MCP_SSE_HOST, not MCP_HTTP_HOST."
     )
 
 
@@ -913,9 +914,14 @@ def main():
     or:
         python -m mcp_memory_service.server
 
-    This `mcp-memory-server` entry point starts an HTTP server on a port and is
-    intended for remote/HTTP-based MCP clients only.
+    This `mcp-memory-server` entry point starts an HTTP server for HTTP-based MCP
+    clients on the same machine. It has no authentication, so it refuses any
+    non-loopback bind (GHSA-26rx-6fvr-qjqg). Network clients belong on
+    `memory server --streamable-http` with MCP_SSE_HOST and MCP_API_KEY or OAuth.
     """
+    # Check what uvicorn will actually bind, before telling anyone we start.
+    _assert_loopback_bind(mcp.settings.host, mcp.settings.port)
+
     # Emit a prominent warning so users who accidentally invoke this via stdio
     # see a clear message rather than a silent misconfiguration.
     print(  # debug: intentional user-facing stderr notice, not leftover debug output
@@ -926,8 +932,6 @@ def main():
         "  Starting HTTP server now...\n",
         file=sys.stderr
     )
-
-    _assert_loopback_bind(HTTP_HOST, HTTP_PORT)
 
     logger.info("Starting MCP Memory Service FastAPI server on %s:%s", _sanitize_log_value(HTTP_HOST), HTTP_PORT)
     logger.info("Storage backend: %s", _sanitize_log_value(STORAGE_BACKEND))
