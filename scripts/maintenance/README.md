@@ -630,9 +630,8 @@ bash scripts/maintenance/fast_cleanup_duplicates.sh  # NOT Python API scripts
 
 ## Related Documentation
 
-- [Database Schema](../../docs/database-schema.md) - sqlite-vec table structure
 - [Storage Backends](../../CLAUDE.md#storage-backends) - Hybrid, Cloudflare, SQLite-vec
-- [Troubleshooting](../../docs/troubleshooting.md) - Common issues and solutions
+- [Troubleshooting](../../docs/troubleshooting/general.md) - Common issues and solutions
 
 ## Contributing
 

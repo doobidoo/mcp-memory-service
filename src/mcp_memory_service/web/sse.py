@@ -32,6 +32,7 @@ from fastapi import Request
 from sse_starlette import EventSourceResponse
 import logging
 
+from ..compat import _sanitize_log_value
 from ..config import SSE_HEARTBEAT_INTERVAL, SSE_EVENT_REPLAY_BUFFER_SIZE
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ class SSEManager:
             
         self._running = True
         self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        logger.info(f"SSE Manager started with {self.heartbeat_interval}s heartbeat interval")
+        logger.info("SSE Manager started with %ss heartbeat interval", self.heartbeat_interval)
     
     async def stop(self):
         """Stop the SSE manager and cleanup connections."""
@@ -123,7 +124,11 @@ class SSEManager:
             'client_ip': request.client.host if request.client else 'Unknown'
         }
 
-        logger.info(f"SSE connection added: {connection_id} from {self.connections[connection_id]['client_ip']}")
+        logger.info(
+            "SSE connection added: %s from %s",
+            connection_id,
+            _sanitize_log_value(self.connections[connection_id]['client_ip']),
+        )
 
         # Resolve replay (if requested) before sending the welcome so the
         # welcome can describe the outcome to the client.
@@ -144,8 +149,10 @@ class SSEManager:
             await queue.put(event)
         if events_to_replay:
             logger.info(
-                f"SSE replayed {len(events_to_replay)} event(s) to {connection_id} "
-                f"after Last-Event-ID={last_event_id}"
+                "SSE replayed %d event(s) to %s after Last-Event-ID=%s",
+                len(events_to_replay),
+                connection_id,
+                _sanitize_log_value(last_event_id),
             )
 
         return queue
@@ -201,7 +208,7 @@ class SSEManager:
                 pass  # Queue might be closed during connection teardown
             
             del self.connections[connection_id]
-            logger.info(f"SSE connection removed: {connection_id} (duration: {duration:.1f}s)")
+            logger.info("SSE connection removed: %s (duration: %.1fs)", connection_id, duration)
     
     async def broadcast_event(self, event: SSEEvent, connection_filter: Optional[Set[str]] = None):
         """Broadcast an event to all or filtered connections."""
@@ -231,7 +238,7 @@ class SSEManager:
         if not target_connections:
             return
         
-        logger.debug(f"Broadcasting {event.event_type} to {len(target_connections)} connections")
+        logger.debug("Broadcasting %s to %d connections", event.event_type, len(target_connections))
         
         # Send to all target connections
         for connection_id in list(target_connections):  # Copy to avoid modification during iteration
@@ -239,7 +246,7 @@ class SSEManager:
                 try:
                     await self.connections[connection_id]['queue'].put(event)
                 except Exception as e:
-                    logger.error(f"Failed to send event to {connection_id}: {e}")
+                    logger.error("Failed to send event to %s: %s", connection_id, _sanitize_log_value(e))
                     await self._remove_connection(connection_id)
     
     async def _heartbeat_loop(self):
@@ -267,12 +274,12 @@ class SSEManager:
                         connection_info['last_heartbeat'] = current_time
                     
                     await self.broadcast_event(heartbeat_event)
-                    logger.debug(f"Heartbeat sent to {len(self.connections)} connections")
+                    logger.debug("Heartbeat sent to %d connections", len(self.connections))
                 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in heartbeat loop: {e}")
+                logger.error("Error in heartbeat loop: %s", _sanitize_log_value(e))
     
     def get_connection_stats(self) -> Dict[str, Any]:
         """Get statistics about current connections."""
@@ -352,7 +359,7 @@ async def create_event_stream(request: Request):
                     break
                     
         except Exception as e:
-            logger.error(f"Error in event stream for {connection_id}: {e}")
+            logger.error("Error in event stream for %s: %s", connection_id, _sanitize_log_value(e))
         finally:
             await sse_manager._remove_connection(connection_id)
     

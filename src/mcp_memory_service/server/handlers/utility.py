@@ -26,6 +26,7 @@ from typing import List
 
 from mcp import types
 from ...server.cache_manager import _CACHE_STATS, _STORAGE_CACHE, _MEMORY_SERVICE_CACHE
+from ...compat import _sanitize_log_value
 from ...config import STORAGE_BACKEND, SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
 
 try:
@@ -65,7 +66,7 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
                 }
             }
 
-            logger.error(f"Storage initialization failed during health check: {str(init_error)}")
+            logger.error("Storage initialization failed during health check: %s", _sanitize_log_value(init_error))
             return [types.TextContent(
                 type="text",
                 text=f"Database Health Check Results:\n{json.dumps(result, indent=2)}"
@@ -81,7 +82,7 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
             try:
                 performance_stats = storage.get_performance_stats()
             except Exception as perf_error:
-                logger.warning(f"Could not get performance stats: {str(perf_error)}")
+                logger.warning("Could not get performance stats: %s", _sanitize_log_value(perf_error))
                 performance_stats = {"error": str(perf_error)}
 
         # Get server-level performance stats
@@ -96,7 +97,7 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
             try:
                 server_stats["storage_initialization"] = storage.get_initialization_status()
             except Exception as e:
-                logger.debug("get_initialization_status() raised an error: %s", e)
+                logger.debug("get_initialization_status() raised an error: %s", _sanitize_log_value(e))
 
         # Add integrity monitor status if available
         integrity_status = {}
@@ -118,14 +119,14 @@ async def handle_check_database_health(server, arguments: dict) -> List[types.Te
             }
         }
 
-        logger.info(f"Database health result with performance data: {result}")
+        logger.info("Database health result with performance data: %s", _sanitize_log_value(result))
         return [types.TextContent(
             type="text",
             text=f"Database Health Check Results:\n{json.dumps(result, indent=2)}"
         )]
     except Exception as e:
-        logger.error(f"Error in check_database_health: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error("Error in check_database_health: %s", _sanitize_log_value(e))
+        logger.error("%s", _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(
             type="text",
             text=f"Error checking database health: {str(e)}"
@@ -167,7 +168,7 @@ async def handle_get_cache_stats(server, arguments: dict) -> List[types.TextCont
             "embedding_model": EMBEDDING_MODEL_NAME
         }
 
-        logger.info(f"Cache stats retrieved: {result['message']}")
+        logger.info("Cache stats retrieved: %s", _sanitize_log_value(result['message']))
 
         # Return JSON string for easy parsing by clients
         return [types.TextContent(
@@ -176,8 +177,8 @@ async def handle_get_cache_stats(server, arguments: dict) -> List[types.TextCont
         )]
 
     except Exception as e:
-        logger.error(f"Error in get_cache_stats: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error("Error in get_cache_stats: %s", _sanitize_log_value(e))
+        logger.error("%s", _sanitize_log_value(traceback.format_exc()))
         return [types.TextContent(
             type="text",
             text=f"Error getting cache stats: {str(e)}"
