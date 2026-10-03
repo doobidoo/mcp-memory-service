@@ -539,6 +539,16 @@ Examples:
                             "priority": "urgent",
                             "status": "active"
                         }
+                    }
+
+                    # Create a new version with updated content (sqlite_vec only)
+                    {
+                        "content_hash": "abc123...",
+                        "updates": {
+                            "content": "Corrected memory content",
+                            "reason": "Fix outdated command"
+                        },
+                        "versioned": true
                     }""",
         input_schema={
             "type": "object",
@@ -549,7 +559,7 @@ Examples:
                 },
                 "updates": {
                     "type": "object",
-                    "description": "Dictionary of metadata fields to update.",
+                    "description": "Dictionary of fields to update. With versioned=true only content, tags, memory_type and reason take effect.",
                     "properties": {
                         "tags": {
                             "oneOf": [
@@ -571,19 +581,27 @@ Examples:
                         },
                         "metadata": {
                             "type": "object",
-                            "description": "Custom metadata fields to merge with existing metadata.",
+                            "description": "Custom metadata fields to merge with existing metadata. In-place updates only: ignored with versioned=true, where the new version starts with empty metadata and does not inherit the old version's custom fields.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "New memory content. Required when versioned=true; dropped from in-place updates.",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Reason for the change, recorded as evolution_reason on the superseded version. Only used with versioned=true; dropped from in-place updates.",
                         },
                     },
                 },
                 "preserve_timestamps": {
                     "type": "boolean",
                     "default": True,
-                    "description": "Whether to preserve the original created_at timestamp (default: true).",
+                    "description": "In-place updates only. When true (default), the original created_at is kept. When false, created_at/updated_at may be supplied via updates. Ignored with versioned=true.",
                 },
                 "versioned": {
                     "type": "boolean",
                     "default": False,
-                    "description": "When true, creates a new version instead of overwriting. The old memory is marked as superseded. Requires content in updates to create the new version. Creates a new memory version and marks the old one as superseded. Supported backends: sqlite_vec. Unsupported backends return an error.",
+                    "description": "When true, creates a new memory version instead of overwriting and marks the old one as superseded. Requires content in updates. Supported backends: sqlite_vec. Unsupported backends return an error.",
                 },
             },
             "required": ["content_hash", "updates"],

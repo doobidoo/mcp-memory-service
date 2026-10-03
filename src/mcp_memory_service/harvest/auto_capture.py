@@ -99,7 +99,7 @@ class AutoCaptureService:
         self._harvester.memory_service = self.memory_service
 
         # Pre-create graph instance once for the entire loop
-        graph = _get_graph_instance()
+        graph = await _get_graph_instance_async()
 
         for candidate in candidates:
             try:
@@ -172,15 +172,18 @@ def _hash_from_store_response(resp: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _get_graph_instance():
-    """Create a GraphStorage instance if backend supports it, else None."""
-    try:
-        from ..config import SQLITE_VEC_PATH, STORAGE_BACKEND
-        from ..storage.graph import GraphStorage
+async def _get_graph_instance_async():
+    """Backend-aware graph storage for the configured backend, or None.
 
-        if STORAGE_BACKEND not in ("sqlite_vec", "hybrid"):
-            return None
-        return GraphStorage(SQLITE_VEC_PATH)
+    Replaces a sync helper that hard-coded ``STORAGE_BACKEND in
+    ("sqlite_vec", "hybrid")`` and returned None everywhere else, so
+    derived_from edges were silently skipped on Milvus even though
+    MilvusGraphStorage implements store_association. get_graph_storage() also
+    performs the async initialize() that Milvus requires and SQLite does not.
+    """
+    try:
+        from ..server.handlers.graph import get_graph_storage
+        return await get_graph_storage()
     except Exception:
         return None
 
@@ -189,7 +192,7 @@ async def _link_derived_from(parent_hash: str, child_hash: str, confidence: floa
     """Best-effort graph edge: child derived from parent."""
     try:
         if not graph:
-            graph = _get_graph_instance()
+            graph = await _get_graph_instance_async()
         if not graph:
             return
 

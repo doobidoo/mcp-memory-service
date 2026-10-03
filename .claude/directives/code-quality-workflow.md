@@ -120,4 +120,4 @@ ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
 2. **Gemini CLI** (Fallback) - Slower (2-3s), OAuth browser flow
 3. **Skip checks** - If neither available, commit proceeds
 
-See [`.claude/agents/code-quality-guard.md`](../.claude/agents/code-quality-guard.md) for detailed workflows.
+See `.claude/agents/code-quality-guard.md` (local developer config, untracked since 00995fe7) for detailed workflows.

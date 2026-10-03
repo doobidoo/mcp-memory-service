@@ -1872,7 +1872,8 @@ class MemoryServer:
                             "tags": c.tags,
                         }
                         for c in r.candidates
-                    ]
+                    ],
+                    "coverage": r.coverage,  # Include coverage report
                 }
                 for r in results
             ]
@@ -2708,6 +2709,23 @@ class MemoryServer:
             **stats  # Include all other stats
         }
 
+    def _resolve_local_db_path(self) -> Optional[str]:
+        """Resolve the local database file backing the current storage.
+
+        Returns the file path, ``':memory:'`` for a SQLite store with no file,
+        or None when the backend has no local file at all (Milvus server,
+        Zilliz Cloud, Cloudflare). Callers must treat None as "unsupported"
+        rather than as an in-memory database — conflating the two is what made
+        these operations report success without writing anything.
+        """
+        for owner in (self.storage, getattr(self.storage, 'sqlite_storage', None)):
+            if owner is not None and hasattr(owner, 'db_path'):
+                return owner.db_path or ':memory:'
+
+        # Milvus Lite keeps everything in one local SQLite file.
+        lite_path = getattr(self.storage, 'lite_db_path', None)
+        return lite_path or None
+
     async def create_backup(self, description: str = None) -> Dict[str, Any]:
         """
         Create a database backup (test-compatible wrapper).
@@ -2739,11 +2757,16 @@ class MemoryServer:
 
         try:
             # Get database path from storage
-            db_path = None
-            if hasattr(self.storage, 'db_path'):
-                db_path = self.storage.db_path
-            elif hasattr(self.storage, 'sqlite_storage') and hasattr(self.storage.sqlite_storage, 'db_path'):
-                db_path = self.storage.sqlite_storage.db_path
+            db_path = self._resolve_local_db_path()
+
+            if db_path is None:
+                return {
+                    "success": False,
+                    "error": (
+                        "Backup is not available for this storage backend "
+                        "(no local database file)."
+                    ),
+                }
 
             # Handle in-memory databases (for tests)
             if not db_path or db_path == ':memory:':
@@ -2811,11 +2834,16 @@ class MemoryServer:
 
         try:
             # Get database path
-            db_path = None
-            if hasattr(self.storage, 'db_path'):
-                db_path = self.storage.db_path
-            elif hasattr(self.storage, 'sqlite_storage') and hasattr(self.storage.sqlite_storage, 'db_path'):
-                db_path = self.storage.sqlite_storage.db_path
+            db_path = self._resolve_local_db_path()
+
+            if db_path is None:
+                return {
+                    "success": False,
+                    "error": (
+                        "Database optimization is not available for this storage "
+                        "backend (no local database file)."
+                    ),
+                }
 
             # Handle in-memory databases (for tests)
             if not db_path or db_path == ':memory:':

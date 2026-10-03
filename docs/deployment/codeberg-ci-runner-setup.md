@@ -8,7 +8,7 @@
 > `docker buildx` calls) explain why the ported workflows look the way they do.
 
 Sets up a Forgejo `act_runner` on the Hetzner box so Codeberg Actions can run the
-release pipeline at [`.forgejo/workflows/release.yml`](../../.forgejo/workflows/release.yml).
+release pipeline at `.forgejo/workflows/release.yml` (removed in 8fd9278a).
 No GitHub auth involved — does not touch the GitHub lockout.
 
 **Target box (verified 2026-06-01):** `tinyclaw` = `ubuntu-4gb-nbg1-1`, Ubuntu 24.04.4, x86_64,

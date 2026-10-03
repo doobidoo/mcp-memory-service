@@ -331,17 +331,20 @@ python scripts/import_to_cloudflare.py --input cloudflare_export.json
 
 ### From Legacy ChromaDB Data
 
-ChromaDB was removed in v8.0.0. If you still have ChromaDB data, export it from the [`chromadb-legacy`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy) branch first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)) and then import the resulting JSON into Cloudflare:
+ChromaDB was removed in v8.0.0. If you still have ChromaDB data, convert it to SQLite-vec on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)), then export that database to JSON on main and import it into Cloudflare:
 
 ```bash
-# On the chromadb-legacy branch — produce a backup JSON
-git checkout chromadb-legacy
-python scripts/migration/migrate_chroma_to_sqlite.py --backup ~/chromadb_backup.json
+# On the chromadb-legacy-final tag: ChromaDB -> SQLite-vec
+git checkout chromadb-legacy-final
+python scripts/migration/migrate_chroma_to_sqlite.py \
+    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
 
-# Back on main — switch to Cloudflare and import
+# Back on main: SQLite-vec -> JSON -> Cloudflare (Cloudflare credentials set as above)
 git checkout main
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
-python scripts/import_to_cloudflare.py --input ~/chromadb_backup.json
+python scripts/migration/migrate_to_cloudflare.py export \
+    --source sqlite_vec --source-path ~/chroma_export.db --output ~/chromadb_backup.json
+python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_backup.json
 ```
 
 ## Troubleshooting
@@ -582,7 +585,7 @@ For issues and questions:
 1. **Documentation**: Check this guide and API documentation
 2. **GitHub Issues**: Report bugs at the project repository
 3. **Cloudflare Support**: For Cloudflare service-specific issues
-4. **Community**: Join the project Discord/community channels
+4. **Community**: Ask in [GitHub Discussions](https://github.com/doobidoo/mcp-memory-service/discussions)
 
 ## Performance Benchmarks
 

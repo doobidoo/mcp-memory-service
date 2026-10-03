@@ -33,6 +33,7 @@ from ...utils.time_parser import parse_time_expression
 from ..dependencies import get_memory_service, get_storage
 from ..sse import create_search_completed_event, sse_manager
 from .memories import MemoryResponse, memory_to_response
+from .store_scope import resolve_store
 
 # Constants
 _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for time filtering (reduced for performance)
@@ -57,6 +58,7 @@ class SemanticSearchRequest(BaseModel):
     similarity_threshold: Optional[float] = Field(None, ge=0.0, le=1.0, description="Minimum similarity score")
     quality_boost: bool = Field(default=False, description="Enable quality-boosted reranking using AI quality scores")
     quality_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="Weight for quality score in reranking (0.0-1.0)")
+    store: str = Field(default="default", description="Target store partition (default: 'default'). Use 'all' for every store.")
 
 
 class TagSearchRequest(BaseModel):
@@ -70,6 +72,7 @@ class TagSearchRequest(BaseModel):
         le=100,
         description="Maximum number of results to return, newest first. total_found still counts every match. Default: no limit",
     )
+    store: str = Field(default="default", description="Target store partition (default: 'default'). Use 'all' for every store.")
 
 
 class TimeSearchRequest(BaseModel):
@@ -77,6 +80,7 @@ class TimeSearchRequest(BaseModel):
     query: str = Field(..., description="Natural language time query (e.g., 'last week', 'yesterday')")
     n_results: int = Field(default=10, ge=1, le=100, description="Maximum number of results to return")
     semantic_query: Optional[str] = Field(None, description="Optional semantic query for relevance filtering within time range")
+    store: str = Field(default="default", description="Target store partition (default: 'default'). Use 'all' for every store.")
 
 
 # Response Models
@@ -181,7 +185,8 @@ async def semantic_search(
         # Perform semantic search using the storage layer
         query_results = await storage.retrieve(
             query=request.query,
-            n_results=fetch_limit
+            n_results=fetch_limit,
+            store=resolve_store(request.store),
         )
 
         # Filter by similarity threshold if specified
@@ -281,15 +286,17 @@ async def tag_search(
             start_ts, _ = parse_time_expression(request.time_filter)
             time_start = start_ts if start_ts else None
 
-        # Use the storage layer's tag search with optional time filtering
-        memories = await storage.search_by_tag(request.tags, time_start=time_start)
-
-        # If match_all is True, filter to only memories that have ALL tags
-        if request.match_all and len(request.tags) > 1:
-            tag_set = set(request.tags)
+        # Use the same store-scoped memory path as list/search. The legacy
+        # storage.search_by_tag() query has no partition filter.
+        memories = await storage.get_all_memories(
+            store=resolve_store(request.store),
+            tags=request.tags,
+            tag_match="all" if request.match_all else "any",
+        )
+        if time_start is not None:
             memories = [
                 memory for memory in memories
-                if tag_set.issubset(set(memory.tags))
+                if memory.created_at is not None and memory.created_at >= time_start
             ]
 
         # Convert to search results
@@ -379,12 +386,31 @@ async def time_search(
         # Retrieve memories within time range (with larger candidate pool if semantic query provided)
         candidate_pool_size = _TIME_SEARCH_CANDIDATE_POOL_SIZE if request.semantic_query else request.n_results
         semantic_query = request.semantic_query.strip() if request.semantic_query else ""
+        scope = resolve_store(request.store)
+
+        # One storage call serves both shapes. ``recall()`` is the method whose
+        # contract is "time-windowed retrieval, semantically ranked when a query
+        # is given", and every backend applies the window inside its own query:
+        # sqlite-vec filters within the KNN, Milvus adds a created_at filter,
+        # Cloudflare builds a D1 WHERE clause, hybrid forwards to its primary.
+        # ``retrieve()`` only honours start_time/end_time on some backends, which
+        # made a semantic by-time search return nothing whenever out-of-window
+        # neighbours filled the candidate pool.
         query_results = await storage.recall(
             query=semantic_query or None,
             n_results=candidate_pool_size,
             start_timestamp=start_ts,
-            end_timestamp=end_ts
+            end_timestamp=end_ts,
+            store=scope,
         )
+
+        # Safety net: never surface a memory outside the requested window, even if
+        # a backend accepts the bounds without applying them.
+        query_results = [
+            result for result in query_results
+            if (start_ts is None or (result.memory.created_at or 0) >= start_ts)
+            and (end_ts is None or (result.memory.created_at or 0) <= end_ts)
+        ]
 
         # If semantic query was provided, results are already ranked by relevance
         # Otherwise, sort by recency (newest first)
@@ -427,6 +453,7 @@ async def time_search(
 async def find_similar(
     content_hash: str,
     n_results: int = Query(default=10, ge=1, le=100, description="Number of similar memories to find"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_read_access)
@@ -443,7 +470,8 @@ async def find_similar(
     try:
         # First, get the target memory by searching with its hash
         # This is inefficient but works with current storage interface
-        target_results = await storage.retrieve(content_hash, n_results=1)
+        scope = resolve_store(store)
+        target_results = await storage.retrieve(content_hash, n_results=1, store=scope)
 
         if not target_results or target_results[0].memory.content_hash != content_hash:
             raise HTTPException(status_code=404, detail="Memory not found")
@@ -453,7 +481,8 @@ async def find_similar(
         # Use the target memory's content to find similar memories
         similar_results = await storage.retrieve(
             query=target_memory.content,
-            n_results=n_results + 1  # +1 because the original will be included
+            n_results=n_results + 1,  # +1 because the original will be included
+            store=scope,
         )
 
         # Filter out the original memory

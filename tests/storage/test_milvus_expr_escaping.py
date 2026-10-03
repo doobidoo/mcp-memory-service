@@ -68,7 +68,12 @@ def _stub_graph():
         stub.captured.append(kwargs.get("filter") or kwargs.get("expr"))
         return []
 
+    async def _drain_edges(expr, _output_fields):
+        stub.captured.append(expr)
+        return []
+
     stub._call_client = _call_client
+    stub._drain_edges = _drain_edges
     stub._ensure_ready = lambda: True
     stub._query_edges = MilvusGraphStorage._query_edges.__get__(stub, MilvusGraphStorage)
     stub._query_edges_both = MilvusGraphStorage._query_edges_both.__get__(stub, MilvusGraphStorage)

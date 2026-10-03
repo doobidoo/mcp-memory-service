@@ -23,16 +23,18 @@ Provides usage statistics, trends, and performance metrics for the memory system
 import logging
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 
+from ...compat import _sanitize_log_value
 from ...storage.base import MemoryStorage
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage
+from .store_scope import resolve_store
 
 # OAuth authentication imports
 from ..oauth.middleware import require_read_access, AuthenticationResult
@@ -55,7 +57,7 @@ async def fetch_storage_stats(storage: MemoryStorage) -> Dict[str, Any]:
         try:
             return await storage.get_stats()
         except Exception as e:
-            logger.warning(f"Failed to retrieve storage stats: {e}")
+            logger.warning("Failed to retrieve storage stats: %s", _sanitize_log_value(e))
             return {}
     return {}
 
@@ -370,6 +372,7 @@ class StorageStats(BaseModel):
 
 @router.get("/overview", response_model=AnalyticsOverview, tags=["analytics"])
 async def get_analytics_overview(
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -383,42 +386,51 @@ async def get_analytics_overview(
         if hasattr(storage, 'get_stats'):
             try:
                 stats = await storage.get_stats()
-                logger.info(f"Storage stats: {stats}")  # Debug logging
+                logger.info("Storage stats: %s", _sanitize_log_value(stats))  # Debug logging
             except Exception as e:
-                logger.warning(f"Failed to retrieve storage stats: {e}")
+                logger.warning("Failed to retrieve storage stats: %s", _sanitize_log_value(e))
                 stats = {}
         else:
             stats = {}
 
-        # Get memories_this_week from storage stats (accurate for all memories)
-        memories_this_week = stats.get("memories_this_week", 0)
+        scope = resolve_store(store)
+        week_ago_ts = (datetime.now(timezone.utc) - timedelta(days=7)).timestamp()
+        month_ago_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
 
-        # Calculate memories this month
-        # TODO: Add memories_this_month to storage.get_stats() for consistency
-        month_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        month_ago_ts = month_ago.timestamp()
-        memories_this_month = 0
-        try:
-            # Use larger sample for monthly calculation
-            # Note: This may be inaccurate if there are >5000 memories
-            recent_memories = await storage.get_recent_memories(n=5000)
-            memories_this_month = sum(1 for m in recent_memories if m.created_at and m.created_at > month_ago_ts)
-        except Exception as e:
-            logger.warning(f"Failed to calculate monthly memories: {e}")
-            memories_this_month = 0
+        if scope is None:
+            # Legacy all-store path: keep the aggregates storage already computes
+            # across the whole database.
+            scoped_recent = await storage.get_recent_memories(n=5000)
+            memories_this_week = stats.get("memories_this_week", 0)
+            total_memories = stats.get("total_memories", 0)
+            unique_tags = stats.get("unique_tags", 0)
+            memories_this_month = sum(
+                1 for m in scoped_recent if m.created_at and m.created_at > month_ago_ts
+            )
+        else:
+            # Scoped path: derive every metric from storage counts. Sampling the
+            # newest 5,000 rows made these numbers depend on the partition size
+            # (a larger store silently under-reported its recent activity and tags).
+            week_timestamps = await storage.get_memory_timestamps(days=7, store=scope)
+            month_timestamps = await storage.get_memory_timestamps(days=30, store=scope)
+            memories_this_week = sum(1 for ts in week_timestamps if ts and ts > week_ago_ts)
+            memories_this_month = sum(1 for ts in month_timestamps if ts and ts > month_ago_ts)
+            total_memories = await storage.count_all_memories(store=scope)
+            tag_rows = await storage.get_all_tags_with_counts(store=scope)
+            unique_tags = len(tag_rows)
 
         return AnalyticsOverview(
-            total_memories=stats.get("total_memories", 0),
+            total_memories=total_memories,
             memories_this_week=memories_this_week,
             memories_this_month=memories_this_month,
-            unique_tags=stats.get("unique_tags", 0),
+            unique_tags=unique_tags,
             database_size_mb=stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb"),
             uptime_seconds=None,  # Would need to be calculated from health endpoint
             backend_type=stats.get("storage_backend", "unknown")
         )
 
     except Exception as e:
-        logger.error(f"Failed to get analytics overview: {str(e)}")
+        logger.error("Failed to get analytics overview: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get analytics overview: {str(e)}")
 
 
@@ -452,6 +464,7 @@ def _generate_interval_label(date: datetime, period: PeriodType) -> str:
 @router.get("/memory-growth", response_model=MemoryGrowthData, tags=["analytics"])
 async def get_memory_growth(
     period: PeriodType = Query(PeriodType.MONTH, description="Time period: week, month, quarter, year"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -484,14 +497,18 @@ async def get_memory_growth(
             start_timestamp = start_date.timestamp()
             end_timestamp = end_date.timestamp()
 
-            # Get memories in date range (database-filtered)
-            memories_in_range = await storage.get_memories_by_time_range(start_timestamp, end_timestamp)
+            # Fetch timestamps only for the requested partition, then keep the
+            # date window. Loading full memory rows (content + embeddings) here
+            # made a short window scale with the whole store.
+            timestamps_in_range = [
+                ts for ts in await storage.get_memory_timestamps(store=resolve_store(store))
+                if ts and start_timestamp <= ts <= end_timestamp
+            ]
 
             # Group by date
-            for memory in memories_in_range:
-                if memory.created_at:
-                    mem_date = datetime.fromtimestamp(memory.created_at, tz=timezone.utc).date()
-                    date_counts[mem_date] += 1
+            for ts in timestamps_in_range:
+                mem_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
+                date_counts[mem_date] += 1
 
             # Create data points
             current_date = start_date.date()
@@ -522,7 +539,7 @@ async def get_memory_growth(
                 current_date += timedelta(days=interval_days)
 
         except Exception as e:
-            logger.warning(f"Failed to calculate memory growth: {str(e)}")
+            logger.warning("Failed to calculate memory growth: %s", _sanitize_log_value(e))
             # Return empty data if calculation fails
             data_points = []
 
@@ -534,7 +551,7 @@ async def get_memory_growth(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get memory growth data: {str(e)}")
+        logger.error("Failed to get memory growth data: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get memory growth data: {str(e)}")
 
 
@@ -542,6 +559,7 @@ async def get_memory_growth(
 async def get_tag_usage_analytics(
     period: str = Query("all", description="Time period: week, month, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -551,19 +569,10 @@ async def get_tag_usage_analytics(
     Returns statistics about tag usage, optionally filtered by time period.
     """
     try:
-        # Get all tags with counts
-        if hasattr(storage, 'get_all_tags_with_counts'):
-            tag_data = await storage.get_all_tags_with_counts()
-        else:
-            raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
-
-        # Get total memories for accurate percentage calculation
-        stats = await fetch_storage_stats(storage)
-        total_memories = stats.get("total_memories", 0)
-
-        if total_memories == 0:
-            # Fallback: count all memories directly for an accurate total.
-            total_memories = await storage.count_all_memories()
+        memories = await storage.get_all_memories(store=resolve_store(store))
+        tag_counter = Counter(tag for memory in memories for tag in (memory.tags or []) if tag)
+        tag_data = [{"tag": tag, "count": count} for tag, count in tag_counter.items()]
+        total_memories = len(memories)
 
         # Sort by count and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
@@ -581,12 +590,13 @@ async def get_tag_usage_analytics(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get tag usage analytics: {str(e)}")
+        logger.error("Failed to get tag usage analytics: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get tag usage analytics: {str(e)}")
 
 
 @router.get("/memory-types", response_model=MemoryTypeData, tags=["analytics"])
 async def get_memory_type_distribution(
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -596,6 +606,16 @@ async def get_memory_type_distribution(
     Returns statistics about how memories are categorized by type.
     """
     try:
+        scope = resolve_store(store)
+        # Soft-deleted rows are tombstones and must not be counted, otherwise the
+        # type breakdown disagrees with the scoped listing and the overview.
+        if scope is None:
+            store_clause = " WHERE deleted_at IS NULL"
+            store_params: tuple = ()
+        else:
+            store_clause = " WHERE deleted_at IS NULL AND store = ?"
+            store_params = (scope,)
+
         # Try to get accurate counts from storage layer if available
         if hasattr(storage, 'get_type_counts'):
             type_counts_data = await storage.get_type_counts()
@@ -604,44 +624,42 @@ async def get_memory_type_distribution(
         # For Hybrid storage, access underlying SQLite primary storage
         elif hasattr(storage, 'primary') and hasattr(storage.primary, 'conn') and storage.primary.conn:
             # Hybrid storage - access underlying SQLite storage
-            import sqlite3
             cursor = storage.primary.conn.cursor()
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT
                     CASE
                         WHEN memory_type IS NULL OR memory_type = '' THEN 'untyped'
                         ELSE memory_type
                     END as mem_type,
                     COUNT(*) as count
-                FROM memories
+                FROM memories{store_clause}
                 GROUP BY mem_type
-            """)
+            """, store_params)
             type_counts = {row[0]: row[1] for row in cursor.fetchall()}
 
-            cursor.execute("SELECT COUNT(*) FROM memories")
+            cursor.execute(f"SELECT COUNT(*) FROM memories{store_clause}", store_params)
             total_memories = cursor.fetchone()[0]
         elif hasattr(storage, 'conn') and storage.conn:
             # Direct SQLite storage
-            import sqlite3
             cursor = storage.conn.cursor()
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT
                     CASE
                         WHEN memory_type IS NULL OR memory_type = '' THEN 'untyped'
                         ELSE memory_type
                     END as mem_type,
                     COUNT(*) as count
-                FROM memories
+                FROM memories{store_clause}
                 GROUP BY mem_type
-            """)
+            """, store_params)
             type_counts = {row[0]: row[1] for row in cursor.fetchall()}
 
-            cursor.execute("SELECT COUNT(*) FROM memories")
+            cursor.execute(f"SELECT COUNT(*) FROM memories{store_clause}", store_params)
             total_memories = cursor.fetchone()[0]
         else:
             # Fallback to sampling approach (less accurate for large databases)
             logger.warning("Using sampling approach for memory type distribution - results may not reflect entire database")
-            memories = await storage.get_recent_memories(n=1000)
+            memories = await storage.get_all_memories(store=scope, limit=1000)
 
             type_counts = defaultdict(int)
             for memory in memories:
@@ -659,12 +677,13 @@ async def get_memory_type_distribution(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get memory type distribution: {str(e)}")
+        logger.error("Failed to get memory type distribution: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get memory type distribution: {str(e)}")
 
 
 @router.get("/relationship-types", response_model=Dict[str, int], tags=["analytics"])
 async def get_relationship_type_distribution(
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -675,11 +694,52 @@ async def get_relationship_type_distribution(
     Shows how many edges exist for each relationship type (causes, fixes, etc.).
     """
     try:
-        distribution = await storage.get_relationship_type_distribution()
-        return distribution
+        scope = resolve_store(store)
+        conn = getattr(storage, "conn", None)
+        primary = getattr(storage, "primary", None)
+        if conn is None and primary is not None:
+            conn = getattr(primary, "conn", None)
+        if conn is not None:
+            store_clause = ""
+            store_params: tuple = ()
+            if scope is not None:
+                store_clause = "AND source.store = ? AND target.store = ?"
+                store_params = (scope, scope)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                    CASE
+                        WHEN mg.relationship_type IS NULL OR mg.relationship_type = '' THEN 'untyped'
+                        ELSE mg.relationship_type
+                    END AS rel_type,
+                    COUNT(*) AS count
+                FROM memory_graph mg
+                JOIN memories source ON source.content_hash = mg.source_hash
+                 AND source.deleted_at IS NULL
+                JOIN memories target ON target.content_hash = mg.target_hash
+                 AND target.deleted_at IS NULL
+                WHERE 1 = 1 {store_clause}
+                GROUP BY rel_type
+                ORDER BY count DESC, rel_type ASC
+                """,
+                store_params,
+            ).fetchall()
+            return {row[0]: row[1] for row in rows}
+
+        graph_data = await storage.get_graph_visualization_data(
+            limit=10000, min_connections=1, store=scope
+        )
+        allowed = {memory.content_hash for memory in await storage.get_all_memories(store=scope)}
+        distribution = Counter(
+            edge.get("relationship_type") or "untyped"
+            for edge in graph_data.get("edges", [])
+            if edge.get("source") in allowed and edge.get("target") in allowed
+        )
+        return dict(distribution)
 
     except Exception as e:
-        logger.error(f"Failed to get relationship type distribution: {str(e)}")
+        logger.error("Failed to get relationship type distribution: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get relationship type distribution: {str(e)}")
 
 
@@ -694,6 +754,7 @@ class GraphVisualizationData(BaseModel):
 async def get_graph_visualization(
     limit: int = Query(1000, description="Maximum number of nodes to include", ge=1, le=10000),
     min_connections: int = Query(1, description="Minimum connections per node", ge=1),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -706,11 +767,17 @@ async def get_graph_visualization(
     Nodes are memories, colored by type. Edges are typed relationships.
     """
     try:
-        graph_data = await storage.get_graph_visualization_data(limit, min_connections)
+        scope = resolve_store(store)
+        # Scope the selection inside storage so ``limit`` picks the most connected
+        # nodes *of the requested store*. Filtering afterwards let another store's
+        # nodes consume the global top slots and left the scoped view empty.
+        graph_data = await storage.get_graph_visualization_data(
+            limit, min_connections, store=scope
+        )
         return GraphVisualizationData(**graph_data)
 
     except Exception as e:
-        logger.error(f"Failed to get graph visualization data: {str(e)}")
+        logger.error("Failed to get graph visualization data: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get graph visualization data: {str(e)}")
 
 
@@ -757,6 +824,7 @@ async def get_performance_metrics(
 @router.get("/activity-heatmap", response_model=ActivityHeatmapResponse, tags=["analytics"])
 async def get_activity_heatmap(
     days: int = Query(365, description="Number of days to include in heatmap"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -766,8 +834,12 @@ async def get_activity_heatmap(
     Returns daily activity counts for the specified period, with activity levels for color coding.
     """
     try:
-        # Use optimized timestamp-only fetching (v8.18.0+)
-        timestamps = await storage.get_memory_timestamps(days=days)
+        # Only timestamps are needed; ``days + 1`` keeps the inclusive date
+        # boundary of the original in-Python window while staying in storage.
+        timestamps = [
+            ts for ts in await storage.get_memory_timestamps(days=days + 1, store=resolve_store(store))
+            if ts is not None
+        ]
 
         # Group by date
         date_counts = defaultdict(int)
@@ -819,7 +891,7 @@ async def get_activity_heatmap(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get activity heatmap: {str(e)}")
+        logger.error("Failed to get activity heatmap: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get activity heatmap: {str(e)}")
 
 
@@ -827,6 +899,7 @@ async def get_activity_heatmap(
 async def get_top_tags_report(
     period: str = Query("30d", description="Time period: 7d, 30d, 90d, all"),
     limit: int = Query(20, description="Maximum number of tags to return"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -846,48 +919,17 @@ async def get_top_tags_report(
         else:  # "all"
             days = None
 
-        # Get tag usage data
-        if hasattr(storage, 'get_all_tags_with_counts'):
-            tag_data = await storage.get_all_tags_with_counts()
-        else:
-            raise HTTPException(status_code=501, detail="Tag analytics not supported by storage backend")
+        memories = await storage.get_all_memories(store=resolve_store(store))
+        if days is not None:
+            cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
+            memories = [memory for memory in memories if memory.created_at and memory.created_at >= cutoff_ts]
 
-        # Get total memories
-        if hasattr(storage, 'get_stats'):
-            stats = await storage.get_stats()
-            total_memories = stats.get("total_memories", 0)
-        else:
-            total_memories = sum(tag["count"] for tag in tag_data)
+        tag_counter = Counter(tag for memory in memories for tag in (memory.tags or []) if tag)
+        tag_data = [{"tag": tag, "count": count} for tag, count in tag_counter.items()]
+        total_memories = len(memories)
 
         if total_memories == 0:
             return TopTagsResponse(tags=[], period=period)
-
-        # Filter by time period if needed
-        if days is not None:
-            cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
-
-            # Get memories within the time range and count their tags
-            if hasattr(storage, 'get_memories_by_time_range'):
-                # Get memories from cutoff_ts to now
-                now_ts = datetime.now(timezone.utc).timestamp()
-                memories_in_period = await storage.get_memories_by_time_range(cutoff_ts, now_ts)
-
-                # Count tags from memories in this period
-                from collections import Counter
-                tag_counter = Counter()
-                period_memory_count = 0
-
-                for memory in memories_in_period:
-                    period_memory_count += 1
-                    if memory.tags:
-                        for tag in memory.tags:
-                            tag_counter[tag] += 1
-
-                # Convert to the expected format
-                tag_data = [{"tag": tag, "count": count} for tag, count in tag_counter.items()]
-                total_memories = period_memory_count
-            # If the storage backend doesn't support time range queries, fall back to all tags
-            # (This maintains backward compatibility with storage backends that don't implement the method)
 
         # Sort and limit
         tag_data.sort(key=lambda x: x["count"], reverse=True)
@@ -923,13 +965,14 @@ async def get_top_tags_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get top tags report: {str(e)}")
+        logger.error("Failed to get top tags report: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get top tags report: {str(e)}")
 
 
 @router.get("/activity-breakdown", response_model=ActivityReport, tags=["analytics"])
 async def get_activity_breakdown(
     granularity: str = Query("daily", description="Time granularity: hourly, daily, weekly"),
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -939,9 +982,12 @@ async def get_activity_breakdown(
     Returns activity statistics by time period, peak times, and streak information.
     """
     try:
-        # Use optimized timestamp-only fetching (v8.18.0+)
-        # Get last 90 days of timestamps (adequate for all granularity levels)
-        timestamps = await storage.get_memory_timestamps(days=90)
+        # Get last 90 days of timestamps (adequate for all granularity levels).
+        cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=90)).timestamp()
+        timestamps = [
+            ts for ts in await storage.get_memory_timestamps(days=90, store=resolve_store(store))
+            if ts is not None and ts >= cutoff_ts
+        ]
 
         # Group by granularity using helper function
         breakdown, active_days, activity_dates = calculate_activity_time_ranges(timestamps, granularity)
@@ -991,12 +1037,13 @@ async def get_activity_breakdown(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get activity breakdown: {str(e)}")
+        logger.error("Failed to get activity breakdown: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get activity breakdown: {str(e)}")
 
 
 @router.get("/storage-stats", response_model=StorageStats, tags=["analytics"])
 async def get_storage_stats(
+    store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     user: AuthenticationResult = Depends(require_read_access)
 ):
@@ -1012,11 +1059,52 @@ async def get_storage_stats(
         else:
             stats = {}
 
-        total_size_mb = stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb") or 0
+        scope = resolve_store(store)
         total_memories = stats.get("primary_stats", {}).get("total_memories") or stats.get("total_memories") or 0
 
+        if scope is None:
+            recent_memories = await storage.get_recent_memories(n=100)
+            largest_memories_objs = await storage.get_largest_memories(n=10)
+        else:
+            scoped_memories = await storage.get_all_memories(store=scope)
+            total_memories = len(scoped_memories)
+            recent_memories = sorted(scoped_memories, key=lambda memory: memory.created_at or 0, reverse=True)[:100]
+            largest_memories_objs = sorted(scoped_memories, key=lambda memory: len(memory.content or ""), reverse=True)[:10]
+
+        # ``total_size_mb`` reports the content bytes held by the selected scope.
+        # It previously mixed two units: the database file size for the all-store
+        # view and the summed content length for a named store, so the two numbers
+        # were not comparable. Aggregate in SQL when the backend exposes a raw
+        # connection so the value stays consistent across scopes.
+        total_size_mb = None
+        raw_conn = getattr(storage, "conn", None)
+        if raw_conn is None:
+            raw_conn = getattr(getattr(storage, "primary", None), "conn", None)
+        if raw_conn is not None:
+            try:
+                if scope is None:
+                    size_cursor = raw_conn.execute(
+                        "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE deleted_at IS NULL"
+                    )
+                else:
+                    size_cursor = raw_conn.execute(
+                        "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories "
+                        "WHERE deleted_at IS NULL AND store = ?",
+                        (scope,),
+                    )
+                size_row = size_cursor.fetchone()
+                total_size_mb = (float(size_row[0]) if size_row and size_row[0] is not None else 0.0) / (1024 * 1024)
+            except Exception as e:
+                logger.warning(
+                    "Failed to compute scoped content size: %s",
+                    _sanitize_log_value(e),
+                )
+                total_size_mb = None
+
+        if total_size_mb is None:
+            total_size_mb = stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb") or 0
+
         # Get recent memories for average size calculation (smaller sample)
-        recent_memories = await storage.get_recent_memories(n=100)
 
         if recent_memories:
             # Calculate average memory size from recent sample
@@ -1025,8 +1113,6 @@ async def get_storage_stats(
         else:
             average_memory_size = 0
 
-        # Get largest memories using efficient database query
-        largest_memories_objs = await storage.get_largest_memories(n=10)
         largest_memories = []
         for memory in largest_memories_objs:
             size_bytes = len(memory.content or "")
@@ -1063,5 +1149,5 @@ async def get_storage_stats(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get storage stats: {str(e)}")
+        logger.error("Failed to get storage stats: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Failed to get storage stats: {str(e)}")
