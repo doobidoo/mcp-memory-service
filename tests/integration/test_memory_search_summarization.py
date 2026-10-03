@@ -183,6 +183,53 @@ async def test_requested_beliefs_preserved_in_valid_json(search_server, llm_post
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [2500, 5000])
+@pytest.mark.parametrize("failure", ["provider-error", "summary-budget"])
+async def test_large_beliefs_do_not_crowd_out_raw_fallback(
+    search_server, llm_post, cap, failure
+):
+    from datetime import datetime, timezone
+
+    from mcp_memory_service.consolidation.belief_service import BeliefService
+
+    server, storage, rows = search_server
+    belief = "Large derived belief. " * 1000
+    await BeliefService(storage)._create_belief(
+        "large-belief-hash",
+        belief,
+        0.9,
+        "active",
+        [rows[0].content_hash],
+        [],
+        datetime.now(timezone.utc),
+    )
+    llm_post.side_effect = httpx.ConnectError("unreachable")
+
+    without_beliefs = await search(server, summarize=True, max_response_chars=cap)
+    if failure == "summary-budget":
+        llm_post.side_effect = None
+    response = await search(
+        server, summarize=True, include_beliefs=True, max_response_chars=cap
+    )
+
+    assert len(response) <= cap
+    assert response.startswith("Summarization unavailable")
+    assert "Optional section omitted" in response
+    assert "large-belief-hash" not in response
+    shown = [memory for memory in rows if memory.content_hash in response]
+    assert len(shown) == (1 if cap == 2500 else 2)
+    for memory in rows:
+        assert (memory.content_hash in response) == (
+            memory.content_hash in without_beliefs
+        )
+        if memory in shown:
+            assert memory.content in response
+        assert (
+            await storage.get_by_hash(memory.content_hash)
+        ).content == memory.content
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "arguments", [{}, {"summarize": False}, {"summarize": "false"}]
 )

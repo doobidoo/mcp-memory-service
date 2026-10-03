@@ -105,9 +105,12 @@ a **Summarization unavailable** warning. Empty searches do not call the model.
 If the complete summary response cannot fit `max_response_chars`, the tool falls
 back rather than cutting source metadata. A positive cap bounds the entire
 summary fallback response, including warnings, headers, and requested beliefs.
-Raw memory records are omitted whole when they do not fit; very small caps may
-return only the beginning of the warning. Searches without summarization retain
-their existing response limiting behavior.
+Raw results take priority: the longest prefix of complete records that fits is
+returned, and requested beliefs are included only if the remaining space allows.
+An optional-section omission notice is added when it fits. Raw memory records
+are omitted whole when they do not fit; very small caps may return only the
+beginning of the warning. Searches without summarization retain their existing
+response limiting behavior.
 
 The keep-set is request-local, not a persistent audit or rollback copy. Original
 memory content is never rewritten or deleted. Retrieve an original by hash through

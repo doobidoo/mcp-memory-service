@@ -182,40 +182,42 @@ def format_truncated_response(
         parts.append(warning)
         parts.append("")
 
-    # Format each memory
-    for i, memory in enumerate(memories, 1):
-        memory_lines = [f"=== Memory {i} ==="]
-
-        # Add timestamp if available
-        created_at = memory.get("created_at")
-        if created_at:
-            memory_lines.append(f"Timestamp: {created_at}")
-
-        # Add content
-        content = memory.get("content", "")
-        memory_lines.append(f"Content: {content}")
-
-        # Add hash
-        content_hash = memory.get("content_hash", "")
-        memory_lines.append(f"Hash: {content_hash}")
-
-        # Add relevance score if available
-        score = memory.get("relevance_score") or memory.get("similarity_score")
-        if score is not None:
-            memory_lines.append(f"Relevance Score: {score:.2f}")
-
-        # Add tags if available
-        tags = memory.get("tags", [])
-        if tags:
-            if isinstance(tags, list):
-                memory_lines.append(f"Tags: {', '.join(tags)}")
-            else:
-                memory_lines.append(f"Tags: {tags}")
-
-        memory_lines.append("---")
-        parts.append("\n".join(memory_lines))
-
+    parts.extend(_format_memory(memory, i) for i, memory in enumerate(memories, 1))
     return "\n".join(parts)
+
+
+def _format_memory(memory: dict[str, Any], index: int) -> str:
+    """Render one complete record; shared by legacy and bounded responses."""
+    memory_lines = [f"=== Memory {index} ==="]
+
+    # Add timestamp if available
+    created_at = memory.get("created_at")
+    if created_at:
+        memory_lines.append(f"Timestamp: {created_at}")
+
+    # Add content
+    content = memory.get("content", "")
+    memory_lines.append(f"Content: {content}")
+
+    # Add hash
+    content_hash = memory.get("content_hash", "")
+    memory_lines.append(f"Hash: {content_hash}")
+
+    # Add relevance score if available
+    score = memory.get("relevance_score") or memory.get("similarity_score")
+    if score is not None:
+        memory_lines.append(f"Relevance Score: {score:.2f}")
+
+    # Add tags if available
+    tags = memory.get("tags", [])
+    if tags:
+        if isinstance(tags, list):
+            memory_lines.append(f"Tags: {', '.join(tags)}")
+        else:
+            memory_lines.append(f"Tags: {tags}")
+
+    memory_lines.append("---")
+    return "\n".join(memory_lines)
 
 
 def format_bounded_response(
@@ -224,27 +226,39 @@ def format_bounded_response(
     header: str = "",
     footer: str = "",
 ) -> str:
-    """Fit the complete response by omitting whole records, including the first.
+    """Keep the longest whole-record prefix, then fit the optional footer.
 
-    Unlike the legacy estimated limit, this counts formatting, warnings, and
-    optional sections. If even the envelope cannot fit, only the beginning of
-    the header is returned. Memory content and metadata are never sliced.
+    Count the complete response, including the header and truncation notice.
+    Render each memory once and scan prefix lengths without rebuilding bodies.
+    Optional sections never displace memories; report their omission when space
+    allows. If the envelope cannot fit, return only the beginning of the header.
     """
-    response = header + format_truncated_response(memories, {}) + footer
-    if max_chars <= 0 or len(response) <= max_chars:
-        return response
+    if 0 < max_chars < len(header):
+        return header[:max_chars]
 
-    for shown in range(len(memories) - 1, -1, -1):
-        notice = (
-            f"[!] RESPONSE TRUNCATED: Showing {shown} of {len(memories)} results.\n"
-            f"{len(memories) - shown} result(s) omitted. "
-            "Use a narrower query or hash-based retrieval.\n\n"
-        )
-        response = (
-            header + notice + format_truncated_response(memories[:shown], {}) + footer
-        )
-        if len(response) <= max_chars:
+    blocks = [_format_memory(memory, i) for i, memory in enumerate(memories, 1)]
+    if max_chars <= 0:
+        return header + "\n".join(blocks) + footer
+
+    body_chars = sum(map(len, blocks)) + max(0, len(blocks) - 1)
+    for shown in range(len(blocks), -1, -1):
+        notice = ""
+        if shown < len(blocks):
+            notice = (
+                f"[!] RESPONSE TRUNCATED: Showing {shown} of {len(blocks)} results.\n"
+                f"{len(blocks) - shown} result(s) omitted. "
+                "Use a narrower query or hash-based retrieval.\n\n"
+            )
+        if len(header) + len(notice) + body_chars <= max_chars:
+            response = header + notice + "\n".join(blocks[:shown])
+            if len(response) + len(footer) <= max_chars:
+                return response + footer
+            omission = "\n\n[!] Optional section omitted to fit response limit."
+            if len(response) + len(omission) <= max_chars:
+                response += omission
             return response
+        if shown:
+            body_chars -= len(blocks[shown - 1]) + (1 if shown > 1 else 0)
 
     return header[:max_chars]
 
