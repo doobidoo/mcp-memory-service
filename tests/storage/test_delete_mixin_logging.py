@@ -64,3 +64,55 @@ async def test_error_logs_do_not_carry_newlines(caplog, call, expected):
         await call(_Store())
 
     _assert_clean(caplog, expected)
+
+
+class _Cursor:
+    def __init__(self, row=None, rowcount=1):
+        self._row = row
+        self.rowcount = rowcount
+
+    def fetchone(self):
+        return self._row
+
+    def fetchall(self):
+        return [self._row] if self._row else []
+
+
+class _WorkingConn:
+    """A connection whose statements succeed, except for the embedding delete."""
+
+    def execute(self, sql, *_args):
+        if "memory_embeddings" in sql and sql.lstrip().startswith("DELETE"):
+            raise RuntimeError(f"corrupted blob\n{FORGED}")
+        if sql.lstrip().startswith("SELECT"):
+            return _Cursor(row=(1, "abc"))
+        return _Cursor()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+class _WorkingStore(_Store):
+    def __init__(self):
+        self.conn = _WorkingConn()
+
+
+@pytest.mark.asyncio
+async def test_success_and_embedding_fallback_logs_do_not_carry_newlines(caplog):
+    store = _WorkingStore()
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        ok, _message = await store.delete(f"abc\n{FORGED}")
+        count, _message = await store.delete_by_tag(f"t\n{FORGED}")
+        count_tags, _message, _hashes = await store.delete_by_tags([f"t\n{FORGED}"])
+
+    assert ok
+    assert count == 1
+    assert count_tags == 1
+    _assert_clean(caplog, "Soft-deleted memory: abc")
+    _assert_clean(caplog, "Could not delete embedding for memory abc")
+    _assert_clean(caplog, "Soft-deleted 1 memories with tag: t")
+    _assert_clean(caplog, "Soft-deleted 1 memories matching tags: ['t")
