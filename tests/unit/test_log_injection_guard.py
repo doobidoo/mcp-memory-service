@@ -62,6 +62,9 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/oauth/middleware.py",
     "mcp_memory_service/server/handlers/utility.py",
     "mcp_memory_service/server/handlers/documents.py",
+    "mcp_memory_service/web/api/server.py",
+    "mcp_memory_service/web/api/mcp.py",
+    "mcp_memory_service/web/api/oauth_status.py",
     "mcp_memory_service/web/api/memories.py",
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
@@ -133,6 +136,9 @@ EXTERNAL_NAMES = frozenset({
     "user_path",
     "installed_version",
     "cache_key", "HTTP_HOST",
+    # Output of the git and pip commands web/api/server.py runs during an update.
+    "git_output",
+    "pip_output",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -456,6 +462,13 @@ def test_lazy_scan_flags_mcp_server_cache_key_and_host():
     ):
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
+
+
+def test_lazy_scan_flags_update_command_output():
+    """What web/api/server.py logs when an update step fails: the git and pip output."""
+    for name in ("git_output", "pip_output"):
+        assert _lazy_findings(f'logger.error("failed: %s", {name})\n')
+        assert not _lazy_findings(f'logger.error("failed: %s", _sanitize_log_value({name}))\n')
 
 
 @pytest.mark.unit
