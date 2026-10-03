@@ -168,7 +168,7 @@ async def rate_memory(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error rating memory {_sanitize_log_value(content_hash)}: {e}")
+        logger.error("Error rating memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Error rating memory: {str(e)}")
 
 
@@ -240,7 +240,7 @@ async def evaluate_memory_quality(
         if 'quality_components' in memory.metadata:
             updates['quality_components'] = memory.metadata['quality_components']
 
-        logger.info(f"Persisting quality metadata for {_sanitize_log_value(content_hash[:8])}...: {updates}")
+        logger.info("Persisting quality metadata for %s...: %s", _sanitize_log_value(content_hash[:8]), _sanitize_log_value(updates))
 
         # Persist updated metadata to storage
         success, message = await storage.update_memory_metadata(
@@ -250,13 +250,19 @@ async def evaluate_memory_quality(
         )
 
         if not success:
-            logger.error(f"Failed to persist quality metadata: {_sanitize_log_value(message)}")
+            logger.error("Failed to persist quality metadata: %s", _sanitize_log_value(message))
         else:
-            logger.info(f"Successfully persisted quality metadata for {_sanitize_log_value(content_hash[:8])}...")
+            logger.info("Successfully persisted quality metadata for %s...", _sanitize_log_value(content_hash[:8]))
 
         evaluation_time_ms = (time.time() - start_time) * 1000
 
-        logger.info(f"Evaluated memory {_sanitize_log_value(content_hash[:8])}... score: {quality_score:.3f} ({_sanitize_log_value(quality_provider)}) in {evaluation_time_ms:.1f}ms")
+        logger.info(
+            "Evaluated memory %s... score: %.3f (%s) in %.1fms",
+            _sanitize_log_value(content_hash[:8]),
+            quality_score,
+            _sanitize_log_value(quality_provider),
+            evaluation_time_ms,
+        )
 
         return EvaluateResponse(
             success=True,
@@ -272,7 +278,7 @@ async def evaluate_memory_quality(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error evaluating memory %s: %s", _sanitize_log_value(content_hash), e)
+        logger.error("Error evaluating memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail="Error evaluating memory quality")
 
 
@@ -317,7 +323,7 @@ async def get_memory_quality(content_hash: str, storage=Depends(get_storage), us
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting memory quality {_sanitize_log_value(content_hash)}: {e}")
+        logger.error("Error getting memory quality %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Error getting memory quality: {str(e)}")
 
 
@@ -448,7 +454,7 @@ async def get_quality_distribution(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error analyzing quality distribution: {_sanitize_log_value(e)}")
+        logger.error("Error analyzing quality distribution: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Error analyzing quality distribution: {str(e)}")
 
 
@@ -520,5 +526,5 @@ async def get_quality_trends(days: int = 30, storage=Depends(get_storage), user:
         }
 
     except Exception as e:
-        logger.error(f"Error getting quality trends: {_sanitize_log_value(e)}")
+        logger.error("Error getting quality trends: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Error getting quality trends: {str(e)}")

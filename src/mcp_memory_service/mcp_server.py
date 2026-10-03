@@ -62,6 +62,7 @@ except ImportError:
 from mcp.types import ToolAnnotations
 
 # Import existing memory service components
+from .compat import _sanitize_log_value
 from .config import (
     STORAGE_BACKEND,
     EMBEDDING_MODEL_NAME,
@@ -131,17 +132,17 @@ def _get_or_create_memory_service(storage: MemoryStorage) -> MemoryService:
     if storage_id in _MEMORY_SERVICE_CACHE:
         memory_service = _MEMORY_SERVICE_CACHE[storage_id]
         _CACHE_STATS["service_hits"] += 1
-        logger.info(f"✅ MemoryService Cache HIT - Reusing service instance (storage_id: {storage_id})")
+        logger.info("✅ MemoryService Cache HIT - Reusing service instance (storage_id: %s)", storage_id)
     else:
         _CACHE_STATS["service_misses"] += 1
-        logger.info(f"❌ MemoryService Cache MISS - Creating new service instance...")
+        logger.info("❌ MemoryService Cache MISS - Creating new service instance...")
 
         # Initialize memory service with shared business logic
         memory_service = MemoryService(storage)
 
         # Cache the memory service instance
         _MEMORY_SERVICE_CACHE[storage_id] = memory_service
-        logger.info(f"💾 Cached MemoryService instance (storage_id: {storage_id})")
+        logger.info("💾 Cached MemoryService instance (storage_id: %s)", storage_id)
 
     return memory_service
 
@@ -159,12 +160,17 @@ def _log_cache_performance(start_time: float) -> None:
     ) * 100
 
     logger.info(
-        f"📊 Cache Stats - "
-        f"Hit Rate: {cache_hit_rate:.1f}% | "
-        f"Storage: {_CACHE_STATS['storage_hits']}H/{_CACHE_STATS['storage_misses']}M | "
-        f"Service: {_CACHE_STATS['service_hits']}H/{_CACHE_STATS['service_misses']}M | "
-        f"Total Time: {total_time:.1f}ms | "
-        f"Cache Size: {len(_STORAGE_CACHE)} storage + {len(_MEMORY_SERVICE_CACHE)} services"
+        "📊 Cache Stats - "
+        "Hit Rate: %.1f%% | "
+        "Storage: %sH/%sM | "
+        "Service: %sH/%sM | "
+        "Total Time: %.1fms | "
+        "Cache Size: %s storage + %s services",
+        cache_hit_rate,
+        _CACHE_STATS['storage_hits'], _CACHE_STATS['storage_misses'],
+        _CACHE_STATS['service_hits'], _CACHE_STATS['service_misses'],
+        total_time,
+        len(_STORAGE_CACHE), len(_MEMORY_SERVICE_CACHE),
     )
 
 @dataclass
@@ -195,7 +201,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
     _CACHE_STATS["total_calls"] += 1
     start_time = time.time()
 
-    logger.info(f"🔄 MCP Server Call #{_CACHE_STATS['total_calls']} - Checking global cache...")
+    logger.info("🔄 MCP Server Call #%s - Checking global cache...", _CACHE_STATS['total_calls'])
 
     # Acquire lock for thread-safe cache access
     cache_lock = _get_cache_lock()
@@ -207,10 +213,10 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         if cache_key in _STORAGE_CACHE:
             storage = _STORAGE_CACHE[cache_key]
             _CACHE_STATS["storage_hits"] += 1
-            logger.info(f"✅ Storage Cache HIT - Reusing {STORAGE_BACKEND} instance (key: {cache_key})")
+            logger.info("✅ Storage Cache HIT - Reusing %s instance (key: %s)", _sanitize_log_value(STORAGE_BACKEND), _sanitize_log_value(cache_key))
         else:
             _CACHE_STATS["storage_misses"] += 1
-            logger.info(f"❌ Storage Cache MISS - Initializing {STORAGE_BACKEND} instance...")
+            logger.info("❌ Storage Cache MISS - Initializing %s instance...", _sanitize_log_value(STORAGE_BACKEND))
 
             # Initialize storage backend using shared factory
             from .storage.factory import create_storage_instance
@@ -220,7 +226,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
             _STORAGE_CACHE[cache_key] = storage
             init_time = (time.time() - start_time) * 1000  # Convert to ms
             _CACHE_STATS["initialization_times"].append(init_time)
-            logger.info(f"💾 Cached storage instance (key: {cache_key}, init_time: {init_time:.1f}ms)")
+            logger.info("💾 Cached storage instance (key: %s, init_time: %.1fms)", _sanitize_log_value(cache_key), init_time)
 
         # Check memory service cache and log performance
         memory_service = _get_or_create_memory_service(storage)
@@ -238,9 +244,9 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
                     # Offload blocking SQLite I/O to a separate thread
                     graph_storage = await asyncio.to_thread(GraphStorage, SQLITE_VEC_PATH)
                     _GRAPH_STORAGE_CACHE[SQLITE_VEC_PATH] = graph_storage
-                    logger.info("GraphStorage initialized and cached for %s backend", STORAGE_BACKEND)
+                    logger.info("GraphStorage initialized and cached for %s backend", _sanitize_log_value(STORAGE_BACKEND))
                 except Exception as e:
-                    logger.warning("GraphStorage initialization failed (graph tools disabled): %s", e)
+                    logger.warning("GraphStorage initialization failed (graph tools disabled): %s", _sanitize_log_value(e))
                     graph_storage = None
 
             if graph_storage is not None:
@@ -271,7 +277,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
                     _GRAPH_STORAGE_CACHE[milvus_graph_cache_key] = graph_storage
                     logger.info("MilvusGraphStorage initialized and cached for milvus backend")
                 except Exception as e:
-                    logger.warning("MilvusGraphStorage initialization failed (graph tools disabled): %s", e)
+                    logger.warning("MilvusGraphStorage initialization failed (graph tools disabled): %s", _sanitize_log_value(e))
                     graph_storage = None
 
             if graph_storage is not None:
@@ -284,7 +290,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
                     _GRAPH_SERVICE_CACHE[gs_id] = graph_service
                     logger.info("💾 Cached GraphService instance (milvus)")
     else:
-        logger.info("Graph tools not available for %s backend (expected)", STORAGE_BACKEND)
+        logger.info("Graph tools not available for %s backend (expected)", _sanitize_log_value(STORAGE_BACKEND))
 
     if graph_service is None:
         graph_service = GraphService(None)
@@ -299,7 +305,7 @@ async def mcp_server_lifespan(server: FastMCP) -> AsyncIterator[MCPServerContext
         # IMPORTANT: Do NOT close cached storage instances here!
         # They are intentionally kept alive across stateless HTTP calls for performance.
         # Cleanup only happens on process shutdown (handled by FastMCP framework).
-        logger.info(f"✅ MCP Server Call #{_CACHE_STATS['total_calls']} complete - Cached instances preserved")
+        logger.info("✅ MCP Server Call #%s complete - Cached instances preserved", _CACHE_STATS['total_calls'])
 
 # Create FastMCP server instance
 try:
@@ -901,8 +907,8 @@ def main():
         file=sys.stderr
     )
 
-    logger.info(f"Starting MCP Memory Service FastAPI server on {HTTP_HOST}:{HTTP_PORT}")
-    logger.info(f"Storage backend: {STORAGE_BACKEND}")
+    logger.info("Starting MCP Memory Service FastAPI server on %s:%s", _sanitize_log_value(HTTP_HOST), HTTP_PORT)
+    logger.info("Storage backend: %s", _sanitize_log_value(STORAGE_BACKEND))
 
     # Run server with streamable HTTP transport
     mcp.run("streamable-http")
