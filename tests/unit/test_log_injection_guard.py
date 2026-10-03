@@ -65,6 +65,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/api/server.py",
     "mcp_memory_service/web/api/mcp.py",
     "mcp_memory_service/web/api/oauth_status.py",
+    "mcp_memory_service/web/api/quality.py",
     "mcp_memory_service/web/api/memories.py",
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
