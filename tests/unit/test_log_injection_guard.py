@@ -63,6 +63,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/api/memories.py",
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
+    "mcp_memory_service/mcp_server.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
