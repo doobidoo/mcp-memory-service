@@ -118,6 +118,8 @@ EXTERNAL_NAMES = frozenset({
     "scope",
     # web/sse.py logs the address a connection came from, taken off the request.
     "client_ip",
+    # ...and the Last-Event-ID header the client resumes from.
+    "last_event_id",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -390,13 +392,15 @@ def test_lazy_scan_flags_oauth_client_values():
 
 @pytest.mark.unit
 def test_lazy_scan_flags_sse_client_address():
-    """What web/sse.py logs about a connection: the address taken off the request.
+    """What web/sse.py logs about a connection: the address and the Last-Event-ID.
 
     The guarded call already wraps it, so the module scan stays green whether or
     not the name is listed; this sample fails if the entry is dropped.
     """
     assert _lazy_findings('logger.info("from %s", client_ip)\n')
     assert not _lazy_findings('logger.info("from %s", _sanitize_log_value(client_ip))\n')
+    assert _lazy_findings('logger.info("after %s", last_event_id)\n')
+    assert not _lazy_findings('logger.info("after %s", _sanitize_log_value(last_event_id))\n')
 
 
 @pytest.mark.unit

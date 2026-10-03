@@ -61,3 +61,20 @@ async def test_send_failure_log_does_not_carry_error_newlines(caplog):
     messages = _messages(caplog)
     assert any("Failed to send event to conn-1: queue closed" in m for m in messages)
     assert not any(f"\n{FORGED}" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_replay_log_does_not_carry_last_event_id_newlines(caplog):
+    manager = SSEManager(replay_buffer_size=10)
+    resumed_from = f"evt-1\n{FORGED}"
+    await manager.broadcast_event(
+        SSEEvent(event_type="memory_stored", data={}, event_id=resumed_from)
+    )
+    await manager.broadcast_event(SSEEvent(event_type="memory_stored", data={}))
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await manager.add_connection("conn-1", _request("10.0.0.1"), last_event_id=resumed_from)
+
+    messages = _messages(caplog)
+    assert any("SSE replayed 1 event(s) to conn-1 after Last-Event-ID=evt-1" in m for m in messages)
+    assert not any(f"\n{FORGED}" in m for m in messages)
