@@ -60,6 +60,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/storage/mixins/store.py",
     "mcp_memory_service/utils/db_utils.py",
     "mcp_memory_service/utils/health_check.py",
     "mcp_memory_service/server/handlers/utility.py",
@@ -138,6 +139,10 @@ EXTERNAL_NAMES = frozenset({
     "venv_path",
     "user_path",
     "installed_version",
+    # What storage/mixins/store.py logs when the backend fails while it stores or purges:
+    # the error of an embedding delete, and the message built from a transaction error.
+    "vec_err",
+    "error_msg",
     # The errors utils/db_utils.py logs while it validates, reads and repairs a backend.
     "init_error",
     "embed_error",
@@ -484,6 +489,14 @@ def test_lazy_scan_flags_db_utils_backend_errors():
     for name in ("init_error", "embed_error", "stats_error"):
         assert _lazy_findings(f'logger.warning("failed: %s", {name})\n')
         assert not _lazy_findings(f'logger.warning("failed: %s", _sanitize_log_value({name}))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_store_backend_errors():
+    """What storage/mixins/store.py logs when the backend raises while it stores."""
+    for name in ("vec_err", "error_msg"):
+        assert _lazy_findings(f'logger.error("failed: %s", {name})\n')
+        assert not _lazy_findings(f'logger.error("failed: %s", _sanitize_log_value({name}))\n')
 
 
 @pytest.mark.unit
