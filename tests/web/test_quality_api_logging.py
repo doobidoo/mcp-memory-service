@@ -66,3 +66,44 @@ async def test_get_quality_error_log_does_not_carry_newlines(caplog):
             )
 
     _assert_clean(caplog, "Error getting memory quality abc: backend down")
+
+
+class _Memory:
+    def __init__(self):
+        self.content = "hello"
+        self.content_hash = "abc"
+        self.metadata = {}
+
+
+class _WorkingStorage:
+    async def get_by_hash(self, *_args, **_kwargs):
+        return _Memory()
+
+    async def update_memory_metadata(self, *_args, **_kwargs):
+        return True, "ok"
+
+
+class _NewlineScorer:
+    """Writes a provider name carrying a newline into the quality metadata."""
+
+    async def calculate_quality_score(self, memory, _query):
+        memory.metadata["quality_score"] = 0.7
+        memory.metadata["quality_provider"] = f"onnx\n{FORGED}"
+        return 0.7
+
+
+@pytest.mark.asyncio
+async def test_evaluate_success_logs_do_not_carry_newlines(caplog, monkeypatch):
+    """The success path logs the metadata dict and the provider; both stay on one line."""
+    monkeypatch.setattr(quality, "QualityScorer", _NewlineScorer)
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await quality.evaluate_memory_quality(
+            content_hash="abc",
+            request=quality.EvaluateRequest(),
+            storage=_WorkingStorage(),
+            user=None,
+        )
+
+    _assert_clean(caplog, "Persisting quality metadata for abc")
+    _assert_clean(caplog, "Evaluated memory abc")
+    assert any(FORGED in r.getMessage() for r in caplog.records), "provider was not logged"
