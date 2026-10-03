@@ -269,6 +269,24 @@ def test_stop_does_not_kill_pid_file_process_on_different_port(monkeypatch, tmp_
     kill_process.assert_not_called()
 
 
+def test_stop_returns_true_when_nothing_is_running(monkeypatch, tmp_path):
+    """Only a refusal returns False; restart() launches on anything else."""
+    port = _unused_local_port()
+    monkeypatch.setattr(lifecycle, "_pid_file", lambda: tmp_path / "server.pid")
+    monkeypatch.setattr(lifecycle, "_read_pid", lambda: None)
+    monkeypatch.setattr(lifecycle, "_find_process_on_port", lambda value: None)
+    monkeypatch.setattr(
+        lifecycle, "_probe_health", lambda *args, **kwargs: (None, False)
+    )
+
+    result = CliRunner().invoke(
+        lifecycle.stop, ["--port", str(port)], standalone_mode=False
+    )
+
+    assert result.return_value is True, result.output
+    assert "Server is not running." in result.output
+
+
 def test_stop_stops_pid_file_process_when_recorded_port_matches(monkeypatch, tmp_path):
     """A matching recorded port permits the PID-file fallback."""
     port = _unused_local_port()
