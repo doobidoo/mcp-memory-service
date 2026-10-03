@@ -105,3 +105,56 @@ async def test_locked_checker_error_logs_do_not_carry_newlines(caplog, monkeypat
 
     assert not ok
     _assert_clean(caplog, expected)
+
+
+class CloudflareStorage:
+    """Named like the real class: db_utils dispatches on the class name."""
+
+    client = object()
+
+    async def get_stats(self):
+        return {"total_memories": 1}
+
+    async def _generate_embedding(self, _text):
+        raise RuntimeError(f"model gone\n{FORGED}")
+
+
+@pytest.mark.asyncio
+async def test_embedding_test_failure_log_does_not_carry_newlines(caplog):
+    with caplog.at_level(logging.DEBUG):
+        ok, _message = await db_utils.validate_database(CloudflareStorage())
+
+    assert ok
+    _assert_clean(caplog, "Embedding test failed: model gone")
+
+
+class _ExplodingState:
+    @property
+    def is_initialized(self):
+        raise RuntimeError(f"state broke\n{FORGED}")
+
+
+class _ExplodingStorage(_ExplodingState):
+    @property
+    def conn(self):
+        raise RuntimeError(f"conn broke\n{FORGED}")
+
+    def get_stats(self):
+        raise RuntimeError(f"stats broke\n{FORGED}")
+
+
+def _exploding_storage():
+    # db_utils dispatches on the class name.
+    return type("SqliteVecMemoryStorage", (_ExplodingStorage,), {})()
+
+
+@pytest.mark.asyncio
+async def test_outer_error_logs_do_not_carry_newlines(caplog):
+    with caplog.at_level(logging.DEBUG):
+        await db_utils.validate_database(_exploding_storage())
+        await db_utils.get_database_stats(_exploding_storage())
+        await db_utils.repair_database(_exploding_storage())
+
+    _assert_clean(caplog, "Database validation failed: state broke")
+    _assert_clean(caplog, "Error getting database stats: conn broke")
+    _assert_clean(caplog, "Error repairing database: conn broke")
