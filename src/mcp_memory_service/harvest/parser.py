@@ -134,6 +134,15 @@ class TranscriptParser:
         """
         return copy.deepcopy(getattr(self, "_coverage", {}) or {})
 
+    def reset_coverage(self) -> None:
+        """Reset coverage counters to empty state.
+
+        Clears all accumulated coverage data from previous parse_file() calls.
+        Use this to ensure coverage reports are per-run rather than per-parser-instance.
+        """
+        if hasattr(self, "_coverage"):
+            delattr(self, "_coverage")
+
 
     def find_sessions(self, project_dir: Path, count: int = 1) -> List[Path]:
         """Find the most recent session files under a directory.
@@ -410,7 +419,7 @@ class TranscriptParser:
 
     def _parse_kiro_v4_line(self, obj: dict) -> List[ParsedMessage]:
         """Parse a single Kiro CLI v4 (payload-wrapped) JSONL line.
-        
+
         Format: {"id": "...", "timestamp": "...", "payload": {"type": "...", "content": "...", ...}}
         """
         pl = obj.get("payload")
@@ -426,7 +435,7 @@ class TranscriptParser:
             return []
         ts = obj.get("timestamp")
         uid = obj.get("id")
-        
+
         # Handle user/assistant messages
         if ptype in self.PAYLOAD_ROLE_MAP:
             role = self.PAYLOAD_ROLE_MAP[ptype]
@@ -438,7 +447,7 @@ class TranscriptParser:
                 self._record_coverage(ptype, was_extracted=False,
                                       text=content.strip() if isinstance(content, str) and content.strip() else None)
                 return []
-        
+
         # Handle tool_result as assistant message with rich content.
         # Reject injected markers (system-reminder / command / ide) so an injected
         # payload inside a tool result cannot become a harvested memory — but do NOT
@@ -457,7 +466,7 @@ class TranscriptParser:
                 self._record_coverage("tool_result", was_extracted=False,
                                       text=content if isinstance(content, str) and content.strip() else None)
                 return []
-        
+
         # Handle tool_call and metadata - not extracted but counted in coverage
         else:
             self._record_coverage(ptype, was_extracted=False)

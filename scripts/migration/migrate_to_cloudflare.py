@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.utils.hashing import generate_content_hash
+from mcp_memory_service.compat import _sanitize_log_value
 
 # Configure logging
 logging.basicConfig(
@@ -37,7 +38,7 @@ class DataMigrator:
         
     async def export_from_sqlite_vec(self, sqlite_path: str) -> List[Dict[str, Any]]:
         """Export data from SQLite-vec backend."""
-        logger.info(f"Exporting data from SQLite-vec: {sqlite_path}")
+        logger.info(f"Exporting data from SQLite-vec: {_sanitize_log_value(sqlite_path)}")
         
         try:
             from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -45,24 +46,29 @@ class DataMigrator:
             storage = SqliteVecMemoryStorage(sqlite_path)
             await storage.initialize()
             
-            # Get all memories
+            # Page through every row in fixed steps over the counted total.
+            # get_recent_memories(n) always returns the newest n, so looping on it
+            # exported the same batch over and over. The offset advances by the
+            # page size, not by what came back: get_all_memories() drops rows it
+            # cannot convert, and counting only those returned would re-read rows
+            # on the next page. store=None covers every store; both calls filter
+            # deleted rows the same way.
             memories = []
-            stats = await storage.get_stats()
-            total_memories = stats.get('total_memories', 0)
-            
-            logger.info(f"Found {total_memories} memories to export")
-            
-            # Get recent memories in batches
+            total_memories = await storage.count_all_memories(store=None)
+            logger.info("Found %d memories to export", total_memories)
+
             batch_size = 100
-            exported_count = 0
-            
-            while exported_count < total_memories:
-                batch = await storage.get_recent_memories(batch_size)
+            for offset in range(0, total_memories, batch_size):
+                batch = await storage.get_all_memories(
+                    limit=batch_size, offset=offset, store=None)
                 if not batch:
-                    break
-                
+                    # get_all_memories() returns [] on a read error as well; an
+                    # export that silently stops here would look complete.
+                    raise RuntimeError(
+                        f"no memories readable at offset {offset} of {total_memories}")
+
                 for memory in batch:
-                    memory_data = {
+                    memories.append({
                         'content': memory.content,
                         'content_hash': memory.content_hash,
                         'tags': memory.tags,
@@ -72,26 +78,24 @@ class DataMigrator:
                         'created_at_iso': memory.created_at_iso,
                         'updated_at': memory.updated_at,
                         'updated_at_iso': memory.updated_at_iso
-                    }
-                    memories.append(memory_data)
-                    exported_count += 1
-                
-                logger.info(f"Exported {exported_count}/{total_memories} memories")
-                
-                # Break if we got fewer memories than batch size
-                if len(batch) < batch_size:
-                    break
-            
-            logger.info(f"Successfully exported {len(memories)} memories from SQLite-vec")
+                    })
+
+                logger.info("Exported %d/%d memories", len(memories), total_memories)
+
+            if len(memories) < total_memories:
+                logger.warning("%d of %d memories could not be read and were not exported",
+                               total_memories - len(memories), total_memories)
+
+            logger.info("Successfully exported %d memories from SQLite-vec", len(memories))
             return memories
             
         except Exception as e:
-            logger.error(f"Failed to export from SQLite-vec: {e}")
+            logger.error(f"Failed to export from SQLite-vec: {_sanitize_log_value(e)}")
             raise
     
     async def export_from_chroma(self, chroma_path: str) -> List[Dict[str, Any]]:
         """Export data from ChromaDB backend."""
-        logger.info(f"Exporting data from ChromaDB: {chroma_path}")
+        logger.info(f"Exporting data from ChromaDB: {_sanitize_log_value(chroma_path)}")
         
         try:
             from mcp_memory_service.storage.chroma import ChromaMemoryStorage
@@ -104,7 +108,7 @@ class DataMigrator:
             stats = await storage.get_stats()
             total_memories = stats.get('total_memories', 0)
             
-            logger.info(f"Found {total_memories} memories to export")
+            logger.info("Found %d memories to export", total_memories)
             
             # Get recent memories
             recent_memories = await storage.get_recent_memories(total_memories)
@@ -123,16 +127,16 @@ class DataMigrator:
                 }
                 memories.append(memory_data)
             
-            logger.info(f"Successfully exported {len(memories)} memories from ChromaDB")
+            logger.info("Successfully exported %d memories from ChromaDB", len(memories))
             return memories
             
         except Exception as e:
-            logger.error(f"Failed to export from ChromaDB: {e}")
+            logger.error(f"Failed to export from ChromaDB: {_sanitize_log_value(e)}")
             raise
     
     async def import_to_cloudflare(self, memories: List[Dict[str, Any]]) -> bool:
         """Import data to Cloudflare backend."""
-        logger.info(f"Importing {len(memories)} memories to Cloudflare backend")
+        logger.info("Importing %d memories to Cloudflare backend", len(memories))
         
         try:
             # Initialize Cloudflare storage
@@ -186,18 +190,19 @@ class DataMigrator:
                         
                         if success:
                             imported_count += 1
-                            logger.debug(f"Imported memory: {memory.content_hash[:16]}...")
+                            logger.debug(f"Imported memory: {_sanitize_log_value(memory.content_hash[:16])}...")
                         else:
                             failed_count += 1
-                            logger.warning(f"Failed to import memory {memory.content_hash[:16]}: {message}")
+                            logger.warning(f"Failed to import memory {_sanitize_log_value(memory.content_hash[:16])}: {_sanitize_log_value(message)}")
                         
                     except Exception as e:
                         failed_count += 1
-                        logger.error(f"Error importing memory: {e}")
+                        logger.error(f"Error importing memory: {_sanitize_log_value(e)}")
                 
                 # Progress update
                 processed = min(i + batch_size, len(memories))
-                logger.info(f"Progress: {processed}/{len(memories)} processed, {imported_count} imported, {failed_count} failed")
+                logger.info("Progress: %d/%d processed, %d imported, %d failed",
+                            processed, len(memories), imported_count, failed_count)
                 
                 # Rate limiting - small delay between batches
                 await asyncio.sleep(0.5)
@@ -205,11 +210,11 @@ class DataMigrator:
             # Final cleanup
             await storage.close()
             
-            logger.info(f"Migration completed: {imported_count} imported, {failed_count} failed")
+            logger.info("Migration completed: %d imported, %d failed", imported_count, failed_count)
             return failed_count == 0
             
         except Exception as e:
-            logger.error(f"Failed to import to Cloudflare: {e}")
+            logger.error(f"Failed to import to Cloudflare: {_sanitize_log_value(e)}")
             raise
     
     async def export_to_file(self, source_backend: str, source_path: str, output_file: str) -> bool:
@@ -234,11 +239,11 @@ class DataMigrator:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"Exported {len(memories)} memories to {output_file}")
+            logger.info(f"Exported {len(memories)} memories to {_sanitize_log_value(output_file)}")
             return True
             
         except Exception as e:
-            logger.error(f"Export failed: {e}")
+            logger.error(f"Export failed: {_sanitize_log_value(e)}")
             return False
     
     async def import_from_file(self, input_file: str) -> bool:
@@ -248,12 +253,12 @@ class DataMigrator:
                 export_data = json.load(f)
             
             memories = export_data.get('memories', [])
-            logger.info(f"Loaded {len(memories)} memories from {input_file}")
+            logger.info(f"Loaded {len(memories)} memories from {_sanitize_log_value(input_file)}")
             
             return await self.import_to_cloudflare(memories)
             
         except Exception as e:
-            logger.error(f"Import failed: {e}")
+            logger.error(f"Import failed: {_sanitize_log_value(e)}")
             return False
     
     async def migrate_direct(self, source_backend: str, source_path: str) -> bool:
@@ -271,7 +276,7 @@ class DataMigrator:
             return await self.import_to_cloudflare(memories)
             
         except Exception as e:
-            logger.error(f"Direct migration failed: {e}")
+            logger.error(f"Direct migration failed: {_sanitize_log_value(e)}")
             return False
 
 
@@ -331,7 +336,7 @@ async def main():
         logger.info("Migration cancelled by user")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Migration error: {e}")
+        logger.error(f"Migration error: {_sanitize_log_value(e)}")
         sys.exit(1)
 
 

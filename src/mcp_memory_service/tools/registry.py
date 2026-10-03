@@ -581,7 +581,7 @@ Examples:
                         },
                         "metadata": {
                             "type": "object",
-                            "description": "Custom metadata fields to merge with existing metadata. In-place updates only: ignored with versioned=true, where the new version starts with empty metadata and does not inherit the old version's custom fields.",
+                            "description": "Custom metadata fields to merge with existing metadata. In-place updates merge with the current metadata. Versioned updates: the new version inherits the old version's custom metadata, and fields supplied here override the inherited values.",
                         },
                         "content": {
                             "type": "string",

@@ -14,6 +14,7 @@ try:
 except ImportError:
     pass
 
+from ...compat import _sanitize_log_value
 from ...models.memory import Memory
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class StoreMixin:
                 self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (rowid,))
             except Exception as vec_err:
                 logger.warning(
-                    "Could not delete embedding rowid=%s during tombstone purge: %s", rowid, vec_err
+                    "Could not delete embedding rowid=%s during tombstone purge: %s", rowid, _sanitize_log_value(vec_err)
                 )
         self.conn.execute(
             'DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
@@ -107,7 +108,11 @@ class StoreMixin:
             try:
                 embedding = self._generate_embedding(memory.content)
             except Exception as e:
-                logger.error(f"Failed to generate embedding for memory {memory.content_hash}: {str(e)}")
+                logger.error(
+                    "Failed to generate embedding for memory %s: %s",
+                    _sanitize_log_value(memory.content_hash),
+                    _sanitize_log_value(e),
+                )
                 return False, f"Failed to generate embedding: {str(e)}"
 
             tags_str = ",".join(memory.tags) if memory.tags else ""
@@ -172,16 +177,16 @@ class StoreMixin:
                 else:
                     conflict_msg = ""
             except Exception as e:
-                logger.warning(f"Conflict detection failed (non-fatal): {e}")
+                logger.warning("Conflict detection failed (non-fatal): %s", _sanitize_log_value(e))
                 conflict_msg = ""
 
-            logger.info(f"Successfully stored memory: {memory.content_hash}")
+            logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully{conflict_msg}"
 
         except Exception as e:
             error_msg = f"Failed to store memory: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
+            logger.error("%s", _sanitize_log_value(error_msg))
+            logger.error("%s", _sanitize_log_value(traceback.format_exc()))
             return False, error_msg
 
     async def store_batch(self, memories: List[Memory], store: str = 'default') -> List[Tuple[bool, str]]:
@@ -199,7 +204,7 @@ class StoreMixin:
             raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
         except Exception as e:
             error_msg = f"Batch embedding generation failed: {e}"
-            logger.error(error_msg)
+            logger.error("%s", _sanitize_log_value(error_msg))
             return [(False, error_msg)] * len(memories)
 
         def batch_insert():
@@ -272,11 +277,11 @@ class StoreMixin:
                 await self._execute_with_retry(self.conn.commit)
 
             stored = sum(1 for r in results if r and r[0])
-            logger.info(f"Batch stored {stored}/{len(memories)} memories in single transaction")
+            logger.info("Batch stored %s/%s memories in single transaction", stored, len(memories))
         except Exception as e:
             error_msg = f"Batch transaction failed: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
+            logger.error("%s", _sanitize_log_value(error_msg))
+            logger.error("%s", _sanitize_log_value(traceback.format_exc()))
             for j in range(len(memories)):
                 if results[j] is None:
                     results[j] = (False, error_msg)

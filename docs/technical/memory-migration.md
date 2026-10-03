@@ -27,4 +27,4 @@ ls scripts/maintenance/
 | **SQLite-vec** | Development / single-user / air-gapped | [sqlite-vec-backend.md](../sqlite-vec-backend.md) |
 | **Cloudflare** | Cloud-only / edge deployment | [cloudflare-setup.md](../cloudflare-setup.md) |
 
-If you are looking for the old ChromaDB-centric migration script, see the [`chromadb-legacy`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy) branch.
+If you are looking for the old ChromaDB-centric migration script, see the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag.

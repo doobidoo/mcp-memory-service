@@ -132,7 +132,12 @@ class MetadataMixin:
             now = time.time()
             now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
 
-            structural_change = any(k in updates for k in ("tags", "memory_type", "content"))
+            structural_change = (
+                set(new_tags.split(",") if new_tags else [])
+                != set(current_tags.split(",") if current_tags else [])
+                or new_type != current_type
+                or "content" in updates
+            )
             if preserve_timestamps and not structural_change:
                 updated_at = current_updated_at if current_updated_at else now
                 updated_at_iso = current_updated_at_iso if current_updated_at_iso else now_iso
@@ -185,13 +190,12 @@ class MetadataMixin:
             updated_fields.append("updated_at")
 
             summary = f"Updated fields: {', '.join(updated_fields)}"
-            logger.info(f"Successfully updated metadata for memory {content_hash}")
+            logger.info("Successfully updated metadata for memory %s", _sanitize_log_value(content_hash))
             return True, summary
 
         except Exception as e:
             error_msg = f"Error updating memory metadata: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
+            logger.error("%s\n%s", _sanitize_log_value(error_msg), traceback.format_exc())
             return False, error_msg
 
     async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
@@ -222,7 +226,7 @@ class MetadataMixin:
 
                         row = cursor.fetchone()
                         if not row:
-                            logger.warning(f"Memory {memory.content_hash} not found during batch update")
+                            logger.warning("Memory %s not found during batch update", _sanitize_log_value(memory.content_hash))
                             continue
 
                         (content, current_tags, current_type, current_metadata_str,
@@ -240,8 +244,9 @@ class MetadataMixin:
                         new_type = memory.memory_type if memory.memory_type else current_type
 
                         structural_change = (
-                            new_tags != current_tags or
-                            new_type != current_type
+                            set(new_tags.split(",") if new_tags else [])
+                            != set(current_tags.split(",") if current_tags else [])
+                            or new_type != current_type
                         )
                         if preserve_timestamps and not structural_change:
                             mem_updated_at = current_updated_at if current_updated_at else now
@@ -270,7 +275,7 @@ class MetadataMixin:
                         results[idx] = True
 
                     except Exception as e:
-                        logger.warning(f"Failed to update memory {memory.content_hash} in batch: {e}")
+                        logger.warning("Failed to update memory %s in batch: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(str(e)))
                         continue
 
                 self.conn.commit()
@@ -278,15 +283,14 @@ class MetadataMixin:
             await self._execute_with_retry(_batch_update)
 
             success_count = sum(results)
-            logger.info(f"Batch update completed: {success_count}/{len(memories)} memories updated successfully")
+            logger.info("Batch update completed: %s/%s memories updated successfully", success_count, len(memories))
 
             return results
 
         except Exception as e:
             if self.conn:
                 await self._run_in_thread(self.conn.rollback)
-            logger.error(f"Batch update failed: {e}")
-            logger.error(traceback.format_exc())
+            logger.error("Batch update failed: %s\n%s", _sanitize_log_value(str(e)), traceback.format_exc())
             return [False] * len(memories)
 
     async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
@@ -305,7 +309,7 @@ class MetadataMixin:
         try:
             return await self._execute_with_retry(_batch_mark)
         except Exception as e:
-            logger.error(f"mark_superseded_batch failed: {e}")
+            logger.error("mark_superseded_batch failed: %s", _sanitize_log_value(str(e)))
             if self.conn:
                 await self._run_in_thread(self.conn.rollback)
             return 0
@@ -354,7 +358,7 @@ class MetadataMixin:
             )
             candidates = cursor.fetchall()
         except Exception as e:
-            logger.warning(f"Conflict detection query failed: {e}")
+            logger.warning("Conflict detection query failed: %s", _sanitize_log_value(str(e)))
             return []
 
         conflicts = []
@@ -419,7 +423,7 @@ class MetadataMixin:
             self.conn.commit()
 
         await self._execute_with_retry(_record_all_conflicts)
-        logger.info(f"Recorded {len(conflicts)} conflict(s) for {new_hash[:8]}")
+        logger.info("Recorded %s conflict(s) for %s", len(conflicts), _sanitize_log_value(new_hash[:8]))
 
     async def get_conflicts(self) -> list:
         """Return all unresolved conflict pairs."""
@@ -455,7 +459,7 @@ class MetadataMixin:
                 })
             return results
         except Exception as e:
-            logger.error(f"get_conflicts error: {e}")
+            logger.error("get_conflicts error: %s", _sanitize_log_value(str(e)))
             return []
 
     async def resolve_conflict(self, winner_hash: str, loser_hash: str) -> Tuple[bool, str]:
@@ -507,11 +511,11 @@ class MetadataMixin:
                 self.conn.commit()
 
             await self._execute_with_retry(_do_resolve)
-            logger.info(f"Conflict resolved: {winner_hash[:8]} wins over {loser_hash[:8]}")
+            logger.info("Conflict resolved: %s wins over %s", _sanitize_log_value(winner_hash[:8]), _sanitize_log_value(loser_hash[:8]))
             return True, f"Conflict resolved: {winner_hash[:8]} supersedes {loser_hash[:8]}"
 
         except Exception as e:
-            logger.error(f"resolve_conflict error: {e}")
+            logger.error("resolve_conflict error: %s", _sanitize_log_value(str(e)))
             return False, str(e)
 
     async def retrieve_with_staleness(
@@ -571,7 +575,7 @@ class MetadataMixin:
             try:
                 await self._execute_with_retry(_touch)
             except Exception as e:
-                logger.warning(f"Failed to update last_accessed (non-fatal): {e}")
+                logger.warning("Failed to update last_accessed (non-fatal): %s", _sanitize_log_value(str(e)))
 
         return enriched
 
@@ -590,7 +594,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version, metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -599,11 +603,22 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type, old_version = row
+            old_hash, old_tags_str, old_type, old_version, old_metadata_str = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
             resolved_type = new_memory_type if new_memory_type is not None else old_type
+
+            # The new version inherits the old row's custom metadata, so keys a
+            # client stored (source, agent fields, ...) survive a versioned
+            # update. Lineage keys stay on the old row only (#1408).
+            inherited_metadata = (
+                self._safe_json_loads(old_metadata_str, "update_memory_versioned")
+                if old_metadata_str
+                else {}
+            )
+            inherited_metadata.pop("superseded_by", None)
+            inherited_metadata.pop("evolution_reason", None)
 
             new_hash = generate_content_hash(new_content)
             new_memory = Memory(
@@ -611,6 +626,7 @@ class MetadataMixin:
                 content_hash=new_hash,
                 tags=resolved_tags,
                 memory_type=resolved_type,
+                metadata=inherited_metadata,
             )
             store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
             if not store_ok:
@@ -679,7 +695,7 @@ class MetadataMixin:
             return True, "Memory versioned successfully", new_hash
 
         except Exception as e:
-            logger.error(f"update_memory_versioned error: {e}")
+            logger.error("update_memory_versioned error: %s", _sanitize_log_value(str(e)))
             return False, str(e), None
 
     async def get_memory_history(self, content_hash: str) -> List[Dict[str, Any]]:
@@ -747,7 +763,7 @@ class MetadataMixin:
             ]
 
         except Exception as e:
-            logger.error(f"get_memory_history error: {e}")
+            logger.error("get_memory_history error: %s", _sanitize_log_value(str(e)))
             return []
 
     async def list_superseded_orphans(self, limit: int = 1000) -> List[Dict[str, Any]]:
@@ -805,5 +821,5 @@ class MetadataMixin:
             ]
 
         except Exception as e:
-            logger.error(f"list_superseded_orphans error: {e}")
+            logger.error("list_superseded_orphans error: %s", _sanitize_log_value(str(e)))
             return []

@@ -2304,12 +2304,19 @@ class MilvusMemoryStorage(MemoryStorage):
                     new_memory_type if new_memory_type is not None else existing.memory_type
                 )
 
+                # The new version inherits the old row's custom metadata; lineage
+                # keys stay on the old row only (#1408, same rule as sqlite_vec).
+                inherited_metadata = dict(existing.metadata or {})
+                inherited_metadata.pop("superseded_by", None)
+                inherited_metadata.pop("evolution_reason", None)
+
                 new_hash = generate_content_hash(new_content)
                 new_memory = Memory(
                     content=new_content,
                     content_hash=new_hash,
                     tags=resolved_tags,
                     memory_type=resolved_type,
+                    metadata=inherited_metadata,
                 )
                 store_ok, store_msg = await self.store(
                     new_memory, skip_semantic_dedup=True,

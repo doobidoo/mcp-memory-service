@@ -220,8 +220,8 @@ PostToolUse (Edit/Write/Bash)
 ## Related Documentation
 
 - [Claude Code Hooks README](README.md)
-- [Memory Awareness Hooks Guide](../docs/guides/hooks-guide.md)
-- [Natural Memory Triggers](../docs/features/natural-triggers.md)
+- [Memory Awareness Hooks Guide](README.md)
+- [Natural Memory Triggers](README-NATURAL-TRIGGERS.md)
 
 ## Version History
 
