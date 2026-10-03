@@ -100,3 +100,10 @@ def test_a_single_error_record_describes_the_failure(run_entity_filter_error):
     level, _raw, _result = run_entity_filter_error
     errors = [ln for ln in level.splitlines() if ln.startswith("ERROR")]
     assert any("Entity filter lookup failed" in ln for ln in errors), errors
+
+
+def test_error_record_carries_no_exc_info(run_entity_filter_error, caplog):
+    """Restoring exc_info would let logging append the raw traceback again."""
+    assert all(r.exc_info is None for r in caplog.records), (
+        "a record carries exc_info, so the formatter appends raw str(e)"
+    )
