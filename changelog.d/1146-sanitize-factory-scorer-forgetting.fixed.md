@@ -1,0 +1,1 @@
+Sanitized unsanitised f-string logger calls in `storage/factory.py`, `quality/async_scorer.py`, and `consolidation/forgetting.py` (25 calls) using `_sanitize_log_value`, continuing the #1146 log-injection (CWE-117) cleanup. Logging-only; no behavior change.
