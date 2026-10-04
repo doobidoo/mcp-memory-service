@@ -30,7 +30,7 @@ The backend auto-detects Lite vs. remote from the URI — file paths ending in `
 pip install -e ".[milvus]"
 ```
 
-The `milvus` extra pulls in `pymilvus>=2.5.0` and `milvus-lite>=2.4.10`. Milvus Lite is the default and requires no external service.
+The `milvus` extra requires `pymilvus>=2.5.0,<4.0.0` and `milvus-lite>=2.4.10`; CI covers both the 2.x and 3.x pymilvus lines. Milvus Lite is the default and requires no external service.
 
 ### 2. Configure
 
@@ -175,7 +175,7 @@ For a Zilliz Cloud setup, also add `"MCP_MILVUS_TOKEN": "your-token"`.
 | `Cannot invoke RPC on closed channel!` / `server unavailable` on Milvus Lite after long idle | The Lite daemon exited after idle (upstream [milvus-lite#334](https://github.com/milvus-io/milvus-lite/issues/334)). The backend detects this and auto-reconnects once on the next RPC — the failure surfaces as a `WARNING` log followed by a successful retry. If it recurs every call, check for Lite-on-Lite collisions (multiple processes writing the same `.db`). For production services, switch to self-hosted Milvus or Zilliz Cloud. |
 | Embedding dimension mismatch warning | An existing collection has a different vector dim than the current model. Drop the collection (`MilvusClient.drop_collection(...)`) or switch to a model that matches the stored dim. |
 | First `initialize()` takes a long time | The sentence-transformers model is downloading from Hugging Face. Once cached, later runs are fast (the backend automatically enables `HF_HUB_OFFLINE` when the cache is present). |
-| `pkg_resources is deprecated` warning on Python 3.13 | Harmless deprecation warning from `milvus-lite`; our `milvus` extra pins `setuptools<81` on Python 3.13+ to silence it. |
+| `pkg_resources is deprecated` warning on Python 3.13 | Harmless deprecation warning from `milvus-lite`; our `milvus` extra pins `setuptools<82` to silence it. |
 
 ## Support
 
