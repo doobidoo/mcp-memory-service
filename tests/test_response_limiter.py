@@ -313,6 +313,167 @@ class TestSafeRetrieveResponse:
 # ============================================
 
 
+class TestBoundedResponse:
+    """Count the complete rendered response, retaining whole source records."""
+
+    def test_large_optional_section_cannot_displace_raw_results(self, small_memories):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        header = "Summarization unavailable.\n\n"
+        body = format_truncated_response(small_memories, {})
+        result = format_bounded_response(
+            small_memories, len(header + body) + 100, header, "Beliefs" * 1000
+        )
+
+        assert result.startswith(header + body)
+        assert "Optional section omitted" in result
+        assert "Beliefs" not in result
+        assert len(result) <= len(header + body) + 100
+
+    def test_optional_section_cannot_displace_even_one_record(self, small_memories):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        body = format_truncated_response(small_memories, {})
+        # At this exact boundary every raw result fits, but no footer or notice does.
+        assert (
+            format_bounded_response(small_memories, len(body), footer="Beliefs") == body
+        )
+
+    def test_each_record_is_formatted_once(self):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        class CountedContent:
+            def __init__(self):
+                self.formats = 0
+
+            def __str__(self):
+                self.formats += 1
+                return "large memory " * 1000
+
+        contents = [CountedContent() for _ in range(100)]
+        memories = [
+            {"content": content, "content_hash": str(i)}
+            for i, content in enumerate(contents)
+        ]
+        result = format_bounded_response(memories, 200, "Warning\n")
+
+        assert len(result) <= 200
+        assert "Showing 0 of 100 results" in result
+        assert all(content.formats == 1 for content in contents)
+
+    def test_warning_and_footer_participate_in_limit(self, small_memories):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        header = "Summarization unavailable.\n\n"
+        footer = "\n\n--- Beliefs ---\nUncertainty remains."
+        # Leave enough space for the optional footer after one whole record,
+        # but not enough for a second record.
+        small_memories = [{**m, "content": m["content"] * 10} for m in small_memories]
+        cap = 400
+        result = format_bounded_response(small_memories, cap, header, footer)
+
+        assert len(result) <= cap
+        assert result.startswith(header)
+        assert result.endswith(footer)
+        assert "RESPONSE TRUNCATED" in result
+        assert "hash_0" in result
+        assert "hash_4" not in result
+        for memory in small_memories:
+            if memory["content_hash"] in result:
+                assert memory["content"] in result
+
+    @pytest.mark.parametrize("cap", [0, 100000])
+    def test_full_response_is_preserved_when_it_fits(self, small_memories, cap):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        result = format_bounded_response(small_memories, cap, "Warning\n", "\nBeliefs")
+
+        assert (
+            result
+            == "Warning\n" + format_truncated_response(small_memories, {}) + "\nBeliefs"
+        )
+
+    @pytest.mark.parametrize("cap", [1, 25, 100, 400])
+    def test_oversized_envelope_does_not_leak_partial_records(self, sample_memory, cap):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        header = "Summarization unavailable. " + "Very long query " * 100
+        result = format_bounded_response([sample_memory], cap, header, "Beliefs" * 200)
+
+        assert len(result) <= cap
+        assert result == header[:cap]
+        assert sample_memory["content_hash"] not in result
+        assert sample_memory["content"] not in result
+
+    @pytest.mark.parametrize("count", [0, 1, 9, 10, 11, 100])
+    def test_prefix_boundaries_and_optional_section_priority(self, count):
+        from mcp_memory_service.server.utils.response_limiter import (
+            format_bounded_response,
+        )
+
+        memories = [
+            {
+                "content": f"Record {i}: 雪🌱",
+                "content_hash": f"source-{i}",
+                "tags": ["é"],
+            }
+            for i in range(count)
+        ]
+        header = "Warning\n"
+        # Build independently formatted candidates for each valid prefix.
+        candidates = []
+        for shown in range(count + 1):
+            notice = (
+                ""
+                if shown == count
+                else (
+                    f"[!] RESPONSE TRUNCATED: Showing {shown} of {count} results.\n"
+                    f"{count - shown} result(s) omitted. "
+                    "Use a narrower query or hash-based retrieval.\n\n"
+                )
+            )
+            candidates.append(
+                header + notice + format_truncated_response(memories[:shown], {})
+            )
+
+        # Exercise both sides of every record/notice/footer boundary, including
+        # changes in numbering width and character counts for non-ASCII text.
+        for footer in ["", "\nBeliefs", "Beliefs" * 10000]:
+            caps = {1, len(header) - 1, len(header), len(header) + 1}
+            for candidate in candidates:
+                for boundary in [len(candidate), len(candidate + footer)]:
+                    caps.update([boundary - 1, boundary, boundary + 1])
+            for cap in sorted(caps):
+                result = format_bounded_response(memories, cap, header, footer)
+                assert len(result) <= cap
+                eligible = [
+                    candidate for candidate in candidates if len(candidate) <= cap
+                ]
+                if not eligible:
+                    assert result == header[:cap]
+                    continue
+                expected = eligible[-1]
+                if len(expected + footer) <= cap:
+                    assert result == expected + footer
+                else:
+                    omission = "\n\n[!] Optional section omitted to fit response limit."
+                    assert result == expected + (
+                        omission if len(expected + omission) <= cap else ""
+                    )
+
+
 class TestResponseLimiterIntegration:
     """Integration tests for full response limiting workflow."""
 

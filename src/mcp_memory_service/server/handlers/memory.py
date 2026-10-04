@@ -1181,6 +1181,56 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             result["memories"] = memories
             result["total"] = total
 
+        summary_warning = ""
+        if arguments.get("summarize") is True and memories:
+            # Run only after retrieval, fallback, filters, and plugins. Keep the
+            # original result intact for a read-only, recoverable fallback.
+            try:
+                from ...services.search_summarizer import MemorySearchSummarizer
+
+                summary = await MemorySearchSummarizer().summarize(query, memories)
+                if summary is None:
+                    reason = "a query and a configured LLM provider are required"
+                else:
+                    payload = {
+                        "summarized": True,
+                        "summary": summary.text,
+                        "source_hashes": summary.source_hashes,
+                        "snapshot": summary.snapshot,
+                        "summarized_count": summary.summarized_count,
+                        "omitted_count": summary.omitted_count,
+                        "total": total,
+                        "query": result.get("query"),
+                        "mode": result.get("mode"),
+                        "provider": summary.provider,
+                        "model": summary.model,
+                    }
+                    if fallback_used:
+                        payload["fallback_used"] = True
+                    if result.get("debug"):
+                        payload["debug"] = result["debug"]
+                    beliefs_section = await _format_beliefs_section(arguments, storage)
+                    if beliefs_section:
+                        payload["beliefs"] = beliefs_section.strip()
+                    summary_text = json.dumps(
+                        payload, ensure_ascii=False, allow_nan=False
+                    )
+                    if (
+                        max_response_chars <= 0
+                        or len(summary_text) <= max_response_chars
+                    ):
+                        return [types.TextContent(type="text", text=summary_text)]
+                    reason = "summary and source metadata exceed max_response_chars"
+            except Exception as e:
+                # Do not expose provider errors or retrieved content to callers.
+                logger.warning(
+                    "Memory search summarization failed: %s", _sanitize_log_value(e)
+                )
+                reason = "the provider failed or the summary/source validation failed"
+            summary_warning = (
+                f"Summarization unavailable: {reason}. Returning raw results.\n\n"
+            )
+
         # Apply truncation if needed
         if max_response_chars > 0 and memories:
             # Memories are already dicts from storage.search_memories()
@@ -1194,10 +1244,6 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                     'tags': memory.get('tags', []),
                 })
 
-            # Apply truncation
-            from ..utils.response_limiter import truncate_memories, format_truncated_response
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-
             # Build header
             header = f"Found {total} memories"
             if result.get("mode"):
@@ -1209,7 +1255,25 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             header += "\n\n"
 
             beliefs_section = await _format_beliefs_section(arguments, storage)
-            response_text = header + format_truncated_response(truncated, meta) + beliefs_section
+            if summary_warning:
+                from ..utils.response_limiter import format_bounded_response
+
+                response_text = format_bounded_response(
+                    memory_dicts,
+                    max_response_chars,
+                    header=summary_warning + header,
+                    footer=beliefs_section,
+                )
+                return [types.TextContent(type="text", text=response_text)]
+            from ..utils.response_limiter import (
+                format_truncated_response,
+                truncate_memories,
+            )
+
+            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+            response_text = (
+                header + format_truncated_response(truncated, meta) + beliefs_section
+            )
             return [types.TextContent(type="text", text=response_text)]
 
         # Format response without truncation
@@ -1264,7 +1328,10 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         beliefs_section = await _format_beliefs_section(arguments, storage)
         return [types.TextContent(
             type="text",
-            text=header + "\n\n" + "\n\n".join(formatted_results) + beliefs_section
+            text=(
+                summary_warning + header + "\n\n"
+                + "\n\n".join(formatted_results) + beliefs_section
+            )
         )]
 
     except Exception as e:
