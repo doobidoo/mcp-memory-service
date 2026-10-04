@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import re
 from collections import Counter
 from datetime import datetime, timezone

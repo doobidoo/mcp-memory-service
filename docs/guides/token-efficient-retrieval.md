@@ -3,10 +3,11 @@
 How to stop `memory_search` from flooding an agent's context, and how to use the
 two-phase `memory_explore` / `memory_detail` pair.
 
-Two independent levers:
+Three independent levers:
 
 1. **Bounding a search response** — works on every backend, no setup. Start here.
-2. **The two-phase knowledge map** — needs a populated entity graph, and a graph-capable
+2. **Query-aware summaries** — opt-in, requires a configured LLM provider.
+3. **The two-phase knowledge map** — needs a populated entity graph, and a graph-capable
    backend.
 
 ## 1. Bounding a search response
@@ -31,7 +32,95 @@ interface has compact result types (`CompactMemory`, `CompactSearchResult`) that
 85-91% of the tokens of full `Memory` objects — see
 [`docs/api/code-execution-interface.md`](../api/code-execution-interface.md).
 
-## 2. The two-phase knowledge map
+## 2. Query-aware search summaries
+
+Use `summarize: true` when you want an answer scoped to the current query rather
+than every retrieved memory verbatim:
+
+```json
+{"query": "replication message bus consistency", "limit": 10, "summarize": true}
+```
+
+The flag defaults to `false`. Retrieval, filters, search fallback, and retrieval
+plugins run first. Summarization then uses the existing Harvest LLM provider chain;
+it does not require Harvest to be enabled. For example, a local OpenAI-compatible
+endpoint can be configured with:
+
+```bash
+HARVEST_LLM_PROVIDERS=local
+HARVEST_LLM_LOCAL_BASE_URL=http://localhost:11434/v1
+HARVEST_LLM_LOCAL_MODEL=your-installed-model
+```
+
+Add `HARVEST_LLM_LOCAL_API_KEY` if the endpoint requires authentication. The legacy
+`GROQ_API_KEY` configuration also works. Opting in sends the query and selected
+memory records to those configured providers; a local endpoint keeps this local.
+
+The complete input prompt is capped at **12,000 characters**, including the query,
+instructions, and metadata. Records that do not fit are omitted whole, and later
+smaller records may still fit. The existing provider output budget is **200 tokens**.
+Generated text exceeding **2,000 characters** is rejected even if a provider
+ignores that token budget. Non-finite metadata values (NaN or infinity) also fail
+the summary path so the response always contains valid JSON.
+Each provider uses a 10-second HTTP timeout, with a 30-second deadline for the
+whole summarization call. These are fixed MVP defaults; `summarize` accepts a
+boolean, not a budget object.
+
+A successful MCP text response contains JSON:
+
+```json
+{
+  "summarized": true,
+  "summary": "Acknowledgements preceded replicated state propagation [1].",
+  "source_hashes": ["<hash-a>"],
+  "snapshot": [
+    {"content_hash": "<hash-a>", "tags": ["replication"], "created_at_iso": "2026-09-01T10:00:00Z"}
+  ],
+  "summarized_count": 1,
+  "omitted_count": 0,
+  "total": 1,
+  "query": "replication message bus consistency",
+  "mode": "semantic",
+  "provider": "local",
+  "model": "your-installed-model"
+}
+```
+
+`snapshot` is the pre-summary keep-set: a deep copy of every non-content field in
+each record sent to the model, in citation order (`[1]` refers to its first entry).
+It includes available source metadata, not only the abbreviated fields above.
+The internal `access_queries` history is excluded from both the provider input
+and snapshot, whether flattened into the record or nested under `metadata`.
+Stored access history is left intact.
+`source_hashes` lists the cited hashes in order of first use; the snapshot also
+retains sources the model did not cite. `omitted_count` reports records excluded
+by the input budget. Debug details and requested derived beliefs are included
+under `debug` and `beliefs` when available.
+
+Source metadata is kept outside the generated answer. Missing hashes, tags, or
+creation timestamps, duplicate hashes, empty output, missing citations, and
+invalid or incomplete citations fail the summary path. Provider failures, missing
+configuration, and searches without a query also return normal raw results with
+a **Summarization unavailable** warning. Empty searches do not call the model.
+If the complete summary response cannot fit `max_response_chars`, the tool falls
+back rather than cutting source metadata. A positive cap bounds the entire
+summary fallback response, including warnings, headers, and requested beliefs.
+Raw results take priority: the longest prefix of complete records that fits is
+returned, and requested beliefs are included only if the remaining space allows.
+An optional-section omission notice is added when it fits. Raw memory records
+are omitted whole when they do not fit; very small caps may return only the
+beginning of the warning. Searches without summarization retain their existing
+response limiting behavior.
+
+The keep-set is request-local, not a persistent audit or rollback copy. Original
+memory content is never rewritten or deleted. Retrieve an original by hash through
+`GET /api/memories/{content_hash}`, or narrow a subsequent `memory_search` with
+`summarize: false` to inspect raw content. Citation checks verify source identity;
+they cannot guarantee that every generated statement correctly represents its
+source. Automatic threshold triggering and stateful follow-up conversations are
+outside this first version.
+
+## 3. The two-phase knowledge map
 
 `memory_explore` returns a map of entities with a few ranked chunks each;
 `memory_detail` then returns the full ranked chunk list for one entity. The point is to
@@ -128,6 +217,7 @@ are never attached to it.
 | Situation | Use |
 |---|---|
 | Search responses too large | `limit` + `max_response_chars` |
+| Want a concise answer to the current query | `memory_search` with `summarize: true` (needs an LLM provider) |
 | Want an overview before pulling content | `memory_explore` → `memory_detail` |
 | Restrict results to one known entity | `memory_search` with `entity` (needs a populated graph) |
 | Calling from Python rather than as an MCP tool | code-execution interface, compact types |

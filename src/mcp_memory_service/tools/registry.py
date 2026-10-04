@@ -203,6 +203,12 @@ TAG FILTER:
 DEBUG:
 - include_debug=true adds timing, embedding info, filter details
 
+SUMMARIZATION (opt-in):
+- summarize=true returns a query-aware LLM summary with validated source hashes
+- Requires a query and the existing HARVEST_LLM_PROVIDERS/GROQ_API_KEY configuration
+- Bounds model input at whole-memory boundaries; original memories remain stored
+- Returns raw results with a warning if summarization or source validation fails
+
 Examples:
 {"query": "python async patterns"}
 {"query": "API endpoint", "mode": "exact"}
@@ -210,7 +216,8 @@ Examples:
 {"query": "database config", "time_expr": "yesterday"}
 {"query": "architecture decisions", "tags": ["important"], "quality_boost": 0.3}
 {"after": "2024-01-01", "before": "2024-06-30", "limit": 50}
-{"query": "error handling", "include_debug": true}""",
+{"query": "error handling", "include_debug": true}
+{"query": "replication consistency issue", "summarize": true}""",
         input_schema={
             "type": "object",
             "properties": {
@@ -315,6 +322,16 @@ Examples:
                 "store": {
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
+                },
+                "summarize": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Return a query-aware LLM summary of the retrieved memories "
+                        "with source hashes and preserved metadata instead of their "
+                        "full contents. Requires a query and a configured LLM provider. "
+                        "Falls back to raw results with a warning on failure."
+                    ),
                 },
             },
         },

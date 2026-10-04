@@ -446,7 +446,6 @@ class ConsolidationHealthMonitor:
         hardcoded *healthy* that the old stubs returned.
         """
         checks = {}
-        status = HealthStatus.HEALTHY
         scheduler = self._scheduler_ref
 
         schedule_config = self._resolve_schedule_config(scheduler)
@@ -522,7 +521,6 @@ class ConsolidationHealthMonitor:
     async def _check_storage_backend_health(self) -> Dict[str, Any]:
         """Check storage backend health."""
         checks = {}
-        status = HealthStatus.HEALTHY
 
         storage = None
         if self.consolidator is not None:
