@@ -45,6 +45,7 @@ from ..config import (
     MDNS_ENABLED,
     HTTPS_ENABLED,
     OAUTH_ENABLED,
+    METRICS_ENABLED,
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
     CONSOLIDATION_SCHEDULE,
@@ -384,6 +385,17 @@ def create_app() -> FastAPI:
         logger.info("OAuth 2.1 endpoints enabled")
     else:
         logger.info("OAuth 2.1 endpoints disabled")
+
+    # Include Prometheus metrics router if enabled (issue #1097, opt-in).
+    # Read the module-level flag (not the import-time local) so tests that
+    # monkeypatch ``web.app.METRICS_ENABLED`` and rebuild the app are honoured,
+    # exactly the way OAUTH_ENABLED gates its routers above.
+    if METRICS_ENABLED:
+        from .api.metrics import router as metrics_router
+        app.include_router(metrics_router, tags=["metrics"])
+        logger.info("Prometheus /metrics endpoint enabled")
+    else:
+        logger.info("Prometheus /metrics endpoint disabled")
 
     # Serve static files (dashboard)
     static_path = os.path.join(os.path.dirname(__file__), "static")
