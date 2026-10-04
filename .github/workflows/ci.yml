@@ -318,7 +318,7 @@ jobs:
           - leg: 2.x
             pymilvus: "pymilvus>=2.5.0,<3.0.0"
           - leg: 3.x
-            pymilvus: ""
+            pymilvus: "pymilvus>=3.0.0,<4.0.0"
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
