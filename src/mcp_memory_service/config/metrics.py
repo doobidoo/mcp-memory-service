@@ -26,6 +26,11 @@ from .base import safe_get_bool_env
 
 logger = logging.getLogger(__name__)
 
+# Public surface of this submodule. Keeping ``__all__`` explicit stops a
+# ``from .metrics import *`` from leaking helpers (e.g. ``safe_get_bool_env``,
+# ``logging``) into the ``config`` package namespace.
+__all__ = ['METRICS_ENABLED']
+
 # Opt-in flag for the Prometheus text-exposition endpoint. Default False:
 # unset or an explicit false value leaves the route unregistered.
 METRICS_ENABLED = safe_get_bool_env('MCP_METRICS_ENABLED', False)

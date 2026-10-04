@@ -163,6 +163,31 @@ def _client(app):
     return TestClient(app, raise_server_exceptions=False)
 
 
+def _wire_live_health(monkeypatch, status: str = "healthy"):
+    """Make the consolidation-health source emit a genuine, known status.
+
+    The dev-impl deliberately OMITS the health gauge unless a *live* consolidator
+    is wired into the server (a bare ``ConsolidationHealthMonitor()`` with no
+    consolidator reports a fabricated ``unhealthy`` — see metrics.py docstring).
+    To exercise the health source honestly we publish a live consolidator via
+    ``api.client.set_consolidator`` and stub ``check_overall_health`` to return a
+    deterministic payload, so the emitted value reflects real wiring rather than
+    a never-started subsystem.
+    """
+    import mcp_memory_service.api.client as api_client
+    import mcp_memory_service.consolidation.health as health_mod
+
+    sentinel = object()  # stand-in for a live DreamInspiredConsolidator
+    monkeypatch.setattr(api_client, "_consolidator_instance", sentinel, raising=False)
+
+    async def _fake_check(self):
+        return {"status": status}
+
+    monkeypatch.setattr(
+        health_mod.ConsolidationHealthMonitor, "check_overall_health", _fake_check
+    )
+
+
 # ---------------------------------------------------------------------------
 # REQ-1 — OFF by default: no env OR =false => GET /metrics is 404 (unregistered)
 # ---------------------------------------------------------------------------
@@ -228,26 +253,31 @@ def test_req3_output_is_valid_prometheus_format(monkeypatch):
 @pytest.mark.integration
 def test_req4_upstream_source_metrics_present(monkeypatch):
     _app_module, app = _build_app(monkeypatch, metrics_enabled="true")
+    # Wire a live consolidator so the health source emits honestly (the endpoint
+    # omits it when no live consolidation subsystem is attached).
+    _wire_live_health(monkeypatch, status="healthy")
     response = _client(app).get("/metrics")
 
     assert response.status_code == 200, response.text
     parsed = parse_prometheus(response.text)
     names = set(parsed["samples"])
 
-    # From utils/cache_manager.py CacheStats.cache_hit_rate
+    # From server.cache_manager counters, folded through the shared
+    # utils.cache_manager CacheStats / calculate_cache_stats_dict helpers.
     assert "mcp_cache_hit_rate_percent" in names, (
-        "Missing cache hit-rate metric sourced from cache_manager "
+        "Missing cache hit-rate metric sourced from the production cache_manager "
         f"(have: {sorted(names)})"
     )
 
-    # At least one analytics- or health-sourced metric must be present.
+    # At least one analytics- or health-sourced metric must be present *when a
+    # live source exists*. With a live consolidator wired, health is emitted.
     analytics_health_candidates = {
         "mcp_consolidation_health_status",   # consolidation.health HealthStatus
         "mcp_error_rate",                    # analytics PerformanceMetrics.error_rate
         "mcp_avg_response_time_seconds",     # analytics PerformanceMetrics.avg_response_time
     }
     assert analytics_health_candidates & names, (
-        "Expected at least one analytics/health metric "
+        "Expected at least one analytics/health metric when a live source is wired "
         f"(one of {sorted(analytics_health_candidates)}); have: {sorted(names)}"
     )
 
@@ -300,15 +330,22 @@ def test_req5_no_sensitive_data_in_body(monkeypatch):
 def test_req6_source_failure_degrades_gracefully(monkeypatch):
     _app_module, app = _build_app(monkeypatch, metrics_enabled="true")
 
-    # Force the cache_manager source to blow up. The endpoint must catch it and
-    # still return 200 with the metrics it *can* produce (TestClient is built
-    # with raise_server_exceptions=False so a leaked 500 shows as a response).
+    # Wire a live health source so there is a second, healthy metric to survive
+    # the cache failure (otherwise honest degradation would legitimately yield an
+    # empty body in the bare test app).
+    _wire_live_health(monkeypatch, status="healthy")
+
+    # Force the PRODUCTION cache source to blow up. _collect_cache_metrics reads
+    # server.cache_manager counters and folds them through
+    # utils.cache_manager.calculate_cache_stats_dict; break that shared helper so
+    # the cache source raises. The endpoint must catch it and still return 200
+    # (TestClient uses raise_server_exceptions=False so a leaked 500 is a response).
     import mcp_memory_service.utils.cache_manager as cache_mod
 
-    def _boom():
+    def _boom(*_args, **_kwargs):
         raise RuntimeError("simulated cache_manager failure")
 
-    monkeypatch.setattr(cache_mod, "get_cache_manager", _boom)
+    monkeypatch.setattr(cache_mod, "calculate_cache_stats_dict", _boom)
 
     response = _client(app).get("/metrics")
     assert response.status_code == 200, (

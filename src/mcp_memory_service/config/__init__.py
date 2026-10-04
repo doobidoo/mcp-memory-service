@@ -12,13 +12,17 @@ from .transport import *  # noqa: F401,F403
 from .oauth import *  # noqa: F401,F403
 from .oauth import _load_pem_from_env  # noqa: F401 — tests import this directly
 # The /metrics opt-in flag is env-driven and the tests toggle MCP_METRICS_ENABLED
-# then reload *this package* (not the submodule). A bare ``from .metrics import *``
-# would re-bind the stale, already-imported submodule attribute, so force the
-# submodule to re-evaluate against the current environment on every (re)import.
+# then reload *this package* (not the submodule). ``importlib.reload(config_pkg)``
+# re-runs the import below but does NOT re-execute the already-imported
+# ``config.metrics`` submodule, so its module-level ``METRICS_ENABLED`` would
+# stay bound to the stale (import-time) value. Force the submodule to
+# re-evaluate against the current environment, then import the flag explicitly
+# (no ``import *`` — the submodule's ``__all__`` is just METRICS_ENABLED anyway,
+# but an explicit import keeps the config namespace clean and lint-clean).
 import importlib as _importlib
 from . import metrics as _metrics_mod
 _importlib.reload(_metrics_mod)
-from .metrics import *  # noqa: F401,F403,E402
+from .metrics import METRICS_ENABLED  # noqa: F401,E402
 from .documents import *  # noqa: F401,F403
 from .backup import *  # noqa: F401,F403
 from .consolidation import *  # noqa: F401,F403

@@ -22,23 +22,42 @@ Design constraints
 ------------------
 * **Upstream-only sources.** Only values that already exist in
   ``doobidoo/main`` are exposed:
-    - ``utils.cache_manager.get_cache_manager().get_stats()`` -> cache hit rate
-    - ``web.api.analytics`` ``PerformanceMetrics`` -> error rate / latency
-    - ``consolidation.health.ConsolidationHealthMonitor`` -> health status
+    - ``server.cache_manager`` module-level counters (``_CACHE_STATS`` /
+      ``_STORAGE_CACHE`` / ``_MEMORY_SERVICE_CACHE``) — the *production* cache
+      used by the stateless HTTP server — folded into the shared
+      ``utils.cache_manager.CacheStats`` / ``calculate_cache_stats_dict``
+      helpers to compute the hit rate exactly like ``handle_get_cache_stats``.
+    - ``consolidation.health.ConsolidationHealthMonitor`` — but *only* when a
+      live consolidator is wired into the running server (see below).
   Fork-only usage/retrieval telemetry is deliberately NOT touched.
 * **No new dependency.** The exposition is serialized by hand — ``prometheus_client``
   is intentionally absent from the dependency set.
-* **Graceful degradation.** Every source is read inside its own ``try/except``;
-  a failing source is simply omitted and the endpoint still answers ``200`` with
-  whatever the healthy sources produced.
+* **Honest degradation.** Every source is read inside its own ``try/except``;
+  a source that fails *or* that has no live state behind it is simply omitted
+  and the endpoint still answers ``200`` with whatever the healthy sources
+  produced. We never emit a value we cannot stand behind (e.g. a "unhealthy"
+  health status computed from a consolidator that was never started).
 * **Zero sensitive data.** Only numeric aggregates are emitted — no memory
   content, no queries, no file-system paths.
+
+Security posture
+----------------
+``/metrics`` performs **no authentication of its own** — this mirrors the
+Prometheus convention, where scrape endpoints expose only numeric aggregates
+and are protected at the deployment layer, not in-process. The body contains
+exclusively numeric gauges/counters (no memory content, queries or paths), so
+the exposure is low-risk, but operators MUST still restrict access by binding
+the server to localhost, placing it behind a firewall / private network, or
+fronting it with an authenticating reverse proxy. Do not expose this route
+directly to the public internet. Custom auth is intentionally omitted here to
+avoid duplicating the deployment-layer controls (over-engineering).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import math
+from typing import Dict, List, Tuple
 
 from fastapi import APIRouter, Response
 
@@ -63,7 +82,7 @@ _HEALTH_STATUS_VALUES = {
 
 def _format_value(value: float) -> str:
     """Render a float the way Prometheus expects (no trailing noise)."""
-    if value != value:  # NaN
+    if math.isnan(value):
         return "NaN"
     if value == float("inf"):
         return "+Inf"
@@ -83,13 +102,36 @@ def _emit(lines: List[str], name: str, metric_type: str, help_text: str, value: 
 
 
 def _collect_cache_metrics() -> Dict[str, Tuple[str, str, float]]:
-    """Cache hit-rate from utils.cache_manager (upstream CacheStats)."""
-    # Imported inside the function so monkeypatching ``get_cache_manager`` in
-    # tests (REQ-6) is observed, and so an import error degrades gracefully.
-    from ...utils import cache_manager as cache_mod
+    """Cache hit-rate from the *production* server cache (upstream).
 
-    stats = cache_mod.get_cache_manager().get_stats()
-    hit_rate = float(stats.cache_hit_rate)
+    The stateless HTTP server caches storage/service instances in the
+    module-level counters of ``server.cache_manager`` (``_CACHE_STATS`` plus the
+    ``_STORAGE_CACHE`` / ``_MEMORY_SERVICE_CACHE`` dicts). This is the same
+    source ``handle_get_cache_stats`` reports from, so we fold those counters
+    into the shared ``CacheStats`` dataclass and reuse
+    ``calculate_cache_stats_dict`` to derive the hit rate — guaranteeing the
+    ``/metrics`` number matches the MCP ``get_cache_stats`` tool.
+
+    If the production cache module cannot be imported, the source degrades
+    gracefully (the caller omits the metric).
+    """
+    # Imported inside the function so an import error degrades gracefully and so
+    # tests observe monkeypatched module-level counters (REQ-6).
+    from ...server import cache_manager as server_cache
+    from ...utils.cache_manager import CacheStats, calculate_cache_stats_dict
+
+    raw = server_cache._CACHE_STATS
+    stats = CacheStats(
+        total_calls=raw["total_calls"],
+        storage_hits=raw["storage_hits"],
+        storage_misses=raw["storage_misses"],
+        service_hits=raw["service_hits"],
+        service_misses=raw["service_misses"],
+        initialization_times=raw.get("initialization_times", []),
+    )
+    cache_sizes = (len(server_cache._STORAGE_CACHE), len(server_cache._MEMORY_SERVICE_CACHE))
+    result = calculate_cache_stats_dict(stats, cache_sizes)
+    hit_rate = float(result["hit_rate"])
     return {
         "mcp_cache_hit_rate_percent": (
             "gauge",
@@ -100,10 +142,29 @@ def _collect_cache_metrics() -> Dict[str, Tuple[str, str, float]]:
 
 
 async def _collect_health_metrics() -> Dict[str, Tuple[str, str, float]]:
-    """Consolidation health status from consolidation.health (upstream)."""
+    """Consolidation health status — only when a live consolidator exists.
+
+    A fresh ``ConsolidationHealthMonitor()`` with no consolidator wired in
+    probes components that were never started and folds their "not running"
+    state into a misleading ``unhealthy``/``critical`` status. That is a false
+    negative, not real telemetry.
+
+    So we only emit this gauge when the running server has published a live
+    consolidator via ``api.set_consolidator`` (i.e. ``get_consolidator()`` is
+    not ``None``). When no live consolidation subsystem is attached — the
+    default for a bare HTTP server and for the test app — we honestly OMIT the
+    metric rather than report a fabricated status.
+    """
+    from ...api.client import get_consolidator
+
+    consolidator = get_consolidator()
+    if consolidator is None:
+        # No live consolidation subsystem — omit rather than emit a false status.
+        return {}
+
     from ...consolidation.health import ConsolidationHealthMonitor
 
-    monitor = ConsolidationHealthMonitor()
+    monitor = ConsolidationHealthMonitor(consolidator=consolidator)
     health = await monitor.check_overall_health()
     status = str(health.get("status", "")).lower()
     numeric = _HEALTH_STATUS_VALUES.get(status)
@@ -119,55 +180,28 @@ async def _collect_health_metrics() -> Dict[str, Tuple[str, str, float]]:
     }
 
 
-def _collect_performance_metrics() -> Dict[str, Tuple[str, str, float]]:
-    """Performance aggregates from web.api.analytics PerformanceMetrics (upstream).
-
-    The upstream endpoint is a placeholder that returns ``None`` for every
-    field; only populated (non-None) numeric fields are exposed, so today this
-    typically contributes nothing. It is wired in so the metric appears
-    automatically once upstream starts reporting real numbers.
-    """
-    from .analytics import PerformanceMetrics
-
-    perf = PerformanceMetrics()
-    out: Dict[str, Tuple[str, str, float]] = {}
-    if perf.error_rate is not None:
-        out["mcp_error_rate"] = (
-            "gauge",
-            "Request error rate reported by the analytics subsystem (0.0-1.0).",
-            float(perf.error_rate),
-        )
-    if perf.avg_response_time is not None:
-        out["mcp_avg_response_time_seconds"] = (
-            "gauge",
-            "Average request response time reported by the analytics subsystem (seconds).",
-            float(perf.avg_response_time),
-        )
-    return out
-
-
 async def render_prometheus_metrics() -> str:
     """Build the Prometheus text exposition from all upstream sources.
 
     Each source is read independently; a failure in one is logged and skipped
     (REQ-6 graceful degradation) so the endpoint always returns the metrics it
     can produce.
+
+    Performance analytics (``web.api.analytics``) is intentionally NOT wired in:
+    its upstream ``PerformanceMetrics`` is a placeholder that returns ``None``
+    for every field, so emitting it would publish a metric that never carries a
+    real value. Per the "honest degradation" rule we omit it entirely until a
+    real analytics source exists, rather than ship an always-empty gauge.
     """
     collected: Dict[str, Tuple[str, str, float]] = {}
 
-    # (label, awaitable?, callable) — kept explicit so each source is isolated.
-    sync_sources = (
-        ("cache_manager", _collect_cache_metrics),
-        ("analytics", _collect_performance_metrics),
-    )
-    for label, source in sync_sources:
-        try:
-            collected.update(source())
-        except Exception as exc:  # noqa: BLE001 — one bad source must not 500 the endpoint
-            logger.warning(
-                "metrics: source %s failed, omitting: %s",
-                _sanitize_log_value(label), _sanitize_log_value(exc),
-            )
+    try:
+        collected.update(_collect_cache_metrics())
+    except Exception as exc:  # noqa: BLE001 — one bad source must not 500 the endpoint
+        logger.warning(
+            "metrics: source cache_manager failed, omitting: %s",
+            _sanitize_log_value(exc),
+        )
 
     try:
         collected.update(await _collect_health_metrics())
@@ -188,6 +222,13 @@ async def render_prometheus_metrics() -> str:
 
 @router.get("/metrics", include_in_schema=False)
 async def metrics() -> Response:
-    """Return operational metrics in Prometheus text-exposition format."""
+    """Return operational metrics in Prometheus text-exposition format.
+
+    NOTE: this endpoint is unauthenticated by design (Prometheus convention).
+    It emits only numeric aggregates — no memory content, queries or paths —
+    and must be protected at the deployment layer (localhost bind, firewall /
+    private network, or an authenticating reverse proxy). See the module
+    docstring for the full security posture.
+    """
     body = await render_prometheus_metrics()
     return Response(content=body, media_type=PROMETHEUS_CONTENT_TYPE)
