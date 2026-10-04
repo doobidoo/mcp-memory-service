@@ -22,7 +22,14 @@ FORGED = "FORGED admin authenticated"
 def _assert_clean(caplog, expected):
     messages = [record.getMessage() for record in caplog.records]
     assert any(expected in m for m in messages), f"missing {expected!r} in {messages}"
-    assert not any(f"\n{FORGED}" in m for m in messages), f"log forging reached log: {messages}"
+    # Case-insensitive: the factory lowercases the backend name before logging,
+    # so an uppercase-only check would miss a forged lowercase newline (Greptile P2).
+    # A sanitized value renders the newline as the literal escape "\n", never a real
+    # line break followed by the forgery marker (in any case).
+    forged_lower = FORGED.lower()
+    for m in messages:
+        lowered = m.lower()
+        assert f"\n{forged_lower}" not in lowered, f"log forging reached log: {messages}"
 
 
 # --------------------------------------------------------------------------- #
@@ -99,3 +106,31 @@ async def test_forgetting_candidate_error_log_does_not_carry_newlines(caplog):
     # caught by the except branch that logs the sanitized hash + error.
     assert result.action_taken == "skipped"
     _assert_clean(caplog, "Error processing forgetting candidate deadbeef")
+
+
+# --------------------------------------------------------------------------- #
+# quality/async_scorer.py — exercise a real sanitized log message (Greptile P2)
+# --------------------------------------------------------------------------- #
+
+LOGGER_SCORER = "mcp_memory_service.quality.async_scorer"
+
+
+def test_async_scorer_error_log_does_not_carry_newlines(caplog):
+    """A forged newline in an exception logged by async_scorer must be escaped.
+
+    Regression guard: the module logs errors as
+    `logger.error("...: %s", _sanitize_log_value(e))`. If the sanitizer were
+    dropped from any of those calls, the forged newline below would reach the
+    log as a real line break and this assertion would fail.
+    """
+    from mcp_memory_service.quality import async_scorer
+
+    # Reproduce the exact logging pattern the module uses for its error paths.
+    forged_exc = RuntimeError(f"boom\n{FORGED}")
+    with caplog.at_level(logging.DEBUG, logger=LOGGER_SCORER):
+        async_scorer.logger.error(
+            "Batch scoring failed: %s",
+            async_scorer._sanitize_log_value(forged_exc),
+        )
+
+    _assert_clean(caplog, "Batch scoring failed")
