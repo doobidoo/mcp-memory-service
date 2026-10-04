@@ -308,9 +308,9 @@ jobs:
     # Milvus code. That is the gap pyproject's pymilvus pin comment points at
     # (issue #1112): a break in the backend is silent here.
     #
-    # Two gating legs. `2.x` holds the lower supported pymilvus line, while
-    # `3.x` installs the extra as declared so the current release line remains
-    # covered after the upper bound was removed (issue #1112).
+    # Two gating legs, one per supported pymilvus major. The extra is capped at
+    # <4.0.0 so nothing ships that these legs do not test; a new major needs a
+    # new gating leg here before the bound in pyproject.toml moves (#1112).
     strategy:
       fail-fast: false
       matrix:

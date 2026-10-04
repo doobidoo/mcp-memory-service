@@ -125,10 +125,12 @@ sqlite-ml = [
 # Milvus backend — Milvus Lite (single file), self-hosted Milvus, or Zilliz Cloud.
 # Shipped with the ML extras so sentence-transformers embeddings are available.
 milvus = [
-    # Both the 2.x and 3.x MilvusClient APIs used by this backend are covered by
-    # the milvus-tests job in .github/workflows/ci.yml. Keep the lower bound at
-    # the oldest supported line; newer releases are exercised by the gating job.
-    "pymilvus>=2.5.0",
+    # The milvus-tests job in .github/workflows/ci.yml gates the 2.x and 3.x
+    # lines, and the upper bound ships exactly what CI tests. Widen it to the
+    # next major only together with a gating CI leg for that major (#1112).
+    # .github/dependabot.yml ignores major updates for pymilvus, because a group
+    # bump rewrites this line rather than respecting it (#976, #1086).
+    "pymilvus>=2.5.0,<4.0.0",
     "milvus-lite>=2.4.10",
     # The default embedding path has been ONNX-first since v11, and [ml] below
     # only brings torch/sentence-transformers. Without onnxruntime a Milvus-only

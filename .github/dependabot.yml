@@ -23,6 +23,11 @@ updates:
       # together with its pyproject bound.
       - dependency-name: "mcp"
         update-types: ["version-update:semver-major"]
+      # pymilvus is capped at the newest major the milvus-tests job gates
+      # (<4.0.0). Lift this entry only together with the pyproject bound and a
+      # gating CI leg for the new major (#1112).
+      - dependency-name: "pymilvus"
+        update-types: ["version-update:semver-major"]
     groups:
       uv:
         patterns:

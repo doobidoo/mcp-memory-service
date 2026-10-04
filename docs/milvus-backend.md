@@ -30,7 +30,7 @@ The backend auto-detects Lite vs. remote from the URI — file paths ending in `
 pip install -e ".[milvus]"
 ```
 
-The `milvus` extra requires `pymilvus>=2.5.0` and `milvus-lite>=2.4.10`; CI covers both the 2.x and 3.x pymilvus lines. Milvus Lite is the default and requires no external service.
+The `milvus` extra requires `pymilvus>=2.5.0,<4.0.0` and `milvus-lite>=2.4.10`; CI covers both the 2.x and 3.x pymilvus lines. Milvus Lite is the default and requires no external service.
 
 ### 2. Configure
 
