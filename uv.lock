@@ -1525,7 +1525,7 @@ requires-dist = [
     { name = "onnxscript", marker = "extra == 'ml'", specifier = ">=0.1.0" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.12.0" },
-    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=2.5.0,<3.0.0" },
+    { name = "pymilvus", marker = "extra == 'milvus'", specifier = ">=2.5.0,<4.0.0" },
     { name = "pypdf", specifier = ">=6.9.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
@@ -3042,7 +3042,7 @@ crypto = [
 
 [[package]]
 name = "pymilvus"
-version = "2.6.17"
+version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -3054,9 +3054,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/22/7dad24082f7efa4bf5ff29f0d9241cec6a8c8ebeb08ad126ca7ca4793da7/pymilvus-2.6.17.tar.gz", hash = "sha256:d9f849ef177f242febc4c02ece88feea46a1a9a1d0c67688b600e7cce3b76f43", size = 306908, upload-time = "2026-07-17T06:23:32.592Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/27/2707d1dba764495f3d54ae75a28e07f9e6090da224598df3551153ce07f2/pymilvus-3.0.2.tar.gz", hash = "sha256:607ac1bcc96719c1716e0027d4a59c6411ad783fb934cbe0618b6d6c0831550d", size = 376724, upload-time = "2026-09-18T08:54:14.014Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/a6/9e2824138ffe1b2932c24f836638dabff5c6fbb5a9afcc1ba5ac5cdc39d8/pymilvus-2.6.17-py3-none-any.whl", hash = "sha256:583c680bea60b5944762ae81dd577169efe3b895b579d78e60bab05c087c4f89", size = 342148, upload-time = "2026-07-17T06:23:31.188Z" },
+    { url = "https://files.pythonhosted.org/packages/88/76/7155ce419d3a4525571b27e317c80b2f69b874ce75bdecfb9ffe3fe3b6ab/pymilvus-3.0.2-py3-none-any.whl", hash = "sha256:0ec7ca3a7d24d2ce13b2610c577f0978b08f461176222ea4dc1440375efc1cea", size = 417694, upload-time = "2026-09-18T08:54:12.848Z" },
 ]
 
 [[package]]
