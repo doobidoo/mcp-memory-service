@@ -31,6 +31,7 @@ from .scheduler import ConsolidationScheduler
 from .health import ConsolidationHealthMonitor, HealthStatus, HealthMetric, HealthAlert
 from .belief import derive_confidence, should_promote, should_supersede
 from .belief_service import BeliefService
+from .pair_allowlist import *  # noqa: F401,F403  apply issue #1458 pair rules
 
 __all__ = [
     'ConsolidationBase',
