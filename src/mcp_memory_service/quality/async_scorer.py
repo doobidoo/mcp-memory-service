@@ -11,6 +11,7 @@ import logging
 import os
 from typing import List, Optional
 
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 from .ai_evaluator import QualityEvaluator
 from .scorer import QualityScorer
@@ -118,8 +119,8 @@ class AsyncQualityScorer:
         self.stats["queue_size"] = self.queue.qsize()
 
         logger.debug(
-            f"Queued memory {memory.content_hash[:8]} for scoring "
-            f"(queue size: {self.queue.qsize()})"
+            "Queued memory %s for scoring (queue size: %s)",
+            _sanitize_log_value(memory.content_hash[:8]), _sanitize_log_value(self.queue.qsize())
         )
 
     async def _worker(self):
@@ -129,7 +130,7 @@ class AsyncQualityScorer:
         Drains up to batch_size items from the queue, then scores them
         in a single batched inference call for efficiency.
         """
-        logger.info(f"Background quality scoring worker started (batch_size={self.batch_size})")
+        logger.info("Background quality scoring worker started (batch_size=%s)", _sanitize_log_value(self.batch_size))
 
         while self.running:
             try:
@@ -162,7 +163,7 @@ class AsyncQualityScorer:
                     query = batch_query
                     storages = [b[2] for b in batch]
 
-                    logger.debug(f"Batch scoring {len(batch)} memories in background")
+                    logger.debug("Batch scoring %s memories in background", _sanitize_log_value(len(batch)))
 
                     # Get AI scores in batch
                     ai_scores = await self.evaluator.evaluate_quality_batch(query, memories)
@@ -195,23 +196,24 @@ class AsyncQualityScorer:
                                         preserve_timestamps=True
                                     )
                                     logger.debug(
-                                        f"Persisted quality score {quality_score:.3f} for "
-                                        f"memory {memory.content_hash[:8]}"
+                                        "Persisted quality score %s for memory %s",
+                                        _sanitize_log_value(f"{quality_score:.3f}"),
+                                        _sanitize_log_value(memory.content_hash[:8])
                                     )
                                 except Exception as e:
-                                    logger.error(f"Failed to persist quality score: {e}")
+                                    logger.error("Failed to persist quality score: %s", _sanitize_log_value(e))
                                     self.stats["total_errors"] += 1
 
                             self.stats["total_scored"] += 1
                         except Exception as e:
                             logger.error(
-                                f"Background scoring failed for memory "
-                                f"{memory.content_hash[:8]}: {e}"
+                                "Background scoring failed for memory %s: %s",
+                                _sanitize_log_value(memory.content_hash[:8]), _sanitize_log_value(e)
                             )
                             self.stats["total_errors"] += 1
 
                 except Exception as e:
-                    logger.error(f"Batch scoring failed: {e}")
+                    logger.error("Batch scoring failed: %s", _sanitize_log_value(e))
                     self.stats["total_errors"] += len(batch)
 
                 finally:
@@ -224,7 +226,7 @@ class AsyncQualityScorer:
                 logger.info("Background worker cancelled")
                 break
             except Exception as e:
-                logger.error(f"Unexpected error in background worker: {e}")
+                logger.error("Unexpected error in background worker: %s", _sanitize_log_value(e))
 
         logger.info("Background quality scoring worker stopped")
 

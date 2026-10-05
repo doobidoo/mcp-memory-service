@@ -22,6 +22,7 @@ eliminating code duplication between the MCP server and web interface initializa
 import logging
 from typing import Type
 
+from ..compat import _sanitize_log_value
 from .base import MemoryStorage
 
 logger = logging.getLogger(__name__)
@@ -58,24 +59,24 @@ def get_storage_backend_class() -> Type[MemoryStorage]:
             from .cloudflare import CloudflareStorage
             return CloudflareStorage
         except ImportError as e:
-            logger.error(f"Failed to import Cloudflare storage: {e}")
+            logger.error("Failed to import Cloudflare storage: %s", _sanitize_log_value(e))
             raise
     elif backend == "hybrid":
         try:
             from .hybrid import HybridMemoryStorage
             return HybridMemoryStorage
         except ImportError as e:
-            logger.error(f"Failed to import Hybrid storage: {e}")
+            logger.error("Failed to import Hybrid storage: %s", _sanitize_log_value(e))
             return _fallback_to_sqlite_vec()
     elif backend == "milvus":
         try:
             from .milvus import MilvusMemoryStorage
             return MilvusMemoryStorage
         except ImportError as e:
-            logger.error(f"Failed to import Milvus storage: {e}")
+            logger.error("Failed to import Milvus storage: %s", _sanitize_log_value(e))
             raise
     else:
-        logger.warning(f"Unknown storage backend '{backend}', defaulting to SQLite-vec")
+        logger.warning("Unknown storage backend '%s', defaulting to SQLite-vec", _sanitize_log_value(backend))
         from .sqlite_vec import SqliteVecMemoryStorage
         return SqliteVecMemoryStorage
 
@@ -102,15 +103,16 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
         MILVUS_URI, MILVUS_TOKEN, MILVUS_COLLECTION_NAME
     )
 
-    logger.info(f"Creating storage backend instance (sqlite_path: {sqlite_path}, server_type: {server_type})...")
+    logger.info("Creating storage backend instance (sqlite_path: %s, server_type: %s)...", _sanitize_log_value(sqlite_path), _sanitize_log_value(server_type))
 
     # Check if we should override hybrid backend based on sync ownership (v8.27.0+)
     effective_backend = STORAGE_BACKEND
     if STORAGE_BACKEND == 'hybrid' and server_type and HYBRID_SYNC_OWNER != 'both':
         if HYBRID_SYNC_OWNER != server_type:
             logger.info(
-                f"Sync ownership configured for '{HYBRID_SYNC_OWNER}' but this is '{server_type}' server. "
-                f"Using SQLite-vec storage instead of Hybrid to avoid duplicate sync queues."
+                "Sync ownership configured for '%s' but this is '%s' server. "
+                "Using SQLite-vec storage instead of Hybrid to avoid duplicate sync queues.",
+                _sanitize_log_value(HYBRID_SYNC_OWNER), _sanitize_log_value(server_type)
             )
             effective_backend = 'sqlite_vec'
 
@@ -129,7 +131,7 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             db_path=sqlite_path,
             embedding_model=EMBEDDING_MODEL_NAME
         )
-        logger.info(f"Initialized SQLite-vec storage at {sqlite_path}")
+        logger.info("Initialized SQLite-vec storage at %s", _sanitize_log_value(sqlite_path))
 
     elif StorageClass.__name__ == "CloudflareStorage":
         storage = StorageClass(
@@ -143,7 +145,7 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             max_retries=CLOUDFLARE_MAX_RETRIES,
             base_delay=CLOUDFLARE_BASE_DELAY
         )
-        logger.info(f"Initialized Cloudflare storage with vectorize index: {CLOUDFLARE_VECTORIZE_INDEX}")
+        logger.info("Initialized Cloudflare storage with vectorize index: %s", _sanitize_log_value(CLOUDFLARE_VECTORIZE_INDEX))
 
     elif StorageClass.__name__ == "MilvusMemoryStorage":
         storage = StorageClass(
@@ -153,7 +155,8 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             embedding_model=EMBEDDING_MODEL_NAME,
         )
         logger.info(
-            f"Initialized Milvus storage (uri={MILVUS_URI}, collection={MILVUS_COLLECTION_NAME})"
+            "Initialized Milvus storage (uri=%s, collection=%s)",
+            _sanitize_log_value(MILVUS_URI), _sanitize_log_value(MILVUS_COLLECTION_NAME)
         )
 
     elif StorageClass.__name__ == "HybridMemoryStorage":
@@ -179,7 +182,7 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
             sync_interval=HYBRID_SYNC_INTERVAL,
             batch_size=HYBRID_BATCH_SIZE
         )
-        logger.info(f"Initialized hybrid storage with SQLite at {sqlite_path}")
+        logger.info("Initialized hybrid storage with SQLite at %s", _sanitize_log_value(sqlite_path))
 
     else:
         # Unknown storage backend - this should not happen as get_storage_backend_class
@@ -188,6 +191,6 @@ async def create_storage_instance(sqlite_path: str, server_type: str = None) -> 
 
     # Initialize storage backend
     await storage.initialize()
-    logger.info(f"Storage backend {StorageClass.__name__} initialized successfully")
+    logger.info("Storage backend %s initialized successfully", _sanitize_log_value(StorageClass.__name__))
 
     return storage
