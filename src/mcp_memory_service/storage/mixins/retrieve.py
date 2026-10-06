@@ -9,7 +9,7 @@ import traceback
 import asyncio
 from collections import Counter
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional, Sequence, Set
+from typing import List, Dict, Any, Optional, Sequence, Set, Tuple
 
 try:
     from sqlite_vec import serialize_float32
@@ -520,6 +520,23 @@ class RetrieveMixin:
         except Exception as e:
             logger.error("Failed to get all content hashes: %s", _sanitize_log_value(e))
             return set()
+
+    async def list_content_hashes_page(self, after_id: int = 0, limit: int = 1000, include_deleted: bool = False) -> "List[Tuple[int, str]]":
+        """Cursor-paginated (id ASC, id > after_id) list of (id, content_hash)."""
+        try:
+            if not self.conn:
+                return []
+            def _page():
+                if include_deleted:
+                    sql = 'SELECT id, content_hash FROM memories WHERE id > ? ORDER BY id ASC LIMIT ?'
+                else:
+                    sql = 'SELECT id, content_hash FROM memories WHERE deleted_at IS NULL AND id > ? ORDER BY id ASC LIMIT ?'
+                return self.conn.execute(sql, (after_id, limit)).fetchall()
+            rows = await self._execute_with_retry(_page)
+            return [(row[0], row[1]) for row in rows]
+        except Exception as e:
+            logger.error('list_content_hashes_page failed: %s', _sanitize_log_value(e))
+            raise
 
     async def get_by_exact_content(self, content: str) -> List[Memory]:
         """Retrieve memories by exact content match."""

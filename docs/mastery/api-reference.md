@@ -55,6 +55,109 @@ Note: The stdio server dynamically picks storage mode for multi-client scenarios
 - For FastMCP, HTTP transport is used to carry MCP protocol; endpoints are handled by the FastMCP layer and not intended as a REST API surface.
 - A dedicated HTTP API and dashboard exist under `src/mcp_memory_service/web/` in some distributions. In this repo version, coordination HTTP is internal and the recommended external interface is MCP.
 
+### GET /api/memories/hashes — Bulk Content Hash Listing
+
+Provides cursor-based paginated listing of all memory content hashes for drift detection in hybrid sync scenarios.
+
+**Purpose**: Enable external systems to detect drift by comparing their local content hash set against the complete server-side set without downloading full memory content.
+
+**Authentication**: Requires read access (same as other memory retrieval endpoints).
+
+**URL**: `GET /api/memories/hashes`
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `cursor` | int | 0 | ≥ 0 | ID-based cursor for pagination (not offset) |
+| `limit` | int | 1000 | 1..5000 | Maximum hashes per page |
+| `include_deleted` | bool | false | - | Whether to include deleted/tombstoned memories |
+
+**Response Format**:
+```json
+{
+  "hashes": ["hash1", "hash2", "..."],
+  "next_cursor": 12345,
+  "has_more": true
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `hashes` | string[] | Content hashes in this page |
+| `next_cursor` | int\|null | ID to use for next page request, or null if no more pages |
+| `has_more` | boolean | Whether additional pages exist |
+
+**Pagination Semantics**:
+
+- **ID-based cursor** (not offset): Pass `next_cursor` from previous response as `cursor` parameter
+- **Pagination loop**: Continue until `has_more=false`
+- **Complete coverage**: Returns each hash exactly once across all pages
+- **Ordering**: Results ordered by internal memory ID (ascending)
+
+**Limitations**:
+
+- **Backend-specific**: Full paginated listing implemented only in sqlite-vec backend
+- **Cloudflare/Milvus**: Returns empty result set until PR-B implementation
+- **Scope**: Returns hashes from ALL partitions/stores (whole-DB), not partition-scoped
+- **Consistency**: Snapshot consistency not guaranteed during pagination if concurrent writes occur
+
+**Example Usage**:
+
+```python
+import httpx
+
+async def get_all_content_hashes(base_url: str) -> set[str]:
+    """Paginate through all content hashes on the server."""
+    all_hashes = set()
+    cursor = 0
+    
+    async with httpx.AsyncClient() as client:
+        while True:
+            response = await client.get(
+                f"{base_url}/api/memories/hashes",
+                params={"cursor": cursor, "limit": 1000}
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            page_hashes = set(data["hashes"])
+            
+            # Detect duplicates (should never happen)
+            overlap = all_hashes & page_hashes
+            if overlap:
+                raise ValueError(f"Duplicate hashes detected: {overlap}")
+            
+            all_hashes.update(page_hashes)
+            
+            if not data["has_more"]:
+                break
+                
+            cursor = data["next_cursor"]
+    
+    return all_hashes
+
+# Usage
+server_hashes = await get_all_content_hashes("http://localhost:8000")
+local_hashes = load_local_hashes()
+
+# Drift detection
+missing_locally = server_hashes - local_hashes
+extra_locally = local_hashes - server_hashes
+print(f"Need to sync down: {len(missing_locally)} hashes")
+print(f"Need to sync up: {len(extra_locally)} hashes")
+```
+
+**Error Codes**:
+
+| Code | Description |
+|------|-------------|
+| 200 | Success |
+| 401 | Missing or invalid authentication |
+| 403 | Insufficient permissions (need read access) |
+| 422 | Invalid query parameters (e.g., `limit` out of range, negative `cursor`) |
+| 500 | Internal server error |
+
 ## Error Model and Logging
 
 - MCP tool errors are surfaced as `{ success: false, message: <details> }` or include `error` fields.
