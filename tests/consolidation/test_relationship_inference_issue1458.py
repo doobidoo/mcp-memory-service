@@ -84,3 +84,27 @@ class TestTypePatterns:
         for rel_type, _ in engine._analyze_type_combination(source, target):
             assert rel_type in RELATIONSHIPS, f"{source} -> {target}: unknown type {rel_type}"
             assert is_allowed_pair(rel_type, source, target), f"{source} -> {target}: {rel_type}"
+
+
+class TestContradictions:
+    """contradicts is only valid between same-kind decision, learning or observation pairs."""
+
+    @pytest.mark.asyncio
+    async def test_decision_contradicts_decision(self, engine):
+        rel_type, _ = await engine.infer_relationship_type(
+            source_type="decision",
+            target_type="decision",
+            source_content="This contradicts the earlier caching decision: caching is wrong here",
+            target_content="Caching decision was incorrect for the session store",
+        )
+        assert rel_type == "contradicts"
+
+    @pytest.mark.asyncio
+    async def test_error_cannot_contradict_error(self, engine):
+        rel_type, _ = await engine.infer_relationship_type(
+            source_type="error",
+            target_type="error",
+            source_content="This contradicts the earlier caching error: caching is wrong here",
+            target_content="Caching error was incorrect for the session store",
+        )
+        assert rel_type != "contradicts"
