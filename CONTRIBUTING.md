@@ -144,7 +144,7 @@ PR, will usually be closed.
 CI checks the claim. When a pull request closes an issue (`Fixes #N`) that its author
 neither commented on before opening the PR nor is assigned to, the `Claim Check`
 workflow labels it `unclaimed` and links back here. Comment on the issue; once a
-maintainer assigns you, the check passes on its next run.
+maintainer assigns you, the check runs again on its own and passes.
 
 ### 1. Create a Feature Branch
 

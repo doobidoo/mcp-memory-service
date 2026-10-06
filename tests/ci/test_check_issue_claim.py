@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -74,3 +75,83 @@ def test_maintainers_and_collaborators_are_exempt(association):
 def test_bots_are_exempt():
     data = pr([issue()], author="dependabot", typename="Bot")
     assert claim.unclaimed_issues(data) == []
+
+
+class FakeGh:
+    """Records gh calls; answers the runs listing with the given runs."""
+
+    def __init__(self, runs=()):
+        self.calls = []
+        self.runs = list(runs)
+
+    def __call__(self, *args, stdin=None):
+        self.calls.append((args, stdin))
+        if args[:1] == ("api",) and "/actions/runs?" in args[-1]:
+            return json.dumps({"workflow_runs": self.runs})
+        return ""
+
+    def writes(self):
+        return [a for a, _ in self.calls if a[:2] != ("api", "graphql") and "/actions/runs?" not in a[-1]]
+
+
+def with_state(data, labels=(), comments=()):
+    data["labels"] = {"nodes": [{"name": n} for n in labels]}
+    data["comments"] = {"nodes": [{"body": b} for b in comments]}
+    return data
+
+
+def run_check(monkeypatch, data, dry_run=False):
+    fake = FakeGh()
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "fetch_pr", lambda repo, number: data)
+    code = claim.check_pr("o/r", 7, dry_run)
+    return code, fake
+
+
+def test_unclaimed_pr_is_labelled_and_commented_once(monkeypatch):
+    code, fake = run_check(monkeypatch, with_state(pr([issue()])))
+    assert code == 1
+    assert fake.writes() == [
+        ("api", "repos/o/r/issues/7/labels", "-f", "labels[]=unclaimed"),
+        ("api", "repos/o/r/issues/7/comments", "-F", "body=@-"),
+    ]
+    body = fake.calls[-1][1]
+    assert claim.MARKER in body and "#1458" in body and "@someone" in body
+
+
+def test_existing_label_and_marker_are_not_repeated(monkeypatch):
+    data = with_state(pr([issue()]), labels=["unclaimed"], comments=[f"{claim.MARKER}\nold notice"])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 1
+    assert fake.writes() == []
+
+
+def test_claimed_pr_loses_the_label(monkeypatch):
+    data = with_state(pr([issue(assignees=["someone"])]), labels=["unclaimed"])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == [("api", "-X", "DELETE", "repos/o/r/issues/7/labels/unclaimed")]
+
+
+def test_dry_run_writes_nothing(monkeypatch):
+    code, fake = run_check(monkeypatch, with_state(pr([issue()])), dry_run=True)
+    assert code == 1
+    assert fake.writes() == []
+
+
+def issue_closed_by(*prs):
+    """Fake graphql answer: the PRs that close the issue, as (number, state)."""
+    nodes = [{"number": n, "headRefOid": f"sha{n}", "state": state} for n, state in prs]
+    return lambda query, repo, number: {"issue": {"closedByPullRequestsReferences": {"nodes": nodes}}}
+
+
+CI_RUN = {"id": 99, "path": ".github/workflows/ci.yml", "conclusion": "failure"}
+FAILED_CLAIM_RUN = {"id": 42, "path": claim.WORKFLOW, "conclusion": "failure"}
+
+
+def test_assignment_reruns_only_failed_checks_of_open_prs(monkeypatch):
+    fake = FakeGh(runs=[CI_RUN, FAILED_CLAIM_RUN])
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN"), (8, "MERGED")))
+    claim.rerun_for_issue("o/r", 1458, dry_run=False)
+    assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
