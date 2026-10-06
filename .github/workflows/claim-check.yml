@@ -1,0 +1,45 @@
+# Flags a pull request whose author did not claim the issue it closes, as
+# CONTRIBUTING.md ("Before You Start: Claim the Issue") asks. Informational:
+# it labels the PR `unclaimed`, comments once and fails, but it is not a
+# required check. scripts/ci/check_issue_claim.py has the rules.
+#
+# pull_request_target, not pull_request: a fork's pull_request run gets a
+# read-only token and, for a first-time contributor, waits for approval, so it
+# could neither label nor comment, and would reach exactly the authors this is
+# for only after a maintainer clicked. pull_request_target runs base-branch
+# code with a write token. That is safe only while the PR's own code is never
+# checked out or run here: the checkout below is the base branch, and the
+# script reads the PR through the API alone. Keep it that way.
+
+name: Claim Check
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: claim-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    name: Linked issue claimed by the author
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.base.sha }}
+        persist-credentials: false
+
+    - name: Check the claim
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: python3 scripts/ci/check_issue_claim.py "$PR_NUMBER"

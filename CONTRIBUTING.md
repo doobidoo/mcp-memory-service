@@ -141,6 +141,11 @@ not duplicating someone else's effort:
 A PR for an issue someone else has already claimed, or one that duplicates an open
 PR, will usually be closed.
 
+CI checks the claim. When a pull request closes an issue (`Fixes #N`) that its author
+neither commented on before opening the PR nor is assigned to, the `Claim Check`
+workflow labels it `unclaimed` and links back here. Comment on the issue; once a
+maintainer assigns you, the check passes on its next run.
+
 ### 1. Create a Feature Branch
 
 ```bash
