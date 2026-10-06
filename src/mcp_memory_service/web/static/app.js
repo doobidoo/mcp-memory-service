@@ -659,6 +659,7 @@ class MemoryDashboard {
         document.getElementById('refreshGraphBtn')?.addEventListener('click', this.handleGraphRefresh.bind(this));
         document.getElementById('graphLimitSelect')?.addEventListener('change', this.handleGraphRefresh.bind(this));
         document.getElementById('graphMinConnectionsSelect')?.addEventListener('change', this.handleGraphRefresh.bind(this));
+        document.getElementById('graphDegreeSlider')?.addEventListener('input', this.handleGraphDegreeChange.bind(this));
         document.getElementById('graphDimensionBtn')?.addEventListener('click', this.toggleGraphDimension.bind(this));
         document.getElementById('graphRotateBtn')?.addEventListener('click', this.toggleGraphRotation.bind(this));
         document.getElementById('graphFullscreenRotateBtn')?.addEventListener('click', this.toggleGraphRotation.bind(this));
@@ -5716,6 +5717,9 @@ class MemoryDashboard {
             // Store data for fullscreen use
             this.currentGraphData = data;
 
+            // A reload brings a new node set, so the degree filter starts over.
+            this.minGraphDegree = 1;
+
             // Build the type->color map from the actual data and (re)render the
             // filter pills so every present type is filterable (no orphan "other").
             this._buildGraphTypeColors(data.nodes);
@@ -6111,7 +6115,62 @@ class MemoryDashboard {
                 connection_types: e.connection_types
             });
         }
-        return { nodes, edges };
+
+        // Degree = number of distinct neighbours, counted on the collapsed,
+        // type-filtered edges so it describes the graph that is actually drawn
+        // (a mutual A<->B pair counts once; hidden types do not count).
+        const neighbours = new Map();
+        for (const e of edges) {
+            if (!neighbours.has(e.source)) neighbours.set(e.source, new Set());
+            if (!neighbours.has(e.target)) neighbours.set(e.target, new Set());
+            neighbours.get(e.source).add(e.target);
+            neighbours.get(e.target).add(e.source);
+        }
+        let maxDegree = 1;
+        neighbours.forEach(s => { if (s.size > maxDegree) maxDegree = s.size; });
+
+        // Clamp to the current range (e.g. a type was hidden and the top degree
+        // dropped); the slider shows the value that is actually applied.
+        const minDegree = Math.min(this.minGraphDegree || 1, maxDegree);
+        this._syncDegreeSlider(maxDegree, minDegree);
+
+        // At 1 the filter is off, so nodes whose only neighbours were hidden by
+        // a type pill still show up exactly as before this slider existed.
+        if (minDegree <= 1) return { nodes, edges };
+
+        const degreeOf = (id) => neighbours.has(id) ? neighbours.get(id).size : 0;
+        const keptNodes = nodes.filter(n => degreeOf(n.id) >= minDegree);
+        const keptIds = new Set(keptNodes.map(n => n.id));
+        return {
+            nodes: keptNodes,
+            edges: edges.filter(e => keptIds.has(e.source) && keptIds.has(e.target))
+        };
+    }
+
+    /**
+     * Reflect the degree filter's range and value in the slider. Setting
+     * .value/.max from script does not fire 'input', so this cannot re-enter
+     * the render path.
+     */
+    _syncDegreeSlider(maxDegree, value) {
+        const slider = document.getElementById('graphDegreeSlider');
+        if (!slider) return;
+        slider.max = String(maxDegree);
+        slider.value = String(value);
+        slider.disabled = maxDegree <= 1;
+        const label = document.getElementById('graphDegreeValue');
+        if (label) label.textContent = String(value);
+    }
+
+    /**
+     * Slider handler: set the minimum degree and re-render client-side, the
+     * same way the type pills do (no API call).
+     */
+    handleGraphDegreeChange(event) {
+        this.minGraphDegree = Number(event.target.value) || 1;
+        const label = document.getElementById('graphDegreeValue');
+        if (label) label.textContent = String(this.minGraphDegree);
+        this.applyGraphTypeFilter();
     }
 
     /**

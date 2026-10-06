@@ -283,6 +283,7 @@
   "analytics.graphVisualization": "Interactive Graph Visualization",
   "analytics.graphNodes": "Nodes",
   "analytics.minConnections": "Min Connections",
+  "analytics.minDegree": "Min Degree",
   "analytics.refresh": "Refresh",
   "analytics.loadingGraph": "Loading graph...",
   "analytics.legend": "Legend",
