@@ -32,6 +32,10 @@ from mcp import types
 
 # Import response limiter for truncation support
 from ..utils.response_limiter import truncate_memories, format_truncated_response
+# Server-side hostname stamping (RFC mcp-hostname-stamping): the MCP store path
+# honors MCP_MEMORY_INCLUDE_HOSTNAME like the Web API already does.
+import socket as _socket
+from ...config import INCLUDE_HOSTNAME
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,24 @@ logger = logging.getLogger(__name__)
 def _sanitize_log_value(value: object) -> str:
     """Sanitize a user-provided value for safe inclusion in log messages."""
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
+def _resolve_hostname(client_hostname: Optional[str]) -> Optional[str]:
+    """Resolve the hostname to stamp on a stored memory (RFC mcp-hostname-stamping).
+
+    Precedence: an explicit client_hostname wins; otherwise, when
+    MCP_MEMORY_INCLUDE_HOSTNAME is enabled, resolve the SERVER host
+    (the service runs on one machine — host is a fact of the process),
+    mirroring web/api/memories.py. Best-effort: a gethostname() failure
+    never breaks the write (returns the original value, i.e. None).
+    """
+    if client_hostname or not INCLUDE_HOSTNAME:
+        return client_hostname
+    try:
+        return _socket.gethostname()
+    except Exception as e:  # noqa: BLE001 - best-effort, never fail the write
+        logger.warning("hostname resolve failed (non-fatal): %s", _sanitize_log_value(e))
+        return client_hostname
 
 
 def _get_max_response_chars(arguments: dict) -> int:
@@ -197,6 +219,9 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         type_was_explicit = "type" in metadata
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
         client_hostname = arguments.get("client_hostname")
+        # RFC mcp-hostname-stamping: resolve server host when the client did not
+        # supply one and the flag is on (best-effort; see _resolve_hostname).
+        client_hostname = _resolve_hostname(client_hostname)
         conversation_id = arguments.get("conversation_id")
         agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
@@ -453,7 +478,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 tags=base_tags,
                 memory_type="session",
                 metadata=arguments.get("metadata", {}),
-                client_hostname=arguments.get("client_hostname"),
+                client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
@@ -476,7 +501,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 tags=chunk_tags,
                 memory_type="session",
                 metadata=arguments.get("metadata", {}),
-                client_hostname=arguments.get("client_hostname"),
+                client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
