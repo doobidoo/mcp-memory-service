@@ -78,6 +78,22 @@ pip install -e ".[full]"
 ### Recommended Configuration:
 Set `MCP_HYBRID_SYNC_OWNER=http` so that **only the HTTP server** performs Cloudflare sync. The MCP server (Claude Desktop) then runs in pure SQLite-vec mode and doesn't need Cloudflare credentials in `claude_desktop_config.json`. This is the correct separation of concerns: Claude Desktop = memory access, HTTP server = sync infrastructure.
 
+### HTTP Secondary Backend (Alternative to Cloudflare):
+For self-hosted or on-premise deployments, the Hybrid backend can sync to a remote HTTP MCP Memory Service instead of Cloudflare:
+
+- Set `MCP_HYBRID_SECONDARY_BACKEND=http` to use HTTP backend
+- Configure `MCP_HYBRID_SECONDARY_URL` with the remote service's base URL
+- Optionally set `MCP_HYBRID_SECONDARY_API_KEY` for authentication
+
+This provides the same local SQLite-vec read performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts.
+
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+export MCP_HYBRID_SECONDARY_BACKEND=http
+export MCP_HYBRID_SECONDARY_URL=https://hub.example.com:8443
+export MCP_HYBRID_SECONDARY_API_KEY=your-api-key-here
+```
+
 ### Example:
 ```bash
 export MCP_MEMORY_STORAGE_BACKEND=hybrid
@@ -143,6 +159,13 @@ Config:
 ```
 Recommended: hybrid (on each client) OR cloudflare (if no local disk)
 Why:         Hybrid keeps each client fast; Cloudflare is the shared ground truth.
+
+Alternative: hybrid with HTTP secondary backend (self-hosted)
+Why:         Same performance but syncs to your own MCP Memory Service hub instead of Cloudflare.
+Config:
+  MCP_MEMORY_STORAGE_BACKEND=hybrid
+  MCP_HYBRID_SECONDARY_BACKEND=http
+  MCP_HYBRID_SECONDARY_URL=https://hub.example.com
 ```
 
 ### Serverless / edge (Cloudflare Workers, no local FS)

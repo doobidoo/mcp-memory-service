@@ -994,9 +994,12 @@ class HybridMemoryStorage(MemoryStorage):
                  embedding_model: str = "all-MiniLM-L6-v2",
                  cloudflare_config: Dict[str, Any] = None,
                  sync_interval: int = 300,
-                 batch_size: int = 50):
+                 batch_size: int = 50,
+                 secondary_backend: Optional[str] = None,
+                 secondary_url: Optional[str] = None,
+                 secondary_api_key: Optional[str] = None):
         """
-        Initialize hybrid storage with primary SQLite-vec and secondary Cloudflare.
+        Initialize hybrid storage with primary SQLite-vec and secondary backend.
 
         Args:
             sqlite_db_path: Path to SQLite-vec database file
@@ -1004,21 +1007,36 @@ class HybridMemoryStorage(MemoryStorage):
             cloudflare_config: Cloudflare configuration dict
             sync_interval: Background sync interval in seconds (default: 5 minutes)
             batch_size: Batch size for sync operations (default: 50)
+            secondary_backend: Optional secondary backend type ('http' or 'cloudflare')
+            secondary_url: Optional URL for HTTP secondary backend
+            secondary_api_key: Optional API key for HTTP secondary backend
         """
         self.primary = SqliteVecMemoryStorage(
             db_path=sqlite_db_path,
             embedding_model=embedding_model
         )
 
-        # Initialize Cloudflare storage if config provided
+        # Initialize secondary storage based on backend type
         self.secondary = None
         self.sync_service = None
 
-        if cloudflare_config and all(key in cloudflare_config for key in
+        # Resolve secondary backend (kwarg takes precedence over config)
+        from ..config.storage import MCP_HYBRID_SECONDARY_BACKEND
+        backend_type = (secondary_backend or MCP_HYBRID_SECONDARY_BACKEND or '').lower()
+
+        if backend_type == 'http' and secondary_url:
+            # HTTP backend
+            from .remote_http import RemoteHTTPStorage  # Lazy import to avoid cycles
+            self.secondary = RemoteHTTPStorage(
+                base_url=secondary_url,
+                api_key=secondary_api_key
+            )
+        elif cloudflare_config and all(key in cloudflare_config for key in
                                     ['api_token', 'account_id', 'vectorize_index', 'd1_database_id']):
+            # Cloudflare backend
             self.secondary = CloudflareStorage(**cloudflare_config)
         else:
-            logger.warning("Cloudflare config incomplete, running in SQLite-only mode")
+            logger.warning("No valid secondary backend config, running in SQLite-only mode")
 
         self.sync_interval = sync_interval
         self.batch_size = batch_size
@@ -1048,7 +1066,8 @@ class HybridMemoryStorage(MemoryStorage):
         if self.secondary:
             try:
                 await self.secondary.initialize()
-                logger.info("Secondary storage (Cloudflare) initialized")
+                secondary_name = self.secondary.__class__.__name__
+                logger.info("Secondary storage (%s) initialized", secondary_name)
 
                 # Start background sync service
                 self.sync_service = BackgroundSyncService(

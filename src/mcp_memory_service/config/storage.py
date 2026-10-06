@@ -223,6 +223,11 @@ if STORAGE_BACKEND == 'hybrid':
     # Recommended: "http" to avoid duplicate sync work
     HYBRID_SYNC_OWNER = os.getenv('MCP_HYBRID_SYNC_OWNER', 'both').lower()
 
+    # HTTP Secondary backend configuration (RFC #1304 Phase 2)
+    MCP_HYBRID_SECONDARY_BACKEND = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
+    MCP_HYBRID_SECONDARY_URL = os.getenv('MCP_HYBRID_SECONDARY_URL')
+    MCP_HYBRID_SECONDARY_API_KEY = os.getenv('MCP_HYBRID_SECONDARY_API_KEY')
+
     # Performance tuning
     HYBRID_ENABLE_HEALTH_CHECKS = safe_get_bool_env('MCP_HYBRID_ENABLE_HEALTH_CHECKS', True)
     HYBRID_HEALTH_CHECK_INTERVAL = safe_get_int_env('MCP_HYBRID_HEALTH_CHECK_INTERVAL', 60, min_value=10)  # 1 minute
@@ -259,18 +264,19 @@ if STORAGE_BACKEND == 'hybrid':
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = 80  # Warn at 80% capacity
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95  # Critical at 95% capacity
 
-    # Validate Cloudflare configuration for hybrid mode
-    if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_VECTORIZE_INDEX and CLOUDFLARE_D1_DATABASE_ID):
-        logger.warning("Hybrid mode requires Cloudflare configuration. Missing required variables:")
-        if not CLOUDFLARE_API_TOKEN:
-            logger.warning("  - CLOUDFLARE_API_TOKEN")
-        if not CLOUDFLARE_ACCOUNT_ID:
-            logger.warning("  - CLOUDFLARE_ACCOUNT_ID")
-        if not CLOUDFLARE_VECTORIZE_INDEX:
-            logger.warning("  - CLOUDFLARE_VECTORIZE_INDEX")
-        if not CLOUDFLARE_D1_DATABASE_ID:
-            logger.warning("  - CLOUDFLARE_D1_DATABASE_ID")
-        logger.warning("Hybrid mode will operate in SQLite-only mode until Cloudflare is configured")
+    # Validate Cloudflare configuration for hybrid mode (skip if using HTTP secondary backend)
+    if MCP_HYBRID_SECONDARY_BACKEND != 'http':
+        if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_VECTORIZE_INDEX and CLOUDFLARE_D1_DATABASE_ID):
+            logger.warning("Hybrid mode requires Cloudflare configuration. Missing required variables:")
+            if not CLOUDFLARE_API_TOKEN:
+                logger.warning("  - CLOUDFLARE_API_TOKEN")
+            if not CLOUDFLARE_ACCOUNT_ID:
+                logger.warning("  - CLOUDFLARE_ACCOUNT_ID")
+            if not CLOUDFLARE_VECTORIZE_INDEX:
+                logger.warning("  - CLOUDFLARE_VECTORIZE_INDEX")
+            if not CLOUDFLARE_D1_DATABASE_ID:
+                logger.warning("  - CLOUDFLARE_D1_DATABASE_ID")
+            logger.warning("Hybrid mode will operate in SQLite-only mode until Cloudflare is configured")
 else:
     # Set hybrid-specific variables to None when not using hybrid backend
     HYBRID_SYNC_INTERVAL = None
@@ -290,6 +296,11 @@ else:
     HYBRID_MIN_CHECK_COUNT = None
     HYBRID_FALLBACK_TO_PRIMARY = None
     HYBRID_WARN_ON_SECONDARY_FAILURE = None
+
+    # HTTP Secondary backend variables
+    MCP_HYBRID_SECONDARY_BACKEND = None
+    MCP_HYBRID_SECONDARY_URL = None
+    MCP_HYBRID_SECONDARY_API_KEY = None
 
     # Also set limit constants to None
     CLOUDFLARE_D1_MAX_SIZE_GB = None
