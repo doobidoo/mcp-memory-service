@@ -1,0 +1,62 @@
+# Flags a pull request whose author did not claim the issue it closes, as
+# CONTRIBUTING.md ("Before You Start: Claim the Issue") asks. Informational:
+# it labels the PR `unclaimed`, comments once and fails, but it is not a
+# required check. scripts/ci/check_issue_claim.py has the rules.
+#
+# pull_request_target, not pull_request: a fork's pull_request run gets a
+# read-only token and, for a first-time contributor, waits for approval, so it
+# could neither label nor comment, and would reach exactly the authors this is
+# for only after a maintainer clicked. pull_request_target runs base-branch
+# code with a write token. That is safe only while the PR's own code is never
+# checked out or run here: the checkout below is the base branch, and the
+# script reads the PR through the API alone. Keep it that way.
+#
+# issues: assigned is the other half. Assigning the author confirms a late
+# claim, and that run re-runs the PR's failed check (scripts/ci has why), so
+# the check turns green without a new push.
+
+name: Claim Check
+
+on:
+  pull_request_target:
+    # synchronize: a pushed commit can add a "Fixes #N" link after opening.
+    types: [opened, reopened, edited, synchronize]
+    branches: [main]
+  issues:
+    types: [assigned]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write   # re-run a PR's check from the issues: assigned run
+
+concurrency:
+  group: claim-check-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    name: Linked issue claimed by the author
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # Base commit for PRs, the default branch for issue events. Never the PR head.
+        ref: ${{ github.event.pull_request.base.sha || github.sha }}
+        persist-credentials: false
+
+    - name: Check the claim
+      if: github.event_name == 'pull_request_target'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: python3 scripts/ci/check_issue_claim.py "$PR_NUMBER"
+
+    - name: Re-run the checks of PRs closing this issue
+      if: github.event_name == 'issues'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+      run: python3 scripts/ci/check_issue_claim.py --issue "$ISSUE_NUMBER"
