@@ -997,7 +997,10 @@ class HybridMemoryStorage(MemoryStorage):
                  batch_size: int = 50,
                  secondary_backend: Optional[str] = None,
                  secondary_url: Optional[str] = None,
-                 secondary_api_key: Optional[str] = None):
+                 secondary_api_key: Optional[str] = None,
+                 secondary_auth_style: Optional[str] = None,
+                 secondary_basic_user: Optional[str] = None,
+                 secondary_basic_pass: Optional[str] = None):
         """
         Initialize hybrid storage with primary SQLite-vec and secondary backend.
 
@@ -1010,6 +1013,9 @@ class HybridMemoryStorage(MemoryStorage):
             secondary_backend: Optional secondary backend type ('http' or 'cloudflare')
             secondary_url: Optional URL for HTTP secondary backend
             secondary_api_key: Optional API key for HTTP secondary backend
+            secondary_auth_style: Optional auth style for HTTP backend ('bearer' or 'x-api-key')
+            secondary_basic_user: Optional basic auth username for HTTP backend
+            secondary_basic_pass: Optional basic auth password for HTTP backend
         """
         self.primary = SqliteVecMemoryStorage(
             db_path=sqlite_db_path,
@@ -1021,16 +1027,40 @@ class HybridMemoryStorage(MemoryStorage):
         self.sync_service = None
 
         # Resolve secondary backend (kwarg takes precedence over config)
-        from ..config.storage import MCP_HYBRID_SECONDARY_BACKEND
+        from ..config.storage import (MCP_HYBRID_SECONDARY_BACKEND, MCP_HYBRID_SECONDARY_URL, 
+                                     MCP_HYBRID_SECONDARY_API_KEY, MCP_HYBRID_SECONDARY_AUTH_STYLE,
+                                     MCP_HYBRID_SECONDARY_BASIC_USER, MCP_HYBRID_SECONDARY_BASIC_PASS)
+        
         backend_type = (secondary_backend or MCP_HYBRID_SECONDARY_BACKEND or '').lower()
+        url = secondary_url or MCP_HYBRID_SECONDARY_URL
+        api_key = secondary_api_key or MCP_HYBRID_SECONDARY_API_KEY
 
-        if backend_type == 'http' and secondary_url:
+        if backend_type == 'http' and url:
             # HTTP backend
             from .remote_http import RemoteHTTPStorage  # Lazy import to avoid cycles
-            self.secondary = RemoteHTTPStorage(
-                base_url=secondary_url,
-                api_key=secondary_api_key
-            )
+            
+            # Resolve auth parameters (kwargs take precedence over config)
+            auth_style = secondary_auth_style or MCP_HYBRID_SECONDARY_AUTH_STYLE
+            basic_user = secondary_basic_user or MCP_HYBRID_SECONDARY_BASIC_USER
+            basic_pass = secondary_basic_pass or MCP_HYBRID_SECONDARY_BASIC_PASS
+            
+            # Auto-select x-api-key when basic auth is provided (avoid bearer+basic conflict)
+            if basic_user and basic_pass and auth_style == 'bearer':
+                auth_style = 'x-api-key'
+            
+            # Build kwargs for RemoteHTTPStorage
+            http_kwargs = {
+                'base_url': url,
+                'api_key': api_key,
+                'auth_style': auth_style
+            }
+            
+            if basic_user:
+                http_kwargs['basic_user'] = basic_user
+            if basic_pass:
+                http_kwargs['basic_pass'] = basic_pass
+                
+            self.secondary = RemoteHTTPStorage(**http_kwargs)
         elif cloudflare_config and all(key in cloudflare_config for key in
                                     ['api_token', 'account_id', 'vectorize_index', 'd1_database_id']):
             # Cloudflare backend

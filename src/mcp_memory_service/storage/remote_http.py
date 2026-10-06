@@ -41,7 +41,8 @@ class RemoteHTTPStorage(MemoryStorage):
         """HTTP storage does not support chunking."""
         return False
 
-    def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: float = 30.0):
+    def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: float = 30.0,
+                 auth_style: str = 'bearer', basic_user: Optional[str] = None, basic_pass: Optional[str] = None):
         """
         Initialize Remote HTTP storage backend.
 
@@ -49,19 +50,47 @@ class RemoteHTTPStorage(MemoryStorage):
             base_url: Base URL for the remote MCP Memory Service API
             api_key: Optional API key for authentication
             timeout: Request timeout in seconds
+            auth_style: Authentication style ('bearer' or 'x-api-key')
+            basic_user: Optional basic auth username
+            basic_pass: Optional basic auth password
         """
+        # Validate auth_style
+        if auth_style not in ('bearer', 'x-api-key'):
+            raise ValueError(f"auth_style must be 'bearer' or 'x-api-key', got {auth_style!r}")
+        
+        # Validate basic auth completeness
+        has_basic = basic_user is not None and basic_pass is not None
+        if (basic_user is not None) != (basic_pass is not None):
+            raise ValueError("Both basic_user and basic_pass are required")
+        
+        # Validate basic auth combination with bearer - ALWAYS fail regardless of api_key (P1.2)
+        if has_basic and auth_style == 'bearer':
+            raise ValueError("Bearer auth and Basic auth cannot be used together (Authorization header conflict)")
+        
         # Normalize base URL (remove trailing slash)
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.timeout = timeout
+        self.auth_style = auth_style
+        self.basic_user = basic_user
+        self.basic_pass = basic_pass
 
         # Set up HTTP client with headers
         headers = {}
         if api_key:
-            headers['Authorization'] = f'Bearer {api_key}'
+            if auth_style == 'x-api-key':
+                headers['X-API-Key'] = api_key
+            else:  # bearer
+                headers['Authorization'] = f'Bearer {api_key}'
+        
+        # Set up basic auth if provided
+        auth = None
+        if basic_user is not None and basic_pass is not None:
+            auth = httpx.BasicAuth(basic_user, basic_pass)
 
         self.client = httpx.AsyncClient(
             headers=headers,
+            auth=auth,
             timeout=httpx.Timeout(timeout)
         )
 

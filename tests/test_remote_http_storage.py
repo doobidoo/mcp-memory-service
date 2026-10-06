@@ -447,6 +447,36 @@ class TestRemoteHTTPStorageErrorHandling:
         # Check that API key doesn't appear in any log records
         for record in caplog.records:
             assert "test-key-123" not in record.getMessage()
+
+    @pytest.mark.asyncio
+    async def test_basic_pass_not_in_logs(self, caplog):
+        """Basic password should never appear in logs in clear text."""
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+        
+        # Create storage with basic auth
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            auth_style='x-api-key',
+            api_key='test-key',
+            basic_user='testuser', 
+            basic_pass='secret-password-123'
+        )
+        
+        with caplog.at_level(logging.DEBUG):
+            # Force an error that might log request details
+            with patch.object(storage, '_request', side_effect=Exception("Test error")):
+                try:
+                    await storage.store(Memory(
+                        content="test",
+                        content_hash="test123",
+                        tags=[]
+                    ))
+                except:
+                    pass
+        
+        # Check that basic password doesn't appear in any log records
+        for record in caplog.records:
+            assert "secret-password-123" not in record.getMessage()
     
     @pytest.mark.asyncio
     async def test_get_by_hash_not_found(self, http_storage):
@@ -676,6 +706,412 @@ class TestHybridHTTPSecondary:
             
             assert storage.secondary.base_url == 'http://hub.local:8443'
             assert storage.secondary.api_key == 'test-key'
+
+
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")
+class TestRemoteHTTPStorageR9bAuthentication:
+    """Test R9b: RemoteHTTPStorage configurable authentication - should FAIL (RED).
+    
+    These tests verify the new authentication features that are NOT yet implemented.
+    All tests in this class should FAIL to prove we need Gate 3 implementation.
+    """
+    
+    def test_constructor_with_auth_style_bearer_default(self):
+        """R9b.1: Default auth_style should be 'bearer' when api_key provided.
+        
+        WHY THIS SHOULD FAIL: Current constructor doesn't accept auth_style parameter.
+        """
+        # This should fail with TypeError: unexpected keyword argument 'auth_style'
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-key",
+            auth_style='bearer'  # NEW parameter, should cause TypeError
+        )
+        
+        # These assertions won't be reached due to constructor failure
+        assert hasattr(storage, 'auth_style')
+        assert storage.auth_style == 'bearer'
+    
+    def test_constructor_with_auth_style_x_api_key(self):
+        """R9b.2: auth_style='x-api-key' should be accepted.
+        
+        WHY THIS SHOULD FAIL: Constructor doesn't accept auth_style parameter.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com", 
+            api_key="test-key",
+            auth_style='x-api-key'  # Should cause TypeError
+        )
+        
+        assert storage.auth_style == 'x-api-key'
+    
+    def test_constructor_with_basic_auth_params(self):
+        """R9b.3: Constructor should accept basic_user and basic_pass parameters.
+        
+        UPDATED: Use auth_style='x-api-key' since basic auth conflicts with bearer.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            auth_style='x-api-key',  # Use x-api-key to avoid bearer+basic conflict
+            basic_user="testuser",
+            basic_pass="testpass"
+        )
+        
+        assert hasattr(storage, 'basic_user')
+        assert storage.basic_user == "testuser"
+        assert storage.basic_pass == "testpass"
+    
+    def test_constructor_bearer_basic_collision_error(self):
+        """R9b.4: auth_style='bearer' + basic_user/pass should raise ValueError.
+        
+        WHY THIS SHOULD FAIL: Constructor doesn't validate auth conflicts yet.
+        """
+        with pytest.raises(ValueError, match="Bearer auth and Basic auth cannot be used together"):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com",
+                api_key="test-key",
+                auth_style='bearer',  # Conflicts with basic auth
+                basic_user="testuser",
+                basic_pass="testpass"
+            )
+    
+    def test_constructor_x_api_key_basic_valid_combination(self):
+        """R9b.5: auth_style='x-api-key' + basic_user/pass should be valid.
+        
+        WHY THIS SHOULD FAIL: Constructor doesn't support these parameters.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-key",
+            auth_style='x-api-key',  # Valid with basic auth
+            basic_user="testuser",
+            basic_pass="testpass"
+        )
+        
+        assert storage.auth_style == 'x-api-key'
+        assert storage.basic_user == "testuser"
+    
+    def test_constructor_invalid_auth_style_error(self):
+        """R9b.6: Invalid auth_style should raise ValueError.
+        
+        WHY THIS SHOULD FAIL: Constructor doesn't validate auth_style values yet.
+        """
+        with pytest.raises(ValueError, match="auth_style must be 'bearer' or 'x-api-key'"):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com",
+                api_key="test-key",
+                auth_style='invalid-style'  # Should cause ValueError
+            )
+    
+    def test_bearer_auth_headers_configuration(self):
+        """R9b.7: auth_style='bearer' should set Authorization header, not X-API-Key.
+        
+        WHY THIS SHOULD FAIL: Current implementation sets X-API-Key for all api_key cases.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-secret",
+            auth_style='bearer'
+        )
+        
+        # Should set Authorization: Bearer, not X-API-Key
+        assert 'Authorization' in storage.client.headers
+        assert storage.client.headers['Authorization'] == 'Bearer test-secret'
+        assert 'X-API-Key' not in storage.client.headers
+    
+    def test_x_api_key_auth_headers_configuration(self):
+        """R9b.8: auth_style='x-api-key' should set X-API-Key header, not Authorization.
+        
+        WHY THIS SHOULD FAIL: Need to inspect actual headers to verify configuration.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-secret", 
+            auth_style='x-api-key'
+        )
+        
+        # Should set X-API-Key, not Authorization
+        assert 'X-API-Key' in storage.client.headers
+        assert storage.client.headers['X-API-Key'] == 'test-secret'
+        assert 'Authorization' not in storage.client.headers
+    
+    def test_basic_auth_client_configuration(self):
+        """R9b.9: basic_user/pass should configure httpx.BasicAuth.
+        
+        UPDATED: Use auth_style='x-api-key' since basic auth conflicts with bearer.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            auth_style='x-api-key',  # Use x-api-key to avoid bearer+basic conflict
+            basic_user="testuser",
+            basic_pass="testpass"
+        )
+        
+        # Should configure client.auth
+        assert storage.client.auth is not None
+        assert isinstance(storage.client.auth, httpx.BasicAuth)
+        # Can't directly assert credentials due to httpx internals,
+        # but can check type and that auth is set
+    
+    def test_combined_x_api_key_and_basic_auth(self):
+        """R9b.10: x-api-key + basic auth should set both headers and client.auth.
+        
+        WHY THIS SHOULD FAIL: Implementation doesn't support this combination yet.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-secret",
+            auth_style='x-api-key',
+            basic_user="testuser", 
+            basic_pass="testpass"
+        )
+        
+        # Should have both X-API-Key header and BasicAuth
+        assert 'X-API-Key' in storage.client.headers
+        assert storage.client.headers['X-API-Key'] == 'test-secret'
+        assert storage.client.auth is not None
+        assert isinstance(storage.client.auth, httpx.BasicAuth)
+    
+    def test_backward_compatibility_api_key_only(self):
+        """R9b.11: Existing RemoteHTTPStorage(url, api_key) should still work (bearer default).
+        
+        WHY THIS MIGHT PASS: This tests backward compatibility - if the new features
+        are implemented correctly, this should continue working as before.
+        """
+        # This should work exactly like before (existing 34 tests depend on this)
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            api_key="test-key"
+            # No auth_style specified - should default to 'bearer'
+        )
+        
+        # Should default to bearer auth
+        assert hasattr(storage, 'auth_style') and storage.auth_style == 'bearer'
+        assert 'Authorization' in storage.client.headers
+        assert storage.client.headers['Authorization'] == 'Bearer test-key'
+
+
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")  
+class TestHybridR9bAuthWiring:
+    """Test R9b: HybridMemoryStorage auth parameter wiring - should FAIL (RED).
+    
+    These tests verify that HybridMemoryStorage properly passes auth configuration
+    to RemoteHTTPStorage. Should FAIL to prove we need Gate 3 implementation.
+    """
+
+    @pytest.fixture
+    def temp_sqlite_db(self):
+        """Create temporary SQLite database for testing."""
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp_file:
+            db_path = tmp_file.name
+        yield db_path
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+    def test_hybrid_secondary_auth_style_kwarg(self, temp_sqlite_db):
+        """R9b.12: HybridMemoryStorage should accept secondary_auth_style kwarg.
+        
+        WHY THIS SHOULD FAIL: HybridMemoryStorage constructor doesn't accept this parameter.
+        """
+        import sys
+        from pathlib import Path
+        
+        current_dir = Path(__file__).parent
+        src_dir = current_dir.parent / "src"
+        sys.path.insert(0, str(src_dir))
+        
+        from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+
+        # Should fail with TypeError: unexpected keyword argument 'secondary_auth_style'
+        storage = HybridMemoryStorage(
+            sqlite_db_path=temp_sqlite_db,
+            embedding_model="all-MiniLM-L6-v2",
+            secondary_backend='http',
+            secondary_url='http://hub.local:8443',
+            secondary_api_key='test-key',
+            secondary_auth_style='x-api-key'  # NEW parameter, should cause TypeError
+        )
+        
+        # Won't reach here due to constructor failure
+        assert isinstance(storage.secondary, RemoteHTTPStorage)
+        assert storage.secondary.auth_style == 'x-api-key'
+
+    def test_hybrid_secondary_basic_auth_kwargs(self, temp_sqlite_db):
+        """R9b.13: HybridMemoryStorage should accept secondary_basic_user/pass kwargs.
+        
+        WHY THIS SHOULD FAIL: Constructor doesn't accept these parameters.
+        """
+        import sys
+        from pathlib import Path
+        
+        current_dir = Path(__file__).parent 
+        src_dir = current_dir.parent / "src"
+        sys.path.insert(0, str(src_dir))
+        
+        from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+
+        # Should fail with TypeError: unexpected keyword arguments
+        storage = HybridMemoryStorage(
+            sqlite_db_path=temp_sqlite_db,
+            embedding_model="all-MiniLM-L6-v2", 
+            secondary_backend='http',
+            secondary_url='http://hub.local:8443',
+            secondary_basic_user='testuser',  # NEW parameter
+            secondary_basic_pass='testpass'   # NEW parameter  
+        )
+        
+        # Won't reach here
+        assert storage.secondary.basic_user == 'testuser'
+
+    def test_hybrid_auth_config_env_vars(self, temp_sqlite_db):
+        """R9b.14: HybridMemoryStorage should read auth config from environment.
+        
+        WHY THIS SHOULD FAIL: Config doesn't define these environment variables yet.
+        """
+        import sys
+        from pathlib import Path
+        
+        current_dir = Path(__file__).parent
+        src_dir = current_dir.parent / "src"  
+        sys.path.insert(0, str(src_dir))
+        
+        from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+
+        # Mock config constants (not environment variables - those are read at import time)
+        with patch('mcp_memory_service.config.storage.MCP_HYBRID_SECONDARY_AUTH_STYLE', 'x-api-key'), \
+             patch('mcp_memory_service.config.storage.MCP_HYBRID_SECONDARY_BASIC_USER', 'envuser'), \
+             patch('mcp_memory_service.config.storage.MCP_HYBRID_SECONDARY_BASIC_PASS', 'envpass'):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                secondary_backend='http', 
+                secondary_url='http://hub.local:8443',
+                secondary_api_key='test-key'
+            )
+            
+            # Should read from config and create proper RemoteHTTPStorage
+            assert isinstance(storage.secondary, RemoteHTTPStorage)
+            # This will fail because the config system doesn't implement these vars yet
+            assert storage.secondary.auth_style == 'x-api-key'
+            assert storage.secondary.basic_user == 'envuser'
+
+    def test_hybrid_kwarg_precedence_over_env(self, temp_sqlite_db):
+        """R9b.15: Kwarg auth params should take precedence over environment.
+        
+        WHY THIS SHOULD FAIL: Precedence logic not implemented yet.
+        """
+        import sys
+        from pathlib import Path
+        
+        current_dir = Path(__file__).parent
+        src_dir = current_dir.parent / "src"
+        sys.path.insert(0, str(src_dir))
+        
+        from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+
+        # Mock config constant (not environment - that's read at import time) - kwarg should still win
+        with patch('mcp_memory_service.config.storage.MCP_HYBRID_SECONDARY_AUTH_STYLE', 'x-api-key'):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                secondary_backend='http',
+                secondary_url='http://hub.local:8443',
+                secondary_api_key='test-key',
+                secondary_auth_style='bearer'  # Should override env var
+            )
+            
+            assert isinstance(storage.secondary, RemoteHTTPStorage)
+            # This should fail because kwarg precedence isn't implemented
+            assert storage.secondary.auth_style == 'bearer'  # kwarg wins over config constant
+
+
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")
+class TestRemoteHTTPStorageR9bConfigValidation:
+    """Test R9b: Configuration validation edge cases - should FAIL (RED).
+    
+    These tests verify error conditions and edge cases in auth configuration.
+    """
+    
+    def test_auth_style_validation_case_sensitivity(self):
+        """R9b.16: auth_style validation should be case sensitive.
+        
+        WHY THIS SHOULD FAIL: Case handling might not be implemented correctly.
+        """
+        # Uppercase should be rejected
+        with pytest.raises((ValueError, TypeError)):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com",
+                api_key="test-key", 
+                auth_style='BEARER'  # Wrong case - should fail
+            )
+        
+        # Mixed case should be rejected  
+        with pytest.raises((ValueError, TypeError)):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com",
+                api_key="test-key",
+                auth_style='X-API-Key'  # Wrong case - should fail  
+            )
+
+    def test_api_key_required_with_auth_styles(self):
+        """R9b.17: Under the uniform rule, auth_style without api_key is valid (no auth).
+        
+        CHANGED FROM ORIGINAL: The original test expected ValueError when auth_style
+        is provided without api_key. Under the uniform rule (P1.1), this is valid
+        since no api_key + no basic auth = no auth (back-compatible).
+        """
+        # bearer without api_key should be valid (no auth)
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com",
+            auth_style='bearer'  # No api_key provided - valid under uniform rule
+        )
+        assert storage.auth_style == 'bearer'
+        assert storage.api_key is None
+        
+        # x-api-key without api_key should also be valid (no auth)
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com", 
+            auth_style='x-api-key'  # No api_key provided - valid under uniform rule
+        )
+        assert storage.auth_style == 'x-api-key' 
+        assert storage.api_key is None
+
+    def test_basic_auth_requires_both_user_and_pass(self):
+        """R9b.18: Basic auth should require both user and pass.
+        
+        WHY THIS SHOULD FAIL: Validation logic not implemented.
+        """
+        # basic_user without basic_pass should fail
+        with pytest.raises(ValueError, match="Both basic_user and basic_pass are required"):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com",
+                basic_user="testuser"  # Missing basic_pass
+            )
+        
+        # basic_pass without basic_user should fail
+        with pytest.raises(ValueError, match="Both basic_user and basic_pass are required"):
+            RemoteHTTPStorage(
+                base_url="https://api.example.com", 
+                basic_pass="testpass"  # Missing basic_user
+            )
+
+    def test_no_auth_configuration_valid(self):
+        """R9b.19: No auth params should be valid (anonymous access).
+        
+        WHY THIS MIGHT PASS: This tests that the constructor still works without any auth.
+        """
+        storage = RemoteHTTPStorage(
+            base_url="https://api.example.com"
+            # No auth params - should be valid for anonymous access
+        )
+        
+        # Should not have any auth headers or client.auth
+        assert 'Authorization' not in storage.client.headers
+        assert 'X-API-Key' not in storage.client.headers  
+        assert storage.client.auth is None
 
 
 if __name__ == "__main__":

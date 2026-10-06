@@ -209,6 +209,21 @@ else:
     CLOUDFLARE_MAX_RETRIES = None
     CLOUDFLARE_BASE_DELAY = None
 
+# HTTP Secondary backend configuration (RFC #1304 Phase 2) - Available regardless of global backend
+# These are used by HybridMemoryStorage when instantiated programmatically
+MCP_HYBRID_SECONDARY_BACKEND = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
+MCP_HYBRID_SECONDARY_URL = os.getenv('MCP_HYBRID_SECONDARY_URL')
+MCP_HYBRID_SECONDARY_API_KEY = os.getenv('MCP_HYBRID_SECONDARY_API_KEY')
+
+# HTTP Secondary backend authentication configuration (R9b) - Available regardless of global backend
+MCP_HYBRID_SECONDARY_AUTH_STYLE = os.getenv('MCP_HYBRID_SECONDARY_AUTH_STYLE', 'bearer').lower()
+if MCP_HYBRID_SECONDARY_AUTH_STYLE not in ('bearer', 'x-api-key'):
+    logger.warning("Invalid MCP_HYBRID_SECONDARY_AUTH_STYLE '%s', falling back to 'bearer'", MCP_HYBRID_SECONDARY_AUTH_STYLE)
+    MCP_HYBRID_SECONDARY_AUTH_STYLE = 'bearer'
+
+MCP_HYBRID_SECONDARY_BASIC_USER = os.getenv('MCP_HYBRID_SECONDARY_BASIC_USER')
+MCP_HYBRID_SECONDARY_BASIC_PASS = os.getenv('MCP_HYBRID_SECONDARY_BASIC_PASS')
+
 # Hybrid backend specific configuration
 if STORAGE_BACKEND == 'hybrid':
     # Sync service configuration
@@ -222,11 +237,6 @@ if STORAGE_BACKEND == 'hybrid':
     # Values: "http" (HTTP server only), "mcp" (MCP server only), "both" (both servers sync)
     # Recommended: "http" to avoid duplicate sync work
     HYBRID_SYNC_OWNER = os.getenv('MCP_HYBRID_SYNC_OWNER', 'both').lower()
-
-    # HTTP Secondary backend configuration (RFC #1304 Phase 2)
-    MCP_HYBRID_SECONDARY_BACKEND = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
-    MCP_HYBRID_SECONDARY_URL = os.getenv('MCP_HYBRID_SECONDARY_URL')
-    MCP_HYBRID_SECONDARY_API_KEY = os.getenv('MCP_HYBRID_SECONDARY_API_KEY')
 
     # Performance tuning
     HYBRID_ENABLE_HEALTH_CHECKS = safe_get_bool_env('MCP_HYBRID_ENABLE_HEALTH_CHECKS', True)
@@ -297,10 +307,9 @@ else:
     HYBRID_FALLBACK_TO_PRIMARY = None
     HYBRID_WARN_ON_SECONDARY_FAILURE = None
 
-    # HTTP Secondary backend variables
-    MCP_HYBRID_SECONDARY_BACKEND = None
-    MCP_HYBRID_SECONDARY_URL = None
-    MCP_HYBRID_SECONDARY_API_KEY = None
+    # HTTP Secondary backend variables (kept for backward compatibility, but main values are always available above)
+    # Only the core HTTP secondary backend variables are set to None here, not the auth-specific ones
+    # since auth variables should be available even when not using hybrid backend globally
 
     # Also set limit constants to None
     CLOUDFLARE_D1_MAX_SIZE_GB = None

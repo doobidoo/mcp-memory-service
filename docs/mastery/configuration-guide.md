@@ -217,6 +217,9 @@ For self-hosted or on-premise deployments, the hybrid backend can sync to a remo
 - `MCP_HYBRID_SECONDARY_BACKEND`: Set to `http` to use HTTP secondary backend (default `cloudflare`).
 - `MCP_HYBRID_SECONDARY_URL`: Base URL of the remote MCP Memory Service (required when using HTTP backend).
 - `MCP_HYBRID_SECONDARY_API_KEY`: Optional API key for authentication with the remote service.
+- `MCP_HYBRID_SECONDARY_AUTH_STYLE`: Authentication style - `bearer` (default) or `x-api-key`. Use `x-api-key` when the remote service is behind nginx with basic auth.
+- `MCP_HYBRID_SECONDARY_BASIC_USER`: Optional basic auth username for nginx layer authentication.
+- `MCP_HYBRID_SECONDARY_BASIC_PASS`: Optional basic auth password for nginx layer authentication.
 
 Example HTTP backend configuration:
 ```bash
@@ -224,6 +227,10 @@ export MCP_MEMORY_STORAGE_BACKEND=hybrid
 export MCP_HYBRID_SECONDARY_BACKEND=http
 export MCP_HYBRID_SECONDARY_URL=https://hub.example.com:8443
 export MCP_HYBRID_SECONDARY_API_KEY=your-api-key-here
+# For service behind nginx with basic auth:
+export MCP_HYBRID_SECONDARY_AUTH_STYLE=x-api-key
+export MCP_HYBRID_SECONDARY_BASIC_USER=nginx-user
+export MCP_HYBRID_SECONDARY_BASIC_PASS=nginx-password
 ```
 
 This configuration provides the same local SQLite-vec performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts and credentials.
