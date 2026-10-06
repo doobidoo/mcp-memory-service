@@ -415,12 +415,15 @@ Examples:
     """
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
+    # RFC mcp-hostname-stamping: resolve server host when the client omits it and
+    # MCP_MEMORY_INCLUDE_HOSTNAME is on (same helper as the routed MCP handler).
+    from .server.handlers.memory import _resolve_hostname
     result = await memory_service.store_memory(
         content=content,
         tags=tags,
         memory_type=memory_type,
         metadata=metadata,
-        client_hostname=client_hostname
+        client_hostname=_resolve_hostname(client_hostname)
     )
 
     # Transform MemoryService response to MCP tool format
