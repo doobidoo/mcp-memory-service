@@ -1,0 +1,1 @@
+- Add `list_content_hashes()` / `list_content_hashes_page()` to the storage base plus a cursor-paginated `GET /api/memories/hashes` endpoint, giving hybrid drift detection a backend-agnostic bulk hash listing (paginating `GET /memories` did not scale). sqlite-vec implements the paginated path; other backends return empty until their own override lands. Read-access gated.

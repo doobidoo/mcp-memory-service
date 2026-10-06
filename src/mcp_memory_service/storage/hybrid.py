@@ -1776,6 +1776,14 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.get_memory_timestamps(days, store)
 
+    async def list_content_hashes(self, include_deleted: bool = False) -> "Set[str]":
+        """Get all content hashes from primary storage."""
+        return await self.primary.list_content_hashes(include_deleted=include_deleted)
+
+    async def list_content_hashes_page(self, after_id: int = 0, limit: int = 1000, include_deleted: bool = False) -> "List[Tuple[int, str]]":
+        """Get paginated content hashes from primary storage."""
+        return await self.primary.list_content_hashes_page(after_id=after_id, limit=limit, include_deleted=include_deleted)
+
     async def get_relationship_type_distribution(self) -> Dict[str, int]:
         """
         Get distribution of relationship types in the knowledge graph.

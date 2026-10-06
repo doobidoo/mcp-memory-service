@@ -83,6 +83,13 @@ class MemoryListResponse(BaseModel):
     has_more: bool
 
 
+class ContentHashListResponse(BaseModel):
+    """Response model for paginated content hash list."""
+    hashes: List[str]
+    next_cursor: Optional[int] = None
+    has_more: bool
+
+
 class MemoryCreateResponse(BaseModel):
     """Response model for memory creation."""
     success: bool
@@ -306,6 +313,27 @@ async def list_memories(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list memories: {str(e)}")
+
+
+@router.get('/memories/hashes', response_model=ContentHashListResponse, tags=['memories'])
+async def list_content_hashes(
+    cursor: int = Query(0, ge=0, description='id-based cursor; pass next_cursor from previous page'),
+    limit: int = Query(1000, ge=1, le=5000, description='max hashes per page'),
+    include_deleted: bool = Query(False),
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access),
+):
+    try:
+        page = await storage.list_content_hashes_page(after_id=cursor, limit=limit, include_deleted=include_deleted)
+        hashes = [h for _, h in page]
+        has_more = len(page) == limit
+        next_cursor = page[-1][0] if (page and has_more) else None
+        return ContentHashListResponse(hashes=hashes, next_cursor=next_cursor, has_more=has_more)
+    except Exception as e:
+        # Log the real error for operators; return a generic message so a
+        # read-access client never sees raw DB/internal details (Greptile P2).
+        logger.error("Failed to list content hashes: %s", _sanitize_log_value(e))
+        raise HTTPException(status_code=500, detail="Failed to list content hashes")
 
 
 @router.get("/memories/{content_hash}", response_model=MemoryResponse, tags=["memories"])
