@@ -32,9 +32,15 @@ from datetime import date, datetime
 
 from .base import MemoryStorage
 from .sqlite_vec import SqliteVecMemoryStorage
-from .cloudflare import CloudflareStorage
 from ..models.memory import Memory, MemoryQueryResult
 from ..compat import _sanitize_log_value
+
+# Import CloudflareStorage for backwards compatibility (tests need to patch it)
+# import wrapped in try/except to tolerate environments without the cloudflare extra
+try:
+    from .cloudflare import CloudflareStorage
+except ImportError:
+    CloudflareStorage = None
 
 # Import SSE for real-time progress updates
 try:
@@ -229,7 +235,7 @@ class BackgroundSyncService:
 
     def __init__(self,
                  primary_storage: SqliteVecMemoryStorage,
-                 secondary_storage: CloudflareStorage,
+                 secondary_storage: MemoryStorage,
                  sync_interval: int = None,  # Use config default if None
                  batch_size: int = None,  # Use config default if None
                  max_queue_size: int = None):  # Use config default if None
@@ -685,8 +691,9 @@ class BackgroundSyncService:
             self.cloudflare_stats['approaching_limits'] = True
             self.cloudflare_stats['limit_warnings'].append(f"Limit error: {error}")
 
-            # Check capacity to understand the issue
-            await self.check_cloudflare_capacity()
+            # Check capacity to understand the issue (only for backends that support monitoring)
+            if getattr(self.secondary, 'supports_capacity_monitoring', False):
+                await self.check_cloudflare_capacity()
             return
 
         # Check for temporary/network errors
@@ -716,15 +723,16 @@ class BackgroundSyncService:
         """Process a single sync operation to secondary storage."""
         try:
             if operation.operation == 'store' and operation.memory:
-                # Validate memory before syncing
-                is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
-                if not is_valid:
-                    logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
-                    # Don't retry if it's a hard limit
-                    if "exceeds Cloudflare limit" in validation_error or "limit of" in validation_error:
-                        self.sync_stats['operations_failed'] += 1
-                        return  # Skip this memory permanently
-                    raise Exception(validation_error)
+                # Validate memory before syncing (only for backends that support capacity monitoring)
+                if getattr(self.secondary, 'supports_capacity_monitoring', False):
+                    is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
+                    if not is_valid:
+                        logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
+                        # Don't retry if it's a hard limit
+                        if "exceeds Cloudflare limit" in validation_error or "limit of" in validation_error:
+                            self.sync_stats['operations_failed'] += 1
+                            return  # Skip this memory permanently
+                        raise Exception(validation_error)
 
                 success, message = await self.secondary.store(operation.memory)
                 if not success:
@@ -736,19 +744,23 @@ class BackgroundSyncService:
                     raise Exception(f"Delete operation failed: {message}")
 
             elif operation.operation == 'update' and operation.content_hash and operation.updates:
-                # Validate metadata size before syncing to Cloudflare
-                if 'metadata' in operation.updates:
-                    import json
-                    metadata_json = json.dumps(operation.updates['metadata'])
-                    metadata_size_kb = len(metadata_json.encode('utf-8')) / 1024
+                # Validate metadata size before syncing to Cloudflare (only for backends that require it)
+                if getattr(self.secondary, 'requires_metadata_normalization', False):
+                    if 'metadata' in operation.updates:
+                        import json
+                        metadata_json = json.dumps(operation.updates['metadata'])
+                        metadata_size_kb = len(metadata_json.encode('utf-8')) / 1024
 
-                    if metadata_size_kb > 9.5:  # 9.5KB safety margin (Cloudflare limit is 10KB)
-                        logger.warning("Skipping Cloudflare sync for %s: metadata too large (%.2fKB > 9.5KB limit)", _sanitize_log_value(operation.content_hash[:16]), metadata_size_kb)
-                        self.sync_stats['operations_failed'] += 1
-                        return  # Skip this update permanently (too large for Cloudflare)
+                        if metadata_size_kb > 9.5:  # 9.5KB safety margin (Cloudflare limit is 10KB)
+                            logger.warning("Skipping Cloudflare sync for %s: metadata too large (%.2fKB > 9.5KB limit)", _sanitize_log_value(operation.content_hash[:16]), metadata_size_kb)
+                            self.sync_stats['operations_failed'] += 1
+                            return  # Skip this update permanently (too large for Cloudflare)
 
-                # Normalize metadata for Cloudflare backend
-                normalized_updates = _normalize_metadata_for_cloudflare(operation.updates)
+                # Normalize metadata for Cloudflare backend (only for backends that require it)
+                if getattr(self.secondary, 'requires_metadata_normalization', False):
+                    normalized_updates = _normalize_metadata_for_cloudflare(operation.updates)
+                else:
+                    normalized_updates = operation.updates
 
                 success, message = await self.secondary.update_memory_metadata(
                     operation.content_hash,
@@ -835,7 +847,7 @@ class BackgroundSyncService:
                 # full table scan. Running it every cycle was the single largest
                 # source of our D1 row reads, so it now has its own cadence.
                 since_capacity_check = time.time() - self.cloudflare_stats.get('last_capacity_check', 0)
-                if healthy and since_capacity_check >= self.capacity_check_interval:
+                if healthy and since_capacity_check >= self.capacity_check_interval and getattr(self.secondary, 'supports_capacity_monitoring', False):
                     capacity_status = await self.check_cloudflare_capacity()
                     if capacity_status.get('approaching_limits'):
                         logger.warning("Cloudflare approaching capacity limits")

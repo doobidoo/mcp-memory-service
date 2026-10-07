@@ -176,6 +176,14 @@ class CloudflareStorage(MemoryStorage):
         """Cloudflare backend supports content chunking with metadata linking."""
         return True
 
+    @property
+    def supports_capacity_monitoring(self) -> bool:
+        return True
+
+    @property
+    def requires_metadata_normalization(self) -> bool:
+        return True
+
     def __init__(self,
                  api_token: str,
                  account_id: str,
