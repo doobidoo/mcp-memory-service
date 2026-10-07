@@ -191,7 +191,14 @@ class MetadataMixin:
                     self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                     raise
-                self.conn.commit()
+                try:
+                    self.conn.commit()
+                except Exception:
+                    # The SAVEPOINT is already RELEASE'd, so a failed commit can't be undone
+                    # by a savepoint rollback — roll the whole transaction back so the update
+                    # does not linger pending and leak into a later write (greptile P1).
+                    self.conn.rollback()
+                    raise
 
             await self._execute_with_retry(_do_update)
 

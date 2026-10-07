@@ -540,3 +540,31 @@ class TestGreptilePhase1Fixes:
                 "SELECT COUNT(*) FROM sync_events WHERE op='update_metadata' AND content_hash=?", (h,)
             ).fetchone()[0]
             assert after == before, "no update_metadata event for an UPDATE that matched no live row"
+
+    @pytest.mark.asyncio
+    async def test_batch_commit_failure_marks_all_results_failed(self, storage):
+        """greptile P1 (re-review): if the batch commit fails, the transaction is rolled
+        back and NO memory is persisted — every result must report failure, not success."""
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on", "MCP_SEMANTIC_DEDUP_ENABLED": "false"}):
+            mems = [
+                Memory(content=f"batch commit fail {i}",
+                       content_hash=generate_content_hash(f"batch commit fail {i}"),
+                       tags=["bcf"], memory_type="note")
+                for i in range(3)
+            ]
+            # Let the inserts succeed but make the final commit blow up. store_batch runs the
+            # commit via self._execute_with_retry(self.conn.commit); wrap that to raise only
+            # when it's handed the commit callable (can't patch conn.commit — read-only).
+            real_ewr = storage._execute_with_retry
+            async def flaky_ewr(op, *a, **k):
+                if getattr(op, "__name__", "") == "commit":
+                    raise RuntimeError("commit failed")
+                return await real_ewr(op, *a, **k)
+            with patch.object(type(storage), "_execute_with_retry", flaky_ewr):
+                results = await storage.store_batch(mems)
+            assert all(not ok for ok, _ in results), f"all results must be failure, got {results}"
+            live = storage.conn.execute(
+                "SELECT COUNT(*) FROM memories WHERE tags LIKE '%bcf%' AND deleted_at IS NULL"
+            ).fetchone()[0]
+            assert live == 0, "no memory may persist when the batch commit fails"

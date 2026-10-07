@@ -329,8 +329,9 @@ class StoreMixin:
                     await self._execute_with_retry(self.conn.rollback)
             except Exception as rb_err:
                 logger.error("Batch rollback failed: %s", _sanitize_log_value(rb_err))
-            for j in range(len(memories)):
-                if results[j] is None:
-                    results[j] = (False, error_msg)
+            # The whole transaction was rolled back → NOTHING persisted. Mark every result
+            # as failed, not just the None ones: items that reported (True, ...) before the
+            # commit failure were not actually committed (greptile P1).
+            results = [(False, error_msg) for _ in range(len(memories))]
 
         return [(r if r is not None else (False, "Skipped")) for r in results]
