@@ -1182,7 +1182,7 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             result["total"] = total
 
         summary_warning = ""
-        if arguments.get("summarize") is True and memories:
+        if arguments.get("summarize") is True:
             # Run only after retrieval, fallback, filters, and plugins. Keep the
             # original result intact for a read-only, recoverable fallback.
             from ...services.search_summarizer import (
@@ -1190,10 +1190,14 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                 SearchSummarizationDisabled,
             )
 
+            reason = None
             try:
                 summary = await MemorySearchSummarizer().summarize(query, memories)
                 if summary is None:
-                    reason = "a query and a configured LLM provider are required"
+                    # Enabled empty searches need no provider or warning. The
+                    # shared service still checks operator policy first.
+                    if memories:
+                        reason = "a query and a configured LLM provider are required"
                 else:
                     payload = {
                         "summarized": True,
@@ -1232,9 +1236,10 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                     "Memory search summarization failed: %s", _sanitize_log_value(e)
                 )
                 reason = "the provider failed or the summary/source validation failed"
-            summary_warning = (
-                f"Summarization unavailable: {reason}. Returning raw results.\n\n"
-            )
+            if reason:
+                summary_warning = (
+                    f"Summarization unavailable: {reason}. Returning raw results.\n\n"
+                )
 
         # Apply truncation if needed
         if max_response_chars > 0 and memories:
@@ -1287,7 +1292,19 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             if result.get("query"):
                 response += f" for query: '{result['query']}'"
             beliefs_section = await _format_beliefs_section(arguments, storage)
-            return [types.TextContent(type="text", text=response + beliefs_section)]
+            if summary_warning and max_response_chars > 0:
+                from ..utils.response_limiter import format_bounded_response
+
+                response = format_bounded_response(
+                    [],
+                    max_response_chars,
+                    header=summary_warning + response,
+                    footer=beliefs_section,
+                )
+                return [types.TextContent(type="text", text=response)]
+            return [types.TextContent(
+                type="text", text=summary_warning + response + beliefs_section,
+            )]
 
         # Format memories (memories are dicts from storage.search_memories())
         formatted_results = []
