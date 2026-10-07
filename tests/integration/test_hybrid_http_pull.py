@@ -135,7 +135,16 @@ def fake_hub_handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json=HUB_MEMORIES[hash_value])
         else:
             return httpx.Response(404, json={"detail": "Memory not found"})
-    
+
+    # 4) model health endpoint (Phase 4) - report the hub's embedding model so the
+    #    startup model-match check in RemoteHTTPStorage.initialize() succeeds.
+    if path == "/api/health/model" and request.method == "GET":
+        return httpx.Response(200, json={
+            "embedding_model": "all-MiniLM-L6-v2",
+            "embedding_dimension": 384,
+            "backend": "sqlite-vec",
+        })
+
     # Unhandled endpoint
     return httpx.Response(404, json={"detail": f"Unhandled endpoint: {path}"})
 
