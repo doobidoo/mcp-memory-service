@@ -225,10 +225,12 @@ class StoreMixin:
 
         def batch_insert():
             local_results: List[Tuple[bool, str]] = [None] * len(memories)
-            # Wrap the whole batch in an explicit transaction so the per-item SAVEPOINTs are
-            # nested inside ONE transaction. Without this, RELEASE of an outermost savepoint
-            # can commit, making the batch not all-or-nothing (greptile P1). The commit at
-            # the call site closes this transaction; the error handler rolls it all back.
+            # Retry-safe: if a previous attempt left a transaction open (e.g. a mid-batch
+            # "database is locked"), clear it before starting, so a re-run does not hit
+            # "cannot start a transaction within a transaction" (greptile P1). Then open the
+            # explicit transaction that spans the whole batch.
+            if self.conn.in_transaction:
+                self.conn.rollback()
             self.conn.execute('BEGIN')
             for j, memory in enumerate(memories):
                 cursor = self.conn.execute(
@@ -307,6 +309,10 @@ class StoreMixin:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     raise
+            # Commit INSIDE the retried unit, under the same lock, so BEGIN+inserts+COMMIT
+            # are one atomic operation. A separate commit call after the lock was released
+            # let a concurrent op commit the batch early (greptile P1).
+            self.conn.commit()
             return local_results
 
         if not hasattr(self, '_savepoint_lock'):
@@ -316,7 +322,6 @@ class StoreMixin:
         try:
             async with self._savepoint_lock:
                 results = await self._execute_with_retry(batch_insert)
-                await self._execute_with_retry(self.conn.commit)
 
             stored = sum(1 for r in results if r and r[0])
             logger.info("Batch stored %s/%s memories in single transaction", stored, len(memories))

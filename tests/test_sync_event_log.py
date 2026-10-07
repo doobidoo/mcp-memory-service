@@ -543,28 +543,35 @@ class TestGreptilePhase1Fixes:
 
     @pytest.mark.asyncio
     async def test_batch_commit_failure_marks_all_results_failed(self, storage):
-        """greptile P1 (re-review): if the batch commit fails, the transaction is rolled
-        back and NO memory is persisted — every result must report failure, not success."""
+        """greptile P1: the batch is all-or-nothing. If any item fails inside the explicit
+        transaction, the whole batch rolls back and NO memory is persisted — every result
+        reports failure (a caller is never told a memory was stored when it wasn't)."""
         from unittest.mock import patch
         with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on", "MCP_SEMANTIC_DEDUP_ENABLED": "false"}):
             mems = [
-                Memory(content=f"batch commit fail {i}",
-                       content_hash=generate_content_hash(f"batch commit fail {i}"),
+                Memory(content=f"batch atomic {i}",
+                       content_hash=generate_content_hash(f"batch atomic {i}"),
                        tags=["bcf"], memory_type="note")
                 for i in range(3)
             ]
-            # Let the inserts succeed but make the final commit blow up. store_batch runs the
-            # commit via self._execute_with_retry(self.conn.commit); wrap that to raise only
-            # when it's handed the commit callable (can't patch conn.commit — read-only).
-            real_ewr = storage._execute_with_retry
-            async def flaky_ewr(self, op, *a, **k):
-                if getattr(op, "__name__", "") == "commit":
-                    raise RuntimeError("commit failed")
-                return await real_ewr(op, *a, **k)
-            with patch.object(type(storage), "_execute_with_retry", flaky_ewr):
+            # Force a failure on the 2nd item's event append (fail-closed path), inside the
+            # batch's explicit transaction. The whole batch must roll back.
+            real_append = type(storage)._append_sync_event
+            calls = {"n": 0}
+            def boom_on_second(self, conn, op, content_hash, payload):
+                calls["n"] += 1
+                if calls["n"] == 2:
+                    raise RuntimeError("event append failed on item 2")
+                return real_append(self, conn, op, content_hash, payload)
+            with patch.object(type(storage), "_append_sync_event", boom_on_second):
                 results = await storage.store_batch(mems)
             assert all(not ok for ok, _ in results), f"all results must be failure, got {results}"
             live = storage.conn.execute(
                 "SELECT COUNT(*) FROM memories WHERE tags LIKE '%bcf%' AND deleted_at IS NULL"
             ).fetchone()[0]
-            assert live == 0, "no memory may persist when the batch commit fails"
+            assert live == 0, "all-or-nothing: no memory may persist when any batch item fails"
+            # Connection is usable afterwards (no dangling transaction).
+            ok, _ = await storage.store(Memory(content="after atomic batch",
+                                               content_hash=generate_content_hash("after atomic batch"),
+                                               tags=["y"], memory_type="note"))
+            assert ok, "connection must be usable after a rolled-back batch"
