@@ -22,14 +22,17 @@ def _import_storage_config(env: dict) -> subprocess.CompletedProcess:
     Returns the CompletedProcess (returncode 0 = import succeeded without sys.exit).
     """
     full_env = os.environ.copy()
-    # Strip any Cloudflare creds that might leak in from the dev shell.
+    # Force-empty the Cloudflare creds so a local .env cannot reintroduce them.
+    # config.base loads .env with load_dotenv(override=False), so setting these to
+    # "" (rather than popping) guarantees dotenv will NOT restore real values, and
+    # the validator treats empty strings as missing (`if not CLOUDFLARE_...`).
     for k in (
         "CLOUDFLARE_API_TOKEN",
         "CLOUDFLARE_ACCOUNT_ID",
         "CLOUDFLARE_VECTORIZE_INDEX",
         "CLOUDFLARE_D1_DATABASE_ID",
     ):
-        full_env.pop(k, None)
+        full_env[k] = ""
     full_env.update(env)
     code = (
         "import importlib; "
