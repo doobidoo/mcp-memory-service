@@ -606,3 +606,148 @@ class TestGreptilePhase1Fixes:
                 "SELECT COUNT(*) FROM memories WHERE tags LIKE '%bfc%' AND deleted_at IS NULL"
             ).fetchone()[0]
             assert live == 0, "final-commit failure must roll the whole batch back"
+
+    # CA7 (F8): retry-safety under a REAL competing writer holding the SQLite lock.
+    @pytest.mark.asyncio
+    async def test_batch_locked_by_competing_writer_then_retry_succeeds(self, storage):
+        """ducanhnguyen223 review (store.py:232): this host runs several concurrent agents
+        against the SAME sqlite_vec.db (single-writer). A transient `database is locked`
+        mid-batch must NOT corrupt state or poison the connection.
+
+        Reproduces the finding with a REAL competing writer (not a mocked exception):
+        writer A opens BEGIN IMMEDIATE on a second WAL connection and holds the write lock;
+        store_batch (B) opens its own BEGIN, then its first INSERT fails with
+        'database is locked'; _execute_with_retry backs off; A commits (releases) during the
+        backoff; B retries. Without the rollback-before-BEGIN fix (commit 7650a06) the retry
+        would hit 'cannot start a transaction within a transaction' (not a lock error, so not
+        retried) and the batch would fail.
+
+        Proves, from the client's standpoint:
+          - the batch COMPLETES despite the transient lock (all items stored);
+          - nothing is half-applied — each stored memory has exactly its create event;
+          - the connection stays usable afterwards (no lingering transaction).
+        """
+        import sqlite3 as _sqlite3
+        import threading
+
+        # Make the lock surface fast: a long busy_timeout would just block instead of
+        # raising 'database is locked', so the retry path would never be exercised.
+        storage.conn.execute("PRAGMA busy_timeout=200")
+
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on", "MCP_SEMANTIC_DEDUP_ENABLED": "false"}):
+            mems = [
+                Memory(content=f"locked batch {i}",
+                       content_hash=generate_content_hash(f"locked batch {i}"),
+                       tags=["lbk"], memory_type="note")
+                for i in range(3)
+            ]
+
+            lock_acquired = threading.Event()
+            release_writer = threading.Event()
+            busy_seen = threading.Event()
+            writer_error = {}
+
+            def competing_writer():
+                """Hold the write lock on a second real connection, then release it."""
+                w = _sqlite3.connect(storage.db_path, timeout=30, check_same_thread=False)
+                try:
+                    w.execute("PRAGMA journal_mode=WAL")
+                    w.execute("PRAGMA busy_timeout=30000")
+                    # Grab the write lock immediately and keep a real pending write.
+                    w.execute("BEGIN IMMEDIATE")
+                    w.execute(
+                        "UPDATE memories SET updated_at = updated_at WHERE 1=0"
+                    )
+                    lock_acquired.set()
+                    # Deterministic hand-off: hold the lock until the batch has ACTUALLY hit
+                    # the busy error (release_writer is set by the proxy below on the first
+                    # 'database is locked'), not after a wall-clock timer. A timer could fire
+                    # before the batch's first write (e.g. slow embedding setup), letting the
+                    # batch succeed without ever locking — a green test that proves nothing
+                    # (greptile P2). The timeout is only a safety net so a bug can't hang.
+                    release_writer.wait(timeout=10)
+                    w.commit()
+                except Exception as e:  # pragma: no cover - surfaced via assertion below
+                    writer_error["err"] = e
+                finally:
+                    w.close()
+
+            t = threading.Thread(target=competing_writer, daemon=True)
+            t.start()
+            assert lock_acquired.wait(timeout=5), "competing writer failed to acquire the lock"
+
+            # Proxy the storage connection so that the FIRST 'database is locked' raised by a
+            # write deterministically releases the competing writer. This couples the release
+            # to the real occurrence of the lock (causal), removing the timing race. It also
+            # counts BEGINs: batch_insert issues one BEGIN per attempt, so >=2 proves a retry
+            # actually happened (not just that the batch returned success) — greptile P2.
+            real_conn = storage.conn
+            begins = {"n": 0}
+
+            class _ReleaseOnBusyConn:
+                def __init__(self, c):
+                    self._c = c
+
+                def execute(self, sql, *a, **k):
+                    if isinstance(sql, str) and sql.strip().upper().startswith("BEGIN"):
+                        begins["n"] += 1
+                    try:
+                        return self._c.execute(sql, *a, **k)
+                    except _sqlite3.OperationalError as e:
+                        msg = str(e).lower()
+                        if ("locked" in msg or "busy" in msg) and not busy_seen.is_set():
+                            busy_seen.set()
+                            release_writer.set()
+                        raise
+
+                def __getattr__(self, name):
+                    return getattr(self._c, name)
+
+            storage.conn = _ReleaseOnBusyConn(real_conn)
+            try:
+                results = await storage.store_batch(mems)
+            finally:
+                storage.conn = real_conn
+
+        t.join(timeout=5)
+        assert "err" not in writer_error, f"competing writer errored: {writer_error.get('err')}"
+
+        # 0) The test MUST have actually exercised the lock + retry, otherwise a green result
+        #    proves nothing (greptile P2).
+        assert busy_seen.is_set(), "the batch never hit 'database is locked' — test is vacuous"
+        assert begins["n"] >= 2, f"expected the batch to retry (>=2 BEGINs), ran {begins['n']}"
+
+        # 1) Batch completed despite the transient lock — every item stored.
+        assert all(ok for ok, _ in results), f"batch must complete after retry, got {results}"
+
+        # 2) Memories actually persisted.
+        live = storage.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE tags LIKE '%lbk%' AND deleted_at IS NULL"
+        ).fetchone()[0]
+        assert live == len(mems), f"expected {len(mems)} memories persisted, got {live}"
+
+        # 3) Nothing half-applied: exactly one create event per stored memory (ADR-0008).
+        for m in mems:
+            ev = storage.conn.execute(
+                "SELECT COUNT(*) FROM sync_events WHERE content_hash = ? AND op = 'create'",
+                (m.content_hash,)
+            ).fetchone()[0]
+            assert ev == 1, f"expected exactly 1 create event for {m.content_hash}, got {ev}"
+
+        # 4) Connection is usable afterwards — no lingering transaction.
+        assert not getattr(storage.conn, "in_transaction", False), \
+            "connection must not be left inside a transaction"
+        # This probe tests that the CONNECTION is usable, not dedup. The storage fixture is
+        # initialized before the env patch, so semantic dedup may still be enabled on the
+        # instance; the follow-up content is also similar to the locked-batch items, so a
+        # plain store() could return (False, "...semantically similar...") and masquerade as
+        # a connection failure. Skip dedup for the probe and surface the reason in the assert
+        # so a real connection problem is never hidden by a duplicate rejection
+        # (ducanhnguyen223, ML Extras failure on 308b1f4).
+        ok, reason = await storage.store(
+            Memory(content="after locked batch",
+                   content_hash=generate_content_hash("after locked batch"),
+                   tags=["z"], memory_type="note"),
+            skip_semantic_dedup=True,
+        )
+        assert ok, f"connection must be usable after the lock-retry batch (store reason: {reason})"

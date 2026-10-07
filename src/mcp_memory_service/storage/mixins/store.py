@@ -299,6 +299,20 @@ class StoreMixin:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     local_results[j] = (False, "Duplicate content detected (race condition)")
+                except sqlite3.OperationalError as op_err:
+                    # A transient 'database is locked'/'busy' is NOT a permanent item failure:
+                    # on this deployment several agents write the same sqlite_vec.db (single
+                    # writer), so a competing writer makes the item's INSERT fail mid-batch.
+                    # Roll the item's savepoint back and RE-RAISE so _execute_with_retry
+                    # reruns the whole (atomic, retry-safe) batch after a backoff, instead of
+                    # silently dropping the memory. Non-transient OperationalErrors still
+                    # degrade the item like any other sqlite error (greptile/ducanhnguyen223).
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {sp}')
+                    msg = str(op_err).lower()
+                    if "locked" in msg or "busy" in msg:
+                        raise
+                    local_results[j] = (False, f"Insert failed: {op_err}")
                 except sqlite3.Error as db_err:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')

@@ -49,6 +49,14 @@
 - [ ] **CA4 (F1/F6)** com `MCP_SYNC_EVENTLOG` on: cada store/delete/update suportado gera exatamente 1 evento na mesma tx; com off: zero eventos, comportamento idêntico ao atual.
 - [ ] **CA5 (F7)** `delete_by_tag` e `update_memory_versioned` NÃO geram evento (documentado); `delete_by_timeframe` gera N eventos (um por hash, herdado de `delete`).
 - [ ] **CA6 (NF2)** hybrid com primary sqlite → store gera 1 evento (não 2); backends CF/Milvus não tocam `sync_events`.
+- [ ] **CA7 (F8 — retry-safety sob concorrência)** com um escritor concorrente REAL segurando o lock do SQLite (`BEGIN IMMEDIATE` noutra conexão WAL), um `store_batch` que bate em `database is locked` no meio da transação DEVE, após o escritor liberar durante o backoff, concluir no retry com TODOS os itens persistidos + seus eventos (nada meio-aplicado) e deixar a conexão USÁVEL (sem transação pendurada, sem `cannot start a transaction within a transaction`).
+
+## Requisito funcional adicionado (pós-review ducanhnguyen223)
+
+**F8 — batch retry-safe sob lock concorrente**
+> WHILE a competing writer holds the SQLite write lock, IF a `store_batch` attempt fails mid-transaction with `database is locked`, THEN after the lock is released THE storage SHALL retry the batch to successful completion (all items + their events persisted, no partial state) AND leave the connection usable (no lingering transaction).
+
+> Motivação (cliente): este host roda múltiplos agentes concorrentes contra o MESMO `sqlite_vec.db` (single-writer). `database is locked` transitório é operação normal, não exceção. Uma falha mal tratada aqui ou perde a memória do agente, ou grava memória sem evento (quebra o delta-sync), ou deixa o agente com a conexão envenenada pela sessão inteira. Furo reportado e reproduzido por @ducanhnguyen223 (`store.py:232`, dois conns WAL reais). Implementação já no commit `7650a06` (rollback antes do `BEGIN` no início do callable retentável); este CA é a regressão que o trava.
 
 ## E2E a quente (fecha a fase, no ambiente real)
 1. Habilitar `MCP_SYNC_EVENTLOG` no serviço local; store de N memórias reais via MCP → confirmar N linhas em `sync_events` com `event_id`/`agent_id`/`op=create` corretos, na mesma tx (sem órfãos).
