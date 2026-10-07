@@ -48,6 +48,16 @@ class MockCloudflareStorage:
         self.fail_operations = False
         self.fail_initialization = False
 
+    @property
+    def supports_capacity_monitoring(self) -> bool:
+        """Mock Cloudflare storage supports capacity monitoring."""
+        return True
+
+    @property
+    def requires_metadata_normalization(self) -> bool:
+        """Mock Cloudflare storage requires metadata normalization."""
+        return True
+
     async def initialize(self):
         if self.fail_initialization:
             raise Exception("Mock Cloudflare initialization failed")
