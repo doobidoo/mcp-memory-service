@@ -169,9 +169,28 @@ class MetadataMixin:
                     "WHERE content_hash = ? AND deleted_at IS NULL",
                     tuple(params),
                 )
+                
+                # Append sync event between UPDATE and commit (ADR-0008)
+                if hasattr(self, '_append_sync_event'):
+                    payload = {
+                        'content_hash': content_hash,
+                        'updates': updates,
+                        'updated_at': updated_at
+                    }
+                    self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
+
                 self.conn.commit()
 
-            await self._execute_with_retry(_do_update)
+            try:
+                await self._execute_with_retry(_do_update)
+            except Exception:
+                # Fail-closed (ADR-0008): if the UPDATE or the event append fails, roll back
+                # the pending transaction so metadata is never mutated without its event.
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+                raise
 
             updated_fields = []
             if "tags" in updates:

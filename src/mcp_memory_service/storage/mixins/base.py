@@ -386,6 +386,56 @@ SOLUTIONS:
             logger.error("Error converting row to memory: %s", _sanitize_log_value(e))
             return None
 
+    def _append_sync_event(self, conn, op: str, content_hash: str, payload: dict) -> None:
+        """Append sync event to event log within same transaction as the hosting mutation.
+        
+        This helper is SYNCHRONOUS and performs NO commit internally (ADR-0008).
+        The atomicity comes from the commit of the hosting mutation.
+        
+        Args:
+            conn: Database connection (must be in an active transaction)
+            op: Operation type ('create', 'delete', 'update_metadata')
+            content_hash: Hash of the memory being mutated
+            payload: JSON-serializable payload for the event
+        
+        Raises:
+            Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails,
+                      the exception propagates to abort the hosting mutation.
+        """
+        # Kill-switch: only append events if explicitly enabled
+        if not os.getenv('MCP_SYNC_EVENTLOG', '').lower() in ('on', 'true', '1'):
+            return
+        
+        import uuid
+        import json
+        
+        # Generate event identity (UUIDv4, coordination-free)
+        event_id = str(uuid.uuid4())
+        
+        # Get agent_id from environment or memory metadata (NULL = legacy/unattributed)
+        agent_id = os.getenv('MCP_AGENT_ID')
+        if not agent_id and payload.get('metadata'):
+            agent_id = payload['metadata'].get('agent_id')
+        
+        # Current timestamp
+        created_at = time.time()
+        created_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at))
+        
+        # Schema version for envelope (ADR-0007)
+        schema_version = 1
+        
+        # INSERT with idempotency constraint (CA1)
+        # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
+        conn.execute("""
+            INSERT OR IGNORE INTO sync_events (
+                schema_version, agent_id, event_id, op, content_hash, 
+                payload, created_at, created_at_iso
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            schema_version, agent_id, event_id, op, content_hash,
+            json.dumps(payload), created_at, created_at_iso
+        ))
+
     @staticmethod
     def _apply_stale_days_filter(conditions: list, params: list, stale_days: Optional[int], table_alias: str = "") -> None:
         """Append stale_days WHERE clause."""

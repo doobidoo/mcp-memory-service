@@ -48,10 +48,20 @@ class DeleteMixin:
                     'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
                     (content_hash, content_hash)
                 )
+                deleted_at = time.time()
                 cursor = self.conn.execute(
                     'UPDATE memories SET deleted_at = ? WHERE content_hash = ? AND deleted_at IS NULL',
-                    (time.time(), content_hash)
+                    (deleted_at, content_hash)
                 )
+
+                # Append sync event between UPDATE and commit (ADR-0008)
+                if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
+                    payload = {
+                        'content_hash': content_hash,
+                        'deleted_at': deleted_at
+                    }
+                    self._append_sync_event(self.conn, 'delete', content_hash, payload)
+                
                 self.conn.commit()
                 return cursor.rowcount
 

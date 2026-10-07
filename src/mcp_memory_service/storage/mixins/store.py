@@ -156,6 +156,20 @@ class StoreMixin:
                         serialize_float32(embedding),
                         store
                     ))
+                    
+                    # Append sync event within same transaction (ADR-0008)
+                    # Called after INSERT memory_embeddings, before RELEASE SAVEPOINT
+                    if hasattr(self, '_append_sync_event'):
+                        payload = {
+                            'content_hash': memory.content_hash,
+                            'memory_type': memory.memory_type,
+                            'tags': memory.tags or [],
+                            'created_at': memory.created_at,
+                            'updated_at': memory.updated_at,
+                            'metadata': memory.metadata or {}
+                        }
+                        self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
+                    
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                 except Exception:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {_sp_name}')
@@ -255,6 +269,18 @@ class StoreMixin:
                         VALUES (?, ?, ?)
                     ''', (rowid, serialize_float32(embedding_list), store))
 
+                    # Append sync event for each item within SAVEPOINT batch_item (ADR-0008)
+                    if hasattr(self, '_append_sync_event'):
+                        payload = {
+                            'content_hash': memory.content_hash,
+                            'memory_type': memory.memory_type,
+                            'tags': memory.tags or [],
+                            'created_at': memory.created_at,
+                            'updated_at': memory.updated_at,
+                            'metadata': memory.metadata or {}
+                        }
+                        self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
+
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     local_results[j] = (True, "Memory stored successfully")
                 except sqlite3.IntegrityError:
@@ -265,6 +291,13 @@ class StoreMixin:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
                     local_results[j] = (False, f"Insert failed: {db_err}")
+                except Exception:
+                    # Non-sqlite failure (e.g. sync-event append raising, ADR-0008 fail-closed):
+                    # roll the item's savepoint back and propagate so the batch aborts rather
+                    # than committing a memory without its event.
+                    self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
+                    self.conn.execute(f'RELEASE SAVEPOINT {sp}')
+                    raise
             return local_results
 
         if not hasattr(self, '_savepoint_lock'):
