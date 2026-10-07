@@ -4,7 +4,7 @@ import copy
 import json
 import runpy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -156,6 +156,58 @@ async def test_disabled_policy_respects_response_limit(
         assert response.count("=== Memory") == 1
         assert any(row.content in response for row in rows)
     llm_post.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [0, 1, 100, 500])
+@pytest.mark.parametrize("include_beliefs", [False, True])
+async def test_disabled_empty_search_warns_without_initializing_provider(
+    search_server, monkeypatch, llm_post, cap, include_beliefs
+):
+    from mcp_memory_service.config import search as search_config
+    from mcp_memory_service.server.handlers import memory as memory_handler
+    from mcp_memory_service.services import search_summarizer
+
+    monkeypatch.setattr(search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", False)
+    rewriter_init = Mock(side_effect=AssertionError("provider must not initialize"))
+    monkeypatch.setattr(search_summarizer, "HarvestRewriter", rewriter_init)
+    beliefs = "\n\nBeliefs:\n" + "Supporting context. " * 30
+    monkeypatch.setattr(
+        memory_handler,
+        "_format_beliefs_section",
+        AsyncMock(return_value=beliefs if include_beliefs else ""),
+    )
+    server, storage, rows = search_server
+    before = [(await storage.get_by_hash(row.content_hash)).to_dict() for row in rows]
+    raw = await search(
+        server, query="nonexistent content", include_beliefs=include_beliefs
+    )
+
+    response = await search(
+        server,
+        query="nonexistent content",
+        summarize=True,
+        max_response_chars=cap,
+        include_beliefs=include_beliefs,
+    )
+
+    warning = (
+        "Summarization unavailable: disabled by MCP_SEARCH_SUMMARIZE_ENABLED. "
+        "Returning raw results.\n\n"
+    )
+    if cap == 0:
+        assert response == warning + raw
+    else:
+        assert len(response) <= cap
+        assert response.startswith(warning[:cap])
+        if cap == 500:
+            assert "No memories found for query: 'nonexistent content'" in response
+            assert "Supporting context" not in response
+    rewriter_init.assert_not_called()
+    llm_post.assert_not_called()
+    assert [
+        (await storage.get_by_hash(row.content_hash)).to_dict() for row in rows
+    ] == before
 
 
 @pytest.mark.asyncio
@@ -465,7 +517,13 @@ async def test_summary_fallback_enforces_the_complete_response_budget(
 
 
 @pytest.mark.asyncio
-async def test_time_only_and_empty_search_do_not_summarize(search_server, llm_post):
+async def test_time_only_and_empty_search_do_not_summarize(
+    search_server, llm_post, monkeypatch
+):
+    from mcp_memory_service.services import search_summarizer
+
+    rewriter_init = Mock(side_effect=AssertionError("provider must not initialize"))
+    monkeypatch.setattr(search_summarizer, "HarvestRewriter", rewriter_init)
     server, _, _ = search_server
     time_only = await search(
         server, query=None, mode="semantic", tags=["bus"], summarize=True
@@ -474,7 +532,8 @@ async def test_time_only_and_empty_search_do_not_summarize(search_server, llm_po
 
     assert "Found 1 memories" in time_only
     assert "Summarization unavailable" in time_only
-    assert empty.startswith("No memories found")
+    assert empty == "No memories found for query: 'nonexistent content'"
+    rewriter_init.assert_not_called()
     llm_post.assert_not_awaited()
 
 
@@ -490,8 +549,9 @@ async def test_retrieval_error_does_not_call_llm(search_server, llm_post):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer", ["Ordering matters [1].", "Invented source [999]."])
 @pytest.mark.parametrize("operator_enabled", [False, True])
+@pytest.mark.parametrize("query", ["replication ordering", "nonexistent content"])
 async def test_http_mcp_round_trip_with_read_scope(
-    search_server, monkeypatch, answer, operator_enabled
+    search_server, monkeypatch, answer, operator_enabled, query
 ):
     from fastapi import FastAPI
 
@@ -575,7 +635,7 @@ async def test_http_mcp_round_trip_with_read_scope(
                 "params": {
                     "name": "memory_search",
                     "arguments": {
-                        "query": "replication ordering",
+                        "query": query,
                         "mode": "exact",
                         "summarize": True,
                     },
@@ -590,7 +650,12 @@ async def test_http_mcp_round_trip_with_read_scope(
     assert "access_queries" not in text
     if not operator_enabled:
         assert "disabled by MCP_SEARCH_SUMMARIZE_ENABLED" in text
-        assert all(memory.content in text for memory in rows)
+        if query == "nonexistent content":
+            assert text.endswith(f"No memories found for query: '{query}'")
+        else:
+            assert all(memory.content in text for memory in rows)
+    elif query == "nonexistent content":
+        assert text == f"No memories found for query: '{query}'"
     elif "999" in answer:
         assert "Summarization unavailable" in text
         assert all(memory.content in text for memory in rows)
@@ -598,6 +663,8 @@ async def test_http_mcp_round_trip_with_read_scope(
         result = json.loads(text)
         assert result["summary"] == answer
         assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
-    assert len(provider_requests) == int(operator_enabled)
+    assert len(provider_requests) == int(
+        operator_enabled and query == "replication ordering"
+    )
     stored = await storage.get_by_hash(rows[0].content_hash)
     assert stored.metadata["access_queries"][0]["query"] == "HTTP private prior query"
