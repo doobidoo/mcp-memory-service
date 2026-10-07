@@ -145,6 +145,10 @@ class RemoteHTTPStorage(MemoryStorage):
                 "memory_type": memory.memory_type,
                 "metadata": memory.metadata or {}
             }
+            # TODO Bug #5: POST /api/memories endpoint (MemoryCreateRequest) does not accept 
+            # created_at/updated_at fields. Server always assigns current timestamp.
+            # This means pulled memories lose their original timestamps on re-store.
+            # Fix requires server-side schema changes to accept client timestamps.
 
             response = await self._request("POST", "/api/memories", json=payload)
             
@@ -181,13 +185,34 @@ class RemoteHTTPStorage(MemoryStorage):
                     logger.error("Invalid payload from server: missing required fields 'content' or 'content_hash'")
                     return None
                 
-                # Reconstruct Memory object from response
+                # Fix Bug #4: preserve original timestamps from the API response.
+                # MemoryResponse carries created_at/updated_at as float epoch and
+                # *_iso as the string form. Be tolerant of a secondary that only
+                # sends the ISO string (route it to the *_iso field, never to the
+                # float field, so Memory._sync_timestamps parses it correctly).
+                def _split_ts(epoch_val, iso_val):
+                    # Returns (float_or_none, iso_or_none), coercing a stray ISO
+                    # string that arrived in the epoch slot into the iso slot.
+                    if isinstance(epoch_val, str):
+                        iso_val = iso_val or epoch_val
+                        epoch_val = None
+                    return epoch_val, iso_val
+
+                created_at, created_at_iso = _split_ts(
+                    data.get("created_at"), data.get("created_at_iso"))
+                updated_at, updated_at_iso = _split_ts(
+                    data.get("updated_at"), data.get("updated_at_iso"))
+
                 return Memory(
                     content=content,
                     content_hash=retrieved_hash,
                     tags=data.get("tags", []),
                     memory_type=data.get("memory_type", "observation"),
-                    metadata=data.get("metadata", {})
+                    metadata=data.get("metadata", {}),
+                    created_at=created_at,
+                    created_at_iso=created_at_iso,
+                    updated_at=updated_at,
+                    updated_at_iso=updated_at_iso
                 )
             else:
                 response.raise_for_status()
@@ -209,7 +234,9 @@ class RemoteHTTPStorage(MemoryStorage):
 
             if response.status_code == 200:
                 result = response.json()
-                if result.get("deleted"):
+                # Fix Bug #3: Check 'success' key (correct API response format)
+                # Maintain backward compatibility with 'deleted' key for older backends
+                if result.get("success") or result.get("deleted"):
                     return True, "Memory deleted successfully"
                 else:
                     return False, f"Server reported failure: {result}"
@@ -234,7 +261,9 @@ class RemoteHTTPStorage(MemoryStorage):
 
             if response.status_code == 200:
                 result = response.json()
-                if result.get("updated"):
+                # Fix Bug #3: Check 'success' key (correct API response format)  
+                # Maintain backward compatibility with 'updated' key for older backends
+                if result.get("success") or result.get("updated"):
                     return True, "Memory metadata updated successfully"
                 else:
                     return False, f"Server reported failure: {result}"
@@ -249,29 +278,22 @@ class RemoteHTTPStorage(MemoryStorage):
 
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage stats via HTTP GET."""
-        try:
-            # Use page=1&page_size=1 to get total count with minimal payload
-            response = await self._request("GET", "/api/memories", params={"page": 1, "page_size": 1})
+        # Fix Bug #9: Propagate errors instead of silently returning total_memories=0
+        # Use page=1&page_size=1 to get total count with minimal payload
+        response = await self._request("GET", "/api/memories", params={"page": 1, "page_size": 1})
 
-            if response.status_code == 200:
-                data = response.json()
-                total = data.get("total", 0)  # Extract exact count from server
-                return {
-                    "total_memories": total,
-                    "storage_backend": "RemoteHTTP",
-                    "backend": "http",
-                    "status": "connected",
-                }
-            else:
-                response.raise_for_status()
-                return {
-                    "total_memories": 0,
-                    "storage_backend": "RemoteHTTP",
-                    "status": "error"
-                }
-
-        except Exception as e:
-            logger.error("Get stats failed: %s", _sanitize_log_value(str(e)))
+        if response.status_code == 200:
+            data = response.json()
+            total = data.get("total", 0)  # Extract exact count from server
+            return {
+                "total_memories": total,
+                "storage_backend": "RemoteHTTP",
+                "backend": "http",
+                "status": "connected",
+            }
+        else:
+            response.raise_for_status()
+            # This line should never be reached due to raise_for_status(), but kept for completeness
             return {
                 "total_memories": 0,
                 "storage_backend": "RemoteHTTP",
@@ -292,51 +314,49 @@ class RemoteHTTPStorage(MemoryStorage):
             # Absolute bound protection
             if page_count > max_pages:
                 logger.warning("list_content_hashes hit maximum page limit (%d), stopping pagination", max_pages)
-                break
+                # Fix Bug #8: Raise exception on max pages reached to signal incompleteness
+                raise RuntimeError(f"Maximum page limit ({max_pages}) reached during pagination")
                 
-            try:
-                params = {
-                    "include_deleted": include_deleted
-                }
-                if cursor is not None:
-                    params["cursor"] = cursor
+            # Fix Bug #8: Remove try/catch to let exceptions propagate
+            params = {
+                "include_deleted": include_deleted
+            }
+            if cursor is not None:
+                params["cursor"] = cursor
 
-                response = await self._request("GET", "/api/memories/hashes", params=params)
-                
-                if response.status_code != 200:
-                    response.raise_for_status()
-                    break
-                
-                data = response.json()
-                
-                # Extract hashes from response
-                hashes = data.get("hashes", [])
-                for hash_entry in hashes:
-                    if isinstance(hash_entry, dict) and "hash" in hash_entry:
-                        all_hashes.add(hash_entry["hash"])
-                    elif isinstance(hash_entry, str):
-                        all_hashes.add(hash_entry)
-                
-                # Check if there are more pages
-                has_more = data.get("has_more", False)
-                if not has_more:
-                    break
-                
-                cursor = data.get("next_cursor")
-                if cursor is None:
-                    break
-                
-                # Cursor advancement protection
-                if cursor == prev_cursor:
-                    logger.warning("list_content_hashes detected cursor not advancing (cursor=%s), stopping pagination", 
-                                 _sanitize_log_value(str(cursor)))
-                    break
-                
-                prev_cursor = cursor
-                    
-            except Exception as e:
-                logger.error("List content hashes failed: %s", _sanitize_log_value(str(e)))
+            response = await self._request("GET", "/api/memories/hashes", params=params)
+            
+            if response.status_code != 200:
+                response.raise_for_status()
+                # This should not be reached due to raise_for_status(), but keep for safety
+                raise RuntimeError(f"Unexpected status code: {response.status_code}")
+            
+            data = response.json()
+            
+            # Extract hashes from response
+            hashes = data.get("hashes", [])
+            for hash_entry in hashes:
+                if isinstance(hash_entry, dict) and "hash" in hash_entry:
+                    all_hashes.add(hash_entry["hash"])
+                elif isinstance(hash_entry, str):
+                    all_hashes.add(hash_entry)
+            
+            # Check if there are more pages
+            has_more = data.get("has_more", False)
+            if not has_more:
                 break
+            
+            cursor = data.get("next_cursor")
+            if cursor is None:
+                break
+            
+            # Fix Bug #8: Cursor advancement protection - raise exception instead of break
+            if cursor == prev_cursor:
+                logger.warning("list_content_hashes detected cursor not advancing (cursor=%s), stopping pagination", 
+                             _sanitize_log_value(str(cursor)))
+                raise RuntimeError(f"Cursor not advancing (cursor={_sanitize_log_value(str(cursor))}), cannot complete pagination")
+            
+            prev_cursor = cursor
 
         return all_hashes
 

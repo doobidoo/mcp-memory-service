@@ -31,6 +31,24 @@ except ImportError:
     CloudflareStorage = None
 
 
+class TestBug2HybridBackendSelection:
+    """Test Bug #2: Hybrid backend selection should fail explicitly when HTTP requested without URL."""
+    
+    def test_bug2_http_backend_without_url_raises_error(self):
+        """Bug #2: HybridMemoryStorage should raise error when HTTP backend requested but URL missing."""
+        
+        with pytest.raises(ValueError, match="HTTP backend requested but no URL provided"):
+            # Try to create HybridMemoryStorage with HTTP backend but no URL
+            with tempfile.TemporaryDirectory() as tmpdir:
+                db_path = f"{tmpdir}/test.db"
+                storage = HybridMemoryStorage(
+                    sqlite_db_path=db_path,
+                    secondary_backend='http',
+                    secondary_url=None,  # Missing URL should cause error
+                    secondary_api_key=None
+                )
+
+
 # ---- Fake hub state: 3 memories with realistic data ----
 HUB_MEMORIES = {
     "aaa111222333444555666777888999000111222333444555666777888999000": {
@@ -38,7 +56,10 @@ HUB_MEMORIES = {
         "content_hash": "aaa111222333444555666777888999000111222333444555666777888999000",
         "tags": ["ui", "preference"],
         "memory_type": "note",
-        "created_at": "2024-10-01T10:00:00Z",
+        "created_at": 1727778000.0,
+        "created_at_iso": "2024-10-01T10:00:00Z",
+        "updated_at": 1727778000.0,
+        "updated_at_iso": "2024-10-01T10:00:00Z",
         "metadata": {}
     },
     "bbb222333444555666777888999000111222333444555666777888999000111": {

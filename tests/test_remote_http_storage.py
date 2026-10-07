@@ -48,6 +48,157 @@ class TestRemoteHTTPStorageImports:
         assert issubclass(RemoteHTTPStorage, MemoryStorage)
 
 
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")
+class TestRemoteHTTPStorageBugFixes:
+    """Test fixes for bugs identified by Greptile."""
+    
+    @pytest.mark.asyncio
+    async def test_bug3_delete_success_response_key(self):
+        """Bug #3: delete() should check 'success' key, not 'deleted'."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock response with 'success': True (correct API response format)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "success": True,
+            "message": "Memory deleted successfully",
+            "content_hash": "test_hash"
+        }
+        
+        with patch.object(storage, '_request', return_value=mock_response):
+            success, message = await storage.delete("test_hash")
+            
+        # Should return success=True when API returns success=True
+        assert success is True
+        assert "deleted successfully" in message
+        
+    @pytest.mark.asyncio
+    async def test_bug3_update_memory_metadata_success_response_key(self):
+        """Bug #3: update_memory_metadata() should check 'success' key, not 'updated'."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock response with 'success': True (correct API response format)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "success": True,
+            "message": "Memory updated successfully",
+            "content_hash": "test_hash"
+        }
+        
+        with patch.object(storage, '_request', return_value=mock_response):
+            success, message = await storage.update_memory_metadata("test_hash", {"tags": ["new_tag"]})
+            
+        # Should return success=True when API returns success=True
+        assert success is True
+        assert "updated successfully" in message
+
+    @pytest.mark.asyncio
+    async def test_bug9_get_stats_propagates_request_error(self):
+        """Bug #9: get_stats() should propagate errors, not return total_memories=0."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock _request to raise an exception (network/auth error)
+        with patch.object(storage, '_request', side_effect=httpx.ConnectError("Connection failed")):
+            with pytest.raises(httpx.ConnectError):
+                await storage.get_stats()
+                
+    @pytest.mark.asyncio  
+    async def test_bug9_get_stats_propagates_http_error(self):
+        """Bug #9: get_stats() should propagate HTTP errors, not return total_memories=0."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock response with non-200 status
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401 Unauthorized", request=MagicMock(), response=mock_response)
+            
+        with patch.object(storage, '_request', return_value=mock_response):
+            with pytest.raises(httpx.HTTPStatusError):
+                await storage.get_stats()
+
+    @pytest.mark.asyncio
+    async def test_bug8_list_content_hashes_raises_on_pagination_error(self):
+        """Bug #8: list_content_hashes() should raise on pagination error, not return partial."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock first page success, second page failure
+        responses = []
+        
+        # First page - success
+        first_response = MagicMock()
+        first_response.status_code = 200
+        first_response.json.return_value = {
+            "hashes": ["hash1", "hash2"],
+            "has_more": True,
+            "next_cursor": "cursor2"
+        }
+        
+        # Second page - error  
+        second_response = MagicMock()
+        second_response.status_code = 500
+        second_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Server Error", request=MagicMock(), response=second_response)
+            
+        responses = [first_response, second_response]
+        
+        with patch.object(storage, '_request', side_effect=responses):
+            # Should raise exception, not return partial set
+            with pytest.raises(httpx.HTTPStatusError):
+                await storage.list_content_hashes()
+                
+    @pytest.mark.asyncio
+    async def test_bug8_list_content_hashes_raises_on_cursor_not_advancing(self):
+        """Bug #8: list_content_hashes() should raise when cursor doesn't advance."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock response with cursor that doesn't advance (infinite loop scenario)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "hashes": ["hash1", "hash2"],
+            "has_more": True,
+            "next_cursor": "same_cursor"  # Cursor never changes
+        }
+        
+        with patch.object(storage, '_request', return_value=mock_response):
+            # Should detect cursor not advancing and raise
+            with pytest.raises(Exception):  # Could be ValueError or custom exception
+                await storage.list_content_hashes()
+
+    @pytest.mark.asyncio
+    async def test_bug4_get_by_hash_preserves_timestamps(self):
+        """Bug #4: get_by_hash() should preserve created_at/updated_at from API response."""
+        storage = RemoteHTTPStorage("http://test.com")
+        
+        # Mock response with timestamps (as returned by MemoryResponse)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "content": "Test memory content",
+            "content_hash": "test_hash_123",
+            "tags": ["test_tag"],
+            "memory_type": "observation",
+            "metadata": {"key": "value"},
+            "created_at": 1640995200.0,  # 2022-01-01 00:00:00 UTC
+            "created_at_iso": "2022-01-01T00:00:00Z",
+            "updated_at": 1640995260.0,  # 2022-01-01 00:01:00 UTC 
+            "updated_at_iso": "2022-01-01T00:01:00Z"
+        }
+        
+        with patch.object(storage, '_request', return_value=mock_response):
+            memory = await storage.get_by_hash("test_hash_123")
+            
+        # Memory should preserve the original timestamps, not current time
+        assert memory is not None
+        assert memory.created_at == 1640995200.0
+        assert memory.created_at_iso == "2022-01-01T00:00:00Z"
+        assert memory.updated_at == 1640995260.0
+        assert memory.updated_at_iso == "2022-01-01T00:01:00Z"
+
+
 @pytest.fixture
 def sample_memory():
     """Create a sample memory for testing."""
@@ -342,20 +493,18 @@ class TestRemoteHTTPStorageServibleMethods:
         
         with patch.object(http_storage, '_request', return_value=mock_response) as mock_request:
             with patch('mcp_memory_service.storage.remote_http.logger') as mock_logger:
-                result = await http_storage.list_content_hashes(include_deleted=False)
+                # Bug #8 fix: Should raise exception instead of returning partial results
+                with pytest.raises(RuntimeError, match="Cursor not advancing"):
+                    await http_storage.list_content_hashes(include_deleted=False)
                 
-                # Should terminate and not make infinite requests
-                assert mock_request.call_count >= 2  # Should make at least 2 calls
-                assert mock_request.call_count <= 10  # But not too many
+                # Should make at least 2 calls before detecting the stuck cursor
+                assert mock_request.call_count >= 2
                 
                 # Should log warning about cursor not advancing
                 mock_logger.warning.assert_called()
                 warning_calls = [call for call in mock_logger.warning.call_args_list 
                                if "cursor not advancing" in str(call)]
                 assert len(warning_calls) > 0, "Should log warning about cursor not advancing"
-                
-                # Should still return some results (at least from first page)
-                assert "hash1" in result
 
 
 @pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")
@@ -611,11 +760,11 @@ class TestHybridHTTPSecondary:
         # Should be None in SQLite-only mode
         assert storage.secondary is None
 
-    def test_hybrid_http_backend_without_url_fallback(self, temp_sqlite_db):
-        """R7.3: secondary_backend='http' WITHOUT secondary_url should not crash.
+    def test_hybrid_http_backend_without_url_raises_error(self, temp_sqlite_db):
+        """Bug #2 fix: secondary_backend='http' WITHOUT secondary_url should raise explicit error.
         
-        WHY THIS SHOULD FAIL: This tests the edge case where backend is 'http' 
-        but no URL is provided. Should gracefully fall back to no secondary.
+        Fixed from graceful fallback to explicit error per bug description:
+        "se backend_type=='http' e não há url -> levantar erro claro (ValueError)"
         """
         # Import here to avoid import issues if module doesn't exist
         import sys
@@ -630,21 +779,14 @@ class TestHybridHTTPSecondary:
         from mcp_memory_service.storage.hybrid import HybridMemoryStorage
         from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
 
-        # Create HybridMemoryStorage with HTTP backend but no URL
-        storage = HybridMemoryStorage(
-            sqlite_db_path=temp_sqlite_db,
-            embedding_model="all-MiniLM-L6-v2",
-            secondary_backend='http'
-            # No secondary_url provided
-        )
-
-        # Should not crash and should not create RemoteHTTPStorage
-        assert not isinstance(storage.secondary, RemoteHTTPStorage), (
-            "HTTP backend without URL should not create RemoteHTTPStorage"
-        )
-        
-        # Should fall back to None (SQLite-only mode)
-        assert storage.secondary is None
+        # Should raise explicit ValueError instead of graceful fallback
+        with pytest.raises(ValueError, match="HTTP backend requested but no URL provided"):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                secondary_backend='http'
+                # No secondary_url provided - should cause explicit error
+            )
 
     def test_hybrid_http_backend_case_insensitive(self, temp_sqlite_db):
         """R7.7: HTTP backend selection should be case insensitive.

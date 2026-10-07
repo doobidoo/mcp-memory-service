@@ -1063,6 +1063,11 @@ class HybridMemoryStorage(MemoryStorage):
         url = secondary_url or MCP_HYBRID_SECONDARY_URL
         api_key = secondary_api_key or MCP_HYBRID_SECONDARY_API_KEY
 
+        # Fix Bug #2: Explicit error when HTTP backend requested without URL
+        if backend_type == 'http' and not url:
+            raise ValueError("HTTP backend requested but no URL provided. "
+                           "Please set secondary_url parameter or MCP_HYBRID_SECONDARY_URL environment variable.")
+
         if backend_type == 'http' and url:
             # HTTP backend
             from .remote_http import RemoteHTTPStorage  # Lazy import to avoid cycles
