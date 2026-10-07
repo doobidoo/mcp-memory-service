@@ -760,24 +760,17 @@ class TestHybridHTTPSecondary:
         # Should be None in SQLite-only mode
         assert storage.secondary is None
 
-    def test_hybrid_http_backend_without_url_raises_error(self, temp_sqlite_db):
+    def test_hybrid_http_backend_without_url_raises_error(self, temp_sqlite_db, monkeypatch):
         """Bug #2 fix: secondary_backend='http' WITHOUT secondary_url should raise explicit error.
         
         Fixed from graceful fallback to explicit error per bug description:
         "se backend_type=='http' e não há url -> levantar erro claro (ValueError)"
         """
-        # Import here to avoid import issues if module doesn't exist
-        import sys
-        import os
-        from pathlib import Path
-        
-        # Add src to path for imports
-        current_dir = Path(__file__).parent
-        src_dir = current_dir.parent / "src"
-        sys.path.insert(0, str(src_dir))
-        
+        # Isolate the env: __init__ reads MCP_HYBRID_SECONDARY_URL as a fallback,
+        # so a value in the environment would satisfy the constructor and mask the bug.
+        monkeypatch.delenv("MCP_HYBRID_SECONDARY_URL", raising=False)
+
         from mcp_memory_service.storage.hybrid import HybridMemoryStorage
-        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
 
         # Should raise explicit ValueError instead of graceful fallback
         with pytest.raises(ValueError, match="HTTP backend requested but no URL provided"):

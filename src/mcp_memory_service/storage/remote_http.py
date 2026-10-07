@@ -21,9 +21,9 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional, Set
 import httpx
 
-from .base import MemoryStorage
-from ..models.memory import Memory, MemoryQueryResult
-from ..compat import _sanitize_log_value
+from mcp_memory_service.storage.base import MemoryStorage
+from mcp_memory_service.models.memory import Memory, MemoryQueryResult
+from mcp_memory_service.compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 

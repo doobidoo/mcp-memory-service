@@ -34,9 +34,12 @@ except ImportError:
 class TestBug2HybridBackendSelection:
     """Test Bug #2: Hybrid backend selection should fail explicitly when HTTP requested without URL."""
     
-    def test_bug2_http_backend_without_url_raises_error(self):
+    def test_bug2_http_backend_without_url_raises_error(self, monkeypatch):
         """Bug #2: HybridMemoryStorage should raise error when HTTP backend requested but URL missing."""
-        
+        # Isolate the env: the __init__ reads MCP_HYBRID_SECONDARY_URL as a fallback,
+        # so a configured value would satisfy the constructor and defeat this test.
+        monkeypatch.delenv("MCP_HYBRID_SECONDARY_URL", raising=False)
+
         with pytest.raises(ValueError, match="HTTP backend requested but no URL provided"):
             # Try to create HybridMemoryStorage with HTTP backend but no URL
             with tempfile.TemporaryDirectory() as tmpdir:
