@@ -557,7 +557,7 @@ class TestGreptilePhase1Fixes:
             # commit via self._execute_with_retry(self.conn.commit); wrap that to raise only
             # when it's handed the commit callable (can't patch conn.commit — read-only).
             real_ewr = storage._execute_with_retry
-            async def flaky_ewr(op, *a, **k):
+            async def flaky_ewr(self, op, *a, **k):
                 if getattr(op, "__name__", "") == "commit":
                     raise RuntimeError("commit failed")
                 return await real_ewr(op, *a, **k)

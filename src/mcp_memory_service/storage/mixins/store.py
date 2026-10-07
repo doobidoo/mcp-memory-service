@@ -225,6 +225,11 @@ class StoreMixin:
 
         def batch_insert():
             local_results: List[Tuple[bool, str]] = [None] * len(memories)
+            # Wrap the whole batch in an explicit transaction so the per-item SAVEPOINTs are
+            # nested inside ONE transaction. Without this, RELEASE of an outermost savepoint
+            # can commit, making the batch not all-or-nothing (greptile P1). The commit at
+            # the call site closes this transaction; the error handler rolls it all back.
+            self.conn.execute('BEGIN')
             for j, memory in enumerate(memories):
                 cursor = self.conn.execute(
                     'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
