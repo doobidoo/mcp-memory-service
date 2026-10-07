@@ -107,70 +107,47 @@ class MockMemoryStorage(MemoryStorage):
 
 
 class TestCapabilityProperties:
-    """Test that the capability properties exist and have correct defaults."""
+    """Test that the capability properties exist and have correct defaults.
 
-    def test_base_memory_storage_has_capability_properties(self):
-        """Base MemoryStorage should have supports_capacity_monitoring and requires_metadata_normalization properties with default False."""
-        # This will FAIL because the properties don't exist yet
-        assert hasattr(MemoryStorage, 'supports_capacity_monitoring'), \
-            "MemoryStorage should have supports_capacity_monitoring property"
-        assert hasattr(MemoryStorage, 'requires_metadata_normalization'), \
-            "MemoryStorage should have requires_metadata_normalization property"
-        
-        # Check defaults on mock instance (since base is abstract)
-        mock_storage = MockMemoryStorage()
-        
-        # These will FAIL because the properties aren't implemented in base class yet
-        try:
-            base_supports_capacity = mock_storage.supports_capacity_monitoring
-            base_requires_norm = mock_storage.requires_metadata_normalization
-            
-            # Default should be False  
-            assert base_supports_capacity == False, \
-                f"Default supports_capacity_monitoring should be False, got {base_supports_capacity}"
-            assert base_requires_norm == False, \
-                f"Default requires_metadata_normalization should be False, got {base_requires_norm}"
-        except AttributeError as e:
-            pytest.fail(f"Properties not implemented yet: {e}")
+    These assert on INSTANCE values of real backends (inherited base defaults
+    vs. Cloudflare overrides), not just ``hasattr`` on the class, so a backend
+    that returns the wrong capability value cannot pass (greptile P2, PR #1474).
+    """
 
-    def test_cloudflare_storage_overrides_capabilities(self):
-        """CloudflareStorage should override both capability properties to True."""
-        # This will FAIL because CloudflareStorage doesn't override these properties yet
-        try:
-            from mcp_memory_service.storage.cloudflare import CloudflareStorage
-            
-            # Create minimal instance just to check class properties
-            # We can't fully initialize without credentials, but properties should be accessible
-            cf_class = CloudflareStorage
-            
-            # Check if properties exist as class attributes or instance properties
-            # This approach avoids __init__ but will fail because properties don't exist
-            instance_check = Mock()
-            instance_check.__class__ = cf_class
-            
-            # This will raise AttributeError because properties aren't implemented
-            assert hasattr(cf_class, 'supports_capacity_monitoring'), \
-                "CloudflareStorage should have supports_capacity_monitoring property"
-            assert hasattr(cf_class, 'requires_metadata_normalization'), \
-                "CloudflareStorage should have requires_metadata_normalization property"
-                
-        except (ImportError, AttributeError) as e:
-            pytest.fail(f"CloudflareStorage capability properties not implemented: {e}")
+    def test_base_defaults_false_on_inheriting_backend(self):
+        """A backend that does NOT override the properties inherits False from the base.
 
-    def test_remote_http_storage_keeps_defaults(self):
-        """RemoteHTTPStorage should keep default False for both capability properties."""
-        # This will FAIL because the properties don't exist
-        try:
-            from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
-            
-            # Check class has properties (will fail because they don't exist)
-            assert hasattr(RemoteHTTPStorage, 'supports_capacity_monitoring'), \
-                "RemoteHTTPStorage should have supports_capacity_monitoring property"
-            assert hasattr(RemoteHTTPStorage, 'requires_metadata_normalization'), \
-                "RemoteHTTPStorage should have requires_metadata_normalization property"
-                
-        except (ImportError, AttributeError) as e:
-            pytest.fail(f"RemoteHTTPStorage capability properties not implemented: {e}")
+        RemoteHTTPStorage adds no override, so its instance reflects the base
+        class default. Asserting on the instance (not a mock that could shadow
+        the property) proves the real inherited default is False.
+        """
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+
+        storage = RemoteHTTPStorage(base_url="https://example.invalid", api_key="x")
+        assert storage.supports_capacity_monitoring is False, \
+            "Base default supports_capacity_monitoring must be False on a non-overriding backend"
+        assert storage.requires_metadata_normalization is False, \
+            "Base default requires_metadata_normalization must be False on a non-overriding backend"
+
+    def test_cloudflare_overrides_capabilities_true(self):
+        """CloudflareStorage must OVERRIDE both properties to True (value, not just presence)."""
+        from mcp_memory_service.storage.cloudflare import CloudflareStorage
+
+        # The properties must resolve to True at the class level without needing
+        # a configured instance. If they are plain properties, read via the
+        # class descriptor; this asserts the actual True value, not mere presence.
+        assert CloudflareStorage.supports_capacity_monitoring.fget(object()) is True, \
+            "CloudflareStorage must override supports_capacity_monitoring to True"
+        assert CloudflareStorage.requires_metadata_normalization.fget(object()) is True, \
+            "CloudflareStorage must override requires_metadata_normalization to True"
+
+    def test_remote_http_keeps_defaults_false(self):
+        """RemoteHTTPStorage must keep the inherited False (it is the HTTP secondary path)."""
+        from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+
+        storage = RemoteHTTPStorage(base_url="https://example.invalid", api_key="x")
+        assert storage.supports_capacity_monitoring is False
+        assert storage.requires_metadata_normalization is False
 
 
 class TestBackgroundSyncServiceTyping:
