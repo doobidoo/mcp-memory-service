@@ -27,6 +27,16 @@ from ..models.memory import Memory, MemoryQueryResult
 
 logger = logging.getLogger(__name__)
 
+
+class EmbeddingModelMismatchError(RuntimeError):
+    """Exception raised when embedding models between local and remote storage don't match."""
+
+    def __init__(self, message: str, local_model: Optional[str] = None, remote_model: Optional[str] = None):
+        super().__init__(message)
+        self.local_model = local_model
+        self.remote_model = remote_model
+
+
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
 
@@ -72,7 +82,7 @@ class MemoryStorage(ABC):
     async def initialize(self) -> None:
         """Initialize the storage backend."""
         pass
-    
+
     @abstractmethod
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default") -> Tuple[bool, str]:
         """Store a memory. Returns (success, message).
@@ -123,7 +133,7 @@ class MemoryStorage(ABC):
             else:
                 final_results.append(res)
         return final_results
-    
+
     @abstractmethod
     async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
@@ -297,7 +307,7 @@ class MemoryStorage(ABC):
             memories = memories[:limit]
 
         return memories
-    
+
     @abstractmethod
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by its hash."""
@@ -764,7 +774,7 @@ class MemoryStorage(ABC):
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
         pass
-    
+
     @abstractmethod
     async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
         """
@@ -852,7 +862,7 @@ class MemoryStorage(ABC):
         """
         # Default: no-op. Concrete backends override with real implementation.
         return 0
-    
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage statistics. Override for specific implementations."""
         return {
@@ -860,7 +870,7 @@ class MemoryStorage(ABC):
             "storage_backend": self.__class__.__name__,
             "status": "operational"
         }
-    
+
     async def get_all_tags(self) -> List[str]:
         """Get all unique tags in the storage. Override for specific implementations."""
         return []
@@ -905,11 +915,11 @@ class MemoryStorage(ABC):
         # Default implementation just uses regular search
         results = await self.retrieve(query, n_results)
         return [r.memory for r in results]
-    
+
     async def search(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
-    
+
     # NOTE: ``include_embeddings`` is a new kwarg (see #881). The three
     # overriding subclasses (sqlite_vec, hybrid, cloudflare) still carry
     # their pre-#881 signatures and will be updated in the follow-up PR
@@ -952,7 +962,7 @@ class MemoryStorage(ABC):
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
         return []
-    
+
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
@@ -1002,7 +1012,7 @@ class MemoryStorage(ABC):
             A list of Memory objects within the specified time range.
         """
         return []
-    
+
     async def get_memory_connections(self) -> Dict[str, int]:
         """Get memory connection statistics. Override for specific implementations."""
         return {}
@@ -1455,7 +1465,7 @@ class MemoryStorage(ABC):
                 filtered_results = []
                 for result in results:
                     # Check metadata.agent_id or agent:<id> tag
-                    if (result.memory.agent_id == agent_id or 
+                    if (result.memory.agent_id == agent_id or
                         f"agent:{agent_id}" in (result.memory.tags or [])):
                         filtered_results.append(result)
                 results = filtered_results

@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
+from ...config.embedding import EMBEDDING_MODEL_NAME
 
 try:
     from ... import __version__
@@ -58,6 +59,13 @@ class DetailedHealthResponse(BaseModel):
     system: Dict[str, Any]
     performance: Dict[str, Any]
     statistics: Dict[str, Any] = None
+
+
+class ModelHealthResponse(BaseModel):
+    """Model health check response."""
+    embedding_model: str
+    embedding_dimension: int
+    backend: str
 
 
 # Track startup time for uptime calculation
@@ -105,6 +113,44 @@ async def health_check():
     (GHSA-73hc-m4hx-79pj).
     """
     return HealthResponse(status="healthy")
+
+
+@router.get("/health/model", response_model=ModelHealthResponse)
+async def model_health_check(
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access)
+):
+    """Model health check endpoint.
+    
+    Returns embedding model information for model matching validation.
+    Requires read access.
+    """
+    from fastapi import HTTPException
+    
+    # Get embedding model name from config
+    embedding_model = EMBEDDING_MODEL_NAME
+    if not embedding_model:
+        raise HTTPException(status_code=503, detail="Embedding model configuration not available")
+    
+    # Get embedding dimension and backend from storage
+    embedding_dimension = getattr(storage, 'embedding_dimension', 384)
+    backend = getattr(storage, 'backend', 'sqlite-vec')
+    if hasattr(storage, '__class__'):
+        backend_name = storage.__class__.__name__
+        if 'sqlite' in backend_name.lower():
+            backend = 'sqlite-vec'
+        elif 'cloudflare' in backend_name.lower():
+            backend = 'cloudflare'
+        elif 'hybrid' in backend_name.lower():
+            backend = 'hybrid'
+        elif 'remote' in backend_name.lower():
+            backend = 'remote'
+    
+    return ModelHealthResponse(
+        embedding_model=embedding_model,
+        embedding_dimension=embedding_dimension,
+        backend=backend
+    )
 
 
 def _backend_type(backend_name: str) -> str:

@@ -42,6 +42,12 @@ try:
 except ImportError:
     CloudflareStorage = None
 
+# Import RemoteHTTPStorage for HTTP secondary backend (tests need to patch it)
+try:
+    from .remote_http import RemoteHTTPStorage
+except ImportError:
+    RemoteHTTPStorage = None
+
 # Import SSE for real-time progress updates
 try:
     from ..web.sse import sse_manager, create_sync_progress_event, create_sync_completed_event
@@ -1075,6 +1081,7 @@ class HybridMemoryStorage(MemoryStorage):
             secondary_basic_user: Optional basic auth username for HTTP backend
             secondary_basic_pass: Optional basic auth password for HTTP backend
         """
+        self.embedding_model = embedding_model  # Store for model validation
         self.primary = SqliteVecMemoryStorage(
             db_path=sqlite_db_path,
             embedding_model=embedding_model
@@ -1100,8 +1107,6 @@ class HybridMemoryStorage(MemoryStorage):
 
         if backend_type == 'http' and url:
             # HTTP backend
-            from .remote_http import RemoteHTTPStorage  # Lazy import to avoid cycles
-            
             # Resolve auth parameters (kwargs take precedence over config)
             auth_style = secondary_auth_style or MCP_HYBRID_SECONDARY_AUTH_STYLE
             basic_user = secondary_basic_user or MCP_HYBRID_SECONDARY_BASIC_USER
@@ -1115,7 +1120,8 @@ class HybridMemoryStorage(MemoryStorage):
             http_kwargs = {
                 'base_url': url,
                 'api_key': api_key,
-                'auth_style': auth_style
+                'auth_style': auth_style,
+                'expected_embedding_model': self.embedding_model  # Pass expected model for validation
             }
             
             if basic_user:
@@ -1178,6 +1184,14 @@ class HybridMemoryStorage(MemoryStorage):
                     logger.info("Initial sync scheduled to run after server startup")
 
             except Exception as e:
+                # Import EmbeddingModelMismatchError to check for it
+                from .base import EmbeddingModelMismatchError
+                
+                # Re-raise EmbeddingModelMismatchError - service should refuse to start on model mismatch
+                if isinstance(e, EmbeddingModelMismatchError):
+                    raise
+                
+                # For all other exceptions, log and set secondary to None (graceful degradation)
                 logger.warning("Failed to initialize secondary storage: %s", _sanitize_log_value(e))
                 self.secondary = None
 
