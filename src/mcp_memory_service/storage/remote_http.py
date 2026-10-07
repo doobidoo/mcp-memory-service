@@ -42,7 +42,8 @@ class RemoteHTTPStorage(MemoryStorage):
         return False
 
     def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: float = 30.0,
-                 auth_style: str = 'bearer', basic_user: Optional[str] = None, basic_pass: Optional[str] = None):
+                 auth_style: str = 'bearer', basic_user: Optional[str] = None, basic_pass: Optional[str] = None,
+                 expected_embedding_model: Optional[str] = None):
         """
         Initialize Remote HTTP storage backend.
 
@@ -53,6 +54,7 @@ class RemoteHTTPStorage(MemoryStorage):
             auth_style: Authentication style ('bearer' or 'x-api-key')
             basic_user: Optional basic auth username
             basic_pass: Optional basic auth password
+            expected_embedding_model: Optional expected embedding model name for validation
         """
         # Validate auth_style
         if auth_style not in ('bearer', 'x-api-key'):
@@ -74,6 +76,7 @@ class RemoteHTTPStorage(MemoryStorage):
         self.auth_style = auth_style
         self.basic_user = basic_user
         self.basic_pass = basic_pass
+        self.expected_embedding_model = expected_embedding_model
 
         # Set up HTTP client with headers
         headers = {}
@@ -126,8 +129,71 @@ class RemoteHTTPStorage(MemoryStorage):
             raise
 
     async def initialize(self) -> None:
-        """Initialize the HTTP storage backend (no-op)."""
-        pass
+        """Initialize the HTTP storage backend and validate embedding model if expected."""
+        # If no expected model is specified, skip validation for backward compatibility
+        if self.expected_embedding_model is None:
+            return
+        
+        # Import the exception from storage.base
+        from .base import EmbeddingModelMismatchError
+        
+        try:
+            # Check the remote model via the health endpoint
+            response = await self._request("GET", "/api/health/model")
+            
+            if response.status_code != 200:
+                raise EmbeddingModelMismatchError(
+                    f"Unable to verify remote embedding model (HTTP {response.status_code})",
+                    local_model=self.expected_embedding_model,
+                    remote_model="unknown"
+                )
+            
+            try:
+                data = response.json()
+            except Exception as e:
+                raise EmbeddingModelMismatchError(
+                    f"Unable to parse remote model response: {e}",
+                    local_model=self.expected_embedding_model,
+                    remote_model="unknown"
+                )
+            
+            remote_model = data.get("embedding_model")
+            
+            if not remote_model:
+                raise EmbeddingModelMismatchError(
+                    "Remote embedding model field missing or empty",
+                    local_model=self.expected_embedding_model,
+                    remote_model=None
+                )
+            
+            if remote_model != self.expected_embedding_model:
+                raise EmbeddingModelMismatchError(
+                    f"Embedding model mismatch: expected '{self.expected_embedding_model}' but remote has '{remote_model}'",
+                    local_model=self.expected_embedding_model,
+                    remote_model=remote_model
+                )
+                
+        except httpx.ConnectError as e:
+            raise EmbeddingModelMismatchError(
+                f"Unable to connect to remote storage for model verification: {e}",
+                local_model=self.expected_embedding_model,
+                remote_model="inaccessible"
+            )
+        except httpx.TimeoutException as e:
+            raise EmbeddingModelMismatchError(
+                f"Timeout connecting to remote storage for model verification: {e}",
+                local_model=self.expected_embedding_model,
+                remote_model="inaccessible"
+            )
+        except EmbeddingModelMismatchError:
+            # Re-raise our specific exceptions
+            raise
+        except Exception as e:
+            raise EmbeddingModelMismatchError(
+                f"Unexpected error during model verification: {e}",
+                local_model=self.expected_embedding_model,
+                remote_model="unknown"
+            )
 
     async def close(self) -> None:
         """Close the HTTP client."""
