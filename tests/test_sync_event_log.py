@@ -575,3 +575,34 @@ class TestGreptilePhase1Fixes:
                                                content_hash=generate_content_hash("after atomic batch"),
                                                tags=["y"], memory_type="note"))
             assert ok, "connection must be usable after a rolled-back batch"
+
+    @pytest.mark.asyncio
+    async def test_batch_final_commit_failure_rolls_back_all(self, storage):
+        """greptile P2: cover the final-commit failure specifically — all inserts succeed
+        but the commit inside batch_insert fails; the batch must roll back (nothing
+        persisted) and report all items failed."""
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on", "MCP_SEMANTIC_DEDUP_ENABLED": "false"}):
+            mems = [
+                Memory(content=f"batch final commit {i}",
+                       content_hash=generate_content_hash(f"batch final commit {i}"),
+                       tags=["bfc"], memory_type="note")
+                for i in range(3)
+            ]
+            # conn.commit is read-only to patch; wrap the connection in a thin proxy that
+            # delegates everything but raises on commit().
+            real_conn = storage.conn
+            class _CommitFailsConn:
+                def __init__(self, c): self._c = c
+                def commit(self): raise RuntimeError("commit failed")
+                def __getattr__(self, name): return getattr(self._c, name)
+            storage.conn = _CommitFailsConn(real_conn)
+            try:
+                results = await storage.store_batch(mems)
+            finally:
+                storage.conn = real_conn
+            assert all(not ok for ok, _ in results), f"all results must be failure, got {results}"
+            live = storage.conn.execute(
+                "SELECT COUNT(*) FROM memories WHERE tags LIKE '%bfc%' AND deleted_at IS NULL"
+            ).fetchone()[0]
+            assert live == 0, "final-commit failure must roll the whole batch back"
