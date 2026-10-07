@@ -20,7 +20,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Sequence, Tuple
+from typing import List, Optional, Dict, Any, Sequence, Tuple, Set
 from datetime import datetime, timezone, timedelta, date
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
@@ -315,6 +315,19 @@ class MemoryStorage(ABC):
             Override in backends that support tombstones (e.g., sqlite_vec).
         """
         return False
+
+    async def list_content_hashes(self, include_deleted: bool = False) -> "Set[str]":
+        """Return the set of content hashes (RFC #1304 Phase 1). Default delegates
+        to get_all_content_hashes when present; backends without it return empty."""
+        getter = getattr(self, 'get_all_content_hashes', None)
+        if getter is not None:
+            return await getter(include_deleted=include_deleted)
+        return set()
+
+    async def list_content_hashes_page(self, after_id: int = 0, limit: int = 1000, include_deleted: bool = False) -> "List[Tuple[int, str]]":
+        """Cursor-paginated (id-based) list of (id, content_hash). Default returns []
+        for backends without an efficient paginated listing."""
+        return []
 
     async def health_probe(self) -> bool:
         """
