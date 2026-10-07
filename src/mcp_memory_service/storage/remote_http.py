@@ -250,10 +250,18 @@ class RemoteHTTPStorage(MemoryStorage):
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage stats via HTTP GET."""
         try:
-            response = await self._request("GET", "/api/memories")
+            # Use page=1&page_size=1 to get total count with minimal payload
+            response = await self._request("GET", "/api/memories", params={"page": 1, "page_size": 1})
 
             if response.status_code == 200:
-                return response.json()
+                data = response.json()
+                total = data.get("total", 0)  # Extract exact count from server
+                return {
+                    "total_memories": total,
+                    "storage_backend": "RemoteHTTP",
+                    "backend": "http",
+                    "status": "connected",
+                }
             else:
                 response.raise_for_status()
                 return {
@@ -336,7 +344,7 @@ class RemoteHTTPStorage(MemoryStorage):
         """List content hashes page via HTTP GET with pagination."""
         try:
             params = {
-                "after_id": after_id,
+                "cursor": after_id,  # Use 'cursor' not 'after_id' to align with endpoint
                 "limit": limit,
                 "include_deleted": include_deleted
             }
@@ -345,15 +353,23 @@ class RemoteHTTPStorage(MemoryStorage):
 
             if response.status_code == 200:
                 data = response.json()
-                hashes = data.get("hashes", [])
+                hashes = data.get("hashes", [])  # List[str] format
+                next_cursor = data.get("next_cursor")  # int|None
                 
                 # Convert response to expected format: List[Tuple[int, str]]
+                # Server only exposes one cursor for the whole page. Assign the page's next_cursor
+                # (last-item id) to the final tuple; interim items get a synthetic ascending id
+                # derived from after_id so callers that only read the hash (list_content_hashes) work,
+                # and page-boundary callers can read the last id.
                 result = []
-                for hash_entry in hashes:
-                    if isinstance(hash_entry, dict):
-                        hash_id = hash_entry.get("id", 0)
-                        hash_value = hash_entry.get("hash", "")
-                        result.append((hash_id, hash_value))
+                for i, hash_value in enumerate(hashes):
+                    if i == len(hashes) - 1 and next_cursor is not None:
+                        # Last item gets the real next_cursor (last-item id from server)
+                        item_id = next_cursor
+                    else:
+                        # Interim items get synthetic ascending ids derived from cursor
+                        item_id = after_id + i + 1
+                    result.append((int(item_id), hash_value))
                     
                 return result
             else:

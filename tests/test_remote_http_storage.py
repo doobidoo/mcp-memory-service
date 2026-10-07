@@ -237,38 +237,41 @@ class TestRemoteHTTPStorageServibleMethods:
     
     @pytest.mark.asyncio
     async def test_get_stats_http_call(self, http_storage):
-        """get_stats() should make GET /api/memories (or stats endpoint)."""
-        # Mock successful response
+        """get_stats() should make GET /api/memories with page=1&page_size=1 to get total count."""
+        # Mock successful response with MemoryListResponse format
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "total_memories": 42,
-            "storage_backend": "RemoteHTTP",
-            "status": "operational"
+            "memories": [],
+            "total": 42,  # Our implementation extracts this field
+            "page": 1,
+            "page_size": 1,
+            "has_more": False
         }
         mock_response.status_code = 200
         
         with patch.object(http_storage, '_request', return_value=mock_response) as mock_request:
             stats = await http_storage.get_stats()
             
-            # Verify HTTP call was made 
-            assert mock_request.called
-            call_args = mock_request.call_args
-            assert call_args[0][0] == "GET"  # method
-            assert "/api/" in call_args[0][1]  # path contains /api/
+            # Verify HTTP call was made with pagination params
+            mock_request.assert_called_once_with(
+                "GET", 
+                "/api/memories", 
+                params={"page": 1, "page_size": 1}
+            )
             
             assert isinstance(stats, dict)
-            assert stats["total_memories"] == 42
+            assert stats["total_memories"] == 42  # Extracted from response["total"]
+            assert stats["storage_backend"] == "RemoteHTTP"
+            assert stats["backend"] == "http"
+            assert stats["status"] == "connected"
     
     @pytest.mark.asyncio
     async def test_list_content_hashes_page_http_call(self, http_storage):
-        """list_content_hashes_page() should make GET /api/memories/hashes with pagination."""
-        # Mock successful response
+        """list_content_hashes_page() should make GET /api/memories/hashes with cursor param."""
+        # Mock successful response with List[str] format (our new implementation)
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "hashes": [
-                {"id": 1, "hash": "hash1"},
-                {"id": 2, "hash": "hash2"}
-            ],
+            "hashes": ["hash1", "hash2"],  # List[str] format, not dict
             "next_cursor": 100,
             "has_more": True
         }
@@ -279,18 +282,21 @@ class TestRemoteHTTPStorageServibleMethods:
                 after_id=50, limit=10, include_deleted=False
             )
             
-            # Verify HTTP call with query params
+            # Verify HTTP call with cursor param (not after_id)
             mock_request.assert_called_once_with(
                 "GET",
                 "/api/memories/hashes",
                 params={
-                    "after_id": 50,
+                    "cursor": 50,  # Changed from after_id to cursor
                     "limit": 10, 
                     "include_deleted": False
                 }
             )
             
-            assert result == [(1, "hash1"), (2, "hash2")]
+            # Verify result format: List[Tuple[int, str]] with synthetic IDs
+            assert len(result) == 2
+            assert result[0] == (51, "hash1")  # synthetic id: after_id + i + 1
+            assert result[1] == (100, "hash2")  # last item gets next_cursor
     
     @pytest.mark.asyncio
     async def test_list_content_hashes_accumulates_pages(self, http_storage):

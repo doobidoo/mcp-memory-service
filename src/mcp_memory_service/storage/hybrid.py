@@ -187,6 +187,34 @@ async def _fetch_secondary_content_hashes(secondary) -> Optional[set]:
     return hashes
 
 
+async def _secondary_hash_set(secondary) -> Optional[set]:
+    """Return the secondary's non-deleted content-hash set, or None if the
+    secondary cannot answer a bulk hash fetch by ANY supported mechanism.
+
+    Order of preference:
+      1. D1 fast path (Cloudflare)         -> _fetch_secondary_content_hashes
+      2. Generic serviceable path (HTTP)   -> secondary.list_content_hashes()
+    
+    INVARIANT: For Cloudflare secondaries, this MUST call _fetch_secondary_content_hashes
+    and NEVER fall back to list_content_hashes (preserves CF byte-identical path).
+    """
+    # Try CF D1 fast path first (byte-identical for CF)
+    d1_hashes = await _fetch_secondary_content_hashes(secondary)
+    if d1_hashes is not None:
+        return d1_hashes
+        
+    # Fall back to generic serviceable path for non-CF secondaries (HTTP)
+    if hasattr(secondary, 'list_content_hashes'):
+        try:
+            return await secondary.list_content_hashes(include_deleted=False)
+        except NotImplementedError:
+            return None
+        except Exception as e:
+            logger.warning("Secondary list_content_hashes failed: %s", _sanitize_log_value(e))
+            return None
+    return None
+
+
 class BackgroundSyncService:
     """
     Handles background synchronization between SQLite-vec and Cloudflare.
@@ -1180,7 +1208,7 @@ class HybridMemoryStorage(MemoryStorage):
                 # bulk-hash fetch force_sync uses for the reverse direction) before
                 # concluding there is nothing to pull. If the secondary can't answer a
                 # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior.
-                secondary_hashes = await _fetch_secondary_content_hashes(self.secondary)
+                secondary_hashes = await _secondary_hash_set(self.secondary)
                 missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
                 if not missing_hashes:
                     logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
@@ -1259,6 +1287,82 @@ class HybridMemoryStorage(MemoryStorage):
                 }
 
             missing_count = secondary_count - primary_count
+
+            # Check if secondary supports CF-style memory scanning
+            has_cf_scan = (hasattr(self.secondary, 'get_all_memories_cursor') or 
+                          type(self.secondary).get_all_memories is not MemoryStorage.get_all_memories)
+            
+            if not has_cf_scan:
+                # Non-CF secondary (HTTP): use serviceable hash-diff + get_by_hash path
+                logger.info("Secondary doesn't support CF scan, using hash-diff approach")
+                secondary_hashes = await _secondary_hash_set(self.secondary) 
+                missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else set()
+                if not missing_hashes:
+                    logger.info("No new memories to sync from secondary (hash-diff check)")
+                    return {
+                        'success': True,
+                        'memories_synced': 0,
+                        'total_checked': 0,
+                        'message': 'No new memories to pull from secondary',
+                        'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                    }
+                
+                # Pull by the specific missing hashes
+                missing_count = len(missing_hashes)
+                logger.info("Pulling %s cloud-only memories from secondary by hash (%s sync)", missing_count, sync_type)
+                synced_count = 0
+                failed_count = 0
+                for content_hash in missing_hashes:
+                    try:
+                        # Tombstone check: deleted locally means propagate the delete, not re-pull
+                        if hasattr(self.primary, 'is_deleted') and await self.primary.is_deleted(content_hash):
+                            logger.debug("Memory %s was deleted locally, skipping sync", _sanitize_log_value(content_hash[:8]))
+                            if self.sync_service:
+                                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                                await self.sync_service.enqueue_operation(operation)
+                            continue
+                        # Get the memory from secondary
+                        memory = await self.secondary.get_by_hash(content_hash)
+                        if memory is None:
+                            failed_count += 1
+                            logger.warning("Secondary memory %s disappeared or was deleted before pull", _sanitize_log_value(content_hash[:8]))
+                            continue
+                        success, message = await self.primary.store(memory)
+                        if success:
+                            synced_count += 1
+                            local_hashes.add(content_hash)
+                        else:
+                            failed_count += 1
+                            logger.warning("Failed to sync memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(message))
+                    except Exception as e:
+                        failed_count += 1
+                        logger.warning("Error syncing memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
+
+                time_taken = time.time() - sync_start_time
+                logger.info("%s sync completed: %s/%s memories in %.2fs", sync_type.capitalize(), synced_count, missing_count, time_taken)
+
+                if broadcast_sse and SSE_AVAILABLE:
+                    try:
+                        completion_event = create_sync_completed_event(
+                            synced_count=synced_count,
+                            total_count=missing_count,
+                            time_taken_seconds=time_taken,
+                            sync_type=sync_type
+                        )
+                        await sse_manager.broadcast_event(completion_event)
+                    except Exception as e:
+                        logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
+
+                return {
+                    'success': failed_count == 0,
+                    'memories_synced': synced_count,
+                    'total_checked': missing_count,
+                    'message': f'Successfully pulled {synced_count} memories from secondary' if failed_count == 0
+                               else f'Pulled {synced_count} of {missing_count} memories from secondary ({failed_count} failed)',
+                    'time_taken_seconds': round(time_taken, 3)
+                }
+
+            # CF secondary: use original scan logic (BYTE-IDENTICAL)
 
             # Pull missing memories from Cloudflare using optimized batch processing
             synced_count = 0
