@@ -5697,6 +5697,11 @@ class MemoryDashboard {
         const container = document.getElementById('graphVisualizationContainer');
         if (!container) return;
 
+        // Loads can overlap (Refresh clicked twice, or a select changed mid-load).
+        // Only the most recent one may touch the graph; a slower, older response
+        // must not render over it or clear its state.
+        const requestId = (this._graphLoadId = (this._graphLoadId || 0) + 1);
+
         try {
             const limit = document.getElementById('graphLimitSelect')?.value || 100;
             const minConnections = document.getElementById('graphMinConnectionsSelect')?.value || 1;
@@ -5708,6 +5713,7 @@ class MemoryDashboard {
             }
 
             const data = await this.apiCall(`/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
+            if (requestId !== this._graphLoadId) return;
 
             if (!data || !data.nodes || data.nodes.length === 0) {
                 this._clearGraphData();
@@ -5729,6 +5735,7 @@ class MemoryDashboard {
             this.renderGraphVisualization(container, data);
         } catch (error) {
             console.error('Failed to load graph visualization:', error);
+            if (requestId !== this._graphLoadId) return;
             this._clearGraphData();
             container.innerHTML = '<p class="error">Failed to load graph visualization</p>';
         }
