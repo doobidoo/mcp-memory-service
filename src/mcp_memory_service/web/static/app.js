@@ -5710,6 +5710,7 @@ class MemoryDashboard {
             const data = await this.apiCall(`/analytics/graph-visualization?limit=${limit}&min_connections=${minConnections}`);
 
             if (!data || !data.nodes || data.nodes.length === 0) {
+                this._clearGraphData();
                 container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
                 return;
             }
@@ -5728,6 +5729,7 @@ class MemoryDashboard {
             this.renderGraphVisualization(container, data);
         } catch (error) {
             console.error('Failed to load graph visualization:', error);
+            this._clearGraphData();
             container.innerHTML = '<p class="error">Failed to load graph visualization</p>';
         }
     }
@@ -5758,6 +5760,12 @@ class MemoryDashboard {
 
         // PoC (Orrery-style): tear down any prior 3D instance bound to this slot
         this._disposeGraph3D(isFullscreen);
+
+        // Likewise stop the previous 2D simulation for this slot: every re-render
+        // (type pill, degree slider) builds a new one, and the old one would keep
+        // ticking against detached nodes until it cooled on its own.
+        const previousSimulation = isFullscreen ? this.fullscreenSimulation : this.graphSimulation;
+        if (previousSimulation) previousSimulation.stop();
 
         // Default to 3D once the (ESM, deferred) 3d-force-graph module has set
         // window.ForceGraph3D. Don't cache `false` — the module may still be
@@ -6171,6 +6179,17 @@ class MemoryDashboard {
         const label = document.getElementById('graphDegreeValue');
         if (label) label.textContent = String(this.minGraphDegree);
         this.applyGraphTypeFilter();
+    }
+
+    /**
+     * Drop the loaded graph and put the degree filter back to idle. Used when a
+     * reload returns nothing or fails, so the slider and the type pills cannot
+     * redraw the previous graph over the empty-result or error message.
+     */
+    _clearGraphData() {
+        this.currentGraphData = null;
+        this.minGraphDegree = 1;
+        this._syncDegreeSlider(1, 1);
     }
 
     /**
