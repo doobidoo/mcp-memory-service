@@ -187,6 +187,34 @@ async def _fetch_secondary_content_hashes(secondary) -> Optional[set]:
     return hashes
 
 
+async def _secondary_hash_set(secondary) -> Optional[set]:
+    """Return the secondary's non-deleted content-hash set, or None if the
+    secondary cannot answer a bulk hash fetch by ANY supported mechanism.
+
+    Order of preference:
+      1. D1 fast path (Cloudflare)         -> _fetch_secondary_content_hashes
+      2. Generic serviceable path (HTTP)   -> secondary.list_content_hashes()
+    
+    INVARIANT: For Cloudflare secondaries, this MUST call _fetch_secondary_content_hashes
+    and NEVER fall back to list_content_hashes (preserves CF byte-identical path).
+    """
+    # Try CF D1 fast path first (byte-identical for CF)
+    d1_hashes = await _fetch_secondary_content_hashes(secondary)
+    if d1_hashes is not None:
+        return d1_hashes
+        
+    # Fall back to generic serviceable path for non-CF secondaries (HTTP)
+    if hasattr(secondary, 'list_content_hashes'):
+        try:
+            return await secondary.list_content_hashes(include_deleted=False)
+        except NotImplementedError:
+            return None
+        except Exception as e:
+            logger.warning("Secondary list_content_hashes failed: %s", _sanitize_log_value(e))
+            return None
+    return None
+
+
 class BackgroundSyncService:
     """
     Handles background synchronization between SQLite-vec and Cloudflare.
@@ -994,9 +1022,15 @@ class HybridMemoryStorage(MemoryStorage):
                  embedding_model: str = "all-MiniLM-L6-v2",
                  cloudflare_config: Dict[str, Any] = None,
                  sync_interval: int = 300,
-                 batch_size: int = 50):
+                 batch_size: int = 50,
+                 secondary_backend: Optional[str] = None,
+                 secondary_url: Optional[str] = None,
+                 secondary_api_key: Optional[str] = None,
+                 secondary_auth_style: Optional[str] = None,
+                 secondary_basic_user: Optional[str] = None,
+                 secondary_basic_pass: Optional[str] = None):
         """
-        Initialize hybrid storage with primary SQLite-vec and secondary Cloudflare.
+        Initialize hybrid storage with primary SQLite-vec and secondary backend.
 
         Args:
             sqlite_db_path: Path to SQLite-vec database file
@@ -1004,21 +1038,68 @@ class HybridMemoryStorage(MemoryStorage):
             cloudflare_config: Cloudflare configuration dict
             sync_interval: Background sync interval in seconds (default: 5 minutes)
             batch_size: Batch size for sync operations (default: 50)
+            secondary_backend: Optional secondary backend type ('http' or 'cloudflare')
+            secondary_url: Optional URL for HTTP secondary backend
+            secondary_api_key: Optional API key for HTTP secondary backend
+            secondary_auth_style: Optional auth style for HTTP backend ('bearer' or 'x-api-key')
+            secondary_basic_user: Optional basic auth username for HTTP backend
+            secondary_basic_pass: Optional basic auth password for HTTP backend
         """
         self.primary = SqliteVecMemoryStorage(
             db_path=sqlite_db_path,
             embedding_model=embedding_model
         )
 
-        # Initialize Cloudflare storage if config provided
+        # Initialize secondary storage based on backend type
         self.secondary = None
         self.sync_service = None
 
-        if cloudflare_config and all(key in cloudflare_config for key in
+        # Resolve secondary backend (kwarg takes precedence over config)
+        from ..config.storage import (MCP_HYBRID_SECONDARY_BACKEND, MCP_HYBRID_SECONDARY_URL, 
+                                     MCP_HYBRID_SECONDARY_API_KEY, MCP_HYBRID_SECONDARY_AUTH_STYLE,
+                                     MCP_HYBRID_SECONDARY_BASIC_USER, MCP_HYBRID_SECONDARY_BASIC_PASS)
+        
+        backend_type = (secondary_backend or MCP_HYBRID_SECONDARY_BACKEND or '').lower()
+        url = secondary_url or MCP_HYBRID_SECONDARY_URL
+        api_key = secondary_api_key or MCP_HYBRID_SECONDARY_API_KEY
+
+        # Fix Bug #2: Explicit error when HTTP backend requested without URL
+        if backend_type == 'http' and not url:
+            raise ValueError("HTTP backend requested but no URL provided. "
+                           "Please set secondary_url parameter or MCP_HYBRID_SECONDARY_URL environment variable.")
+
+        if backend_type == 'http' and url:
+            # HTTP backend
+            from .remote_http import RemoteHTTPStorage  # Lazy import to avoid cycles
+            
+            # Resolve auth parameters (kwargs take precedence over config)
+            auth_style = secondary_auth_style or MCP_HYBRID_SECONDARY_AUTH_STYLE
+            basic_user = secondary_basic_user or MCP_HYBRID_SECONDARY_BASIC_USER
+            basic_pass = secondary_basic_pass or MCP_HYBRID_SECONDARY_BASIC_PASS
+            
+            # Auto-select x-api-key when basic auth is provided (avoid bearer+basic conflict)
+            if basic_user and basic_pass and auth_style == 'bearer':
+                auth_style = 'x-api-key'
+            
+            # Build kwargs for RemoteHTTPStorage
+            http_kwargs = {
+                'base_url': url,
+                'api_key': api_key,
+                'auth_style': auth_style
+            }
+            
+            if basic_user:
+                http_kwargs['basic_user'] = basic_user
+            if basic_pass:
+                http_kwargs['basic_pass'] = basic_pass
+                
+            self.secondary = RemoteHTTPStorage(**http_kwargs)
+        elif cloudflare_config and all(key in cloudflare_config for key in
                                     ['api_token', 'account_id', 'vectorize_index', 'd1_database_id']):
+            # Cloudflare backend
             self.secondary = CloudflareStorage(**cloudflare_config)
         else:
-            logger.warning("Cloudflare config incomplete, running in SQLite-only mode")
+            logger.warning("No valid secondary backend config, running in SQLite-only mode")
 
         self.sync_interval = sync_interval
         self.batch_size = batch_size
@@ -1048,7 +1129,8 @@ class HybridMemoryStorage(MemoryStorage):
         if self.secondary:
             try:
                 await self.secondary.initialize()
-                logger.info("Secondary storage (Cloudflare) initialized")
+                secondary_name = self.secondary.__class__.__name__
+                logger.info("Secondary storage (%s) initialized", secondary_name)
 
                 # Start background sync service
                 self.sync_service = BackgroundSyncService(
@@ -1131,7 +1213,7 @@ class HybridMemoryStorage(MemoryStorage):
                 # bulk-hash fetch force_sync uses for the reverse direction) before
                 # concluding there is nothing to pull. If the secondary can't answer a
                 # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior.
-                secondary_hashes = await _fetch_secondary_content_hashes(self.secondary)
+                secondary_hashes = await _secondary_hash_set(self.secondary)
                 missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
                 if not missing_hashes:
                     logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
@@ -1210,6 +1292,82 @@ class HybridMemoryStorage(MemoryStorage):
                 }
 
             missing_count = secondary_count - primary_count
+
+            # Check if secondary supports CF-style memory scanning
+            has_cf_scan = (hasattr(self.secondary, 'get_all_memories_cursor') or 
+                          type(self.secondary).get_all_memories is not MemoryStorage.get_all_memories)
+            
+            if not has_cf_scan:
+                # Non-CF secondary (HTTP): use serviceable hash-diff + get_by_hash path
+                logger.info("Secondary doesn't support CF scan, using hash-diff approach")
+                secondary_hashes = await _secondary_hash_set(self.secondary) 
+                missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else set()
+                if not missing_hashes:
+                    logger.info("No new memories to sync from secondary (hash-diff check)")
+                    return {
+                        'success': True,
+                        'memories_synced': 0,
+                        'total_checked': 0,
+                        'message': 'No new memories to pull from secondary',
+                        'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                    }
+                
+                # Pull by the specific missing hashes
+                missing_count = len(missing_hashes)
+                logger.info("Pulling %s cloud-only memories from secondary by hash (%s sync)", missing_count, sync_type)
+                synced_count = 0
+                failed_count = 0
+                for content_hash in missing_hashes:
+                    try:
+                        # Tombstone check: deleted locally means propagate the delete, not re-pull
+                        if hasattr(self.primary, 'is_deleted') and await self.primary.is_deleted(content_hash):
+                            logger.debug("Memory %s was deleted locally, skipping sync", _sanitize_log_value(content_hash[:8]))
+                            if self.sync_service:
+                                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                                await self.sync_service.enqueue_operation(operation)
+                            continue
+                        # Get the memory from secondary
+                        memory = await self.secondary.get_by_hash(content_hash)
+                        if memory is None:
+                            failed_count += 1
+                            logger.warning("Secondary memory %s disappeared or was deleted before pull", _sanitize_log_value(content_hash[:8]))
+                            continue
+                        success, message = await self.primary.store(memory)
+                        if success:
+                            synced_count += 1
+                            local_hashes.add(content_hash)
+                        else:
+                            failed_count += 1
+                            logger.warning("Failed to sync memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(message))
+                    except Exception as e:
+                        failed_count += 1
+                        logger.warning("Error syncing memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
+
+                time_taken = time.time() - sync_start_time
+                logger.info("%s sync completed: %s/%s memories in %.2fs", sync_type.capitalize(), synced_count, missing_count, time_taken)
+
+                if broadcast_sse and SSE_AVAILABLE:
+                    try:
+                        completion_event = create_sync_completed_event(
+                            synced_count=synced_count,
+                            total_count=missing_count,
+                            time_taken_seconds=time_taken,
+                            sync_type=sync_type
+                        )
+                        await sse_manager.broadcast_event(completion_event)
+                    except Exception as e:
+                        logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
+
+                return {
+                    'success': failed_count == 0,
+                    'memories_synced': synced_count,
+                    'total_checked': missing_count,
+                    'message': f'Successfully pulled {synced_count} memories from secondary' if failed_count == 0
+                               else f'Pulled {synced_count} of {missing_count} memories from secondary ({failed_count} failed)',
+                    'time_taken_seconds': round(time_taken, 3)
+                }
+
+            # CF secondary: use original scan logic (BYTE-IDENTICAL)
 
             # Pull missing memories from Cloudflare using optimized batch processing
             synced_count = 0
