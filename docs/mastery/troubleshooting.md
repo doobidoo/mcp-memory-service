@@ -56,6 +56,34 @@ Fixes:
 - Set all required envs: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_VECTORIZE_INDEX`, `CLOUDFLARE_D1_DATABASE_ID`. Optional: `CLOUDFLARE_R2_BUCKET`.
 - Validate resources via Wrangler or dashboard; see `docs/cloudflare-setup.md`.
 
+## HTTP Secondary Refuses to Start: Embedding Model Mismatch
+
+Symptoms:
+
+- Startup aborts with `EmbeddingModelMismatchError`, naming a local model and a
+  remote (hub) model that differ, e.g. `expected 'all-MiniLM-L6-v2' but remote has
+  'paraphrase-multilingual-MiniLM-L12-v2'`.
+- Or the message reports the remote model as `unknown`/`inaccessible` (the hub did
+  not return a model, responded non-200, or was unreachable).
+
+Why:
+
+- With an HTTP secondary, both nodes must embed with the **same** model. Memories
+  are re-embedded on store, so divergent models produce incomparable vectors and
+  silently degrade recall. The check is fail-closed by design — it refuses to start
+  rather than let the divergence happen.
+
+Fixes:
+
+- Make `MCP_EMBEDDING_MODEL` identical on the client and the hub. Confirm the hub's
+  value with `GET /api/health/model` (authenticated).
+- If the hub model is reported as unknown/inaccessible, check that the hub is up,
+  reachable, and that the auth config (`MCP_HYBRID_SECONDARY_API_KEY` /
+  `MCP_HYBRID_SECONDARY_AUTH_STYLE` / basic-auth creds) is correct.
+- To change the model intentionally: update `MCP_EMBEDDING_MODEL` on **every** node
+  AND re-embed the hub's existing memories. Changing the env and restarting alone
+  leaves the stored vectors incompatible with the new model.
+
 ## Port/Coordination Conflicts
 
 Symptoms:

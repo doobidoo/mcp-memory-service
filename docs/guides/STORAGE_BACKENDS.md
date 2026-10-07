@@ -89,6 +89,13 @@ For self-hosted or on-premise deployments, the Hybrid backend can sync to a remo
 
 This provides the same local SQLite-vec read performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts.
 
+> **Embedding model must match.** The client and the hub must use the same
+> `MCP_EMBEDDING_MODEL`. On startup the client verifies the hub's model via
+> `GET /api/health/model` and refuses to start (fail-closed) on a mismatch or an
+> unreachable model, since divergent models produce incomparable vectors and
+> degrade recall. See the configuration guide, "Embedding model match", for details
+> and the re-embed requirement when changing models.
+
 ```bash
 export MCP_MEMORY_STORAGE_BACKEND=hybrid
 export MCP_HYBRID_SECONDARY_BACKEND=http

@@ -16,7 +16,7 @@ This document summarizes the Memory Service architecture, components, data flow,
   - Backends:
     - SQLite-vec: `src/mcp_memory_service/storage/sqlite_vec.py` (default for dev / single-user).
     - Cloudflare: `src/mcp_memory_service/storage/cloudflare.py` (Vectorize + D1 + optional R2).
-    - Hybrid: `src/mcp_memory_service/storage/hybrid.py` (local SQLite-vec reads + background Cloudflare sync — recommended for production).
+    - Hybrid: `src/mcp_memory_service/storage/hybrid.py` (local SQLite-vec reads + background sync to a secondary backend (Cloudflare or remote HTTP), with Cloudflare-only steps capability-gated — recommended for production).
   - Historical: ChromaDB was supported prior to v8.0.0; see [guides/chromadb-migration.md](../guides/chromadb-migration.md).
 - CLI:
   - Entry points: `memory`, `memory-server`, `mcp-memory-server` (pyproject scripts).
@@ -33,7 +33,7 @@ This document summarizes the Memory Service architecture, components, data flow,
    - Embeddings generated via `sentence-transformers` (or ONNX disabled path) and stored alongside content and metadata in SQLite; vector search via `vec0` virtual table.
    - WAL mode + busy timeouts for concurrent access; many clients share one HTTP server instead (see integration/multi-client.md).
 4. For Cloudflare: Vectorize (vectors), D1 (metadata), R2 (large content); HTTPx for API calls.
-5. For Hybrid: reads served from local SQLite-vec; writes mirror to Cloudflare via a background sync task (see `MCP_HYBRID_SYNC_OWNER`).
+5. For Hybrid: reads served from local SQLite-vec; writes mirror to a secondary backend (Cloudflare or remote HTTP), with Cloudflare-only steps capability-gated via a background sync task (see `MCP_HYBRID_SYNC_OWNER`).
 6. Results map back to `Memory`/`MemoryQueryResult` and are returned to the MCP client.
 
 ## MCP Integration Patterns

@@ -234,3 +234,25 @@ export MCP_HYBRID_SECONDARY_BASIC_PASS=nginx-password
 ```
 
 This configuration provides the same local SQLite-vec performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts and credentials.
+
+#### Embedding model match (startup safety check)
+
+When the HTTP secondary is active, the client verifies at startup that the hub's
+configured embedding model matches its own. Both nodes **must** use the same model
+(`MCP_EMBEDDING_MODEL`): memories are re-embedded on store, so a mismatch produces
+vectors that are not comparable and silently degrades recall.
+
+- The hub exposes its configured model via an authenticated endpoint,
+  `GET /api/health/model` (requires read access), returning `embedding_model`,
+  `embedding_dimension` and `backend`.
+- On `initialize()`, the client fetches that value and compares it to its own
+  `MCP_EMBEDDING_MODEL`. The check is **fail-closed**: a mismatch, a missing model
+  field, or an unreachable hub all raise `EmbeddingModelMismatchError` and the
+  service refuses to start, naming both the local and the remote model.
+- The check only runs for the HTTP secondary. It is a no-op for the Cloudflare
+  secondary and for a SQLite-only (non-hybrid) deployment.
+
+If you intentionally change the embedding model, update `MCP_EMBEDDING_MODEL` on
+**every** node *and* re-embed the hub's existing memories — restarting with a new
+model name alone leaves the stored vectors incompatible. See the troubleshooting
+guide entry "HTTP secondary refuses to start: embedding model mismatch".
