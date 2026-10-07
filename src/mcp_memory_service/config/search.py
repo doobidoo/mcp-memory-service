@@ -1,10 +1,14 @@
-"""Hybrid search configuration — BM25 + vector fusion, weights."""
+"""Search configuration — summarization policy, hybrid fusion, and weights."""
 import os
 import logging
 
 from .base import safe_get_int_env, safe_get_bool_env
 
 logger = logging.getLogger(__name__)
+
+# Operator permission to send search results to the Harvest LLM providers.
+# Independent of provider configuration and the caller's summarize flag.
+MCP_SEARCH_SUMMARIZE_ENABLED = safe_get_bool_env('MCP_SEARCH_SUMMARIZE_ENABLED', False)
 
 # =============================================================================
 # Hybrid Search Configuration (v10.8.0+)

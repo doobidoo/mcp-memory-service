@@ -7,6 +7,17 @@ import httpx
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def enable_search_summarization(monkeypatch):
+    """Existing behavior tests run with explicit operator permission."""
+    from mcp_memory_service.config import search as search_config
+
+    # Seed the proposed setting when tests run against the base branch too.
+    monkeypatch.setattr(
+        search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", True, raising=False
+    )
+
+
 @pytest.mark.asyncio
 async def test_summarizer_returns_summary_with_valid_source_hashes(llm_post):
     from mcp_memory_service.services.search_summarizer import (

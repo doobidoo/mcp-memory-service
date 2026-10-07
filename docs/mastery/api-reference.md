@@ -208,6 +208,11 @@ tool: memory_search
 args: { "query": "What caused the replication consistency issue?", "summarize": true }
 ```
 
+Requires the operator to set `MCP_SEARCH_SUMMARIZE_ENABLED=true` (off by default)
+and restart the server, in addition to configuring an LLM provider. This permits
+both local and remote read-scope clients to request summaries. While disabled,
+the tool returns raw results with a warning and makes no summarization provider call.
+
 The successful response is JSON containing `summary`, `source_hashes`, a metadata
 `snapshot`, and counts of summarized/omitted records. Original memories stay
 stored; failures return raw results with a warning. See
