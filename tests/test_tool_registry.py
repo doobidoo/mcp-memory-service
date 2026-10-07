@@ -67,6 +67,7 @@ class TestToolRegistry:
         assert summarize is not None
         assert summarize["type"] == "boolean"
         assert summarize.get("default") is False
+        assert "MCP_SEARCH_SUMMARIZE_ENABLED=true" in summarize["description"]
         assert "summarize" not in search_tool.input_schema.get("required", [])
         assert search_tool.annotations["readOnlyHint"] is True
 

@@ -41,20 +41,31 @@ than every retrieved memory verbatim:
 {"query": "replication message bus consistency", "limit": 10, "summarize": true}
 ```
 
-The flag defaults to `false`. Retrieval, filters, search fallback, and retrieval
-plugins run first. Summarization then uses the existing Harvest LLM provider chain;
+The caller's flag defaults to `false`. The server operator must also explicitly
+set `MCP_SEARCH_SUMMARIZE_ENABLED=true` and restart the server. This setting is
+off by default, independently of Harvest and provider configuration; unset,
+empty, or invalid values leave it disabled. When disabled, `summarize: true`
+returns raw results with a **Summarization unavailable: disabled by
+MCP_SEARCH_SUMMARIZE_ENABLED** warning and makes no summarization provider call.
+
+Retrieval, filters, search fallback, and retrieval plugins run first.
+Summarization then uses the existing Harvest LLM provider chain;
 it does not require Harvest to be enabled. For example, a local OpenAI-compatible
 endpoint can be configured with:
 
 ```bash
+MCP_SEARCH_SUMMARIZE_ENABLED=true
 HARVEST_LLM_PROVIDERS=local
 HARVEST_LLM_LOCAL_BASE_URL=http://localhost:11434/v1
 HARVEST_LLM_LOCAL_MODEL=your-installed-model
 ```
 
 Add `HARVEST_LLM_LOCAL_API_KEY` if the endpoint requires authentication. The legacy
-`GROQ_API_KEY` configuration also works. Opting in sends the query and selected
-memory records to those configured providers; a local endpoint keeps this local.
+`GROQ_API_KEY` configuration also works, but does not enable search summarization
+on its own. Operator permission applies to local and remote clients, including
+read-scope MCP clients. They can then request summaries that send the query and
+selected memory records to the configured providers and consume provider quota.
+Use a provider chain containing only local endpoints to keep this data on-host.
 
 The complete input prompt is capped at **12,000 characters**, including the query,
 instructions, and metadata. Records that do not fit are omitted whole, and later

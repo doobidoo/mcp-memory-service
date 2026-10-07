@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from mcp_memory_service.config import search as search_config
 from mcp_memory_service.harvest.rewriter import HarvestRewriter
 
 # A misbehaving OpenAI-compatible endpoint may ignore max_tokens entirely.
@@ -27,6 +28,10 @@ Return only the answer with citations, without a preamble or a sources list.
 
 class SearchSummarizationError(ValueError):
     """A summary cannot safely preserve its source references or metadata."""
+
+
+class SearchSummarizationDisabled(PermissionError):
+    """The operator has not permitted LLM calls for search summaries."""
 
 
 @dataclass
@@ -61,7 +66,7 @@ class MemorySearchSummarizer:
         max_input_chars: int = 12000,
         timeout: float = 30.0,
     ) -> None:
-        self._rewriter = rewriter if rewriter is not None else HarvestRewriter()
+        self._rewriter = rewriter
         self._max_input_chars = max_input_chars
         self._timeout = timeout
 
@@ -73,9 +78,16 @@ class MemorySearchSummarizer:
         Invalid keep-sets or model output raise ``SearchSummarizationError``;
         provider failures and timeouts propagate so the handler can visibly
         fall back to raw search results. Request cancellation also propagates.
+        Operator policy is enforced here for every caller, including direct use.
         """
+        if not search_config.MCP_SEARCH_SUMMARIZE_ENABLED:
+            raise SearchSummarizationDisabled(
+                "disabled by MCP_SEARCH_SUMMARIZE_ENABLED"
+            )
         if not query or not query.strip() or not memories:
             return None
+        if self._rewriter is None:
+            self._rewriter = HarvestRewriter()
         if not self._rewriter.is_configured:
             return None
 
