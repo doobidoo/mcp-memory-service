@@ -228,8 +228,9 @@ class StoreMixin:
             # Retry-safe: if a previous attempt left a transaction open (e.g. a mid-batch
             # "database is locked"), clear it before starting, so a re-run does not hit
             # "cannot start a transaction within a transaction" (greptile P1). Then open the
-            # explicit transaction that spans the whole batch.
-            if self.conn.in_transaction:
+            # explicit transaction that spans the whole batch. getattr guards test doubles
+            # that don't expose `in_transaction`.
+            if getattr(self.conn, 'in_transaction', False):
                 self.conn.rollback()
             self.conn.execute('BEGIN')
             for j, memory in enumerate(memories):
