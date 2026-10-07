@@ -292,6 +292,7 @@ async def tag_search(
             store=resolve_store(request.store),
             tags=request.tags,
             tag_match="all" if request.match_all else "any",
+            exclude_pending=True,  # search surface: hide possibly-stale vectors (ADR-0016)
         )
         if time_start is not None:
             memories = [

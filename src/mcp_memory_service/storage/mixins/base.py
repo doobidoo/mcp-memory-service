@@ -448,17 +448,25 @@ SOLUTIONS:
             # Physical time same or went backwards, increment logical
             hlc_physical = last_physical
             hlc_logical = last_logical + 1
-
-        # INSERT event with HLC values
+        # Record embedding version metadata for create operations (ADR-0014)
+        embedding_model = None
+        embedding_dim = None
+        if op == 'create' and hasattr(self, 'embedding_model_name') and hasattr(self, 'embedding_dimension'):
+            embedding_model = self.embedding_model_name
+            embedding_dim = self.embedding_dimension
+        
+        # INSERT event with HLC values and embedding metadata
         # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
         conn.execute("""
             INSERT OR IGNORE INTO sync_events (
-                schema_version, agent_id, event_id, op, content_hash,
-                payload, created_at, created_at_iso, hlc_physical, hlc_logical
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                schema_version, agent_id, event_id, op, content_hash, 
+                payload, created_at, created_at_iso, hlc_physical, hlc_logical,
+                embedding_model, embedding_dim
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             schema_version, agent_id, event_id, op, content_hash,
-            json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical
+            json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical,
+            embedding_model, embedding_dim
         ))
 
         # Update last_hlc in metadata (ADR-0011) - same transaction
