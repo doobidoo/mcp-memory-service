@@ -184,6 +184,10 @@ class CloudflareStorage(MemoryStorage):
     def requires_metadata_normalization(self) -> bool:
         return True
 
+    @property
+    def supports_delete_operations(self) -> bool:
+        return True
+
     def __init__(self,
                  api_token: str,
                  account_id: str,

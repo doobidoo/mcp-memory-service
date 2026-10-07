@@ -771,6 +771,9 @@ class BackgroundSyncService:
                     raise Exception(f"Update operation failed: {message}")
 
             elif operation.operation == 'delete_by_timeframe':
+                if not getattr(self.secondary, 'supports_delete_operations', False):
+                    logger.warning("Secondary %s does not support date-range deletes; skipping remote delete_by_timeframe (local delete already applied)", type(self.secondary).__name__)
+                    return
                 # Delete memories by timeframe in secondary storage
                 if operation.start_date and operation.end_date:
                     success, message = await self.secondary.delete_by_timeframe(
@@ -786,6 +789,9 @@ class BackgroundSyncService:
                     raise ValueError("delete_by_timeframe operation missing start_date or end_date")
 
             elif operation.operation == 'delete_before_date':
+                if not getattr(self.secondary, 'supports_delete_operations', False):
+                    logger.warning("Secondary %s does not support date-range deletes; skipping remote delete_before_date (local delete already applied)", type(self.secondary).__name__)
+                    return
                 # Delete memories before date in secondary storage
                 if operation.before_date:
                     success, message = await self.secondary.delete_before_date(
@@ -887,6 +893,18 @@ class BackgroundSyncService:
             - failed: Number of sync failures
         """
         if not self.drift_check_enabled:
+            return {'checked': 0, 'drift_detected': 0, 'synced': 0, 'failed': 0}
+
+        # Drift reconciliation needs the secondary to expose a bulk updated-memory
+        # listing. An HTTP secondary inherits supports_delete_operations=False and
+        # has no such listing (the base get_all_memories returns empty), so running
+        # the scan would silently advance the last-check clock without reconciling
+        # anything. Skip explicitly instead (greptile P1, PR #1474).
+        if not getattr(self.secondary, 'supports_delete_operations', False):
+            logger.debug(
+                "Secondary %s does not support bulk drift listing; skipping drift scan",
+                type(self.secondary).__name__,
+            )
             return {'checked': 0, 'drift_detected': 0, 'synced': 0, 'failed': 0}
 
         logger.info("Starting drift detection scan (dry_run=%s)...", dry_run)

@@ -63,6 +63,11 @@ class MemoryStorage(ABC):
         """Backend needs metadata normalized/compressed before store (e.g. Cloudflare). Default False."""
         return False
 
+    @property
+    def supports_delete_operations(self) -> bool:
+        """Backend supports bulk date-range delete + drift listing (e.g. Cloudflare). Default False."""
+        return False
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the storage backend."""
