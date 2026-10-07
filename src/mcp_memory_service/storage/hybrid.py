@@ -1186,11 +1186,23 @@ class HybridMemoryStorage(MemoryStorage):
             except Exception as e:
                 # Import EmbeddingModelMismatchError to check for it
                 from .base import EmbeddingModelMismatchError
-                
+
                 # Re-raise EmbeddingModelMismatchError - service should refuse to start on model mismatch
                 if isinstance(e, EmbeddingModelMismatchError):
+                    # Close both backends before propagating so a failed startup does not
+                    # leak the already-initialized primary or the secondary's HTTP client
+                    # (greptile P2 #1476). Best-effort: closing errors must not mask the mismatch.
+                    for backend in (self.secondary, self.primary):
+                        if backend is not None and hasattr(backend, 'close'):
+                            try:
+                                result = backend.close()
+                                if asyncio.iscoroutine(result):
+                                    await result
+                            except Exception as close_err:
+                                logger.debug("Error closing backend after model mismatch: %s",
+                                             _sanitize_log_value(close_err))
                     raise
-                
+
                 # For all other exceptions, log and set secondary to None (graceful degradation)
                 logger.warning("Failed to initialize secondary storage: %s", _sanitize_log_value(e))
                 self.secondary = None

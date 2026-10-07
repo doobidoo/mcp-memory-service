@@ -126,14 +126,29 @@ async def model_health_check(
     Requires read access.
     """
     from fastapi import HTTPException
-    
-    # Get embedding model name from config
-    embedding_model = EMBEDDING_MODEL_NAME
-    if not embedding_model:
+
+    # Prefer the model the STORAGE actually embeds with (source of truth for the
+    # vectors) over the global config value — a hub whose storage was built with a
+    # different model must advertise the real one, or a client would pass the
+    # startup check against an incompatible hub (greptile P1 #1476).
+    # For hybrid, the primary (sqlite-vec) owns the embedding; fall through to it.
+    model_source = storage
+    is_hybrid = 'hybrid' in type(storage).__name__.lower()
+    if is_hybrid and getattr(storage, 'primary', None) is not None:
+        model_source = storage.primary
+
+    embedding_model = getattr(model_source, 'embedding_model_name', None) or EMBEDDING_MODEL_NAME
+    if not isinstance(embedding_model, str) or not embedding_model:
         raise HTTPException(status_code=503, detail="Embedding model configuration not available")
-    
-    # Get embedding dimension and backend from storage
-    embedding_dimension = getattr(storage, 'embedding_dimension', 384)
+
+    # Dimension: read from the real embedding source (primary for hybrid), not a
+    # hardcoded 384 (greptile P2 #1476). Only fall back when genuinely unknown.
+    embedding_dimension = getattr(model_source, 'embedding_dimension', None)
+    if not isinstance(embedding_dimension, int):
+        embedding_dimension = getattr(storage, 'embedding_dimension', None)
+    if not isinstance(embedding_dimension, int):
+        embedding_dimension = 384
+
     backend = getattr(storage, 'backend', 'sqlite-vec')
     if hasattr(storage, '__class__'):
         backend_name = storage.__class__.__name__
