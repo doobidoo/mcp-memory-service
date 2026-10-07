@@ -284,6 +284,7 @@
   "analytics.graphVisualization": "交互式图形可视化",
   "analytics.graphNodes": "节点",
   "analytics.minConnections": "最小连接数",
+  "analytics.minDegree": "最小度数",
   "analytics.refresh": "刷新",
   "analytics.loadingGraph": "加载图形中...",
   "analytics.legend": "图例",
