@@ -2,6 +2,7 @@
 
 import copy
 import json
+import runpy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,6 +15,17 @@ from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.tools.routing import resolve_handler
 from mcp_memory_service.utils.hashing import generate_content_hash
+
+
+@pytest.fixture(autouse=True)
+def enable_search_summarization(monkeypatch):
+    """Existing behavior tests run with explicit operator permission."""
+    from mcp_memory_service.config import search as search_config
+
+    # Seed the proposed setting when tests run against the base branch too.
+    monkeypatch.setattr(
+        search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", True, raising=False
+    )
 
 
 @pytest.fixture
@@ -79,6 +91,71 @@ async def search(server, **arguments):
             {"query": "replication ordering", "mode": "exact", **arguments},
         )
     )[0].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("setting", [None, "false", "invalid"])
+@pytest.mark.parametrize("provider_config", ["chain", "legacy"])
+async def test_disabled_policy_preserves_raw_results_without_calling_provider(
+    search_server, monkeypatch, llm_post, setting, provider_config
+):
+    from mcp_memory_service.config import search as search_config
+    from mcp_memory_service.harvest.rewriter import HarvestRewriter
+
+    if setting is None:
+        monkeypatch.delenv("MCP_SEARCH_SUMMARIZE_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("MCP_SEARCH_SUMMARIZE_ENABLED", setting)
+    settings = runpy.run_path(
+        search_config.__file__, run_name="mcp_memory_service.config._policy_test"
+    )
+    monkeypatch.setattr(
+        search_config,
+        "MCP_SEARCH_SUMMARIZE_ENABLED",
+        settings["MCP_SEARCH_SUMMARIZE_ENABLED"],
+    )
+    if provider_config == "legacy":
+        monkeypatch.delenv("HARVEST_LLM_PROVIDERS")
+        monkeypatch.setenv("HARVEST_LLM_PROVIDER", "groq")
+        monkeypatch.setenv("GROQ_API_KEY", "test-key-not-a-real-credential")
+    assert HarvestRewriter().is_configured
+    provider_call = AsyncMock()
+    monkeypatch.setattr(HarvestRewriter, "_call_llm", provider_call)
+    server, storage, rows = search_server
+    before = [(await storage.get_by_hash(row.content_hash)).to_dict() for row in rows]
+    raw = await search(server)
+
+    response = await search(server, summarize=True)
+
+    assert response == (
+        "Summarization unavailable: disabled by MCP_SEARCH_SUMMARIZE_ENABLED. "
+        "Returning raw results.\n\n" + raw
+    )
+    provider_call.assert_not_called()
+    llm_post.assert_not_called()
+    assert [
+        (await storage.get_by_hash(row.content_hash)).to_dict() for row in rows
+    ] == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [1, 100, 2500])
+async def test_disabled_policy_respects_response_limit(
+    search_server, monkeypatch, llm_post, cap
+):
+    from mcp_memory_service.config import search as search_config
+
+    monkeypatch.setattr(search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", False)
+    server, _, rows = search_server
+    response = await search(server, summarize=True, max_response_chars=cap)
+
+    assert len(response) <= cap
+    assert response.startswith("Summarization unavailable"[:cap])
+    if cap == 2500:
+        assert "disabled by MCP_SEARCH_SUMMARIZE_ENABLED" in response
+        assert response.count("=== Memory") == 1
+        assert any(row.content in response for row in rows)
+    llm_post.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -412,9 +489,13 @@ async def test_retrieval_error_does_not_call_llm(search_server, llm_post):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer", ["Ordering matters [1].", "Invented source [999]."])
-async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, answer):
+@pytest.mark.parametrize("operator_enabled", [False, True])
+async def test_http_mcp_round_trip_with_read_scope(
+    search_server, monkeypatch, answer, operator_enabled
+):
     from fastapi import FastAPI
 
+    from mcp_memory_service.config import search as search_config
     from mcp_memory_service.server import MemoryServer
     from mcp_memory_service.web.api import mcp as mcp_module
     from mcp_memory_service.web.oauth.middleware import (
@@ -422,6 +503,7 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
         require_read_access,
     )
 
+    monkeypatch.setattr(search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", operator_enabled)
     _, storage, rows = search_server
     rows[0].record_access("HTTP private prior query")
     assert await storage.update_memory(rows[0])
@@ -506,13 +588,16 @@ async def test_http_mcp_round_trip_with_read_scope(search_server, monkeypatch, a
     text = wire_result["result"]["content"][0]["text"]
     assert "HTTP private prior query" not in text
     assert "access_queries" not in text
-    if "999" in answer:
+    if not operator_enabled:
+        assert "disabled by MCP_SEARCH_SUMMARIZE_ENABLED" in text
+        assert all(memory.content in text for memory in rows)
+    elif "999" in answer:
         assert "Summarization unavailable" in text
         assert all(memory.content in text for memory in rows)
     else:
         result = json.loads(text)
         assert result["summary"] == answer
         assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
-    assert len(provider_requests) == 1
+    assert len(provider_requests) == int(operator_enabled)
     stored = await storage.get_by_hash(rows[0].content_hash)
     assert stored.metadata["access_queries"][0]["query"] == "HTTP private prior query"

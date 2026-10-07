@@ -1210,9 +1210,12 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         if arguments.get("summarize") is True and memories:
             # Run only after retrieval, fallback, filters, and plugins. Keep the
             # original result intact for a read-only, recoverable fallback.
-            try:
-                from ...services.search_summarizer import MemorySearchSummarizer
+            from ...services.search_summarizer import (
+                MemorySearchSummarizer,
+                SearchSummarizationDisabled,
+            )
 
+            try:
                 summary = await MemorySearchSummarizer().summarize(query, memories)
                 if summary is None:
                     reason = "a query and a configured LLM provider are required"
@@ -1246,6 +1249,8 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
                     ):
                         return [types.TextContent(type="text", text=summary_text)]
                     reason = "summary and source metadata exceed max_response_chars"
+            except SearchSummarizationDisabled as e:
+                reason = str(e)
             except Exception as e:
                 # Do not expose provider errors or retrieved content to callers.
                 logger.warning(

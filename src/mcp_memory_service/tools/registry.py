@@ -329,7 +329,9 @@ Examples:
                     "description": (
                         "Return a query-aware LLM summary of the retrieved memories "
                         "with source hashes and preserved metadata instead of their "
-                        "full contents. Requires a query and a configured LLM provider. "
+                        "full contents. Requires operator permission via "
+                        "MCP_SEARCH_SUMMARIZE_ENABLED=true (off by default), a query, "
+                        "and a configured LLM provider. "
                         "Falls back to raw results with a warning on failure."
                     ),
                 },
