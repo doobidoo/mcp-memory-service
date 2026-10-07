@@ -162,11 +162,13 @@ class StoreMixin:
                     if hasattr(self, '_append_sync_event'):
                         payload = {
                             'content_hash': memory.content_hash,
+                            'content': memory.content,
                             'memory_type': memory.memory_type,
                             'tags': memory.tags or [],
                             'created_at': memory.created_at,
                             'updated_at': memory.updated_at,
-                            'metadata': memory.metadata or {}
+                            'metadata': memory.metadata or {},
+                            'store': store,
                         }
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
                     
@@ -273,11 +275,13 @@ class StoreMixin:
                     if hasattr(self, '_append_sync_event'):
                         payload = {
                             'content_hash': memory.content_hash,
+                            'content': memory.content,
                             'memory_type': memory.memory_type,
                             'tags': memory.tags or [],
                             'created_at': memory.created_at,
                             'updated_at': memory.updated_at,
-                            'metadata': memory.metadata or {}
+                            'metadata': memory.metadata or {},
+                            'store': store,
                         }
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
 
@@ -315,6 +319,16 @@ class StoreMixin:
             error_msg = f"Batch transaction failed: {e}"
             logger.error("%s", _sanitize_log_value(error_msg))
             logger.error("%s", _sanitize_log_value(traceback.format_exc()))
+            # Roll the whole batch transaction back under the lock. batch_insert re-raised
+            # after rolling back only the failing item's SAVEPOINT; earlier items were
+            # RELEASE'd but never committed, so they linger in the open transaction and
+            # would otherwise leak into the next unrelated commit (greptile P1). Rolling
+            # back here under the same lock discards them atomically.
+            try:
+                async with self._savepoint_lock:
+                    await self._execute_with_retry(self.conn.rollback)
+            except Exception as rb_err:
+                logger.error("Batch rollback failed: %s", _sanitize_log_value(rb_err))
             for j in range(len(memories)):
                 if results[j] is None:
                     results[j] = (False, error_msg)

@@ -9,6 +9,7 @@ import platform
 import time
 import random
 import threading
+import uuid
 import asyncio
 from typing import List, Optional, Callable
 
@@ -405,17 +406,19 @@ SOLUTIONS:
         # Kill-switch: only append events if explicitly enabled
         if not os.getenv('MCP_SYNC_EVENTLOG', '').lower() in ('on', 'true', '1'):
             return
-        
-        import uuid
-        import json
-        
+
         # Generate event identity (UUIDv4, coordination-free)
         event_id = str(uuid.uuid4())
         
-        # Get agent_id from environment or memory metadata (NULL = legacy/unattributed)
+        # Get agent_id from environment or memory metadata. SQLite treats NULL as distinct
+        # in a UNIQUE(agent_id, event_id), so a NULL agent would let the same event_id be
+        # inserted twice, breaking replay idempotency (greptile P1). Use a non-null sentinel
+        # for unattributed/legacy events so the uniqueness constraint always applies.
         agent_id = os.getenv('MCP_AGENT_ID')
         if not agent_id and payload.get('metadata'):
             agent_id = payload['metadata'].get('agent_id')
+        if not agent_id:
+            agent_id = 'unknown'  # non-null sentinel: keeps UNIQUE(agent_id, event_id) effective
         
         # Current timestamp
         created_at = time.time()

@@ -164,33 +164,36 @@ class MetadataMixin:
                     set_clauses.append("superseded_by = ?")
                     params.append(new_superseded_by)
                 params.append(content_hash)
-                self.conn.execute(
-                    f"UPDATE memories SET {', '.join(set_clauses)} "
-                    "WHERE content_hash = ? AND deleted_at IS NULL",
-                    tuple(params),
-                )
-                
-                # Append sync event between UPDATE and commit (ADR-0008)
-                if hasattr(self, '_append_sync_event'):
-                    payload = {
-                        'content_hash': content_hash,
-                        'updates': updates,
-                        'updated_at': updated_at
-                    }
-                    self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
-
+                # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
+                # WITHIN this serialized operation — never with a bare rollback outside the
+                # lock, which could discard another worker's transaction (greptile P1).
+                sp = f"update_meta_{os.urandom(4).hex()}"
+                self.conn.execute(f"SAVEPOINT {sp}")
+                try:
+                    cur = self.conn.execute(
+                        f"UPDATE memories SET {', '.join(set_clauses)} "
+                        "WHERE content_hash = ? AND deleted_at IS NULL",
+                        tuple(params),
+                    )
+                    # Only emit an event if a live row was actually updated — if the memory
+                    # was deleted between the existence check and here, rowcount is 0 and we
+                    # must NOT log a mutation that never happened (greptile P1).
+                    if cur.rowcount > 0 and hasattr(self, '_append_sync_event'):
+                        payload = {
+                            'content_hash': content_hash,
+                            'updates': updates,
+                            'updated_at': updated_at,
+                        }
+                        self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
+                    self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                except Exception:
+                    # Fail-closed (ADR-0008): discard the UPDATE and the event together.
+                    self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                    self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                    raise
                 self.conn.commit()
 
-            try:
-                await self._execute_with_retry(_do_update)
-            except Exception:
-                # Fail-closed (ADR-0008): if the UPDATE or the event append fails, roll back
-                # the pending transaction so metadata is never mutated without its event.
-                try:
-                    self.conn.rollback()
-                except Exception:
-                    pass
-                raise
+            await self._execute_with_retry(_do_update)
 
             updated_fields = []
             if "tags" in updates:

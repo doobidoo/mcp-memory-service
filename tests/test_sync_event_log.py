@@ -482,3 +482,61 @@ class TestSyncEventLog:
             "SELECT COUNT(*) FROM sync_events WHERE content_hash = ?", ("helper-off",),
         )
         assert cursor.fetchone()[0] == 0, "Helper must be a no-op when MCP_SYNC_EVENTLOG is off"
+
+class TestGreptilePhase1Fixes:
+    """Regression tests for the Greptile review findings on PR #1478 (delta-sync Phase 1)."""
+
+    @pytest_asyncio.fixture
+    async def storage(self):
+        temp_dir = tempfile.mkdtemp()
+        db_path = os.path.join(temp_dir, "test_greptile_fixes.db")
+        storage = SqliteVecMemoryStorage(db_path)
+        await storage.initialize()
+        yield storage
+        if storage.conn:
+            storage.conn.close()
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    @pytest.mark.asyncio
+    async def test_null_agent_uses_non_null_sentinel(self, storage):
+        """greptile P1: without MCP_AGENT_ID, agent_id must be a non-null sentinel so
+        UNIQUE(agent_id, event_id) stays effective (SQLite treats NULL as distinct)."""
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}, clear=False):
+            os.environ.pop("MCP_AGENT_ID", None)
+            c = "null agent sentinel probe"
+            await storage.store(Memory(content=c, content_hash=generate_content_hash(c),
+                                       tags=["x"], memory_type="note"))
+            agent = storage.conn.execute("SELECT agent_id FROM sync_events LIMIT 1").fetchone()[0]
+            assert agent is not None and agent != "", f"agent_id must be a non-null sentinel, got {agent!r}"
+
+    @pytest.mark.asyncio
+    async def test_create_event_payload_carries_content_and_store(self, storage):
+        """greptile P1: a create event must carry content and store so a delta reader can
+        reconstruct the memory without a separate enrichment step."""
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+            c = "create payload content probe"
+            await storage.store(Memory(content=c, content_hash=generate_content_hash(c),
+                                       tags=["x"], memory_type="note"))
+            payload = json.loads(storage.conn.execute(
+                "SELECT payload FROM sync_events WHERE op='create' LIMIT 1").fetchone()[0])
+            assert payload.get("content") == c, "create payload must carry content"
+            assert "store" in payload, "create payload must carry the store partition"
+
+    @pytest.mark.asyncio
+    async def test_update_on_deleted_row_emits_no_event(self, storage):
+        """greptile P1: if the row is gone (deleted) when the UPDATE runs, no event is
+        emitted (rowcount 0 must not log a mutation that didn't happen)."""
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+            c = "update rowcount probe"
+            h = generate_content_hash(c)
+            await storage.store(Memory(content=c, content_hash=h, tags=["x"], memory_type="note"))
+            await storage.delete(h)  # soft-delete
+            before = storage.conn.execute(
+                "SELECT COUNT(*) FROM sync_events WHERE op='update_metadata' AND content_hash=?", (h,)
+            ).fetchone()[0]
+            # Update a now-deleted row — must not emit an update_metadata event.
+            await storage.update_memory_metadata(h, {"metadata": {"x": 1}})
+            after = storage.conn.execute(
+                "SELECT COUNT(*) FROM sync_events WHERE op='update_metadata' AND content_hash=?", (h,)
+            ).fetchone()[0]
+            assert after == before, "no update_metadata event for an UPDATE that matched no live row"
