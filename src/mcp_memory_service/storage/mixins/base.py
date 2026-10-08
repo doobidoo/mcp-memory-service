@@ -495,47 +495,58 @@ SOLUTIONS:
             # sync_events table doesn't exist yet
             return
 
-        # 1. Backfill any events that still have NULL HLC values.
-        cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
-        null_count = cursor.fetchone()[0]
+        # Acquire the SQLite write lock BEFORE reading the clock, and hold it through the
+        # commit. Otherwise another process sharing this DB (N agents / 1 service) could commit
+        # newer events between our reads and our INSERT OR REPLACE, and we'd overwrite the newer
+        # clock with older values — rewinding last_hlc and letting the next event repeat/regress
+        # its HLC (Greptile P1 race). BEGIN IMMEDIATE takes the RESERVED lock up front, making the
+        # read-then-write atomic against other writers.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            # 1. Backfill any events that still have NULL HLC values.
+            cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
+            null_count = cursor.fetchone()[0]
 
-        if null_count > 0:
-            conn.execute("""
-                UPDATE sync_events
-                SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
-                    hlc_logical = seq
-                WHERE hlc_physical IS NULL OR hlc_logical IS NULL
+            if null_count > 0:
+                conn.execute("""
+                    UPDATE sync_events
+                    SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
+                        hlc_logical = seq
+                    WHERE hlc_physical IS NULL OR hlc_logical IS NULL
+                """)
+                logger.info("Backfilled HLC values for %d events with NULL HLC", null_count)
+
+            # 2. Reconcile last_hlc to MAX(hlc) across all events. ALWAYS run this (not only on
+            # first seed): if we backfilled above into an already-seeded DB, the stored last_hlc
+            # may now sit below a backfilled event's clock. Take the max of the persisted clock and
+            # the observed event clock so the next event's HLC can never regress (ADR-0011).
+            prev = dict(conn.execute(
+                "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            ).fetchall())
+            prev_physical = int(prev.get('sync_hlc_physical', '0'))
+            prev_logical = int(prev.get('sync_hlc_logical', '0'))
+
+            cursor = conn.execute("""
+                SELECT MAX(hlc_physical), MAX(hlc_logical)
+                FROM sync_events
+                WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
             """)
-            logger.info("Backfilled HLC values for %d events with NULL HLC", null_count)
+            row = cursor.fetchone()
+            max_physical = row[0] if row and row[0] is not None else 0
+            max_logical = row[1] if row and row[1] is not None else 0
 
-        # 2. Reconcile last_hlc to MAX(hlc) across all events. ALWAYS run this (not only on
-        # first seed): if we backfilled above into an already-seeded DB, the stored last_hlc
-        # may now sit below a backfilled event's clock. Take the max of the persisted clock and
-        # the observed event clock so the next event's HLC can never regress (ADR-0011).
-        prev = dict(conn.execute(
-            "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
-        ).fetchall())
-        prev_physical = int(prev.get('sync_hlc_physical', '0'))
-        prev_logical = int(prev.get('sync_hlc_logical', '0'))
+            new_physical = max(prev_physical, max_physical)
+            new_logical = max(prev_logical, max_logical)
 
-        cursor = conn.execute("""
-            SELECT MAX(hlc_physical), MAX(hlc_logical)
-            FROM sync_events
-            WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
-        """)
-        row = cursor.fetchone()
-        max_physical = row[0] if row and row[0] is not None else 0
-        max_logical = row[1] if row and row[1] is not None else 0
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(new_physical),))
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(new_logical),))
+            logger.info("HLC reconciled at startup: physical=%s, logical=%s", new_physical, new_logical)
 
-        new_physical = max(prev_physical, max_physical)
-        new_logical = max(prev_logical, max_logical)
-
-        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(new_physical),))
-        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(new_logical),))
-        logger.info("HLC reconciled at startup: physical=%s, logical=%s", new_physical, new_logical)
-
-        # Commit before returning (standalone init step; never leave the write lock held).
-        conn.commit()
+            # Commit before returning (standalone init step; never leave the write lock held).
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def _apply_stale_days_filter(conditions: list, params: list, stale_days: Optional[int], table_alias: str = "") -> None:
