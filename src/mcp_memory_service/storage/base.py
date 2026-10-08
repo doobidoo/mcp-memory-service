@@ -939,6 +939,7 @@ class MemoryStorage(ABC):
         include_embeddings: bool = False,
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
