@@ -657,8 +657,11 @@ class MemoryStorage(ABC):
                         }
 
             # Fallback: Load all memories and filter in Python (slower but always works)
+            # NOTE: this is the DELETE path — keep the full listing (no exclude_pending).
+            # Deletion must never skip pending rows (they would silently survive and reappear
+            # in search after embedding repair). Pending exclusion belongs on SEARCH paths only.
             if not use_optimized:
-                all_memories = await self.get_all_memories(exclude_pending=True)
+                all_memories = await self.get_all_memories()
 
                 for memory in all_memories:
                     # Tag filter
