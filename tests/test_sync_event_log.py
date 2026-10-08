@@ -1016,11 +1016,13 @@ class TestDeltaSyncHLC:
     @pytest.mark.asyncio
     async def test_ca6_backfill_phase1_events(self, storage):
         """
-        CA6 (NF1 backfill): Events without HLC should get backfilled values.
-        Expected to FAIL: migration 016 backfill logic not implemented.
+        CA6 (NF1 backfill): Phase 1 events without HLC get backfilled at STARTUP.
+
+        Backfill lives in _seed_last_hlc_on_first_boot (startup), NOT in the write hot
+        path (_append_sync_event only reads last_hlc from metadata — Greptile P2). So we
+        insert a NULL-HLC Phase 1 event, then reopen the storage (simulating a restart)
+        to trigger the seed/backfill, and assert the row was repaired.
         """
-        # Simulate a Phase 1 event (without HLC) by direct SQL insertion
-        # This bypasses the HLC generation to simulate pre-migration data
         import json as _json
 
         content_hash = "phase1-backfill-test"
@@ -1039,37 +1041,28 @@ class TestDeltaSyncHLC:
         ))
         storage.conn.commit()
 
-        # Get the seq value that was generated
+        # Get the seq value that was generated and confirm HLC starts NULL
         cursor = storage.conn.execute("""
             SELECT seq, hlc_physical, hlc_logical FROM sync_events
             WHERE content_hash = ?
         """, (content_hash,))
         seq, hlc_physical, hlc_logical = cursor.fetchone()
-
-        # Verify HLC is initially NULL
         assert hlc_physical is None, "HLC should be NULL before backfill"
         assert hlc_logical is None, "HLC should be NULL before backfill"
 
-        # Trigger backfill by performing a sync event operation
-        # This should invoke the lazy backfill logic in _append_sync_event
-        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
-            trigger_memory = Memory(
-                content="Trigger backfill",
-                content_hash=generate_content_hash("Trigger backfill"),
-                tags=["trigger"],
-                memory_type="note"
-            )
-            await storage.store(trigger_memory)
+        # Trigger backfill by reopening the storage (restart → _seed_last_hlc_on_first_boot).
+        db_path = storage.db_path
+        storage.conn.close()
+        new_storage = SqliteVecMemoryStorage(db_path)
+        await new_storage.initialize()
 
-        # Now check if the backfill happened
-        cursor = storage.conn.execute("""
+        # Now the Phase 1 event must be repaired deterministically.
+        cursor = new_storage.conn.execute("""
             SELECT seq, hlc_physical, hlc_logical FROM sync_events
             WHERE content_hash = ?
         """, (content_hash,))
         seq, hlc_physical, hlc_logical = cursor.fetchone()
 
-        # For this test, we expect backfill to have happened during the store operation
-        # If lazy backfill is implemented correctly
         expected_physical = int(created_at * 1000)
         expected_logical = seq
 
@@ -1102,3 +1095,65 @@ class TestDeltaSyncHLC:
         new_create = EventView(hlc_physical=150, hlc_logical=0, agent_id="A",
                                event_id="evt-create-new", op="create", content_hash=content_hash)
         assert resolve(delete_evt, new_create) is new_create
+
+    @pytest.mark.asyncio
+    async def test_startup_backfill_does_not_regress_last_hlc(self, storage):
+        """
+        Greptile P1: a backfill on an already-seeded DB must reconcile last_hlc to the
+        MAX observed clock, so the next event cannot receive an older HLC.
+
+        Scenario: seed last_hlc low (physical=10), then inject a Phase 1 event whose
+        backfilled clock (created_at*1000) is far higher. After restart (seed +
+        reconcile), last_hlc must be >= the backfilled event, and the next real store
+        must produce a strictly greater HLC — never a regression.
+        """
+        import json as _json
+
+        # Force a low persisted last_hlc to simulate a stale seed.
+        storage.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', '10')")
+        storage.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', '0')")
+
+        # Inject a Phase 1 event with NO HLC whose created_at maps to a high physical clock.
+        high_created_at = 1_900_000_000.0  # *1000 => 1_900_000_000_000, far above 10
+        storage.conn.execute("""
+            INSERT INTO sync_events
+            (schema_version, agent_id, event_id, op, content_hash, payload, created_at, seq)
+            VALUES (1, ?, ?, 'create', ?, ?, ?, ?)
+        """, (
+            "p1-agent", str(uuid.uuid4()), "p1-regress-hash",
+            _json.dumps({"content_hash": "p1-regress-hash", "op": "create"}),
+            high_created_at, None,
+        ))
+        storage.conn.commit()
+
+        # Restart → _seed_last_hlc_on_first_boot backfills AND reconciles last_hlc.
+        db_path = storage.db_path
+        storage.conn.close()
+        new_storage = SqliteVecMemoryStorage(db_path)
+        await new_storage.initialize()
+
+        prev = dict(new_storage.conn.execute(
+            "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+        ).fetchall())
+        reconciled_physical = int(prev["sync_hlc_physical"])
+        backfilled_physical = int(high_created_at * 1000)
+        assert reconciled_physical >= backfilled_physical, (
+            f"last_hlc must reconcile up to the backfilled clock, got {reconciled_physical} "
+            f"< {backfilled_physical} (would hand the next event an older HLC)"
+        )
+
+        # The next real store must not regress below the backfilled event.
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+            c = "post-restart store"
+            await new_storage.store(
+                Memory(content=c, content_hash=generate_content_hash(c),
+                       tags=["regress"], memory_type="note"),
+                skip_semantic_dedup=True,
+            )
+        row = new_storage.conn.execute(
+            "SELECT MAX(hlc_physical) FROM sync_events WHERE content_hash = ?",
+            (generate_content_hash("post-restart store"),),
+        ).fetchone()
+        assert row[0] >= backfilled_physical, (
+            f"new event HLC {row[0]} regressed below backfilled {backfilled_physical}"
+        )

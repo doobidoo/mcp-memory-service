@@ -20,5 +20,8 @@ UPDATE metadata SET value = '15' WHERE key = 'schema_version';
 
 -- ===== PART B — optional, SQLite >= 3.35 only (skip on older engines) =====
 -- If your SQLite is < 3.35, STOP here: the downgrade is already complete above.
+-- Re-upgrade safety: if you skip Part B and later re-apply migration 016, the runner's
+-- baseline probe detects the retained hlc_physical column and stamps v16 as applied instead
+-- of re-running ADD COLUMN (which would fail duplicate-column). See migration_runner probes.
 ALTER TABLE sync_events DROP COLUMN hlc_logical;
 ALTER TABLE sync_events DROP COLUMN hlc_physical;
