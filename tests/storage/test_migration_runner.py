@@ -100,3 +100,51 @@ def test_migration_runner_sync_idempotent(setup_migrations):
     assert result2["error"] is None
     assert len(result2["applied"]) == 0
     assert len(result2["skipped"]) == 2
+
+
+@pytest.mark.unit
+def test_stamp_baseline_recovers_v16_after_partial_rollback(tmp_path):
+    """Greptile P3: a partial rollback that keeps v15 registered but removes the v16
+    registry row (while retaining the hlc columns) must NOT make the next upgrade re-run
+    the unconditional ADD COLUMN and fail with duplicate-column.
+
+    _stamp_baseline must probe versions ABSENT from the registry (not early-return just
+    because the registry is non-empty), so it detects the retained hlc_physical column and
+    stamps v16 as applied, letting run_pending skip the forward ADD COLUMN.
+    """
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    # Minimal stand-ins mirroring the real 015/016 shapes and their unconditional DDL.
+    (migrations_dir / "015_add_sync_events.sql").write_text(
+        "CREATE TABLE sync_events (seq INTEGER PRIMARY KEY, content_hash TEXT);"
+    )
+    (migrations_dir / "016_add_hlc_to_sync_events.sql").write_text(
+        "ALTER TABLE sync_events ADD COLUMN hlc_physical INTEGER;\n"
+        "ALTER TABLE sync_events ADD COLUMN hlc_logical INTEGER;"
+    )
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+    runner = MigrationRunner(migrations_dir)
+    first = runner.run_pending(conn)
+    assert first["error"] is None
+    assert {m["version"] for m in first["applied"]} == {15, 16}
+
+    # Simulate a partial manual rollback of 016: drop ONLY the registry row + schema_version,
+    # but keep the hlc columns (older SQLite path that cannot DROP COLUMN).
+    conn.execute("DELETE FROM migration_registry WHERE version = 16")
+    conn.execute("UPDATE metadata SET value = '15' WHERE key = 'schema_version'")
+    conn.commit()
+    # Sanity: v15 still registered, v16 gone, column retained.
+    regd = {r[0] for r in conn.execute("SELECT version FROM migration_registry").fetchall()}
+    assert 15 in regd and 16 not in regd
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(sync_events)").fetchall()]
+    assert "hlc_physical" in cols
+
+    # Re-upgrade must succeed: the baseline probe detects the retained column and stamps v16,
+    # so the forward ADD COLUMN never re-runs (which would raise duplicate-column).
+    second = runner.run_pending(conn)
+    assert second["error"] is None, f"re-upgrade failed: {second['error']}"
+    regd2 = {r[0] for r in conn.execute("SELECT version FROM migration_registry").fetchall()}
+    assert 16 in regd2, "v16 must be recovered (stamped) after the partial rollback"

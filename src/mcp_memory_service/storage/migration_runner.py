@@ -89,9 +89,7 @@ class MigrationRunner:
 
         Returns list of stamped versions.
         """
-        applied = self._get_applied_versions(conn)
-        if applied:
-            return []  # Registry already populated, nothing to stamp
+        applied = set(self._get_applied_versions(conn))
 
         # Probe for artifacts left by each known migration
         probes = {
@@ -105,6 +103,15 @@ class MigrationRunner:
             15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
             16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
         }
+
+        # Probe only versions ABSENT from the registry. We must NOT early-return just because
+        # the registry is non-empty: a partial rollback can leave v15 registered while v16's
+        # row was removed but its columns retained. Early-returning there would skip the v16
+        # probe and let the forward migration re-run ADD COLUMN and fail duplicate-column
+        # (Greptile). When every detected artifact is already registered this is still a no-op.
+        probes = {v: sql for v, sql in probes.items() if v not in applied}
+        if not probes:
+            return []
 
         stamped = []
         now = datetime.now(timezone.utc).isoformat()
