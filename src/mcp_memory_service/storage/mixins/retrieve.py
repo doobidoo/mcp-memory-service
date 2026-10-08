@@ -301,9 +301,16 @@ class RetrieveMixin:
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
-        """Search memories by tags with AND/OR operation and optional time filtering."""
+        """Search memories by tags with AND/OR operation and optional time filtering.
+
+        include_pending=True keeps embedding_pending rows — used by hybrid DELETE paths that
+        collect hashes to queue for the secondary backend (a pending row deleted on the primary
+        must still be queued for deletion remotely, or other devices keep the copy — Greptile P1).
+        Default False excludes pending (this is a SEARCH surface for users).
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -323,7 +330,8 @@ class RetrieveMixin:
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
-            where_conditions.append("deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)")
+            pending_pred = "" if include_pending else " AND (embedding_pending IS NULL OR embedding_pending = 0)"
+            where_conditions.append(f"deleted_at IS NULL{pending_pred}")
             if time_start is not None:
                 where_conditions.append("created_at >= ?")
                 tag_params.append(time_start)

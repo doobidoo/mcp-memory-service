@@ -452,7 +452,14 @@ SOLUTIONS:
         embedding_model = None
         embedding_dim = None
         if op == 'create' and hasattr(self, 'embedding_model_name') and hasattr(self, 'embedding_dimension'):
-            embedding_model = self.embedding_model_name
+            # When the hash fallback is active the vectors are NOT from the configured model;
+            # stamp a distinct identity so a peer can tell these pseudo-vectors apart from real
+            # model output (ADR-0014; Greptile P1). Otherwise events would claim the configured
+            # model name for hash-based vectors.
+            if getattr(self, 'embedding_backend_degraded', False):
+                embedding_model = f"__hash_fallback__::{self.embedding_dimension}"
+            else:
+                embedding_model = self.embedding_model_name
             embedding_dim = self.embedding_dimension
         
         # INSERT event with HLC values and embedding metadata

@@ -964,7 +964,8 @@ class CloudflareStorage(MemoryStorage):
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and optional time filtering."""
         return await self._search_by_tags_internal(

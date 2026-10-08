@@ -1776,6 +1776,7 @@ class MilvusMemoryStorage(MemoryStorage):
         operation: str = "AND",
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         if not tags or not self._ensure_initialized():
             return []
