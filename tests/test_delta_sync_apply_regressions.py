@@ -299,3 +299,29 @@ async def test_equal_clock_edits_follow_resolver_tiebreak(store):
     # resolver: smaller agent_id wins on equal clock → 'alpha' < 'omega' → from-alpha
     assert set((rowm[0] or "").split(",")) == {"from-alpha"}, \
         f"equal-clock tie must follow resolver (alpha), got {rowm[0]}"
+
+
+@pytest.mark.asyncio
+async def test_local_metadata_key_survives_remote_tags_only_edit(store):
+    """P1 (Greptile apply:334): a locally-saved metadata key (e.g. quality_score, written via
+    update_memory_metadata) must NOT be erased when a remote tags-only update_metadata arrives.
+    The metadata column is merged per-key, not overwritten with the create's whole dict."""
+    content = "Memory whose local quality_score must survive sync"
+    h = generate_content_hash(content)
+    # Remote create (no quality_score in metadata).
+    apply_remote_event(store, _create_event(h, content=content, tags=["base"],
+                                            event_id="c1", hlc_physical=10))
+    # Local write records a custom metadata key (quality endpoint path).
+    ok, _ = await store.update_memory_metadata(h, {"quality_score": 0.87})
+    assert ok
+
+    # Remote tags-only edit arrives with a HIGHER clock.
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["base", "synced"]},
+                                                     event_id="u-tags", hlc_physical=50))
+
+    rowm = store.conn.execute(
+        "SELECT tags, metadata FROM memories WHERE content_hash = ?", (h,)
+    ).fetchone()
+    assert set((rowm[0] or "").split(",")) == {"base", "synced"}, f"tags should sync, got {rowm[0]}"
+    md = json.loads(rowm[1]) if rowm[1] else {}
+    assert md.get("quality_score") == 0.87, f"local quality_score must survive the sync, got {md}"

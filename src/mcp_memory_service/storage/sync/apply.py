@@ -295,17 +295,44 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
             #     restore a field from a deleted-then-recreated memory's past life (apply:315);
             #   - use _winner_key, not a hand-rolled max, so equal-clock ties pick the SAME
             #     winner the resolver would (apply:328).
-            allowed = {"tags", "memory_type", "metadata"}
-            best: Dict[str, Any] = {}          # field -> value
-            best_key: Dict[str, tuple] = {}    # field -> _winner_key (smaller wins)
+            best: Dict[str, Any] = {}          # scalar field (tags/memory_type) -> value
+            best_key: Dict[str, tuple] = {}    # scalar field -> _winner_key (smaller wins)
             latest_updated_at = None
             latest_updated_key = None
+
+            # metadata is a DICT whose inner keys are resolved INDEPENDENTLY (field-level LWW by
+            # _winner_key), including custom keys (e.g. quality_score) that update_memory_metadata
+            # records at the top level of `updates`. We must NOT treat metadata as one scalar: a
+            # tags-only edit would otherwise restore the create's whole dict and erase a locally
+            # saved quality_score (Greptile apply:334). Seed from the CURRENT row so untouched
+            # local keys survive, then let each event override individual keys it beats.
+            PROTECTED = {"tags", "memory_type", "metadata", "content", "content_hash",
+                         "embedding", "created_at", "created_at_iso", "updated_at",
+                         "updated_at_iso", "superseded_by", "store"}
+            meta_best: Dict[str, Any] = {}       # metadata inner key -> value
+            meta_best_key: Dict[str, tuple] = {} # metadata inner key -> _winner_key
 
             def _ev_key(phys, log, agent, eid, ev_op):
                 return _winner_key(EventView(
                     hlc_physical=phys or 0, hlc_logical=log or 0,
                     agent_id=agent, event_id=eid or "", op=ev_op, content_hash=content_hash,
                 ))
+
+            def _metadata_keys_from(ev_op, ev_payload):
+                """Yield (inner_key, value) metadata contributions from one event."""
+                if ev_op in ("create", "update"):
+                    md = ev_payload.get("metadata")
+                    if isinstance(md, dict):
+                        yield from md.items()
+                    return
+                # update_metadata: updates['metadata'] dict + custom top-level keys.
+                upd = ev_payload.get("updates", {}) or {}
+                md = upd.get("metadata")
+                if isinstance(md, dict):
+                    yield from md.items()
+                for kk, vv in upd.items():
+                    if kk not in PROTECTED:
+                        yield kk, vv
 
             all_cursor = s.conn.execute(
                 """
@@ -321,35 +348,50 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 except (ValueError, TypeError):
                     continue
                 k = _ev_key(ev_phys, ev_log, ev_agent, ev_eid, ev_op)
+
+                # Scalar fields: tags / memory_type (whole-value field-level LWW).
                 if ev_op in ("create", "update"):
-                    # The create/update seeds every field it carries.
-                    field_values = {
-                        "tags": ev_payload.get("tags"),
-                        "memory_type": ev_payload.get("memory_type"),
-                        "metadata": ev_payload.get("metadata"),
-                    }
-                    contributed = {kk: vv for kk, vv in field_values.items() if vv is not None}
+                    scalars = {"tags": ev_payload.get("tags"), "memory_type": ev_payload.get("memory_type")}
+                    contributed = {kk: vv for kk, vv in scalars.items() if vv is not None}
                 else:
                     contributed = {kk: vv for kk, vv in (ev_payload.get("updates", {}) or {}).items()
-                                   if kk in allowed}
+                                   if kk in ("tags", "memory_type")}
                 for key, value in contributed.items():
-                    # smaller _winner_key wins; only override when this event beats the current.
                     if key not in best_key or k < best_key[key]:
                         best_key[key] = k
                         best[key] = value
+
+                # metadata: resolve each inner key independently.
+                for mk, mv in _metadata_keys_from(ev_op, ev_payload):
+                    if mk not in meta_best_key or k < meta_best_key[mk]:
+                        meta_best_key[mk] = k
+                        meta_best[mk] = mv
+
                 ev_upd_at = ev_payload.get("updated_at")
                 if ev_upd_at is not None and (latest_updated_key is None or k < latest_updated_key):
                     latest_updated_key = k
                     latest_updated_at = ev_upd_at
 
             row = s.conn.execute(
-                "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (content_hash,),
             ).fetchone()
             if row is None:
                 # No local row to update (ordering/gap) — nothing to merge; not a failure.
                 logger.debug("update_metadata for unknown/absent hash %s — skipped", _sanitize_log_value(content_hash))
                 return True
+
+            # Merge resolved metadata keys onto the CURRENT row metadata so local keys that no
+            # event touched (e.g. a quality_score saved only locally) are preserved.
+            try:
+                current_md = json.loads(row[0]) if row[0] else {}
+                if not isinstance(current_md, dict):
+                    current_md = {}
+            except (ValueError, TypeError):
+                current_md = {}
+            if meta_best:
+                current_md.update(meta_best)
+                best["metadata"] = current_md
 
             set_clauses, params = [], []
             for key, value in best.items():
