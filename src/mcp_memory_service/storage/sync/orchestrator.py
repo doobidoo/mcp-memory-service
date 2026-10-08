@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol, Tuple
 
 from ..base import MemoryStorage
-from .apply import apply_remote_event, advance_sync_cursor, _sqlite
+from ..mixins.base import _sanitize_log_value
+from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock
 
 logger = logging.getLogger(__name__)
 
@@ -29,74 +30,74 @@ class SyncResult:
 
 class PeerAdapter(Protocol):
     """Protocol for peer adapters (RemoteHTTPStorage or test adapter)."""
-    
+
     async def get_events_since(self, since_seq: int, limit: int) -> Tuple[List[Dict[str, Any]], int, bool]:
         """
         Get events from peer since given sequence number.
-        
+
         Returns: (events, next_seq, has_more)
         """
         pass
 
 
 async def sync_from_peer(
-    local_storage: MemoryStorage, 
-    peer: PeerAdapter, 
-    peer_id: str, 
+    local_storage: MemoryStorage,
+    peer: PeerAdapter,
+    peer_id: str,
     limit: int = 100
 ) -> SyncResult:
     """
     Orchestrate pulling and applying events from a peer.
-    
+
     Implements the complete pull flow:
     1. Read current sync cursor (default 0 if not exists)
     2. Loop: get_events_since → apply_remote_event → advance_sync_cursor
     3. Continue until has_more is false
     4. Return summary result
-    
+
     Args:
         local_storage: Local memory storage instance
         peer: Peer adapter implementing get_events_since
         peer_id: Unique identifier for the peer
         limit: Maximum events per page (default 100)
-        
+
     Returns:
         SyncResult with events_applied, pages_processed, and final_cursor
     """
     logger.info(f"Starting sync from peer {peer_id}")
-    
+
     # Step 1: Read current cursor (default to 0 if not exists)
     cursor_result = _sqlite(local_storage).conn.execute(
         "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?",
         (peer_id,)
     ).fetchone()
-    
+
     cursor = cursor_result[0] if cursor_result else 0
     initial_cursor = cursor
-    
+
     logger.debug(f"Starting sync from cursor {cursor}")
-    
+
     # Initialize result counters
     events_applied = 0
     pages_processed = 0
     events_failed = 0
-    
+
     # Step 2: Loop through pages until no more events
     while True:
         logger.debug(f"Fetching events since seq {cursor} with limit {limit}")
-        
+
         # Get events from peer
         try:
             events, next_seq, has_more = await peer.get_events_since(cursor, limit)
         except Exception as e:
             logger.error(f"Failed to get events from peer {peer_id}: {e}")
             raise
-        
+
         # If no events returned, we're done
         if not events:
             logger.debug("No more events to process")
             break
-            
+
         pages_processed += 1
         logger.debug(f"Processing page {pages_processed} with {len(events)} events")
 
@@ -147,7 +148,7 @@ async def sync_from_peer(
         if not has_more:
             logger.debug("No more pages available")
             break
-    
+
     final_cursor = cursor
     logger.info(
         f"Completed sync from peer {peer_id}: "
@@ -155,7 +156,7 @@ async def sync_from_peer(
         f"{pages_processed} pages processed, "
         f"cursor: {initial_cursor} → {final_cursor}"
     )
-    
+
     return SyncResult(
         events_applied=events_applied,
         pages_processed=pages_processed,
@@ -197,17 +198,22 @@ def get_push_cursor(storage: MemoryStorage, peer_id: str) -> int:
 def advance_push_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> None:
     """Advance push_cursor.last_seq_pushed for a peer, committing the batch (ADR-0027)."""
     try:
-        _sqlite(storage).conn.execute(
-            """
-            INSERT OR REPLACE INTO push_cursor (peer_id, last_seq_pushed, updated_at)
-            VALUES (?, ?, ?)
-            """,
-            (peer_id, last_seq, time.time()),
-        )
-        _sqlite(storage).conn.commit()
-        logger.debug(f"Advanced push cursor for peer {peer_id} to seq {last_seq}")
+        s = _sqlite(storage)
+        # Hold the connection lock: shares the SQLite connection with local writes
+        # and must not interleave with an in-flight savepoint (Greptile P1).
+        with _sync_lock(storage):
+            s.conn.execute(
+                """
+                INSERT OR REPLACE INTO push_cursor (peer_id, last_seq_pushed, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (peer_id, last_seq, time.time()),
+            )
+            s.conn.commit()
+        logger.debug("Advanced push cursor for peer %s to seq %s",
+                     _sanitize_log_value(peer_id), _sanitize_log_value(last_seq))
     except Exception as e:
-        logger.error(f"Error advancing push cursor: {e}")
+        logger.error("Error advancing push cursor: %s", _sanitize_log_value(e))
 
 
 def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int) -> List[Dict[str, Any]]:
