@@ -387,6 +387,48 @@ class TestEmbeddingPendingAllSearchSurfaces:
             "time-based recall() must exclude pending (tuvok P1)"
 
     @pytest.mark.asyncio
+    async def test_pending_excluded_from_search_memories_time_only(self, storage):
+        """search_memories() time-only path (Issue #374 optimized route via
+        get_memories_by_time_range) must ALSO exclude pending. This is the public MCP
+        search surface the first Phase-3 pass missed — a pending row leaked through it
+        (tuvok Gate-5 finding, proven empirically). Regression lock for the fix."""
+        from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.utils.hashing import generate_content_hash
+        c = "search_memories time-only pending probe unique qrs"
+        h = generate_content_hash(c)
+        await storage.store(Memory(content=c, content_hash=h, tags=["smto"], memory_type="note"))
+        # Time-only public search (query=None + after/before → optimized time-range path).
+        # Returns a dict with a 'memories' list.
+        before = await storage.search_memories(query=None, after="2000-01-01", before="2100-01-01", limit=100)
+        assert any(m["content_hash"] == h for m in before["memories"]), "should be visible before pending"
+        # mark pending (ADR-0017: tests drive the flag directly)
+        storage.conn.execute("UPDATE memories SET embedding_pending = 1 WHERE content_hash = ?", (h,))
+        storage.conn.commit()
+        after = await storage.search_memories(query=None, after="2000-01-01", before="2100-01-01", limit=100)
+        assert not any(m["content_hash"] == h for m in after["memories"]), \
+            "search_memories() time-only must exclude embedding_pending (tuvok P1 leak)"
+
+    @pytest.mark.asyncio
+    async def test_get_memories_by_time_range_default_sees_pending(self, storage):
+        """The low-level getter defaults to exclude_pending=False so internal callers
+        (delete, consolidation) still see every row; only the public search passes True."""
+        import time as _time
+        from mcp_memory_service.models.memory import Memory
+        from mcp_memory_service.utils.hashing import generate_content_hash
+        c = "time-range default-sees-pending probe unique tuv"
+        h = generate_content_hash(c)
+        await storage.store(Memory(content=c, content_hash=h, tags=["trdp"], memory_type="note"))
+        storage.conn.execute("UPDATE memories SET embedding_pending = 1 WHERE content_hash = ?", (h,))
+        storage.conn.commit()
+        now = _time.time()
+        default = await storage.get_memories_by_time_range(0.0, now + 60)
+        assert any(m.content_hash == h for m in default), \
+            "default (exclude_pending=False) must still see pending for internal callers"
+        excluded = await storage.get_memories_by_time_range(0.0, now + 60, exclude_pending=True)
+        assert not any(m.content_hash == h for m in excluded), \
+            "exclude_pending=True must drop pending"
+
+    @pytest.mark.asyncio
     async def test_pending_excluded_from_bm25_search(self, storage):
         """BM25/keyword search must also exclude pending (tuvok P1)."""
         from mcp_memory_service.models.memory import Memory

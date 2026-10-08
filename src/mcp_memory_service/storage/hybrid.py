@@ -2090,14 +2090,16 @@ class HybridMemoryStorage(MemoryStorage):
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """Get memories within time range from primary storage.
 
-        The ``include_embeddings`` kwarg is forwarded to the primary backend.
-        See :class:`MemoryStorage` for the contract.
+        The ``include_embeddings`` and ``exclude_pending`` kwargs are forwarded to the
+        primary backend. See :class:`MemoryStorage` for the contract.
         """
         return await self.primary.get_memories_by_time_range(
             start_time, end_time, include_embeddings=include_embeddings,
+            exclude_pending=exclude_pending,
         )
 
     async def close(self):

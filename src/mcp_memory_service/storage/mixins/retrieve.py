@@ -1277,27 +1277,37 @@ class RetrieveMixin:
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
-        """Get memories within a specific time range."""
+        """Get memories within a specific time range.
+
+        exclude_pending=True drops rows with embedding_pending=1, so a possibly-stale
+        vector is never served as consistent (ADR-0016). Default False preserves the full
+        set for internal callers that must see every row (delete, consolidation). The
+        public search path (search_memories, time-only) passes True.
+        """
         try:
             await self.initialize()
 
+            pending_pred = " AND (m.embedding_pending IS NULL OR m.embedding_pending = 0)" if exclude_pending else ""
+            pending_pred_nojoin = " AND (embedding_pending IS NULL OR embedding_pending = 0)" if exclude_pending else ""
+
             if include_embeddings:
-                sql = '''
+                sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                            e.content_embedding
                     FROM memories m
                     LEFT JOIN memory_embeddings e ON m.id = e.rowid
-                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL
+                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL{pending_pred}
                     ORDER BY m.created_at DESC
                 '''
             else:
-                sql = '''
+                sql = f'''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
                     FROM memories
-                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
+                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL{pending_pred_nojoin}
                     ORDER BY created_at DESC
                 '''
 
