@@ -136,10 +136,23 @@ class MigrationRunner:
         Shared by the delta-sync recovery and the legacy 8-11 baseline. Does NOT touch
         schema_version (callers decide); commits only the registry inserts it performs.
 
+        Before stamping, repairs any SECONDARY artifact a partial rollback may have dropped
+        while the primary artifact (the probed column/table) was retained — otherwise the
+        migration is marked applied forever but a dropped index/trigger never comes back.
+        Repairs are idempotent (IF NOT EXISTS).
+
         Returns the list of versions stamped.
         """
         if not probes:
             return []
+
+        # Idempotent repairs for secondary artifacts, keyed by migration version. The primary
+        # artifact is detected by the probe; these restore the rest (e.g. the HLC index that a
+        # rollback dropped alongside the retained hlc columns — Greptile).
+        artifact_repairs = {
+            16: "CREATE INDEX IF NOT EXISTS idx_sync_events_hlc "
+                "ON sync_events(hlc_physical, hlc_logical, agent_id, event_id)",
+        }
 
         stamped = []
         now = datetime.now(timezone.utc).isoformat()
@@ -150,6 +163,10 @@ class MigrationRunner:
             try:
                 cursor = conn.execute(probe_sql)
                 if cursor.fetchone():
+                    # Secondary-artifact repair (idempotent) before stamping.
+                    repair_sql = artifact_repairs.get(version)
+                    if repair_sql:
+                        conn.execute(repair_sql)
                     # Artifact exists — stamp as applied
                     name, path = migrations_by_version.get(version, (f"legacy_{version}", None))
                     checksum = self._checksum(path) if path else ""

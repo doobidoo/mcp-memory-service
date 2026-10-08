@@ -1203,3 +1203,63 @@ class TestDeltaSyncHLC:
         assert int(saved["sync_hlc_logical"]) >= newer_logical, (
             f"startup rewound sync_hlc_logical to {saved['sync_hlc_logical']} below {newer_logical}"
         )
+
+    @pytest.mark.asyncio
+    async def test_startup_seed_serializes_against_a_concurrent_writer(self, storage):
+        """
+        Greptile P1 (real race): a second connection to the same DB commits a newer clock
+        WHILE the startup seed runs. Because the seed holds BEGIN IMMEDIATE across read+write,
+        the two transactions serialize: the seed cannot interleave its read and write around
+        the other writer's commit, so the newer clock is never clobbered.
+
+        This exercises the lock itself (not just the MAX invariant). Uses a file DB and raw
+        sqlite3 so we control the interleaving deterministically.
+        """
+        import sqlite3 as _sqlite3
+
+        # Seed one event, then close so we have a real on-disk DB with sync_events + metadata.
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+            c = "concurrent baseline"
+            await storage.store(
+                Memory(content=c, content_hash=generate_content_hash(c),
+                       tags=["race2"], memory_type="note"),
+                skip_semantic_dedup=True,
+            )
+        db_path = storage.db_path
+        storage.conn.close()
+
+        # Writer B holds an IMMEDIATE write transaction that advances the clock and has NOT
+        # committed yet. Any correct seed must take the write lock and therefore WAIT for B.
+        writer = _sqlite3.connect(db_path, timeout=10.0, check_same_thread=False)
+        newer_physical = 8_888_888_888_888
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(newer_physical),))
+        writer.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', '7')")
+
+        # Commit B shortly after, from another thread, so the seed's BEGIN IMMEDIATE unblocks
+        # and then observes B's committed value (rather than clobbering it).
+        import threading, time as _time
+        def _commit_later():
+            _time.sleep(0.3)
+            writer.commit()
+            writer.close()
+        t = threading.Thread(target=_commit_later)
+        t.start()
+
+        # Call the seed DIRECTLY on a separate connection, targeting exactly the critical
+        # section (not the whole initialize(), whose other write steps aren't under test).
+        # Its BEGIN IMMEDIATE blocks until B commits, then reconciles against B's value.
+        seed_conn = _sqlite3.connect(db_path, timeout=10.0)
+        seed_conn.execute("PRAGMA busy_timeout=10000")
+        try:
+            type(storage)._seed_last_hlc_on_first_boot(storage, seed_conn)
+            saved = dict(seed_conn.execute(
+                "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            ).fetchall())
+        finally:
+            t.join()
+            seed_conn.close()
+
+        assert int(saved["sync_hlc_physical"]) >= newer_physical, (
+            f"seed clobbered the concurrently-committed clock: {saved['sync_hlc_physical']} < {newer_physical}"
+        )
