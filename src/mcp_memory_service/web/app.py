@@ -180,11 +180,23 @@ async def lifespan(app: FastAPI):
                 set_consolidator(consolidator)
 
                 # Start the scheduler when consolidation cadences OR any opt-in job is enabled.
-                _consolidation_on = any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values())
+                #
+                # If we only got here because an opt-in job (sync/harvest) is on while
+                # consolidation is DISABLED, the scheduler must NOT register consolidation
+                # jobs — passing the raw CONSOLIDATION_SCHEDULE would re-activate cadences
+                # (e.g. a leftover MCP_SCHEDULE_WEEKLY) that can archive/delete memories the
+                # user turned off (Greptile P1). Neutralize every cadence to 'disabled' in
+                # that case; the opt-in jobs schedule themselves from their own env vars.
+                if CONSOLIDATION_ENABLED:
+                    effective_schedule = CONSOLIDATION_SCHEDULE
+                else:
+                    effective_schedule = {k: 'disabled' for k in CONSOLIDATION_SCHEDULE}
+
+                _consolidation_on = any(schedule != 'disabled' for schedule in effective_schedule.values())
                 if _consolidation_on or _optin_jobs_on:
                     consolidation_scheduler = ConsolidationScheduler(
                         consolidator,
-                        CONSOLIDATION_SCHEDULE,
+                        effective_schedule,
                         enabled=True
                     )
 
