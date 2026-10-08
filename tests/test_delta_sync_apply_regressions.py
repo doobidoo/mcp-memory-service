@@ -154,3 +154,94 @@ async def test_accepting_remote_event_advances_saved_hlc(store):
         "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical','sync_hlc_logical')"
     ).fetchall())
     assert int(saved.get("sync_hlc_physical", 0)) >= 999999, "saved HLC physical must advance to the accepted clock"
+
+
+def _update_metadata_event(content_hash, *, updates, event_id, agent="alpha",
+                           hlc_physical, hlc_logical=0, updated_at=2000.0):
+    return {
+        "agent_id": agent, "event_id": event_id, "op": "update_metadata",
+        "content_hash": content_hash, "hlc_physical": hlc_physical, "hlc_logical": hlc_logical,
+        "embedding_model": None, "embedding_dim": None,
+        "payload": {"content_hash": content_hash, "updates": updates, "updated_at": updated_at},
+    }
+
+
+async def _mk_store(tmp_name):
+    import tempfile as _tf
+    d = _tf.mkdtemp()
+    s = SqliteVecMemoryStorage(os.path.join(d, tmp_name))
+    await s.initialize()
+    return s
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_converges_regardless_of_order(monkeypatch):
+    """P1 convergence (Greptile): two spokes editing DIFFERENT fields must reach the SAME row
+    no matter the arrival order. One event sets tags (older HLC), another sets memory_type
+    (newer HLC). Peer A receives oldest-first, peer B newest-first; both must keep BOTH edits."""
+    monkeypatch.setenv("MCP_AGENT_ID", "beta")
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
+    monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
+
+    content = "Shared memory edited by two spokes on different fields"
+    h = generate_content_hash(content)
+    create = _create_event(h, content=content, tags=["base"], memory_type="note")
+    ev_tags = _update_metadata_event(h, updates={"tags": ["base", "work"]},
+                                     event_id="u-tags", hlc_physical=20)
+    ev_type = _update_metadata_event(h, updates={"memory_type": "reference"},
+                                     event_id="u-type", hlc_physical=30)
+
+    # Peer A: oldest-first (tags then type). Peer B: newest-first (type then tags).
+    sa = await _mk_store("a.db")
+    sb = await _mk_store("b.db")
+    try:
+        for ev in (create, ev_tags, ev_type):
+            apply_remote_event(sa, dict(ev))
+        for ev in (create, ev_type, ev_tags):
+            apply_remote_event(sb, dict(ev))
+
+        ma = await sa.get_by_hash(h)
+        mb = await sb.get_by_hash(h)
+        # Both edits survive on BOTH peers, and the two rows are identical (convergence).
+        assert set(ma.tags) == {"base", "work"}, f"peer A lost the tags edit: {ma.tags}"
+        assert ma.memory_type == "reference", f"peer A lost the type edit: {ma.memory_type}"
+        assert set(mb.tags) == set(ma.tags), f"peers diverged on tags: {ma.tags} vs {mb.tags}"
+        assert mb.memory_type == ma.memory_type, f"peers diverged on type: {ma.memory_type} vs {mb.memory_type}"
+    finally:
+        await sa.close()
+        await sb.close()
+
+
+@pytest.mark.asyncio
+async def test_apply_acquires_connection_lock(store):
+    """P1 concurrency (Greptile): apply_remote_event must take the storage _conn_lock so it
+    cannot commit over an in-flight local write's savepoint. We assert the lock is held during
+    the apply by observing it is NOT acquirable from another thread mid-apply."""
+    import threading
+
+    # Ensure the lock exists (mirrors base.py lazy init).
+    if not hasattr(store, "_conn_lock") or store._conn_lock is None:
+        store._conn_lock = threading.Lock()
+
+    held_during_apply = {"value": None}
+    real_materialize = None
+    from mcp_memory_service.storage.sync import apply as apply_mod
+
+    def _probe(*args, **kwargs):
+        # While inside apply (which must hold the lock), a non-blocking acquire must FAIL.
+        got = store._conn_lock.acquire(blocking=False)
+        held_during_apply["value"] = not got  # True means the lock was already held (good)
+        if got:
+            store._conn_lock.release()
+        return real_materialize(*args, **kwargs)
+
+    real_materialize = apply_mod._materialize_event
+    apply_mod._materialize_event = _probe
+    try:
+        content = "Event used to observe the connection lock during apply"
+        h = generate_content_hash(content)
+        apply_remote_event(store, _create_event(h, content=content))
+    finally:
+        apply_mod._materialize_event = real_materialize
+
+    assert held_during_apply["value"] is True, "apply_remote_event must hold _conn_lock during the write"

@@ -10,6 +10,7 @@ ADR-0022: Apply preserves original authorship (agent_id, event_id, HLC)
 
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, Any
@@ -19,6 +20,22 @@ from ..mixins.base import _sanitize_log_value
 from .resolver import EventView, reduce_events
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_lock(storage: MemoryStorage) -> threading.Lock:
+    """Return the storage connection lock used to serialize writes on the shared conn.
+
+    Sync apply/cursor writes run from the async request/scheduler path on the SAME SQLite
+    connection as normal local writes, which run in a worker thread under ``_conn_lock`` and
+    open savepoints. Committing from sync without holding that lock can commit (and drop the
+    savepoint of) an in-flight local write, so the worker's later release/rollback fails
+    (Greptile P1). Acquire the SAME lock here so sync and local writes are mutually exclusive.
+    Mirror base.py's lazy init so the lock exists even if the backend never created one.
+    """
+    s = _sqlite(storage)
+    if not hasattr(s, "_conn_lock") or s._conn_lock is None:
+        s._conn_lock = threading.Lock()
+    return s._conn_lock
 
 
 def _sqlite(storage: MemoryStorage) -> MemoryStorage:
@@ -72,7 +89,17 @@ def apply_remote_event(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyRe
     Replay safety (Greptile P1, security): an identity (agent_id, event_id) is immutable.
     If the identity already exists, we treat the event as a duplicate and never rewrite the
     memory from a replayed-but-altered payload. Only a genuinely new identity can materialize.
+
+    Concurrency (Greptile P1): the whole insert→resolve→materialize→commit runs while holding
+    the storage connection lock, so it never interleaves with an in-flight local write's
+    savepoint on the shared SQLite connection.
     """
+    with _sync_lock(storage):
+        return _apply_remote_event_locked(storage, event)
+
+
+def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyResult:
+    """Body of apply_remote_event; MUST run under _sync_lock (see caller)."""
     try:
         content_hash = event["content_hash"]
         agent_id = event["agent_id"]
@@ -166,16 +193,24 @@ def apply_remote_event(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyRe
             # (Greptile P1).
             _advance_local_hlc(storage, hlc_physical, hlc_logical)
 
-            # Step 3: materialize if the remote event wins
-            if winner and winner.event_id == event_id and winner.agent_id == agent_id:
+            # Step 3: materialize.
+            # - create/delete: only when THIS event wins the whole-event resolution.
+            # - update_metadata: ALWAYS re-materialize — the rebuild is a deterministic,
+            #   order-independent fold over every update_metadata event for the hash
+            #   (field-level LWW by HLC), so applying it on each event converges all peers
+            #   even when this event is not the overall winner (Greptile P1 convergence).
+            is_winner = bool(winner and winner.event_id == event_id and winner.agent_id == agent_id)
+            if is_winner or op == "update_metadata":
                 try:
                     materialized = _materialize_event(storage, event)
                     s.conn.commit()  # durability: persist event + materialization (ADR-0019/§8.5)
                     if materialized:
-                        return ApplyResult(applied=True, materialized=True, reason="Remote event won and materialized")
+                        reason = ("Remote event won and materialized" if is_winner
+                                  else "update_metadata merged (field-level convergence)")
+                        return ApplyResult(applied=True, materialized=True, reason=reason)
                     # A win that fails to materialize is NOT applied — return failure so the
                     # sender keeps retrying and the puller does not advance past it (Greptile P1).
-                    return ApplyResult(applied=False, materialized=False, reason="Remote event won but materialization failed")
+                    return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
                 except Exception as e:
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))
                     return ApplyResult(applied=False, materialized=False, reason=f"Materialization error: {e}")
@@ -247,9 +282,15 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
 
         if op == "update_metadata":
             # update_metadata carries ONLY {content_hash, updates, updated_at} — NOT a full
-            # memory. Treating it like create would overwrite the row with empty content and
-            # erase the memory (Greptile P1). Merge the updates into the existing live row.
-            updates = payload.get("updates", {}) or {}
+            # memory. Treating it like create would erase the memory (Greptile P1).
+            #
+            # Convergence (Greptile P1): update_metadata events carry PARTIAL fields, and two
+            # spokes editing DIFFERENT fields must converge regardless of arrival order. We do
+            # NOT apply only the winning event's updates (that discards the other field when
+            # events arrive newest-first). Instead we rebuild each field from ALL
+            # update_metadata events for this hash: for every field, the value comes from the
+            # highest-HLC event that set it (field-level last-writer-wins by HLC). This is a
+            # pure function of the event set, so every peer reaches the same row (ADR-0012/0013).
             row = s.conn.execute(
                 "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (content_hash,),
@@ -259,11 +300,41 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 logger.debug("update_metadata for unknown/absent hash %s — skipped", _sanitize_log_value(content_hash))
                 return True
 
-            set_clauses, params = [], []
             allowed = {"tags", "memory_type", "metadata"}
-            for key, value in updates.items():
-                if key not in allowed:
+            # Winning value + its HLC per field, folded over every update_metadata event.
+            best: Dict[str, Any] = {}          # field -> value
+            best_hlc: Dict[str, tuple] = {}    # field -> (hlc_physical, hlc_logical, agent_id, event_id)
+            latest_updated_at = None
+            latest_updated_hlc = None
+            ev_cursor = s.conn.execute(
+                """
+                SELECT hlc_physical, hlc_logical, agent_id, event_id, payload
+                FROM sync_events
+                WHERE content_hash = ? AND op = 'update_metadata'
+                """,
+                (content_hash,),
+            )
+            for ev_phys, ev_log, ev_agent, ev_eid, ev_payload_json in ev_cursor.fetchall():
+                try:
+                    ev_payload = json.loads(ev_payload_json) if ev_payload_json else {}
+                except (ValueError, TypeError):
                     continue
+                ev_updates = ev_payload.get("updates", {}) or {}
+                # Total order mirrors the resolver: (hlc, agent_id, event_id); larger wins.
+                ev_key = (ev_phys or 0, ev_log or 0, ev_agent or "", ev_eid or "")
+                for key, value in ev_updates.items():
+                    if key not in allowed:
+                        continue
+                    if ev_key > best_hlc.get(key, (-1, -1, "", "")):
+                        best_hlc[key] = ev_key
+                        best[key] = value
+                ev_upd_at = ev_payload.get("updated_at")
+                if ev_upd_at is not None and (latest_updated_hlc is None or ev_key > latest_updated_hlc):
+                    latest_updated_hlc = ev_key
+                    latest_updated_at = ev_upd_at
+
+            set_clauses, params = [], []
+            for key, value in best.items():
                 if key == "tags":
                     # Same CSV format store() uses; the read path splits on commas.
                     value = ",".join(value) if isinstance(value, (list, tuple)) else str(value)
@@ -271,7 +342,8 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                     value = json.dumps(value) if value else "{}"
                 set_clauses.append(f"{key} = ?")
                 params.append(value)
-            upd_at = payload.get("updated_at", time.time())
+
+            upd_at = latest_updated_at if latest_updated_at is not None else payload.get("updated_at", time.time())
             set_clauses.append("updated_at = ?")
             params.append(upd_at)
             set_clauses.append("updated_at_iso = ?")
@@ -374,14 +446,17 @@ def advance_sync_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> 
     """
     try:
         s = _sqlite(storage)
-        s.conn.execute("""
-            INSERT OR REPLACE INTO sync_cursor
-            (peer_id, last_seq_seen, updated_at)
-            VALUES (?, ?, ?)
-        """, (peer_id, last_seq, time.time()))
-        # Durability (§8.5 / ADR-0019): the cursor and the applied events of the batch
-        # must survive a crash. Commit here closes the batch transaction atomically.
-        s.conn.commit()
+        # Hold the connection lock: the cursor commit shares the SQLite connection with
+        # local writes and must not interleave with an in-flight savepoint (Greptile P1).
+        with _sync_lock(storage):
+            s.conn.execute("""
+                INSERT OR REPLACE INTO sync_cursor
+                (peer_id, last_seq_seen, updated_at)
+                VALUES (?, ?, ?)
+            """, (peer_id, last_seq, time.time()))
+            # Durability (§8.5 / ADR-0019): the cursor and the applied events of the batch
+            # must survive a crash. Commit here closes the batch transaction atomically.
+            s.conn.commit()
         logger.debug("Advanced sync cursor for peer %s to seq %s",
                      _sanitize_log_value(peer_id), _sanitize_log_value(last_seq))
     except Exception as e:
