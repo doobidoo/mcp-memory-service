@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol, Tuple
 
 from ..base import MemoryStorage
-from .apply import apply_remote_event, advance_sync_cursor
+from .apply import apply_remote_event, advance_sync_cursor, _sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class PeerAdapter(Protocol):
         
         Returns: (events, next_seq, has_more)
         """
-        ...
+        pass
 
 
 async def sync_from_peer(
@@ -66,7 +66,7 @@ async def sync_from_peer(
     logger.info(f"Starting sync from peer {peer_id}")
     
     # Step 1: Read current cursor (default to 0 if not exists)
-    cursor_result = local_storage.conn.execute(
+    cursor_result = _sqlite(local_storage).conn.execute(
         "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?",
         (peer_id,)
     ).fetchone()
@@ -183,12 +183,12 @@ class PushPeerAdapter(Protocol):
 
     async def push_events(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """POST events to the peer; returns {results, applied, skipped, failed}."""
-        ...
+        pass
 
 
 def get_push_cursor(storage: MemoryStorage, peer_id: str) -> int:
     """Read last_seq_pushed for a peer (0 if none). Dedicated push_cursor table (ADR-0027)."""
-    row = storage.conn.execute(
+    row = _sqlite(storage).conn.execute(
         "SELECT last_seq_pushed FROM push_cursor WHERE peer_id = ?", (peer_id,)
     ).fetchone()
     return row[0] if row else 0
@@ -197,14 +197,14 @@ def get_push_cursor(storage: MemoryStorage, peer_id: str) -> int:
 def advance_push_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> None:
     """Advance push_cursor.last_seq_pushed for a peer, committing the batch (ADR-0027)."""
     try:
-        storage.conn.execute(
+        _sqlite(storage).conn.execute(
             """
             INSERT OR REPLACE INTO push_cursor (peer_id, last_seq_pushed, updated_at)
             VALUES (?, ?, ?)
             """,
             (peer_id, last_seq, time.time()),
         )
-        storage.conn.commit()
+        _sqlite(storage).conn.commit()
         logger.debug(f"Advanced push cursor for peer {peer_id} to seq {last_seq}")
     except Exception as e:
         logger.error(f"Error advancing push cursor: {e}")
@@ -212,7 +212,7 @@ def advance_push_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> 
 
 def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int) -> List[Dict[str, Any]]:
     """Read local sync_events with seq > since_seq, enriching create events with content (R8)."""
-    cur = storage.conn.execute(
+    cur = _sqlite(storage).conn.execute(
         """
         SELECT seq, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                embedding_model, embedding_dim, payload
@@ -228,7 +228,7 @@ def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int)
         seq, event_id, op, content_hash, agent_id, hlc_p, hlc_l, emb_model, emb_dim, payload = row
         payload_dict = json.loads(payload) if payload else {}
         if op == "create":
-            mrow = storage.conn.execute(
+            mrow = _sqlite(storage).conn.execute(
                 "SELECT content FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (content_hash,),
             ).fetchone()

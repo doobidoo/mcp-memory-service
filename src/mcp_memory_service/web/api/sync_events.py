@@ -13,6 +13,8 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
+from ...storage.sync.apply import _sqlite
+from ...storage.mixins.base import _sanitize_log_value
 from ..dependencies import get_storage
 from ..oauth.middleware import require_read_access, require_write_access
 
@@ -70,7 +72,7 @@ async def get_sync_events(
             limit = 1000
             
         # Get events from sync_events table
-        cursor = storage.conn.execute("""
+        cursor = _sqlite(storage).conn.execute("""
             SELECT 
                 seq, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                 embedding_model, embedding_dim, payload
@@ -91,7 +93,7 @@ async def get_sync_events(
             
             # For create events, enrich with content from memories table if available
             if op == "create":
-                memory_cursor = storage.conn.execute(
+                memory_cursor = _sqlite(storage).conn.execute(
                     "SELECT content FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,)
                 )
@@ -122,7 +124,7 @@ async def get_sync_events(
         has_more = False
         if events and len(events) == limit:
             # Check if there's at least one more event beyond our result
-            check_cursor = storage.conn.execute(
+            check_cursor = _sqlite(storage).conn.execute(
                 "SELECT 1 FROM sync_events WHERE seq > ? LIMIT 1",
                 (next_seq,)
             )
@@ -135,7 +137,7 @@ async def get_sync_events(
         )
         
     except Exception as e:
-        logger.error(f"Error retrieving sync events: {e}")
+        logger.error("Error retrieving sync events: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -225,7 +227,7 @@ async def ingest_sync_events(
                 failed += 1
                 stop = True
         except Exception as e:
-            logger.error("ingest apply failed for %s: %s", eid, e)
+            logger.error("ingest apply failed for %s: %s", _sanitize_log_value(eid), _sanitize_log_value(e))
             status = "failed"
             failed += 1
             stop = True

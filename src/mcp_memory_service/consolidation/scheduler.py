@@ -317,11 +317,13 @@ class ConsolidationScheduler:
                 )
             except Exception as e:
                 self.execution_stats['failed_jobs'] += 1
-                self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), e)
+                self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), _sanitize_log_value(e))
             finally:
                 try:
                     await peer.close()
                 except Exception:
+                    # Best-effort cleanup: a failing close() must not mask the cycle result
+                    # or abort the remaining peers. Nothing actionable to recover here.
                     pass
 
     @staticmethod
