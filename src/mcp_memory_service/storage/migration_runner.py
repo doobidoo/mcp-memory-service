@@ -105,6 +105,12 @@ class MigrationRunner:
         recovered = self._stamp_probes(
             conn, {v: sql for v, sql in delta_probes.items() if v not in applied}
         )
+        if recovered:
+            # Advance schema_version to the highest recovered migration, but NEVER lower an
+            # already-higher value. After the documented partial rollback schema_version is 15;
+            # recovering v16 must bump it to 16 so the schema check reports the real state
+            # (otherwise run_pending skips v16 and the version stays stale at 15 — Greptile).
+            self._raise_schema_version(conn, max(recovered))
 
         # Legacy baseline (008-011): only on a fresh existing DB with an EMPTY registry, detect
         # artifacts left by the old idempotent runner and stamp them so run_pending skips them.
@@ -182,6 +188,25 @@ class MigrationRunner:
         if stamped:
             conn.commit()
         return stamped
+
+    def _raise_schema_version(self, conn, version: int) -> None:
+        """Set schema_version to `version`, but never lower an already-higher value.
+
+        Used after recovery stamps a migration (e.g. v16) on a DB whose schema_version was
+        left behind by a partial rollback, so the reported version matches reality.
+        """
+        try:
+            cur = conn.execute("SELECT value FROM metadata WHERE key='schema_version'")
+            row = cur.fetchone()
+            current = int(row[0]) if row and row[0] is not None else 0
+        except (sqlite3.OperationalError, ValueError, TypeError):
+            current = 0
+        if version > current:
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
+                (str(version),),
+            )
+            conn.commit()
 
     def run_pending(self, conn, dry_run=False) -> dict:
         """Run all pending migrations in order.

@@ -155,3 +155,7 @@ def test_stamp_baseline_recovers_v16_after_partial_rollback(tmp_path):
     assert 16 in regd2, "v16 must be recovered (stamped) after the partial rollback"
     idx2 = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sync_events_hlc'").fetchone()
     assert idx2 is not None, "v16 recovery must repair the dropped HLC index"
+    sv = conn.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+    assert sv is not None and int(sv[0]) == 16, (
+        f"recovery must restore schema_version to 16, got {sv and sv[0]}"
+    )
