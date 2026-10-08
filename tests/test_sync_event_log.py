@@ -1157,3 +1157,49 @@ class TestDeltaSyncHLC:
         assert row[0] >= backfilled_physical, (
             f"new event HLC {row[0]} regressed below backfilled {backfilled_physical}"
         )
+
+    @pytest.mark.asyncio
+    async def test_startup_never_rewinds_a_newer_saved_clock(self, storage):
+        """
+        Greptile P1 (race): startup reconcile must take MAX(persisted, observed) and never
+        overwrite a newer saved clock with older values. Simulates the dangerous interleaving:
+        another writer has advanced last_hlc far beyond any event's HLC (e.g. a burst that
+        bumped the logical counter) before this process runs its startup seed.
+
+        With the fix, the seed reads+writes under one BEGIN IMMEDIATE and keeps the newer
+        value; without it, the seed could clobber the newer clock with the lower event-derived
+        max, letting the next event repeat/regress its HLC.
+        """
+        # One real event exists with a modest HLC.
+        with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+            c = "race baseline event"
+            await storage.store(
+                Memory(content=c, content_hash=generate_content_hash(c),
+                       tags=["race"], memory_type="note"),
+                skip_semantic_dedup=True,
+            )
+
+        # A concurrent writer advanced the saved clock far beyond that event's HLC.
+        newer_physical = 9_000_000_000_000
+        newer_logical = 42
+        storage.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(newer_physical),))
+        storage.conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(newer_logical),))
+        storage.conn.commit()
+
+        # Restart → seed runs; it must NOT rewind the newer saved clock.
+        db_path = storage.db_path
+        storage.conn.close()
+        new_storage = SqliteVecMemoryStorage(db_path)
+        await new_storage.initialize()
+
+        saved = dict(new_storage.conn.execute(
+            "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+        ).fetchall())
+        assert int(saved["sync_hlc_physical"]) >= newer_physical, (
+            f"startup rewound sync_hlc_physical to {saved['sync_hlc_physical']} "
+            f"below the newer saved {newer_physical}"
+        )
+        # physical is strictly greater than any event's, so logical must be preserved too.
+        assert int(saved["sync_hlc_logical"]) >= newer_logical, (
+            f"startup rewound sync_hlc_logical to {saved['sync_hlc_logical']} below {newer_logical}"
+        )
