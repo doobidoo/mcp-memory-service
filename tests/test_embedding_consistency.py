@@ -179,9 +179,16 @@ class TestEmbeddingConsistency:
             assert embedding_dim is not None, "embedding_dim should not be NULL"
             assert embedding_dim > 0, f"embedding_dim should be > 0, got {embedding_dim}"
             
-            # Should match storage's active embedding model
-            assert embedding_model == storage.embedding_model_name, \
-                f"Event embedding_model {embedding_model} should match storage model {storage.embedding_model_name}"
+            # Provenance must be HONEST: when the hash fallback is active (e.g. the minimal
+            # CI job with model downloads disabled), the event must carry the distinct
+            # '__hash_fallback__::<dim>' identity — NOT the configured model name (Greptile P1).
+            # Otherwise it must match the storage's active embedding model.
+            if getattr(storage, "embedding_backend_degraded", False):
+                assert embedding_model == f"__hash_fallback__::{storage.embedding_dimension}", \
+                    f"degraded backend must stamp hash-fallback identity, got {embedding_model}"
+            else:
+                assert embedding_model == storage.embedding_model_name, \
+                    f"Event embedding_model {embedding_model} should match storage model {storage.embedding_model_name}"
 
     # CA3 (F4 honesty): store() atomic path never produces embedding_pending
     @pytest.mark.asyncio
