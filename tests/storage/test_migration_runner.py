@@ -116,11 +116,13 @@ def test_stamp_baseline_recovers_v16_after_partial_rollback(tmp_path):
     migrations_dir.mkdir()
     # Minimal stand-ins mirroring the real 015/016 shapes and their unconditional DDL.
     (migrations_dir / "015_add_sync_events.sql").write_text(
-        "CREATE TABLE sync_events (seq INTEGER PRIMARY KEY, content_hash TEXT);"
+        "CREATE TABLE sync_events (seq INTEGER PRIMARY KEY, content_hash TEXT, agent_id TEXT, event_id TEXT);"
     )
     (migrations_dir / "016_add_hlc_to_sync_events.sql").write_text(
         "ALTER TABLE sync_events ADD COLUMN hlc_physical INTEGER;\n"
-        "ALTER TABLE sync_events ADD COLUMN hlc_logical INTEGER;"
+        "ALTER TABLE sync_events ADD COLUMN hlc_logical INTEGER;\n"
+        "CREATE INDEX IF NOT EXISTS idx_sync_events_hlc "
+        "ON sync_events(hlc_physical, hlc_logical, agent_id, event_id);"
     )
 
     conn = sqlite3.connect(":memory:")
@@ -131,20 +133,25 @@ def test_stamp_baseline_recovers_v16_after_partial_rollback(tmp_path):
     assert first["error"] is None
     assert {m["version"] for m in first["applied"]} == {15, 16}
 
-    # Simulate a partial manual rollback of 016: drop ONLY the registry row + schema_version,
-    # but keep the hlc columns (older SQLite path that cannot DROP COLUMN).
+    # Simulate a partial manual rollback of 016 on old SQLite: drop the index + the registry
+    # row + schema_version, but keep the hlc columns (cannot DROP COLUMN before 3.35).
+    conn.execute("DROP INDEX IF EXISTS idx_sync_events_hlc")
     conn.execute("DELETE FROM migration_registry WHERE version = 16")
     conn.execute("UPDATE metadata SET value = '15' WHERE key = 'schema_version'")
     conn.commit()
-    # Sanity: v15 still registered, v16 gone, column retained.
+    # Sanity: v15 still registered, v16 gone, column retained, index gone.
     regd = {r[0] for r in conn.execute("SELECT version FROM migration_registry").fetchall()}
     assert 15 in regd and 16 not in regd
     cols = [r[1] for r in conn.execute("PRAGMA table_info(sync_events)").fetchall()]
     assert "hlc_physical" in cols
+    idx = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sync_events_hlc'").fetchone()
+    assert idx is None, "precondition: the index was dropped by the rollback"
 
-    # Re-upgrade must succeed: the baseline probe detects the retained column and stamps v16,
-    # so the forward ADD COLUMN never re-runs (which would raise duplicate-column).
+    # Re-upgrade must succeed: the baseline probe detects the retained column, REPAIRS the
+    # dropped index, and stamps v16 — the forward ADD COLUMN never re-runs (duplicate-column).
     second = runner.run_pending(conn)
     assert second["error"] is None, f"re-upgrade failed: {second['error']}"
     regd2 = {r[0] for r in conn.execute("SELECT version FROM migration_registry").fetchall()}
     assert 16 in regd2, "v16 must be recovered (stamped) after the partial rollback"
+    idx2 = conn.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_sync_events_hlc'").fetchone()
+    assert idx2 is not None, "v16 recovery must repair the dropped HLC index"
