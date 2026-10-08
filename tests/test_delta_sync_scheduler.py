@@ -124,3 +124,21 @@ async def test_ca5_peer_error_does_not_propagate(monkeypatch):
     # must NOT raise
     await sch._run_sync_cycle()
     assert sch.execution_stats["failed_jobs"] >= 1
+
+
+# Regression (Greptile P1 "Sync restarts disabled cleanup"): when the scheduler is started
+# only because an opt-in job (sync/harvest) is on and consolidation is DISABLED, the app
+# passes a neutralized schedule_config (every cadence 'disabled'). The scheduler must then
+# register the sync job but NOT any consolidation_* job that could archive/delete memories.
+def test_neutralized_schedule_registers_sync_but_no_consolidation(monkeypatch):
+    monkeypatch.setenv("MCP_SYNC_SCHEDULE", "15m")
+    neutralized = {h: "disabled" for h in ("daily", "weekly", "monthly", "quarterly", "yearly")}
+    sch = ConsolidationScheduler(_FakeConsolidator(storage=MagicMock()), schedule_config=neutralized, enabled=True)
+    if sch.scheduler is None:
+        pytest.skip("APScheduler not available")
+    sch._schedule_consolidation_jobs()
+    sch._schedule_sync_job()
+    jobs = {j.id for j in sch.scheduler.get_jobs()}
+    assert "delta_sync" in jobs, "sync job must be registered"
+    assert not any(j.startswith("consolidation_") for j in jobs), \
+        f"no consolidation job may be registered under a neutralized schedule, got {jobs}"
