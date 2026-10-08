@@ -69,6 +69,7 @@ from .api.configuration import router as configuration_router
 from .api.oauth_status import router as oauth_status_router
 from .api.conflicts import router as conflicts_router
 from .api.harvest import router as harvest_router
+from .api.sync_events import router as sync_events_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,17 @@ consolidation_scheduler: Optional["ConsolidationScheduler"] = None
 
 # Global backup scheduler instance
 backup_scheduler: Optional["BackupScheduler"] = None
+
+# Env vars that each enable an opt-in interval job on the consolidation scheduler.
+# When any is set (not blank / not "disabled"), the scheduler is started even if the
+# consolidation cadences themselves are all disabled — otherwise a host that only
+# enables one of these would never get a scheduler and the job would silently never run.
+# One entry per line so independent features can append their own without editing a
+# shared literal (keeps feature PRs orthogonal).
+_OPTIN_SCHEDULE_ENV_VARS = (
+    "MCP_HARVEST_SCHEDULE",
+    "MCP_SYNC_SCHEDULE",  # delta-sync Phase 4d
+)
 
 
 async def oauth_cleanup_background_task():
@@ -158,8 +170,17 @@ async def lifespan(app: FastAPI):
                 # Set global consolidator for API access
                 set_consolidator(consolidator)
 
-                # Initialize scheduler if any schedules are enabled
-                if any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values()):
+                # Initialize scheduler if any schedule is enabled — consolidation cadences
+                # OR any opt-in interval job (see _OPTIN_SCHEDULE_ENV_VARS). Without this, a
+                # host that only enables one opt-in job (and leaves consolidation disabled)
+                # would never get a scheduler and that job would silently never run.
+                import os as _os
+                _consolidation_on = any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values())
+                _optin_jobs_on = any(
+                    (_os.getenv(v, '').strip().lower() not in ('', 'disabled'))
+                    for v in _OPTIN_SCHEDULE_ENV_VARS
+                )
+                if _consolidation_on or _optin_jobs_on:
                     consolidation_scheduler = ConsolidationScheduler(
                         consolidator,
                         CONSOLIDATION_SCHEDULE,
@@ -368,6 +389,10 @@ def create_app() -> FastAPI:
     # Include session harvest router (Issue #630)
     app.include_router(harvest_router, tags=["harvest"])
     logger.info("✓ Included harvest router with %s routes", _sanitize_log_value(len(harvest_router.routes)))
+
+    # Include delta-sync event feed router (#1345 Phase 4 — pull/push transport)
+    app.include_router(sync_events_router, prefix="/api", tags=["sync"])
+    logger.info("✓ Included sync_events router with %s routes", _sanitize_log_value(len(sync_events_router.routes)))
 
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])

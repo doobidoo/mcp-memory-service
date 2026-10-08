@@ -126,6 +126,9 @@ class ConsolidationScheduler:
             # Add scheduled session-harvest job (opt-in via MCP_HARVEST_SCHEDULE)
             self._schedule_harvest_job()
 
+            # Add scheduled delta-sync cycle job (opt-in via MCP_SYNC_SCHEDULE) — Phase 4d, ADR-0028
+            self._schedule_sync_job()
+
             # Start the scheduler
             self.scheduler.start()
             self.logger.info("Consolidation scheduler started successfully")
@@ -220,6 +223,106 @@ class ConsolidationScheduler:
             self.logger.info("Scheduled session harvest every %ss (MCP_HARVEST_SCHEDULE=%s)", seconds, schedule_spec)
         except Exception as e:
             self.logger.error(f"Error scheduling session harvest: {e}")
+
+    def _schedule_sync_job(self):
+        """Schedule the delta-sync cycle job (opt-in via MCP_SYNC_SCHEDULE). Phase 4d, ADR-0028.
+
+        Mirrors _schedule_harvest_job: in-process interval
+        job on the consolidation scheduler, off by default (unset/blank/"disabled" → no job).
+        Runs pull + push against each peer in MCP_SYNC_PEERS. Only spokes set peers; the hub
+        sets none and thus schedules an effectively empty cycle (passive pivot, ADR-0027).
+        """
+        if not self.scheduler:
+            self.logger.debug("Sync scheduling skipped - scheduler not available")
+            return
+
+        schedule_spec = os.getenv("MCP_SYNC_SCHEDULE", "").strip()
+        if not schedule_spec or schedule_spec.lower() == "disabled":
+            self.logger.debug("Delta-sync scheduling disabled (MCP_SYNC_SCHEDULE unset)")
+            return
+
+        seconds = self._parse_interval_seconds(schedule_spec)
+        if not seconds or seconds <= 0:
+            self.logger.error(
+                "Invalid MCP_SYNC_SCHEDULE=%r — expected e.g. '15m', '30m', '6h', '90s' or hours; skipping",
+                schedule_spec,
+            )
+            return
+
+        try:
+            self.scheduler.add_job(
+                func=self._run_sync_cycle,
+                trigger=IntervalTrigger(seconds=seconds),
+                id="delta_sync",
+                name="Delta-Sync Cycle (pull + push)",
+                replace_existing=True,
+            )
+            self.logger.info("Scheduled delta-sync every %ss (MCP_SYNC_SCHEDULE=%s)", seconds, schedule_spec)
+        except Exception as e:
+            self.logger.error(f"Error scheduling delta-sync: {e}")
+
+    def _resolve_sync_peers(self):
+        """Build (peer_id, RemoteHTTPStorage) list from MCP_SYNC_PEERS. Option 1 (single hub):
+        peer_id -> base URL + auth from existing envs. Returns [] when unset (hub/no-peer)."""
+        raw = os.getenv("MCP_SYNC_PEERS", "").strip()
+        if not raw:
+            return []
+        from ..storage.remote_http import RemoteHTTPStorage
+        # Dedicated var for the PEER's API key — NOT MCP_API_KEY. MCP_API_KEY on this
+        # process ALSO turns on auth enforcement for THIS server's own /mcp endpoint
+        # (middleware: `if not API_KEY: allow`), which would break every local MCP client.
+        # Keep the sync client's hub credential separate from the server's own auth gate.
+        api_key = os.getenv("MCP_SYNC_PEER_API_KEY") or None
+        basic_user = os.getenv("MCP_SYNC_BASIC_USER") or None
+        basic_pass = os.getenv("MCP_SYNC_BASIC_PASS") or None
+        base_url = os.getenv("MCP_SYNC_PEER_URL", "").strip()
+        peers = []
+        for peer_id in (p.strip() for p in raw.split(",") if p.strip()):
+            if not base_url:
+                self.logger.error("MCP_SYNC_PEERS set but MCP_SYNC_PEER_URL missing; skipping %s", peer_id)
+                continue
+            auth_style = "x-api-key" if (api_key and basic_user) else ("bearer" if api_key else "x-api-key")
+            peer = RemoteHTTPStorage(
+                base_url=base_url, api_key=api_key, auth_style=auth_style,
+                basic_user=basic_user, basic_pass=basic_pass,
+            )
+            peers.append((peer_id, peer))
+        return peers
+
+    async def _run_sync_cycle(self):
+        """Run one delta-sync cycle: for each peer, pull then push. Phase 4d, ADR-0028.
+
+        Resilient (R5): a peer error is logged and the cycle continues; never re-raises
+        (the scheduler must survive). Cursors guarantee resumption next interval.
+        """
+        storage = getattr(self.consolidator, "storage", None)
+        if storage is None:
+            self.logger.warning("Delta-sync cycle skipped: consolidator has no storage")
+            return
+        peers = self._resolve_sync_peers()
+        if not peers:
+            self.logger.debug("Delta-sync cycle: no peers configured (MCP_SYNC_PEERS unset)")
+            return
+        from ..storage.sync.orchestrator import sync_from_peer, push_to_peer
+        for peer_id, peer in peers:
+            try:
+                await peer.initialize()
+                pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
+                push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
+                self.logger.info(
+                    "Delta-sync %s: pulled %s applied, pushed %s",
+                    _sanitize_log_value(peer_id),
+                    getattr(pull, "events_applied", "?"),
+                    getattr(push, "events_pushed", "?"),
+                )
+            except Exception as e:
+                self.execution_stats['failed_jobs'] += 1
+                self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), e)
+            finally:
+                try:
+                    await peer.close()
+                except Exception:
+                    pass
 
     @staticmethod
     def _parse_interval_seconds(spec: str) -> Optional[int]:
