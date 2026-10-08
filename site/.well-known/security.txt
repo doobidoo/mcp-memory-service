@@ -1,0 +1,5 @@
+Contact: https://github.com/doobidoo/mcp-memory-service/security/advisories/new
+Expires: 2027-10-08T00:00:00.000Z
+Policy: https://github.com/doobidoo/mcp-memory-service/blob/main/SECURITY.md
+Preferred-Languages: en, de
+Canonical: https://mcpmemory.services/.well-known/security.txt
