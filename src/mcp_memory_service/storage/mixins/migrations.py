@@ -331,6 +331,11 @@ class MigrationsMixin:
                         logger.warning("Add store column (non-fatal): %s", _sanitize_log_value(e))
 
                     await self._run_in_thread(self._run_schema_migrations)
+
+                    # Seed HLC metadata after schema migrations (ADR-0011, NF1)
+                    if hasattr(self, '_seed_last_hlc_on_first_boot'):
+                        await self._run_in_thread(self._seed_last_hlc_on_first_boot, self.conn)
+
                     await self._run_in_thread(self._ensure_fts5_initialized)
 
                     await self._initialize_embedding_model()
@@ -508,6 +513,10 @@ class MigrationsMixin:
 
             await self._run_in_thread(self._ensure_fts5_initialized)
             await self._run_in_thread(self._run_schema_migrations)
+
+            # Seed HLC metadata after schema migrations (ADR-0011, NF1)
+            if hasattr(self, '_seed_last_hlc_on_first_boot'):
+                await self._run_in_thread(self._seed_last_hlc_on_first_boot, self.conn)
 
             self._initialized = True
 

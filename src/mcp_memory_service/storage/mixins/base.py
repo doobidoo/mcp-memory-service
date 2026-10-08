@@ -389,16 +389,16 @@ SOLUTIONS:
 
     def _append_sync_event(self, conn, op: str, content_hash: str, payload: dict) -> None:
         """Append sync event to event log within same transaction as the hosting mutation.
-        
+
         This helper is SYNCHRONOUS and performs NO commit internally (ADR-0008).
         The atomicity comes from the commit of the hosting mutation.
-        
+
         Args:
             conn: Database connection (must be in an active transaction)
             op: Operation type ('create', 'delete', 'update_metadata')
             content_hash: Hash of the memory being mutated
             payload: JSON-serializable payload for the event
-        
+
         Raises:
             Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails,
                       the exception propagates to abort the hosting mutation.
@@ -409,7 +409,7 @@ SOLUTIONS:
 
         # Generate event identity (UUIDv4, coordination-free)
         event_id = str(uuid.uuid4())
-        
+
         # Get agent_id from environment or memory metadata. SQLite treats NULL as distinct
         # in a UNIQUE(agent_id, event_id), so a NULL agent would let the same event_id be
         # inserted twice, breaking replay idempotency (greptile P1). Use a non-null sentinel
@@ -419,25 +419,148 @@ SOLUTIONS:
             agent_id = payload['metadata'].get('agent_id')
         if not agent_id:
             agent_id = 'unknown'  # non-null sentinel: keeps UNIQUE(agent_id, event_id) effective
-        
+
         # Current timestamp
         created_at = time.time()
         created_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at))
-        
+
         # Schema version for envelope (ADR-0007)
         schema_version = 1
-        
-        # INSERT with idempotency constraint (CA1)
+
+        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011
+        # Read last_hlc from metadata (default to (0,0) if not found)
+        cursor = conn.execute("SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
+        hlc_metadata = dict(cursor.fetchall())
+
+        last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
+        last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
+
+        # Check if we need to backfill any NULL HLC values (lazy backfill)
+        # This handles the case where events were inserted without HLC after migration
+        cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
+        null_count = cursor.fetchone()[0]
+
+        if null_count > 0:
+            # Backfill NULL HLC values
+            conn.execute("""
+                UPDATE sync_events
+                SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
+                    hlc_logical = seq
+                WHERE hlc_physical IS NULL OR hlc_logical IS NULL
+            """)
+
+            # Re-derive last_hlc from backfilled events
+            cursor = conn.execute("""
+                SELECT MAX(hlc_physical), MAX(hlc_logical)
+                FROM sync_events
+                WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
+            """)
+            row = cursor.fetchone()
+
+            if row and row[0] is not None and row[1] is not None:
+                last_physical = max(last_physical, row[0])
+                last_logical = max(last_logical, row[1])
+
+        # HLC send/local rule: pt = physical time (epoch milliseconds)
+        pt = int(time.time() * 1000)
+        if pt > last_physical:
+            # Physical time advanced, reset logical to 0
+            hlc_physical = pt
+            hlc_logical = 0
+        else:
+            # Physical time same or went backwards, increment logical
+            hlc_physical = last_physical
+            hlc_logical = last_logical + 1
+
+        # INSERT event with HLC values
         # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
         conn.execute("""
             INSERT OR IGNORE INTO sync_events (
-                schema_version, agent_id, event_id, op, content_hash, 
-                payload, created_at, created_at_iso
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                schema_version, agent_id, event_id, op, content_hash,
+                payload, created_at, created_at_iso, hlc_physical, hlc_logical
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             schema_version, agent_id, event_id, op, content_hash,
-            json.dumps(payload), created_at, created_at_iso
+            json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical
         ))
+
+        # Update last_hlc in metadata (ADR-0011) - same transaction
+        # Use INSERT OR REPLACE to upsert the metadata values
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(hlc_physical),))
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(hlc_logical),))
+
+    def _seed_last_hlc_on_first_boot(self, conn) -> None:
+        """Seed last_hlc from existing sync_events on first boot after migration 016.
+
+        This implements the NF1 requirement: derive initial last_hlc from existing
+        events to ensure monotonicity across the migration boundary. Called during
+        initialization after schema migrations run.
+
+        Also backfills any events that still have NULL HLC values (e.g., events
+        inserted after migration but before HLC generation was enabled).
+
+        Args:
+            conn: Database connection
+        """
+        # Check if we have sync_events table and hlc columns exist
+        try:
+            cursor = conn.execute("PRAGMA table_info(sync_events)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'hlc_physical' not in columns or 'hlc_logical' not in columns:
+                # Migration 016 hasn't run yet or table doesn't exist, nothing to do
+                return
+        except sqlite3.OperationalError:
+            # sync_events table doesn't exist yet
+            return
+
+        # Backfill any events that still have NULL HLC values
+        # This handles events inserted after migration but before HLC generation
+        cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
+        null_count = cursor.fetchone()[0]
+
+        if null_count > 0:
+            conn.execute("""
+                UPDATE sync_events
+                SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
+                    hlc_logical = seq
+                WHERE hlc_physical IS NULL OR hlc_logical IS NULL
+            """)
+            logger.info("Backfilled HLC values for %d events with NULL HLC", null_count)
+
+        # Check if last_hlc is already seeded
+        cursor = conn.execute("SELECT COUNT(*) FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
+        if cursor.fetchone()[0] > 0:
+            # Already seeded, nothing to do
+            return
+
+        # Derive last_hlc from MAX(hlc_physical, hlc_logical) in sync_events
+        cursor = conn.execute("""
+            SELECT MAX(hlc_physical), MAX(hlc_logical)
+            FROM sync_events
+            WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
+        """)
+        row = cursor.fetchone()
+
+        if row and row[0] is not None and row[1] is not None:
+            max_physical, max_logical = row
+
+            # Initialize last_hlc in metadata
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(max_physical),))
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(max_logical),))
+
+            logger.info("HLC seeded from existing events: physical=%s, logical=%s", max_physical, max_logical)
+        else:
+            # No events yet, initialize to (0, 0)
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', '0')")
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', '0')")
+
+            logger.debug("HLC initialized to (0, 0) - no existing events")
+
+        # Commit: this seed runs as a standalone init step (unlike _append_sync_event
+        # which rides the hosting mutation's transaction). Leaving the transaction open
+        # here holds the write lock and causes "database is locked" on the next init step.
+        conn.commit()
 
     @staticmethod
     def _apply_stale_days_filter(conditions: list, params: list, stale_days: Optional[int], table_alias: str = "") -> None:
