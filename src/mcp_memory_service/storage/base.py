@@ -1410,7 +1410,7 @@ class MemoryStorage(ABC):
                             use_optimized_search = True
                             st = start_time if start_time is not None else 0.0
                             et = end_time if end_time is not None else datetime.now().timestamp()
-                            memories = await self.get_memories_by_time_range(st, et)
+                            memories = await self.get_memories_by_time_range(st, et, exclude_pending=True)
                             results = [
                                 MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                                 for m in memories
