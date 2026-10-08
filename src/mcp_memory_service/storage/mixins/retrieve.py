@@ -461,10 +461,15 @@ class RetrieveMixin:
                 return None
 
             def _get_by_hash():
+                # Direct lookup by exact hash is NOT a discovery/search surface, so it does
+                # NOT apply the embedding_pending guardrail (§8.3 excludes pending from
+                # SEARCH, not from a caller that already knows the hash). Internal sync/
+                # metadata-repair paths rely on this seeing pending rows; filtering here made
+                # them treat a pending memory as missing and skip the repair (Greptile P1).
                 sql = '''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
-                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)
+                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
                 '''
                 lookup_params = [content_hash]
                 if store is not None:

@@ -430,7 +430,12 @@ class TestEmbeddingPendingAllSearchSurfaces:
 
     @pytest.mark.asyncio
     async def test_pending_excluded_from_bm25_search(self, storage):
-        """BM25/keyword search must also exclude pending (tuvok P1)."""
+        """BM25/keyword search must also exclude pending (tuvok P1).
+
+        Greptile P2: asserting only ABSENCE is a false-positive trap — a broken BM25
+        (returns [] on any failure) would pass. So we also assert the row IS found
+        before marking pending and again after clearing it: a broken search fails those.
+        """
         from mcp_memory_service.models.memory import Memory
         from mcp_memory_service.utils.hashing import generate_content_hash
         if not hasattr(storage, "_search_bm25"):
@@ -438,16 +443,30 @@ class TestEmbeddingPendingAllSearchSurfaces:
             _pt.skip("backend has no _search_bm25")
         c = "bm25 keyword pending probe palavra unica"
         h = generate_content_hash(c)
-        await storage.store(Memory(content=c, content_hash=h, tags=["bm25p"], memory_type="note"))
-        storage.conn.execute("UPDATE memories SET embedding_pending = 1 WHERE content_hash = ?", (h,))
-        storage.conn.commit()
-        results = await storage._search_bm25("palavra", n_results=10)
+        ok, _msg = await storage.store(Memory(content=c, content_hash=h, tags=["bm25p"], memory_type="note"))
+        assert ok, "store must succeed for the test to be meaningful"
+
         def _hash(x):
             # _search_bm25 returns List[Tuple[content_hash, score]]
             if isinstance(x, (tuple, list)):
                 return x[0]
             return getattr(x, "content_hash", None) or getattr(getattr(x, "memory", None), "content_hash", None)
-        assert not any(_hash(x) == h for x in results), "BM25 search must exclude pending"
+
+        # 1. BM25 finds it BEFORE pending (proves the query actually works)
+        before = await storage._search_bm25("palavra", n_results=10)
+        assert any(_hash(x) == h for x in before), "BM25 must find the row before pending (else the search is broken)"
+
+        # 2. mark pending → BM25 must EXCLUDE it
+        storage.conn.execute("UPDATE memories SET embedding_pending = 1 WHERE content_hash = ?", (h,))
+        storage.conn.commit()
+        during = await storage._search_bm25("palavra", n_results=10)
+        assert not any(_hash(x) == h for x in during), "BM25 search must exclude pending"
+
+        # 3. clear pending → BM25 finds it again (proves exclusion was the cause, not a broken query)
+        storage.conn.execute("UPDATE memories SET embedding_pending = 0 WHERE content_hash = ?", (h,))
+        storage.conn.commit()
+        after = await storage._search_bm25("palavra", n_results=10)
+        assert any(_hash(x) == h for x in after), "BM25 must find the row again after clearing pending"
 
     @pytest.mark.asyncio
     async def test_pending_still_visible_to_list_content_hashes(self, storage):

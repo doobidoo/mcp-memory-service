@@ -658,7 +658,7 @@ class MemoryStorage(ABC):
 
             # Fallback: Load all memories and filter in Python (slower but always works)
             if not use_optimized:
-                all_memories = await self.get_all_memories()
+                all_memories = await self.get_all_memories(exclude_pending=True)
 
                 for memory in all_memories:
                     # Tag filter
@@ -1420,7 +1420,7 @@ class MemoryStorage(ABC):
 
                     # Fallback: load all memories then filter
                     if not use_optimized_search:
-                        all_memories = await self.get_all_memories()
+                        all_memories = await self.get_all_memories(exclude_pending=True)
                         results = [
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories
