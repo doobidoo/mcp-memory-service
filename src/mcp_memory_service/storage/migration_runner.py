@@ -91,25 +91,53 @@ class MigrationRunner:
         """
         applied = set(self._get_applied_versions(conn))
 
-        # Probe for artifacts left by each known migration
+        # Delta-sync recovery (15/16): probe these INDEPENDENTLY of the legacy baseline below,
+        # and only when absent from the registry. A partial manual rollback can leave v15
+        # registered while v16's row was removed but its columns retained; without this, the
+        # forward migration would re-run the unconditional ADD COLUMN and fail duplicate-column
+        # (Greptile). This runs even when the registry is non-empty, but is a strict no-op unless
+        # the artifact exists AND its registry row is missing — so it never changes the legacy
+        # 8-11 baseline semantics handled further down.
+        delta_probes = {
+            15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
+            16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
+        }
+        recovered = self._stamp_probes(
+            conn, {v: sql for v, sql in delta_probes.items() if v not in applied}
+        )
+
+        # Legacy baseline (008-011): only on a fresh existing DB with an EMPTY registry, detect
+        # artifacts left by the old idempotent runner and stamp them so run_pending skips them.
+        # Preserved exactly as before (early-return when the registry is already populated).
+        if applied:
+            return recovered
+
         probes = {
             8: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_graph'",
             9: "SELECT 1 FROM pragma_table_info('memory_graph') WHERE name='relationship_type'",
             10: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_graph'",  # graph indexes
             11: "SELECT 1 FROM pragma_table_info('memories') WHERE name='version'",
-            # 15/16 (delta-sync): stamp when the artifact already exists so a partial manual
-            # rollback (columns/table retained but registry row removed) does not re-run the
-            # unconditional ADD COLUMN / CREATE TABLE and fail with a duplicate error.
-            15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
-            16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
         }
+        stamped = recovered + self._stamp_probes(conn, probes)
+        if stamped:
+            max_version = max(stamped)
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
+                (str(max_version),),
+            )
+            conn.commit()
+            logger.info(f"Baseline stamp: registered migrations {stamped} (existing DB detected)")
 
-        # Probe only versions ABSENT from the registry. We must NOT early-return just because
-        # the registry is non-empty: a partial rollback can leave v15 registered while v16's
-        # row was removed but its columns retained. Early-returning there would skip the v16
-        # probe and let the forward migration re-run ADD COLUMN and fail duplicate-column
-        # (Greptile). When every detected artifact is already registered this is still a no-op.
-        probes = {v: sql for v, sql in probes.items() if v not in applied}
+        return stamped
+
+    def _stamp_probes(self, conn, probes: dict) -> list[int]:
+        """Stamp each probed version whose artifact exists but whose registry row is missing.
+
+        Shared by the delta-sync recovery and the legacy 8-11 baseline. Does NOT touch
+        schema_version (callers decide); commits only the registry inserts it performs.
+
+        Returns the list of versions stamped.
+        """
         if not probes:
             return []
 
@@ -135,14 +163,7 @@ class MigrationRunner:
                 continue
 
         if stamped:
-            max_version = max(stamped)
-            conn.execute(
-                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
-                (str(max_version),),
-            )
             conn.commit()
-            logger.info(f"Baseline stamp: registered migrations {stamped} (existing DB detected)")
-
         return stamped
 
     def run_pending(self, conn, dry_run=False) -> dict:
