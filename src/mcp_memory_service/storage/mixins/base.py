@@ -427,39 +427,16 @@ SOLUTIONS:
         # Schema version for envelope (ADR-0007)
         schema_version = 1
 
-        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011
-        # Read last_hlc from metadata (default to (0,0) if not found)
+        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011.
+        # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of any
+        # NULL-HLC rows is NOT done here: it is a one-time startup step
+        # (_seed_last_hlc_on_first_boot), so the write hot path never scans sync_events —
+        # that scan held the write lock and grew with history (store_batch repeated it per item).
         cursor = conn.execute("SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
         hlc_metadata = dict(cursor.fetchall())
 
         last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
         last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
-
-        # Check if we need to backfill any NULL HLC values (lazy backfill)
-        # This handles the case where events were inserted without HLC after migration
-        cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
-        null_count = cursor.fetchone()[0]
-
-        if null_count > 0:
-            # Backfill NULL HLC values
-            conn.execute("""
-                UPDATE sync_events
-                SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
-                    hlc_logical = seq
-                WHERE hlc_physical IS NULL OR hlc_logical IS NULL
-            """)
-
-            # Re-derive last_hlc from backfilled events
-            cursor = conn.execute("""
-                SELECT MAX(hlc_physical), MAX(hlc_logical)
-                FROM sync_events
-                WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
-            """)
-            row = cursor.fetchone()
-
-            if row and row[0] is not None and row[1] is not None:
-                last_physical = max(last_physical, row[0])
-                last_logical = max(last_logical, row[1])
 
         # HLC send/local rule: pt = physical time (epoch milliseconds)
         pt = int(time.time() * 1000)
@@ -490,14 +467,18 @@ SOLUTIONS:
         conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(hlc_logical),))
 
     def _seed_last_hlc_on_first_boot(self, conn) -> None:
-        """Seed last_hlc from existing sync_events on first boot after migration 016.
+        """Seed/reconcile last_hlc from existing sync_events at startup (after migration 016).
 
-        This implements the NF1 requirement: derive initial last_hlc from existing
-        events to ensure monotonicity across the migration boundary. Called during
-        initialization after schema migrations run.
+        Two jobs, both run every startup and both must leave the clock monotonic (ADR-0011):
+          1. Backfill any events still missing HLC (inserted after migration 016 but before
+             HLC generation, or by a Phase 1 writer that doesn't stamp HLC).
+          2. Reconcile persisted last_hlc to MAX(hlc) across all events, so a later backfill
+             can never leave last_hlc BELOW an event's clock (which would hand the next event
+             an older HLC and break monotonicity — Greptile P1).
 
-        Also backfills any events that still have NULL HLC values (e.g., events
-        inserted after migration but before HLC generation was enabled).
+        This is a standalone init step; it rides no other transaction, so it commits before
+        returning. Leaving the transaction open holds the write lock and causes
+        "database is locked" on the next init step.
 
         Args:
             conn: Database connection
@@ -514,8 +495,7 @@ SOLUTIONS:
             # sync_events table doesn't exist yet
             return
 
-        # Backfill any events that still have NULL HLC values
-        # This handles events inserted after migration but before HLC generation
+        # 1. Backfill any events that still have NULL HLC values.
         cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
         null_count = cursor.fetchone()[0]
 
@@ -528,38 +508,33 @@ SOLUTIONS:
             """)
             logger.info("Backfilled HLC values for %d events with NULL HLC", null_count)
 
-        # Check if last_hlc is already seeded
-        cursor = conn.execute("SELECT COUNT(*) FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
-        if cursor.fetchone()[0] > 0:
-            # Already seeded, nothing to do
-            return
+        # 2. Reconcile last_hlc to MAX(hlc) across all events. ALWAYS run this (not only on
+        # first seed): if we backfilled above into an already-seeded DB, the stored last_hlc
+        # may now sit below a backfilled event's clock. Take the max of the persisted clock and
+        # the observed event clock so the next event's HLC can never regress (ADR-0011).
+        prev = dict(conn.execute(
+            "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+        ).fetchall())
+        prev_physical = int(prev.get('sync_hlc_physical', '0'))
+        prev_logical = int(prev.get('sync_hlc_logical', '0'))
 
-        # Derive last_hlc from MAX(hlc_physical, hlc_logical) in sync_events
         cursor = conn.execute("""
             SELECT MAX(hlc_physical), MAX(hlc_logical)
             FROM sync_events
             WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
         """)
         row = cursor.fetchone()
+        max_physical = row[0] if row and row[0] is not None else 0
+        max_logical = row[1] if row and row[1] is not None else 0
 
-        if row and row[0] is not None and row[1] is not None:
-            max_physical, max_logical = row
+        new_physical = max(prev_physical, max_physical)
+        new_logical = max(prev_logical, max_logical)
 
-            # Initialize last_hlc in metadata
-            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(max_physical),))
-            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(max_logical),))
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(new_physical),))
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(new_logical),))
+        logger.info("HLC reconciled at startup: physical=%s, logical=%s", new_physical, new_logical)
 
-            logger.info("HLC seeded from existing events: physical=%s, logical=%s", max_physical, max_logical)
-        else:
-            # No events yet, initialize to (0, 0)
-            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', '0')")
-            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', '0')")
-
-            logger.debug("HLC initialized to (0, 0) - no existing events")
-
-        # Commit: this seed runs as a standalone init step (unlike _append_sync_event
-        # which rides the hosting mutation's transaction). Leaving the transaction open
-        # here holds the write lock and causes "database is locked" on the next init step.
+        # Commit before returning (standalone init step; never leave the write lock held).
         conn.commit()
 
     @staticmethod

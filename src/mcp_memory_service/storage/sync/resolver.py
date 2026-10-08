@@ -39,71 +39,53 @@ class EventView:
     # would diverge (ADR-0013). The resolver's total order is HLC → agent_id → event_id.
 
 
+def _winner_key(e: EventView) -> tuple:
+    """Total-order sort key for conflict resolution; the SMALLEST key wins.
+
+    Encodes the full ADR-0012/0013 hierarchy as one comparable tuple, so `resolve` is a
+    single comparison (keeps cyclomatic complexity low) and is trivially commutative:
+    `resolve(a, b)` returns whichever of `a`/`b` has the smaller key; equal keys mean the
+    events are equivalent.
+
+    Each component is oriented so that SMALLER = winner:
+      1. ``-hlc_physical`` / ``-hlc_logical`` — later HLC wins, so negate (ADR-0010).
+      2. ``0 if delete else 1`` — on equal HLC, delete beats update/create (ADR-0012).
+      3. ``0 if agent_id else 1`` — a non-null agent beats a null one.
+      4. ``agent_id`` then ``event_id`` then ``op`` then ``content_hash`` — lexicographically
+         smaller wins; UUID ``event_id`` guarantees a stable, host-agnostic total order.
+
+    Quality/importance is deliberately NOT a component: it is a local, mutable retrieval
+    signal and would break cross-host convergence (ADR-0013).
+    """
+    return (
+        -e.hlc_physical,
+        -e.hlc_logical,
+        0 if e.op == 'delete' else 1,
+        0 if e.agent_id is not None else 1,
+        e.agent_id or "",
+        e.event_id,
+        e.op,
+        e.content_hash,
+    )
+
+
 def resolve(a: EventView, b: EventView) -> EventView:
-    """Resolve conflict between two concurrent events for the same content_hash.
+    """Resolve a conflict between two concurrent events for the same content_hash.
 
-    This is a pure function that implements the deterministic ordering rules
-    from ADR-0012/0013. The function is commutative: resolve(a,b) == resolve(b,a).
-
-    Ordering hierarchy (NO quality/importance — ADR-0013):
-    1. HLC ordering - (hlc_physical, hlc_logical) tuple, higher wins
-    2. Delete-vs-update - on equal HLC, delete wins over update/create
-    3. Agent/event ID - final deterministic tie-break (agent non-null first, then
-       event_id lexicographically; UUID event_id guarantees a total order)
+    Pure, deterministic and commutative (`resolve(a, b) == resolve(b, a)`): returns the event
+    with the smaller `_winner_key`. The whole ordering hierarchy (HLC → delete-vs-update →
+    agent_id → event_id → op → content_hash) lives in `_winner_key`; quality/importance is
+    intentionally excluded (ADR-0013). See `_winner_key` for the rationale.
 
     Args:
         a: First event
         b: Second event
 
     Returns:
-        The winning event (either a or b)
+        The winning event (either a or b). On a full key tie the events are equivalent and
+        `a` is returned.
     """
-    # Step 1: HLC (Hybrid Logical Clock) ordering - ADR-0010
-    # Compare (physical, logical) as tuple - later wins
-    hlc_a = (a.hlc_physical, a.hlc_logical)
-    hlc_b = (b.hlc_physical, b.hlc_logical)
-
-    if hlc_a > hlc_b:
-        return a
-    elif hlc_b > hlc_a:
-        return b
-
-    # Step 2: Equal HLC - apply delete-vs-update rule (ADR-0012)
-    # Delete wins over update/create when HLC is exactly equal
-    if a.op == 'delete' and b.op in ('create', 'update', 'update_metadata'):
-        return a
-    elif b.op == 'delete' and a.op in ('create', 'update', 'update_metadata'):
-        return b
-
-    # Step 3: Equal HLC, compatible ops - deterministic final tie-break (ADR-0013).
-    # Quality/importance is intentionally absent: it is a local, mutable signal and would
-    # break cross-host convergence. agent_id (None sorts last) then event_id (UUID → total
-    # order) give a stable, host-agnostic winner.
-
-    # Handle None agent_id - None sorts after any string value
-    if a.agent_id is None and b.agent_id is not None:
-        return b  # b wins (non-None agent_id)
-    elif b.agent_id is None and a.agent_id is not None:
-        return a  # a wins (non-None agent_id)
-    elif a.agent_id != b.agent_id:
-        # Both non-None or both None, compare directly
-        if (a.agent_id or "") < (b.agent_id or ""):
-            return a
-        else:
-            return b
-
-    # Same agent_id, compare event_id
-    if a.event_id != b.event_id:
-        return a if a.event_id < b.event_id else b
-
-    # Same event_id too: break by op in a canonical, commutative order so that
-    # resolve(a, b) == resolve(b, a) even when the two differ only by op.
-    if a.op != b.op:
-        return a if a.op < b.op else b
-
-    # Fully identical on every ordering key: the events are equivalent. Return a
-    # deterministic, commutative choice.
-    return a if a.content_hash <= b.content_hash else b
+    return a if _winner_key(a) <= _winner_key(b) else b
 
 
 def reduce_events(events: Iterable[EventView]) -> Optional[EventView]:

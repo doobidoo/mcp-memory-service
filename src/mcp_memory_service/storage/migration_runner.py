@@ -99,6 +99,11 @@ class MigrationRunner:
             9: "SELECT 1 FROM pragma_table_info('memory_graph') WHERE name='relationship_type'",
             10: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_graph'",  # graph indexes
             11: "SELECT 1 FROM pragma_table_info('memories') WHERE name='version'",
+            # 15/16 (delta-sync): stamp when the artifact already exists so a partial manual
+            # rollback (columns/table retained but registry row removed) does not re-run the
+            # unconditional ADD COLUMN / CREATE TABLE and fail with a duplicate error.
+            15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
+            16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
         }
 
         stamped = []

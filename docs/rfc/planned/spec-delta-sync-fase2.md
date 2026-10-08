@@ -23,13 +23,13 @@
 > WHEN events are ordered, THE system SHALL order them by `(hlc_physical, hlc_logical, agent_id, event_id)`, a total order (ADR-0010).
 
 **F4 — resolver determinístico e comutativo**
-> WHEN two concurrent events for the same `content_hash` are reconciled, THE resolver SHALL return the same winner regardless of input order (`resolve(a,b) == resolve(b,a)`), using: logical order → delete-vs-update (delete wins on `hlc(delete) >= hlc(update)`) → importance on exact logical tie → `agent_id`/`event_id` final tie-break (ADR-0012/0013).
+> WHEN two concurrent events for the same `content_hash` are reconciled, THE resolver SHALL return the same winner regardless of input order (`resolve(a,b) == resolve(b,a)`), using: logical order → delete-vs-update (delete wins on `hlc(delete) >= hlc(update)`) → stable `agent_id` (non-null wins, then lexicographic) → `event_id` (smaller wins) final tie-break. Quality/importance is NOT used (ADR-0013).
 
 **F5 — late event não sobrescreve**
 > WHEN an event arrives with an HLC lower than the already-applied state for its hash, THE apply step SHALL record the event (audit/idempotency) but SHALL NOT overwrite the materialized winner.
 
-**F6 — importância só em empate lógico exato**
-> WHERE two events have identical `(hlc_physical, hlc_logical)`, THE resolver SHALL use `quality_score` to break the tie, and ONLY then (ADR-0013).
+**F6 — stable tie-break on exact logical tie (NO quality)**
+> WHERE two events have identical `(hlc_physical, hlc_logical)`, THE resolver SHALL break the tie by `agent_id` (non-null wins, then lexicographically smaller) and then `event_id` (smaller wins), and SHALL NOT consider `quality_score`/importance — it is a local, mutable signal that would break cross-host convergence (ADR-0013).
 
 **F7 — resolver puro**
 > THE resolver SHALL be a pure function (no I/O, no clock, no network), testable in isolation.
@@ -43,8 +43,8 @@
 ## Critérios de aceite (= fixtures §8.2, viram testes RED no Gate 2)
 - [ ] **CA1 (F4 convergência)** 2 eventos concorrentes mesmo hash (agent A, B) → `reduce_events([a,b]) == reduce_events([b,a])` (mesmo vencedor).
 - [ ] **CA2 (F5 late event)** evento com HLC < applied_hlc → registrado, estado materializado inalterado.
-- [ ] **CA3 (F6 importância)** 2 updates com `(hlc_physical,hlc_logical)` idênticos, quality 0.9 vs 0.3 → vence 0.9.
-- [ ] **CA3' (empate total)** mesmo HLC + mesma quality → vence menor `event_id` (determinístico).
+- [ ] **CA3 (F6 no-quality)** 2 updates com `(hlc_physical,hlc_logical)` idênticos, quality 0.9 vs 0.3 → quality é IGNORADA; vence o menor `event_id` (ADR-0013).
+- [ ] **CA3' (empate total)** mesmo HLC + mesmo `agent_id` → vence menor `event_id` (determinístico).
 - [ ] **CA4 (F4 delete-vs-update)** delete hlc=(100,0) vs update hlc=(100,0) → delete vence; update hlc=(101,0) → update vence.
 - [ ] **CA5 (F1/F2 HLC monotônico)** N stores → HLC estritamente crescente em `(physical, logical)`; `last_hlc` em metadata reflete o último; não regride após "restart" (reabrir storage).
 - [ ] **CA6 (NF1 backfill)** eventos Fase 1 (sem HLC) após migração 016 → `hlc_physical = created_at*1000`, `hlc_logical = seq`, nenhum NULL.
