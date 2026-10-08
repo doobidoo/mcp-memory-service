@@ -245,3 +245,57 @@ async def test_apply_acquires_connection_lock(store):
         apply_mod._materialize_event = real_materialize
 
     assert held_during_apply["value"] is True, "apply_remote_event must hold _conn_lock during the write"
+
+
+def _delete_event(content_hash, *, event_id, agent="alpha", hlc_physical, hlc_logical=0, deleted_at=1500.0):
+    return {
+        "agent_id": agent, "event_id": event_id, "op": "delete",
+        "content_hash": content_hash, "hlc_physical": hlc_physical, "hlc_logical": hlc_logical,
+        "embedding_model": None, "embedding_dim": None,
+        "payload": {"content_hash": content_hash, "deleted_at": deleted_at},
+    }
+
+
+@pytest.mark.asyncio
+async def test_old_edit_does_not_restore_recreated_memory_field(store):
+    """P1 (Greptile apply:315): after delete+recreate, an OLD update_metadata must not restore
+    a field from the memory's previous life. Create(type=note,hlc10) → old edit(type=note,hlc12)
+    → delete(hlc20) → recreate(type=reference,hlc30) → later tags-only edit(hlc40). memory_type
+    must stay 'reference' (the recreate seed wins over the pre-recreate edit)."""
+    content = "Memory that gets deleted and recreated"
+    h = generate_content_hash(content)
+    apply_remote_event(store, _create_event(h, content=content, memory_type="note",
+                                            event_id="c1", hlc_physical=10))
+    apply_remote_event(store, _update_metadata_event(h, updates={"memory_type": "note"},
+                                                     event_id="old-edit", hlc_physical=12))
+    apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
+    apply_remote_event(store, _create_event(h, content=content, memory_type="reference",
+                                            event_id="c2", hlc_physical=30))
+    # a later tags-only edit must NOT drag memory_type back to the pre-recreate 'note'
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["fresh"]},
+                                                     event_id="tags-edit", hlc_physical=40))
+
+    rowm = store.conn.execute(
+        "SELECT memory_type, tags, deleted_at FROM memories WHERE content_hash = ?", (h,)
+    ).fetchone()
+    assert rowm is not None and rowm[2] is None, "recreated memory must be live"
+    assert rowm[0] == "reference", f"recreated field must survive, got {rowm[0]}"
+    assert set((rowm[1] or "").split(",")) == {"fresh"}
+
+
+@pytest.mark.asyncio
+async def test_equal_clock_edits_follow_resolver_tiebreak(store):
+    """P1 (Greptile apply:328): equal-HLC edits to the same field must pick the SAME winner the
+    resolver picks (smaller agent_id/event_id wins), not the opposite."""
+    content = "Memory edited by two agents at the same clock"
+    h = generate_content_hash(content)
+    apply_remote_event(store, _create_event(h, content=content, tags=["base"], event_id="c0", hlc_physical=10))
+    # Two update_metadata on the SAME field (tags), SAME hlc, different agents.
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["from-alpha"]},
+                                                     event_id="e-a", agent="alpha", hlc_physical=20))
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["from-omega"]},
+                                                     event_id="e-b", agent="omega", hlc_physical=20))
+    rowm = store.conn.execute("SELECT tags FROM memories WHERE content_hash = ?", (h,)).fetchone()
+    # resolver: smaller agent_id wins on equal clock → 'alpha' < 'omega' → from-alpha
+    assert set((rowm[0] or "").split(",")) == {"from-alpha"}, \
+        f"equal-clock tie must follow resolver (alpha), got {rowm[0]}"
