@@ -17,7 +17,7 @@ from typing import Dict, Any
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
-from .resolver import EventView, reduce_events
+from .resolver import EventView, reduce_events, _winner_key
 
 logger = logging.getLogger(__name__)
 
@@ -285,12 +285,63 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
             # memory. Treating it like create would erase the memory (Greptile P1).
             #
             # Convergence (Greptile P1): update_metadata events carry PARTIAL fields, and two
-            # spokes editing DIFFERENT fields must converge regardless of arrival order. We do
-            # NOT apply only the winning event's updates (that discards the other field when
-            # events arrive newest-first). Instead we rebuild each field from ALL
-            # update_metadata events for this hash: for every field, the value comes from the
-            # highest-HLC event that set it (field-level last-writer-wins by HLC). This is a
-            # pure function of the event set, so every peer reaches the same row (ADR-0012/0013).
+            # spokes editing DIFFERENT fields must converge regardless of arrival order. We
+            # rebuild each metadata field from the FULL event set for this hash, using the SAME
+            # total order as the Phase 2 resolver (_winner_key: smaller key wins; higher HLC
+            # then smaller agent_id/event_id). For each field, the value comes from the event
+            # with the winning key that set it. Two guards close the earlier Greptile gaps:
+            #   - seed fields from the winning `create` and only let an edit override a field
+            #     if the edit's key BEATS the create's key — otherwise an old edit could
+            #     restore a field from a deleted-then-recreated memory's past life (apply:315);
+            #   - use _winner_key, not a hand-rolled max, so equal-clock ties pick the SAME
+            #     winner the resolver would (apply:328).
+            allowed = {"tags", "memory_type", "metadata"}
+            best: Dict[str, Any] = {}          # field -> value
+            best_key: Dict[str, tuple] = {}    # field -> _winner_key (smaller wins)
+            latest_updated_at = None
+            latest_updated_key = None
+
+            def _ev_key(phys, log, agent, eid, ev_op):
+                return _winner_key(EventView(
+                    hlc_physical=phys or 0, hlc_logical=log or 0,
+                    agent_id=agent, event_id=eid or "", op=ev_op, content_hash=content_hash,
+                ))
+
+            all_cursor = s.conn.execute(
+                """
+                SELECT hlc_physical, hlc_logical, agent_id, event_id, op, payload
+                FROM sync_events
+                WHERE content_hash = ? AND op IN ('create', 'update', 'update_metadata')
+                """,
+                (content_hash,),
+            )
+            for ev_phys, ev_log, ev_agent, ev_eid, ev_op, ev_payload_json in all_cursor.fetchall():
+                try:
+                    ev_payload = json.loads(ev_payload_json) if ev_payload_json else {}
+                except (ValueError, TypeError):
+                    continue
+                k = _ev_key(ev_phys, ev_log, ev_agent, ev_eid, ev_op)
+                if ev_op in ("create", "update"):
+                    # The create/update seeds every field it carries.
+                    field_values = {
+                        "tags": ev_payload.get("tags"),
+                        "memory_type": ev_payload.get("memory_type"),
+                        "metadata": ev_payload.get("metadata"),
+                    }
+                    contributed = {kk: vv for kk, vv in field_values.items() if vv is not None}
+                else:
+                    contributed = {kk: vv for kk, vv in (ev_payload.get("updates", {}) or {}).items()
+                                   if kk in allowed}
+                for key, value in contributed.items():
+                    # smaller _winner_key wins; only override when this event beats the current.
+                    if key not in best_key or k < best_key[key]:
+                        best_key[key] = k
+                        best[key] = value
+                ev_upd_at = ev_payload.get("updated_at")
+                if ev_upd_at is not None and (latest_updated_key is None or k < latest_updated_key):
+                    latest_updated_key = k
+                    latest_updated_at = ev_upd_at
+
             row = s.conn.execute(
                 "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (content_hash,),
@@ -299,39 +350,6 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 # No local row to update (ordering/gap) — nothing to merge; not a failure.
                 logger.debug("update_metadata for unknown/absent hash %s — skipped", _sanitize_log_value(content_hash))
                 return True
-
-            allowed = {"tags", "memory_type", "metadata"}
-            # Winning value + its HLC per field, folded over every update_metadata event.
-            best: Dict[str, Any] = {}          # field -> value
-            best_hlc: Dict[str, tuple] = {}    # field -> (hlc_physical, hlc_logical, agent_id, event_id)
-            latest_updated_at = None
-            latest_updated_hlc = None
-            ev_cursor = s.conn.execute(
-                """
-                SELECT hlc_physical, hlc_logical, agent_id, event_id, payload
-                FROM sync_events
-                WHERE content_hash = ? AND op = 'update_metadata'
-                """,
-                (content_hash,),
-            )
-            for ev_phys, ev_log, ev_agent, ev_eid, ev_payload_json in ev_cursor.fetchall():
-                try:
-                    ev_payload = json.loads(ev_payload_json) if ev_payload_json else {}
-                except (ValueError, TypeError):
-                    continue
-                ev_updates = ev_payload.get("updates", {}) or {}
-                # Total order mirrors the resolver: (hlc, agent_id, event_id); larger wins.
-                ev_key = (ev_phys or 0, ev_log or 0, ev_agent or "", ev_eid or "")
-                for key, value in ev_updates.items():
-                    if key not in allowed:
-                        continue
-                    if ev_key > best_hlc.get(key, (-1, -1, "", "")):
-                        best_hlc[key] = ev_key
-                        best[key] = value
-                ev_upd_at = ev_payload.get("updated_at")
-                if ev_upd_at is not None and (latest_updated_hlc is None or ev_key > latest_updated_hlc):
-                    latest_updated_hlc = ev_key
-                    latest_updated_at = ev_upd_at
 
             set_clauses, params = [], []
             for key, value in best.items():
