@@ -3667,6 +3667,7 @@ class MilvusMemoryStorage(MemoryStorage):
         include_embeddings: bool = False,
         store: str = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         if agent_id is not None:
             raise NotImplementedError(

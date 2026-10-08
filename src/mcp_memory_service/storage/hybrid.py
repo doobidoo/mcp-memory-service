@@ -2059,6 +2059,7 @@ class HybridMemoryStorage(MemoryStorage):
         include_embeddings: bool = False,
         store: str = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """Get all memories from primary storage.
 
@@ -2075,6 +2076,7 @@ class HybridMemoryStorage(MemoryStorage):
             include_embeddings=include_embeddings,
             store=store,
             agent_id=agent_id,
+            exclude_pending=exclude_pending,
         )
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
