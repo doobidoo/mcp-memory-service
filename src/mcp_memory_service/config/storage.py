@@ -160,8 +160,16 @@ if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
 else:
     SQLITE_VEC_PATH = None
 
-# Cloudflare specific configuration (also needed for hybrid backend)
-if STORAGE_BACKEND == 'cloudflare' or STORAGE_BACKEND == 'hybrid':
+# Hybrid secondary backend selector — read early so the Cloudflare validation
+# below can skip when the secondary is HTTP (RemoteHTTPStorage never uses Cloudflare).
+# Re-read (idempotent) further down where the rest of the secondary config lives.
+_HYBRID_SECONDARY_BACKEND_EARLY = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
+
+# Cloudflare specific configuration (also needed for the hybrid backend, UNLESS the
+# hybrid secondary is HTTP — in that case Cloudflare creds are not required, #1304).
+if STORAGE_BACKEND == 'cloudflare' or (
+    STORAGE_BACKEND == 'hybrid' and _HYBRID_SECONDARY_BACKEND_EARLY != 'http'
+):
     # Required Cloudflare settings
     CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN')
     CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID')
@@ -211,7 +219,7 @@ else:
 
 # HTTP Secondary backend configuration (RFC #1304 Phase 2) - Available regardless of global backend
 # These are used by HybridMemoryStorage when instantiated programmatically
-MCP_HYBRID_SECONDARY_BACKEND = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
+MCP_HYBRID_SECONDARY_BACKEND = _HYBRID_SECONDARY_BACKEND_EARLY
 MCP_HYBRID_SECONDARY_URL = os.getenv('MCP_HYBRID_SECONDARY_URL')
 MCP_HYBRID_SECONDARY_API_KEY = os.getenv('MCP_HYBRID_SECONDARY_API_KEY')
 
