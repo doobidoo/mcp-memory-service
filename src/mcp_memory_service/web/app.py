@@ -152,8 +152,17 @@ async def lifespan(app: FastAPI):
         storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
 
-        # Initialize consolidation system if enabled
-        if CONSOLIDATION_ENABLED:
+        # Initialize consolidation system if enabled — OR if any opt-in interval job
+        # (see _OPTIN_SCHEDULE_ENV_VARS) is configured. The scheduler needs a consolidator
+        # instance to attach jobs to, so a host that only enables e.g. MCP_SYNC_SCHEDULE
+        # (with consolidation disabled) must still reach this block, build the consolidator,
+        # and start the scheduler — otherwise the opt-in job silently never runs (Greptile P1).
+        import os as _os
+        _optin_jobs_on = any(
+            (_os.getenv(v, '').strip().lower() not in ('', 'disabled'))
+            for v in _OPTIN_SCHEDULE_ENV_VARS
+        )
+        if CONSOLIDATION_ENABLED or _optin_jobs_on:
             try:
                 from ..consolidation.base import ConsolidationConfig
                 from ..consolidation.consolidator import DreamInspiredConsolidator
@@ -170,16 +179,8 @@ async def lifespan(app: FastAPI):
                 # Set global consolidator for API access
                 set_consolidator(consolidator)
 
-                # Initialize scheduler if any schedule is enabled — consolidation cadences
-                # OR any opt-in interval job (see _OPTIN_SCHEDULE_ENV_VARS). Without this, a
-                # host that only enables one opt-in job (and leaves consolidation disabled)
-                # would never get a scheduler and that job would silently never run.
-                import os as _os
+                # Start the scheduler when consolidation cadences OR any opt-in job is enabled.
                 _consolidation_on = any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values())
-                _optin_jobs_on = any(
-                    (_os.getenv(v, '').strip().lower() not in ('', 'disabled'))
-                    for v in _OPTIN_SCHEDULE_ENV_VARS
-                )
                 if _consolidation_on or _optin_jobs_on:
                     consolidation_scheduler = ConsolidationScheduler(
                         consolidator,

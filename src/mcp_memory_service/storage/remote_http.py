@@ -493,12 +493,18 @@ class RemoteHTTPStorage(MemoryStorage):
                 
                 return events, next_seq, has_more
             else:
-                logger.warning(f"Unexpected status code for sync events: {response.status_code}")
-                return [], cursor, False
+                # A failed pull must NOT look like an empty feed. Returning ([], cursor, False)
+                # makes the orchestrator treat it as "no more events" and report success with
+                # zero failures, silently masking an unreachable/erroring peer (Greptile P2).
+                # Raise so the caller surfaces the failure (the scheduler cycle isolates it
+                # per-peer and keeps the cursor unchanged, so the next cycle retries).
+                msg = f"sync events pull failed: HTTP {response.status_code}"
+                logger.warning("%s", _sanitize_log_value(msg))
+                raise RuntimeError(msg)
 
         except Exception as e:
-            logger.error(f"Error getting sync events: {_sanitize_log_value(str(e))}")
-            return [], cursor, False
+            logger.error("Error getting sync events: %s", _sanitize_log_value(str(e)))
+            raise
 
     async def push_events(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
