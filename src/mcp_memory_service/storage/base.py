@@ -269,7 +269,8 @@ class MemoryStorage(ABC):
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and time range filtering.
 
