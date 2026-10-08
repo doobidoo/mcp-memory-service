@@ -1750,7 +1750,8 @@ class HybridMemoryStorage(MemoryStorage):
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         """Search memories by tags using consistent operation parameter across backends."""
         normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
@@ -1762,7 +1763,8 @@ class HybridMemoryStorage(MemoryStorage):
             tags,
             operation=normalized_operation,
             time_start=time_start,
-            time_end=time_end
+            time_end=time_end,
+            include_pending=include_pending,
         )
 
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
@@ -1779,7 +1781,7 @@ class HybridMemoryStorage(MemoryStorage):
     async def delete_by_tag(self, tag: str) -> Tuple[int, str]:
         """Delete memories by tag from primary storage and queue for secondary sync."""
         # First, get the memories with this tag to get their hashes for sync
-        memories_to_delete = await self.primary.search_by_tags([tag])
+        memories_to_delete = await self.primary.search_by_tags([tag], include_pending=True)
 
         # Delete from primary
         count_deleted, message = await self.primary.delete_by_tag(tag)
@@ -1806,7 +1808,7 @@ class HybridMemoryStorage(MemoryStorage):
             return 0, "No tags provided", []
 
         # First, get all memories with any of these tags for sync queue
-        memories_to_delete = await self.primary.search_by_tags(tags, operation="OR")
+        memories_to_delete = await self.primary.search_by_tags(tags, operation="OR", include_pending=True)
 
         # Remove duplicates based on content_hash
         unique_memories = {m.content_hash: m for m in memories_to_delete}.values()
@@ -2059,6 +2061,7 @@ class HybridMemoryStorage(MemoryStorage):
         include_embeddings: bool = False,
         store: str = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """Get all memories from primary storage.
 
@@ -2075,6 +2078,7 @@ class HybridMemoryStorage(MemoryStorage):
             include_embeddings=include_embeddings,
             store=store,
             agent_id=agent_id,
+            exclude_pending=exclude_pending,
         )
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
@@ -2090,14 +2094,16 @@ class HybridMemoryStorage(MemoryStorage):
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """Get memories within time range from primary storage.
 
-        The ``include_embeddings`` kwarg is forwarded to the primary backend.
-        See :class:`MemoryStorage` for the contract.
+        The ``include_embeddings`` and ``exclude_pending`` kwargs are forwarded to the
+        primary backend. See :class:`MemoryStorage` for the contract.
         """
         return await self.primary.get_memories_by_time_range(
             start_time, end_time, include_embeddings=include_embeddings,
+            exclude_pending=exclude_pending,
         )
 
     async def close(self):

@@ -146,7 +146,7 @@ class RetrieveMixin:
                         WHERE content_embedding MATCH ? AND k = ?{store_condition}
                           AND rowid IN (
                               SELECT m.id FROM memories m
-                              WHERE m.deleted_at IS NULL{superseded_filter}{tag_conditions}{time_conditions}
+                              WHERE m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}{tag_conditions}{time_conditions}
                           )
                     ) e ON m.id = e.rowid
                     ORDER BY e.distance
@@ -244,7 +244,7 @@ class RetrieveMixin:
             tag_conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
-            where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL"
+            where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)"
             if time_start is not None:
                 where_clause += " AND created_at >= ?"
                 tag_params.append(time_start)
@@ -301,9 +301,16 @@ class RetrieveMixin:
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
-        """Search memories by tags with AND/OR operation and optional time filtering."""
+        """Search memories by tags with AND/OR operation and optional time filtering.
+
+        include_pending=True keeps embedding_pending rows — used by hybrid DELETE paths that
+        collect hashes to queue for the secondary backend (a pending row deleted on the primary
+        must still be queued for deletion remotely, or other devices keep the copy — Greptile P1).
+        Default False excludes pending (this is a SEARCH surface for users).
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -323,7 +330,8 @@ class RetrieveMixin:
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
-            where_conditions.append("deleted_at IS NULL")
+            pending_pred = "" if include_pending else " AND (embedding_pending IS NULL OR embedding_pending = 0)"
+            where_conditions.append(f"deleted_at IS NULL{pending_pred}")
             if time_start is not None:
                 where_conditions.append("created_at >= ?")
                 tag_params.append(time_start)
@@ -398,7 +406,7 @@ class RetrieveMixin:
                        created_at, updated_at, created_at_iso, updated_at_iso
                 FROM memories
                 WHERE ({tag_conditions})
-                AND deleted_at IS NULL
+                AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)
                 ORDER BY created_at DESC
             """
 
@@ -461,6 +469,11 @@ class RetrieveMixin:
                 return None
 
             def _get_by_hash():
+                # Direct lookup by exact hash is NOT a discovery/search surface, so it does
+                # NOT apply the embedding_pending guardrail (§8.3 excludes pending from
+                # SEARCH, not from a caller that already knows the hash). Internal sync/
+                # metadata-repair paths rely on this seeing pending rows; filtering here made
+                # them treat a pending memory as missing and skip the repair (Greptile P1).
                 sql = '''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
@@ -550,7 +563,7 @@ class RetrieveMixin:
                            created_at, created_at_iso, updated_at, updated_at_iso
                     FROM memories
                     WHERE content LIKE '%' || ? || '%' ESCAPE '\\' COLLATE NOCASE
-                    AND deleted_at IS NULL
+                    AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)
                     ORDER BY created_at DESC
                 ''', (_escape_like(content),))
                 return cursor.fetchall()
@@ -593,8 +606,14 @@ class RetrieveMixin:
         include_embeddings: bool = False,
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
-        """Get all memories in storage ordered by creation time (newest first)."""
+        """Get all memories in storage ordered by creation time (newest first).
+
+        exclude_pending=True hides embedding_pending rows — use it when this method
+        backs a SEARCH surface (e.g. the /search/by-tag endpoint). Default False keeps
+        the full listing for sync/reconciliation/export paths (they must see pending).
+        """
         try:
             await self.initialize()
 
@@ -610,6 +629,9 @@ class RetrieveMixin:
             where_conditions = []
 
             where_conditions.append('m.deleted_at IS NULL')
+
+            if exclude_pending:
+                where_conditions.append('(m.embedding_pending IS NULL OR m.embedding_pending = 0)')
 
             if store is not None:
                 where_conditions.append('m.store = ?')
@@ -1114,7 +1136,7 @@ class RetrieveMixin:
                     query_embedding = self._generate_embedding(query)
 
                     # Filter eligible rows inside KNN so excluded neighbors do not consume k.
-                    memory_filter = "deleted_at IS NULL"
+                    memory_filter = "deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)"
                     if time_where:
                         memory_filter += f" AND {time_where}"
                     # recall() is a retrieval path, so it must hide superseded
@@ -1198,7 +1220,7 @@ class RetrieveMixin:
                     logger.error("Error in semantic search with time filter: %s", _sanitize_log_value(query_error))
                     logger.info("Falling back to time-based retrieval")
 
-            where_parts = ["deleted_at IS NULL"]
+            where_parts = ["deleted_at IS NULL", "(embedding_pending IS NULL OR embedding_pending = 0)"]
             if time_where:
                 where_parts.append(time_where)
             # Keep the time-only branch consistent with the semantic one: a
@@ -1268,27 +1290,37 @@ class RetrieveMixin:
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
-        """Get memories within a specific time range."""
+        """Get memories within a specific time range.
+
+        exclude_pending=True drops rows with embedding_pending=1, so a possibly-stale
+        vector is never served as consistent (ADR-0016). Default False preserves the full
+        set for internal callers that must see every row (delete, consolidation). The
+        public search path (search_memories, time-only) passes True.
+        """
         try:
             await self.initialize()
 
+            pending_pred = " AND (m.embedding_pending IS NULL OR m.embedding_pending = 0)" if exclude_pending else ""
+            pending_pred_nojoin = " AND (embedding_pending IS NULL OR embedding_pending = 0)" if exclude_pending else ""
+
             if include_embeddings:
-                sql = '''
+                sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                            e.content_embedding
                     FROM memories m
                     LEFT JOIN memory_embeddings e ON m.id = e.rowid
-                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL
+                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL{pending_pred}
                     ORDER BY m.created_at DESC
                 '''
             else:
-                sql = '''
+                sql = f'''
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
                     FROM memories
-                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL
+                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL{pending_pred_nojoin}
                     ORDER BY created_at DESC
                 '''
 

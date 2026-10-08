@@ -1776,6 +1776,7 @@ class MilvusMemoryStorage(MemoryStorage):
         operation: str = "AND",
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         if not tags or not self._ensure_initialized():
             return []
@@ -3667,6 +3668,7 @@ class MilvusMemoryStorage(MemoryStorage):
         include_embeddings: bool = False,
         store: str = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         if agent_id is not None:
             raise NotImplementedError(

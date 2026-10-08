@@ -69,7 +69,7 @@ class HybridMixin:
                     SELECT m.content_hash, bm25(memory_content_fts) as rank
                     FROM memory_content_fts f
                     JOIN memories m ON f.rowid = m.id
-                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL{superseded_filter}
+                    WHERE memory_content_fts MATCH ? AND m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}
                     ORDER BY rank
                     LIMIT ?
                 ''', (fts_query, n_results))
@@ -140,7 +140,7 @@ class HybridMixin:
                         cur = self.conn.execute(
                             f"SELECT content_hash, content, tags, memory_type, metadata, "
                             f"created_at, updated_at, created_at_iso, updated_at_iso "
-                            f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL", b)
+                            f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)", b)
                         return cur.fetchall()
                     rows = await self._execute_with_retry(fetch_batch)
                     for row in rows:
@@ -216,7 +216,7 @@ class HybridMixin:
                             cursor = self.conn.execute(
                                 f"SELECT content_hash, content, tags, memory_type, metadata, "
                                 f"created_at, updated_at, created_at_iso, updated_at_iso "
-                                f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL{sf}",
+                                f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){sf}",
                                 b,
                             )
                             return cursor.fetchall()

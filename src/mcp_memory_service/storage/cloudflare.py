@@ -964,7 +964,8 @@ class CloudflareStorage(MemoryStorage):
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and optional time filtering."""
         return await self._search_by_tags_internal(
@@ -2034,6 +2035,7 @@ class CloudflareStorage(MemoryStorage):
         include_embeddings: bool = False,
         store: str = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
