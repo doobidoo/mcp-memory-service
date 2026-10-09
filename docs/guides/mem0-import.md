@@ -30,8 +30,9 @@ configured SQLite path (`MCP_MEMORY_SQLITE_PATH`) on both the `sqlite_vec` and
   only in the local SQLite file until a sync pushes them. Trigger one on the
   running service with `POST /api/sync/force` (write access required). Its
   response reports `success: false` when Cloudflare is unreachable, but it does
-  not list individual write failures, so compare the memory count on both sides
-  before relying on the remote copy.
+  not report individual write failures, so a successful response does not prove
+  that every imported memory reached Cloudflare. Check the imported
+  `content_hash` values on the Cloudflare side before relying on the remote copy.
 - The `cloudflare` backend has no local SQLite file, so this command cannot
   import into it.
 
