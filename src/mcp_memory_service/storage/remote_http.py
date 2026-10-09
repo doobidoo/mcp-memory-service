@@ -506,6 +506,29 @@ class RemoteHTTPStorage(MemoryStorage):
             logger.error("Error getting sync events: %s", _sanitize_log_value(str(e)))
             raise
 
+    async def get_baseline(self) -> Tuple[List[Dict[str, Any]], int]:
+        """Fetch a bootstrap baseline from the peer (delta-sync Phase 5, RFC §9.3).
+
+        Returns (events, watermark). Raises on a non-200/transport error so the caller does
+        not mistake a failed bootstrap for an empty corpus.
+        """
+        response = await self._request("GET", "/api/sync/baseline")
+        if response.status_code == 200:
+            data = response.json()
+            # Greptile P2-3: a malformed 200 ({"watermark": 100} with no events) must NOT look
+            # like a valid empty snapshot that advances the cursor without importing anything.
+            # Require both fields with the right types.
+            if not isinstance(data, dict) or "events" not in data or "watermark" not in data:
+                raise RuntimeError("baseline response missing 'events'/'watermark'")
+            events = data["events"]
+            watermark = data["watermark"]
+            if not isinstance(events, list) or not isinstance(watermark, int):
+                raise RuntimeError("baseline response has wrong types for 'events'/'watermark'")
+            return events, watermark
+        msg = f"baseline fetch failed: HTTP {response.status_code}"
+        logger.warning("%s", _sanitize_log_value(msg))
+        raise RuntimeError(msg)
+
     async def push_events(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Push local sync events to the remote peer (delta-sync Phase 4c, ADR-0027).
