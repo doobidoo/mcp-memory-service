@@ -203,6 +203,12 @@ TAG FILTER:
 DEBUG:
 - include_debug=true adds timing, embedding info, filter details
 
+SUMMARIZATION (opt-in):
+- summarize=true returns a query-aware LLM summary with validated source hashes
+- Requires a query and the existing HARVEST_LLM_PROVIDERS/GROQ_API_KEY configuration
+- Bounds model input at whole-memory boundaries; original memories remain stored
+- Returns raw results with a warning if summarization or source validation fails
+
 Examples:
 {"query": "python async patterns"}
 {"query": "API endpoint", "mode": "exact"}
@@ -210,7 +216,8 @@ Examples:
 {"query": "database config", "time_expr": "yesterday"}
 {"query": "architecture decisions", "tags": ["important"], "quality_boost": 0.3}
 {"after": "2024-01-01", "before": "2024-06-30", "limit": 50}
-{"query": "error handling", "include_debug": true}""",
+{"query": "error handling", "include_debug": true}
+{"query": "replication consistency issue", "summarize": true}""",
         input_schema={
             "type": "object",
             "properties": {
@@ -315,6 +322,18 @@ Examples:
                 "store": {
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
+                },
+                "summarize": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Return a query-aware LLM summary of the retrieved memories "
+                        "with source hashes and preserved metadata instead of their "
+                        "full contents. Requires operator permission via "
+                        "MCP_SEARCH_SUMMARIZE_ENABLED=true (off by default), a query, "
+                        "and a configured LLM provider. "
+                        "Falls back to raw results with a warning on failure."
+                    ),
                 },
             },
         },
@@ -539,6 +558,16 @@ Examples:
                             "priority": "urgent",
                             "status": "active"
                         }
+                    }
+
+                    # Create a new version with updated content (sqlite_vec only)
+                    {
+                        "content_hash": "abc123...",
+                        "updates": {
+                            "content": "Corrected memory content",
+                            "reason": "Fix outdated command"
+                        },
+                        "versioned": true
                     }""",
         input_schema={
             "type": "object",
@@ -549,7 +578,7 @@ Examples:
                 },
                 "updates": {
                     "type": "object",
-                    "description": "Dictionary of metadata fields to update.",
+                    "description": "Dictionary of fields to update. With versioned=true only content, tags, memory_type and reason take effect.",
                     "properties": {
                         "tags": {
                             "oneOf": [
@@ -571,19 +600,27 @@ Examples:
                         },
                         "metadata": {
                             "type": "object",
-                            "description": "Custom metadata fields to merge with existing metadata.",
+                            "description": "Custom metadata fields to merge with existing metadata. In-place updates merge with the current metadata. Versioned updates: the new version inherits the old version's custom metadata, and fields supplied here override the inherited values.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "New memory content. Required when versioned=true; dropped from in-place updates.",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Reason for the change, recorded as evolution_reason on the superseded version. Only used with versioned=true; dropped from in-place updates.",
                         },
                     },
                 },
                 "preserve_timestamps": {
                     "type": "boolean",
                     "default": True,
-                    "description": "Whether to preserve the original created_at timestamp (default: true).",
+                    "description": "In-place updates only. When true (default), the original created_at is kept. When false, created_at/updated_at may be supplied via updates. Ignored with versioned=true.",
                 },
                 "versioned": {
                     "type": "boolean",
                     "default": False,
-                    "description": "When true, creates a new version instead of overwriting. The old memory is marked as superseded. Requires content in updates to create the new version. Creates a new memory version and marks the old one as superseded. Supported backends: sqlite_vec. Unsupported backends return an error.",
+                    "description": "When true, creates a new memory version instead of overwriting and marks the old one as superseded. Requires content in updates. Supported backends: sqlite_vec. Unsupported backends return an error.",
                 },
             },
             "required": ["content_hash", "updates"],

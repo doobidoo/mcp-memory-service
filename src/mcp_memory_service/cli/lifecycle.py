@@ -974,7 +974,11 @@ def _run_background(host: str, port: int, tls: _ServerTls, base_url: str) -> Non
     help="Terminate a port owner even when it is not MCP Memory Service",
 )
 def stop(http_host, http_port, force):
-    """Stop a background memory server."""
+    """Stop a background memory server.
+
+    Returns False only when it refused to act (the recorded port does not
+    match), which restart() treats as "do not launch"; True otherwise.
+    """
     host = http_host or os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
     port = _resolve_lifecycle_port(http_port)
 
@@ -1025,6 +1029,7 @@ def stop(http_host, http_port, force):
             )
         else:
             click.echo("Server is not running.")
+    return True
 
 
 @click.command()

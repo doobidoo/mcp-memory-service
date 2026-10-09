@@ -67,6 +67,32 @@ async def test_evolve_memory_writes_caller_metadata(memory_service, monkeypatch)
     assert new.metadata["agent_id"] == "omp"
     assert "session-harvest" in new.tags
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_evolve_memory_merges_caller_metadata_over_inherited(memory_service, monkeypatch):
+    monkeypatch.delenv("MCP_AGENT_ID", raising=False)
+    old_hash = await _store_original(memory_service)
+
+    ok_meta, _ = await memory_service.storage.update_memory_metadata(
+        old_hash, {"metadata": {"source": "runbook", "ticket": "OPS-17"}}
+    )
+    assert ok_meta
+
+    ok, _msg, new_hash = await memory_service.evolve_memory(
+        old_hash,
+        "The backup job runs nightly at 05:00 against the NAS share.",
+        metadata={"source": "harvest"},
+        reason="schedule change",
+    )
+
+    assert ok and new_hash
+    new = await memory_service.storage.get_by_hash(new_hash)
+    # Caller metadata merges over the inherited dict instead of replacing it.
+    assert new.metadata["source"] == "harvest"
+    assert new.metadata["ticket"] == "OPS-17"
+    assert "superseded_by" not in new.metadata
+    assert "evolution_reason" not in new.metadata
+
 
 @pytest.mark.unit
 @pytest.mark.asyncio

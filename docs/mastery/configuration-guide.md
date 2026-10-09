@@ -208,3 +208,51 @@ Rate-limit handling for the harvest classifier (validates candidate memories via
   - Ensure required variables are set or the process exits with a clear error and checklist.
 - Hybrid (recommended for production):
   - Uses SQLite-vec for 5 ms local reads with background Cloudflare sync. Requires all `CLOUDFLARE_*` variables. Set `MCP_HYBRID_SYNC_OWNER=http` when running alongside an MCP server so only the HTTP server syncs.
+  - **HTTP Secondary Backend** (alternative to Cloudflare): Use `MCP_HYBRID_SECONDARY_BACKEND=http` with `MCP_HYBRID_SECONDARY_URL` and optional `MCP_HYBRID_SECONDARY_API_KEY` to sync to a remote MCP Memory Service instance instead of Cloudflare.
+
+### Hybrid HTTP Secondary Backend
+
+For self-hosted or on-premise deployments, the hybrid backend can sync to a remote HTTP MCP Memory Service instead of Cloudflare:
+
+- `MCP_HYBRID_SECONDARY_BACKEND`: Set to `http` to use HTTP secondary backend (default `cloudflare`).
+- `MCP_HYBRID_SECONDARY_URL`: Base URL of the remote MCP Memory Service (required when using HTTP backend).
+- `MCP_HYBRID_SECONDARY_API_KEY`: Optional API key for authentication with the remote service.
+- `MCP_HYBRID_SECONDARY_AUTH_STYLE`: Authentication style - `bearer` (default) or `x-api-key`. Use `x-api-key` when the remote service is behind nginx with basic auth.
+- `MCP_HYBRID_SECONDARY_BASIC_USER`: Optional basic auth username for nginx layer authentication.
+- `MCP_HYBRID_SECONDARY_BASIC_PASS`: Optional basic auth password for nginx layer authentication.
+
+Example HTTP backend configuration:
+```bash
+export MCP_MEMORY_STORAGE_BACKEND=hybrid
+export MCP_HYBRID_SECONDARY_BACKEND=http
+export MCP_HYBRID_SECONDARY_URL=https://hub.example.com:8443
+export MCP_HYBRID_SECONDARY_API_KEY=your-api-key-here
+# For service behind nginx with basic auth:
+export MCP_HYBRID_SECONDARY_AUTH_STYLE=x-api-key
+export MCP_HYBRID_SECONDARY_BASIC_USER=nginx-user
+export MCP_HYBRID_SECONDARY_BASIC_PASS=nginx-password
+```
+
+This configuration provides the same local SQLite-vec performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts and credentials.
+
+#### Embedding model match (startup safety check)
+
+When the HTTP secondary is active, the client verifies at startup that the hub's
+configured embedding model matches its own. Both nodes **must** use the same model
+(`MCP_EMBEDDING_MODEL`): memories are re-embedded on store, so a mismatch produces
+vectors that are not comparable and silently degrades recall.
+
+- The hub exposes its configured model via an authenticated endpoint,
+  `GET /api/health/model` (requires read access), returning `embedding_model`,
+  `embedding_dimension` and `backend`.
+- On `initialize()`, the client fetches that value and compares it to its own
+  `MCP_EMBEDDING_MODEL`. The check is **fail-closed**: a mismatch, a missing model
+  field, or an unreachable hub all raise `EmbeddingModelMismatchError` and the
+  service refuses to start, naming both the local and the remote model.
+- The check only runs for the HTTP secondary. It is a no-op for the Cloudflare
+  secondary and for a SQLite-only (non-hybrid) deployment.
+
+If you intentionally change the embedding model, update `MCP_EMBEDDING_MODEL` on
+**every** node *and* re-embed the hub's existing memories — restarting with a new
+model name alone leaves the stored vectors incompatible. See the troubleshooting
+guide entry "HTTP secondary refuses to start: embedding model mismatch".

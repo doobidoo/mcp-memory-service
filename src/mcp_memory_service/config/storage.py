@@ -160,8 +160,16 @@ if STORAGE_BACKEND == 'sqlite_vec' or STORAGE_BACKEND == 'hybrid':
 else:
     SQLITE_VEC_PATH = None
 
-# Cloudflare specific configuration (also needed for hybrid backend)
-if STORAGE_BACKEND == 'cloudflare' or STORAGE_BACKEND == 'hybrid':
+# Hybrid secondary backend selector — read early so the Cloudflare validation
+# below can skip when the secondary is HTTP (RemoteHTTPStorage never uses Cloudflare).
+# Re-read (idempotent) further down where the rest of the secondary config lives.
+_HYBRID_SECONDARY_BACKEND_EARLY = os.getenv('MCP_HYBRID_SECONDARY_BACKEND', 'cloudflare').lower()
+
+# Cloudflare specific configuration (also needed for the hybrid backend, UNLESS the
+# hybrid secondary is HTTP — in that case Cloudflare creds are not required, #1304).
+if STORAGE_BACKEND == 'cloudflare' or (
+    STORAGE_BACKEND == 'hybrid' and _HYBRID_SECONDARY_BACKEND_EARLY != 'http'
+):
     # Required Cloudflare settings
     CLOUDFLARE_API_TOKEN = os.getenv('CLOUDFLARE_API_TOKEN')
     CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID')
@@ -208,6 +216,21 @@ else:
     CLOUDFLARE_LARGE_CONTENT_THRESHOLD = None
     CLOUDFLARE_MAX_RETRIES = None
     CLOUDFLARE_BASE_DELAY = None
+
+# HTTP Secondary backend configuration (RFC #1304 Phase 2) - Available regardless of global backend
+# These are used by HybridMemoryStorage when instantiated programmatically
+MCP_HYBRID_SECONDARY_BACKEND = _HYBRID_SECONDARY_BACKEND_EARLY
+MCP_HYBRID_SECONDARY_URL = os.getenv('MCP_HYBRID_SECONDARY_URL')
+MCP_HYBRID_SECONDARY_API_KEY = os.getenv('MCP_HYBRID_SECONDARY_API_KEY')
+
+# HTTP Secondary backend authentication configuration (R9b) - Available regardless of global backend
+MCP_HYBRID_SECONDARY_AUTH_STYLE = os.getenv('MCP_HYBRID_SECONDARY_AUTH_STYLE', 'bearer').lower()
+if MCP_HYBRID_SECONDARY_AUTH_STYLE not in ('bearer', 'x-api-key'):
+    logger.warning("Invalid MCP_HYBRID_SECONDARY_AUTH_STYLE '%s', falling back to 'bearer'", MCP_HYBRID_SECONDARY_AUTH_STYLE)
+    MCP_HYBRID_SECONDARY_AUTH_STYLE = 'bearer'
+
+MCP_HYBRID_SECONDARY_BASIC_USER = os.getenv('MCP_HYBRID_SECONDARY_BASIC_USER')
+MCP_HYBRID_SECONDARY_BASIC_PASS = os.getenv('MCP_HYBRID_SECONDARY_BASIC_PASS')
 
 # Hybrid backend specific configuration
 if STORAGE_BACKEND == 'hybrid':
@@ -259,18 +282,19 @@ if STORAGE_BACKEND == 'hybrid':
     CLOUDFLARE_WARNING_THRESHOLD_PERCENT = 80  # Warn at 80% capacity
     CLOUDFLARE_CRITICAL_THRESHOLD_PERCENT = 95  # Critical at 95% capacity
 
-    # Validate Cloudflare configuration for hybrid mode
-    if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_VECTORIZE_INDEX and CLOUDFLARE_D1_DATABASE_ID):
-        logger.warning("Hybrid mode requires Cloudflare configuration. Missing required variables:")
-        if not CLOUDFLARE_API_TOKEN:
-            logger.warning("  - CLOUDFLARE_API_TOKEN")
-        if not CLOUDFLARE_ACCOUNT_ID:
-            logger.warning("  - CLOUDFLARE_ACCOUNT_ID")
-        if not CLOUDFLARE_VECTORIZE_INDEX:
-            logger.warning("  - CLOUDFLARE_VECTORIZE_INDEX")
-        if not CLOUDFLARE_D1_DATABASE_ID:
-            logger.warning("  - CLOUDFLARE_D1_DATABASE_ID")
-        logger.warning("Hybrid mode will operate in SQLite-only mode until Cloudflare is configured")
+    # Validate Cloudflare configuration for hybrid mode (skip if using HTTP secondary backend)
+    if MCP_HYBRID_SECONDARY_BACKEND != 'http':
+        if not (CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_VECTORIZE_INDEX and CLOUDFLARE_D1_DATABASE_ID):
+            logger.warning("Hybrid mode requires Cloudflare configuration. Missing required variables:")
+            if not CLOUDFLARE_API_TOKEN:
+                logger.warning("  - CLOUDFLARE_API_TOKEN")
+            if not CLOUDFLARE_ACCOUNT_ID:
+                logger.warning("  - CLOUDFLARE_ACCOUNT_ID")
+            if not CLOUDFLARE_VECTORIZE_INDEX:
+                logger.warning("  - CLOUDFLARE_VECTORIZE_INDEX")
+            if not CLOUDFLARE_D1_DATABASE_ID:
+                logger.warning("  - CLOUDFLARE_D1_DATABASE_ID")
+            logger.warning("Hybrid mode will operate in SQLite-only mode until Cloudflare is configured")
 else:
     # Set hybrid-specific variables to None when not using hybrid backend
     HYBRID_SYNC_INTERVAL = None
@@ -290,6 +314,10 @@ else:
     HYBRID_MIN_CHECK_COUNT = None
     HYBRID_FALLBACK_TO_PRIMARY = None
     HYBRID_WARN_ON_SECONDARY_FAILURE = None
+
+    # HTTP Secondary backend variables (kept for backward compatibility, but main values are always available above)
+    # Only the core HTTP secondary backend variables are set to None here, not the auth-specific ones
+    # since auth variables should be available even when not using hybrid backend globally
 
     # Also set limit constants to None
     CLOUDFLARE_D1_MAX_SIZE_GB = None

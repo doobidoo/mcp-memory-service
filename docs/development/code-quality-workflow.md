@@ -554,7 +554,7 @@ pyscn analyze --exclude "tests/*,scripts/*"
 ### Related Documentation
 
 - [CLAUDE.md](../../CLAUDE.md) - Project conventions and workflows
-- [`.claude/agents/code-quality-guard.md`](../../.claude/agents/code-quality-guard.md) - Agent workflows
+- `.claude/agents/code-quality-guard.md` - Agent workflows (local developer config, untracked since 00995fe7)
 - [scripts/README.md](../../scripts/README.md) - Script documentation
 - [Issue #240](https://github.com/doobidoo/mcp-memory-service/issues/240) - Quality improvements tracking
 

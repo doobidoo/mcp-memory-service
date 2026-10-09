@@ -18,6 +18,8 @@ import logging
 import os
 import importlib
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 async def validate_database(storage) -> Tuple[bool, str]:
@@ -43,7 +45,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
                     else:
                         return False, "Storage initialization incomplete"
             except Exception as init_error:
-                logger.warning(f"Error checking initialization status: {init_error}")
+                logger.warning("Error checking initialization status: %s", _sanitize_log_value(init_error))
                 # Continue with alternative checks
         
         # SQLite-vec backend validation
@@ -64,7 +66,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
                 # Try a simple query to verify database connection
                 cursor = storage.conn.execute('SELECT COUNT(*) FROM memories')
                 memory_count = cursor.fetchone()[0]
-                logger.info(f"SQLite-vec database contains {memory_count} memories")
+                logger.info("SQLite-vec database contains %s memories", memory_count)
                 
                 # Test if embedding generation works (if model is available)
                 if hasattr(storage, 'embedding_model') and storage.embedding_model:
@@ -90,7 +92,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
                 # Check basic connectivity by getting stats
                 stats = await storage.get_stats()
                 memory_count = stats.get("total_memories", 0)
-                logger.info(f"Cloudflare storage contains {memory_count} memories")
+                logger.info("Cloudflare storage contains %s memories", memory_count)
 
                 # Test embedding generation if available
                 test_text = "Database validation test"
@@ -99,7 +101,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
                     if not embedding or not isinstance(embedding, list):
                         logger.warning("Embedding generation may not be working properly")
                 except Exception as embed_error:
-                    logger.warning(f"Embedding test failed: {str(embed_error)}")
+                    logger.warning("Embedding test failed: %s", _sanitize_log_value(embed_error))
 
                 return True, "Cloudflare storage validation successful"
 
@@ -113,7 +115,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
 
                 stats = await storage.get_stats()
                 memory_count = stats.get("total_memories", 0)
-                logger.info(f"Milvus storage contains {memory_count} memories")
+                logger.info("Milvus storage contains %s memories", memory_count)
                 return True, "Milvus storage validation successful"
 
             except Exception as e:
@@ -123,7 +125,7 @@ async def validate_database(storage) -> Tuple[bool, str]:
             return False, f"Unknown storage type: {storage_type}"
             
     except Exception as e:
-        logger.error(f"Database validation failed: {str(e)}")
+        logger.error("Database validation failed: %s", _sanitize_log_value(e))
         return False, f"Database validation failed: {str(e)}"
 
 async def get_database_stats(storage) -> Dict[str, Any]:
@@ -148,7 +150,7 @@ async def get_database_stats(storage) -> Dict[str, Any]:
                     stats["status"] = "healthy"
                     return stats
                 except Exception as stats_error:
-                    logger.warning(f"Error calling get_stats method: {stats_error}")
+                    logger.warning("Error calling get_stats method: %s", _sanitize_log_value(stats_error))
                     # Fall back to our implementation
             
             # Otherwise, gather basic stats
@@ -268,7 +270,7 @@ async def get_database_stats(storage) -> Dict[str, Any]:
             }
             
     except Exception as e:
-        logger.error(f"Error getting database stats: {str(e)}")
+        logger.error("Error getting database stats: %s", _sanitize_log_value(e))
         return {
             "status": "error",
             "error": str(e)
@@ -373,5 +375,5 @@ async def repair_database(storage) -> Tuple[bool, str]:
             return False, f"Unknown storage type: {storage_type}, cannot repair"
                 
     except Exception as e:
-        logger.error(f"Error repairing database: {str(e)}")
+        logger.error("Error repairing database: %s", _sanitize_log_value(e))
         return False, f"Error repairing database: {str(e)}"

@@ -24,6 +24,7 @@ import hashlib
 
 from .base import ConsolidationBase, ConsolidationConfig
 from .decay import RelevanceScore
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 
 @dataclass
@@ -103,7 +104,7 @@ class ControlledForgettingEngine(ConsolidationBase):
             action = result.action_taken
             actions_summary[action] = actions_summary.get(action, 0) + 1
         
-        self.logger.info(f"Forgetting results: {actions_summary}")
+        self.logger.info("Forgetting results: %s", _sanitize_log_value(actions_summary))
         return results
     
     async def _identify_forgetting_candidates(
@@ -187,8 +188,11 @@ class ControlledForgettingEngine(ConsolidationBase):
                 if days_since_access > threshold_days:
                     forgetting_reasons.append("old_access")
                     self.logger.info(
-                        f"Archival candidate: {memory.content_hash[:12]} quality={quality_score:.2f}, "
-                        f"inactive={days_since_access:.0f}d, threshold={threshold_days}d"
+                        "Archival candidate: %s quality=%s, inactive=%sd, threshold=%sd",
+                        _sanitize_log_value(memory.content_hash[:12]),
+                        _sanitize_log_value(f"{quality_score:.2f}"),
+                        _sanitize_log_value(f"{days_since_access:.0f}"),
+                        _sanitize_log_value(threshold_days)
                     )
                     if days_since_access > threshold_days * 2:
                         archive_priority = min(archive_priority, 1)  # High priority
@@ -243,7 +247,7 @@ class ControlledForgettingEngine(ConsolidationBase):
         # Sort by priority (higher priority = lower number = first in list)
         candidates.sort(key=lambda c: (c.archive_priority, -c.relevance_score.total_score))
         
-        self.logger.info(f"Identified {len(candidates)} forgetting candidates")
+        self.logger.info("Identified %s forgetting candidates", _sanitize_log_value(len(candidates)))
         return candidates
     
     def _is_low_quality_content(self, memory: Memory) -> bool:
@@ -371,7 +375,7 @@ class ControlledForgettingEngine(ConsolidationBase):
                 return await self._compress_memory(candidate)
         
         except Exception as e:
-            self.logger.error(f"Error processing forgetting candidate {memory.content_hash}: {e}")
+            self.logger.error("Error processing forgetting candidate %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return ForgettingResult(
                 memory_hash=memory.content_hash,
                 action_taken='skipped',
@@ -601,7 +605,7 @@ class ControlledForgettingEngine(ConsolidationBase):
                         return Memory.from_dict(memory_data)
                 
                 except Exception as e:
-                    self.logger.warning(f"Error reading archive file {archive_file}: {e}")
+                    self.logger.warning("Error reading archive file %s: %s", _sanitize_log_value(archive_file), _sanitize_log_value(e))
         
         return None
     
@@ -650,6 +654,6 @@ class ControlledForgettingEngine(ConsolidationBase):
                                 stats['newest_archive'] = timestamp
                                 
             except Exception as e:
-                self.logger.warning(f"Error reading forgetting log: {e}")
+                self.logger.warning("Error reading forgetting log: %s", _sanitize_log_value(e))
         
         return stats

@@ -27,6 +27,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from ...compat import _sanitize_log_value
 from ...config import (
     OAUTH_ENABLED,
     OAUTH_STORAGE_BACKEND,
@@ -73,7 +74,7 @@ async def get_oauth_status(
             active_codes_count=stats.get("active_authorization_codes", 0),
         )
     except Exception as e:
-        logger.warning(f"Failed to get OAuth stats: {e}")
+        logger.warning("Failed to get OAuth stats: %s", _sanitize_log_value(e))
         return OAuthStatusResponse(
             oauth_enabled=True,
             storage_backend=OAUTH_STORAGE_BACKEND,

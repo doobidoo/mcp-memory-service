@@ -1,0 +1,44 @@
+# Markdown link checks, split out of ci.yml for the same reason as changelog.yml:
+# ci.yml skips its test jobs on docs-only diffs, and those are exactly the
+# changes that break links. A moved or deleted file breaks them too, so there is
+# no paths filter at all; the internal check is offline and takes about a second.
+#
+# External links are checked weekly, never on pull requests. Sites answer
+# unreliably (bot protection, rate limits), and a red PR caused by somebody
+# else's server is noise. Only 404, 410 and connection failures fail that run;
+# the rest are listed as warnings in the job summary.
+
+name: Links
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * 1'   # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  internal:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    name: Internal Markdown links
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check internal links
+      run: python3 scripts/ci/check_md_links.py
+
+  external:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: External Markdown links
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - name: Check external links
+      run: python3 scripts/ci/check_md_links.py --external

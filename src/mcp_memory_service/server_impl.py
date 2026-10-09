@@ -1872,7 +1872,8 @@ class MemoryServer:
                             "tags": c.tags,
                         }
                         for c in r.candidates
-                    ]
+                    ],
+                    "coverage": r.coverage,  # Include coverage report
                 }
                 for r in results
             ]

@@ -1,0 +1,1 @@
+- MCP store path now honors `MCP_MEMORY_INCLUDE_HOSTNAME`: when enabled and the client sends no `client_hostname`, the server stamps its own hostname (`socket.gethostname()`) into memory metadata and a `source:{host}` tag — matching the Web API behavior. Best-effort; never fails the write.

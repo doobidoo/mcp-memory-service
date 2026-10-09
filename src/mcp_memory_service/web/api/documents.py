@@ -664,15 +664,21 @@ async def remove_document(
                     # (we already deleted them, so we'll use a generic message)
                     filename = f"Document (upload_id: {upload_id[:8]}...)"
 
-            except Exception:
-                logger.warning("Could not delete memories by upload tag")
-                # If deletion fails and we don't know about this upload, return 404
-                if not session:
-                    raise HTTPException(
-                        status_code=404,
-                        detail="Upload ID not found"
-                    )
-                memories_deleted = 0
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Could not delete memories by upload tag: %s",
+                    _sanitize_log_value(exc),
+                )
+                # A storage error is retryable, whether or not the in-memory
+                # session survived a restart. Never translate it to 404: that
+                # tells the caller the upload does not exist instead of that its
+                # memories may still be present.
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to delete document memories",
+                ) from exc
 
         # Remove upload session if it exists
         if session:

@@ -24,7 +24,6 @@ import pytest
 import pytest_asyncio
 import tempfile
 import os
-from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from mcp_memory_service.web.dependencies import set_storage
@@ -202,6 +201,12 @@ async def test_relationship_type_distribution_with_all_six_types(test_app, stora
     assert data["follows"] == 1  # Directed
     assert data["untyped"] == 1
 
+    all_stores = test_app.get(
+        "/api/analytics/relationship-types", params={"store": "all"}
+    )
+    assert all_stores.status_code == 200
+    assert all_stores.json() == data
+
 
 @pytest.mark.asyncio
 async def test_relationship_type_distribution_only_symmetric(test_app, initialized_storage, monkeypatch):
@@ -350,6 +355,53 @@ async def test_relationship_type_distribution_with_untyped_null(test_app, initia
 
     assert "untyped" in data
     assert data["untyped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_relationship_type_distribution_all_excludes_deleted_targets(
+    test_app, initialized_storage
+):
+    """The federated view must not count orphan edges to soft-deleted memories."""
+    source = Memory(
+        content="Relationship source",
+        content_hash=generate_content_hash("Relationship source"),
+        tags=["test"],
+    )
+    target = Memory(
+        content="Deleted relationship target",
+        content_hash=generate_content_hash("Deleted relationship target"),
+        tags=["test"],
+    )
+    source_ok, source_message = await initialized_storage.store(source)
+    target_ok, target_message = await initialized_storage.store(target)
+    assert source_ok, source_message
+    assert target_ok, target_message
+
+    graph = GraphStorage(initialized_storage.db_path)
+    await graph.store_association(
+        source.content_hash,
+        target.content_hash,
+        0.8,
+        ["semantic"],
+        relationship_type="related",
+    )
+    await initialized_storage.delete(target.content_hash)
+    # Simulate a legacy/race orphan edge after the target became a tombstone.
+    await graph.store_association(
+        source.content_hash,
+        target.content_hash,
+        0.8,
+        ["semantic"],
+        relationship_type="related",
+    )
+
+    set_storage(initialized_storage)
+    response = test_app.get(
+        "/api/analytics/relationship-types", params={"store": "all"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {}
 
 
 @pytest.mark.asyncio
@@ -707,6 +759,9 @@ async def test_graph_visualization_handles_deleted_memories(test_app, initialize
 
     # Soft delete mem2
     await initialized_storage.delete(mem2)
+    # Simulate a legacy/race orphan edge: the target tombstone remains, but the
+    # graph row does. A scoped graph must not count a deleted target.
+    await graph.store_association(mem1, mem2, 0.8, ["semantic"], relationship_type="related")
 
     set_storage(initialized_storage)
 
@@ -718,3 +773,44 @@ async def test_graph_visualization_handles_deleted_memories(test_app, initialize
     # Deleted memory should not appear in nodes
     node_ids = [node["id"] for node in data["nodes"]]
     assert mem2 not in node_ids
+    assert mem1 not in node_ids, (
+        "an edge to a soft-deleted target must not keep its source in the graph"
+    )
+
+
+@pytest.mark.asyncio
+async def test_graph_visualization_store_scope_excludes_cross_store_edges(
+    test_app, initialized_storage
+):
+    """A scoped graph must not count edges whose target lives in another store."""
+    home = Memory(
+        content="Home graph source",
+        content_hash=generate_content_hash("Home graph source"),
+        tags=["test"],
+    )
+    work = Memory(
+        content="Work graph target",
+        content_hash=generate_content_hash("Work graph target"),
+        tags=["test"],
+    )
+    home_ok, home_message = await initialized_storage.store(home, store="home")
+    work_ok, work_message = await initialized_storage.store(work, store="work")
+    assert home_ok, home_message
+    assert work_ok, work_message
+
+    graph = GraphStorage(initialized_storage.db_path)
+    await graph.store_association(
+        home.content_hash,
+        work.content_hash,
+        0.8,
+        ["semantic"],
+        relationship_type="related",
+    )
+
+    set_storage(initialized_storage)
+    response = test_app.get(
+        "/api/analytics/graph-visualization", params={"store": "home"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["nodes"] == []

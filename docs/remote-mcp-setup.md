@@ -433,7 +433,7 @@ Remote MCP adds network latency (~50-200ms depending on location) but enables br
 
 ## References
 
-- [Claude Help: Building Custom Connectors via Remote MCP Servers](https://support.claude.com/en/articles/11503834-building-custom-connectors-via-remote-mcp-servers)
-- [Claude Help: Remote MCP Server Submission Guide](https://support.claude.com/en/articles/12922490-remote-mcp-server-submission-guide)
+- [Claude Help: Get started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+- [Claude Docs: Build an MCP server for Claude](https://claude.com/docs/connectors/building) (hosting, authentication, limits, distribution)
 - [Claude IP Addresses](https://docs.claude.com/en/api/ip-addresses)
 - [MCP Specification: Streamable HTTP Transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)

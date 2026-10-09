@@ -20,12 +20,22 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Sequence, Tuple
+from typing import List, Optional, Dict, Any, Sequence, Tuple, Set
 from datetime import datetime, timezone, timedelta, date
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
 
 logger = logging.getLogger(__name__)
+
+
+class EmbeddingModelMismatchError(RuntimeError):
+    """Exception raised when embedding models between local and remote storage don't match."""
+
+    def __init__(self, message: str, local_model: Optional[str] = None, remote_model: Optional[str] = None):
+        super().__init__(message)
+        self.local_model = local_model
+        self.remote_model = remote_model
+
 
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
@@ -53,11 +63,26 @@ class MemoryStorage(ABC):
         """
         pass
 
+    @property
+    def supports_capacity_monitoring(self) -> bool:
+        """Backend monitors capacity limits (e.g. Cloudflare Vectorize). Default False."""
+        return False
+
+    @property
+    def requires_metadata_normalization(self) -> bool:
+        """Backend needs metadata normalized/compressed before store (e.g. Cloudflare). Default False."""
+        return False
+
+    @property
+    def supports_delete_operations(self) -> bool:
+        """Backend supports bulk date-range delete + drift listing (e.g. Cloudflare). Default False."""
+        return False
+
     @abstractmethod
     async def initialize(self) -> None:
         """Initialize the storage backend."""
         pass
-    
+
     @abstractmethod
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default") -> Tuple[bool, str]:
         """Store a memory. Returns (success, message).
@@ -108,9 +133,9 @@ class MemoryStorage(ABC):
             else:
                 final_results.append(res)
         return final_results
-    
+
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
 
         Args:
@@ -244,7 +269,8 @@ class MemoryStorage(ABC):
         tags: List[str],
         operation: str = "AND",
         time_start: Optional[float] = None,
-        time_end: Optional[float] = None
+        time_end: Optional[float] = None,
+        include_pending: bool = False,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and time range filtering.
 
@@ -282,7 +308,7 @@ class MemoryStorage(ABC):
             memories = memories[:limit]
 
         return memories
-    
+
     @abstractmethod
     async def delete(self, content_hash: str) -> Tuple[bool, str]:
         """Delete a memory by its hash."""
@@ -315,6 +341,19 @@ class MemoryStorage(ABC):
             Override in backends that support tombstones (e.g., sqlite_vec).
         """
         return False
+
+    async def list_content_hashes(self, include_deleted: bool = False) -> "Set[str]":
+        """Return the set of content hashes (RFC #1304 Phase 1). Default delegates
+        to get_all_content_hashes when present; backends without it return empty."""
+        getter = getattr(self, 'get_all_content_hashes', None)
+        if getter is not None:
+            return await getter(include_deleted=include_deleted)
+        return set()
+
+    async def list_content_hashes_page(self, after_id: int = 0, limit: int = 1000, include_deleted: bool = False) -> "List[Tuple[int, str]]":
+        """Cursor-paginated (id-based) list of (id, content_hash). Default returns []
+        for backends without an efficient paginated listing."""
+        return []
 
     async def health_probe(self) -> bool:
         """
@@ -397,7 +436,7 @@ class MemoryStorage(ABC):
         raise NotImplementedError("Subclasses must implement get_by_exact_content")
 
     @abstractmethod
-    async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """
         Get a memory by its content hash using direct O(1) lookup.
 
@@ -619,6 +658,9 @@ class MemoryStorage(ABC):
                         }
 
             # Fallback: Load all memories and filter in Python (slower but always works)
+            # NOTE: this is the DELETE path — keep the full listing (no exclude_pending).
+            # Deletion must never skip pending rows (they would silently survive and reappear
+            # in search after embedding repair). Pending exclusion belongs on SEARCH paths only.
             if not use_optimized:
                 all_memories = await self.get_all_memories()
 
@@ -736,7 +778,7 @@ class MemoryStorage(ABC):
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         """Remove duplicate memories. Returns (count_removed, message)."""
         pass
-    
+
     @abstractmethod
     async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
         """
@@ -824,7 +866,7 @@ class MemoryStorage(ABC):
         """
         # Default: no-op. Concrete backends override with real implementation.
         return 0
-    
+
     async def get_stats(self) -> Dict[str, Any]:
         """Get storage statistics. Override for specific implementations."""
         return {
@@ -832,12 +874,12 @@ class MemoryStorage(ABC):
             "storage_backend": self.__class__.__name__,
             "status": "operational"
         }
-    
+
     async def get_all_tags(self) -> List[str]:
         """Get all unique tags in the storage. Override for specific implementations."""
         return []
 
-    async def get_all_tags_with_counts(self) -> List[Dict[str, Any]]:
+    async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all tags with their usage counts, ordered by count descending.
 
         Returns a list of ``{"tag": str, "count": int}``. Declared here because
@@ -857,6 +899,7 @@ class MemoryStorage(ABC):
         n_results: int = 5,
         start_timestamp: Optional[float] = None,
         end_timestamp: Optional[float] = None,
+        store: Optional[str] = None,
     ) -> List[MemoryQueryResult]:
         """Retrieve memories by time window, optionally ranked by a semantic query.
 
@@ -876,11 +919,11 @@ class MemoryStorage(ABC):
         # Default implementation just uses regular search
         results = await self.retrieve(query, n_results)
         return [r.memory for r in results]
-    
+
     async def search(self, query: str, n_results: int = 5) -> List[MemoryQueryResult]:
         """Search memories. Default implementation uses retrieve."""
         return await self.retrieve(query, n_results)
-    
+
     # NOTE: ``include_embeddings`` is a new kwarg (see #881). The three
     # overriding subclasses (sqlite_vec, hybrid, cloudflare) still carry
     # their pre-#881 signatures and will be updated in the follow-up PR
@@ -900,6 +943,7 @@ class MemoryStorage(ABC):
         include_embeddings: bool = False,
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
+        exclude_pending: bool = False,
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
@@ -923,7 +967,7 @@ class MemoryStorage(ABC):
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
         """
         return []
-    
+
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
@@ -973,7 +1017,7 @@ class MemoryStorage(ABC):
             A list of Memory objects within the specified time range.
         """
         return []
-    
+
     async def get_memory_connections(self) -> Dict[str, int]:
         """Get memory connection statistics. Override for specific implementations."""
         return {}
@@ -992,7 +1036,7 @@ class MemoryStorage(ABC):
         """
         return {}
 
-    async def get_memory_timestamps(self, days: Optional[int] = None) -> List[float]:
+    async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
         """
         Get memory creation timestamps only, without loading full memory objects.
 
@@ -1032,7 +1076,8 @@ class MemoryStorage(ABC):
     async def get_graph_visualization_data(
         self,
         limit: int = 100,
-        min_connections: int = 1
+        min_connections: int = 1,
+        store: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get graph data for visualization in D3.js-compatible format.
@@ -1213,7 +1258,7 @@ class MemoryStorage(ABC):
                         start_time = start_timestamp
                     if end_timestamp is not None:
                         end_time = end_timestamp
-                except Exception as e:
+                except Exception:
                     # Continue without time filter rather than failing
                     pass
 
@@ -1370,7 +1415,7 @@ class MemoryStorage(ABC):
                             use_optimized_search = True
                             st = start_time if start_time is not None else 0.0
                             et = end_time if end_time is not None else datetime.now().timestamp()
-                            memories = await self.get_memories_by_time_range(st, et)
+                            memories = await self.get_memories_by_time_range(st, et, exclude_pending=True)
                             results = [
                                 MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                                 for m in memories
@@ -1379,7 +1424,7 @@ class MemoryStorage(ABC):
 
                     # Fallback: load all memories then filter
                     if not use_optimized_search:
-                        all_memories = await self.get_all_memories()
+                        all_memories = await self.get_all_memories(exclude_pending=True)
                         results = [
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories
@@ -1425,7 +1470,7 @@ class MemoryStorage(ABC):
                 filtered_results = []
                 for result in results:
                     # Check metadata.agent_id or agent:<id> tag
-                    if (result.memory.agent_id == agent_id or 
+                    if (result.memory.agent_id == agent_id or
                         f"agent:{agent_id}" in (result.memory.tags or [])):
                         filtered_results.append(result)
                 results = filtered_results

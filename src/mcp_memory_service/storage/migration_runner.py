@@ -89,16 +89,75 @@ class MigrationRunner:
 
         Returns list of stamped versions.
         """
-        applied = self._get_applied_versions(conn)
-        if applied:
-            return []  # Registry already populated, nothing to stamp
+        applied = set(self._get_applied_versions(conn))
 
-        # Probe for artifacts left by each known migration
+        # Delta-sync recovery (15/16): probe these INDEPENDENTLY of the legacy baseline below,
+        # and only when absent from the registry. A partial manual rollback can leave v15
+        # registered while v16's row was removed but its columns retained; without this, the
+        # forward migration would re-run the unconditional ADD COLUMN and fail duplicate-column
+        # (Greptile). This runs even when the registry is non-empty, but is a strict no-op unless
+        # the artifact exists AND its registry row is missing — so it never changes the legacy
+        # 8-11 baseline semantics handled further down.
+        delta_probes = {
+            15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
+            16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
+        }
+        recovered = self._stamp_probes(
+            conn, {v: sql for v, sql in delta_probes.items() if v not in applied}
+        )
+        if recovered:
+            # Advance schema_version to the highest recovered migration, but NEVER lower an
+            # already-higher value. After the documented partial rollback schema_version is 15;
+            # recovering v16 must bump it to 16 so the schema check reports the real state
+            # (otherwise run_pending skips v16 and the version stays stale at 15 — Greptile).
+            self._raise_schema_version(conn, max(recovered))
+
+        # Legacy baseline (008-011): only on a fresh existing DB with an EMPTY registry, detect
+        # artifacts left by the old idempotent runner and stamp them so run_pending skips them.
+        # Preserved exactly as before (early-return when the registry is already populated).
+        if applied:
+            return recovered
+
         probes = {
             8: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_graph'",
             9: "SELECT 1 FROM pragma_table_info('memory_graph') WHERE name='relationship_type'",
             10: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_graph'",  # graph indexes
             11: "SELECT 1 FROM pragma_table_info('memories') WHERE name='version'",
+        }
+        stamped = recovered + self._stamp_probes(conn, probes)
+        if stamped:
+            max_version = max(stamped)
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
+                (str(max_version),),
+            )
+            conn.commit()
+            logger.info(f"Baseline stamp: registered migrations {stamped} (existing DB detected)")
+
+        return stamped
+
+    def _stamp_probes(self, conn, probes: dict) -> list[int]:
+        """Stamp each probed version whose artifact exists but whose registry row is missing.
+
+        Shared by the delta-sync recovery and the legacy 8-11 baseline. Does NOT touch
+        schema_version (callers decide); commits only the registry inserts it performs.
+
+        Before stamping, repairs any SECONDARY artifact a partial rollback may have dropped
+        while the primary artifact (the probed column/table) was retained — otherwise the
+        migration is marked applied forever but a dropped index/trigger never comes back.
+        Repairs are idempotent (IF NOT EXISTS).
+
+        Returns the list of versions stamped.
+        """
+        if not probes:
+            return []
+
+        # Idempotent repairs for secondary artifacts, keyed by migration version. The primary
+        # artifact is detected by the probe; these restore the rest (e.g. the HLC index that a
+        # rollback dropped alongside the retained hlc columns — Greptile).
+        artifact_repairs = {
+            16: "CREATE INDEX IF NOT EXISTS idx_sync_events_hlc "
+                "ON sync_events(hlc_physical, hlc_logical, agent_id, event_id)",
         }
 
         stamped = []
@@ -110,6 +169,10 @@ class MigrationRunner:
             try:
                 cursor = conn.execute(probe_sql)
                 if cursor.fetchone():
+                    # Secondary-artifact repair (idempotent) before stamping.
+                    repair_sql = artifact_repairs.get(version)
+                    if repair_sql:
+                        conn.execute(repair_sql)
                     # Artifact exists — stamp as applied
                     name, path = migrations_by_version.get(version, (f"legacy_{version}", None))
                     checksum = self._checksum(path) if path else ""
@@ -123,15 +186,27 @@ class MigrationRunner:
                 continue
 
         if stamped:
-            max_version = max(stamped)
+            conn.commit()
+        return stamped
+
+    def _raise_schema_version(self, conn, version: int) -> None:
+        """Set schema_version to `version`, but never lower an already-higher value.
+
+        Used after recovery stamps a migration (e.g. v16) on a DB whose schema_version was
+        left behind by a partial rollback, so the reported version matches reality.
+        """
+        try:
+            cur = conn.execute("SELECT value FROM metadata WHERE key='schema_version'")
+            row = cur.fetchone()
+            current = int(row[0]) if row and row[0] is not None else 0
+        except (sqlite3.OperationalError, ValueError, TypeError):
+            current = 0
+        if version > current:
             conn.execute(
                 "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
-                (str(max_version),),
+                (str(version),),
             )
             conn.commit()
-            logger.info(f"Baseline stamp: registered migrations {stamped} (existing DB detected)")
-
-        return stamped
 
     def run_pending(self, conn, dry_run=False) -> dict:
         """Run all pending migrations in order.

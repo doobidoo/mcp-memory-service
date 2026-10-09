@@ -1,5 +1,15 @@
 /*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
   Permissions-Policy: interest-cohort=()
+
+# The demo runs SQLite and ONNX Runtime as WebAssembly in workers, ONNX Runtime
+# imports its worker module from a blob: URL, and transformers.js compiles code with
+# new Function, so it needs eval and blob: rights the rest of the site does not. "!" drops the global policy first: two CSP headers would be
+# joined into two policies, and the browser enforces both.
+/demo/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' blob: https://static.cloudflareinsights.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob: https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'

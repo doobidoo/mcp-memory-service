@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "11.14.0"
+version = "11.15.0"
 description = "Semantic memory layer for AI applications. REST API + MCP transport + knowledge graph + autonomous consolidation. Works with 14+ AI clients. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -125,15 +125,12 @@ sqlite-ml = [
 # Milvus backend — Milvus Lite (single file), self-hosted Milvus, or Zilliz Cloud.
 # Shipped with the ML extras so sentence-transformers embeddings are available.
 milvus = [
-    # 3.x has breaking API changes. The `milvus-tests` job in .github/workflows/ci.yml
-    # runs tests/storage/test_milvus*.py against Milvus Lite on this pin (gating) and on
-    # the 3.x line (the `3.x-probe` leg, informational). Do not widen this bound until
-    # that probe is green and has been flipped to gating — see issue #1112.
-    # Dependabot cannot widen it any more either: .github/dependabot.yml ignores
-    # major updates for pymilvus, because a group bump rewrites this line rather
-    # than respecting it.
-    # A bulk uv-group bump (#976) already widened it to <4.0.0 once by accident.
-    "pymilvus>=2.5.0,<3.0.0",
+    # The milvus-tests job in .github/workflows/ci.yml gates the 2.x and 3.x
+    # lines, and the upper bound ships exactly what CI tests. Widen it to the
+    # next major only together with a gating CI leg for that major (#1112).
+    # .github/dependabot.yml ignores major updates for pymilvus, because a group
+    # bump rewrites this line rather than respecting it (#976, #1086).
+    "pymilvus>=2.5.0,<4.0.0",
     "milvus-lite>=2.4.10",
     # The default embedding path has been ONNX-first since v11, and [ml] below
     # only brings torch/sentence-transformers. Without onnxruntime a Milvus-only
@@ -215,5 +212,10 @@ changelog_sections = [
     ["perf", "Performance"],
     ["refactor", "Code Refactoring"],
     ["test", "Tests"]
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
 ]
 

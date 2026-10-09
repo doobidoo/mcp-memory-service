@@ -154,6 +154,8 @@ python scripts/installation/install.py
 Choose from **SQLite** (local, fast, single-user), **Cloudflare** (cloud, multi-device
 sync), **Hybrid** (5ms local reads with background cloud sync — recommended for
 production) or **Milvus** (dedicated vector DB: Lite file, self-hosted, or Zilliz Cloud).
+For self-hosted team setups, the Hybrid backend can sync to another **HTTP MCP Memory Service** 
+instead of Cloudflare using `MCP_HYBRID_SECONDARY_BACKEND=http`.
 
 For long-lived services, prefer Docker Milvus or Zilliz Cloud over Milvus Lite —
 [why](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/milvus-backend.md#which-uri-to-use).

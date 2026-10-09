@@ -3,13 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.14.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.15.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v11.14.0">
+<meta property="og:title" content="MCP Memory Service v11.15.0">
 <meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
+<meta property="og:image" content="https://mcpmemory.services/assets/images/og-image.jpg">
+<meta property="og:image:width" content="1376">
+<meta property="og:image:height" content="768">
+<meta property="og:image:alt" content="Memory for AI Agents — mcp-memory-service, a glowing memory network around a brain icon">
 <meta property="twitter:card" content="summary_large_image">
+<meta property="twitter:image" content="https://mcpmemory.services/assets/images/og-image.jpg">
 <meta property="twitter:title" content="MCP Memory Service — Self-Hosted AI Memory">
 <meta property="twitter:description" content="Persistent memory for AI agents — REST API, MCP, OAuth 2.1, CLI. Semantic search, knowledge graph, automatic consolidation.">
 <link rel="canonical" href="https://mcpmemory.services/">
@@ -133,7 +138,7 @@ footer a{color:var(--cyan)}
 <!-- Hero -->
 <header class="hero">
   <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v11.14 &mdash; Now Available</span>
+  <span class="hero-badge">mcp-memory-service v11.15 &mdash; Now Available</span>
   <h1>Memory for AI Agents</h1>
   <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
   <div class="hero-buttons">
@@ -157,39 +162,53 @@ footer a{color:var(--cyan)}
 <section class="graph-showcase" style="padding: 2.5rem 1.5rem 0; text-align: center;">
   <div class="container">
     <video autoplay loop muted playsinline
-           poster="assets/images/knowledge-graph-3d-poster.png"
-           aria-label="Interactive 3D knowledge graph — memories as a glowing galaxy"
+           poster="assets/images/memory-network-poster.jpg"
+           aria-label="Animated memory network — glowing nodes linked by pulsing edges"
            style="width: 100%; max-width: 1000px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 70px rgba(70,90,210,0.35);">
-      <source src="assets/videos/knowledge-graph-3d.webm" type="video/webm">
-      <source src="assets/videos/knowledge-graph-3d.mp4" type="video/mp4">
-      <img src="assets/images/knowledge-graph-3d.png"
-           alt="Interactive 3D knowledge graph — memories as a glowing galaxy"
+      <source src="assets/videos/memory-network.webm" type="video/webm">
+      <source src="assets/videos/memory-network.mp4" type="video/mp4">
+      <img src="assets/images/memory-network-poster.jpg"
+           alt="Memory network — glowing nodes linked by edges"
            style="width: 100%; max-width: 1000px; border-radius: 14px;">
     </video>
-    <p style="opacity: 0.7; font-size: 0.95rem; margin-top: 0.85rem;">Interactive 3D knowledge graph — every memory a glowing node, every relationship a curved edge.</p>
+    <p style="opacity: 0.7; font-size: 0.95rem; margin-top: 0.85rem;">Every memory a node, every relationship an edge — recalled by meaning, not keywords.</p>
+  </div>
+</section>
+
+<!-- Explainer video -->
+<section class="video-showcase" style="padding: 3rem 1.5rem 0; text-align: center;">
+  <div class="container">
+    <h2 class="section-title">See it in 50 seconds</h2>
+    <p class="section-subtitle">Store, retrieve, link and consolidate memories. Narrated with a local text-to-speech model.</p>
+    <video controls preload="metadata" playsinline
+           poster="assets/images/explainer-poster.png"
+           aria-label="Explainer video: an agent forgets between sessions, mcp-memory-service stores tagged memories, retrieves them by meaning, links them in a graph and consolidates old ones"
+           style="width: 100%; max-width: 1000px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 70px rgba(0,229,255,0.18);">
+      <source src="assets/videos/explainer.mp4" type="video/mp4">
+    </video>
   </div>
 </section>
 
 <!-- Features -->
 <section id="features">
   <div class="container">
-    <h2 class="section-title">What's New in v11.14</h2>
-    <p class="section-subtitle">MINOR release: 21 merged pull requests, most of them from outside the maintainer. Memories can now record which agent wrote them, an unauthenticated endpoint stopped handing out storage statistics, and consolidation reads the timestamps it was always meant to read. 3,438 tests.</p>
+    <h2 class="section-title">What's New in v11.15</h2>
+    <p class="section-subtitle">MINOR release: 94 commits since the previous release. The MCP-only server stopped serving its full tool surface unauthenticated on a network bind, retention and decay got a set of long-standing correctness fixes, and the HTTP API can scope memory and search by store. 4,128 tests.</p>
     <div class="features-grid">
       <div class="feature-card" data-delay="0">
-        <div class="feature-icon consolidation">&#128269;</div>
-        <h3>Memories Can Name the Agent That Wrote Them</h3>
-        <p>A memory can now carry the id of the agent that stored it: pass agent_id or set MCP_AGENT_ID, and it lands in metadata with no schema change. Phase 2 makes it readable — memory_search and memory_list gain an agent_id filter that matches attribution written by either transport, and the /mcp endpoint reads an X-Agent-ID header so several agents sharing one server are attributed per request. The filter is opt-in: omit it and you see every agent's memories, because a per-agent bubble is the wrong default. (#1278, #1297)</p>
+        <div class="feature-icon privacy">&#129520;</div>
+        <h3>mcp-memory-server Refuses a Non-Loopback Bind</h3>
+        <p>mcp-memory-server served the full MCP tool surface with no authentication on whatever address MCP_HTTP_HOST named. It now refuses to start on a non-loopback bind. Network clients should use memory server --streamable-http with MCP_SSE_HOST plus MCP_API_KEY or OAuth. Reported by @NotAFlightRisk. (GHSA-26rx-6fvr-qjqg, #1443)</p>
       </div>
       <div class="feature-card" data-delay="150">
-        <div class="feature-icon privacy">&#129520;</div>
-        <h3>A Health Endpoint That Answered Too Much</h3>
-        <p>GET /mcp/health returned the full storage statistics to any caller with no credentials — memory count, database size, embedding model, backend class. An earlier advisory had already established that this data needs an identity and moved it behind authentication on the REST side, but that fix only touched one file and left the parallel MCP route open. The route stays unauthenticated so liveness probes keep working; the statistics are gone. (GHSA-7w86-2vmv-fqwm, #1305)</p>
+        <div class="feature-icon consolidation">&#128269;</div>
+        <h3>Scope Memory and Search by Store</h3>
+        <p>The HTTP API can scope memory, search, CRUD and analytics by store (#1106), POST /api/search/by-tag accepts a limit, and MCP_CONSOLIDATION_AUTO_SUPERSEDE lets consolidation keep contradicts edges without hiding the older memory. Milvus now implements the full storage and graph contract.</p>
       </div>
       <div class="feature-card" data-delay="300">
         <div class="feature-icon http">&#127760;</div>
-        <h3>Consolidation Reads the Right Clock</h3>
-        <p>The decay system measured relevance with edit timestamps instead of access timestamps, so a memory read constantly but never edited slowly lost its protection; get_access_patterns now queries last_accessed, and without the LIMIT 100 that quietly truncated the statistics. It also stopped loading the access time of every memory ever accessed on every run. Separately, belief quarantine is reachable again: a value-swap phrased naturally is filed as a contradiction rather than dropped as a near-duplicate. (#1288, #1291, #1216)</p>
+        <h3>Retention and Search Correctness</h3>
+        <p>A human rating no longer overwrites the machine quality score that retention reads, MCP_DECAY_ENABLED=false takes effect, type-based retention matches the real ontology, hybrid BM25 finally matches keywords, and exact-mode search no longer treats % and _ as wildcards. Harvest also gains Kiro CLI v3 sessions and a visible coverage report.</p>
       </div>
     </div>
   </div>
@@ -400,7 +419,7 @@ footer a{color:var(--cyan)}
       <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
         Blog: 5-Min claude.ai Setup
       </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.14.0" class="btn btn-secondary" target="_blank">
+      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.15.0" class="btn btn-secondary" target="_blank">
         Release Notes
       </a>
     </div>

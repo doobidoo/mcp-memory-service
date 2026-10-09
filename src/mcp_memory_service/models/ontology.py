@@ -14,6 +14,9 @@ Usage:
     parent = MemoryTypeOntology.get_parent_type("code_edit")  # Returns "observation"
 """
 
+import json
+import logging
+import os
 import re
 from enum import Enum
 from typing import Dict, List, Optional, Final
@@ -24,15 +27,18 @@ _ALL_TYPES_CACHE: Optional[List[str]] = None
 _PARENT_TYPE_MAP_CACHE: Optional[Dict[str, str]] = None
 _BASE_TYPES_CACHE: Optional[set] = None
 _MERGED_TAXONOMY_CACHE: Optional[Dict[str, List[str]]] = None
+_ALLOWED_PAIRS_CACHE: Optional[Dict[str, set]] = None
 
 
 def clear_ontology_caches():
     """Clear all ontology caches. Useful for testing and dynamic configuration changes."""
     global _ALL_TYPES_CACHE, _PARENT_TYPE_MAP_CACHE, _BASE_TYPES_CACHE, _MERGED_TAXONOMY_CACHE
+    global _ALLOWED_PAIRS_CACHE
     _ALL_TYPES_CACHE = None
     _PARENT_TYPE_MAP_CACHE = None
     _BASE_TYPES_CACHE = None
     _MERGED_TAXONOMY_CACHE = None
+    _ALLOWED_PAIRS_CACHE = None
 
 
 class BaseMemoryType(str, Enum):
@@ -244,10 +250,6 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
     Returns:
         Dict mapping base type names to lists of subtype names
     """
-    import os
-    import json
-    import logging
-
     # Try to import project logger, fall back to standard logging if not available
     try:
         from mcp_memory_service.logger import logger
@@ -291,7 +293,7 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
 
             # Validate subtypes
             if not isinstance(subtypes, list):
-                logger.warning(f"Subtypes for '{safe_name}' must be a list, skipping")
+                logger.warning("Subtypes for '%s' must be a list, skipping", safe_name)
                 continue
 
             valid_subtypes = [
@@ -322,7 +324,7 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
         return validated_types
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse MCP_CUSTOM_MEMORY_TYPES: {e}")
+        logger.error("Failed to parse MCP_CUSTOM_MEMORY_TYPES: %s", _sanitize_log_value(e))
         return {}
 
 
@@ -337,8 +339,6 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
     # Return cached version if available
     if _MERGED_TAXONOMY_CACHE is not None:
         return _MERGED_TAXONOMY_CACHE
-
-    import logging
 
     # Try to import project logger, fall back to standard logging if not available
     try:
@@ -357,11 +357,11 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
             existing = set(merged[base_type])
             new_subtypes = [st for st in subtypes if st not in existing]
             merged[base_type].extend(new_subtypes)
-            logger.info(f"Extended '{base_type}' with {len(new_subtypes)} custom subtypes")
+            logger.info("Extended '%s' with %d custom subtypes", base_type, len(new_subtypes))
         else:
             # New base type
             merged[base_type] = subtypes
-            logger.info(f"Added new custom base type '{base_type}' with {len(subtypes)} subtypes")
+            logger.info("Added new custom base type '%s' with %d subtypes", base_type, len(subtypes))
 
     # Cache the merged taxonomy
     _MERGED_TAXONOMY_CACHE = merged
@@ -515,6 +515,36 @@ def validate_relationship(rel_type: str) -> bool:
     return rel_type in RELATIONSHIPS
 
 
+def is_allowed_pair(rel_type: str, source_parent: Optional[str], target_parent: Optional[str]) -> bool:
+    """
+    Check a relationship against the source → target pairs in its valid_patterns.
+
+    Parents are base types (resolve subtypes first). "any" matches every parent,
+    including an unknown one (None); a named type never matches None.
+
+    Examples:
+        >>> is_allowed_pair("fixes", "learning", "error")
+        True
+        >>> is_allowed_pair("fixes", "observation", "error")
+        False
+        >>> is_allowed_pair("related", None, None)
+        True
+    """
+    global _ALLOWED_PAIRS_CACHE
+
+    if _ALLOWED_PAIRS_CACHE is None:
+        _ALLOWED_PAIRS_CACHE = {
+            name: {tuple(part.strip() for part in pattern.split("→")) for pattern in spec["valid_patterns"]}
+            for name, spec in RELATIONSHIPS.items()
+        }
+
+    pairs = _ALLOWED_PAIRS_CACHE.get(rel_type, set())
+    return any(
+        src in ("any", source_parent) and tgt in ("any", target_parent)
+        for src, tgt in pairs
+    )
+
+
 def is_symmetric_relationship(rel_type: str) -> bool:
     """
     Determine if a relationship type is symmetric (bidirectional).
@@ -563,8 +593,7 @@ class MemoryTypeOntology:
 
     Usage:
         # Validate memory type
-        if MemoryTypeOntology.validate_memory_type("observation"):
-            print("Valid type")
+        is_valid = MemoryTypeOntology.validate_memory_type("observation")  # → True
 
         # Get parent type
         parent = MemoryTypeOntology.get_parent_type("code_edit")  # → "observation"
@@ -573,8 +602,7 @@ class MemoryTypeOntology:
         all_types = MemoryTypeOntology.get_all_types()
 
         # Validate relationship
-        if MemoryTypeOntology.validate_relationship("causes"):
-            print("Valid relationship")
+        is_valid = MemoryTypeOntology.validate_relationship("causes")  # → True
     """
 
     @classmethod

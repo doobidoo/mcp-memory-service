@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -18,7 +17,7 @@ from ..config.locale import get_active_locales
 
 logger = logging.getLogger(__name__)
 
-# Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging, 
+# Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging,
 # re-harvest safety, session digest). Increment when the harvest pipeline changes materially.
 HARVEST_PIPELINE_VERSION = 3
 
@@ -176,6 +175,9 @@ class SessionHarvester:
 
     def harvest(self, config: HarvestConfig) -> List[HarvestResult]:
         """Parse sessions and extract candidates (synchronous, no storage)."""
+        # Reset coverage counters to ensure per-run scope (P2-c fix)
+        self.parser.reset_coverage()
+
         session_files = self._resolve_sessions(config)
         if not session_files:
             return []
@@ -184,6 +186,16 @@ class SessionHarvester:
         for filepath in session_files:
             result = self._harvest_file(filepath, config)
             results.append(result)
+
+        # Get coverage report aggregated across the run and add to all results
+        coverage = self.parser.coverage_report()
+        if coverage:
+            logger.info("Harvest coverage: %s", self._format_coverage_summary(coverage))
+        else:
+            logger.info("Harvest coverage: none measured (parser recorded no counters for this run)")
+        for result in results:
+            result.coverage = coverage
+
         return results
 
     async def harvest_and_store(self, config: HarvestConfig) -> List[HarvestResult]:
@@ -193,6 +205,9 @@ class SessionHarvester:
         memories. If found above similarity_threshold, evolves via versioned
         update instead of creating a duplicate.
         """
+        # Reset coverage counters to ensure per-run scope (P2-c fix)
+        self.parser.reset_coverage()
+
         session_files = self._resolve_sessions(config)
         if not session_files:
             return []
@@ -227,7 +242,37 @@ class SessionHarvester:
                 result.stored = stored
 
             results.append(result)
+
+        # Get coverage report aggregated across the run and add to all results
+        coverage = self.parser.coverage_report()
+        if coverage:
+            logger.info("Harvest coverage: %s", self._format_coverage_summary(coverage))
+        else:
+            logger.info("Harvest coverage: none measured (parser recorded no counters for this run)")
+        for result in results:
+            result.coverage = coverage
+
         return results
+
+    def _format_coverage_summary(self, coverage: dict) -> str:
+        """Format coverage report for readable logging."""
+        if not coverage:
+            return "empty"
+
+        parts = []
+        for kind, stats in coverage.items():
+            seen = stats.get("seen", 0)
+            extracted = stats.get("extracted", 0)
+            dropped = stats.get("dropped", 0)
+
+            if seen > 0:
+                # kind is read raw from the session JSON (external) — sanitise it
+                # before it reaches the log line (py/log-injection, same guard the
+                # rest of this module applies to external values).
+                safe_kind = _sanitize_log_value(str(kind))
+                parts.append(f"{safe_kind}: {seen} seen, {extracted} extracted, {dropped} dropped")
+
+        return "; ".join(parts) if parts else "empty"
 
     @staticmethod
     def _provenance(candidate, session_id=None):

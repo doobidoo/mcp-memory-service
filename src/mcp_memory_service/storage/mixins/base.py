@@ -9,6 +9,7 @@ import platform
 import time
 import random
 import threading
+import uuid
 import asyncio
 from typing import List, Optional, Callable
 
@@ -38,7 +39,7 @@ def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
         arr = np.frombuffer(blob, dtype=np.float32)
         return arr.tolist()
     except Exception as e:
-        logger.warning(f"Failed to deserialize embedding: {e}")
+        logger.warning("Failed to deserialize embedding: %s", _sanitize_log_value(e))
         return None
 
 
@@ -79,7 +80,7 @@ class BaseMixin:
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else '.', exist_ok=True)
 
-        logger.info(f"Initialized SQLite-vec storage at: {self.db_path}")
+        logger.info("Initialized SQLite-vec storage at: %s", _sanitize_log_value(self.db_path))
 
     def _safe_json_loads(self, json_str: str, context: str = "") -> dict:
         """Safely parse JSON with comprehensive error handling and logging."""
@@ -88,14 +89,14 @@ class BaseMixin:
         try:
             result = json.loads(json_str)
             if not isinstance(result, dict):
-                logger.warning(f"Non-dict JSON in {context}: {type(result)}")
+                logger.warning("Non-dict JSON in %s: %s", context, _sanitize_log_value(type(result)))
                 return {}
             return result
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error in {context}: {e}, data: {json_str[:100]}...")
+            logger.error("JSON decode error in %s: %s, data: %s...", context, _sanitize_log_value(e), _sanitize_log_value(json_str[:100]))
             return {}
         except TypeError as e:
-            logger.error(f"JSON type error in {context}: {e}")
+            logger.error("JSON type error in %s: %s", context, _sanitize_log_value(e))
             return {}
 
     async def _run_in_thread(self, operation: Callable, *args):
@@ -124,12 +125,12 @@ class BaseMixin:
                 if "locked" in error_msg or "busy" in error_msg:
                     if attempt < max_retries:
                         jittered_delay = delay * (1 + random.uniform(-0.1, 0.1))
-                        logger.warning(f"Database locked, retrying in {jittered_delay:.2f}s (attempt {attempt + 1}/{max_retries})")
+                        logger.warning("Database locked, retrying in %.2fs (attempt %s/%s)", jittered_delay, attempt + 1, max_retries)
                         await asyncio.sleep(jittered_delay)
                         delay *= 2
                         continue
                     else:
-                        logger.error(f"Database locked after {max_retries} retries")
+                        logger.error("Database locked after %s retries", max_retries)
                 else:
                     raise
             except Exception:
@@ -221,10 +222,10 @@ To switch backends permanently, set: MCP_MEMORY_STORAGE_BACKEND=cloudflare
                 try:
                     timeout_ms = int(pragma_pair.split("=")[1].strip())
                     timeout_seconds = timeout_ms / 1000.0
-                    logger.info(f"Using custom timeout: {timeout_seconds}s from MCP_MEMORY_SQLITE_PRAGMAS")
+                    logger.info("Using custom timeout: %ss from MCP_MEMORY_SQLITE_PRAGMAS", timeout_seconds)
                     return timeout_seconds
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Failed to parse busy_timeout from env: {e}, using default {timeout_seconds}s")
+                    logger.warning("Failed to parse busy_timeout from env: %s, using default %ss", _sanitize_log_value(e), timeout_seconds)
                     return timeout_seconds
 
         return timeout_seconds
@@ -296,14 +297,14 @@ SOLUTIONS:
                 if "=" in pragma_pair:
                     pragma_name, pragma_value = pragma_pair.split("=", 1)
                     default_pragmas[pragma_name.strip()] = pragma_value.strip()
-                    logger.debug(f"Custom pragma: {pragma_name}={pragma_value}")
+                    logger.debug("Custom pragma: %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))
 
         for pragma_name, pragma_value in default_pragmas.items():
             try:
                 self.conn.execute(f"PRAGMA {pragma_name}={pragma_value}")
-                logger.debug(f"Applied pragma: {pragma_name}={pragma_value}")
+                logger.debug("Applied pragma: %s=%s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value))
             except sqlite3.Error as e:
-                logger.warning(f"Failed to apply pragma {pragma_name}: {e}")
+                logger.warning("Failed to apply pragma %s: %s", _sanitize_log_value(pragma_name), _sanitize_log_value(e))
 
     def _reject_directory_path(self) -> None:
         """
@@ -383,8 +384,184 @@ SOLUTIONS:
             )
 
         except Exception as e:
-            logger.error(f"Error converting row to memory: {str(e)}")
+            logger.error("Error converting row to memory: %s", _sanitize_log_value(e))
             return None
+
+    def _append_sync_event(self, conn, op: str, content_hash: str, payload: dict) -> None:
+        """Append sync event to event log within same transaction as the hosting mutation.
+
+        This helper is SYNCHRONOUS and performs NO commit internally (ADR-0008).
+        The atomicity comes from the commit of the hosting mutation.
+
+        Args:
+            conn: Database connection (must be in an active transaction)
+            op: Operation type ('create', 'delete', 'update_metadata')
+            content_hash: Hash of the memory being mutated
+            payload: JSON-serializable payload for the event
+
+        Raises:
+            Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails,
+                      the exception propagates to abort the hosting mutation.
+        """
+        # Kill-switch: only append events if explicitly enabled
+        if not os.getenv('MCP_SYNC_EVENTLOG', '').lower() in ('on', 'true', '1'):
+            return
+
+        # Generate event identity (UUIDv4, coordination-free)
+        event_id = str(uuid.uuid4())
+
+        # Get agent_id from environment or memory metadata. SQLite treats NULL as distinct
+        # in a UNIQUE(agent_id, event_id), so a NULL agent would let the same event_id be
+        # inserted twice, breaking replay idempotency (greptile P1). Use a non-null sentinel
+        # for unattributed/legacy events so the uniqueness constraint always applies.
+        agent_id = os.getenv('MCP_AGENT_ID')
+        if not agent_id and payload.get('metadata'):
+            agent_id = payload['metadata'].get('agent_id')
+        if not agent_id:
+            agent_id = 'unknown'  # non-null sentinel: keeps UNIQUE(agent_id, event_id) effective
+
+        # Current timestamp
+        created_at = time.time()
+        created_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at))
+
+        # Schema version for envelope (ADR-0007)
+        schema_version = 1
+
+        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011.
+        # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of any
+        # NULL-HLC rows is NOT done here: it is a one-time startup step
+        # (_seed_last_hlc_on_first_boot), so the write hot path never scans sync_events —
+        # that scan held the write lock and grew with history (store_batch repeated it per item).
+        cursor = conn.execute("SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
+        hlc_metadata = dict(cursor.fetchall())
+
+        last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
+        last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
+
+        # HLC send/local rule: pt = physical time (epoch milliseconds)
+        pt = int(time.time() * 1000)
+        if pt > last_physical:
+            # Physical time advanced, reset logical to 0
+            hlc_physical = pt
+            hlc_logical = 0
+        else:
+            # Physical time same or went backwards, increment logical
+            hlc_physical = last_physical
+            hlc_logical = last_logical + 1
+        # Record embedding version metadata for create operations (ADR-0014)
+        embedding_model = None
+        embedding_dim = None
+        if op == 'create' and hasattr(self, 'embedding_model_name') and hasattr(self, 'embedding_dimension'):
+            # When the hash fallback is active the vectors are NOT from the configured model;
+            # stamp a distinct identity so a peer can tell these pseudo-vectors apart from real
+            # model output (ADR-0014; Greptile P1). Otherwise events would claim the configured
+            # model name for hash-based vectors.
+            if getattr(self, 'embedding_backend_degraded', False):
+                embedding_model = f"__hash_fallback__::{self.embedding_dimension}"
+            else:
+                embedding_model = self.embedding_model_name
+            embedding_dim = self.embedding_dimension
+        
+        # INSERT event with HLC values and embedding metadata
+        # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
+        conn.execute("""
+            INSERT OR IGNORE INTO sync_events (
+                schema_version, agent_id, event_id, op, content_hash, 
+                payload, created_at, created_at_iso, hlc_physical, hlc_logical,
+                embedding_model, embedding_dim
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            schema_version, agent_id, event_id, op, content_hash,
+            json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical,
+            embedding_model, embedding_dim
+        ))
+
+        # Update last_hlc in metadata (ADR-0011) - same transaction
+        # Use INSERT OR REPLACE to upsert the metadata values
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(hlc_physical),))
+        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(hlc_logical),))
+
+    def _seed_last_hlc_on_first_boot(self, conn) -> None:
+        """Seed/reconcile last_hlc from existing sync_events at startup (after migration 016).
+
+        Two jobs, both run every startup and both must leave the clock monotonic (ADR-0011):
+          1. Backfill any events still missing HLC (inserted after migration 016 but before
+             HLC generation, or by a Phase 1 writer that doesn't stamp HLC).
+          2. Reconcile persisted last_hlc to MAX(hlc) across all events, so a later backfill
+             can never leave last_hlc BELOW an event's clock (which would hand the next event
+             an older HLC and break monotonicity — Greptile P1).
+
+        This is a standalone init step; it rides no other transaction, so it commits before
+        returning. Leaving the transaction open holds the write lock and causes
+        "database is locked" on the next init step.
+
+        Args:
+            conn: Database connection
+        """
+        # Check if we have sync_events table and hlc columns exist
+        try:
+            cursor = conn.execute("PRAGMA table_info(sync_events)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'hlc_physical' not in columns or 'hlc_logical' not in columns:
+                # Migration 016 hasn't run yet or table doesn't exist, nothing to do
+                return
+        except sqlite3.OperationalError:
+            # sync_events table doesn't exist yet
+            return
+
+        # Acquire the SQLite write lock BEFORE reading the clock, and hold it through the
+        # commit. Otherwise another process sharing this DB (N agents / 1 service) could commit
+        # newer events between our reads and our INSERT OR REPLACE, and we'd overwrite the newer
+        # clock with older values — rewinding last_hlc and letting the next event repeat/regress
+        # its HLC (Greptile P1 race). BEGIN IMMEDIATE takes the RESERVED lock up front, making the
+        # read-then-write atomic against other writers.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            # 1. Backfill any events that still have NULL HLC values.
+            cursor = conn.execute("SELECT COUNT(*) FROM sync_events WHERE hlc_physical IS NULL OR hlc_logical IS NULL")
+            null_count = cursor.fetchone()[0]
+
+            if null_count > 0:
+                conn.execute("""
+                    UPDATE sync_events
+                    SET hlc_physical = CAST(created_at * 1000 AS INTEGER),
+                        hlc_logical = seq
+                    WHERE hlc_physical IS NULL OR hlc_logical IS NULL
+                """)
+                logger.info("Backfilled HLC values for %d events with NULL HLC", null_count)
+
+            # 2. Reconcile last_hlc to MAX(hlc) across all events. ALWAYS run this (not only on
+            # first seed): if we backfilled above into an already-seeded DB, the stored last_hlc
+            # may now sit below a backfilled event's clock. Take the max of the persisted clock and
+            # the observed event clock so the next event's HLC can never regress (ADR-0011).
+            prev = dict(conn.execute(
+                "SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            ).fetchall())
+            prev_physical = int(prev.get('sync_hlc_physical', '0'))
+            prev_logical = int(prev.get('sync_hlc_logical', '0'))
+
+            cursor = conn.execute("""
+                SELECT MAX(hlc_physical), MAX(hlc_logical)
+                FROM sync_events
+                WHERE hlc_physical IS NOT NULL AND hlc_logical IS NOT NULL
+            """)
+            row = cursor.fetchone()
+            max_physical = row[0] if row and row[0] is not None else 0
+            max_logical = row[1] if row and row[1] is not None else 0
+
+            new_physical = max(prev_physical, max_physical)
+            new_logical = max(prev_logical, max_logical)
+
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(new_physical),))
+            conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(new_logical),))
+            logger.info("HLC reconciled at startup: physical=%s, logical=%s", new_physical, new_logical)
+
+            # Commit before returning (standalone init step; never leave the write lock held).
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     @staticmethod
     def _apply_stale_days_filter(conditions: list, params: list, stale_days: Optional[int], table_alias: str = "") -> None:

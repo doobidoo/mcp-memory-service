@@ -24,6 +24,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict, Any, Callable
 
+from ..compat import _sanitize_log_value
 from ..config import SQLITE_VEC_PATH
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ def _check_embedding_integrity(conn: Any) -> Dict[str, Any]:
             "rowid_collision_risk": collision,
         }
     except Exception as e:
-        logger.warning("Embedding integrity check failed: %s", e)
+        logger.warning("Embedding integrity check failed: %s", _sanitize_log_value(e))
         return {}
 
 
@@ -244,7 +245,7 @@ class SqliteHealthChecker(HealthCheckStrategy):
         except LookupError as e:
             return False, f"SQLite database validation error: {str(e)}", {}
         except Exception as e:
-            logger.error(f"SQLite health check error: {e}")
+            logger.error("SQLite health check error: %s", _sanitize_log_value(e))
             return False, f"SQLite database validation error: {str(e)}", {
                 "status": "error",
                 "error": str(e),
@@ -286,7 +287,7 @@ class CloudflareHealthChecker(HealthCheckStrategy):
             return True, "Cloudflare storage validation successful", stats
 
         except Exception as e:
-            logger.error(f"Cloudflare health check error: {e}")
+            logger.error("Cloudflare health check error: %s", _sanitize_log_value(e))
             return False, f"Cloudflare storage validation error: {str(e)}", {
                 "status": "error",
                 "error": str(e),
@@ -345,7 +346,7 @@ class HybridHealthChecker(HealthCheckStrategy):
                 "backend": "hybrid"
             }
         except Exception as e:
-            logger.error(f"Hybrid health check error: {e}")
+            logger.error("Hybrid health check error: %s", _sanitize_log_value(e))
             return False, f"Hybrid storage validation error: {str(e)}", {
                 "status": "error",
                 "error": str(e),
@@ -414,7 +415,7 @@ class MilvusHealthChecker(HealthCheckStrategy):
         try:
             stats = await storage.get_stats()
         except Exception as exc:
-            logger.error("Milvus health check error: %s", exc)
+            logger.error("Milvus health check error: %s", _sanitize_log_value(exc))
             return False, f"Milvus storage validation error: {exc}", {
                 "status": "error",
                 "backend": "milvus",

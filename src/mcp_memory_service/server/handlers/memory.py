@@ -20,8 +20,13 @@ Extracted from server_impl.py Phase 2.1 refactoring.
 """
 
 import asyncio
+import json
 import logging
 import os
+
+# Server-side hostname stamping (RFC mcp-hostname-stamping): the MCP store path
+# honors MCP_MEMORY_INCLUDE_HOSTNAME like the Web API already does.
+import socket as _socket
 import time
 import traceback
 import uuid
@@ -30,8 +35,10 @@ from typing import Callable, List, Optional
 
 from mcp import types
 
+from ...config import INCLUDE_HOSTNAME
+
 # Import response limiter for truncation support
-from ..utils.response_limiter import truncate_memories, format_truncated_response
+from ..utils.response_limiter import format_truncated_response, truncate_memories
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +46,24 @@ logger = logging.getLogger(__name__)
 def _sanitize_log_value(value: object) -> str:
     """Sanitize a user-provided value for safe inclusion in log messages."""
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
+
+def _resolve_hostname(client_hostname: Optional[str]) -> Optional[str]:
+    """Resolve the hostname to stamp on a stored memory (RFC mcp-hostname-stamping).
+
+    Precedence: an explicit client_hostname wins; otherwise, when
+    MCP_MEMORY_INCLUDE_HOSTNAME is enabled, resolve the SERVER host
+    (the service runs on one machine — host is a fact of the process),
+    mirroring web/api/memories.py. Best-effort: a gethostname() failure
+    never breaks the write (returns the original value, i.e. None).
+    """
+    if client_hostname or not INCLUDE_HOSTNAME:
+        return client_hostname
+    try:
+        return _socket.gethostname()
+    except Exception as e:  # noqa: BLE001 - best-effort, never fail the write
+        logger.warning("hostname resolve failed (non-fatal): %s", _sanitize_log_value(e))
+        return client_hostname
 
 
 def _get_max_response_chars(arguments: dict) -> int:
@@ -197,6 +222,9 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         type_was_explicit = "type" in metadata
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
         client_hostname = arguments.get("client_hostname")
+        # RFC mcp-hostname-stamping: resolve server host when the client did not
+        # supply one and the flag is on (best-effort; see _resolve_hostname).
+        client_hostname = _resolve_hostname(client_hostname)
         conversation_id = arguments.get("conversation_id")
         agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
@@ -304,7 +332,10 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
         # RFC #1008 §3: optional inline auto-capture from stored content
         from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-        from ...harvest.auto_capture import AutoCaptureService, parent_hash_from_store_result
+        from ...harvest.auto_capture import (
+            AutoCaptureService,
+            parent_hash_from_store_result,
+        )
 
         auto_extract = arguments.get("auto_extract")
         if auto_extract is None:
@@ -351,9 +382,11 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
 async def handle_memory_observe(server, arguments: dict) -> List[types.TextContent]:
     """Observe conversation text and auto-extract facts/decisions without storing raw content."""
-    import json
     from ...config import MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-    from ...harvest.auto_capture import AutoCaptureService, parent_hash_from_store_result
+    from ...harvest.auto_capture import (
+        AutoCaptureService,
+        parent_hash_from_store_result,
+    )
     from ...services.memory_service import normalize_tags
 
     content = arguments.get("content")
@@ -453,7 +486,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 tags=base_tags,
                 memory_type="session",
                 metadata=arguments.get("metadata", {}),
-                client_hostname=arguments.get("client_hostname"),
+                client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
@@ -476,7 +509,7 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 tags=chunk_tags,
                 memory_type="session",
                 metadata=arguments.get("metadata", {}),
-                client_hostname=arguments.get("client_hostname"),
+                client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
@@ -706,7 +739,6 @@ async def handle_retrieve_with_quality_boost(server, arguments: dict) -> List[ty
 async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for listing memories with pagination and optional filters."""
     from ...services.memory_service import normalize_tags
-    import json
 
     try:
         # Initialize storage when needed
@@ -934,7 +966,6 @@ async def handle_delete_by_all_tags(server, arguments: dict) -> List[types.TextC
 
 async def handle_memory_delete(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for memory deletion with flexible filtering."""
-    import json
     from ...services.memory_service import normalize_tags
 
     try:
@@ -1018,246 +1049,477 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
         return ""
 
 
+def _should_use_cascading_fallback(
+    arguments: dict, query: str | None, memories: list[dict]
+) -> bool:
+    """Return whether sparse semantic or hybrid results should use fallback."""
+    minimum_results = 3
+    if not (
+        arguments.get("fallback", False)
+        and query
+        and arguments.get("mode", "semantic") in ("semantic", "hybrid")
+        and len(memories) < minimum_results
+    ):
+        return False
+
+    high_score_count = sum(
+        1 for memory in memories if memory.get("similarity_score", 0) >= 0.4
+    )
+    return high_score_count < minimum_results
+
+
+def _append_unique_fallback_memories(
+    memories: list[dict],
+    fallback_memories: list[dict],
+    seen_hashes: set[str | None],
+    match_method: str,
+) -> None:
+    """Append fallback memories that are not already present."""
+    for memory in fallback_memories:
+        content_hash = memory.get("content_hash")
+        if content_hash not in seen_hashes:
+            memory["match_method"] = match_method
+            memories.append(memory)
+            seen_hashes.add(content_hash)
+
+
+async def _collect_cascading_fallback_memories(
+    storage, arguments: dict, query: str, memories: list[dict], limit: int
+) -> list[dict]:
+    """Combine exact and tag fallback results while preserving their labels."""
+    seen_hashes = {memory.get("content_hash") for memory in memories}
+    include_superseded = arguments.get("include_superseded", False)
+    exact_memories = await _search_exact_fallback(
+        storage, query, limit, include_superseded
+    )
+    _append_unique_fallback_memories(
+        memories, exact_memories, seen_hashes, "exact_fallback"
+    )
+    if len(memories) < limit:
+        tag_memories = await _search_tag_fallback(
+            storage, query, limit, include_superseded
+        )
+        _append_unique_fallback_memories(
+            memories, tag_memories, seen_hashes, "tag_fallback"
+        )
+
+    for memory in memories:
+        if "match_method" not in memory:
+            memory["match_method"] = "semantic"
+    return memories[:limit]
+
+
+async def _search_exact_fallback(
+    storage, query: str, limit: int, include_superseded: bool
+) -> list[dict]:
+    """Return exact-search candidates, treating a backend error as no matches."""
+    result = await storage.search_memories(
+        query=query,
+        mode="exact",
+        limit=limit,
+        include_superseded=include_superseded,
+    )
+    if "error" in result:
+        return []
+    return result.get("memories", [])
+
+
+async def _search_tag_fallback(
+    storage, query: str, limit: int, include_superseded: bool
+) -> list[dict]:
+    """Return tag-search candidates for tokens extracted from the query."""
+    query_tokens = [
+        token.strip().lower().strip(".,;:!?\"'()[]{}")
+        for token in query.split()
+        if len(token.strip()) > 2
+    ]
+    if not query_tokens:
+        return []
+    result = await storage.search_memories(
+        query=None,
+        mode="semantic",
+        tags=query_tokens,
+        limit=limit,
+        include_superseded=include_superseded,
+    )
+    if "error" in result:
+        return []
+    return result.get("memories", [])
+
+
+async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
+    """Run unified retrieval and its optional exact/tag fallback stages."""
+    tags = arguments.get("tags")
+    if tags:
+        tags = normalize_tags(tags)
+
+    store = arguments.get("store", "default")
+    if store == "all":
+        store = None
+
+    query = arguments.get("query")
+    limit = arguments.get("limit", 10)
+    result = await storage.search_memories(
+        query=query,
+        mode=arguments.get("mode", "semantic"),
+        time_expr=arguments.get("time_expr"),
+        after=arguments.get("after"),
+        before=arguments.get("before"),
+        tags=tags,
+        tag_match=arguments.get("tag_match", "any"),
+        quality_boost=arguments.get("quality_boost", 0.0),
+        limit=limit,
+        include_debug=arguments.get("include_debug", False),
+        include_superseded=arguments.get("include_superseded", False),
+        ranking_weights=arguments.get("ranking_weights"),
+        store=store,
+        agent_id=arguments.get("agent_id"),
+    )
+    if "error" in result:
+        return result, None
+
+    memories = result["memories"]
+    fallback_used = None
+    if _should_use_cascading_fallback(arguments, query, memories):
+        memories = await _collect_cascading_fallback_memories(
+            storage, arguments, query, memories, limit
+        )
+        result["memories"] = memories
+        result["total"] = len(memories)
+        fallback_used = True
+    return result, fallback_used
+
+
+async def _filter_search_results_by_entity(
+    arguments: dict, memories: list[dict]
+) -> tuple[list[dict], str | None]:
+    """Restrict search results to an entity, or return a user-facing error."""
+    entity_filter = arguments.get("entity")
+    if not entity_filter:
+        return memories, None
+
+    from .graph import get_graph_storage
+
+    graph = await get_graph_storage()
+    if not graph:
+        return memories, (
+            "Error: entity filter requires a backend with graph support; "
+            f"'{_sanitize_log_value(entity_filter)}' cannot be applied."
+        )
+    try:
+        entity_hashes = set(await graph.find_memories_by_entity(entity_filter))
+    except Exception as e:
+        # Deliberately not passing exc_info: the logging module appends the
+        # formatted traceback, which carries raw str(e) and so reintroduces
+        # the newline forgery the wraps above exist to stop.
+        logger.error(
+            "Entity filter lookup failed for %s: %s\n%s",
+            _sanitize_log_value(entity_filter),
+            _sanitize_log_value(str(e)),
+            _sanitize_log_value(traceback.format_exc()),
+        )
+        return memories, (
+            "Error: entity filter lookup failed for "
+            f"'{_sanitize_log_value(entity_filter)}': {e}"
+        )
+
+    # An entity with no linked memories filters everything out. Returning
+    # unfiltered results for an explicit filter would be a silent lie.
+    return [memory for memory in memories if memory.get("content_hash") in entity_hashes], None
+
+
+async def _apply_memory_search_plugins(
+    server, query: str | None, memories: list[dict], memory_service_type
+):
+    """Apply retrieval plugins when the server uses the standard service."""
+    if not isinstance(server.memory_service, memory_service_type):
+        return None
+    return await server.memory_service.apply_retrieve_plugins(query, memories)
+
+
+async def _apply_memory_search_filters(
+    server, arguments: dict, query: str | None, result: dict,
+    memory_service_type,
+) -> tuple[list[dict], int, str | None]:
+    """Apply entity filtering and retrieval plugins to the unified result."""
+    memories = result["memories"]
+    total = result["total"]
+    memories, entity_error = await _filter_search_results_by_entity(
+        arguments, memories
+    )
+    if entity_error:
+        return memories, total, entity_error
+    if arguments.get("entity"):
+        total = len(memories)
+        result["memories"] = memories
+        result["total"] = total
+
+    # Plugins must see the final unified-search result after fallback and entity
+    # filtering, matching the legacy MemoryService retrieval path.
+    plugin_memories = await _apply_memory_search_plugins(
+        server, query, memories, memory_service_type
+    )
+    if plugin_memories is not None:
+        memories = plugin_memories
+        total = len(memories)
+        result["memories"] = memories
+        result["total"] = total
+    return memories, total, None
+
+
+def _summary_without_result_reason(memories: list[dict]) -> str | None:
+    """Explain why a requested summary could not be produced without a result."""
+    if memories:
+        return "a query and a configured LLM provider are required"
+    return None
+
+
+async def _serialize_memory_search_summary(
+    summary, total: int, result: dict, fallback_used: bool,
+    arguments: dict, storage,
+) -> str:
+    """Serialize a validated summary with the source and retrieval metadata."""
+    payload = {
+        "summarized": True,
+        "summary": summary.text,
+        "source_hashes": summary.source_hashes,
+        "snapshot": summary.snapshot,
+        "summarized_count": summary.summarized_count,
+        "omitted_count": summary.omitted_count,
+        "total": total,
+        "query": result.get("query"),
+        "mode": result.get("mode"),
+        "provider": summary.provider,
+        "model": summary.model,
+    }
+    if fallback_used:
+        payload["fallback_used"] = True
+    if result.get("debug"):
+        payload["debug"] = result["debug"]
+    beliefs_section = await _format_beliefs_section(arguments, storage)
+    if beliefs_section:
+        payload["beliefs"] = beliefs_section.strip()
+    return json.dumps(payload, ensure_ascii=False, allow_nan=False)
+
+
+async def _summarize_memory_search(
+    arguments: dict, query: str | None, memories: list[dict], total: int,
+    result: dict, fallback_used: bool, storage, max_response_chars: int,
+) -> tuple[types.TextContent | None, str]:
+    """Build a summary response or a safe warning before raw-result formatting."""
+    if arguments.get("summarize") is not True:
+        return None, ""
+
+    from ...services.search_summarizer import (
+        MemorySearchSummarizer,
+        SearchSummarizationDisabled,
+    )
+
+    reason = None
+    try:
+        summary = await MemorySearchSummarizer().summarize(query, memories)
+        if summary is None:
+            reason = _summary_without_result_reason(memories)
+        else:
+            summary_text = await _serialize_memory_search_summary(
+                summary, total, result, fallback_used, arguments, storage
+            )
+            if max_response_chars <= 0 or len(summary_text) <= max_response_chars:
+                return types.TextContent(type="text", text=summary_text), ""
+            reason = "summary and source metadata exceed max_response_chars"
+    except SearchSummarizationDisabled as e:
+        reason = str(e)
+    except Exception as e:
+        # Do not expose provider errors or retrieved content to callers.
+        logger.warning("Memory search summarization failed: %s", _sanitize_log_value(e))
+        reason = "the provider failed or the summary/source validation failed"
+
+    if not reason:
+        return None, ""
+    warning = f"Summarization unavailable: {reason}. Returning raw results.\n\n"
+    return None, warning
+
+
+def _build_memory_search_header(result: dict, total: int, fallback_used: bool) -> str:
+    """Format the shared header used by raw and truncated search results."""
+    header = f"Found {total} memories"
+    if result.get("mode"):
+        header += f" (mode: {result['mode']})"
+    if fallback_used:
+        header += " [fallback: exact+tag]"
+    if result.get("query"):
+        header += f" for query: '{result['query']}'"
+    return header
+
+
+def _format_memory_search_debug(result: dict) -> str:
+    """Format optional retrieval diagnostics without changing their order."""
+    if not result.get("debug"):
+        return ""
+    debug = result["debug"]
+    text = "\n\nDebug Info:"
+    text += f"\n  Pre-filter count: {debug.get('pre_filter_count', 'N/A')}"
+    text += f"\n  Post-filter count: {debug.get('post_filter_count', 'N/A')}"
+    if debug.get("quality_boost"):
+        text += f"\n  Quality boost: {debug['quality_boost']}"
+    time_filter = debug.get("time_filter")
+    if time_filter:
+        if time_filter.get("time_expr"):
+            text += f"\n  Time expression: {time_filter['time_expr']}"
+        if time_filter.get("start_timestamp") or time_filter.get("end_timestamp"):
+            text += (
+                f"\n  Time range: {time_filter.get('start_timestamp')} - "
+                f"{time_filter.get('end_timestamp')}"
+            )
+    return text
+
+
+def _format_search_memory(memory: dict, index: int, fallback_used: bool) -> str:
+    """Format one raw memory and its retrieval metadata."""
+    created_at = memory.get("created_at_iso") or str(memory.get("created_at", ""))
+    tags = memory.get("tags", [])
+    tags_display = f" [{', '.join(tags)}]" if tags else ""
+    content_hash = memory.get("content_hash", "")
+    match_info = ""
+    if fallback_used and memory.get("match_method"):
+        match_info = f" (via {memory['match_method']})"
+    return (
+        f"{index}. {memory.get('content', '')}\n"
+        f"   Hash: {content_hash}\n"
+        f"   Created: {created_at}{tags_display}{match_info}"
+    )
+
+
+async def _format_truncated_memory_search(
+    arguments: dict, storage, memories: list[dict], total: int, result: dict,
+    fallback_used: bool, max_response_chars: int, summary_warning: str,
+) -> types.TextContent:
+    """Format search results through the configured response-length limiter."""
+    from ..utils.response_limiter import (
+        format_bounded_response,
+        format_truncated_response,
+        truncate_memories,
+    )
+
+    memory_dicts = [
+        {
+            "content": memory.get("content", ""),
+            "content_hash": memory.get("content_hash", ""),
+            "created_at": memory.get("created_at_iso")
+            or str(memory.get("created_at", "")),
+            "tags": memory.get("tags", []),
+        }
+        for memory in memories
+    ]
+    header = _build_memory_search_header(result, total, fallback_used) + "\n\n"
+    beliefs_section = await _format_beliefs_section(arguments, storage)
+    if summary_warning:
+        response_text = format_bounded_response(
+            memory_dicts,
+            max_response_chars,
+            header=summary_warning + header,
+            footer=beliefs_section,
+        )
+        return types.TextContent(type="text", text=response_text)
+
+    truncated, meta = truncate_memories(memory_dicts, max_response_chars)
+    response_text = (
+        header + format_truncated_response(truncated, meta) + beliefs_section
+    )
+    return types.TextContent(type="text", text=response_text)
+
+
+async def _format_empty_memory_search(
+    arguments: dict, storage, result: dict, max_response_chars: int,
+    summary_warning: str,
+) -> types.TextContent:
+    """Format an empty result, including optional query and belief context."""
+    from ..utils.response_limiter import format_bounded_response
+
+    response = "No memories found"
+    if result.get("query"):
+        response += f" for query: '{result['query']}'"
+    beliefs_section = await _format_beliefs_section(arguments, storage)
+    if summary_warning and max_response_chars > 0:
+        response = format_bounded_response(
+            [],
+            max_response_chars,
+            header=summary_warning + response,
+            footer=beliefs_section,
+        )
+        return types.TextContent(type="text", text=response)
+    return types.TextContent(
+        type="text", text=summary_warning + response + beliefs_section
+    )
+
+
+async def _format_full_memory_search(
+    arguments: dict, storage, memories: list[dict], total: int, result: dict,
+    fallback_used: bool, summary_warning: str,
+) -> types.TextContent:
+    """Format the full, non-truncated raw memory-search response."""
+    formatted_results = [
+        _format_search_memory(memory, index, fallback_used)
+        for index, memory in enumerate(memories, 1)
+    ]
+    header = _build_memory_search_header(result, total, fallback_used)
+    header += _format_memory_search_debug(result)
+    beliefs_section = await _format_beliefs_section(arguments, storage)
+    return types.TextContent(
+        type="text",
+        text=(
+            summary_warning + header + "\n\n"
+            + "\n\n".join(formatted_results) + beliefs_section
+        ),
+    )
+
+
 async def handle_memory_search(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for memory search with flexible modes and filters."""
-    import json
     from ...services.memory_service import MemoryService, normalize_tags
 
     try:
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
-        # Normalize tags if present
-        tags = arguments.get("tags")
-        if tags:
-            tags = normalize_tags(tags)
-
         # Get max_response_chars for truncation
         max_response_chars = _get_max_response_chars(arguments)
-
-        # Extract store param
-        store = arguments.get("store", "default")
-        if store == "all":
-            store = None
-
-        # Call unified search_memories method
         query = arguments.get("query")
-        limit = arguments.get("limit", 10)
-        agent_id = arguments.get("agent_id")
-        result = await storage.search_memories(
-            query=query,
-            mode=arguments.get("mode", "semantic"),
-            time_expr=arguments.get("time_expr"),
-            after=arguments.get("after"),
-            before=arguments.get("before"),
-            tags=tags,
-            tag_match=arguments.get("tag_match", "any"),
-            quality_boost=arguments.get("quality_boost", 0.0),
-            limit=limit,
-            include_debug=arguments.get("include_debug", False),
-            include_superseded=arguments.get("include_superseded", False),
-            ranking_weights=arguments.get("ranking_weights"),
-            store=store,
-            agent_id=agent_id,
+        result, fallback_used = await _retrieve_search_results(
+            storage, arguments, normalize_tags
         )
 
         # Check for errors
         if "error" in result:
             return [types.TextContent(type="text", text=f"Error: {result['error']}")]
 
-        memories = result["memories"]
-        fallback_used = None
+        memories, total, filter_error = await _apply_memory_search_filters(
+            server, arguments, query, result, MemoryService
+        )
+        if filter_error:
+            return [types.TextContent(type="text", text=filter_error)]
 
-        # Cascading fallback: when enabled and semantic results are sparse
-        fallback_enabled = arguments.get("fallback", False)
-        _FALLBACK_MIN_RESULTS = 3
-        _FALLBACK_SCORE_THRESHOLD = 0.4
+        # Summarize only after retrieval, filters, and plugins. The helper keeps
+        # raw results intact as a safe fallback when the provider is unavailable.
+        summary_response, summary_warning = await _summarize_memory_search(
+            arguments, query, memories, total, result, fallback_used, storage,
+            max_response_chars,
+        )
+        if summary_response is not None:
+            return [summary_response]
 
-        if (
-            fallback_enabled
-            and query
-            and arguments.get("mode", "semantic") in ("semantic", "hybrid")
-            and len(memories) < _FALLBACK_MIN_RESULTS
-        ):
-            # Check if existing results have low scores
-            high_score_count = sum(
-                1 for m in memories
-                if m.get("similarity_score", 0) >= _FALLBACK_SCORE_THRESHOLD
-            )
-
-            if high_score_count < _FALLBACK_MIN_RESULTS:
-                seen_hashes = {m.get("content_hash") for m in memories}
-
-                # Tier 1: BM25/exact keyword match
-                exact_result = await storage.search_memories(
-                    query=query,
-                    mode="exact",
-                    limit=limit,
-                    include_superseded=arguments.get("include_superseded", False)
-                )
-                if "error" not in exact_result:
-                    for m in exact_result.get("memories", []):
-                        if m.get("content_hash") not in seen_hashes:
-                            m["match_method"] = "exact_fallback"
-                            memories.append(m)
-                            seen_hashes.add(m.get("content_hash"))
-
-                # Tier 2: Tag intersection (extract potential tags from query tokens)
-                if len(memories) < limit:
-                    query_tokens = [t.strip().lower().strip(".,;:!?\"'()[]{}") for t in query.split() if len(t.strip()) > 2]
-                    if query_tokens:
-                        tag_result = await storage.search_memories(
-                            query=None,
-                            mode="semantic",
-                            tags=query_tokens,
-                            limit=limit,
-                            include_superseded=arguments.get("include_superseded", False)
-                        )
-                        if "error" not in tag_result:
-                            for m in tag_result.get("memories", []):
-                                if m.get("content_hash") not in seen_hashes:
-                                    m["match_method"] = "tag_fallback"
-                                    memories.append(m)
-                                    seen_hashes.add(m.get("content_hash"))
-
-                # Mark original results
-                for m in memories:
-                    if "match_method" not in m:
-                        m["match_method"] = "semantic"
-
-                # Trim to limit
-                memories = memories[:limit]
-                result["memories"] = memories
-                result["total"] = len(memories)
-                fallback_used = True
-        total = result["total"]
-
-        # Entity filter: restrict to memories linked to a specific entity
-        entity_filter = arguments.get("entity")
-        if entity_filter:
-            # Resolved via get_graph_storage(), not a `storage.graph` attribute —
-            # nothing ever assigned that, so this filter silently never applied
-            # (Issue #219).
-            from .graph import get_graph_storage
-            graph = await get_graph_storage()
-            if not graph:
-                return [types.TextContent(
-                    type="text",
-                    text=f"Error: entity filter requires a backend with graph support; "
-                         f"'{_sanitize_log_value(entity_filter)}' cannot be applied."
-                )]
-            try:
-                entity_hashes = set(await graph.find_memories_by_entity(entity_filter))
-            except Exception as e:
-                logger.error("Entity filter lookup failed for %s: %s",
-                             _sanitize_log_value(entity_filter), _sanitize_log_value(e), exc_info=True)
-                return [types.TextContent(
-                    type="text",
-                    text=f"Error: entity filter lookup failed for "
-                         f"'{_sanitize_log_value(entity_filter)}': {e}"
-                )]
-            # An entity with no linked memories filters everything out. Returning
-            # unfiltered results for an explicit filter would be a silent lie;
-            # an empty result set is the honest answer.
-            memories = [m for m in memories if m.get("content_hash") in entity_hashes]
-            total = len(memories)
-            result["memories"] = memories
-            result["total"] = total
-
-        # Plugins must see the final unified-search result after fallback and
-        # entity filtering, matching the legacy MemoryService retrieval path.
-        if isinstance(server.memory_service, MemoryService):
-            memories = await server.memory_service.apply_retrieve_plugins(
-                query, memories
-            )
-            total = len(memories)
-            result["memories"] = memories
-            result["total"] = total
-
-        # Apply truncation if needed
         if max_response_chars > 0 and memories:
-            # Memories are already dicts from storage.search_memories()
-            # Just ensure consistent format for truncation
-            memory_dicts = []
-            for memory in memories:
-                memory_dicts.append({
-                    'content': memory.get('content', ''),
-                    'content_hash': memory.get('content_hash', ''),
-                    'created_at': memory.get('created_at_iso') or str(memory.get('created_at', '')),
-                    'tags': memory.get('tags', []),
-                })
-
-            # Apply truncation
-            from ..utils.response_limiter import truncate_memories, format_truncated_response
-            truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-
-            # Build header
-            header = f"Found {total} memories"
-            if result.get("mode"):
-                header += f" (mode: {result['mode']})"
-            if fallback_used:
-                header += " [fallback: exact+tag]"
-            if result.get("query"):
-                header += f" for query: '{result['query']}'"
-            header += "\n\n"
-
-            beliefs_section = await _format_beliefs_section(arguments, storage)
-            response_text = header + format_truncated_response(truncated, meta) + beliefs_section
-            return [types.TextContent(type="text", text=response_text)]
-
-        # Format response without truncation
+            return [await _format_truncated_memory_search(
+                arguments, storage, memories, total, result, fallback_used,
+                max_response_chars, summary_warning,
+            )]
         if not memories:
-            response = "No memories found"
-            if result.get("query"):
-                response += f" for query: '{result['query']}'"
-            beliefs_section = await _format_beliefs_section(arguments, storage)
-            return [types.TextContent(type="text", text=response + beliefs_section)]
-
-        # Format memories (memories are dicts from storage.search_memories())
-        formatted_results = []
-        for idx, memory in enumerate(memories, 1):
-            created_at = memory.get('created_at_iso') or str(memory.get('created_at', ''))
-            tags = memory.get('tags', [])
-            tags_display = f" [{', '.join(tags)}]" if tags else ""
-            content_hash = memory.get('content_hash', '')
-
-            match_info = ""
-            if fallback_used and memory.get("match_method"):
-                match_info = f" (via {memory['match_method']})"
-
-            formatted_results.append(
-                f"{idx}. {memory.get('content', '')}\n"
-                f"   Hash: {content_hash}\n"
-                f"   Created: {created_at}{tags_display}{match_info}"
-            )
-
-        header = f"Found {total} memories"
-        if result.get("mode"):
-            header += f" (mode: {result['mode']})"
-        if fallback_used:
-            header += " [fallback: exact+tag]"
-        if result.get("query"):
-            header += f" for query: '{result['query']}'"
-
-        # Add debug info if present
-        if result.get("debug"):
-            debug = result["debug"]
-            header += f"\n\nDebug Info:"
-            header += f"\n  Pre-filter count: {debug.get('pre_filter_count', 'N/A')}"
-            header += f"\n  Post-filter count: {debug.get('post_filter_count', 'N/A')}"
-            if debug.get('quality_boost'):
-                header += f"\n  Quality boost: {debug['quality_boost']}"
-            if debug.get('time_filter'):
-                tf = debug['time_filter']
-                if tf.get('time_expr'):
-                    header += f"\n  Time expression: {tf['time_expr']}"
-                if tf.get('start_timestamp') or tf.get('end_timestamp'):
-                    header += f"\n  Time range: {tf.get('start_timestamp')} - {tf.get('end_timestamp')}"
-
-        beliefs_section = await _format_beliefs_section(arguments, storage)
-        return [types.TextContent(
-            type="text",
-            text=header + "\n\n" + "\n\n".join(formatted_results) + beliefs_section
+            return [await _format_empty_memory_search(
+                arguments, storage, result, max_response_chars, summary_warning
+            )]
+        return [await _format_full_memory_search(
+            arguments, storage, memories, total, result, fallback_used,
+            summary_warning,
         )]
 
     except Exception as e:
@@ -1307,6 +1569,15 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                     text="Error: versioned update requires 'content' field in updates."
                 )]
 
+            # Validate before any write: a truthy non-dict (a list, a string) would
+            # only fail at .items() below, after update_memory_versioned() has
+            # already superseded the old row.
+            caller_metadata = updates.get("metadata")
+            if caller_metadata is not None and not isinstance(caller_metadata, dict):
+                return [types.TextContent(
+                    type="text",
+                    text="Error: metadata must be a dictionary of custom fields."
+                )]
             success, message, new_hash = await storage.update_memory_versioned(
                 content_hash=content_hash,
                 new_content=new_content,
@@ -1316,13 +1587,47 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             )
 
             if success:
+                # The new version inherits the old row's custom metadata, and the
+                # schema tells callers that fields passed in metadata override those
+                # inherited values, so apply them after the write. Same merge
+                # evolve_memory() uses: caller keys win over the inherited ones.
+                # tags/type are excluded — they are dedicated Memory fields and
+                # already went through new_tags/new_memory_type above. superseded_by
+                # and evolution_reason are lineage keys the storage layer owns: a
+                # caller-supplied superseded_by makes Milvus hide this very version
+                # from search (milvus.py:1721), and evolution_reason describes the
+                # parent row, not this one.
+                final_metadata = {
+                    k: v for k, v in (caller_metadata or {}).items()
+                    if k not in ("tags", "type", "superseded_by", "evolution_reason")
+                }
+                overrides_applied = True
+                if final_metadata:
+                    meta_ok, meta_msg = await storage.update_memory_metadata(
+                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                    )
+                    overrides_applied = meta_ok
+                    if not meta_ok:
+                        message = f"{message} (metadata overrides were NOT applied: {meta_msg})"
                 logger.info("Versioned update: %s -> %s", _sanitize_log_value(content_hash), _sanitize_log_value(new_hash))
+                # Say which of the two happened: the version is committed either
+                # way, so a caller cannot tell a failed override from a clean run
+                # unless the text separates them.
+                status = (
+                    "Versioned update successful."
+                    if overrides_applied
+                    else "Versioned update created the new version, but the metadata overrides were not applied."
+                )
                 return [types.TextContent(
                     type="text",
-                    text=f"Versioned update successful. New hash: {new_hash}, parent hash: {content_hash}. {message}"
+                    text=f"{status} New hash: {new_hash}, parent hash: {content_hash}. {message}"
                 )]
             else:
                 return [types.TextContent(type="text", text=f"Failed versioned update: {message}")]
+
+        # content and reason apply to versioned updates only; strip them so they
+        # cannot advance updated_at or leak into custom metadata on this path.
+        updates = {k: v for k, v in updates.items() if k not in ("content", "reason")}
 
         # Call the storage method
         success, message = await storage.update_memory_metadata(

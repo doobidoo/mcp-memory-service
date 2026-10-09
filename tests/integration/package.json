@@ -7,11 +7,10 @@
     "test": "mocha test_bridge_integration.js --reporter spec --timeout 10000",
     "test:watch": "mocha test_bridge_integration.js --reporter spec --timeout 10000 --watch"
   },
-  "dependencies": {
+  "devDependencies": {
     "mocha": "^10.0.0",
     "sinon": "^17.0.0"
   },
-  "devDependencies": {},
   "overrides": {
     "brace-expansion": "^5.0.12",
     "minimatch": "^10.2.3",

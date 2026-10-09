@@ -45,6 +45,7 @@ from ..config import (
     MDNS_ENABLED,
     HTTPS_ENABLED,
     OAUTH_ENABLED,
+    METRICS_ENABLED,
     CONSOLIDATION_ENABLED,
     CONSOLIDATION_CONFIG,
     CONSOLIDATION_SCHEDULE,
@@ -68,6 +69,7 @@ from .api.configuration import router as configuration_router
 from .api.oauth_status import router as oauth_status_router
 from .api.conflicts import router as conflicts_router
 from .api.harvest import router as harvest_router
+from .api.sync_events import router as sync_events_router
 from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -102,6 +104,17 @@ consolidation_scheduler: Optional["ConsolidationScheduler"] = None
 
 # Global backup scheduler instance
 backup_scheduler: Optional["BackupScheduler"] = None
+
+# Env vars that each enable an opt-in interval job on the consolidation scheduler.
+# When any is set (not blank / not "disabled"), the scheduler is started even if the
+# consolidation cadences themselves are all disabled — otherwise a host that only
+# enables one of these would never get a scheduler and the job would silently never run.
+# One entry per line so independent features can append their own without editing a
+# shared literal (keeps feature PRs orthogonal).
+_OPTIN_SCHEDULE_ENV_VARS = (
+    "MCP_HARVEST_SCHEDULE",
+    "MCP_SYNC_SCHEDULE",  # delta-sync Phase 4d
+)
 
 
 async def oauth_cleanup_background_task():
@@ -139,8 +152,17 @@ async def lifespan(app: FastAPI):
         storage = await create_storage_backend()
         set_storage(storage)  # Set the global storage instance
 
-        # Initialize consolidation system if enabled
-        if CONSOLIDATION_ENABLED:
+        # Initialize consolidation system if enabled — OR if any opt-in interval job
+        # (see _OPTIN_SCHEDULE_ENV_VARS) is configured. The scheduler needs a consolidator
+        # instance to attach jobs to, so a host that only enables e.g. MCP_SYNC_SCHEDULE
+        # (with consolidation disabled) must still reach this block, build the consolidator,
+        # and start the scheduler — otherwise the opt-in job silently never runs (Greptile P1).
+        import os as _os
+        _optin_jobs_on = any(
+            (_os.getenv(v, '').strip().lower() not in ('', 'disabled'))
+            for v in _OPTIN_SCHEDULE_ENV_VARS
+        )
+        if CONSOLIDATION_ENABLED or _optin_jobs_on:
             try:
                 from ..consolidation.base import ConsolidationConfig
                 from ..consolidation.consolidator import DreamInspiredConsolidator
@@ -157,11 +179,24 @@ async def lifespan(app: FastAPI):
                 # Set global consolidator for API access
                 set_consolidator(consolidator)
 
-                # Initialize scheduler if any schedules are enabled
-                if any(schedule != 'disabled' for schedule in CONSOLIDATION_SCHEDULE.values()):
+                # Start the scheduler when consolidation cadences OR any opt-in job is enabled.
+                #
+                # If we only got here because an opt-in job (sync/harvest) is on while
+                # consolidation is DISABLED, the scheduler must NOT register consolidation
+                # jobs — passing the raw CONSOLIDATION_SCHEDULE would re-activate cadences
+                # (e.g. a leftover MCP_SCHEDULE_WEEKLY) that can archive/delete memories the
+                # user turned off (Greptile P1). Neutralize every cadence to 'disabled' in
+                # that case; the opt-in jobs schedule themselves from their own env vars.
+                if CONSOLIDATION_ENABLED:
+                    effective_schedule = CONSOLIDATION_SCHEDULE
+                else:
+                    effective_schedule = {k: 'disabled' for k in CONSOLIDATION_SCHEDULE}
+
+                _consolidation_on = any(schedule != 'disabled' for schedule in effective_schedule.values())
+                if _consolidation_on or _optin_jobs_on:
                     consolidation_scheduler = ConsolidationScheduler(
                         consolidator,
-                        CONSOLIDATION_SCHEDULE,
+                        effective_schedule,
                         enabled=True
                     )
 
@@ -368,6 +403,10 @@ def create_app() -> FastAPI:
     app.include_router(harvest_router, tags=["harvest"])
     logger.info("✓ Included harvest router with %s routes", _sanitize_log_value(len(harvest_router.routes)))
 
+    # Include delta-sync event feed router (#1345 Phase 4 — pull/push transport)
+    app.include_router(sync_events_router, prefix="/api", tags=["sync"])
+    logger.info("✓ Included sync_events router with %s routes", _sanitize_log_value(len(sync_events_router.routes)))
+
     # Include MCP protocol router
     app.include_router(mcp_router, tags=["mcp-protocol"])
 
@@ -384,6 +423,17 @@ def create_app() -> FastAPI:
         logger.info("OAuth 2.1 endpoints enabled")
     else:
         logger.info("OAuth 2.1 endpoints disabled")
+
+    # Include Prometheus metrics router if enabled (issue #1097, opt-in).
+    # Read the module-level flag (not the import-time local) so tests that
+    # monkeypatch ``web.app.METRICS_ENABLED`` and rebuild the app are honoured,
+    # exactly the way OAUTH_ENABLED gates its routers above.
+    if METRICS_ENABLED:
+        from .api.metrics import router as metrics_router
+        app.include_router(metrics_router, tags=["metrics"])
+        logger.info("Prometheus /metrics endpoint enabled")
+    else:
+        logger.info("Prometheus /metrics endpoint disabled")
 
     # Serve static files (dashboard)
     static_path = os.path.join(os.path.dirname(__file__), "static")

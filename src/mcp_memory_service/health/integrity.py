@@ -33,6 +33,7 @@ import sqlite3
 import time
 from typing import Any, Dict, Optional
 
+from ..compat import _sanitize_log_value
 from ..config import (
     INTEGRITY_CHECK_ENABLED,
     INTEGRITY_CHECK_INTERVAL,
@@ -67,9 +68,9 @@ class IntegrityMonitor:
         self.total_failures = 0
 
         logger.info(
-            f"IntegrityMonitor initialized "
-            f"(enabled={INTEGRITY_CHECK_ENABLED}, "
-            f"interval={INTEGRITY_CHECK_INTERVAL}s)"
+            "IntegrityMonitor initialized (enabled=%s, interval=%ss)",
+            INTEGRITY_CHECK_ENABLED,
+            INTEGRITY_CHECK_INTERVAL,
         )
 
     async def check_integrity(self) -> tuple[bool, str]:
@@ -165,11 +166,11 @@ class IntegrityMonitor:
                 with open(export_path, "w") as f:
                     json.dump(memories, f, indent=2)
 
-                logger.info(f"Exported {len(memories)} memories to {export_path}")
+                logger.info("Exported %s memories to %s", len(memories), _sanitize_log_value(export_path))
                 return True, len(memories)
 
             except Exception as e:
-                logger.error(f"Memory export failed: {e}")
+                logger.error("Memory export failed: %s", _sanitize_log_value(e))
                 return False, 0
 
         return await asyncio.to_thread(_export)
@@ -197,11 +198,11 @@ class IntegrityMonitor:
         }
 
         if is_healthy:
-            logger.debug(f"Integrity check passed ({check_ms:.1f}ms)")
+            logger.debug("Integrity check passed (%.1fms)", check_ms)
             return result
 
         # Corruption detected — attempt repair
-        logger.warning(f"Database corruption detected: {detail}")
+        logger.warning("Database corruption detected: %s", _sanitize_log_value(detail))
 
         repaired, repair_detail = await self.attempt_wal_repair()
         result["repair_detail"] = repair_detail
@@ -210,7 +211,7 @@ class IntegrityMonitor:
             self.total_repairs += 1
             result["repaired"] = True
             result["healthy"] = True
-            logger.info(f"Auto-repair successful: {repair_detail}")
+            logger.info("Auto-repair successful: %s", _sanitize_log_value(repair_detail))
             return result
 
         # Repair failed — export memories for manual recovery
@@ -226,9 +227,11 @@ class IntegrityMonitor:
             result["export_count"] = count
 
         logger.error(
-            f"Database corruption could not be auto-repaired. "
-            f"Memories exported to {export_path} ({count} memories). "
-            f"Manual intervention required."
+            "Database corruption could not be auto-repaired. "
+            "Memories exported to %s (%s memories). "
+            "Manual intervention required.",
+            _sanitize_log_value(export_path),
+            count,
         )
         return result
 
@@ -245,7 +248,8 @@ class IntegrityMonitor:
             if result["repaired"]:
                 logger.info("Startup check: corruption found and auto-repaired")
             else:
-                logger.info(f"Startup check: database healthy ({result['check_ms']}ms)")
+                check_ms = result["check_ms"]
+                logger.info("Startup check: database healthy (%sms)", check_ms)
         else:
             logger.error(
                 "Startup check: database corrupt and could not be auto-repaired. "
@@ -266,10 +270,7 @@ class IntegrityMonitor:
 
         self.is_running = True
         self._task = asyncio.create_task(self._monitor_loop())
-        logger.info(
-            f"IntegrityMonitor started "
-            f"(interval={INTEGRITY_CHECK_INTERVAL}s)"
-        )
+        logger.info("IntegrityMonitor started (interval=%ss)", INTEGRITY_CHECK_INTERVAL)
 
     async def stop(self):
         """Stop the periodic integrity monitoring loop."""
@@ -296,7 +297,7 @@ class IntegrityMonitor:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in integrity monitor loop: {e}")
+                logger.error("Error in integrity monitor loop: %s", _sanitize_log_value(e))
                 await asyncio.sleep(60)  # Wait before retrying
 
     def get_status(self) -> Dict[str, Any]:
