@@ -285,6 +285,8 @@
   "analytics.graphNodes": "节点",
   "analytics.minConnections": "最小连接数",
   "analytics.minDegree": "最小度数",
+  "analytics.minConnectionsTip": "仅加载在数据库中至少有 N 个连接的记忆。更改后会重新加载图谱。",
+  "analytics.minDegreeTip": "隐藏在已显示记忆类型中邻居少于 N 个的节点（1 为关闭）。无需重新加载。",
   "analytics.refresh": "刷新",
   "analytics.loadingGraph": "加载图形中...",
   "analytics.legend": "图例",
