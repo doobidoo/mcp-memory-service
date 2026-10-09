@@ -242,6 +242,84 @@ async def test_ca5b_cursor_never_regresses(source, target):
 # ─────────────────────── Transport (endpoint + orchestration) ───────────────────────
 
 @pytest.mark.asyncio
+async def test_p1_1_cursor_not_advanced_on_failure(source, target):
+    """Greptile P1-1: if any baseline event fails (e.g. unknown schema_version), the cursor
+    must NOT advance — later pulls must not skip the history to recover it."""
+    from mcp_memory_service.storage.sync.bootstrap import install_baseline
+
+    # one good event + one with a future schema_version (apply rejects it)
+    c = "good baseline event"; h = generate_content_hash(c)
+    bad = {"schema_version": 99, "agent_id": "alpha", "event_id": "futurebl", "op": "create",
+           "content_hash": generate_content_hash("bad"), "hlc_physical": 1, "hlc_logical": 0,
+           "embedding_model": None, "embedding_dim": None,
+           "payload": {"content_hash": generate_content_hash("bad"), "content": "x", "tags": [], "memory_type": "note"}}
+    good = {"schema_version": 1, "agent_id": "alpha", "event_id": "goodbl", "op": "create",
+            "content_hash": h, "hlc_physical": 1, "hlc_logical": 0,
+            "embedding_model": None, "embedding_dim": None,
+            "payload": {"content_hash": h, "content": c, "tags": [], "memory_type": "note"}}
+    res = install_baseline(target, [good, bad], peer_id="alpha", watermark=42)
+    assert res["complete"] is False and res["failed"] == 1
+    cur = target.conn.execute("SELECT last_seq_seen FROM sync_cursor WHERE peer_id='alpha'").fetchone()
+    assert cur is None or cur[0] == 0, "cursor must NOT advance when a baseline event failed"
+
+
+@pytest.mark.asyncio
+async def test_p1_2_baseline_carries_real_hlc(source):
+    """Greptile P1-2: baseline events carry the source's real HLC (not 0), so a historical
+    event cannot win over the baseline and revert state."""
+    from mcp_memory_service.storage.sync.bootstrap import generate_baseline
+
+    await _seed(source, 1)
+    base, _ = generate_baseline(source)
+    assert base, "expected a baseline event"
+    assert base[0]["hlc_physical"] > 0, f"baseline must carry a real HLC, got {base[0]['hlc_physical']}"
+
+
+@pytest.mark.asyncio
+async def test_p1_4_superseded_carried_and_materialized(source, target):
+    """Greptile P1-4: a superseded memory carries superseded_by in the baseline and the apply
+    restores the column, so it stays hidden from search on the target."""
+    from mcp_memory_service.storage.sync.bootstrap import generate_baseline, install_baseline
+
+    c = "superseded source memory"; h = generate_content_hash(c)
+    await source.store(Memory(content=c, content_hash=h, tags=["s"], memory_type="note"))
+    source.conn.execute("UPDATE memories SET superseded_by = 'newer-hash' WHERE content_hash = ?", (h,))
+    source.conn.commit()
+
+    base, wm = generate_baseline(source)
+    ev = next((e for e in base if e["content_hash"] == h), None)
+    assert ev is not None and ev["payload"].get("superseded_by") == "newer-hash", "baseline must carry superseded_by"
+
+    install_baseline(target, base, peer_id="alpha", watermark=wm)
+    col = target.conn.execute("SELECT superseded_by FROM memories WHERE content_hash = ?", (h,)).fetchone()
+    assert col is not None and col[0] == "newer-hash", "apply must restore superseded_by on the target"
+
+
+def test_p1_3_schema_version_travels_through_feed(source):
+    """Greptile P1-3: schema_version is carried by the feed (not dropped to 1), so the apply
+    version check works through the real transport, not only on a direct apply call."""
+    import asyncio
+    from fastapi.testclient import TestClient
+    from mcp_memory_service.web.app import create_app
+    from mcp_memory_service.web.dependencies import set_storage
+    from mcp_memory_service.web.oauth.middleware import require_read_access
+
+    # store a normal event, then force its envelope schema_version to 2 in sync_events
+    async def _prep():
+        c = "feed version probe"; h = generate_content_hash(c)
+        await source.store(Memory(content=c, content_hash=h, tags=["v"], memory_type="note"))
+        source.conn.execute("UPDATE sync_events SET schema_version = 2 WHERE content_hash = ?", (h,))
+        source.conn.commit()
+    asyncio.get_event_loop().run_until_complete(_prep())
+    set_storage(source)
+    app = create_app(); app.dependency_overrides[require_read_access] = lambda: True
+    client = TestClient(app)
+    resp = client.get("/api/sync/events?since_seq=0&limit=100")
+    assert resp.status_code == 200
+    evs = resp.json()["events"]
+    assert any(e.get("schema_version") == 2 for e in evs), "feed must carry schema_version, not drop it to 1"
+
+@pytest.mark.asyncio
 async def test_ca8_bootstrap_from_peer_full_cycle(source, target):
     """CA8 (in-process stand-in for the hot E2E): a fake peer serves the source's baseline;
     bootstrap_from_peer installs it on a fresh target and parks the cursor at the watermark."""

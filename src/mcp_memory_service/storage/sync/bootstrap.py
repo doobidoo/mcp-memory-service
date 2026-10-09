@@ -17,7 +17,6 @@ RFC §9.3 (bootstrap). SPEC: spec-delta-sync-fase5.md.
 import hashlib
 import json
 import logging
-import time
 from typing import Any, Dict, List, Tuple
 
 from ..base import MemoryStorage
@@ -25,10 +24,6 @@ from ..mixins.base import _sanitize_log_value
 from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock, KNOWN_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
-
-# Baseline events are HLC-ordered before any real post-watermark event. They seed the clock
-# at the floor; a real local edit afterwards gets a higher HLC and wins over the baseline.
-_BASELINE_HLC_PHYSICAL = 0
 
 
 def _deterministic_event_id(content_hash: str, updated_at, op: str) -> str:
@@ -66,70 +61,97 @@ def generate_baseline(storage: MemoryStorage) -> Tuple[List[Dict[str, Any]], int
             cur = s.conn.execute(
                 """
                 SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, deleted_at, store
+                       created_at, updated_at, deleted_at, store, superseded_by
                 FROM memories
                 ORDER BY id
                 """
             )
             rows = cur.fetchall()
+
+            # Greptile P1-2: the baseline must carry the source's REAL conflict clock, not a
+            # floor of 0 — otherwise any historical event with a real HLC wins over the
+            # baseline and can revert state (e.g. resurrect a deleted memory). Map each
+            # content_hash to the HLC of its latest sync_event; fall back to created_at*1000
+            # (the Phase-1 backfill convention) for a memory with no event row.
+            hlc_cur = s.conn.execute(
+                """
+                SELECT content_hash, MAX(hlc_physical) AS hp, MAX(hlc_logical) AS hl
+                FROM sync_events GROUP BY content_hash
+                """
+            )
+            hlc_by_hash = {r[0]: (r[1] or 0, r[2] or 0) for r in hlc_cur.fetchall()}
         finally:
             # Read-only transaction: end it without writing (COMMIT releases the lock).
             s.conn.commit()
 
     events: List[Dict[str, Any]] = []
     for r in rows:
-        # Access by position, not by name: the upstream row_factory yields plain tuples
-        # (the name-keyed DictRow is fork-only). SELECT order below must match these indices.
-        content_hash, content, tags_str, memory_type, metadata_str, created_at, updated_at, deleted_at, store = (
-            r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8],
-        )
-        try:
-            metadata = json.loads(metadata_str) if metadata_str else {}
-        except (TypeError, ValueError):
-            metadata = {}
-
-        # R4: preserve metadata.agent_id; a row with no verifiable authorship is marked
-        # 'unattributed' (RFC §9.3 rule 3 "legacy/unattributed") — never invent an agent.
-        # Use a clean single-token sentinel (no slash) so it stays a valid agent_id value in
-        # sync_events and in any downstream agent filter.
-        agent_id = metadata.get("agent_id") or "unattributed"
-
-        if deleted_at is not None:
-            # R5: a soft-deleted memory bootstraps as a tombstone, preserving the moment.
-            op = "delete"
-            event_id = _deterministic_event_id(content_hash, updated_at, op)
-            payload = {"content_hash": content_hash, "deleted_at": deleted_at}
-        else:
-            op = "create"
-            event_id = _deterministic_event_id(content_hash, updated_at, op)
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
-            payload = {
-                "content_hash": content_hash,
-                "content": content,
-                "memory_type": memory_type,
-                "tags": tags,
-                "created_at": created_at,
-                "updated_at": updated_at,
-                "metadata": metadata,
-                "store": store or "default",
-            }
-
-        events.append({
-            "schema_version": KNOWN_SCHEMA_VERSION,
-            "agent_id": agent_id,
-            "event_id": event_id,
-            "op": op,
-            "content_hash": content_hash,
-            "hlc_physical": _BASELINE_HLC_PHYSICAL,
-            "hlc_logical": len(events),  # stable per-run order; floor clock
-            "embedding_model": None,
-            "embedding_dim": None,
-            "payload": payload,
-        })
+        ev = _row_to_baseline_event(r, hlc_by_hash)
+        if ev is not None:
+            events.append(ev)
 
     logger.info("Generated %s baseline events at watermark %s",
                 _sanitize_log_value(len(events)), _sanitize_log_value(watermark))
     return events, watermark
+
+
+def _row_to_baseline_event(r, hlc_by_hash) -> Dict[str, Any]:
+    """Convert one memories row into a baseline event (helper keeps generate_baseline under
+    the repo's complexity limit — Greptile P2-2). Access by position: upstream rows are plain
+    tuples (DictRow is fork-only). SELECT order: content_hash, content, tags, memory_type,
+    metadata, created_at, updated_at, deleted_at, store, superseded_by.
+    """
+    (content_hash, content, tags_str, memory_type, metadata_str,
+     created_at, updated_at, deleted_at, store, superseded_by) = (
+        r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9],
+    )
+    try:
+        metadata = json.loads(metadata_str) if metadata_str else {}
+    except (TypeError, ValueError):
+        metadata = {}
+
+    # R4: preserve metadata.agent_id; no verifiable authorship → 'unattributed' (clean
+    # single token, no slash, so it stays a valid agent_id in filters). Never invent an agent.
+    agent_id = metadata.get("agent_id") or "unattributed"
+
+    # Greptile P1-2: use the source's real HLC for this hash (floor 0 would lose to history).
+    hlc_physical, hlc_logical = hlc_by_hash.get(
+        content_hash,
+        (int((created_at or 0) * 1000), 0),
+    )
+
+    if deleted_at is not None:
+        op = "delete"
+        payload = {"content_hash": content_hash, "deleted_at": deleted_at}
+    else:
+        op = "create"
+        tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+        payload = {
+            "content_hash": content_hash,
+            "content": content,
+            "memory_type": memory_type,
+            "tags": tags,
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "metadata": metadata,
+            "store": store or "default",
+            # Greptile P1-4: carry superseded_by so a replaced memory is NOT re-exposed as a
+            # searchable create on the target (retrieve filters on this column).
+            "superseded_by": superseded_by,
+        }
+
+    return {
+        "schema_version": KNOWN_SCHEMA_VERSION,
+        "agent_id": agent_id,
+        "event_id": _deterministic_event_id(content_hash, updated_at, op),
+        "op": op,
+        "content_hash": content_hash,
+        "hlc_physical": hlc_physical,
+        "hlc_logical": hlc_logical,
+        "embedding_model": None,
+        "embedding_dim": None,
+        "payload": payload,
+    }
 
 
 def install_baseline(storage: MemoryStorage, events: List[Dict[str, Any]],
@@ -155,11 +177,20 @@ def install_baseline(storage: MemoryStorage, events: List[Dict[str, Any]],
             logger.warning("Baseline event %s not applied: %s",
                            _sanitize_log_value(ev.get("event_id")), _sanitize_log_value(res.reason))
 
-    # R6: park the cursor at the watermark so live sync continues after the baseline.
-    advance_sync_cursor(storage, peer_id, watermark)
-    logger.info("Installed baseline from peer %s: %s applied, %s failed, cursor=%s",
-                _sanitize_log_value(peer_id), applied, failed, watermark)
-    return {"applied": applied, "failed": failed, "watermark": watermark}
+    # R6 / Greptile P1-1: only park the cursor at the watermark if EVERY baseline event
+    # applied. If any failed (e.g. a rejected newer schema_version), advancing the cursor
+    # would make later pulls start after the watermark and skip the history needed to
+    # recover that memory/deletion. Leave the cursor unchanged and report incomplete.
+    complete = failed == 0
+    if complete:
+        advance_sync_cursor(storage, peer_id, watermark)
+    else:
+        logger.warning("Bootstrap from peer %s INCOMPLETE: %s failed — cursor NOT advanced (watermark %s withheld)",
+                       _sanitize_log_value(peer_id), failed, watermark)
+    logger.info("Installed baseline from peer %s: %s applied, %s failed, complete=%s, cursor=%s",
+                _sanitize_log_value(peer_id), applied, failed, complete,
+                watermark if complete else "unchanged")
+    return {"applied": applied, "failed": failed, "watermark": watermark, "complete": complete}
 
 
 async def bootstrap_from_peer(local_storage: MemoryStorage, peer, peer_id: str) -> Dict[str, int]:

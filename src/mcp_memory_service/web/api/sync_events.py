@@ -26,6 +26,7 @@ router = APIRouter()
 class SyncEventData(BaseModel):
     """Individual sync event in the feed response."""
     seq: int
+    schema_version: int = 1
     event_id: str
     op: str
     content_hash: str
@@ -74,7 +75,7 @@ async def get_sync_events(
         # Get events from sync_events table
         cursor = _sqlite(storage).conn.execute("""
             SELECT 
-                seq, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
+                seq, schema_version, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                 embedding_model, embedding_dim, payload
             FROM sync_events 
             WHERE seq > ?
@@ -86,7 +87,7 @@ async def get_sync_events(
         events = []
         
         for row in rows:
-            seq, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical, embedding_model, embedding_dim, payload = row
+            seq, schema_version, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical, embedding_model, embedding_dim, payload = row
             
             # Parse payload JSON
             payload_dict = json.loads(payload) if payload else {}
@@ -103,6 +104,7 @@ async def get_sync_events(
             
             events.append(SyncEventData(
                 seq=seq,
+                schema_version=schema_version if schema_version is not None else 1,
                 event_id=event_id,
                 op=op,
                 content_hash=content_hash,
@@ -255,8 +257,13 @@ async def get_sync_baseline(
     watermark is read atomically with the snapshot (see generate_baseline).
     """
     from ...storage.sync.bootstrap import generate_baseline
+    import asyncio
     try:
-        events, watermark = generate_baseline(storage)
+        # Greptile P2-1: generate_baseline is synchronous — it takes the snapshot lock, runs
+        # BEGIN IMMEDIATE, reads the whole corpus and builds every event. Running it directly
+        # on the event loop would stall unrelated HTTP requests. Offload to a worker thread
+        # (its internal lock keeps the snapshot atomic regardless of thread).
+        events, watermark = await asyncio.to_thread(generate_baseline, storage)
         return BaselineResponse(events=events, watermark=watermark, count=len(events))
     except Exception as e:
         logger.error("baseline generation failed: %s", _sanitize_log_value(e))

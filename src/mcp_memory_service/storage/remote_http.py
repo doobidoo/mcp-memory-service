@@ -515,7 +515,16 @@ class RemoteHTTPStorage(MemoryStorage):
         response = await self._request("GET", "/api/sync/baseline")
         if response.status_code == 200:
             data = response.json()
-            return data.get("events", []), int(data.get("watermark", 0))
+            # Greptile P2-3: a malformed 200 ({"watermark": 100} with no events) must NOT look
+            # like a valid empty snapshot that advances the cursor without importing anything.
+            # Require both fields with the right types.
+            if not isinstance(data, dict) or "events" not in data or "watermark" not in data:
+                raise RuntimeError("baseline response missing 'events'/'watermark'")
+            events = data["events"]
+            watermark = data["watermark"]
+            if not isinstance(events, list) or not isinstance(watermark, int):
+                raise RuntimeError("baseline response has wrong types for 'events'/'watermark'")
+            return events, watermark
         msg = f"baseline fetch failed: HTTP {response.status_code}"
         logger.warning("%s", _sanitize_log_value(msg))
         raise RuntimeError(msg)
