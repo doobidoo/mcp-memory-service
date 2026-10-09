@@ -187,6 +187,15 @@ memory launch
 2. Examine both nodes to understand the conflict
 3. Use this to identify inconsistencies in your knowledge base
 
+### Min Connections vs Min Degree
+
+Both controls filter by how connected a memory is, but they count different things.
+
+- **Min Connections** runs on the server. It counts each memory's distinct linked memories across the whole database (entity links excluded) and loads only those with at least N, up to the node limit. Changing it reloads the graph.
+- **Min Degree** runs in your browser. It counts a node's neighbours within the graph as drawn, so nodes that were not loaded and relationship types you have hidden do not count, and a mutual pair counts once. It hides nodes below the value instantly, without a reload.
+
+A memory linked to 10 others can therefore show degree 2 if eight of its partners were not loaded or are hidden by a relationship type filter. Min Connections decides which nodes are loaded at all; Min Degree then thins out what is on screen.
+
 ### Relationship Type Chart
 
 **Interpreting the Chart:**

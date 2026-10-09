@@ -880,7 +880,7 @@
                                                     <option value="10000">All</option>
                                                 </select>
                                             </label>
-                                            <label for="graphMinConnectionsSelect">
+                                            <label for="graphMinConnectionsSelect" title="Load only memories with at least N links in the database. Reloads the graph." data-i18n-title="analytics.minConnectionsTip">
                                                 <span data-i18n="analytics.minConnections">Min Connections:</span>
                                                 <select id="graphMinConnectionsSelect" class="form-control">
                                                     <option value="1" selected>1</option>
@@ -889,7 +889,7 @@
                                                     <option value="5">5</option>
                                                 </select>
                                             </label>
-                                            <label for="graphDegreeSlider">
+                                            <label for="graphDegreeSlider" title="Hide nodes with fewer than N visible neighbours. No reload." data-i18n-title="analytics.minDegreeTip">
                                                 <span data-i18n="analytics.minDegree">Min Degree:</span>
                                                 <input type="range" id="graphDegreeSlider" min="1" max="1" step="1" value="1" disabled>
                                                 <span id="graphDegreeValue">1</span>

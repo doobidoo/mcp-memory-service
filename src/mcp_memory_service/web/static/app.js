@@ -389,8 +389,8 @@ class MemoryDashboard {
      */
     async applyTranslations() {
         // 统一遍历带 i18n 属性的元素，减少多次 DOM 遍历
-        document.querySelectorAll('[data-i18n], [data-i18n-html], [data-i18n-placeholder], [data-i18n-aria]').forEach(el => {
-            const { i18n, i18nHtml, i18nPlaceholder, i18nAria } = el.dataset;
+        document.querySelectorAll('[data-i18n], [data-i18n-html], [data-i18n-placeholder], [data-i18n-aria], [data-i18n-title]').forEach(el => {
+            const { i18n, i18nHtml, i18nPlaceholder, i18nAria, i18nTitle } = el.dataset;
 
             if (i18n) {
                 const text = this.t(i18n, el.textContent?.trim() || '');
@@ -410,6 +410,11 @@ class MemoryDashboard {
             if (i18nAria) {
                 const text = this.t(i18nAria, el.getAttribute('aria-label') || '');
                 el.setAttribute('aria-label', text);
+            }
+
+            if (i18nTitle) {
+                const text = this.t(i18nTitle, el.getAttribute('title') || '');
+                el.setAttribute('title', text);
             }
         });
 

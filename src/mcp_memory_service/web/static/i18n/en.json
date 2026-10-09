@@ -284,6 +284,8 @@
   "analytics.graphNodes": "Nodes",
   "analytics.minConnections": "Min Connections",
   "analytics.minDegree": "Min Degree",
+  "analytics.minConnectionsTip": "Load only memories with at least N links in the database. Reloads the graph.",
+  "analytics.minDegreeTip": "Hide nodes with fewer than N visible neighbours. No reload.",
   "analytics.refresh": "Refresh",
   "analytics.loadingGraph": "Loading graph...",
   "analytics.legend": "Legend",
