@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ...utils.hashing import generate_content_hash
+from mcp_memory_service.utils.hashing import generate_content_hash
 
 _MISSING = object()
 _MEMORY_COLLECTION_KEYS = ("records", "results", "memories")

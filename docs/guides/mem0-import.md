@@ -26,9 +26,12 @@ configured SQLite path (`MCP_MEMORY_SQLITE_PATH`) on both the `sqlite_vec` and
 `hybrid` backends, so run it with the same environment as the service, or pass
 `--db-path /path/to/sqlite_vec.db` explicitly. Two limits apply:
 
-- On `hybrid`, the imported rows bypass the service's sync queue and are not
-  pushed to Cloudflare by themselves. Push them afterwards with
-  `python scripts/sync/sync_memory_backends.py --direction sqlite-to-cf --sqlite-path /path/to/sqlite_vec.db`.
+- On `hybrid`, the imported rows bypass the service's sync queue, so they exist
+  only in the local SQLite file until a sync pushes them. Trigger one on the
+  running service with `POST /api/sync/force` (write access required). Its
+  response reports `success: false` when Cloudflare is unreachable, but it does
+  not list individual write failures, so compare the memory count on both sides
+  before relying on the remote copy.
 - The `cloudflare` backend has no local SQLite file, so this command cannot
   import into it.
 
