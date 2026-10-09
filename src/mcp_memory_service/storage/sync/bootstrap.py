@@ -66,16 +66,20 @@ def _read_snapshot(storage: MemoryStorage):
             # Take the (hlc_physical, hlc_logical) PAIR from the SAME latest event per hash —
             # NOT MAX of each column independently, which could invent a clock newer than any
             # real event ((1000,100)+(2000,0) -> (2000,100)) and make a later real edit lose.
-            # "Latest" = the event with no other event of a strictly greater HLC pair.
+            # Use a window function (ROW_NUMBER, SQLite >= 3.25; the repo already assumes >= 3.35)
+            # so each hash's latest pair is picked in one ordered pass — NOT a correlated
+            # NOT EXISTS that rescans each memory's history (that was O(n^2) under the lock,
+            # Greptile P2 r4231003218).
             hlc_rows = s.conn.execute(
                 """
-                SELECT e.content_hash, e.hlc_physical, e.hlc_logical
-                FROM sync_events e
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM sync_events e2
-                    WHERE e2.content_hash = e.content_hash
-                      AND (e2.hlc_physical, e2.hlc_logical) > (e.hlc_physical, e.hlc_logical)
-                )
+                SELECT content_hash, hlc_physical, hlc_logical FROM (
+                    SELECT content_hash, hlc_physical, hlc_logical,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY content_hash
+                               ORDER BY hlc_physical DESC, hlc_logical DESC
+                           ) AS rn
+                    FROM sync_events
+                ) WHERE rn = 1
                 """
             ).fetchall()
             hlc_by_hash = {r[0]: (r[1] or 0, r[2] or 0) for r in hlc_rows}
