@@ -214,3 +214,8 @@ changelog_sections = [
     ["test", "Tests"]
 ]
 
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
+]
+

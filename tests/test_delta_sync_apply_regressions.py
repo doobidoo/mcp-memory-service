@@ -325,3 +325,52 @@ async def test_local_metadata_key_survives_remote_tags_only_edit(store):
     assert set((rowm[0] or "").split(",")) == {"base", "synced"}, f"tags should sync, got {rowm[0]}"
     md = json.loads(rowm[1]) if rowm[1] else {}
     assert md.get("quality_score") == 0.87, f"local quality_score must survive the sync, got {md}"
+
+
+@pytest.mark.asyncio
+async def test_old_metadata_key_does_not_return_after_recreation(store):
+    """P1 (Greptile apply:368): a metadata key from a DEAD incarnation must not resurface.
+    create{quality_score:0.2}(hlc10) → delete(hlc20) → recreate with NO score(hlc30) →
+    remote tags-only edit(hlc40). The old 0.2 must be gone (recreation boundary by HLC)."""
+    content = "Memory recreated without its old quality_score"
+    h = generate_content_hash(content)
+    # create carrying metadata quality_score=0.2
+    c1 = _create_event(h, content=content, event_id="c1", hlc_physical=10)
+    c1["payload"]["metadata"] = {"quality_score": 0.2}
+    apply_remote_event(store, c1)
+    apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
+    # recreate with empty metadata (no score)
+    c2 = _create_event(h, content=content, event_id="c2", hlc_physical=30)
+    c2["payload"]["metadata"] = {}
+    apply_remote_event(store, c2)
+    # later tags-only edit must not drag the dead incarnation's score back
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["fresh"]},
+                                                     event_id="u1", hlc_physical=40))
+
+    rowm = store.conn.execute("SELECT metadata FROM memories WHERE content_hash = ?", (h,)).fetchone()
+    md = json.loads(rowm[0]) if rowm[0] else {}
+    assert "quality_score" not in md, f"dead-incarnation metadata must not resurface, got {md}"
+
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_with_none_value_does_not_write_null(store):
+    """None metadata inner key filtering: an update_metadata with metadata {foo: None} must NOT
+    write foo:null (no tombstone semantics in Phase 4). The key should be absent/unchanged."""
+    content = "Memory testing None metadata filtering"
+    h = generate_content_hash(content)
+    # Create with initial metadata
+    c1 = _create_event(h, content=content, event_id="c1", hlc_physical=10)
+    c1["payload"]["metadata"] = {"existing": "value"}
+    apply_remote_event(store, c1)
+
+    # update_metadata with None in metadata should be filtered
+    upd = _update_metadata_event(h, updates={"metadata": {"foo": None, "bar": "real"}},
+                                 event_id="u1", hlc_physical=20)
+    apply_remote_event(store, upd)
+
+    rowm = store.conn.execute("SELECT metadata FROM memories WHERE content_hash = ?", (h,)).fetchone()
+    md = json.loads(rowm[0]) if rowm[0] else {}
+    assert "foo" not in md, f"None metadata value must not write null, got {md}"
+    assert md.get("bar") == "real", f"real metadata value should be written, got {md}"
+    assert md.get("existing") == "value", f"existing metadata should survive, got {md}"

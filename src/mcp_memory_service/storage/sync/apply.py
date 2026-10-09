@@ -258,6 +258,227 @@ def _advance_local_hlc(storage: MemoryStorage, hlc_physical: int, hlc_logical: i
         logger.warning("Could not advance local HLC after remote event: %s", _sanitize_log_value(e))
 
 
+_MD_PROTECTED = {"tags", "memory_type", "metadata", "content", "content_hash",
+                 "embedding", "created_at", "created_at_iso", "updated_at",
+                 "updated_at_iso", "superseded_by", "store"}
+
+
+def _ev_winner_key(content_hash, phys, log, agent, eid, ev_op):
+    """_winner_key for a raw sync_events row (smaller wins, same order as the resolver)."""
+    return _winner_key(EventView(
+        hlc_physical=phys or 0, hlc_logical=log or 0,
+        agent_id=agent, event_id=eid or "", op=ev_op, content_hash=content_hash,
+    ))
+
+
+def _metadata_items(ev_op, ev_payload):
+    """Yield (inner_key, value) metadata contributions from one event's payload.
+
+    Filters out None values to prevent update_metadata from writing null implicitly
+    (no tombstone semantics in Phase 4)."""
+    if ev_op in ("create", "update"):
+        md = ev_payload.get("metadata")
+        if isinstance(md, dict):
+            for k, v in md.items():
+                if v is not None:
+                    yield k, v
+        return
+    # update_metadata: updates['metadata'] dict + custom top-level keys.
+    upd = ev_payload.get("updates", {}) or {}
+    md = upd.get("metadata")
+    if isinstance(md, dict):
+        for k, v in md.items():
+            if v is not None:
+                yield k, v
+    for kk, vv in upd.items():
+        if kk not in _MD_PROTECTED and vv is not None:
+            yield kk, vv
+
+
+def _load_live_events(s, content_hash: str):
+    """Return (parsed_events, winning_create_key).
+
+    parsed_events: list of (hlc_physical, hlc_logical, agent_id, event_id, op, payload).
+    winning_create_key: the _winner_key of the create/update that defines the LIVE incarnation
+    (the single smallest-key create). None if there is no create. Using _winner_key (not raw
+    HLC) elects ONE winner even when two creates share an HLC, so the recreation boundary is
+    unambiguous and matches the resolver's order (arch ressalva A).
+    """
+    rows = s.conn.execute(
+        """
+        SELECT hlc_physical, hlc_logical, agent_id, event_id, op, payload
+        FROM sync_events
+        WHERE content_hash = ? AND op IN ('create', 'update', 'update_metadata')
+        """,
+        (content_hash,),
+    ).fetchall()
+    parsed, create_key = [], None
+    for phys, log, agent, eid, ev_op, pj in rows:
+        try:
+            pl = json.loads(pj) if pj else {}
+        except (ValueError, TypeError):
+            continue
+        parsed.append((phys or 0, log or 0, agent, eid, ev_op, pl))
+        if ev_op in ("create", "update"):
+            k = _ev_winner_key(content_hash, phys, log, agent, eid, ev_op)
+            if create_key is None or k < create_key:
+                create_key = k
+    return parsed, create_key
+
+
+def _is_live_event(k, create_key, is_create):
+    """Check if an event is part of the live incarnation.
+
+    A create is live iff it is THE winning create (k == create_key).
+    An edit (update_metadata) is live iff there's no create or it's strictly before the create
+    (k < create_key) — an edit that's not strictly anterior is dead.
+    """
+    if is_create:
+        return k == create_key
+    # edit: live if no create exists, or if strictly before the winning create
+    return create_key is None or k < create_key
+
+
+def _top_level_fields(ev_op, pl):
+    """Extract top-level fields (tags, memory_type) from an event payload, filtering None.
+
+    create/update: read from pl.get()
+    update_metadata: read from pl['updates']
+    """
+    if ev_op in ("create", "update"):
+        return {kk: vv for kk, vv in
+                {"tags": pl.get("tags"), "memory_type": pl.get("memory_type")}.items()
+                if vv is not None}
+    # update_metadata
+    upd = (pl.get("updates", {}) or {})
+    return {kk: vv for kk, vv in upd.items()
+            if kk in ("tags", "memory_type") and vv is not None}
+
+
+def _take_if_winner(best, best_key, k, key, value):
+    """Apply LWW: update best[key] = value if k wins (smaller _winner_key)."""
+    if key not in best_key or k < best_key[key]:
+        best_key[key] = k
+        best[key] = value
+
+
+def _track_updated_at(pl, k, latest_updated_key, latest_updated_at):
+    """Track the latest updated_at timestamp using LWW. Returns (new_key, new_value)."""
+    ev_upd_at = pl.get("updated_at")
+    if ev_upd_at is not None and (latest_updated_key is None or k < latest_updated_key):
+        return k, ev_upd_at
+    return latest_updated_key, latest_updated_at
+
+
+def _resolve_md_fields(parsed, create_key, content_hash):
+    """Field-level LWW over the live incarnation. Returns (best, meta_best, create_md_keys,
+    latest_updated_at). The live incarnation = the winning create plus events STRICTLY AFTER it
+    (smaller _winner_key). Everything from a dead incarnation is skipped (recreation boundary)."""
+    best, best_key = {}, {}
+    meta_best, meta_best_key = {}, {}
+    create_md_keys = set()
+    latest_updated_at, latest_updated_key = None, None
+
+    for phys, log, agent, eid, ev_op, pl in parsed:
+        k = _ev_winner_key(content_hash, phys, log, agent, eid, ev_op)
+        is_create = ev_op in ("create", "update")
+
+        if not _is_live_event(k, create_key, is_create):
+            continue
+
+        contributed = _top_level_fields(ev_op, pl)
+        for key, value in contributed.items():
+            _take_if_winner(best, best_key, k, key, value)
+
+        for mk, mv in _metadata_items(ev_op, pl):
+            if is_create:
+                create_md_keys.add(mk)
+            _take_if_winner(meta_best, meta_best_key, k, mk, mv)
+
+        latest_updated_key, latest_updated_at = _track_updated_at(pl, k, latest_updated_key, latest_updated_at)
+
+    return best, meta_best, create_md_keys, latest_updated_at
+
+
+def _parse_current_metadata(row):
+    """Parse the metadata JSON from a row, returning {} on failure."""
+    try:
+        current_md = json.loads(row[0]) if row[0] else {}
+        if not isinstance(current_md, dict):
+            current_md = {}
+    except (ValueError, TypeError):
+        current_md = {}
+    return current_md
+
+
+def _serialize_field_value(key, value):
+    """Serialize a field value for SQL UPDATE.
+
+    tags: join list/tuple with comma, or str()
+    metadata: json.dumps, or "{}" if empty
+    others: unchanged
+    """
+    if key == "tags":
+        return ",".join(value) if isinstance(value, (list, tuple)) else str(value)
+    elif key == "metadata":
+        return json.dumps(value) if value else "{}"
+    return value
+
+
+def _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, latest_updated_at, payload):
+    """Merge resolved fields onto the current row and UPDATE. Returns True (no-op if row gone)."""
+    row = s.conn.execute(
+        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+        (content_hash,),
+    ).fetchone()
+    if row is None:
+        logger.debug("update_metadata for unknown/absent hash %s — skipped", _sanitize_log_value(content_hash))
+        return True
+
+    # metadata = resolved event keys ∪ purely-local keys the current row has that no event
+    # owns (local-only, never serialized into events — arch ressalva B confirmed), minus keys
+    # the dead incarnation's create owned (so they don't resurface).
+    current_md = _parse_current_metadata(row)
+    event_owned = set(meta_best) | create_md_keys
+    merged_md = {kk: vv for kk, vv in current_md.items() if kk not in event_owned}
+    merged_md.update(meta_best)
+    best = dict(best)
+    best["metadata"] = merged_md
+
+    set_clauses, params = [], []
+    for key, value in best.items():
+        set_clauses.append(f"{key} = ?")
+        params.append(_serialize_field_value(key, value))
+
+    upd_at = latest_updated_at if latest_updated_at is not None else payload.get("updated_at", time.time())
+    set_clauses.append("updated_at = ?")
+    params.append(upd_at)
+    set_clauses.append("updated_at_iso = ?")
+    params.append(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(upd_at if isinstance(upd_at, (int, float)) else time.time())))
+    params.append(content_hash)
+    s.conn.execute(
+        f"UPDATE memories SET {', '.join(set_clauses)} WHERE content_hash = ?",
+        tuple(params),
+    )
+    return True
+
+
+def _materialize_update_metadata(s, content_hash: str, payload: Dict[str, Any]) -> bool:
+    """Materialize an update_metadata event: order-independent, recreation-safe convergence.
+
+    Thin orchestration of three steps (kept small for the complexity budget):
+      1. _load_live_events: parse events + elect the winning create (recreation boundary),
+         Greptile apply:315/368.
+      2. _resolve_md_fields: field-level LWW by _winner_key over the live incarnation,
+         Greptile apply:328 (same order as the resolver).
+      3. _write_merged_metadata: per-key metadata merge preserving purely-local keys,
+         Greptile apply:334.
+    """
+    parsed, create_key = _load_live_events(s, content_hash)
+    best, meta_best, create_md_keys, latest_updated_at = _resolve_md_fields(parsed, create_key, content_hash)
+    return _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, latest_updated_at, payload)
+
+
 def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
     """
     Materialize an event into the memories table.
@@ -281,139 +502,7 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
             return True
 
         if op == "update_metadata":
-            # update_metadata carries ONLY {content_hash, updates, updated_at} — NOT a full
-            # memory. Treating it like create would erase the memory (Greptile P1).
-            #
-            # Convergence (Greptile P1): update_metadata events carry PARTIAL fields, and two
-            # spokes editing DIFFERENT fields must converge regardless of arrival order. We
-            # rebuild each metadata field from the FULL event set for this hash, using the SAME
-            # total order as the Phase 2 resolver (_winner_key: smaller key wins; higher HLC
-            # then smaller agent_id/event_id). For each field, the value comes from the event
-            # with the winning key that set it. Two guards close the earlier Greptile gaps:
-            #   - seed fields from the winning `create` and only let an edit override a field
-            #     if the edit's key BEATS the create's key — otherwise an old edit could
-            #     restore a field from a deleted-then-recreated memory's past life (apply:315);
-            #   - use _winner_key, not a hand-rolled max, so equal-clock ties pick the SAME
-            #     winner the resolver would (apply:328).
-            best: Dict[str, Any] = {}          # scalar field (tags/memory_type) -> value
-            best_key: Dict[str, tuple] = {}    # scalar field -> _winner_key (smaller wins)
-            latest_updated_at = None
-            latest_updated_key = None
-
-            # metadata is a DICT whose inner keys are resolved INDEPENDENTLY (field-level LWW by
-            # _winner_key), including custom keys (e.g. quality_score) that update_memory_metadata
-            # records at the top level of `updates`. We must NOT treat metadata as one scalar: a
-            # tags-only edit would otherwise restore the create's whole dict and erase a locally
-            # saved quality_score (Greptile apply:334). Seed from the CURRENT row so untouched
-            # local keys survive, then let each event override individual keys it beats.
-            PROTECTED = {"tags", "memory_type", "metadata", "content", "content_hash",
-                         "embedding", "created_at", "created_at_iso", "updated_at",
-                         "updated_at_iso", "superseded_by", "store"}
-            meta_best: Dict[str, Any] = {}       # metadata inner key -> value
-            meta_best_key: Dict[str, tuple] = {} # metadata inner key -> _winner_key
-
-            def _ev_key(phys, log, agent, eid, ev_op):
-                return _winner_key(EventView(
-                    hlc_physical=phys or 0, hlc_logical=log or 0,
-                    agent_id=agent, event_id=eid or "", op=ev_op, content_hash=content_hash,
-                ))
-
-            def _metadata_keys_from(ev_op, ev_payload):
-                """Yield (inner_key, value) metadata contributions from one event."""
-                if ev_op in ("create", "update"):
-                    md = ev_payload.get("metadata")
-                    if isinstance(md, dict):
-                        yield from md.items()
-                    return
-                # update_metadata: updates['metadata'] dict + custom top-level keys.
-                upd = ev_payload.get("updates", {}) or {}
-                md = upd.get("metadata")
-                if isinstance(md, dict):
-                    yield from md.items()
-                for kk, vv in upd.items():
-                    if kk not in PROTECTED:
-                        yield kk, vv
-
-            all_cursor = s.conn.execute(
-                """
-                SELECT hlc_physical, hlc_logical, agent_id, event_id, op, payload
-                FROM sync_events
-                WHERE content_hash = ? AND op IN ('create', 'update', 'update_metadata')
-                """,
-                (content_hash,),
-            )
-            for ev_phys, ev_log, ev_agent, ev_eid, ev_op, ev_payload_json in all_cursor.fetchall():
-                try:
-                    ev_payload = json.loads(ev_payload_json) if ev_payload_json else {}
-                except (ValueError, TypeError):
-                    continue
-                k = _ev_key(ev_phys, ev_log, ev_agent, ev_eid, ev_op)
-
-                # Scalar fields: tags / memory_type (whole-value field-level LWW).
-                if ev_op in ("create", "update"):
-                    scalars = {"tags": ev_payload.get("tags"), "memory_type": ev_payload.get("memory_type")}
-                    contributed = {kk: vv for kk, vv in scalars.items() if vv is not None}
-                else:
-                    contributed = {kk: vv for kk, vv in (ev_payload.get("updates", {}) or {}).items()
-                                   if kk in ("tags", "memory_type")}
-                for key, value in contributed.items():
-                    if key not in best_key or k < best_key[key]:
-                        best_key[key] = k
-                        best[key] = value
-
-                # metadata: resolve each inner key independently.
-                for mk, mv in _metadata_keys_from(ev_op, ev_payload):
-                    if mk not in meta_best_key or k < meta_best_key[mk]:
-                        meta_best_key[mk] = k
-                        meta_best[mk] = mv
-
-                ev_upd_at = ev_payload.get("updated_at")
-                if ev_upd_at is not None and (latest_updated_key is None or k < latest_updated_key):
-                    latest_updated_key = k
-                    latest_updated_at = ev_upd_at
-
-            row = s.conn.execute(
-                "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                (content_hash,),
-            ).fetchone()
-            if row is None:
-                # No local row to update (ordering/gap) — nothing to merge; not a failure.
-                logger.debug("update_metadata for unknown/absent hash %s — skipped", _sanitize_log_value(content_hash))
-                return True
-
-            # Merge resolved metadata keys onto the CURRENT row metadata so local keys that no
-            # event touched (e.g. a quality_score saved only locally) are preserved.
-            try:
-                current_md = json.loads(row[0]) if row[0] else {}
-                if not isinstance(current_md, dict):
-                    current_md = {}
-            except (ValueError, TypeError):
-                current_md = {}
-            if meta_best:
-                current_md.update(meta_best)
-                best["metadata"] = current_md
-
-            set_clauses, params = [], []
-            for key, value in best.items():
-                if key == "tags":
-                    # Same CSV format store() uses; the read path splits on commas.
-                    value = ",".join(value) if isinstance(value, (list, tuple)) else str(value)
-                elif key == "metadata":
-                    value = json.dumps(value) if value else "{}"
-                set_clauses.append(f"{key} = ?")
-                params.append(value)
-
-            upd_at = latest_updated_at if latest_updated_at is not None else payload.get("updated_at", time.time())
-            set_clauses.append("updated_at = ?")
-            params.append(upd_at)
-            set_clauses.append("updated_at_iso = ?")
-            params.append(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(upd_at if isinstance(upd_at, (int, float)) else time.time())))
-            params.append(content_hash)
-            s.conn.execute(
-                f"UPDATE memories SET {', '.join(set_clauses)} WHERE content_hash = ?",
-                tuple(params),
-            )
-            return True
+            return _materialize_update_metadata(s, content_hash, payload)
 
         if op in ("create", "update"):
             content = payload.get("content", "")
