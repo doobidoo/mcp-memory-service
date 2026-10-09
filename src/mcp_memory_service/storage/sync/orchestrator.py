@@ -220,7 +220,7 @@ def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int)
     """Read local sync_events with seq > since_seq, enriching create events with content (R8)."""
     cur = _sqlite(storage).conn.execute(
         """
-        SELECT seq, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
+        SELECT seq, schema_version, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                embedding_model, embedding_dim, payload
         FROM sync_events
         WHERE seq > ?
@@ -231,7 +231,7 @@ def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int)
     )
     events = []
     for row in cur.fetchall():
-        seq, event_id, op, content_hash, agent_id, hlc_p, hlc_l, emb_model, emb_dim, payload = row
+        seq, schema_version, event_id, op, content_hash, agent_id, hlc_p, hlc_l, emb_model, emb_dim, payload = row
         payload_dict = json.loads(payload) if payload else {}
         if op == "create":
             mrow = _sqlite(storage).conn.execute(
@@ -241,7 +241,8 @@ def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int)
             if mrow:
                 payload_dict["content"] = mrow[0]
         events.append({
-            "seq": seq, "event_id": event_id, "op": op, "content_hash": content_hash,
+            "seq": seq, "schema_version": schema_version if schema_version is not None else 1,
+            "event_id": event_id, "op": op, "content_hash": content_hash,
             "agent_id": agent_id, "hlc_physical": hlc_p, "hlc_logical": hlc_l,
             "embedding_model": emb_model, "embedding_dim": emb_dim, "payload": payload_dict,
         })
