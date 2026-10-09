@@ -35,7 +35,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.sync.importer import MemoryImporter
-from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
+from mcp_memory_service.config import SQLITE_VEC_PATH
 
 # Configure logging
 logging.basicConfig(
@@ -47,10 +47,11 @@ logger = logging.getLogger(__name__)
 
 def get_default_db_path() -> Path:
     """Get the default database path for this platform."""
-    if STORAGE_BACKEND == 'sqlite_vec' and SQLITE_VEC_PATH:
+    # Set for both sqlite_vec and hybrid, whose primary is the same SQLite file.
+    if SQLITE_VEC_PATH:
         return Path(SQLITE_VEC_PATH)
     else:
-        # Fallback to BASE_DIR if not using sqlite_vec backend
+        # Fallback to BASE_DIR for backends without a local SQLite file
         from mcp_memory_service.config import BASE_DIR
         return Path(BASE_DIR) / "sqlite_vec.db"
 
