@@ -87,7 +87,10 @@ def _parse_timestamp(value: Any, *, field: str, index: int) -> float:
         raise Mem0ExportError(f"Invalid {field} in mem0 record {index}")
 
     if isinstance(value, (int, float)):
-        timestamp = float(value)
+        try:
+            timestamp = float(value)
+        except OverflowError as exc:
+            raise Mem0ExportError(f"Invalid {field} in mem0 record {index}") from exc
         if not math.isfinite(timestamp):
             raise Mem0ExportError(f"Invalid {field} in mem0 record {index}")
         if timestamp > 100_000_000_000:
@@ -396,6 +399,7 @@ def convert_mem0_export(
         ) from exc
 
     return {
+        "source_records": len(records),
         "converted": len(memories),
         "skipped": skipped,
         "warnings": len(warnings),
@@ -426,6 +430,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             f"Wrote {result['warnings']} conversion warning(s); "
             f"see export_metadata.conversion_warnings in {result['output_file']}\n"
         )
+    if result["source_records"] and not result["converted"]:
+        sys.stderr.write(
+            f"error: no memories converted from {result['source_records']} "
+            "source record(s)\n"
+        )
+        return 1
     return 0
 
 

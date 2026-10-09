@@ -10,6 +10,7 @@ from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.sync.converters.mem0 import (
     Mem0ExportError,
     convert_mem0_export,
+    main,
 )
 from mcp_memory_service.sync.importer import MemoryImporter
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -234,6 +235,44 @@ def test_skips_invalid_records_and_keeps_valid_records(tmp_path):
     warnings = converted["export_metadata"]["conversion_warnings"]
     assert [warning["record_index"] for warning in warnings] == [1, 2]
     assert all(warning["action"] == "skipped" for warning in warnings)
+
+
+def test_skips_record_with_overflowing_integer_timestamp(tmp_path):
+    input_path = tmp_path / "overflow.json"
+    output_path = tmp_path / "overflow-converted.json"
+    _write_json(
+        input_path,
+        [
+            {"id": "huge", "memory": "huge", "created_at": 10**400},
+            {"id": "valid", "memory": "kept", "created_at": "2026-05-01T00:00:00Z"},
+        ],
+    )
+
+    result = convert_mem0_export(input_path, output_path)
+
+    assert result["converted"] == 1
+    assert result["skipped"] == 1
+    converted = _read_json(output_path)
+    assert [memory["content"] for memory in converted["memories"]] == ["kept"]
+    warning = converted["export_metadata"]["conversion_warnings"][0]
+    assert warning["record_index"] == 0
+    assert warning["action"] == "skipped"
+
+
+def test_cli_fails_when_no_record_converts(tmp_path, capsys):
+    input_path = tmp_path / "all-bad.json"
+    output_path = tmp_path / "all-bad-converted.json"
+    _write_json(input_path, [{"id": "a"}, {"id": "b", "memory": "x", "created_at": "nope"}])
+
+    assert main([str(input_path), str(output_path)]) == 1
+    assert "no memories converted" in capsys.readouterr().err
+
+
+def test_cli_succeeds_for_empty_export(tmp_path):
+    input_path = tmp_path / "empty.json"
+    _write_json(input_path, [])
+
+    assert main([str(input_path), str(tmp_path / "out.json")]) == 0
 
 
 def test_expands_home_and_accepts_custom_string_paths(tmp_path, monkeypatch):

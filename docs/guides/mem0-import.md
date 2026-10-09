@@ -6,8 +6,7 @@ The mem0 converter turns a mem0 export into the JSON shape consumed by
 ```bash
 python -m mcp_memory_service.sync.converters.mem0 \
   ~/mem0-export.json \
-  ~/mem0-import.json
-
+  ~/mem0-import.json && \
 python scripts/sync/import_memories.py ~/mem0-import.json
 ```
 
@@ -22,8 +21,20 @@ records are skipped individually, and timestamp fallbacks or skips are recorded
 in `export_metadata.conversion_warnings` so one bad record cannot discard the
 valid records in a batch.
 
-The import command uses the SQLite path from the service configuration. Pass
-`--db-path /path/to/sqlite_vec.db` only when intentionally overriding that path.
+The import command writes directly into a local SQLite-vec file. It uses the
+configured SQLite path (`MCP_MEMORY_SQLITE_PATH`) on both the `sqlite_vec` and
+`hybrid` backends, so run it with the same environment as the service, or pass
+`--db-path /path/to/sqlite_vec.db` explicitly. Two limits apply:
+
+- On `hybrid`, the imported rows bypass the service's sync queue and are not
+  pushed to Cloudflare by themselves. Push them afterwards with
+  `python scripts/sync/sync_memory_backends.py --direction sqlite-to-cf --sqlite-path /path/to/sqlite_vec.db`.
+- The `cloudflare` backend has no local SQLite file, so this command cannot
+  import into it.
+
+The converter exits with status 1 when the export contains records but none of
+them could be converted, so a script that chains both commands with `&&` stops
+before importing an empty file.
 
 ## Field mapping
 
