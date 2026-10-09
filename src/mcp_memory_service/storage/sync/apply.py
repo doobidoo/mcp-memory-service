@@ -271,28 +271,47 @@ def _ev_winner_key(content_hash, phys, log, agent, eid, ev_op):
     ))
 
 
-def _metadata_items(ev_op, ev_payload):
-    """Yield (inner_key, value) metadata contributions from one event's payload.
-
-    Filters out None values to prevent update_metadata from writing null implicitly
-    (no tombstone semantics in Phase 4)."""
-    if ev_op in ("create", "update"):
-        md = ev_payload.get("metadata")
-        if isinstance(md, dict):
-            for k, v in md.items():
-                if v is not None:
-                    yield k, v
-        return
-    # update_metadata: updates['metadata'] dict + custom top-level keys.
-    upd = ev_payload.get("updates", {}) or {}
-    md = upd.get("metadata")
+def _yield_create_update_metadata(md):
+    """Yield metadata items from a create/update payload's metadata dict."""
     if isinstance(md, dict):
         for k, v in md.items():
-            if v is not None:
-                yield k, v
+            yield k, v
+
+
+def _yield_update_metadata_custom(upd):
+    """Yield custom top-level keys (not protected) from an update_metadata payload."""
     for kk, vv in upd.items():
-        if kk not in _MD_PROTECTED and vv is not None:
+        if kk not in _MD_PROTECTED:
             yield kk, vv
+
+
+def _metadata_items(ev_op, ev_payload):
+    """Yield (inner_key, value) metadata contributions from one event's payload.
+    Preserves None (explicit clear) for convergence with the emitter."""
+    if ev_op in ("create", "update"):
+        yield from _yield_create_update_metadata(ev_payload.get("metadata"))
+        return
+    upd = ev_payload.get("updates", {}) or {}
+    yield from _yield_create_update_metadata(upd.get("metadata"))
+    yield from _yield_update_metadata_custom(upd)
+
+
+def _parse_event_row(content_hash: str, raw_row):
+    """Parse one sync_events row and return (parsed_tuple, create_key_candidate).
+
+    parsed_tuple: (hlc_physical, hlc_logical, agent_id, event_id, op, payload) or None if parse fails.
+    create_key_candidate: _winner_key if row is create/update, else None.
+    """
+    phys, log, agent, eid, ev_op, pj = raw_row
+    try:
+        pl = json.loads(pj) if pj else {}
+    except (ValueError, TypeError):
+        return None, None
+    parsed = (phys or 0, log or 0, agent, eid, ev_op, pl)
+    if ev_op in ("create", "update"):
+        k = _ev_winner_key(content_hash, phys, log, agent, eid, ev_op)
+        return parsed, k
+    return parsed, None
 
 
 def _load_live_events(s, content_hash: str):
@@ -313,16 +332,13 @@ def _load_live_events(s, content_hash: str):
         (content_hash,),
     ).fetchall()
     parsed, create_key = [], None
-    for phys, log, agent, eid, ev_op, pj in rows:
-        try:
-            pl = json.loads(pj) if pj else {}
-        except (ValueError, TypeError):
+    for raw_row in rows:
+        p, k = _parse_event_row(content_hash, raw_row)
+        if p is None:
             continue
-        parsed.append((phys or 0, log or 0, agent, eid, ev_op, pl))
-        if ev_op in ("create", "update"):
-            k = _ev_winner_key(content_hash, phys, log, agent, eid, ev_op)
-            if create_key is None or k < create_key:
-                create_key = k
+        parsed.append(p)
+        if k is not None and (create_key is None or k < create_key):
+            create_key = k
     return parsed, create_key
 
 

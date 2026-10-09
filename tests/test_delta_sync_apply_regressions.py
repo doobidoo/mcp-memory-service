@@ -354,23 +354,27 @@ async def test_old_metadata_key_does_not_return_after_recreation(store):
 
 
 @pytest.mark.asyncio
-async def test_update_metadata_with_none_value_does_not_write_null(store):
-    """None metadata inner key filtering: an update_metadata with metadata {foo: None} must NOT
-    write foo:null (no tombstone semantics in Phase 4). The key should be absent/unchanged."""
-    content = "Memory testing None metadata filtering"
+async def test_update_metadata_null_clears_key_and_converges(store):
+    """None metadata inner key is SEMANTIC (explicit clear): an update_metadata with
+    metadata {foo: None} MUST write foo:null in the row, converging with emissor behavior.
+
+    The emissor (update_memory_metadata in metadata.py) does: new_metadata[key] = None,
+    which writes null in the JSON. The receptor must accept and materialize None to maintain
+    convergence (Greptile P1 fix)."""
+    content = "Memory testing None metadata convergence"
     h = generate_content_hash(content)
-    # Create with initial metadata
+    # Create with initial metadata including foo
     c1 = _create_event(h, content=content, event_id="c1", hlc_physical=10)
-    c1["payload"]["metadata"] = {"existing": "value"}
+    c1["payload"]["metadata"] = {"existing": "value", "foo": "initial"}
     apply_remote_event(store, c1)
 
-    # update_metadata with None in metadata should be filtered
+    # update_metadata with None in metadata should write null (clear the key)
     upd = _update_metadata_event(h, updates={"metadata": {"foo": None, "bar": "real"}},
                                  event_id="u1", hlc_physical=20)
     apply_remote_event(store, upd)
 
     rowm = store.conn.execute("SELECT metadata FROM memories WHERE content_hash = ?", (h,)).fetchone()
     md = json.loads(rowm[0]) if rowm[0] else {}
-    assert "foo" not in md, f"None metadata value must not write null, got {md}"
+    assert "foo" in md and md["foo"] is None, f"None metadata value must write null (clear), got {md}"
     assert md.get("bar") == "real", f"real metadata value should be written, got {md}"
     assert md.get("existing") == "value", f"existing metadata should survive, got {md}"
