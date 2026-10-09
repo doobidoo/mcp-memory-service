@@ -37,6 +37,54 @@ def _deterministic_event_id(content_hash: str, updated_at, op: str) -> str:
     return "bl-" + hashlib.sha256(raw).hexdigest()[:32]
 
 
+def _read_snapshot(storage: MemoryStorage):
+    """Read the atomic snapshot: (memory rows, watermark, hlc_by_hash). Extracted to keep
+    generate_baseline under the repo complexity limit (Greptile P2).
+
+    R3 (Tuvok P1-2): the threading lock alone does NOT make the cut atomic — a writer
+    (store/delete) releases the shared connection lock BETWEEN its savepoint and its commit.
+    BEGIN IMMEDIATE takes the SQLite RESERVED lock so this read serializes against any
+    writer's commit: watermark and the memory snapshot come from one committed point.
+    """
+    s = _sqlite(storage)
+    with _sync_lock(storage):
+        s.conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = s.conn.execute("SELECT COALESCE(MAX(seq), 0) FROM sync_events").fetchone()
+            watermark = int(row[0]) if row and row[0] is not None else 0
+
+            rows = s.conn.execute(
+                """
+                SELECT content_hash, content, tags, memory_type, metadata,
+                       created_at, updated_at, deleted_at, store, superseded_by
+                FROM memories
+                ORDER BY id
+                """
+            ).fetchall()
+
+            # Greptile P1-2/rodada2: carry the source's REAL conflict clock, not a floor of 0.
+            # Take the (hlc_physical, hlc_logical) PAIR from the SAME latest event per hash —
+            # NOT MAX of each column independently, which could invent a clock newer than any
+            # real event ((1000,100)+(2000,0) -> (2000,100)) and make a later real edit lose.
+            # "Latest" = the event with no other event of a strictly greater HLC pair.
+            hlc_rows = s.conn.execute(
+                """
+                SELECT e.content_hash, e.hlc_physical, e.hlc_logical
+                FROM sync_events e
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM sync_events e2
+                    WHERE e2.content_hash = e.content_hash
+                      AND (e2.hlc_physical, e2.hlc_logical) > (e.hlc_physical, e.hlc_logical)
+                )
+                """
+            ).fetchall()
+            hlc_by_hash = {r[0]: (r[1] or 0, r[2] or 0) for r in hlc_rows}
+        finally:
+            # Read-only transaction: end it without writing (COMMIT releases the lock).
+            s.conn.commit()
+    return rows, watermark, hlc_by_hash
+
+
 def generate_baseline(storage: MemoryStorage) -> Tuple[List[Dict[str, Any]], int]:
     """Generate baseline events from the current state, plus the watermark. ON DEMAND (G1).
 
@@ -44,45 +92,7 @@ def generate_baseline(storage: MemoryStorage) -> Tuple[List[Dict[str, Any]], int
     transaction as the memory snapshot (R3 atomic cut): any memory mutated concurrently is
     either captured here or produces an event with seq > watermark — never lost.
     """
-    s = _sqlite(storage)
-    with _sync_lock(storage):
-        # R3 (Tuvok P1-2): the threading lock alone does NOT make the cut atomic — a writer
-        # (store/delete) releases the shared connection lock BETWEEN its savepoint and its
-        # commit, so reading MAX(seq) under the threading lock could still straddle an
-        # in-flight transaction. Take the SQLite RESERVED lock with BEGIN IMMEDIATE so this
-        # read serializes against any writer's commit: MAX(seq) and the memory snapshot are
-        # read from a single committed point. A concurrent write is then wholly before
-        # (in the snapshot + watermark) or wholly after (seq > watermark) — never split.
-        s.conn.execute("BEGIN IMMEDIATE")
-        try:
-            row = s.conn.execute("SELECT COALESCE(MAX(seq), 0) FROM sync_events").fetchone()
-            watermark = int(row[0]) if row and row[0] is not None else 0
-
-            cur = s.conn.execute(
-                """
-                SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, deleted_at, store, superseded_by
-                FROM memories
-                ORDER BY id
-                """
-            )
-            rows = cur.fetchall()
-
-            # Greptile P1-2: the baseline must carry the source's REAL conflict clock, not a
-            # floor of 0 — otherwise any historical event with a real HLC wins over the
-            # baseline and can revert state (e.g. resurrect a deleted memory). Map each
-            # content_hash to the HLC of its latest sync_event; fall back to created_at*1000
-            # (the Phase-1 backfill convention) for a memory with no event row.
-            hlc_cur = s.conn.execute(
-                """
-                SELECT content_hash, MAX(hlc_physical) AS hp, MAX(hlc_logical) AS hl
-                FROM sync_events GROUP BY content_hash
-                """
-            )
-            hlc_by_hash = {r[0]: (r[1] or 0, r[2] or 0) for r in hlc_cur.fetchall()}
-        finally:
-            # Read-only transaction: end it without writing (COMMIT releases the lock).
-            s.conn.commit()
+    rows, watermark, hlc_by_hash = _read_snapshot(storage)
 
     events: List[Dict[str, Any]] = []
     for r in rows:

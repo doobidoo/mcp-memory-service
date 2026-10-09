@@ -239,6 +239,32 @@ async def test_ca5b_cursor_never_regresses(source, target):
     assert cur[0] == wm + 50, f"cursor must not regress below live position, got {cur[0]} (expected {wm+50})"
 
 
+@pytest.mark.asyncio
+async def test_p1_2b_hlc_pair_from_same_event(source):
+    """Greptile P1 (rd2): the baseline HLC must be the (physical,logical) PAIR from ONE real
+    event, not MAX of each column — else (1000,100)+(2000,0) invents (2000,100), newer than
+    any real event, and a later genuine edit loses."""
+    from mcp_memory_service.storage.sync.bootstrap import generate_baseline
+
+    c = "hlc pair probe"; h = generate_content_hash(c)
+    await source.store(Memory(content=c, content_hash=h, tags=["x"], memory_type="note"))
+    # two events for the same hash with crossed clocks: (1000,100) and (2000,0)
+    source.conn.execute("DELETE FROM sync_events WHERE content_hash = ?", (h,))
+    source.conn.execute(
+        "INSERT INTO sync_events (schema_version, agent_id, event_id, op, content_hash, payload, created_at, created_at_iso, hlc_physical, hlc_logical) "
+        "VALUES (1,'alpha','e_lo','create',?, '{}', 0, '', 1000, 100)", (h,))
+    source.conn.execute(
+        "INSERT INTO sync_events (schema_version, agent_id, event_id, op, content_hash, payload, created_at, created_at_iso, hlc_physical, hlc_logical) "
+        "VALUES (1,'alpha','e_hi','create',?, '{}', 0, '', 2000, 0)", (h,))
+    source.conn.commit()
+
+    base, _ = generate_baseline(source)
+    ev = next((e for e in base if e["content_hash"] == h), None)
+    assert ev is not None
+    pair = (ev["hlc_physical"], ev["hlc_logical"])
+    assert pair == (2000, 0), f"must be the latest real event's pair (2000,0), not invented (2000,100); got {pair}"
+
+
 # ─────────────────────── Transport (endpoint + orchestration) ───────────────────────
 
 @pytest.mark.asyncio
