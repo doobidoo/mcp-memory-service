@@ -21,6 +21,12 @@ from .resolver import EventView, reduce_events, _winner_key
 
 logger = logging.getLogger(__name__)
 
+# Highest sync-event envelope version this peer understands (RFC §9.3 rule 6, Phase 5).
+# An incoming event with a greater schema_version is rejected/quarantined — never applied
+# best-effort — and the cursor must NOT advance past it (R7). Bump this only together with
+# a migration/negotiation that can actually read the newer envelope.
+KNOWN_SCHEMA_VERSION = 1
+
 
 def _sync_lock(storage: MemoryStorage) -> threading.Lock:
     """Return the storage connection lock used to serialize writes on the shared conn.
@@ -111,6 +117,21 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
         embedding_dim = event.get("embedding_dim")
         payload = event.get("payload", {})
         s = _sqlite(storage)
+
+        # Version negotiation (RFC §9.3 rule 6, Phase 5 R7): reject an event whose envelope
+        # version this peer cannot read. Returning applied=False keeps the puller's fail-stop
+        # from advancing the cursor past it (the sender/newer peer must not have its event
+        # silently dropped). Never best-effort apply an unknown-version event.
+        event_schema_version = event.get("schema_version", 1)
+        if event_schema_version > KNOWN_SCHEMA_VERSION:
+            logger.warning(
+                "Rejecting sync event %s: envelope schema_version %s > known %s (incompatible)",
+                _sanitize_log_value(event.get("event_id")),
+                _sanitize_log_value(event_schema_version),
+                KNOWN_SCHEMA_VERSION,
+            )
+            return ApplyResult(applied=False, materialized=False,
+                               reason=f"unknown envelope schema_version {event_schema_version} > {KNOWN_SCHEMA_VERSION}")
 
         # Step 1: record the event. The identity (agent_id, event_id) is immutable — an
         # already-present identity means this is a replay. INSERT OR IGNORE keeps the
@@ -604,6 +625,11 @@ def advance_sync_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> 
     """
     Advance the sync cursor for a peer to the given sequence number.
 
+    MONOTONIC (Phase 5, Tuvok P1): the cursor is "how far we have seen from this peer" and
+    MUST NOT move backwards. An ON CONFLICT keeps MAX(existing, incoming), so a bootstrap
+    install (or a stale/duplicate call) can never rewind a cursor that live sync already
+    advanced past the baseline watermark — which would re-pull/re-process events (R6).
+
     Args:
         storage: The local storage instance
         peer_id: Identifier of the peer
@@ -615,9 +641,11 @@ def advance_sync_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> 
         # local writes and must not interleave with an in-flight savepoint (Greptile P1).
         with _sync_lock(storage):
             s.conn.execute("""
-                INSERT OR REPLACE INTO sync_cursor
-                (peer_id, last_seq_seen, updated_at)
+                INSERT INTO sync_cursor (peer_id, last_seq_seen, updated_at)
                 VALUES (?, ?, ?)
+                ON CONFLICT(peer_id) DO UPDATE SET
+                    last_seq_seen = MAX(sync_cursor.last_seq_seen, excluded.last_seq_seen),
+                    updated_at = excluded.updated_at
             """, (peer_id, last_seq, time.time()))
             # Durability (§8.5 / ADR-0019): the cursor and the applied events of the batch
             # must survive a crash. Commit here closes the batch transaction atomically.

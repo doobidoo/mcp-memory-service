@@ -506,6 +506,20 @@ class RemoteHTTPStorage(MemoryStorage):
             logger.error("Error getting sync events: %s", _sanitize_log_value(str(e)))
             raise
 
+    async def get_baseline(self) -> Tuple[List[Dict[str, Any]], int]:
+        """Fetch a bootstrap baseline from the peer (delta-sync Phase 5, RFC §9.3).
+
+        Returns (events, watermark). Raises on a non-200/transport error so the caller does
+        not mistake a failed bootstrap for an empty corpus.
+        """
+        response = await self._request("GET", "/api/sync/baseline")
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("events", []), int(data.get("watermark", 0))
+        msg = f"baseline fetch failed: HTTP {response.status_code}"
+        logger.warning("%s", _sanitize_log_value(msg))
+        raise RuntimeError(msg)
+
     async def push_events(self, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Push local sync events to the remote peer (delta-sync Phase 4c, ADR-0027).

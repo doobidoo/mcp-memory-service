@@ -234,3 +234,30 @@ async def ingest_sync_events(
         results.append(IngestEventResult(event_id=eid, status=status))
 
     return IngestEventsResponse(results=results, applied=applied, skipped=skipped, failed=failed)
+
+
+class BaselineResponse(BaseModel):
+    """Bootstrap baseline: the source's current state as replayable events + watermark."""
+    events: List[Dict[str, Any]]
+    watermark: int
+    count: int
+
+
+@router.get("/sync/baseline", response_model=BaselineResponse)
+async def get_sync_baseline(
+    storage: MemoryStorage = Depends(get_storage),
+    _auth=Depends(require_read_access),
+) -> BaselineResponse:
+    """Delta-sync Phase 5: serve a bootstrap baseline of the current state (RFC §9.3).
+
+    A new/reinstalled spoke calls this once to catch up on the corpus without reprocessing,
+    then pulls live events from the returned watermark forward. Generated on demand; the
+    watermark is read atomically with the snapshot (see generate_baseline).
+    """
+    from ...storage.sync.bootstrap import generate_baseline
+    try:
+        events, watermark = generate_baseline(storage)
+        return BaselineResponse(events=events, watermark=watermark, count=len(events))
+    except Exception as e:
+        logger.error("baseline generation failed: %s", _sanitize_log_value(e))
+        raise HTTPException(status_code=500, detail="baseline generation failed")
