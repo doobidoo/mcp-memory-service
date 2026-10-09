@@ -192,9 +192,11 @@ memory launch
 Both controls filter by how connected a memory is, but they count different things.
 
 - **Min Connections** runs on the server. It counts each memory's distinct linked memories across the whole database (entity links excluded) and loads only those with at least N, up to the node limit. Changing it reloads the graph.
-- **Min Degree** runs in your browser. It counts a node's neighbours within the graph as drawn, so nodes that were not loaded and relationship types you have hidden do not count, and a mutual pair counts once. It hides nodes below the value instantly, without a reload.
+- **Min Degree** runs in your browser. It counts a node's neighbours within the loaded graph after the memory-type pills (such as `observation` or `decision`) have been applied, so nodes that were not loaded and memory types you have hidden do not count, and a mutual pair counts once. It hides nodes below the value instantly, without a reload. At 1 the filter is off.
 
-A memory linked to 10 others can therefore show degree 2 if eight of its partners were not loaded or are hidden by a relationship type filter. Min Connections decides which nodes are loaded at all; Min Degree then thins out what is on screen.
+Degree is counted once, before any node is hidden by the slider. A node linked to three leaves therefore stays at Min Degree 2 even though the leaves, each with one neighbour, are hidden.
+
+A memory linked to 10 others can show degree 2 if eight of its partners were not loaded or belong to a memory type you have hidden. Min Connections decides which nodes are loaded at all; Min Degree then thins out what is on screen.
 
 ### Relationship Type Chart
 
