@@ -416,6 +416,50 @@ class TestSemanticCompressionEngine:
         assert all(isinstance(concept, str) for concept in concepts)
     
     @pytest.mark.asyncio
+    async def test_key_concepts_drop_stop_words_and_bare_numbers(self, compression_engine):
+        """Noise is filtered whichever source it reaches the concepts from.
+
+        The stop-word check used to run only on the lowercase frequent-word
+        source, so a capitalized "With", a theme keyword, or a number matched by
+        the ``numbers`` pattern all survived into the summary.
+        """
+        base_time = datetime.now().timestamp()
+        memories = [
+            Memory(
+                content=(
+                    "With Cloudflare in front, That edge cache What the deployment "
+                    "needs; a load average of 0.682 showed up in the same window."
+                ),
+                content_hash="noise_concept_1",
+                tags=["test", "concept", "noise"],
+                embedding=[0.1] * 320,
+                created_at=base_time,
+            ),
+            Memory(
+                content=(
+                    "Cloudflare fronts the deployment again, so WITH the same edge "
+                    'cache That latency figure stays at 0.682, quoted as " 0.731 ".'
+                ),
+                content_hash="noise_concept_2",
+                tags=["test", "concept", "noise"],
+                embedding=[0.12] * 320,
+                created_at=base_time - 3600,
+            ),
+        ]
+
+        # Cloudflare is deliberately absent from the theme keywords: it has to
+        # reach the result through the capitalized-terms source off the content.
+        concepts = await compression_engine._extract_key_concepts(memories, ["With", "0.695"])
+
+        lowered = [concept.lower() for concept in concepts]
+        for noise in ("with", "that", "what", "0.682", "0.695"):
+            assert noise not in lowered, f"{noise!r} survived into {concepts}"
+        # Quoted text keeps its padding, so a padded number is noise too.
+        assert not any(concept.strip() == "0.731" for concept in concepts), concepts
+        # A real term from the same memories is untouched by the filter.
+        assert "cloudflare" in lowered
+
+    @pytest.mark.asyncio
     async def test_memories_without_timestamps(self, compression_engine):
         """Test handling of memories with timestamps (Memory model auto-sets them)."""
         memories = [

@@ -194,7 +194,8 @@ class SemanticCompressionEngine(ConsolidationBase):
             'under', 'where', 'while', 'other', 'through', 'against', 'without'
         }
         
-        # Add frequent non-stop words
+        # Add frequent non-stop words. This check is a head start, not the rule:
+        # the filter below is authoritative and re-checks every source.
         for word, count in word_counts.most_common(20):
             if word not in stop_words and count >= 2:  # Must appear at least twice
                 concepts.add(word)
@@ -210,14 +211,29 @@ class SemanticCompressionEngine(ConsolidationBase):
                 # Replace lowercase with capitalized version
                 concept_dict[lower_key] = concept
 
-        # Filter SQL keywords and meta-concepts to reduce noise
+        # Filter stop words, SQL keywords, meta-concepts and bare numbers. The
+        # stop-word check runs here, over every concept, and not only over the
+        # frequent-lowercase-word source above: a stop word arrives capitalized
+        # ("With"), through a theme keyword, or through an important-pattern
+        # match just as often, and the per-source check missed all of those.
         SQL_KEYWORDS = {'between', 'select', 'where', 'from', 'join', 'inner', 'outer', 'group', 'order', 'limit'}
         META_CONCEPTS = {'memory', 'memories', 'association', 'similarity', 'storage', 'retrieval'}
+        PURELY_NUMERIC = re.compile(r'\d+(?:\.\d+)?')
 
-        filtered_concepts = [
-            c for c in concept_dict.values()
-            if c.lower() not in SQL_KEYWORDS and c.lower() not in META_CONCEPTS
-        ]
+        def is_noise(concept: str) -> bool:
+            # Quoted text arrives with its surrounding spaces, so " 42 " has to
+            # face the same checks as "42".
+            stripped = concept.strip()
+            lowered = stripped.lower()
+            return (
+                lowered in stop_words
+                or lowered in SQL_KEYWORDS
+                or lowered in META_CONCEPTS
+                # Bare numbers carry no theme: "0.682", "42".
+                or PURELY_NUMERIC.fullmatch(stripped) is not None
+            )
+
+        filtered_concepts = [c for c in concept_dict.values() if not is_noise(c)]
 
         # Sort by frequency (most common first)
         filtered_concepts.sort(key=lambda x: word_counts.get(x.lower(), 0), reverse=True)
