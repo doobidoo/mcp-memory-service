@@ -121,6 +121,19 @@ async def sync_from_peer(
                 if event_seq is not None:
                     last_good_seq = event_seq
                 logger.debug(f"Applied event {event.get('event_id', 'unknown')}: {result.reason}")
+            elif getattr(result, "skippable", False):
+                # Permanently non-materializable event (e.g. create with irrecoverable
+                # empty content). Advance past it so a handful of bad events cannot block
+                # the whole feed. It stays recorded in the local event log; it is simply
+                # not materialized into a memory row.
+                if event_seq is not None:
+                    last_good_seq = event_seq
+                logger.warning(
+                    "Skipping event %s (seq=%s): %s",
+                    _sanitize_log_value(event.get("event_id", "unknown")),
+                    _sanitize_log_value(event_seq),
+                    _sanitize_log_value(result.reason),
+                )
             else:
                 # applied=False means the event was not accepted (not a benign dup).
                 logger.warning(f"Event {event.get('event_id', 'unknown')} (seq={event_seq}) not applied: {result.reason}")
@@ -238,7 +251,11 @@ def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int)
                 "SELECT content FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                 (content_hash,),
             ).fetchone()
-            if mrow:
+            if mrow and mrow[0]:
+                # Only override with table content when it is non-empty; an empty/zeroed
+                # table row must not clobber the real content carried in the stored create
+                # payload, or the push would send a recoverable create as empty content
+                # (same bug the pull feed had — Greptile #1499 sync_events:240).
                 payload_dict["content"] = mrow[0]
         events.append({
             "seq": seq, "schema_version": schema_version if schema_version is not None else 1,
