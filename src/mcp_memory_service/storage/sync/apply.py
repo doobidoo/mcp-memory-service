@@ -295,6 +295,9 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                     try:
                         s.conn.rollback()
                     except Exception:
+                        # Best-effort rollback: if the connection cannot roll back (e.g.
+                        # no open transaction) there is nothing to undo; the original error
+                        # below is what matters.
                         pass
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))
                     return ApplyResult(applied=False, materialized=False, reason=f"Materialization error: {e}")
@@ -308,6 +311,7 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
             try:
                 s.conn.rollback()
             except Exception:
+                # Best-effort rollback (see above): nothing to undo if no open transaction.
                 pass
             logger.error("Error in conflict resolution: %s", _sanitize_log_value(e))
             return ApplyResult(applied=False, materialized=False, reason=f"Resolver failed: {e}")

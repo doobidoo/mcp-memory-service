@@ -170,35 +170,36 @@ async def test_repair_preserves_original_fields_rejecting_smuggled_changes(stora
 
 @pytest.mark.asyncio
 async def test_repair_does_not_resurrect_newer_delete(storage):
-    """Greptile #1499 apply:174 — an older empty create, repaired, must NOT win over a
-    newer delete for the same hash. The resolver (not the repair branch) decides: the
-    repair loses conflict resolution, so the recovered content is NOT materialized."""
+    """Greptile #1499 apply:174 — the REPAIR branch (empty create resent with content)
+    must lose conflict resolution to a newer delete, not resurrect the memory. Starts
+    from an EMPTY create so the resend actually reaches the repair branch (a non-empty
+    start would be rejected as an altered replay before the repair path)."""
     chash = "hdel"
-    # A real (non-empty) create first, so the memory row exists and the delete can mark it.
-    first = _create_event(1, "ev-c", "initial real content", chash)
-    assert apply_remote_event(storage, first).applied is True
-    # A NEWER delete arrives for the same hash (hlc far ahead).
+    # 1. Empty-content create lands first (hlc 1001) — skippable, not materialized.
+    empty = _create_event(1, "ev-e", "", chash)
+    r0 = apply_remote_event(storage, empty)
+    assert r0.skippable is True and r0.applied is False
+
+    # 2. A NEWER delete arrives for the same hash (hlc far ahead).
     delete_ev = {
         "seq": 2, "agent_id": "peer2", "event_id": "ev-del", "op": "delete",
-        "content_hash": chash, "hlc_physical": 5000, "hlc_logical": 0,
+        "content_hash": chash, "hlc_physical": 9000, "hlc_logical": 0,
         "embedding_model": None, "embedding_dim": None,
-        "payload": {"content_hash": chash, "deleted_at": 5.0},
+        "payload": {"content_hash": chash, "deleted_at": 9.0},
     }
     assert apply_remote_event(storage, delete_ev).applied is True
-    deleted_before = storage.conn.execute(
-        "SELECT deleted_at FROM memories WHERE content_hash = ?", (chash,)
-    ).fetchone()
-    assert deleted_before and deleted_before[0] is not None, "delete must mark the row"
 
-    # Now an OLDER create (hlc 1001) is resent with content. Whether it is rejected as a
-    # replay or loses conflict resolution, it must NOT revive the deleted memory.
-    repaired = _create_event(1, "ev-c", "recovered content from the old create", chash)
+    # 3. The fixed feed resends the SAME empty create with recovered content (hlc still
+    #    1001). This DOES enter the repair branch, but must LOSE to the newer delete.
+    repaired = _create_event(1, "ev-e", "recovered content from the old create", chash)
     r = apply_remote_event(storage, repaired)
-    assert r.materialized is False, "an older create must not re-materialize over a newer delete"
-    deleted_after = storage.conn.execute(
-        "SELECT deleted_at FROM memories WHERE content_hash = ?", (chash,)
+    assert r.materialized is False, "repaired older create must lose to the newer delete"
+    row = storage.conn.execute(
+        "SELECT content FROM memories WHERE content_hash = ?", (chash,)
     ).fetchone()
-    assert deleted_after and deleted_after[0] is not None, "newer delete must stand; repair must not resurrect it"
+    # No live row with recovered content — the delete won, repair did not resurrect it.
+    assert row is None or not row[0], "repair must not resurrect/overwrite over a newer delete"
+
 
 
 
