@@ -334,6 +334,40 @@ class TestHybridMemoryStorage:
         assert "sync_status" in stats
 
     @pytest.mark.asyncio
+    async def test_get_stats_reports_http_secondary(self, temp_sqlite_db):
+        """A hybrid built on an HTTP secondary must not be labelled Cloudflare (#1482)."""
+        with patch('mcp_memory_service.storage.hybrid.RemoteHTTPStorage', MockCloudflareStorage):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                secondary_backend='http',
+                secondary_url='https://hub.example.test',
+                secondary_api_key='test-key',
+                sync_interval=1,
+                batch_size=5
+            )
+            await storage.initialize()
+            try:
+                assert storage.secondary_backend_type == 'http'
+                stats = await storage.get_stats()
+                assert stats["storage_backend"] == "Hybrid (SQLite-vec + HTTP)"
+                assert stats["secondary_backend"] == "HTTP"
+            finally:
+                await storage.close()
+
+    @pytest.mark.asyncio
+    async def test_get_stats_without_secondary(self, temp_sqlite_db):
+        """Without any secondary get_stats must not name one (#1482)."""
+        storage = HybridMemoryStorage(sqlite_db_path=temp_sqlite_db)
+        await storage.initialize()
+        try:
+            assert storage.secondary_backend_type is None
+            stats = await storage.get_stats()
+            assert stats["storage_backend"] == "Hybrid (SQLite-vec, no secondary)"
+            assert stats["secondary_backend"] == "None"
+        finally:
+            await storage.close()
+
+    @pytest.mark.asyncio
     async def test_force_sync(self, hybrid_storage, sample_memory):
         """Test forcing immediate synchronization."""
         # Store some memories

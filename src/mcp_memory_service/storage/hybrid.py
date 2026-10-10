@@ -1090,6 +1090,9 @@ class HybridMemoryStorage(MemoryStorage):
         # Initialize secondary storage based on backend type
         self.secondary = None
         self.sync_service = None
+        # Which kind of secondary was built ('http' | 'cloudflare' | None); get_stats()
+        # reports it, so a hub-backed hybrid is not labelled "Cloudflare".
+        self.secondary_backend_type: Optional[str] = None
 
         # Resolve secondary backend (kwarg takes precedence over config)
         from ..config.storage import (MCP_HYBRID_SECONDARY_BACKEND, MCP_HYBRID_SECONDARY_URL, 
@@ -1130,10 +1133,12 @@ class HybridMemoryStorage(MemoryStorage):
                 http_kwargs['basic_pass'] = basic_pass
                 
             self.secondary = RemoteHTTPStorage(**http_kwargs)
+            self.secondary_backend_type = 'http'
         elif cloudflare_config and all(key in cloudflare_config for key in
                                     ['api_token', 'account_id', 'vectorize_index', 'd1_database_id']):
             # Cloudflare backend
             self.secondary = CloudflareStorage(**cloudflare_config)
+            self.secondary_backend_type = 'cloudflare'
         else:
             logger.warning("No valid secondary backend config, running in SQLite-only mode")
 
@@ -1934,10 +1939,15 @@ class HybridMemoryStorage(MemoryStorage):
         # SQLite-vec get_stats is now async
         primary_stats = await self.primary.get_stats()
 
+        secondary_label = {'http': 'HTTP', 'cloudflare': 'Cloudflare'}.get(self.secondary_backend_type)
+        if self.secondary and secondary_label:
+            storage_backend = f"Hybrid (SQLite-vec + {secondary_label})"
+        else:
+            storage_backend = "Hybrid (SQLite-vec, no secondary)"
         stats = {
-            "storage_backend": "Hybrid (SQLite-vec + Cloudflare)",
+            "storage_backend": storage_backend,
             "primary_backend": "SQLite-vec",
-            "secondary_backend": "Cloudflare" if self.secondary else "None",
+            "secondary_backend": secondary_label if (self.secondary and secondary_label) else "None",
             "total_memories": primary_stats.get("total_memories", 0),
             "unique_tags": primary_stats.get("unique_tags", 0),
             "memories_this_week": primary_stats.get("memories_this_week", 0),

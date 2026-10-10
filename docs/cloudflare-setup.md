@@ -11,6 +11,10 @@ The MCP Memory Service supports native Cloudflare integration using Vectorize fo
 
 This setup provides global distribution, automatic scaling, and cost-effective pay-per-use pricing.
 
+> **No Cloudflare account?** The hybrid backend can sync to a self-hosted MCP Memory Service
+> instead (`MCP_HYBRID_SECONDARY_BACKEND=http`); see the
+> [self-hosted sync hub guide](guides/self-hosted-sync-hub.md).
+
 ## 🚀 Quick Start
 
 For users who want to get started immediately:
