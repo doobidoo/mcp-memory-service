@@ -194,6 +194,15 @@ Rate-limit handling for the harvest classifier (validates candidate memories via
 
 - `MCP_AGENT_ID`: default authoring agent id for memories created via `memory_store`. When set, each stored memory records `agent_id` in its metadata unless an explicit `agent_id` argument is passed (the explicit argument wins). When unset and no argument is given, no `agent_id` is written (`null` = unknown), so behavior is unchanged. Useful in a shared multi-agent database to attribute who wrote each memory.
 
+## MCP Tool Rate Limiting (Optional)
+
+Dispatcher-level sliding-window limits protect a shared server from a batch agent saturating tool execution.
+
+- `MCP_RATE_LIMIT_PER_MINUTE`: default per-agent request limit applied independently to each MCP tool. Unset or `0` means unlimited, preserving existing behavior.
+- `MCP_RATE_LIMIT_<tool>`: override for one tool, for example `MCP_RATE_LIMIT_memory_store=30`. The lower-case tool name is accepted as documented; the upper-case form is also accepted.
+
+The dispatcher keys by explicit `agent_id`, `X-Agent-ID` injected by the HTTP transport, metadata `agent_id`, or `MCP_AGENT_ID`. When no agent identity is available it falls back to the transport connection/session (HTTP client IP for `/mcp`, session identity for the MCP server). Limits are process-local; use an edge proxy for a cluster-wide quota.
+
 ## Logging and Performance
 
 - `LOG_LEVEL`: Root logging level (default `WARNING`).
