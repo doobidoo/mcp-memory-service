@@ -11,6 +11,23 @@ from mcp_memory_service.consolidation.base import MemoryCluster
 from mcp_memory_service.models.memory import Memory
 
 
+SESSION_SUMMARY = "Session Summary: Topics discussed deployment pipeline debugging today"
+
+# Memories the service or its hooks write themselves (#1492). Associations and
+# hook session summaries are stored as 'observation', so the tag is the marker.
+SELF_GENERATED_CASES = [
+    pytest.param(["association", "discovered"], "observation",
+                 "Association between memories assoc_be and 58093a31: deployment pipeline",
+                 id="association"),
+    pytest.param(["session-consolidation"], "observation", SESSION_SUMMARY, id="claude-code-session"),
+    pytest.param(["session-summary"], "observation", SESSION_SUMMARY, id="opencode-session"),
+    pytest.param(["release"], "session", SESSION_SUMMARY, id="session-type"),
+    pytest.param(["cluster", "compressed"], "pattern",
+                 "Cluster of 9 related memories about deployment pipeline spanning 3 days.",
+                 id="earlier-pattern"),
+]
+
+
 @pytest.mark.unit
 class TestSemanticCompressionEngine:
     """Test the semantic compression system."""
@@ -458,6 +475,124 @@ class TestSemanticCompressionEngine:
         assert not any(concept.strip() == "0.731" for concept in concepts), concepts
         # A real term from the same memories is untouched by the filter.
         assert "cloudflare" in lowered
+
+    @staticmethod
+    def _cluster_of(memories, theme_keywords):
+        return MemoryCluster(
+            cluster_id="issue_1492_cluster",
+            memory_hashes=[m.content_hash for m in memories],
+            centroid_embedding=[0.1] * 320,
+            coherence_score=0.8,
+            created_at=datetime.now(),
+            theme_keywords=theme_keywords,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tags, memory_type, content", SELF_GENERATED_CASES)
+    async def test_self_generated_memories_are_not_compressed(
+        self, compression_engine, tags, memory_type, content
+    ):
+        """Memories the service wrote itself are not compressed (#1492).
+
+        A cluster of association memories became "Cluster of 206 related
+        memories about 0.682, 0.695, ...".
+        """
+        base_time = datetime.now().timestamp()
+        memories = [
+            Memory(
+                content=f"{content} run {i}",
+                content_hash=f"self_generated_{i}",
+                tags=tags,
+                memory_type=memory_type,
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(3)
+        ]
+
+        results = await compression_engine.process(
+            [self._cluster_of(memories, ["deployment", "pipeline"])], memories
+        )
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_forgetting_compressed_tag_alone_is_still_compressed(self, compression_engine):
+        """Forgetting tags shortened user memories 'compressed' only; they stay input (#1492)."""
+        base_time = datetime.now().timestamp()
+        memories = [
+            Memory(
+                content=f"Deployment pipeline needs a manual approval step, note {i}",
+                content_hash=f"shortened_{i}",
+                tags=["compressed"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+
+        results = await compression_engine.process(
+            [self._cluster_of(memories, ["deployment", "pipeline"])], memories
+        )
+
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_keywords_of_excluded_memories_do_not_reach_summary(self, compression_engine):
+        """Theme keywords found only in excluded memories are dropped (#1492)."""
+        base_time = datetime.now().timestamp()
+        user_memories = [
+            Memory(
+                content=f"Deployment pipeline needs a manual approval step, note {i}",
+                content_hash=f"user_{i}",
+                tags=["release"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+        associations = [
+            Memory(
+                content=f"Association between memories via Kubernetes, run {i}",
+                content_hash=f"assoc_{i}",
+                tags=["association", "discovered"],
+                memory_type="observation",
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(3)
+        ]
+        memories = user_memories + associations
+        cluster = self._cluster_of(memories, ["Kubernetes", "deployment", "pipeline"])
+
+        results = await compression_engine.process([cluster], memories)
+
+        assert len(results) == 1
+        assert "Kubernetes" not in results[0].key_concepts
+        assert "Kubernetes" not in results[0].compressed_memory.content
+
+    @pytest.mark.asyncio
+    async def test_cluster_without_representative_sentence_is_not_stored(self, compression_engine):
+        """No pattern memory when no sentence carries a key concept (#1492).
+
+        Layout words of session summaries and dedup reports ("Session", "User",
+        "copies", "Hash") are not concepts, so nothing here covers one, and the
+        summary would otherwise be the generated overview line alone.
+        """
+        base_time = datetime.now().timestamp()
+        memories = [
+            Memory(
+                content="Session Summary for User: 3 copies, Hash 0.682.",
+                content_hash=f"hollow_{i}",
+                tags=["test"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+        cluster = self._cluster_of(memories, ["Session", "User"])
+
+        assert await compression_engine._compress_cluster(cluster, memories) is None
 
     @pytest.mark.asyncio
     async def test_memories_without_timestamps(self, compression_engine):

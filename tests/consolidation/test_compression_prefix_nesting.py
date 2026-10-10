@@ -263,6 +263,29 @@ class TestAggregateMetadataPrefixNesting:
 # Integration-level test via process() — no double-prefix in compressed output
 # ---------------------------------------------------------------------------
 
+def _copies_of(compressed_memory: Memory, base_time: float, count: int = 3) -> list:
+    """Duplicates of a compressed memory, as a second consolidation run sees it."""
+    return [
+        Memory(
+            content=compressed_memory.content,
+            content_hash=f"c2_{i}",
+            tags=compressed_memory.tags,
+            memory_type=compressed_memory.memory_type,
+            embedding=compressed_memory.embedding or [0.1] * 320,
+            metadata=dict(compressed_memory.metadata),
+            created_at=base_time,
+            created_at_iso=datetime.fromtimestamp(base_time).isoformat() + "Z",
+        )
+        for i in range(count)
+    ]
+
+
+def _assert_no_nested_prefix(metadata: dict) -> None:
+    for key in metadata:
+        for nested in ("common_common_", "varied_varied_", "common_varied_", "varied_common_"):
+            assert nested not in key, f"Nested prefix in {key}"
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_process_compression_no_prefix_nesting(consolidation_config):
@@ -297,33 +320,13 @@ async def test_process_compression_no_prefix_nesting(consolidation_config):
     assert len(results) == 1
     compressed_memory = results[0].compressed_memory
 
-    # No nested prefixes in first pass
-    for key in compressed_memory.metadata:
-        assert "common_common_" not in key
-        assert "varied_varied_" not in key
+    _assert_no_nested_prefix(compressed_memory.metadata)
 
-    # Second compression pass: compress the compressed memory with itself duplicated
-    second_memories = [
-        Memory(
-            content=compressed_memory.content,
-            content_hash=f"c2_{i}",
-            tags=compressed_memory.tags,
-            memory_type=compressed_memory.memory_type,
-            embedding=compressed_memory.embedding or [0.1] * 320,
-            metadata=dict(compressed_memory.metadata),
-            created_at=base_time,
-            created_at_iso=datetime.fromtimestamp(base_time).isoformat() + "Z",
-        )
-        for i in range(3)
-    ]
+    # Second compression pass: compress the compressed memory with itself
+    # duplicated. process() no longer feeds compression output back in (#1492),
+    # so the second pass goes through _compress_cluster to keep this check alive.
+    second_memories = _copies_of(compressed_memory, base_time)
     second_cluster = _make_cluster([m.content_hash for m in second_memories])
-    results2 = await engine.process([second_cluster], second_memories)
-    assert len(results2) == 1
-    second_compressed = results2[0].compressed_memory
+    result2 = await engine._compress_cluster(second_cluster, second_memories)
 
-    # Verify no nested prefix keys after two rounds
-    for key in second_compressed.metadata:
-        assert "common_common_" not in key, f"Double prefix after 2 rounds: {key}"
-        assert "varied_varied_" not in key, f"Double prefix after 2 rounds: {key}"
-        assert "common_varied_" not in key, f"Double prefix after 2 rounds: {key}"
-        assert "varied_common_" not in key, f"Double prefix after 2 rounds: {key}"
+    _assert_no_nested_prefix(result2.compressed_memory.metadata)
