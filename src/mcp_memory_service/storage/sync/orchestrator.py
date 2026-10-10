@@ -129,7 +129,10 @@ async def sync_from_peer(
                 if event_seq is not None:
                     last_good_seq = event_seq
                 logger.warning(
-                    f"Skipping event {event.get('event_id', 'unknown')} (seq={event_seq}): {result.reason}"
+                    "Skipping event %s (seq=%s): %s",
+                    _sanitize_log_value(event.get("event_id", "unknown")),
+                    _sanitize_log_value(event_seq),
+                    _sanitize_log_value(result.reason),
                 )
             else:
                 # applied=False means the event was not accepted (not a benign dup).

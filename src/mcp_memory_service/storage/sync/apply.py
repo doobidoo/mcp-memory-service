@@ -155,6 +155,34 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                 if pre_existing == payload:
                     s.conn.commit()
                     return ApplyResult(applied=True, materialized=False, reason="Duplicate event (idempotent, no rewrite)")
+                # Content-repair upgrade case: a receiver that stalled on an empty-content
+                # create (before the feed fix) has the empty payload recorded. The fixed
+                # feed now resends the SAME identity with the real content. This is a repair,
+                # not tampering — the only change is empty content -> real content for the
+                # same content_hash. Accept it: update the stored payload and re-materialize,
+                # so a previously-stalled pull can finally complete. Any OTHER divergence
+                # (different content, metadata tampering) stays rejected (Greptile P1, security).
+                pre_content = (pre_existing or {}).get("content") or ""
+                new_content = payload.get("content") or ""
+                same_hash = (pre_existing or {}).get("content_hash") == payload.get("content_hash") == content_hash
+                if (not pre_content) and new_content and same_hash:
+                    s.conn.execute(
+                        "UPDATE sync_events SET payload = ? WHERE agent_id = ? AND event_id = ?",
+                        (json.dumps(payload), agent_id, event_id),
+                    )
+                    try:
+                        materialized = _materialize_event(storage, event)
+                        s.conn.commit()
+                        if materialized:
+                            return ApplyResult(applied=True, materialized=True,
+                                               reason="Empty-content create repaired with real content")
+                        s.conn.commit()
+                        return ApplyResult(applied=False, materialized=False,
+                                           reason="Content-repair materialization failed")
+                    except Exception as e:
+                        logger.error("Content-repair materialization failed: %s", _sanitize_log_value(e))
+                        return ApplyResult(applied=False, materialized=False,
+                                           reason=f"Content-repair error: {e}")
                 s.conn.commit()
                 return ApplyResult(applied=False, materialized=False, reason="Replay with altered payload rejected")
 
