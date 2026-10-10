@@ -517,6 +517,61 @@ class TestSemanticCompressionEngine:
         assert results == []
 
     @pytest.mark.asyncio
+    async def test_forgetting_compressed_tag_alone_is_still_compressed(self, compression_engine):
+        """Forgetting tags shortened user memories 'compressed' only; they stay input (#1492)."""
+        base_time = datetime.now().timestamp()
+        memories = [
+            Memory(
+                content=f"Deployment pipeline needs a manual approval step, note {i}",
+                content_hash=f"shortened_{i}",
+                tags=["compressed"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+
+        results = await compression_engine.process(
+            [self._cluster_of(memories, ["deployment", "pipeline"])], memories
+        )
+
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_keywords_of_excluded_memories_do_not_reach_summary(self, compression_engine):
+        """Theme keywords found only in excluded memories are dropped (#1492)."""
+        base_time = datetime.now().timestamp()
+        user_memories = [
+            Memory(
+                content=f"Deployment pipeline needs a manual approval step, note {i}",
+                content_hash=f"user_{i}",
+                tags=["release"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+        associations = [
+            Memory(
+                content=f"Association between memories via Kubernetes, run {i}",
+                content_hash=f"assoc_{i}",
+                tags=["association", "discovered"],
+                memory_type="observation",
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(3)
+        ]
+        memories = user_memories + associations
+        cluster = self._cluster_of(memories, ["Kubernetes", "deployment", "pipeline"])
+
+        results = await compression_engine.process([cluster], memories)
+
+        assert len(results) == 1
+        assert "Kubernetes" not in results[0].key_concepts
+        assert "Kubernetes" not in results[0].compressed_memory.content
+
+    @pytest.mark.asyncio
     async def test_cluster_without_representative_sentence_is_not_stored(self, compression_engine):
         """No pattern memory when no sentence carries a key concept (#1492).
 

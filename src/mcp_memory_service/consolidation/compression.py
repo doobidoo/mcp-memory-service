@@ -205,8 +205,12 @@ class SemanticCompressionEngine(ConsolidationBase):
         all_text = ' '.join([m.content for m in memories])
         concepts = set()
         
-        # Add theme keywords as primary concepts
-        concepts.update(theme_keywords)
+        # Add theme keywords as primary concepts. They were built from the whole
+        # cluster, so keep only those these memories still carry: process()
+        # drops self-generated members and their words must not come back (#1492).
+        present = all_text.lower()
+        tags = {t.lower() for m in memories for t in m.tags}
+        concepts.update(k for k in theme_keywords if k.lower() in tags or k.lower() in present)
         
         # Extract important patterns
         for pattern_name, pattern in self._important_patterns.items():
