@@ -141,3 +141,64 @@ async def test_apply_still_rejects_genuine_tampering(storage):
         "SELECT content FROM memories WHERE content_hash = ?", (chash,)
     ).fetchone()
     assert got[0] == "the original authoritative content", "stored content must not change"
+
+
+@pytest.mark.asyncio
+async def test_repair_preserves_original_fields_rejecting_smuggled_changes(storage):
+    """Greptile #1499 apply:168 — a repair must fill ONLY content from the resend;
+    metadata/tags/memory_type/store changes smuggled alongside must NOT be written."""
+    chash = "hsmuggle"
+    empty = _create_event(1, "ev-s", "", chash)
+    empty["payload"]["metadata"] = {"orig": True}
+    empty["payload"]["tags"] = ["original"]
+    apply_remote_event(storage, empty)
+
+    resend = _create_event(1, "ev-s", "the real recovered content", chash)
+    resend["payload"]["metadata"] = {"orig": False, "injected": "evil"}
+    resend["payload"]["tags"] = ["tampered"]
+    r = apply_remote_event(storage, resend)
+    assert r.applied is True and r.materialized is True
+
+    row = storage.conn.execute(
+        "SELECT content, tags, metadata FROM memories WHERE content_hash = ?", (chash,)
+    ).fetchone()
+    assert row[0] == "the real recovered content"
+    # original tags/metadata preserved, smuggled changes rejected
+    assert "tampered" not in (row[1] or ""), "smuggled tags must not be written"
+    assert "evil" not in (row[2] or ""), "smuggled metadata must not be written"
+
+
+@pytest.mark.asyncio
+async def test_repair_does_not_resurrect_newer_delete(storage):
+    """Greptile #1499 apply:174 — an older empty create, repaired, must NOT win over a
+    newer delete for the same hash. The resolver (not the repair branch) decides: the
+    repair loses conflict resolution, so the recovered content is NOT materialized."""
+    chash = "hdel"
+    # A real (non-empty) create first, so the memory row exists and the delete can mark it.
+    first = _create_event(1, "ev-c", "initial real content", chash)
+    assert apply_remote_event(storage, first).applied is True
+    # A NEWER delete arrives for the same hash (hlc far ahead).
+    delete_ev = {
+        "seq": 2, "agent_id": "peer2", "event_id": "ev-del", "op": "delete",
+        "content_hash": chash, "hlc_physical": 5000, "hlc_logical": 0,
+        "embedding_model": None, "embedding_dim": None,
+        "payload": {"content_hash": chash, "deleted_at": 5.0},
+    }
+    assert apply_remote_event(storage, delete_ev).applied is True
+    deleted_before = storage.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?", (chash,)
+    ).fetchone()
+    assert deleted_before and deleted_before[0] is not None, "delete must mark the row"
+
+    # Now an OLDER create (hlc 1001) is resent with content. Whether it is rejected as a
+    # replay or loses conflict resolution, it must NOT revive the deleted memory.
+    repaired = _create_event(1, "ev-c", "recovered content from the old create", chash)
+    r = apply_remote_event(storage, repaired)
+    assert r.materialized is False, "an older create must not re-materialize over a newer delete"
+    deleted_after = storage.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?", (chash,)
+    ).fetchone()
+    assert deleted_after and deleted_after[0] is not None, "newer delete must stand; repair must not resurrect it"
+
+
+

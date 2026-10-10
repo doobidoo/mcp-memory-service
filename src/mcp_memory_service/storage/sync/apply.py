@@ -155,36 +155,46 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                 if pre_existing == payload:
                     s.conn.commit()
                     return ApplyResult(applied=True, materialized=False, reason="Duplicate event (idempotent, no rewrite)")
-                # Content-repair upgrade case: a receiver that stalled on an empty-content
-                # create (before the feed fix) has the empty payload recorded. The fixed
-                # feed now resends the SAME identity with the real content. This is a repair,
-                # not tampering — the only change is empty content -> real content for the
-                # same content_hash. Accept it: update the stored payload and re-materialize,
-                # so a previously-stalled pull can finally complete. Any OTHER divergence
-                # (different content, metadata tampering) stays rejected (Greptile P1, security).
+                # Content-repair upgrade case (Greptile #1499): a receiver that stalled on
+                # an empty-content create (before the feed fix) has the empty payload
+                # recorded; the fixed feed resends the SAME identity with the real content.
+                # This is a repair, not tampering, BUT it must be strictly bounded and must
+                # NOT bypass the normal conflict/materialization path:
+                #   - both events must be creates (no op switch);
+                #   - the ONLY accepted change is empty content -> non-empty content for the
+                #     SAME content_hash; every other field (metadata, tags, memory_type,
+                #     store) is preserved from the ORIGINAL stored event, so a replay cannot
+                #     smuggle changed fields in under the repair (Greptile P1 apply:168);
+                #   - we only rewrite the stored content, then fall through to Step 2 so the
+                #     resolver decides whether this create still wins (an older create cannot
+                #     resurrect a newer delete / overwrite newer state — Greptile P1 apply:174)
+                #     and materialization runs under the normal commit/rollback path
+                #     (a failed write is not acked as applied — Greptile P1 apply:181).
                 pre_content = (pre_existing or {}).get("content") or ""
                 new_content = payload.get("content") or ""
                 same_hash = (pre_existing or {}).get("content_hash") == payload.get("content_hash") == content_hash
-                if (not pre_content) and new_content and same_hash:
-                    s.conn.execute(
-                        "UPDATE sync_events SET payload = ? WHERE agent_id = ? AND event_id = ?",
-                        (json.dumps(payload), agent_id, event_id),
-                    )
-                    try:
-                        materialized = _materialize_event(storage, event)
-                        s.conn.commit()
-                        if materialized:
-                            return ApplyResult(applied=True, materialized=True,
-                                               reason="Empty-content create repaired with real content")
-                        s.conn.commit()
-                        return ApplyResult(applied=False, materialized=False,
-                                           reason="Content-repair materialization failed")
-                    except Exception as e:
-                        logger.error("Content-repair materialization failed: %s", _sanitize_log_value(e))
-                        return ApplyResult(applied=False, materialized=False,
-                                           reason=f"Content-repair error: {e}")
-                s.conn.commit()
-                return ApplyResult(applied=False, materialized=False, reason="Replay with altered payload rejected")
+                is_repair = (
+                    (not pre_content) and new_content and same_hash
+                    and op == "create" and (pre_existing or {}).get("op", "create") == "create"
+                )
+                if not is_repair:
+                    s.conn.commit()
+                    return ApplyResult(applied=False, materialized=False, reason="Replay with altered payload rejected")
+                # Rebuild payload = original stored payload with ONLY content filled in.
+                repaired_payload = dict(pre_existing)
+                repaired_payload["content"] = new_content
+                s.conn.execute(
+                    "UPDATE sync_events SET payload = ? WHERE agent_id = ? AND event_id = ?",
+                    (json.dumps(repaired_payload), agent_id, event_id),
+                )
+                # Use the repaired payload for the rest of this apply and fall through to the
+                # normal resolver + materialization (NOT a hand-rolled materialize). Mark so
+                # the final result reason is explicit.
+                payload = repaired_payload
+                event = {**event, "payload": repaired_payload}
+                _is_content_repair = True
+            else:
+                _is_content_repair = False
 
             s.conn.execute("""
                 INSERT OR IGNORE INTO sync_events
@@ -262,6 +272,8 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                     if materialized:
                         reason = ("Remote event won and materialized" if is_winner
                                   else "update_metadata merged (field-level convergence)")
+                        if locals().get("_is_content_repair"):
+                            reason = "Empty-content create repaired with real content (via resolver)"
                         return ApplyResult(applied=True, materialized=True, reason=reason)
                     # A win that fails to materialize is NOT applied. A create whose content
                     # is empty in BOTH the payload and the source table is permanently
@@ -275,6 +287,15 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                                            skippable=True)
                     return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
                 except Exception as e:
+                    # Roll back any pending write (e.g. a content-repair UPDATE to
+                    # sync_events) so a transient materialization failure does not leave
+                    # the stored payload mutated — otherwise the next retry would match
+                    # it as a duplicate and never re-attempt the memory write (Greptile
+                    # #1499 apply:181, exception path).
+                    try:
+                        s.conn.rollback()
+                    except Exception:
+                        pass
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))
                     return ApplyResult(applied=False, materialized=False, reason=f"Materialization error: {e}")
             else:
@@ -284,6 +305,10 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                 return ApplyResult(applied=True, materialized=False, reason="Remote event lost conflict resolution")
 
         except Exception as e:
+            try:
+                s.conn.rollback()
+            except Exception:
+                pass
             logger.error("Error in conflict resolution: %s", _sanitize_log_value(e))
             return ApplyResult(applied=False, materialized=False, reason=f"Resolver failed: {e}")
 
