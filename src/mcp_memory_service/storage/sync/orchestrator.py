@@ -121,6 +121,16 @@ async def sync_from_peer(
                 if event_seq is not None:
                     last_good_seq = event_seq
                 logger.debug(f"Applied event {event.get('event_id', 'unknown')}: {result.reason}")
+            elif getattr(result, "skippable", False):
+                # Permanently non-materializable event (e.g. create with irrecoverable
+                # empty content). Advance past it so a handful of bad events cannot block
+                # the whole feed. It stays recorded in the local event log; it is simply
+                # not materialized into a memory row.
+                if event_seq is not None:
+                    last_good_seq = event_seq
+                logger.warning(
+                    f"Skipping event {event.get('event_id', 'unknown')} (seq={event_seq}): {result.reason}"
+                )
             else:
                 # applied=False means the event was not accepted (not a benign dup).
                 logger.warning(f"Event {event.get('event_id', 'unknown')} (seq={event_seq}) not applied: {result.reason}")

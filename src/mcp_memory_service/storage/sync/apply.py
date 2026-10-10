@@ -66,6 +66,12 @@ class ApplyResult:
     applied: bool
     materialized: bool
     reason: str
+    # When applied is False, skippable=True means the event is permanently
+    # non-materializable (e.g. a create whose content is irrecoverably empty at
+    # the source) and the orchestrator should advance past it instead of
+    # fail-stopping the whole feed. Default False preserves the original
+    # fail-stop behaviour for transient failures.
+    skippable: bool = False
 
 
 def _event_identity_payload(storage: MemoryStorage, agent_id: str, event_id: str):
@@ -229,8 +235,16 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                         reason = ("Remote event won and materialized" if is_winner
                                   else "update_metadata merged (field-level convergence)")
                         return ApplyResult(applied=True, materialized=True, reason=reason)
-                    # A win that fails to materialize is NOT applied — return failure so the
-                    # sender keeps retrying and the puller does not advance past it (Greptile P1).
+                    # A win that fails to materialize is NOT applied. A create whose content
+                    # is empty in BOTH the payload and the source table is permanently
+                    # non-materializable — mark it skippable so the orchestrator advances past
+                    # it instead of fail-stopping the whole feed (a few irrecoverable events
+                    # must not block thousands of good ones). Any other materialization miss
+                    # stays a transient failure the sender keeps retrying (Greptile P1).
+                    if op == "create" and not (payload.get("content") or ""):
+                        return ApplyResult(applied=False, materialized=False,
+                                           reason="Create event has no recoverable content — skipped",
+                                           skippable=True)
                     return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
                 except Exception as e:
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))

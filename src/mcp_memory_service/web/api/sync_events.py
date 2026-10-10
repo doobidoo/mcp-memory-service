@@ -99,7 +99,12 @@ async def get_sync_events(
                     (content_hash,)
                 )
                 memory_row = memory_cursor.fetchone()
-                if memory_row:
+                # Only override the payload's content when the table actually has
+                # non-empty content. An empty/zeroed table row (e.g. a memory whose
+                # content was cleared) must NOT clobber the real content carried in the
+                # original create payload — otherwise the puller receives a create with
+                # no content and cannot materialize it.
+                if memory_row and memory_row[0]:
                     payload_dict["content"] = memory_row[0]
             
             events.append(SyncEventData(

@@ -1,0 +1,1 @@
+Fixed a delta-sync deadlock where a create event with empty content would fail-stop the entire feed. The feed no longer clobbers the payload's content with an empty table value, and the apply path now marks a permanently non-materializable empty-content create as skippable so the orchestrator advances past it instead of blocking all subsequent events.
