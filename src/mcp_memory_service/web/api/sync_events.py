@@ -229,6 +229,15 @@ async def ingest_sync_events(
                 # — for push semantics the hub already has it / local winner kept.
                 status = "skipped_duplicate"
                 skipped += 1
+            elif getattr(res, "skippable", False) or res.reason == "Replay with altered payload rejected":
+                # Benignly non-ingestable: either a permanently empty-content create
+                # (skippable) or a same-identity event whose payload diverges from the one
+                # the hub already holds (anti-replay protection kept the hub's version).
+                # Neither should fail-stop the push — the hub keeps its authoritative copy
+                # and the spoke must be allowed to advance past it (otherwise a single
+                # divergent event blocks the entire push backlog).
+                status = "skipped_duplicate"
+                skipped += 1
             else:
                 status = "failed"
                 failed += 1
