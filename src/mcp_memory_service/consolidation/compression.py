@@ -23,7 +23,22 @@ import re
 import hashlib
 
 from .base import ConsolidationBase, ConsolidationConfig, MemoryCluster
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
+
+# Tags on memories the service or its hooks write without the user: discovered
+# associations and auto-captured session summaries (Claude Code and opencode
+# hooks). Earlier compression output is matched by COMPRESSION_OUTPUT_TAGS.
+SELF_GENERATED_TAGS = frozenset({'association', 'session-consolidation', 'session-summary'})
+
+# _aggregate_tags puts both on every pattern this engine writes. 'compressed'
+# alone is not enough: forgetting uses it for shortened user memories too.
+COMPRESSION_OUTPUT_TAGS = frozenset({'cluster', 'compressed'})
+
+# Words that come from the layout of stored content, not from its subject:
+# session summaries ("Session", "Summary", "User") and dedup reports
+# ("copies", "Hash"). They win on frequency alone and say nothing about a cluster.
+STRUCTURAL_TOKENS = frozenset({'session', 'summary', 'user', 'copies', 'hash'})
 
 @dataclass
 class CompressionResult:
@@ -68,11 +83,15 @@ class SemanticCompressionEngine(ConsolidationBase):
         # Create memory hash lookup
         memory_lookup = {m.content_hash: m for m in memories}
 
-        # Build tasks for clusters that have matching memories
+        # Build tasks for clusters that have matching memories. Memories the
+        # service wrote itself are left out: summarizing them only repeats their
+        # template words, and a cluster made mostly of them ends up below the
+        # two-memory minimum in _compress_cluster.
         tasks = []
         for cluster in clusters:
             cluster_memories = [
-                memory_lookup[h] for h in cluster.memory_hashes if h in memory_lookup
+                memory_lookup[h] for h in cluster.memory_hashes
+                if h in memory_lookup and not self._is_self_generated(memory_lookup[h])
             ]
             if cluster_memories:
                 tasks.append(self._compress_cluster(cluster, cluster_memories))
@@ -83,13 +102,27 @@ class SemanticCompressionEngine(ConsolidationBase):
         compression_results = []
         for r in results:
             if isinstance(r, Exception):
-                self.logger.warning(f"Cluster compression failed: {r}")
+                self.logger.warning(f"Cluster compression failed: {_sanitize_log_value(str(r))}")
             elif r is not None:
                 compression_results.append(r)
 
-        self.logger.info(f"Compressed {len(compression_results)} clusters")
+        self.logger.info("Compressed %d clusters", len(compression_results))
         return compression_results
-    
+
+    @staticmethod
+    def _is_self_generated(memory: Memory) -> bool:
+        """True for memories the service or its hooks wrote, not the user.
+
+        Tags are the marker, not memory_type: associations are stored as
+        'observation', and so are most auto-captured session summaries.
+        """
+        tags = set(memory.tags)
+        return (
+            memory.memory_type == 'session'
+            or not SELF_GENERATED_TAGS.isdisjoint(tags)
+            or COMPRESSION_OUTPUT_TAGS <= tags
+        )
+
     async def _compress_cluster(self, cluster: MemoryCluster, memories: List[Memory]) -> Optional[CompressionResult]:
         """Compress a single memory cluster."""
         if len(memories) < 2:
@@ -98,8 +131,17 @@ class SemanticCompressionEngine(ConsolidationBase):
         # Extract key concepts and themes
         key_concepts = await self._extract_key_concepts(memories, cluster.theme_keywords)
         
+        # Without a sentence that carries a concept, the summary would be the
+        # generated overview line alone: a pattern memory with nothing in it.
+        sentences = self._select_representative_sentences(memories, key_concepts)
+        if not sentences:
+            self.logger.debug(
+                "Skipping cluster %s: no representative sentence", _sanitize_log_value(cluster.cluster_id)
+            )
+            return None
+
         # Generate thematic summary
-        summary = await self._generate_thematic_summary(memories, key_concepts)
+        summary = await self._generate_thematic_summary(memories, key_concepts, sentences)
         
         # Calculate temporal information
         temporal_span = self._calculate_temporal_span(memories)
@@ -227,6 +269,7 @@ class SemanticCompressionEngine(ConsolidationBase):
             lowered = stripped.lower()
             return (
                 lowered in stop_words
+                or lowered in STRUCTURAL_TOKENS
                 or lowered in SQL_KEYWORDS
                 or lowered in META_CONCEPTS
                 # Bare numbers carry no theme: "0.682", "42".
@@ -240,10 +283,8 @@ class SemanticCompressionEngine(ConsolidationBase):
 
         return filtered_concepts[:15]  # Limit to top 15 thematic concepts
     
-    async def _generate_thematic_summary(self, memories: List[Memory], key_concepts: List[str]) -> str:
-        """Generate a thematic summary of the memory cluster."""
-        # Analyze the memories to identify common themes and patterns
-        # Extract representative sentences that contain key concepts
+    def _select_representative_sentences(self, memories: List[Memory], key_concepts: List[str]) -> List[str]:
+        """Pick sentences that cover key concepts, best coverage first."""
         representative_sentences = []
         concept_coverage = set()
         
@@ -271,7 +312,18 @@ class SemanticCompressionEngine(ConsolidationBase):
         
         # Sort by score and select best sentences
         representative_sentences.sort(key=lambda x: x['score'], reverse=True)
-        
+        return [s['sentence'] for s in representative_sentences]
+
+    async def _generate_thematic_summary(
+        self,
+        memories: List[Memory],
+        key_concepts: List[str],
+        representative_sentences: Optional[List[str]] = None,
+    ) -> str:
+        """Generate a thematic summary of the memory cluster."""
+        if representative_sentences is None:
+            representative_sentences = self._select_representative_sentences(memories, key_concepts)
+
         # Build summary
         summary_parts = []
         
@@ -291,8 +343,7 @@ class SemanticCompressionEngine(ConsolidationBase):
         used_length = len(overview)
         remaining_length = self.max_summary_length - used_length - 100  # Reserve space for conclusion
         
-        for sent_info in representative_sentences:
-            sentence = sent_info['sentence']
+        for sentence in representative_sentences:
             if used_length + len(sentence) < remaining_length:
                 summary_parts.append(sentence)
                 used_length += len(sentence)
