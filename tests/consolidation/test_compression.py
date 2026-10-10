@@ -43,7 +43,8 @@ class TestSemanticCompressionEngine:
         
         memories = [
             Memory(
-                content="Python list comprehensions provide a concise way to create lists",
+                content="Python list comprehensions provide a concise way to create lists. "
+                        "They replace the append-in-a-loop pattern with a single expression",
                 content_hash="hash1",
                 tags=["python", "programming", "lists"],
                 memory_type="reference",
@@ -52,7 +53,8 @@ class TestSemanticCompressionEngine:
                 created_at_iso=datetime.fromtimestamp(base_time - 86400).isoformat() + 'Z'
             ),
             Memory(
-                content="List comprehensions in Python are more readable than traditional for loops",
+                content="List comprehensions in Python are more readable than traditional for loops. "
+                        "Nested comprehensions get hard to read past two levels",
                 content_hash="hash2", 
                 tags=["python", "readability", "best-practices"],
                 memory_type="standard",
@@ -61,7 +63,8 @@ class TestSemanticCompressionEngine:
                 created_at_iso=datetime.fromtimestamp(base_time - 172800).isoformat() + 'Z'
             ),
             Memory(
-                content="Example: squares = [x**2 for x in range(10)] creates a list of squares",
+                content="Example: squares = [x**2 for x in range(10)] creates a list of squares. "
+                        "Adding an if clause filters the items before they are squared",
                 content_hash="hash3",
                 tags=["python", "example", "code"],
                 memory_type="standard", 
@@ -70,7 +73,8 @@ class TestSemanticCompressionEngine:
                 created_at_iso=datetime.fromtimestamp(base_time - 259200).isoformat() + 'Z'
             ),
             Memory(
-                content="Python comprehensions work for lists, sets, and dictionaries",
+                content="Python comprehensions work for lists, sets, and dictionaries. "
+                        "Generator expressions use the same syntax with parentheses",
                 content_hash="hash4",
                 tags=["python", "comprehensions", "data-structures"],
                 memory_type="reference",
@@ -591,6 +595,25 @@ class TestSemanticCompressionEngine:
             for i in range(2)
         ]
         cluster = self._cluster_of(memories, ["Session", "User"])
+
+        assert await compression_engine._compress_cluster(cluster, memories) is None
+
+    @pytest.mark.asyncio
+    async def test_cluster_whose_sentences_exceed_summary_length_is_not_stored(self, compression_engine):
+        """No pattern memory when every source sentence is too long for the summary (#1492)."""
+        base_time = datetime.now().timestamp()
+        long_sentence = "Deployment pipeline approval " + "step " * 150
+        memories = [
+            Memory(
+                content=f"{long_sentence}{i}",
+                content_hash=f"long_{i}",
+                tags=["release"],
+                embedding=[0.1] * 320,
+                created_at=base_time - i * 3600,
+            )
+            for i in range(2)
+        ]
+        cluster = self._cluster_of(memories, ["deployment", "pipeline"])
 
         assert await compression_engine._compress_cluster(cluster, memories) is None
 

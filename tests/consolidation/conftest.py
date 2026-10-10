@@ -55,7 +55,7 @@ def consolidation_config(temp_archive_path):
         
         # Compression settings
         compression_enabled=True,
-        max_summary_length=200,  # Shorter for tests
+        max_summary_length=500,  # Production default; 200 left no room for a source sentence
         preserve_originals=True,
         
         # Forgetting settings

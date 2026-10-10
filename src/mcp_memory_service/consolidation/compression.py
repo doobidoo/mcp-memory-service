@@ -131,17 +131,18 @@ class SemanticCompressionEngine(ConsolidationBase):
         # Extract key concepts and themes
         key_concepts = await self._extract_key_concepts(memories, cluster.theme_keywords)
         
-        # Without a sentence that carries a concept, the summary would be the
-        # generated overview line alone: a pattern memory with nothing in it.
+        # Generate thematic summary
         sentences = self._select_representative_sentences(memories, key_concepts)
-        if not sentences:
+        summary = await self._generate_thematic_summary(memories, key_concepts, sentences)
+
+        # Without a source sentence in it, the summary is the generated overview
+        # line alone: a pattern memory with nothing in it. A sentence can be
+        # selected and still be dropped by the length limit, so check the summary.
+        if not any(sentence in summary for sentence in sentences):
             self.logger.debug(
-                "Skipping cluster %s: no representative sentence", _sanitize_log_value(cluster.cluster_id)
+                "Skipping cluster %s: no source sentence in summary", _sanitize_log_value(cluster.cluster_id)
             )
             return None
-
-        # Generate thematic summary
-        summary = await self._generate_thematic_summary(memories, key_concepts, sentences)
         
         # Calculate temporal information
         temporal_span = self._calculate_temporal_span(memories)
@@ -345,10 +346,10 @@ class SemanticCompressionEngine(ConsolidationBase):
         
         # Add key insights from representative sentences
         used_length = len(overview)
-        remaining_length = self.max_summary_length - used_length - 100  # Reserve space for conclusion
-        
+        budget = self.max_summary_length - 100  # Reserve space for conclusion
+
         for sentence in representative_sentences:
-            if used_length + len(sentence) < remaining_length:
+            if used_length + len(sentence) < budget:
                 summary_parts.append(sentence)
                 used_length += len(sentence)
             else:
