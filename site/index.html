@@ -45,6 +45,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--serif);font-size
 a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-decoration-thickness:2px;text-underline-offset:.2em;transition:text-decoration-color .15s}
 a:hover{text-decoration-color:var(--mark)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:2px}
+.band :focus-visible,.band-end :focus-visible{outline-color:var(--band-text)}
 mark{color:#10161d;background:var(--mark);padding:0 .12em;border-radius:2px}
 .wrap{max-width:1120px;margin:0 auto;padding:0 1.5rem}
 .sec{padding:5rem 0}
@@ -492,7 +493,8 @@ const EXAMPLES = [
     { s: .58, t: 'A Cloudflare tunnel gives name-based routing for the self-hosted instance.', m: 'deployment · tunnel · 3 months ago' } ] }
 ];
 const AT = [[[110,50],[300,115],[500,55]],[[90,140],[270,45],[440,130]],[[520,150],[350,70],[170,100]]];
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reduceMq = matchMedia('(prefers-reduced-motion: reduce)');
+let reduce = reduceMq.matches;
 const qEl = document.getElementById('q'), listEl = document.getElementById('results'), chipsEl = document.getElementById('chips');
 let run = 0;
 
@@ -577,13 +579,20 @@ show(0);
 // ---- Copy install command ----
 document.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', () => {
   navigator.clipboard.writeText(btn.dataset.copy);
-  const hint = btn.lastElementChild, old = hint.textContent;
+  const hint = btn.lastElementChild;
   hint.textContent = 'copied';
-  setTimeout(() => { hint.textContent = old; }, 1800);
+  clearTimeout(btn.timer);
+  btn.timer = setTimeout(() => { hint.textContent = 'copy'; }, 1800);
 }));
 
 // ---- Keep the decorative loop still for reduced motion ----
-if (reduce) document.querySelectorAll('video[autoplay]').forEach(v => { v.removeAttribute('autoplay'); v.pause(); });
+const loops = document.querySelectorAll('video[autoplay]');
+if (reduce) loops.forEach(v => { v.removeAttribute('autoplay'); v.pause(); });
+// The setting can change while the page is open: stop or resume the loop, and show() reads the new value.
+reduceMq.addEventListener('change', e => {
+  reduce = e.matches;
+  loops.forEach(v => (reduce ? v.pause() : v.play().catch(() => {})));
+});
 </script>
 <!-- Cloudflare Web Analytics: injected automatically at the proxy (zone-level automatic setup) — do not add a manual beacon here, it would double-count. -->
 </body>
