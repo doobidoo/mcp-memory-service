@@ -126,9 +126,8 @@ async function shoot(browser, base, name, shot) {
   await s('Page.enable');
   await s('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: OUT_WIDTH / WIDTH, mobile: false });
   await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: shot.scheme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
-  const loaded = browser.once('Page.loadEventFired', sessionId);
-  await s('Page.navigate', { url: base + shot.path });
-  await loaded;
+  // Await both together: if the browser dies during navigation, both reject, and neither may go unhandled.
+  await Promise.all([browser.once('Page.loadEventFired', sessionId), s('Page.navigate', { url: base + shot.path })]);
   const wait = `(async () => { await document.fonts.ready; ${shot.run ? `await ${shot.run};` : ''} await new Promise(r => setTimeout(r, 600)); })()`;
   const r = await s('Runtime.evaluate', { expression: wait, awaitPromise: true }, 180000);
   if (r.exceptionDetails) throw new Error(`${name}: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
