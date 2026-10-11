@@ -1,7 +1,7 @@
 # ESTADO — mcp-memory-service (Claudio)
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-10 (fim de semana casa — delta-sync 5/5 FASES + PR #1499 fix deadlock VERDE reconhecido pelo Henry; delta-sync E2E provado nos 3 hosts; learning-loop: fix proveniência destravou L4 coverage 0→0.013; frentes B/C/E iniciadas G0 feito → viram PRs atômicos).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-11 (fim de semana casa — ARCO LEARNING AGÊNTICO fechado no valor: A re-rank + dreaming singular belief + D1 utility_prior passivo NO VIVO (commits bc51c4a5..b9a1d43e); ARCO HARVEST aberto: fix do tracker 667→19 commitado+no vivo (c5f3a3a4), causa-raiz real do furo descoberta (triage cego ao formato legado descartava 100%), incidente de embedding ausente resolvido; 6 subagentes evoluídos com disciplina anti-fabricação).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente · 09/out)
@@ -53,13 +53,28 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   │     ├─ C freshness (versão nova vence na injeção) ... 🔴 spec · "v2>v1 no top-k 100% casos". Rota barata: timestamp boost em context_injection.py:274 (zero DDL); robusta: beliefs.superseded_by (DDL).
 │   │     └─ E eval adversarial + MRR ................... 🔴 spec · "script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting". Harness LoCoMo reaproveitável (sem LLM no modo retrieval/ablation); precisa set adversarial novo.
 │   ├─ (próximo) ligar score no ranking do retrieval ... 🔴 após B/C/E · RFC-MM-01 §5
-│   ├─ A re-rank (context precision) / D chunk-attribution 🔴 DESIGN ABERTO → pesquisa multi-IA (frentes do §14 RFC não-cobertas por B/C/E)
+│   ├─ ⭐ ARCO LEARNING AGÊNTICO (11/out, ARC 07bcf182) FECHADO no valor entregue · A+dreaming+D1 NO VIVO (sirdata)
+│   │     ├─ A re-rank / context precision ............ 🟢 FORK commits bc51c4a5(RED)+727d9757 · flag MCP_INJECT_RERANK_A · soma ponderada (rel+advantage-sobre-campo+conf log-saturada−generality query_hash+freshness) · G5 tuvok pegou 3 ALTOs · E2E: generic-wins 2/5→0/5
+│   │     ├─ Dreaming Inc1 singular belief ............. 🟢 FORK commits 2d5b42c8+0ed9576e+fe735300 · flag MCP_BELIEF_SINGULAR+conf 0.55 · fix de fonte única vira injetável no dia, ADITIVO (origin=singular), 242 derivados byte-idênticos · wire on-store (metadata.type∈decision/learning/error) · batch cap anti-flood (1639→cap)
+│   │     ├─ D1 utility_prior passivo .................. 🟢 FORK commit b9a1d43e · flag MCP_BELIEF_UTILITY_PRIOR · Beta-smoothed (prior 0.5 força 8) em metadata, NUNCA toca confidence (desacopla "útil injetar" de "é verdade", desarma double-count A×B×C) · correlação por SOURCE_HASH (derived_from), não belief_hash · 5/5 testes incl. caminho real
+│   │     └─ ROADMAP D2/D3/D4 anotado (nota roadmap-d2-d3-d4 na fase 957bdac2 + CONSOLIDADO de 9 IAs) · gatilho = observar uso real · [B#] só bônus opt-in neutro (disciplina do agente não existe — insight 11/out)
+│   ├─ A re-rank / D chunk-attribution (design aberto)  ✅ RESOLVIDO acima (A feito, D1 feito) · pesquisa frente-d-attribution-sem-disciplina-2026-10 CONSOLIDADO
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
 │       ├─ rfc-mm-03 gap-detection (L4) ............... 🟢 resgatado · migration + handler · spec: 0 EARS (completar)
 │       ├─ rfc-mm-01 feedback-loop (L4) ............... 🟢 resgatado = É o "L4 REAL" acima (passivo, da RFC do Claudio)
 │       └─ p/ virar PR: completar spec ⚠️ (doc payload window-tools #1286 · EARS mm-03 · changelog) → 3 PRs → responder #1286
+│
+├─ ⭐ ARCO HARVEST DE SESSÕES (11/out, ARC 323e1654) ... learning de COLHEITAS (par do learning de memórias) · RFC rfc-harvest-sessoes
+│   │   Dor: sessões .jsonl (~/.kiro/sessions/cli, 1336, ~900MB) = fonte mais rica, massivamente sub-colhida. Raiz = não depender da disciplina do agente.
+│   ├─ FASE 0 planejamento + RFC + decisão arquitetura (A→B, C descartado) . ✅ DONE (G0 seven)
+│   ├─ FASE 1 fix do tracker (667→19 regressão) ........ 🟢 FORK commit c5f3a3a4 · NO VIVO · persist_tracker (merge monotônico+anti-shrink+store-antes-delete+lock módulo) · gate 4 rodadas (tuvok reprovou guard invertido) · 6/6 · tracker reconstruído 19→1299 no vivo
+│   ├─ FASE 1b fix do triage cego ao formato ........... ⚠️ WORKAROUND (MCP_HARVEST_TRIAGE=0) · FIX CÓDIGO PENDENTE (item f52de007) · triage.py só lê formato v4, descartava 100% do legado — causa-raiz real do furo
+│   ├─ FASE 2 backfill das 788 pendentes (546 out) ..... 🔨 EM WORK · tracker reconstruído feito · dry-run comprova candidatos · FALTA harvest real com LLM (longo, cap anti-flood)
+│   ├─ FASE 3 religar scheduler (MCP_HARVEST_SCHEDULE) .. 🔴 depende FASE 2
+│   ├─ FASE 4 resumo-por-sessão (session-summary, dec.B) 🔴 depende FASE 3
+│   └─ 🔧 INCIDENTE resolvido: serviço SEM backend embedding (onnxruntime/tokenizers ausentes no venv) recusava escrita (health 200 enganoso) → uv pip install · mistake 347f7009
 │
 ├─ 🟢 METODOLOGIA DE CURADORIA DE FORK (3/out) ......... nasceu do erro: reimplementei a trilogia que já existia
 │   ├─ metodologia-fork.md (3 rituais) + skill fork-curation + ref AGENTS.md . 🟢 permanente
@@ -176,6 +191,7 @@ colher(limpo) → DESTILAR[L2] → VALIDAR/feedback[L4] → INJETAR proativo[L3]
 - **2 bugs achados e corrigidos POR GATE (reg + tuvok), não na mão:**
   - **Bug rewriter `TYPE:` leak** (real, upstream também) → issue #1417 + **PR #1418 ABERTO** (CI tests-prove-fix verde, aguarda Henry). O LLM ecoava o placeholder literal `TYPE:` para dentro do content + degenerados; `_unleak_type` + prompt `<type>:`.
   - **Bug triagem nunca ativada** (fork-only): `_apply_triage` plugado mas nenhum call-site passava a flag → feature morta. Corrigido (`harvest_config_from_env` nos 4 entry points, default OFF). NÃO vira PR de bug avulso — a triagem não existe no upstream, então entra junto no PR de FEAT.
+    - ⚠️ **RECONCILIAÇÃO 11/out:** a triagem ativada (MCP_HARVEST_TRIAGE=1) tinha um 2º bug mais grave — `triage.py score_session` só lê o formato v4 `payload`, mas as sessões reais são formato LEGADO `kind` → dava score 0/empty p/ TODAS → descartava 100% das sessões ANTES do parser. ERA a causa-raiz real de 61% das sessões nunca colhidas. Workaround: MCP_HARVEST_TRIAGE=0. Fix de código pendente (arco Harvest FASE 1b, item f52de007). As "11 OURO colhidas" de 2/out foram com um acervo-fixture curado (layout 2-níveis), não as sessões reais do dia-a-dia.
 - **11 OURO gravadas** no banco vivo via `memory_consolidate action=harvest` (in-process, integridade intacta), triagem ativada (`MCP_HARVEST_TRIAGE=1`), rewriter já corrigido → 0 vazamento.
 - **Devolutiva do Henry (29/set) nos RFCs do arco** (ver "Em andamento").
 
