@@ -68,46 +68,79 @@ async def _insert_belief(storage, bhash, content, confidence, derived_from=None)
 
 @pytest.fixture
 async def storage_pain(real_storage):
-    """The live pain: a generic belief that matches ALL the query's generic terms
-    with high confidence, vs the specific decisive rule with lower overlap/conf."""
+    """What frente A actually fixes: two beliefs with EQUAL term-overlap to the
+    query, one GENERIC (heavily reinforced: many source memories + high confidence)
+    and one SPECIFIC (few sources, lower confidence). Under relevance*confidence the
+    generic wins on confidence; frente A's generality-penalty + saturated confidence
+    must flip it so the specific wins. This isolates the popularity-bias fix from the
+    confound of query wording (verified live: generic 'RFC/spec primeiro' conf 0.98
+    is pushed out of the top-5 on the real DB with rerank-A on)."""
     await _insert_belief(
         real_storage, "b_generic",
-        "sempre documentar decisão de projeto antes de implementar qualquer coisa",
-        0.98, derived_from=["g1", "g2", "g3", "g4", "g5"],
+        "rerank injeção belief: regra geral aplicável a tudo",
+        0.97, derived_from=["g1", "g2", "g3", "g4", "g5", "g6"],
     )
     await _insert_belief(
         real_storage, "b_specific",
-        "ao documentar decisão de projeto no fork, usar EARS no padrão canônico e commit atômico",
-        0.68, derived_from=["s1", "s2"],
+        "rerank injeção belief específico: advantage sobre o campo penaliza generalidade",
+        0.70, derived_from=["s1", "s2"],
     )
     return real_storage
 
 
+_TASK_PAIN = "rerank injeção belief"
+
+
+async def _seed_injection_history(storage):
+    """Populate usage_events so that b_generic appears across MANY distinct themes
+    (high cross-theme generality, R4) and b_specific across FEW. This is the honest
+    generality signal (query_hash coocurrence), NOT a source-count proxy."""
+    import json as _json
+    conn = storage.conn
+    # b_generic injected for 6 distinct query_hashes (generic: matches many themes)
+    for i in range(6):
+        conn.execute(
+            "INSERT INTO usage_events (event_type, tool, query_hash, metadata, timestamp) "
+            "VALUES ('injection','memory_context',?,?,datetime('now'))",
+            (f"theme_{i:02d}", _json.dumps({"belief_hashes": ["b_generic"]})),
+        )
+    # b_specific injected for 1 distinct query_hash (specific: one theme)
+    conn.execute(
+        "INSERT INTO usage_events (event_type, tool, query_hash, metadata, timestamp) "
+        "VALUES ('injection','memory_context',?,?,datetime('now'))",
+        ("theme_00", _json.dumps({"belief_hashes": ["b_specific"]})),
+    )
+    conn.commit()
+
+
 @pytest.mark.asyncio
 async def test_specific_beats_generic_with_rerank_on(storage_pain):
-    """RED: with rerank-A ON, the SPECIFIC decisive belief must outrank the GENERIC."""
+    """RED→GREEN: with REAL cross-theme generality (b_generic appears across 6 themes
+    in usage_events, b_specific across 1), rerank-A must favor the SPECIFIC."""
+    await _seed_injection_history(storage_pain)
     os.environ["MCP_INJECT_RERANK_A"] = "true"
     try:
-        result = await memory_context(storage_pain, task=_TASK, limit=3)
+        result = await memory_context(storage_pain, task=_TASK_PAIN, limit=3)
     finally:
         os.environ.pop("MCP_INJECT_RERANK_A", None)
     hashes = [b["belief_hash"] for b in result["beliefs"]]
     assert hashes.index("b_specific") < hashes.index("b_generic"), (
-        f"specific must outrank generic with rerank-A on; got {hashes}"
+        f"specific must outrank generic (generic is cross-theme generic); got {hashes}"
     )
 
 
 @pytest.mark.asyncio
 async def test_generic_wins_with_rerank_off_regression(storage_pain):
-    """Regression: with rerank-A OFF, today's behavior holds (generic wins)."""
+    """Regression: with rerank-A OFF, legacy relevance*confidence keeps the generic
+    (higher confidence, equal overlap) at top."""
     os.environ["MCP_INJECT_RERANK_A"] = "false"
     try:
-        result = await memory_context(storage_pain, task=_TASK, limit=3)
+        result = await memory_context(storage_pain, task=_TASK_PAIN, limit=3)
     finally:
         os.environ.pop("MCP_INJECT_RERANK_A", None)
     hashes = [b["belief_hash"] for b in result["beliefs"]]
     assert hashes[0] == "b_generic", (
-        f"with flag off, legacy relevance*confidence keeps generic at top; got {hashes}"
+        f"with flag off, higher-confidence generic stays on top; got {hashes}"
     )
 
 
@@ -115,7 +148,7 @@ async def test_generic_wins_with_rerank_off_regression(storage_pain):
 async def test_default_off_is_legacy(storage_pain):
     """With no flag set, behavior is legacy (opt-in feature): generic wins."""
     os.environ.pop("MCP_INJECT_RERANK_A", None)
-    result = await memory_context(storage_pain, task=_TASK, limit=3)
+    result = await memory_context(storage_pain, task=_TASK_PAIN, limit=3)
     hashes = [b["belief_hash"] for b in result["beliefs"]]
     assert hashes[0] == "b_generic", f"default must be legacy; got {hashes}"
 

@@ -36,6 +36,7 @@ Relevance measurement is honest and embedding-free at its core:
 
 import json
 import logging
+import math
 import os
 import re
 from typing import Any, Dict, List, Optional
@@ -61,10 +62,22 @@ _RETRIEVE_N = 50
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 # Very common tokens that carry little thematic signal; dropped from overlap.
+# Includes EN function words AND PT-BR function words + platitude tokens
+# ("sempre/primeiro/importante") that otherwise inflate a generic belief's
+# overlap relevance (frente A, R8). The accent-splitting tokenizer turns e.g.
+# "decisão" -> {"decis","o"} and "não" -> {"n","o"}, so bare "o"/"n" are noise too.
 _STOPWORDS = {
+    # EN
     "the", "a", "an", "to", "of", "for", "in", "on", "and", "or", "how",
     "should", "i", "configure", "my", "is", "are", "with", "at", "by", "it",
     "this", "that", "be", "as", "do", "does",
+    # PT-BR function words
+    "de", "da", "do", "das", "dos", "e", "ou", "em", "no", "na", "nos", "nas",
+    "um", "uma", "uns", "umas", "para", "pra", "por", "com", "sem", "ao", "aos",
+    "que", "se", "o", "os", "as", "n", "é", "ser", "antes", "depois", "qualquer",
+    "coisa", "todo", "toda", "todos", "todas",
+    # PT-BR platitude tokens (generic, low thematic signal)
+    "sempre", "nunca", "primeiro", "importante", "melhor", "deve", "devemos",
 }
 
 
@@ -145,6 +158,160 @@ def _get_freshness_enabled() -> bool:
     if raw is None:
         return True
     return raw.strip().lower() not in _DISABLED_VALUES
+
+
+def _get_rerank_a_enabled() -> bool:
+    """Return whether frente-A re-rank (context precision) is enabled.
+
+    OPT-IN: default OFF. Only enabled when the value is 'true'/'1'/'yes'
+    (case-insensitive). This keeps the legacy relevance*confidence ordering
+    byte-identical unless explicitly turned on (rfc-learning-loop-a-rerank.md R-opt).
+    """
+    raw = os.environ.get("MCP_INJECT_RERANK_A")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"true", "1", "yes"}
+
+
+# Frente A weights (R10: env-overridable, normalized defaults). Mirror
+# RankedSearchWeights philosophy: a weighted SUM (not product) so a specific,
+# high-advantage belief with modest confidence can beat a generic high-confidence
+# one. Confidence is SATURATED (R6) and generality is PENALIZED (R4) to break the
+# popularity/frequency bias (confidence ~ frequency).
+_RERANK_A_DEFAULTS = {
+    "rel": 0.40,   # relevance (term overlap, already theme-aware)
+    "adv": 0.30,   # advantage-over-the-field: rel minus pool mean (kimi, R5)
+    "conf": 0.15,  # saturated confidence (R6)
+    "fresh": 0.10, # freshness term (R2 — integrate, don't compete)
+    "gen": 0.25,   # generality PENALTY weight (subtracted, R4)
+}
+
+# Support count beyond which extra reinforcement buys no more confidence (R6).
+_RERANK_A_CONF_CAP = 8.0
+
+
+def _rerank_a_weight(name: str) -> float:
+    """Resolve a frente-A term weight from env (MCP_INJECT_RERANK_A_W_<NAME>)."""
+    raw = os.environ.get(f"MCP_INJECT_RERANK_A_W_{name.upper()}")
+    if raw is not None:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            logger.warning("Invalid rerank-A weight %s=%r; using default", name, raw)
+    return _RERANK_A_DEFAULTS[name]
+
+
+def _saturated_confidence(support: int) -> float:
+    """log1p(support)/log1p(CAP) in [0,1] — decouples confidence from frequency (R6)."""
+    if support <= 0:
+        return 0.0
+    return min(1.0, math.log1p(support) / math.log1p(_RERANK_A_CONF_CAP))
+
+
+async def _generality_by_query_hash(storage, belief_hashes: List[str]) -> Dict[str, float]:
+    """Compute REAL cross-theme generality per belief (R4), NOT a source-count proxy.
+
+    Generality(b) = (distinct query_hash in whose injection b appeared) / (total
+    distinct query_hash observed across injections). A belief that shows up for MANY
+    different themes is generic; one that shows up for few is specific. This reads
+    `usage_events` (event_type='injection') metadata.belief_hashes + the event's
+    query_hash. Returns {} when there is not enough signal (then the reranker treats
+    generality as 0 = neutral, instead of the dishonest len(derived_from) proxy that
+    conflated 'well-evidenced' with 'generic' — G5 finding #2/#3).
+
+    O(events) once per injection call; cheap at our volume. Best-effort: any failure
+    returns {} (neutral).
+    """
+    conn = getattr(storage, "conn", None)
+    if conn is None or not belief_hashes:
+        return {}
+    try:
+        rows = conn.execute(
+            "SELECT query_hash, metadata FROM usage_events "
+            "WHERE event_type='injection' AND query_hash IS NOT NULL AND query_hash != ''"
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - telemetry read is best-effort
+        return {}
+    if not rows:
+        return {}  # no query_hash signal yet -> neutral generality (not len(derived_from))
+
+    import json as _json
+    all_queries: set = set()
+    per_belief: Dict[str, set] = {h: set() for h in belief_hashes}
+    wanted = set(belief_hashes)
+    for qh, meta in rows:
+        all_queries.add(qh)
+        if not meta:
+            continue
+        try:
+            m = _json.loads(meta) if isinstance(meta, str) else meta
+            for bh in (m.get("belief_hashes") or []):
+                if bh in wanted:
+                    per_belief[bh].add(qh)
+        except Exception:
+            continue
+    total_q = len(all_queries)
+    if total_q == 0:
+        return {}
+    return {h: (len(qs) / total_q) for h, qs in per_belief.items()}
+
+
+def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) -> None:
+    """Compute the frente-A weighted-sum score IN PLACE on each scored item.
+
+    Writes item['rerank_a'] (breakdown) and item['_rank_a_score'] (sort key). Pure
+    O(n), no new dependency, no DDL. Signals (Inc 1 scope):
+      - relevance: existing term-overlap (item['relevance'])
+      - advantage: relevance minus the pool mean — a belief that 'matches
+        everything' has low advantage even with high raw relevance (R5, kimi)
+      - saturated confidence from support = len(derived_from), log1p-capped (R6)
+      - generality (R4): REAL cross-theme signal (distinct query_hash coocurrence),
+        passed in via `generality` dict; 0.0 when there is no usage signal yet
+        (neutral — we do NOT fall back to len(derived_from), which conflates
+        well-evidenced with generic — G5 finding #2/#3)
+      - freshness: existing bounded freshness_score (R2)
+
+    Deferred to later increments (NOT implemented here, documented so the reader
+    does not assume R1 is fully met): specificity via IDF (R3, needs Inc 0 job) and
+    historical-utility via usage_events (R7, Inc 5). generality uses query_hash now
+    that injection records it.
+    """
+    if not scored:
+        return
+    n = len(scored)
+    pool_mean_rel = sum(s["relevance"] for s in scored) / n
+
+    w_rel = _rerank_a_weight("rel")
+    w_adv = _rerank_a_weight("adv")
+    w_conf = _rerank_a_weight("conf")
+    w_fresh = _rerank_a_weight("fresh")
+    w_gen = _rerank_a_weight("gen")
+
+    for s in scored:
+        rel = s["relevance"]
+        advantage = max(0.0, rel - pool_mean_rel)  # how much it beats the field
+        support = len(s.get("derived_from") or [])
+        conf_sat = _saturated_confidence(support)
+        # Generality is the REAL cross-theme signal (0.0 = neutral when no data).
+        gen = generality.get(s.get("belief_hash"), 0.0)
+        freshness = s.get("freshness_score", 0.0) or 0.0
+
+        score = (
+            w_rel * rel
+            + w_adv * advantage
+            + w_conf * conf_sat
+            + w_fresh * freshness
+            - w_gen * gen
+        )
+        s["_rank_a_score"] = score
+        s["rerank_a"] = {
+            "relevance": round(rel, 4),
+            "advantage": round(advantage, 4),
+            "conf_saturated": round(conf_sat, 4),
+            "generality": round(gen, 4),
+            "freshness": round(freshness, 4),
+            "score": round(score, 4),
+        }
 
 
 def _calculate_freshness_boost(updated_at: Optional[str]) -> float:
@@ -304,7 +471,21 @@ async def memory_context(
 
     # Order by combined relevance x confidence (desc), with optional freshness boost.
     # R4: When MCP_INJECT_FRESHNESS is off, use byte-identical ordering (no freshness).
-    if _get_freshness_enabled():
+    if _get_rerank_a_enabled() and embedding_available:
+        # Frente A (opt-in): weighted-sum re-rank for context precision. Lets a
+        # specific, high-advantage, low-generality belief beat a generic high-confidence
+        # one (rfc-learning-loop-a-rerank.md). R9: only when an embedding model is
+        # available — without it relevance is uniform (1.0), advantage degenerates to 0
+        # and the ranker cannot discriminate, so we honor the confidence-only fallback
+        # below instead of inverting on frequency (G5 finding #1).
+        belief_hashes_for_gen = [s.get("belief_hash") for s in scored if s.get("belief_hash")]
+        generality = await _generality_by_query_hash(storage, belief_hashes_for_gen)
+        _apply_rerank_a(scored, generality)
+        scored.sort(
+            key=lambda s: (s["_rank_a_score"], s["confidence"], s.get("freshness_score", 0.0)),
+            reverse=True,
+        )
+    elif _get_freshness_enabled():
         # R2: Freshness-aware sorting - limited boost + deterministic tiebreaker.
         # Primary sort: relevance * confidence + bounded freshness boost
         # Secondary sort: confidence (stability)
@@ -362,11 +543,12 @@ async def memory_context(
 
     # Best-effort injection telemetry.
     try:
-        from .usage_telemetry import log_usage_event, resolve_telemetry_agent_id
+        from .usage_telemetry import log_usage_event, resolve_telemetry_agent_id, query_hash
 
         await log_usage_event(
             storage,
             "injection",
+            query_hash=query_hash(task),  # privacy-preserving; enables R4 generality
             n_results=count,
             agent_id=resolve_telemetry_agent_id(),
             metadata=json.dumps(
