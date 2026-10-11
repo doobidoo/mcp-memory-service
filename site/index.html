@@ -127,6 +127,19 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 .media .src{font-family:var(--mono);font-size:.8rem;color:var(--muted);padding-top:.3rem}
 .media p{color:var(--muted);font-size:1rem;margin-top:.15rem}
 
+/* Link tiles with a thumbnail of the page they open (images made by scripts/maintenance/site_thumbnails.mjs) */
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.5rem;margin-top:2rem}
+.tile{display:block;border:1px solid var(--line);background:var(--panel);text-decoration:none;transition:border-color .15s}
+.tile:hover{border-color:var(--cyan)}
+.tile img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border-bottom:1px solid var(--line);background:var(--console)}
+.tile-text{display:block;padding:.9rem 1.1rem 1.1rem}
+.tile-text strong{display:block;font-family:var(--display);font-weight:600;font-size:1.15rem;line-height:1.3}
+.tile-text span{display:block;color:var(--muted);font-size:1rem;margin-top:.2rem}
+.band-end .tile{background:rgba(255,255,255,.04);border-color:var(--band-line)}
+.band-end .tile:hover{border-color:var(--cyan)}
+.band-end .tile img{border-bottom-color:var(--band-line)}
+.band-end .tile-text span{color:var(--band-muted)}
+
 /* Install */
 .install{display:grid;grid-template-columns:1.1fr 1fr;gap:3.5rem;align-items:center}
 .install .cmd{max-width:none;font-size:1.15rem;padding:1.1rem 1.25rem}
@@ -142,7 +155,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 .consult strong{display:block;color:inherit;font-family:var(--display);font-weight:600;font-size:1.3rem;margin-bottom:.2rem}
 
 @media(max-width:880px){
-  .hero,.install,.watch,.quotes{grid-template-columns:1fr}
+  .hero,.install,.watch,.quotes,.tiles{grid-template-columns:1fr}
   .hero{gap:2.5rem;padding-block:2.5rem}
   .facts{grid-template-columns:1fr 1fr}
   .facts div:nth-child(3){border-left:0;padding-left:0}
@@ -296,9 +309,15 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
       </div>
     </div>
     <p class="flow-note">The underlined lane is the one that crosses the network with OAuth. Local MCP is a process on your machine, with no network hop.</p>
-    <div class="btns">
-      <a href="/architecture/">Architecture diagram</a>
-      <a href="/deployment/">Deployment landscape</a>
+    <div class="tiles">
+      <a class="tile" href="/architecture/">
+        <img src="/assets/images/thumb-architecture.webp" width="1200" height="675" loading="lazy" alt="The architecture diagram: stdio, REST and Streamable HTTP entries leading to MemoryServer and the storage backends">
+        <span class="tile-text"><strong>Architecture diagram</strong><span>The three ways in, with the source lines behind every box.</span></span>
+      </a>
+      <a class="tile" href="/deployment/">
+        <img src="/assets/images/thumb-deployment.webp" width="1200" height="675" loading="lazy" alt="The deployment diagram: GitHub, its Actions runner, PyPI, Docker Hub, Cloudflare Pages and the GitLab mirror">
+        <span class="tile-text"><strong>Deployment landscape</strong><span>Where releases and the site are built, published and mirrored.</span></span>
+      </a>
     </div>
   </div>
 </section>
@@ -427,10 +446,18 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
         <div class="btns">
           <a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a>
           <a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Documentation</a>
-          <a href="/demo/">Live demo</a>
-          <a href="blog/remote-mcp-tutorial.html">5-minute claude.ai setup</a>
         </div>
       </div>
+    </div>
+    <div class="tiles">
+      <a class="tile" href="/demo/">
+        <img src="/assets/images/thumb-demo.webp" width="1200" height="675" loading="lazy" alt="The live demo: a stored memory list and a search that returns ranked results, all in the browser">
+        <span class="tile-text"><strong>Live demo</strong><span>Store and search memories in your browser. Nothing is uploaded.</span></span>
+      </a>
+      <a class="tile" href="/blog/remote-mcp-tutorial.html">
+        <img src="/assets/images/thumb-blog.webp" width="1200" height="675" loading="lazy" alt="The tutorial: how to add persistent memory to claude.ai in five minutes">
+        <span class="tile-text"><strong>Set up claude.ai in 5 minutes</strong><span>Remote MCP with OAuth, step by step.</span></span>
+      </a>
     </div>
     <div class="consult">
       <p><strong>Deploying for a team?</strong>I help teams run self-hosted memory in production: OAuth, hybrid sync, multi-client rollout. Free 30-minute intro call.</p>

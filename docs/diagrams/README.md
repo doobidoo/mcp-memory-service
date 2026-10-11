@@ -39,3 +39,20 @@ All four gates (validate, deliver, check, browser-check) must pass.
 - Archify has no option for custom colors or fonts. `meta.visual_preset` picks one of
   its four built-in presets; these pages use `blueprint`, the one that sits closest to
   the navy and cyan of the landing page.
+
+## Thumbnails on the landing page
+
+The link tiles on the landing page (architecture, deployment, live demo, setup
+guide) show a screenshot of the page they open. They are generated from the real
+pages, not drawn by hand:
+
+```bash
+node scripts/maintenance/site_thumbnails.mjs            # all four
+node scripts/maintenance/site_thumbnails.mjs demo       # one of them
+```
+
+It needs Node 22 or newer and a Chromium or Chrome (`CHROME_BIN` picks one), and
+writes `site/assets/images/thumb-<name>.webp` at 1200x675. The demo run waits for the
+model to load and runs one search, so it takes about twenty seconds. Run it again
+after a visible change to one of the four pages, and after regenerating a diagram.
+
