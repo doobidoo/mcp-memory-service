@@ -22,547 +22,568 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=JetBrains+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&display=swap">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --cyan:#00e5ff;--purple:#b388ff;--dark:#0a0e17;--card:#111827;
-  --text:#e2e8f0;--muted:#94a3b8;--glow:0 0 20px rgba(0,229,255,.3);
+  --paper:#eef3f6;--ink:#0c1626;--muted:#4f5f72;--line:#d3dde5;--panel:#ffffff;
+  --cyan:#19c2da;--cyan-soft:rgba(25,194,218,.16);--blue:#0a86b8;
+  --band:#0d1a2c;--band-text:#e9f2f7;--band-muted:#92a6b8;--band-line:rgba(255,255,255,.12);
+  --console:#08111d;--mark:var(--cyan);--mark-soft:var(--cyan-soft);
+  --console-text:#e9f2f7;--console-muted:#92a6b8;--console-line:rgba(255,255,255,.12);
+  --serif:'Newsreader',Georgia,'Iowan Old Style',serif;
+  --display:'Bricolage Grotesque','Segoe UI',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Consolas,monospace;
+}
+@media(prefers-color-scheme:dark){
+  :root{--paper:#0a111b;--ink:#e9f2f7;--muted:#92a6b8;--line:#1d2a3a;--panel:#111b29;--cyan-soft:rgba(25,194,218,.14)}
 }
 html{scroll-behavior:smooth}
-body{background:var(--dark);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;overflow-x:hidden;line-height:1.6}
-a{color:var(--cyan);text-decoration:none;transition:opacity .2s}
-a:hover{opacity:.8}
+body{background:var(--paper);color:var(--ink);font-family:var(--serif);font-size:1.125rem;line-height:1.65;overflow-x:hidden}
+a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-decoration-thickness:2px;text-underline-offset:.2em;transition:text-decoration-color .15s}
+a:hover{text-decoration-color:var(--mark)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:2px}
+mark{color:#10161d;background:var(--mark);padding:0 .12em;border-radius:2px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 1.5rem}
+.sec{padding:5rem 0}
+.sec + .sec{border-top:1px solid var(--line)}
+.mono{font-family:var(--mono);font-size:.85rem}
+h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.1;letter-spacing:-.02em;text-wrap:balance}
+h2{font-size:clamp(1.9rem,3.6vw,2.7rem);font-weight:700;font-stretch:90%;margin-bottom:.75rem}
+.lede{color:var(--muted);max-width:60ch;margin-bottom:2.5rem}
 
-/* Canvas background */
-#bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
+/* Band: nav, hero and facts share one navy field */
+.band{background:var(--band);color:var(--band-text)}
+.band a{text-decoration-color:var(--band-line)}
+.band a:hover{text-decoration-color:var(--cyan)}
+
+/* Nav */
+.nav{display:flex;align-items:center;justify-content:space-between;gap:1.5rem;padding:1.1rem 0;border-bottom:1px solid var(--band-line)}
+.brand{display:flex;align-items:center;gap:.6rem;font-family:var(--mono);font-size:.95rem;font-weight:600;text-decoration:none}
+.brand img{width:28px;height:28px;border-radius:7px}
+.nav ul{display:flex;gap:1.5rem;list-style:none;font-size:1rem}
+.nav a{text-decoration:none}
+.nav a:hover{text-decoration:underline;text-decoration-color:var(--cyan)}
+.ver{font-family:var(--mono);font-size:.8rem;color:var(--band-muted)}
 
 /* Hero */
-.hero{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem}
-.hero-logo{width:100px;height:100px;margin-bottom:1.5rem;border-radius:24px;animation:logo-glow 3s ease-in-out infinite;filter:drop-shadow(0 0 15px rgba(0,229,255,.4))}
-@keyframes logo-glow{0%,100%{filter:drop-shadow(0 0 15px rgba(0,229,255,.4))}50%{filter:drop-shadow(0 0 30px rgba(179,136,255,.5))}}
-.hero-badge{display:inline-block;padding:.4rem 1.2rem;border:1px solid var(--cyan);border-radius:999px;font-size:.85rem;color:var(--cyan);margin-bottom:1.5rem;letter-spacing:.05em;animation:pulse-border 2s ease-in-out infinite}
-@keyframes pulse-border{0%,100%{border-color:var(--cyan);box-shadow:0 0 5px rgba(0,229,255,.2)}50%{border-color:var(--purple);box-shadow:0 0 15px rgba(179,136,255,.3)}}
-.hero h1{font-size:clamp(2.5rem,6vw,4.5rem);font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem}
-.hero p{font-size:clamp(1.1rem,2.5vw,1.4rem);color:var(--muted);max-width:700px;margin-bottom:2.5rem}
-.hero-buttons{display:flex;gap:1rem;flex-wrap:wrap;justify-content:center}
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.8rem 1.8rem;border-radius:8px;font-size:1rem;font-weight:600;transition:all .3s;cursor:pointer;border:none}
-.btn-primary{background:linear-gradient(135deg,var(--cyan),var(--purple));color:var(--dark)}
-.btn-primary:hover{box-shadow:var(--glow);transform:translateY(-2px)}
-.btn-secondary{background:transparent;border:1px solid var(--muted);color:var(--text)}
-.btn-secondary:hover{border-color:var(--cyan);color:var(--cyan)}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:3.5rem;align-items:center;padding-block:4.5rem}
+.hero h1{font-family:var(--display);font-weight:700;font-stretch:92%;font-size:clamp(3rem,8vw,6rem);line-height:.98;letter-spacing:-.025em;margin-bottom:1.5rem}
+.hero .sub{color:var(--band-muted);font-size:1.25rem;max-width:34ch;margin-bottom:2rem}
+.cmd{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;max-width:25rem;padding:.85rem 1rem;background:var(--cyan);color:#06121f;border:0;border-radius:6px;font:600 1rem var(--mono);cursor:pointer;text-align:left}
+.cmd span:last-child{font-weight:400;font-size:.8rem;opacity:.75}
+.cmd:hover span:last-child{opacity:1}
+.cmd:focus-visible{outline-color:var(--band-text)}
+.hero-links{display:flex;gap:1.5rem;margin-top:1.1rem;font-size:1rem}
 
-/* Scroll indicator */
-.scroll-indicator{position:absolute;bottom:2rem;animation:bounce 2s infinite}
-@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(10px)}}
-.scroll-indicator svg{width:24px;height:24px;stroke:var(--muted);fill:none;stroke-width:2}
+/* Recall console */
+.console{background:var(--console);color:var(--console-text);border:1px solid var(--console-line);border-radius:10px;box-shadow:0 24px 60px rgba(0,0,0,.45),0 0 80px rgba(25,194,218,.1);overflow:hidden;font-family:var(--mono);font-size:.9rem;line-height:1.55}
+.c-bar{display:flex;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--console-line);color:var(--console-muted);font-size:.78rem}
+.graph svg{display:block;width:100%;height:auto;border-bottom:1px solid var(--console-line)}
+.graph .e{stroke:rgba(146,166,184,.22);stroke-width:1}
+.graph .rel{stroke:var(--cyan);stroke-width:1.6;transition:stroke-dashoffset .45s ease-out}
+.graph .n .core{fill:rgba(146,166,184,.55);transform:scale(.5);transform-box:fill-box;transform-origin:center;transition:transform .3s,fill .3s}
+.graph .n .halo{fill:none;stroke:var(--cyan);opacity:0;transform:scale(.4);transform-box:fill-box;transform-origin:center;transition:transform .5s,opacity .5s}
+.graph .n.lit .core{fill:var(--cyan);transform:scale(1)}
+.graph .n.lit .halo{opacity:.45;transform:scale(1)}
+.graph .s{font:600 14px var(--mono);fill:var(--cyan)}
+.c-q{padding:1rem 1rem .8rem;min-height:3.4rem;font-size:1rem}
+.c-q .p{color:var(--cyan);margin-right:.6rem}
+.caret{display:inline-block;width:.55em;height:1.05em;margin-left:2px;background:var(--console-text);vertical-align:text-bottom;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.c-res{list-style:none;min-height:13.5rem}
+.c-res li{display:grid;grid-template-columns:3.2rem 1fr;gap:.9rem;padding:.8rem 1rem;border-top:1px solid var(--console-line)}
+.score{font-weight:600;color:var(--cyan)}
+.score i{display:block;height:3px;margin-top:.35rem;background:var(--console-line);border-radius:2px;position:relative}
+.score i::after{content:"";position:absolute;inset:0;width:calc(var(--s)*100%);background:var(--cyan);border-radius:2px}
+.c-res p{font-family:var(--serif);font-size:1.02rem;line-height:1.5}
+.c-res .meta{font-family:var(--mono);font-size:.74rem;color:var(--console-muted);margin-top:.2rem}
+.c-res mark{background:linear-gradient(var(--cyan),var(--cyan)) no-repeat 0 100%/0 100%;transition:background-size .5s ease-out;color:var(--console-text)}
+.c-res mark.on{background-size:100% 100%;color:#06121f}
+.c-chips{display:flex;flex-wrap:wrap;gap:.5rem;padding:.8rem 1rem;border-top:1px solid var(--console-line)}
+.c-chips button{background:none;border:1px solid var(--console-line);color:var(--console-muted);padding:.3rem .7rem;border-radius:999px;font:inherit;font-size:.76rem;cursor:pointer;text-align:left}
+.c-chips button:hover,.c-chips button[aria-pressed=true]{border-color:var(--cyan);color:var(--console-text)}
+.c-chips button:focus-visible{outline-color:var(--console-text)}
 
-/* Section base */
-section{position:relative;z-index:1;padding:6rem 2rem}
-.container{max-width:1100px;margin:0 auto}
-.section-title{font-size:clamp(1.8rem,4vw,2.5rem);font-weight:700;text-align:center;margin-bottom:1rem}
-.section-subtitle{text-align:center;color:var(--muted);font-size:1.1rem;max-width:600px;margin:0 auto 3rem}
+/* Facts */
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--band-line)}
+.facts div{display:flex;flex-direction:column;padding:1.8rem 1.5rem 2rem 0}
+.facts div + div{padding-left:1.5rem;border-left:1px solid var(--band-line)}
+.facts dd{font-family:var(--display);font-stretch:85%;font-weight:700;font-size:clamp(2.2rem,4.5vw,3.4rem);line-height:1;letter-spacing:-.02em;color:var(--cyan)}
+.facts dt{font-family:var(--mono);font-size:.8rem;color:var(--band-muted);margin-top:.6rem}
 
-/* Feature cards */
-.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.5rem}
-.feature-card{background:var(--card);border:1px solid #1e293b;border-radius:16px;padding:2rem;transition:all .5s;opacity:0;transform:translateY(40px)}
-.feature-card.visible{opacity:1;transform:translateY(0)}
-.feature-card:hover{border-color:var(--cyan);box-shadow:0 0 30px rgba(0,229,255,.1);transform:translateY(-4px)}
-.feature-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:1.2rem;font-size:1.5rem}
-.feature-icon.http{background:linear-gradient(135deg,rgba(0,229,255,.2),rgba(0,229,255,.05))}
-.feature-icon.oauth{background:linear-gradient(135deg,rgba(179,136,255,.2),rgba(179,136,255,.05))}
-.feature-icon.privacy{background:linear-gradient(135deg,rgba(52,211,153,.2),rgba(52,211,153,.05))}
-.feature-card h3{font-size:1.25rem;margin-bottom:.6rem}
-.feature-card p{color:var(--muted);font-size:.95rem;line-height:1.7}
+/* Watch */
+.watch{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+.watch figure video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#000}
+.watch figcaption{color:var(--muted);font-size:1rem;margin-top:.7rem;max-width:48ch}
 
-/* Architecture diagram */
-.arch-section{background:linear-gradient(180deg,transparent,rgba(0,229,255,.02),transparent)}
-.arch-diagram{display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;padding:2rem 0}
-.arch-node{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.2rem 1.5rem;text-align:center;min-width:160px;opacity:0;transform:scale(.8);transition:all .6s}
-.arch-node.visible{opacity:1;transform:scale(1)}
-.arch-node:hover{border-color:var(--purple);box-shadow:0 0 20px rgba(179,136,255,.15)}
-.arch-node .label{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.3rem}
-.arch-node .name{font-size:1.05rem;font-weight:600}
-.arch-arrow{color:var(--cyan);font-size:1.5rem;padding:0 .5rem;opacity:0;transition:all .6s .3s}
-.arch-arrow.visible{opacity:1}
-.arch-arrow.data-flow{animation:flow 1.5s ease-in-out infinite}
-@keyframes flow{0%,100%{opacity:.4}50%{opacity:1;text-shadow:0 0 10px var(--cyan)}}
-.arch-labels{display:flex;justify-content:center;gap:2rem;margin-top:1.5rem;flex-wrap:wrap}
-.arch-label{font-size:.8rem;color:var(--muted);display:flex;align-items:center;gap:.4rem}
-.arch-label .dot{width:8px;height:8px;border-radius:50%}
-.dot-cyan{background:var(--cyan)}
-.dot-purple{background:var(--purple)}
+/* Releases */
+.rel{list-style:none;border-top:1px solid var(--line)}
+.rel li{display:grid;grid-template-columns:9rem 1fr;gap:1.5rem;padding:1.6rem 0;border-bottom:1px solid var(--line)}
+.rel .tag{font-family:var(--mono);font-size:.8rem;color:var(--muted);padding-top:.35rem}
+.rel h3{font-size:1.3rem;margin-bottom:.35rem}
+.rel p{color:var(--muted);max-width:66ch}
+.rel code,.cmp-note code{font-family:var(--mono);font-size:.82em;background:var(--mark-soft);padding:.05em .3em;border-radius:3px;overflow-wrap:anywhere}
+.more{margin-top:1.5rem}
 
-/* Stats */
-.stats-section{background:linear-gradient(180deg,transparent,rgba(179,136,255,.02),transparent)}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2rem}
-.stat-card{text-align:center;padding:2rem;opacity:0;transform:translateY(30px);transition:all .5s}
-.stat-card.visible{opacity:1;transform:translateY(0)}
-.stat-number{font-size:clamp(2rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.stat-label{color:var(--muted);font-size:.9rem;margin-top:.3rem}
+/* How it works */
+.flow{list-style:none;display:flex;gap:0;align-items:stretch}
+.flow li{flex:1;border:1px solid var(--line);background:var(--panel);padding:1rem 1.1rem;position:relative}
+.flow li + li{margin-left:1.6rem}
+.flow li + li::before{content:"→";position:absolute;left:-1.5rem;top:50%;transform:translateY(-50%);width:1.4rem;text-align:center;color:var(--muted)}
+.flow .mono{color:var(--muted);display:block}
+.flow strong{font-family:var(--display);font-weight:600;font-size:1.1rem;line-height:1.3;display:block}
+.flow li.auth{box-shadow:inset 0 -3px 0 var(--cyan)}
+.flow-note{margin-top:1rem;color:var(--muted);font-size:1rem}
+.btns{display:flex;flex-wrap:wrap;gap:1.5rem;margin-top:1.8rem;font-size:1rem}
 
-/* Comparison tables */
-.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.cmp-table{width:100%;border-collapse:collapse;font-size:.9rem;min-width:520px}
-.cmp-table th,.cmp-table td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid #1e293b}
-.cmp-table th{color:var(--muted);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em}
-.cmp-table td:last-child,.cmp-table th:last-child{color:var(--cyan);font-weight:600}
-.cmp-note{color:var(--muted);font-size:.85rem;line-height:1.7;margin-top:1rem}
+/* Quotes */
+.quotes{display:grid;grid-template-columns:1.4fr 1fr;gap:3rem 3.5rem}
+.quote.big{grid-row:span 2}
+blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height:1.55;border-left:4px solid var(--cyan);padding-left:1.25rem}
+.quote.big blockquote{font-size:clamp(1.5rem,2.6vw,2rem);line-height:1.35}
+.quote .by{display:block;margin-top:.9rem;color:var(--muted);font-size:1rem}
+.quote .what{margin-top:.6rem;color:var(--muted);font-size:1rem;max-width:56ch}
+
+/* Compare */
+.table-wrap{overflow-x:auto}
+.cmp{width:100%;border-collapse:collapse;font-size:1rem;min-width:520px}
+.cmp th,.cmp td{padding:.65rem .9rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+.cmp thead th{font-family:var(--mono);font-size:.8rem;font-weight:600;color:var(--muted)}
+.cmp tbody th{font-weight:400;color:var(--muted)}
+.cmp .us{background:var(--cyan-soft);font-weight:600}
+.cmp thead .us{box-shadow:inset 0 -3px 0 var(--cyan)}
+.cmp .n{color:var(--muted)}
+.cmp-note{color:var(--muted);font-size:1rem;margin-top:1.2rem;max-width:80ch}
+.sub-h{font-size:1.35rem;margin:3rem 0 1rem}
+.sub-h:first-of-type{margin-top:0}
+
+/* Media list */
+.media{list-style:none;border-top:1px solid var(--line)}
+.media li{padding:1.1rem 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:14rem 1fr;gap:1.5rem}
+.media .src{font-family:var(--mono);font-size:.8rem;color:var(--muted);padding-top:.3rem}
+.media p{color:var(--muted);font-size:1rem;margin-top:.15rem}
 
 /* Install */
-.install-section{text-align:center}
-.install-box{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.5rem 2rem;display:inline-block;margin:1.5rem 0 2.5rem;font-family:'SF Mono',Consolas,'Liberation Mono',monospace;font-size:1.1rem;color:var(--cyan);position:relative;cursor:pointer;transition:all .3s}
-.install-box:hover{border-color:var(--cyan);box-shadow:var(--glow)}
-.install-box .copy-hint{position:absolute;top:-1.8rem;right:0;font-size:.75rem;color:var(--muted);font-family:system-ui,sans-serif;opacity:0;transition:opacity .2s}
-.install-box:hover .copy-hint{opacity:1}
-.install-box.copied{border-color:#34d399}
-.install-box.copied::after{content:'Copied!';position:absolute;top:-1.8rem;right:0;font-size:.75rem;color:#34d399;font-family:system-ui,sans-serif}
-.cta-buttons{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1rem}
+.install{display:grid;grid-template-columns:1.1fr 1fr;gap:3.5rem;align-items:center}
+.install .cmd{max-width:none;font-size:1.15rem;padding:1.1rem 1.25rem}
+.band-end{background:var(--band);color:var(--band-text);border-top:0!important}
+.band-end a{text-decoration-color:var(--band-line)}
+.band-end a:hover{text-decoration-color:var(--cyan)}
+.band-end .lede{color:var(--band-muted)}
+.band-end .consult{border-top-color:var(--band-line)}
+.band-end .consult p{color:var(--band-muted)}
+.band-end .btn{border-color:var(--band-text)}
+.consult{margin-top:3rem;padding-top:2rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:2rem;align-items:center;flex-wrap:wrap}
+.consult p{max-width:56ch;color:var(--muted);font-size:1rem}
+.consult strong{display:block;color:inherit;font-family:var(--display);font-weight:600;font-size:1.3rem;margin-bottom:.2rem}
+.btn{display:inline-block;padding:.65rem 1.2rem;border:1px solid var(--ink);border-radius:6px;text-decoration:none;font-size:1rem}
+.btn:hover{background:var(--cyan);color:#06121f;border-color:var(--cyan)}
+footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);font-size:.95rem}
 
-/* Footer */
-footer{position:relative;z-index:1;text-align:center;padding:3rem 2rem;color:var(--muted);font-size:.85rem;border-top:1px solid #1e293b}
-footer a{color:var(--cyan)}
-
-/* Mobile */
-@media(max-width:640px){
-  .arch-diagram{flex-direction:column}
-  .arch-arrow{transform:rotate(90deg)}
-  .hero-buttons{flex-direction:column;align-items:center}
-  section{padding:4rem 1.5rem}
+@media(max-width:880px){
+  .hero,.install,.watch,.quotes{grid-template-columns:1fr}
+  .hero{gap:2.5rem;padding-block:2.5rem}
+  .facts{grid-template-columns:1fr 1fr}
+  .facts div:nth-child(3){border-left:0;padding-left:0}
+  .facts div:nth-child(even){padding-right:0}
+  .facts div:nth-child(n+3){border-top:1px solid var(--band-line)}
+  .flow{flex-direction:column}
+  .flow li{padding:.6rem 1rem}
+  .flow li + li{margin:1.1rem 0 0}
+  .flow li + li::before{content:"↓";left:50%;top:-1.15rem;transform:translateX(-50%);line-height:1}
+  .rel li,.media li{grid-template-columns:1fr;gap:.3rem}
+  .nav ul{display:none}
+  .sec{padding:3.5rem 0}
+  .quote.big{grid-row:auto}
+}
+@media(max-width:480px){
+  .cmd{font-size:.82rem;padding:.85rem .85rem}
+  .install .cmd{font-size:.82rem}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .caret{animation:none}
+  .c-res mark,.graph .rel,.graph .n .core,.graph .n .halo{transition:none}
 }
 </style>
 </head>
 <body>
 
-<canvas id="bg-canvas"></canvas>
+<div class="band">
+<div class="wrap">
+  <nav class="nav" aria-label="Main">
+    <a class="brand" href="/"><img src="brain-icon.png" alt="">mcp-memory-service</a>
+    <ul>
+      <li><a href="#features">Release</a></li>
+      <li><a href="#compare">Compare</a></li>
+      <li><a href="/demo/">Demo</a></li>
+      <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
+      <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <span class="ver">v11.15</span>
+  </nav>
+</div>
 
-<!-- Hero -->
-<header class="hero">
-  <img src="brain-icon.png" alt="Memory for AI Agents" class="hero-logo">
-  <span class="hero-badge">mcp-memory-service v11.15 &mdash; Now Available</span>
-  <h1>Memory for AI Agents</h1>
-  <p>Persistent memory for AI agents &mdash; REST API, MCP, OAuth, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. One self-hosted service, every transport.</p>
-  <div class="hero-buttons">
-    <a href="/demo/" class="btn btn-primary">
-      Try the Live Demo
-    </a>
-    <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-      GitHub
-    </a>
-    <a href="https://pypi.org/project/mcp-memory-service/" class="btn btn-secondary" target="_blank">
-      PyPI Package
-    </a>
+<header class="wrap hero">
+  <div>
+    <h1>Memory for AI agents</h1>
+    <p class="sub">One self-hosted service your agents search by meaning, over REST, MCP, OAuth or the CLI.</p>
+    <button class="cmd" type="button" data-copy="pip install mcp-memory-service" aria-label="Copy install command">
+      <span>pip install mcp-memory-service</span><span>copy</span>
+    </button>
+    <div class="hero-links">
+      <a href="/demo/">Try it in your browser</a>
+      <a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://pypi.org/project/mcp-memory-service/" target="_blank" rel="noopener">PyPI</a>
+    </div>
   </div>
-  <div class="scroll-indicator">
-    <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+
+  <div class="console" role="region" aria-label="Example of recalling memories by meaning">
+    <div class="c-bar"><span>recall</span><span>example data</span></div>
+    <div class="graph"><svg id="graph" viewBox="0 0 600 190" role="img" aria-label="Memory graph: the memories that match the query light up and are linked"></svg></div>
+    <div class="c-q"><span class="p">&gt;</span><span id="q"></span><span class="caret" aria-hidden="true"></span></div>
+    <ol class="c-res" id="results" aria-live="polite"></ol>
+    <div class="c-chips" id="chips"></div>
   </div>
 </header>
+<div class="wrap">
+  <dl class="facts">
+    <div><dd>5 ms</dd><dt>local read latency</dt></div>
+    <div><dd>86%</dd><dt>LongMemEval R@5, session mode</dt></div>
+    <div><dd>4,128</dd><dt>tests</dt></div>
+    <div><dd>25+</dd><dt>AI apps supported</dt></div>
+  </dl>
+</div>
+</div>
 
-<!-- 3D Knowledge Graph showcase -->
-<section class="graph-showcase" style="padding: 2.5rem 1.5rem 0; text-align: center;">
-  <div class="container">
-    <video autoplay loop muted playsinline
-           poster="assets/images/memory-network-poster.jpg"
-           aria-label="Animated memory network — glowing nodes linked by pulsing edges"
-           style="width: 100%; max-width: 1000px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 70px rgba(70,90,210,0.35);">
-      <source src="assets/videos/memory-network.webm" type="video/webm">
-      <source src="assets/videos/memory-network.mp4" type="video/mp4">
-      <img src="assets/images/memory-network-poster.jpg"
-           alt="Memory network — glowing nodes linked by edges"
-           style="width: 100%; max-width: 1000px; border-radius: 14px;">
-    </video>
-    <p style="opacity: 0.7; font-size: 0.95rem; margin-top: 0.85rem;">Every memory a node, every relationship an edge — recalled by meaning, not keywords.</p>
+<main>
+
+<section class="sec" id="watch">
+  <div class="wrap">
+    <div class="watch">
+      <figure>
+        <video autoplay loop muted playsinline poster="assets/images/memory-network-poster.jpg"
+               aria-label="Animated memory network: nodes linked by pulsing edges">
+          <source src="assets/videos/memory-network.webm" type="video/webm">
+          <source src="assets/videos/memory-network.mp4" type="video/mp4">
+        </video>
+        <figcaption>Every memory is a node, every relationship an edge. Recall works by meaning, not keywords.</figcaption>
+      </figure>
+      <figure>
+        <video controls preload="metadata" playsinline poster="assets/images/explainer-poster.png"
+               aria-label="Explainer video: an agent forgets between sessions, mcp-memory-service stores tagged memories, retrieves them by meaning, links them in a graph and consolidates old ones">
+          <source src="assets/videos/explainer.mp4" type="video/mp4">
+        </video>
+        <figcaption>See it in 50 seconds: store, retrieve, link and consolidate. Narrated with a local text-to-speech model.</figcaption>
+      </figure>
+    </div>
   </div>
 </section>
 
-<!-- Explainer video -->
-<section class="video-showcase" style="padding: 3rem 1.5rem 0; text-align: center;">
-  <div class="container">
-    <h2 class="section-title">See it in 50 seconds</h2>
-    <p class="section-subtitle">Store, retrieve, link and consolidate memories. Narrated with a local text-to-speech model.</p>
-    <video controls preload="metadata" playsinline
-           poster="assets/images/explainer-poster.png"
-           aria-label="Explainer video: an agent forgets between sessions, mcp-memory-service stores tagged memories, retrieves them by meaning, links them in a graph and consolidates old ones"
-           style="width: 100%; max-width: 1000px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 24px 70px rgba(0,229,255,0.18);">
-      <source src="assets/videos/explainer.mp4" type="video/mp4">
-    </video>
+<section class="sec" id="features">
+  <div class="wrap">
+    <h2>What's new in v11.15</h2>
+    <p class="lede">94 commits since the previous release, 4,128 tests.</p>
+    <ul class="rel">
+      <li>
+        <span class="tag">Security</span>
+        <div>
+          <h3>mcp-memory-server refuses a non-loopback bind</h3>
+          <p>It used to serve the full MCP tool surface with no authentication on whatever address <code>MCP_HTTP_HOST</code> named. Network clients now use <code>memory server --streamable-http</code> with <code>MCP_API_KEY</code> or OAuth. GHSA-26rx-6fvr-qjqg, reported by @NotAFlightRisk.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">API</span>
+        <div>
+          <h3>Scope memory and search by store</h3>
+          <p>The HTTP API scopes memory, search, CRUD and analytics by store, and <code>POST /api/search/by-tag</code> accepts a limit. Milvus now implements the full storage and graph contract.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Retention and search</span>
+        <div>
+          <h3>Long-standing correctness fixes</h3>
+          <p>A human rating no longer overwrites the machine quality score that retention reads, <code>MCP_DECAY_ENABLED=false</code> takes effect, hybrid BM25 matches keywords, and exact-mode search no longer treats <code>%</code> and <code>_</code> as wildcards.</p>
+        </div>
+      </li>
+    </ul>
+    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.15.0" target="_blank" rel="noopener">Full release notes for v11.15.0</a></p>
   </div>
 </section>
 
-<!-- Features -->
-<section id="features">
-  <div class="container">
-    <h2 class="section-title">What's New in v11.15</h2>
-    <p class="section-subtitle">MINOR release: 94 commits since the previous release. The MCP-only server stopped serving its full tool surface unauthenticated on a network bind, retention and decay got a set of long-standing correctness fixes, and the HTTP API can scope memory and search by store. 4,128 tests.</p>
-    <div class="features-grid">
-      <div class="feature-card" data-delay="0">
-        <div class="feature-icon privacy">&#129520;</div>
-        <h3>mcp-memory-server Refuses a Non-Loopback Bind</h3>
-        <p>mcp-memory-server served the full MCP tool surface with no authentication on whatever address MCP_HTTP_HOST named. It now refuses to start on a non-loopback bind. Network clients should use memory server --streamable-http with MCP_SSE_HOST plus MCP_API_KEY or OAuth. Reported by @NotAFlightRisk. (GHSA-26rx-6fvr-qjqg, #1443)</p>
+<section class="sec" id="architecture">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="lede">Claude.ai connects to your memory server through Streamable HTTP with OAuth 2.1 authentication.</p>
+    <ol class="flow">
+      <li><span class="mono">Browser</span><strong>Claude.ai</strong></li>
+      <li><span class="mono">Transport</span><strong>Streamable HTTP</strong></li>
+      <li class="auth"><span class="mono">Auth</span><strong>OAuth 2.1 + PKCE</strong></li>
+      <li><span class="mono">Server</span><strong>MCP Memory</strong></li>
+      <li><span class="mono">Storage</span><strong>Knowledge graph</strong></li>
+    </ol>
+    <p class="flow-note">The underlined step is the auth boundary.</p>
+    <div class="btns">
+      <a href="/architecture/">Architecture diagram</a>
+      <a href="/deployment/">Deployment landscape</a>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="case-studies">
+  <div class="wrap">
+    <h2>In the wild</h2>
+    <p class="lede">Three deployments people built and run themselves.</p>
+    <div class="quotes">
+      <div class="quote big">
+        <blockquote>
+          "After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge, and it's pretty delightful."
+        </blockquote>
+        <span class="by"><a href="https://github.com/jeremykoerber" target="_blank" rel="noopener">@jeremykoerber</a></span>
+        <p class="what">A five-agent cluster uses one memory service as shared state and as an inter-agent channel, with no custom protocol: cluster agents write a sentinel tag, the local agent filters on it. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/agents/README.md" target="_blank" rel="noopener">The pattern</a></p>
       </div>
-      <div class="feature-card" data-delay="150">
-        <div class="feature-icon consolidation">&#128269;</div>
-        <h3>Scope Memory and Search by Store</h3>
-        <p>The HTTP API can scope memory, search, CRUD and analytics by store (#1106), POST /api/search/by-tag accepts a limit, and MCP_CONSOLIDATION_AUTO_SUPERSEDE lets consolidation keep contradicts edges without hiding the older memory. Milvus now implements the full storage and graph contract.</p>
+      <div class="quote">
+        <blockquote>
+          "File-based memory demands constant discipline. Semantic recall from a live database doesn't. Storing data on my own hardware while making it remotely accessible across platforms turned out to be a feature I didn't know I needed."
+        </blockquote>
+        <span class="by"><a href="https://github.com/PL-Peter" target="_blank" rel="noopener">@PL-Peter</a></span>
+        <p class="what">Two Docker containers on one SQLite backend, a Cloudflare tunnel for name-based routing, and an auth gateway in front. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/production-guide.md" target="_blank" rel="noopener">The checklist</a></p>
       </div>
-      <div class="feature-card" data-delay="300">
-        <div class="feature-icon http">&#127760;</div>
-        <h3>Retention and Search Correctness</h3>
-        <p>A human rating no longer overwrites the machine quality score that retention reads, MCP_DECAY_ENABLED=false takes effect, type-based retention matches the real ontology, hybrid BM25 finally matches keywords, and exact-mode search no longer treats % and _ as wildcards. Harvest also gains Kiro CLI v3 sessions and a visible coverage report.</p>
+      <div class="quote">
+        <blockquote>
+          "Claude Code, Claude Desktop, Codex CLI and OpenCode all talk to the same sqlite-vec DB over stdio on my Mac. ~5,900 memories and counting. It's the closest thing to persistent identity my agents have."
+        </blockquote>
+        <span class="by">Mingjian Shao, AI PM and consultant, September 2026</span>
+        <p class="what">One local sqlite-vec database shared by four agents: no server, no cloud, offline embeddings, daily backups and scheduled consolidation.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- Architecture -->
-<section class="arch-section" id="architecture">
-  <div class="container">
-    <h2 class="section-title">How It Works</h2>
-    <p class="section-subtitle">Claude.ai connects to your memory server through Streamable HTTP with OAuth 2.1 authentication.</p>
-    <div class="arch-diagram">
-      <div class="arch-node" data-delay="0">
-        <div class="label">Browser</div>
-        <div class="name">Claude.ai</div>
-      </div>
-      <div class="arch-arrow data-flow">&rarr;</div>
-      <div class="arch-node" data-delay="200">
-        <div class="label">Transport</div>
-        <div class="name">Streamable HTTP</div>
-      </div>
-      <div class="arch-arrow data-flow">&rarr;</div>
-      <div class="arch-node" data-delay="400">
-        <div class="label">Auth</div>
-        <div class="name">OAuth 2.1 + PKCE</div>
-      </div>
-      <div class="arch-arrow data-flow">&rarr;</div>
-      <div class="arch-node" data-delay="600">
-        <div class="label">Server</div>
-        <div class="name">MCP Memory</div>
-      </div>
-      <div class="arch-arrow data-flow">&rarr;</div>
-      <div class="arch-node" data-delay="800">
-        <div class="label">Storage</div>
-        <div class="name">Knowledge Graph</div>
-      </div>
-    </div>
-    <div class="arch-labels">
-      <span class="arch-label"><span class="dot dot-cyan"></span> Data flow</span>
-      <span class="arch-label"><span class="dot dot-purple"></span> Auth boundary</span>
-    </div>
-    <div class="hero-buttons" style="margin-top:2rem">
-      <a href="/architecture/" class="btn btn-secondary">Architecture diagram</a>
-      <a href="/deployment/" class="btn btn-secondary">Deployment landscape</a>
-    </div>
-  </div>
-</section>
+<section class="sec" id="compare">
+  <div class="wrap">
+    <h2>How it compares</h2>
+    <p class="lede">Against the commercial memory APIs and the MCP-native alternatives.</p>
 
-<!-- Stats -->
-<section class="stats-section" id="stats">
-  <div class="container">
-    <h2 class="section-title">Built for Production</h2>
-    <p class="section-subtitle">Battle-tested with comprehensive testing and optimized for performance.</p>
-    <div class="stats-grid">
-      <div class="stat-card" data-delay="0">
-        <div class="stat-number" data-target="3484">0</div>
-        <div class="stat-label">Tests</div>
-      </div>
-      <div class="stat-card" data-delay="100">
-        <div class="stat-number" data-target="25" data-suffix="+">0</div>
-        <div class="stat-label">AI Apps Supported</div>
-      </div>
-      <div class="stat-card" data-delay="200">
-        <div class="stat-number" data-target="5" data-suffix="ms">0</div>
-        <div class="stat-label">Read Latency</div>
-      </div>
-      <div class="stat-card" data-delay="300">
-        <div class="stat-number" data-target="86" data-suffix="%">0</div>
-        <div class="stat-label">LongMemEval R@5</div>
-      </div>
-      <div class="stat-card" data-delay="400">
-        <div class="stat-number" data-target="534628" data-suffix="x">0</div>
-        <div class="stat-label">Cache Speedup</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Real-world deployments -->
-<section id="case-studies">
-  <div class="container">
-    <h2 class="section-title">In the Wild</h2>
-    <p class="section-subtitle">Three deployments people built and run themselves.</p>
-    <div class="features-grid">
-      <div class="feature-card" data-delay="0">
-        <div class="feature-icon http">&#129302;</div>
-        <h3>A Cluster That Uses Memory as a Message Bus</h3>
-        <p><em>"After I work with one of the cluster agents on something I want my local agent to know about, the cluster agent adds a special tag to the memory entry that my local agent recognizes as a message from a cluster agent. So they end up using it as a comms bridge &mdash; and it's pretty delightful."</em> &mdash; <a href="https://github.com/jeremykoerber" target="_blank" rel="noopener" style="color:var(--cyan)">@jeremykoerber</a></p>
-        <p>A five-agent cluster uses one memory service as shared state and as an inter-agent channel, with no custom protocol: cluster agents write a sentinel tag, the local agent filters on it. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/agents/README.md" target="_blank" rel="noopener" style="color:var(--cyan)">The pattern &rarr;</a></p>
-      </div>
-      <div class="feature-card" data-delay="150">
-        <div class="feature-icon oauth">&#128272;</div>
-        <h3>Self-Hosted Behind a Cloudflare Tunnel</h3>
-        <p><em>"The quality of life that session-independent memory adds to AI workflows is immense. File-based memory demands constant discipline. Semantic recall from a live database doesn't. Storing data on my own hardware while making it remotely accessible across platforms turned out to be a feature I didn't know I needed."</em> &mdash; <a href="https://github.com/PL-Peter" target="_blank" rel="noopener" style="color:var(--cyan)">@PL-Peter</a></p>
-        <p>Two Docker containers on one SQLite backend, a Cloudflare tunnel for name-based routing and subnet access control, and an auth gateway in front. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/production-guide.md" target="_blank" rel="noopener" style="color:var(--cyan)">The checklist &rarr;</a></p>
-      </div>
-      <div class="feature-card" data-delay="300">
-        <div class="feature-icon privacy">&#128245;</div>
-        <h3>Four Agents, One Local Database, No Cloud</h3>
-        <p><em>"mcp-memory-service has been the shared memory layer for all my coding agents since February &mdash; Claude Code, Claude Desktop, Codex CLI and OpenCode all talk to the same sqlite-vec DB over stdio on my Mac. ~5,900 memories and counting. Every session starts by pulling a bootstrap profile from memory and ends by committing a session summary, so any agent can pick up where another left off. It's the closest thing to persistent identity my agents have."</em> &mdash; Mingjian Shao, AI PM and consultant <span style="color:var(--muted)">(September 2026)</span></p>
-        <p>One local sqlite-vec database as the shared brain for four agents over stdio &mdash; no server, no cloud, embeddings fully offline on MPS, daily backups and scheduled consolidation.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Comparison -->
-<section id="compare">
-  <div class="container">
-    <h2 class="section-title">How It Compares</h2>
-    <p class="section-subtitle">Against the commercial memory APIs and the MCP-native alternatives.</p>
-
-    <h3 style="margin-bottom:1rem">Commercial memory APIs</h3>
+    <h3 class="sub-h">Commercial memory APIs</h3>
     <div class="table-wrap">
-      <table class="cmp-table">
-        <thead><tr><th></th><th>Mem0</th><th>Zep</th><th>DIY Redis+Pinecone</th><th>mcp-memory-service</th></tr></thead>
+      <table class="cmp">
+        <thead><tr><th></th><th class="us">mcp-memory-service</th><th>Mem0</th><th>Zep</th><th>DIY Redis+Pinecone</th></tr></thead>
         <tbody>
-          <tr><td>License</td><td>Proprietary</td><td>Enterprise</td><td>&mdash;</td><td>Apache 2.0</td></tr>
-          <tr><td>Cost</td><td>Per-call API</td><td>Enterprise</td><td>Infra costs</td><td>$0</td></tr>
-          <tr><td>claude.ai browser</td><td>Desktop only</td><td>Desktop only</td><td>No</td><td>Remote MCP</td></tr>
-          <tr><td>OAuth 2.0 + DCR</td><td>Unknown</td><td>Unknown</td><td>No</td><td>Yes</td></tr>
-          <tr><td>Streamable HTTP</td><td>No</td><td>No</td><td>No</td><td>Yes (SSE too)</td></tr>
-          <tr><td>Framework integration</td><td>SDK</td><td>SDK</td><td>Manual</td><td>REST, any HTTP client</td></tr>
-          <tr><td>Knowledge graph</td><td>No</td><td>Limited</td><td>No</td><td>Yes, typed edges</td></tr>
-          <tr><td>Auto consolidation</td><td>No</td><td>No</td><td>No</td><td>Yes, decay + compression</td></tr>
-          <tr><td>On-premise embeddings</td><td>No</td><td>No</td><td>Manual</td><td>Yes, ONNX local</td></tr>
-          <tr><td>Privacy</td><td>Cloud</td><td>Cloud</td><td>Partial</td><td>100% local</td></tr>
-          <tr><td>Hybrid search</td><td>No</td><td>Yes</td><td>Manual</td><td>Yes, BM25 + vector</td></tr>
-          <tr><td>MCP protocol</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+          <tr><th>License</th><td class="us">Apache 2.0</td><td>Proprietary</td><td>Enterprise</td><td>&mdash;</td></tr>
+          <tr><th>Cost</th><td class="us">$0</td><td>Per-call API</td><td>Enterprise</td><td>Infra costs</td></tr>
+          <tr><th>claude.ai browser</th><td class="us">Remote MCP</td><td>Desktop only</td><td>Desktop only</td><td class="n">No</td></tr>
+          <tr><th>OAuth 2.0 + DCR</th><td class="us">Yes</td><td>Unknown</td><td>Unknown</td><td class="n">No</td></tr>
+          <tr><th>Streamable HTTP</th><td class="us">Yes (SSE too)</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
+          <tr><th>Framework integration</th><td class="us">REST, any HTTP client</td><td>SDK</td><td>SDK</td><td>Manual</td></tr>
+          <tr><th>Knowledge graph</th><td class="us">Yes, typed edges</td><td class="n">No</td><td>Limited</td><td class="n">No</td></tr>
+          <tr><th>Auto consolidation</th><td class="us">Yes, decay + compression</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
+          <tr><th>On-premise embeddings</th><td class="us">Yes, ONNX local</td><td class="n">No</td><td class="n">No</td><td>Manual</td></tr>
+          <tr><th>Privacy</th><td class="us">100% local</td><td>Cloud</td><td>Cloud</td><td>Partial</td></tr>
+          <tr><th>Hybrid search</th><td class="us">Yes, BM25 + vector</td><td class="n">No</td><td>Yes</td><td>Manual</td></tr>
+          <tr><th>MCP protocol</th><td class="us">Yes</td><td class="n">No</td><td class="n">No</td><td class="n">No</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h3 style="margin:2.5rem 0 1rem">MCP-native: MemPalace</h3>
+    <h3 class="sub-h">MCP-native: MemPalace</h3>
     <div class="table-wrap">
-      <table class="cmp-table">
-        <thead><tr><th></th><th>MemPalace</th><th>mcp-memory-service</th></tr></thead>
+      <table class="cmp">
+        <thead><tr><th></th><th class="us">mcp-memory-service</th><th>MemPalace</th></tr></thead>
         <tbody>
-          <tr><td>LongMemEval R@5 (raw ChromaDB, zero LLM)</td><td>96.6%<sup>1</sup></td><td>86.0% session / 80.4% turn</td></tr>
-          <tr><td>LongMemEval R@5 (with reranking)</td><td>100%<sup>2</sup></td><td>&mdash;</td></tr>
-          <tr><td>Storage granularity</td><td>Session-level</td><td>Turn-level and session-level</td></tr>
-          <tr><td>Team / multi-device sync</td><td>Local only</td><td>Cloudflare sync</td></tr>
-          <tr><td>REST API / web dashboard</td><td>No</td><td>Yes</td></tr>
-          <tr><td>OAuth 2.1 + multi-user</td><td>No</td><td>Yes</td></tr>
-          <tr><td>Knowledge graph</td><td>No</td><td>Yes, typed edges</td></tr>
-          <tr><td>Auto consolidation</td><td>No</td><td>Yes, decay + compression</td></tr>
-          <tr><td>License</td><td>MIT</td><td>Apache 2.0</td></tr>
+          <tr><th>LongMemEval R@5 (raw ChromaDB, zero LLM)</th><td class="us">86.0% session / 80.4% turn</td><td>96.6%<sup>1</sup></td></tr>
+          <tr><th>LongMemEval R@5 (with reranking)</th><td class="us">&mdash;</td><td>100%<sup>2</sup></td></tr>
+          <tr><th>Storage granularity</th><td class="us">Turn-level and session-level</td><td>Session-level</td></tr>
+          <tr><th>Team / multi-device sync</th><td class="us">Cloudflare sync</td><td>Local only</td></tr>
+          <tr><th>REST API / web dashboard</th><td class="us">Yes</td><td class="n">No</td></tr>
+          <tr><th>OAuth 2.1 + multi-user</th><td class="us">Yes</td><td class="n">No</td></tr>
+          <tr><th>Knowledge graph</th><td class="us">Yes, typed edges</td><td class="n">No</td></tr>
+          <tr><th>Auto consolidation</th><td class="us">Yes, decay + compression</td><td class="n">No</td></tr>
+          <tr><th>License</th><td class="us">Apache 2.0</td><td>MIT</td></tr>
         </tbody>
       </table>
     </div>
     <p class="cmp-note">
-      <strong>Why the benchmark gap?</strong> MemPalace stores whole sessions as single units, and LongMemEval asks which session contains the answer &mdash; that granularity answers the question structurally. This service defaults to turn-level storage for finer retrieval; session-mode ingestion brings it to 86.0% R@5.<br>
-      <sup>1</sup> Measured in MemPalace "raw mode": plain text in ChromaDB with default embeddings. Per <a href="https://github.com/MemPalace/mempalace/issues/27" target="_blank" rel="noopener" style="color:var(--cyan)">Issue #27</a>, the Palace structural features are bypassed in that configuration, and the maintainers acknowledged most of the review's points.<br>
+      <strong>Why the benchmark gap?</strong> MemPalace stores whole sessions as single units, and LongMemEval asks which session contains the answer, so that granularity answers the question structurally. This service defaults to turn-level storage for finer retrieval; session-mode ingestion brings it to 86.0% R@5.<br>
+      <sup>1</sup> Measured in MemPalace "raw mode": plain text in ChromaDB with default embeddings. Per <a href="https://github.com/MemPalace/mempalace/issues/27" target="_blank" rel="noopener">Issue #27</a>, the Palace structural features are bypassed in that configuration, and the maintainers acknowledged most of the review's points.<br>
       <sup>2</sup> Uses optional LLM reranking (~500 API calls) on a partially tuned test set. Clean held-out score as reported by the maintainers: 98.4% R@5.<br>
-      Full numbers and the run commands: <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener" style="color:var(--cyan)">docs/BENCHMARKS.md &rarr;</a>
+      Full numbers and the run commands: <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">docs/BENCHMARKS.md</a>
     </p>
 
-    <h3 style="margin:2.5rem 0 1rem">SHODH ecosystem</h3>
-    <p class="cmp-note">Fully compatible with the <a href="https://github.com/varun29ankuS/shodh-memory/blob/main/specs/openapi.yaml" target="_blank" rel="noopener" style="color:var(--cyan)">SHODH Unified Memory API Specification</a>: every SHODH implementation shares the same memory schema &mdash; emotional metadata, episodic memory, source tracking, quality scoring &mdash; so memories export and import across implementations with full fidelity. The reference implementation is <a href="https://github.com/varun29ankuS/shodh-memory" target="_blank" rel="noopener" style="color:var(--cyan)">shodh-memory</a> (RocksDB); shodh-cloudflare runs on Workers + Vectorize; this service runs SQLite-vec or Hybrid.</p>
+    <h3 class="sub-h">SHODH ecosystem</h3>
+    <p class="cmp-note" style="margin-top:0">Fully compatible with the <a href="https://github.com/varun29ankuS/shodh-memory/blob/main/specs/openapi.yaml" target="_blank" rel="noopener">SHODH Unified Memory API Specification</a>: every SHODH implementation shares the same memory schema (emotional metadata, episodic memory, source tracking, quality scoring), so memories export and import across implementations with full fidelity. The reference implementation is <a href="https://github.com/varun29ankuS/shodh-memory" target="_blank" rel="noopener">shodh-memory</a> (RocksDB); shodh-cloudflare runs on Workers + Vectorize; this service runs SQLite-vec or Hybrid.</p>
   </div>
 </section>
 
-<!-- In the Media -->
-<section id="media">
-  <div class="container">
-    <h2 class="section-title">In the Media</h2>
-    <p class="section-subtitle">Talks and coverage from the community.</p>
-    <div class="features-grid">
-      <a class="feature-card" data-delay="0" href="https://www.linkedin.com/pulse/humans-loop-deep-dive-agents-overdrawn-rbrcc/" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
-        <div class="feature-icon http">&#128240;</div>
-        <h3>Agents Overdrawn at the Memory Bank</h3>
-        <p>Heavybit's <em>Humans in the Loop</em> deep dive talks to maintainer Heinrich Krupp about agent amnesia and why persistent memory is the missing infrastructure layer for agentic systems.</p>
-      </a>
-      <div class="feature-card" data-delay="150">
-        <div class="feature-icon oauth">&#127908;</div>
-        <h3><a href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">AI Tinkerers Zürich Talk</a></h3>
-        <p>Maintainer Heinrich Krupp presents mcp-memory-service at the AI Tinkerers Zürich meetup — persistent memory architecture, semantic search, and multi-agent memory sharing. <a href="https://drive.google.com/file/d/1NJDLetJ5CE7Jiek9OtyXCrt-zm768YB6/view" target="_blank" rel="noopener" style="color:var(--cyan)">Watch the full video &rarr;</a></p>
+<section class="sec" id="media">
+  <div class="wrap">
+    <h2>In the media</h2>
+    <p class="lede">Talks and coverage from the community.</p>
+    <ul class="media">
+      <li>
+        <span class="src">Heavybit, Humans in the Loop</span>
+        <div><a href="https://www.linkedin.com/pulse/humans-loop-deep-dive-agents-overdrawn-rbrcc/" target="_blank" rel="noopener">Agents Overdrawn at the Memory Bank</a>
+        <p>A deep dive with maintainer Heinrich Krupp on agent amnesia and why persistent memory is the missing infrastructure layer for agentic systems.</p></div>
+      </li>
+      <li>
+        <span class="src">AI Tinkerers Zürich</span>
+        <div><a href="https://zurich.aitinkerers.org/talks/rsvp_DuHc2MBp1uo" target="_blank" rel="noopener">Talk by Heinrich Krupp</a> &middot; <a href="https://drive.google.com/file/d/1NJDLetJ5CE7Jiek9OtyXCrt-zm768YB6/view" target="_blank" rel="noopener">full video</a>
+        <p>Persistent memory architecture, semantic search, and multi-agent memory sharing.</p></div>
+      </li>
+      <li>
+        <span class="src">LinkedIn, Dr. Álvaro Cintas</span>
+        <div><a href="https://www.linkedin.com/feed/update/urn:li:activity:7508652464548802560/" target="_blank" rel="noopener">Solving session amnesia</a>
+        <p>How mcp-memory-service gives Claude Code, Cursor and OpenCode a shared memory over MCP, with on-device ONNX embeddings and no external API calls.</p></div>
+      </li>
+    </ul>
+    <p class="cmp-note">"Your project has inspired me in many ways. In my view, it's the best implementation of MCP memory I've found so far." &mdash; Micha&#322; Zubkowicz</p>
+  </div>
+</section>
+
+<section class="sec band-end" id="install">
+  <div class="wrap">
+    <div class="install">
+      <div>
+        <h2>Get started in seconds</h2>
+        <p class="lede" style="margin-bottom:0">Install from PyPI and connect your agents to persistent memory.</p>
       </div>
-      <a class="feature-card" data-delay="300" href="https://www.linkedin.com/feed/update/urn:li:activity:7508652464548802560/" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit">
-        <div class="feature-icon privacy">&#128172;</div>
-        <h3>Solving Session Amnesia</h3>
-        <p>Dr. Álvaro Cintas on how mcp-memory-service gives Claude Code, Cursor and OpenCode a shared memory over MCP, with on-device ONNX embeddings and no external API calls.</p>
-      </a>
+      <div>
+        <button class="cmd" type="button" data-copy="pip install mcp-memory-service" aria-label="Copy install command">
+          <span>pip install mcp-memory-service</span><span>copy</span>
+        </button>
+        <div class="btns">
+          <a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Documentation</a>
+          <a href="/demo/">Live demo</a>
+          <a href="blog/remote-mcp-tutorial.html">5-minute claude.ai setup</a>
+        </div>
+      </div>
     </div>
-    <p class="cmp-note" style="text-align:center;margin-top:2rem"><em>"Your project has inspired me in many ways. In my view, it's the best implementation of MCP memory I've found so far."</em> &mdash; Micha&#322; Zubkowicz</p>
-  </div>
-</section>
-
-<!-- Install / CTA -->
-<section class="install-section" id="install">
-  <div class="container">
-    <h2 class="section-title">Get Started in Seconds</h2>
-    <p class="section-subtitle">Install from PyPI and connect your AI agents to persistent memory.</p>
-    <div class="install-box" onclick="copyInstall(this)">
-      <span class="copy-hint">Click to copy</span>
-      pip install mcp-memory-service
-    </div>
-    <div class="cta-buttons">
-      <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-primary" target="_blank">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-        View on GitHub
-      </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/wiki" class="btn btn-secondary" target="_blank">
-        Documentation
-      </a>
-      <a href="/demo/" class="btn btn-secondary">
-        Live Demo: Memory in Your Browser
-      </a>
-      <a href="blog/remote-mcp-tutorial.html" class="btn btn-secondary">
-        Blog: 5-Min claude.ai Setup
-      </a>
-      <a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.15.0" class="btn btn-secondary" target="_blank">
-        Release Notes
-      </a>
+    <div class="consult">
+      <p><strong>Deploying for a team?</strong>I help teams run self-hosted memory in production: OAuth, hybrid sync, multi-client rollout. Free 30-minute intro call.</p>
+      <a class="btn" href="mailto:deploy@mcpmemory.services?subject=Deployment%20inquiry">Get in touch</a>
     </div>
   </div>
 </section>
-
-<!-- Consulting CTA -->
-<section style="position:relative;z-index:1;padding:4rem 2rem;text-align:center;background:linear-gradient(180deg,transparent,rgba(0,229,255,.03),transparent)">
-  <div class="container" style="max-width:640px">
-    <h2 style="font-size:clamp(1.4rem,3vw,1.9rem);font-weight:700;margin-bottom:.8rem;color:var(--text)">Deploying for a team?</h2>
-    <p style="color:var(--muted);font-size:1rem;line-height:1.7;margin-bottom:1.5rem">I help teams run self-hosted memory in production &mdash; OAuth, hybrid sync, multi-client rollout. Free 30-minute intro call.</p>
-    <a href="mailto:deploy@mcpmemory.services?subject=Deployment%20inquiry" class="btn btn-secondary" style="display:inline-flex">Get in touch</a>
-  </div>
-</section>
+</main>
 
 <footer>
-  <p>MCP Memory Service &mdash; Open Source under Apache 2.0 &mdash; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a></p>
+  <div class="wrap">MCP Memory Service, open source under Apache 2.0 &middot; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a></div>
 </footer>
 
 <script>
-// ---- Particle Network Background ----
-const canvas = document.getElementById('bg-canvas');
-const ctx = canvas.getContext('2d');
-let particles = [];
-const PARTICLE_COUNT = 80;
-const CONNECT_DIST = 150;
-let mouse = { x: -1000, y: -1000 };
+// ---- Recall console: scripted example, no backend ----
+// Words in [[double brackets]] are the matched terms that get highlighted.
+const EXAMPLES = [
+  { q: 'why did we stop using the global sync lock?', hits: [
+    { s: .91, t: 'Dropped the [[global sync lock]]: the HTTP server is the only sync owner, the MCP server talks to SQLite directly.', m: 'decision · hybrid · 3 weeks ago' },
+    { s: .84, t: 'Delta-sync [[deadlocked]] on empty-content events; skip and log instead of retrying forever.', m: 'fix · sync · 5 weeks ago' },
+    { s: .67, t: 'WAL mode is required, otherwise two servers on one file give "database is locked".', m: 'config · sqlite · 2 months ago' } ] },
+  { q: 'how do two agents hand work to each other?', hits: [
+    { s: .93, t: 'The cluster agent writes a [[sentinel tag]]; the local agent filters on it and treats the memory as a [[message]].', m: 'pattern · agents · 1 week ago' },
+    { s: .78, t: 'Session summaries are committed at the end, so any agent can [[pick up where another left off]].', m: 'workflow · sessions · 2 weeks ago' },
+    { s: .61, t: 'Scope by store when several teams share one service.', m: 'api · stores · 4 days ago' } ] },
+  { q: 'which login does claude.ai use?', hits: [
+    { s: .95, t: 'Remote MCP over Streamable HTTP with [[OAuth 2.1 + PKCE]] and dynamic client registration.', m: 'auth · remote · 6 weeks ago' },
+    { s: .72, t: 'Non-loopback binds need [[MCP_API_KEY]] or OAuth; the server refuses to start without one.', m: 'security · config · 1 week ago' },
+    { s: .58, t: 'A Cloudflare tunnel gives name-based routing for the self-hosted instance.', m: 'deployment · tunnel · 3 months ago' } ] }
+];
+const AT = [[[110,50],[300,115],[500,55]],[[90,140],[270,45],[440,130]],[[520,150],[350,70],[170,100]]];
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const qEl = document.getElementById('q'), listEl = document.getElementById('results'), chipsEl = document.getElementById('chips');
+let run = 0;
 
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
-
-document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
-
-class Particle {
-  constructor() {
-    this.x = Math.random() * canvas.width;
-    this.y = Math.random() * canvas.height;
-    this.vx = (Math.random() - 0.5) * 0.5;
-    this.vy = (Math.random() - 0.5) * 0.5;
-    this.r = Math.random() * 2 + 1;
-    this.cyan = Math.random() > 0.5;
-  }
-  update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
-    if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
-    // subtle mouse repulsion
-    const dx = this.x - mouse.x, dy = this.y - mouse.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 120) {
-      this.vx += dx / dist * 0.15;
-      this.vy += dy / dist * 0.15;
-    }
-    // dampen
-    this.vx *= 0.99;
-    this.vy *= 0.99;
-  }
-  draw() {
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    ctx.fillStyle = this.cyan ? 'rgba(0,229,255,0.6)' : 'rgba(179,136,255,0.6)';
-    ctx.fill();
-  }
-}
-
-for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(new Particle());
-
-function animate() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < particles.length; i++) {
-    particles[i].update();
-    particles[i].draw();
-    for (let j = i + 1; j < particles.length; j++) {
-      const dx = particles[i].x - particles[j].x;
-      const dy = particles[i].y - particles[j].y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < CONNECT_DIST) {
-        const opacity = (1 - dist / CONNECT_DIST) * 0.15;
-        ctx.beginPath();
-        ctx.moveTo(particles[i].x, particles[i].y);
-        ctx.lineTo(particles[j].x, particles[j].y);
-        ctx.strokeStyle = particles[i].cyan
-          ? `rgba(0,229,255,${opacity})`
-          : `rgba(179,136,255,${opacity})`;
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-      }
-    }
-  }
-  requestAnimationFrame(animate);
-}
-animate();
-
-// ---- Scroll Animations ----
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const delay = parseInt(entry.target.dataset.delay || '0');
-      setTimeout(() => entry.target.classList.add('visible'), delay);
-      observer.unobserve(entry.target);
-    }
+function line(hit) {
+  const li = document.createElement('li');
+  const sc = document.createElement('div'); sc.className = 'score';
+  sc.textContent = hit.s.toFixed(2);
+  const bar = document.createElement('i'); bar.style.setProperty('--s', hit.s); sc.append(bar);
+  const body = document.createElement('div');
+  const p = document.createElement('p');
+  hit.t.split(/\[\[(.+?)\]\]/).forEach((part, i) => {
+    if (i % 2) { const m = document.createElement('mark'); m.textContent = part; p.append(m); }
+    else p.append(part);
   });
-}, { threshold: 0.15 });
-
-document.querySelectorAll('.feature-card, .arch-node, .arch-arrow, .stat-card').forEach(el => observer.observe(el));
-
-// ---- Counter Animation ----
-const counterObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      const el = entry.target;
-      const target = parseInt(el.dataset.target);
-      const suffix = el.dataset.suffix || '';
-      const duration = 2000;
-      const start = performance.now();
-      function tick(now) {
-        const elapsed = now - start;
-        const progress = Math.min(elapsed / duration, 1);
-        // ease out cubic
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const current = Math.floor(eased * target);
-        el.textContent = current.toLocaleString() + suffix;
-        if (progress < 1) requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-      counterObserver.unobserve(el);
-    }
-  });
-}, { threshold: 0.5 });
-
-document.querySelectorAll('.stat-number[data-target]').forEach(el => counterObserver.observe(el));
-
-// ---- Copy Install ----
-function copyInstall(el) {
-  navigator.clipboard.writeText('pip install mcp-memory-service');
-  el.classList.add('copied');
-  setTimeout(() => el.classList.remove('copied'), 2000);
+  const meta = document.createElement('p'); meta.className = 'meta'; meta.textContent = hit.m;
+  body.append(p, meta); li.append(sc, body);
+  return li;
 }
+
+// ---- Graph: a fixed, seeded network; the hits of each example light up ----
+const NS = 'http://www.w3.org/2000/svg', svg = document.getElementById('graph');
+let seed = 7; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+const nodes = [];
+for (let r = 0; r < 4; r++) for (let c = 0; c < 11; c++) nodes.push({ x: 30 + c * 54 + (rnd() - .5) * 30, y: 28 + r * 44 + (rnd() - .5) * 26 });
+const mk = (n, a, parent = svg) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); parent.append(e); return e; };
+const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+const edges = new Set();
+nodes.forEach((a, i) => nodes.map((b, j) => [j, d2(a, b)]).filter(([j]) => j !== i).sort((p, q) => p[1] - q[1]).slice(0, 2)
+  .forEach(([j]) => edges.add(i < j ? i + '-' + j : j + '-' + i)));
+edges.forEach(k => { const [i, j] = k.split('-'); mk('line', { x1: nodes[i].x, y1: nodes[i].y, x2: nodes[j].x, y2: nodes[j].y, class: 'e' }); });
+const links = mk('g', {});
+const dots = nodes.map(n => { const g = mk('g', { class: 'n', transform: `translate(${n.x} ${n.y})` }); mk('circle', { class: 'halo', r: 14 }, g); mk('circle', { class: 'core', r: 5 }, g); return g; });
+const nearest = ([x, y]) => nodes.reduce((best, n, i) => { const d = d2(n, { x, y }); return d < best.d ? { i, d } : best; }, { i: 0, d: Infinity }).i;
+
+function resetGraph() {
+  dots.forEach(d => d.classList.remove('lit'));
+  links.replaceChildren();
+  svg.querySelectorAll('text').forEach(t => t.remove());
+}
+
+function lightGraph(i, me) {
+  const ids = AT[i].map(nearest);
+  ids.forEach((id, k) => setTimeout(() => {
+    if (me !== run) return;
+    const n = nodes[id];
+    dots[id].classList.add('lit');
+    mk('text', { x: n.x + 10, y: n.y - 9, class: 's' }).textContent = EXAMPLES[i].hits[k].s.toFixed(2);
+    if (!k) return;
+    const p = nodes[ids[k - 1]], len = Math.hypot(n.x - p.x, n.y - p.y);
+    const l = mk('line', { x1: p.x, y1: p.y, x2: n.x, y2: n.y, class: 'rel', 'stroke-dasharray': len, 'stroke-dashoffset': reduce ? 0 : len }, links);
+    if (!reduce) requestAnimationFrame(() => requestAnimationFrame(() => l.setAttribute('stroke-dashoffset', 0)));
+  }, reduce ? 0 : k * 260));
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function show(i) {
+  const me = ++run, ex = EXAMPLES[i];
+  chipsEl.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', j === i));
+  listEl.replaceChildren();
+  resetGraph();
+  qEl.textContent = '';
+  if (reduce) qEl.textContent = ex.q;
+  else for (const ch of ex.q) { if (me !== run) return; qEl.textContent += ch; await sleep(26); }
+  if (me !== run) return;
+  ex.hits.forEach(h => listEl.append(line(h)));
+  lightGraph(i, me);
+  const marks = listEl.querySelectorAll('mark');
+  if (reduce) return marks.forEach(m => m.classList.add('on'));
+  await sleep(120);
+  marks.forEach((m, k) => setTimeout(() => m.classList.add('on'), k * 220));
+}
+
+EXAMPLES.forEach((ex, i) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = ex.q.replace(/\?$/, '');
+  b.addEventListener('click', () => show(i));
+  chipsEl.append(b);
+});
+show(0);
+
+// ---- Copy install command ----
+document.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', () => {
+  navigator.clipboard.writeText(btn.dataset.copy);
+  const hint = btn.lastElementChild, old = hint.textContent;
+  hint.textContent = 'copied';
+  setTimeout(() => { hint.textContent = old; }, 1800);
+}));
+
+// ---- Keep the decorative loop still for reduced motion ----
+if (reduce) document.querySelectorAll('video[autoplay]').forEach(v => { v.removeAttribute('autoplay'); v.pause(); });
 </script>
 <!-- Cloudflare Web Analytics: injected automatically at the proxy (zone-level automatic setup) — do not add a manual beacon here, it would double-count. -->
 </body>
