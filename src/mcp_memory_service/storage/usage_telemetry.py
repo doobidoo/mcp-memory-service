@@ -456,6 +456,29 @@ async def _derive_injected_then_used(
         logger.warning("injected_then_used signal derivation failed (non-fatal): %s", e)
 
 
+async def _derive_injected_then_used_map(storage) -> Dict[str, int]:
+    """Aggregate injected_then_used across all agents → {belief_hash: count}.
+
+    Wrapper over _derive_injected_then_used (which is callback-based and returns
+    None). Reuses its temporal-matching logic via a local collector _bump, so there
+    is no duplicated matching code. Used by the Frente-D utility_prior passive signal
+    (belief_service._collect_utility_signals) to obtain the POSITIVE signal per belief.
+    """
+    result_map: Dict[str, int] = {}
+
+    def _bump_collector(belief_hash: str, signal_type: str, count: int) -> None:
+        if signal_type == "injected_then_used":
+            result_map[belief_hash] = result_map.get(belief_hash, 0) + count
+
+    try:
+        retrieval_rows = await _load_events_async(storage, "retrieval")
+        by_agent = _parse_retrieval_events(retrieval_rows)
+        await _derive_injected_then_used(by_agent, storage, _bump_collector)
+    except Exception as e:  # noqa: BLE001 - best effort, never break
+        logger.warning("injected_then_used_map derivation failed (non-fatal): %s", e)
+    return result_map
+
+
 def _parse_single_injection_row(row) -> Optional[tuple]:
     """Parse a single injection event row.
     

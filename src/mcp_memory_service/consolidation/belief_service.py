@@ -181,6 +181,134 @@ class BeliefService:
             logger.warning("[belief] create_singular_belief failed: %s", _sanitize_log_value(str(e)))
             return False
 
+    # --- Frente D Inc 1: passive utility_prior (SEPARATE from confidence) ---
+    # Zero-discipline attribution (insight 11/out, memory b34c007e): the service infers
+    # usefulness from behavior it ALREADY sees (injected-then-used / injected-never-used),
+    # NOT from the agent remembering to report. The signal lives in a SEPARATE
+    # utility_prior (beliefs.metadata), never mutating `confidence` — decoupling
+    # "useful to inject?" from "is it true?" AND disarming the A×B×C double-count
+    # (frente A reads utility_prior; it must not re-penalize confidence).
+    _UTILITY_PRIOR_FLOOR = 0.0
+    _UTILITY_NEUTRAL = 0.5
+    # Beta prior strength: higher = more episodes needed to move the prior (stability).
+    _UTILITY_PRIOR_STRENGTH = 8.0
+
+    @staticmethod
+    def _utility_prior_enabled() -> bool:
+        """Opt-in flag MCP_BELIEF_UTILITY_PRIOR (default OFF)."""
+        raw = os.environ.get("MCP_BELIEF_UTILITY_PRIOR")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    @staticmethod
+    def _beta_utility(used: int, unused: int, strength: float = None) -> float:
+        """Beta-Bernoulli posterior mean with an informative neutral prior.
+
+        prior = Beta(neutral*strength, (1-neutral)*strength). A single episode moves
+        the mean only slightly (stability — z.ai 11/out). used→up, unused→down,
+        both bounded in (0,1). Contradiction/unused weighs like a negative outcome.
+        """
+        s = strength if strength is not None else BeliefService._UTILITY_PRIOR_STRENGTH
+        neutral = BeliefService._UTILITY_NEUTRAL
+        alpha = neutral * s + float(used)
+        beta = (1.0 - neutral) * s + float(unused)
+        if alpha + beta <= 0:
+            return neutral
+        return alpha / (alpha + beta)
+
+    async def recompute_utility_priors(self, _signals_override: Optional[dict] = None) -> dict:
+        """Recompute per-belief utility_prior from PASSIVE signals, writing ONLY metadata.
+
+        Opt-in (MCP_BELIEF_UTILITY_PRIOR). Reads injected-then-used (positive) and
+        injected-never-used (negative) from usage_events (zero agent discipline), folds
+        them into a Beta-smoothed utility_prior stored in beliefs.metadata. NEVER touches
+        the confidence column. `_signals_override` injects {belief_hash: {used, unused}}
+        for deterministic tests.
+        """
+        stats = {"updated": 0, "errors": []}
+        if not self._utility_prior_enabled():
+            return stats
+        try:
+            import json as _json
+            if _signals_override is not None:
+                signals = _signals_override
+            else:
+                signals = await self._collect_utility_signals()
+            for belief_hash, sig in (signals or {}).items():
+                used = int(sig.get("used", 0))
+                unused = int(sig.get("unused", 0))
+                if used == 0 and unused == 0:
+                    continue
+                up = self._beta_utility(used, unused)
+                row = self.storage.conn.execute(
+                    "SELECT metadata FROM beliefs WHERE belief_hash=?", (belief_hash,)
+                ).fetchone()
+                if row is None:
+                    continue
+                try:
+                    meta = _json.loads(row[0]) if row[0] else {}
+                except Exception:
+                    meta = {}
+                meta["utility_prior"] = round(up, 4)
+                self.storage.conn.execute(
+                    "UPDATE beliefs SET metadata=? WHERE belief_hash=?",
+                    (_json.dumps(meta), belief_hash),
+                )
+                stats["updated"] += 1
+            self.storage.conn.commit()
+            logger.info("[belief] utility_prior recompute: updated=%d", stats["updated"])
+        except Exception as e:  # noqa: BLE001
+            stats["errors"].append(str(e))
+            logger.warning("[belief] utility_prior recompute failed: %s", _sanitize_log_value(str(e)))
+        return stats
+
+    async def _collect_utility_signals(self) -> dict:
+        """Fold passive telemetry into {belief_hash: {used, unused}} (zero discipline).
+
+        used  = injected_then_used count (source reappeared in a later retrieval)
+        unused = injected_never_used trailing count
+        Both come from usage_telemetry derivations that read only usage_events.
+        """
+        out: dict = {}
+        try:
+            from ..storage.usage_telemetry import _derive_injected_then_used_map, _derive_injected_never_used
+            # POSITIVE signal is keyed by SOURCE-memory content_hash (a belief_hash is a
+            # hash of distilled text and never equals a memory content_hash, so the
+            # injected_then_used correlation is done on each belief's derived_from
+            # provenance). Build source_hash → [belief_hash] from active beliefs to map
+            # the positive signal back onto the belief it credits.
+            src_to_beliefs: dict = {}
+            try:
+                import json as _json
+                for row in self.storage.conn.execute(
+                    "SELECT belief_hash, derived_from FROM beliefs WHERE status='active'"
+                ).fetchall():
+                    bh = row[0]
+                    try:
+                        for sh in (_json.loads(row[1] or "[]") or []):
+                            src_to_beliefs.setdefault(sh, []).append(bh)
+                    except (ValueError, TypeError):
+                        continue
+            except Exception:  # noqa: BLE001
+                src_to_beliefs = {}
+
+            used_map = await _derive_injected_then_used_map(self.storage)   # {source_hash: count}
+            unused_map = await _derive_injected_never_used(self.storage)    # {"agent:belief_hash": {...}}
+            # positive: translate source_hash → belief(s); if a source maps to no known
+            # belief (older events), fall back to crediting the key directly.
+            for sh, cnt in (used_map or {}).items():
+                targets = src_to_beliefs.get(sh, [sh])
+                for bh in targets:
+                    out.setdefault(bh, {"used": 0, "unused": 0})
+                    out[bh]["used"] += int(cnt or 0)
+            # negative: already keyed "{agent}:{belief_hash}" → aggregate per belief
+            for k, v in (unused_map or {}).items():
+                bh = v.get("belief_hash") or k.split(":", 1)[-1]
+                out.setdefault(bh, {"used": 0, "unused": 0})
+                out[bh]["unused"] += int(v.get("injections_without_use", 1) or 1)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("utility signal collection failed (non-fatal): %s", _sanitize_log_value(str(e)))
+        return out
+
     async def derive_singular_beliefs(self, since_hours: Optional[float] = None,
                                       max_create: int = 50) -> dict:
         """Create ADDITIVE singular beliefs for actionable single-source memories.
