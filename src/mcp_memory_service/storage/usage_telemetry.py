@@ -479,6 +479,114 @@ async def _derive_injected_then_used_map(storage) -> Dict[str, int]:
     return result_map
 
 
+async def _derive_injected_then_requeried_map(storage) -> Dict[str, int]:
+    """Aggregate injected_then_requeried across all agents → {source_hash: count}.
+
+    Detects when a source_hash is injected and the same agent performs a re-query 
+    within RETRY_WINDOW_SECONDS (300s) after the injection. Uses the same requery
+    pattern as _classify_requeries: same agent, different query_hash, overlapping
+    returned_hashes.
+    
+    Returns {source_hash: count} for negative signal correlation.
+    """
+    result_map: Dict[str, int] = {}
+
+    try:
+        # Load injection and retrieval events
+        injection_rows = await _load_events_async(storage, "injection")
+        retrieval_rows = await _load_events_async(storage, "retrieval")
+        
+        
+        # Parse retrieval events with query_hash included
+        retrieval_events = _retrieval_tuples(retrieval_rows)
+        
+        # Group retrievals by agent_id
+        retrieval_by_agent = {}
+        for event in retrieval_events:
+            agent_id = event["agent_id"]
+            if agent_id:
+                retrieval_by_agent.setdefault(agent_id, []).append(event)
+        
+        # Process injections
+        for injection_row in injection_rows:
+            agent_id = injection_row.get("agent_id")
+            if not agent_id:
+                continue
+                
+            injection_ts = _parse_iso(injection_row.get("timestamp"))
+            if not injection_ts:
+                continue
+                
+            source_hashes = _event_belief_hashes(injection_row["metadata"])
+            if not source_hashes:
+                continue
+                
+                
+            # Get retrieval events for this agent after the injection
+            agent_retrievals = retrieval_by_agent.get(agent_id, [])
+            
+            # Find retrievals within the retry window after injection
+            window_retrievals = []
+            for retrieval in agent_retrievals:
+                retrieval_ts = retrieval.get("ts")
+                if (retrieval_ts and 
+                    retrieval_ts > injection_ts and
+                    (retrieval_ts - injection_ts).total_seconds() <= RETRY_WINDOW_SECONDS):
+                    window_retrievals.append(retrieval)
+            
+            
+            # Look for re-query patterns in consecutive retrievals
+            for i in range(1, len(window_retrievals)):
+                prev = window_retrievals[i - 1]
+                cur = window_retrievals[i]
+                
+                
+                # Apply _classify_requeries logic for re-query detection
+                if _is_requery(prev, cur):
+                    # This is a re-query - count negative signal for injected source_hashes
+                    # that appear in either retrieval's returned_hashes (overlap condition)
+                    prev_returned = set(prev.get("returned_hashes", []))
+                    cur_returned = set(cur.get("returned_hashes", []))
+                    overlapping_hashes = prev_returned | cur_returned
+                    
+                    for source_hash in source_hashes:
+                        if source_hash in overlapping_hashes:
+                            result_map[source_hash] = result_map.get(source_hash, 0) + 1
+                            
+                            
+    except Exception as e:  # Best effort - don't break
+        logger.warning("injected_then_requeried_map derivation failed (non-fatal): %s", e)
+        
+    return result_map
+
+
+def _is_requery(prev: Dict[str, Any], cur: Dict[str, Any]) -> bool:
+    """Helper to detect if cur is a re-query of prev using _classify_requeries logic.
+    
+    A retrieval is a re-query when it closely follows (<=5 min) a prior
+    retrieval of the same agent with a distinct query_hash and overlapping
+    returned_hashes.
+    """
+    # Check temporal constraint (already filtered by caller for RETRY_WINDOW_SECONDS)
+    t1, t2 = prev.get("ts"), cur.get("ts")
+    if t1 is None or t2 is None:
+        return False
+    if abs((t2 - t1).total_seconds()) > RETRY_WINDOW_SECONDS:
+        return False
+        
+    # Check distinct query_hash
+    if prev.get("query_hash") == cur.get("query_hash"):
+        return False
+        
+    # Check overlapping returned_hashes
+    prev_returned = set(prev.get("returned_hashes", []))
+    cur_returned = set(cur.get("returned_hashes", []))
+    if not (prev_returned & cur_returned):
+        return False
+        
+    return True
+
+
 def _parse_single_injection_row(row) -> Optional[tuple]:
     """Parse a single injection event row.
     
@@ -762,16 +870,8 @@ def _classify_requeries(events: List[Dict[str, Any]]) -> int:
         for i in range(1, len(agent_events)):
             prev = agent_events[i - 1]
             cur = agent_events[i]
-            t1, t2 = prev["ts"], cur["ts"]
-            if t1 is None or t2 is None:
-                continue
-            if abs((t2 - t1).total_seconds()) > RETRY_WINDOW_SECONDS:
-                continue
-            if prev["query_hash"] == cur["query_hash"]:
-                continue
-            if not (set(prev["returned_hashes"]) & set(cur["returned_hashes"])):
-                continue
-            re_queries += 1
+            if _is_requery(prev, cur):
+                re_queries += 1
     return re_queries
 
 

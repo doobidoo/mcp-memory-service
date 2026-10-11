@@ -318,7 +318,7 @@ class BeliefService:
         """
         out: dict = {}
         try:
-            from ..storage.usage_telemetry import _derive_injected_then_used_map, _derive_injected_never_used
+            from ..storage.usage_telemetry import _derive_injected_then_used_map, _derive_injected_never_used, _derive_injected_then_requeried_map
             # Build source_hash → [belief_hash] mapping for positive signal correlation
             src_to_beliefs: dict = {}
             try:
@@ -337,6 +337,8 @@ class BeliefService:
 
             used_map = await _derive_injected_then_used_map(self.storage)   # {source_hash: count}
             unused_map = await _derive_injected_never_used(self.storage)    # {"agent:belief_hash": {...}}
+            requeried_map = await _derive_injected_then_requeried_map(self.storage)  # {source_hash: count}
+            
             
             # D2: Initialize all signals to 3-signal format
             for sh, cnt in (used_map or {}).items():
@@ -351,8 +353,12 @@ class BeliefService:
                 out.setdefault(bh, {"used": 0, "never_used": 0, "negative": 0})
                 out[bh]["never_used"] += int(v.get("injections_without_use", 1) or 1)
             
-            # D2: negative signal placeholder - will be implemented in D3 via _classify_requeries
-            # For now, all beliefs have negative=0 (no contradiction detection from telemetry yet)
+            # D3: Implement negative signal from re-query detection
+            for sh, cnt in (requeried_map or {}).items():
+                targets = src_to_beliefs.get(sh, [sh])
+                for bh in targets:
+                    out.setdefault(bh, {"used": 0, "never_used": 0, "negative": 0})
+                    out[bh]["negative"] += int(cnt or 0)
             
         except Exception as e:  # noqa: BLE001
             logger.debug("utility signal collection failed (non-fatal): %s", _sanitize_log_value(str(e)))
