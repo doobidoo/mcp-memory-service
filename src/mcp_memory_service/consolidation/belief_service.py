@@ -116,6 +116,117 @@ class BeliefService:
             min_value=0.0, max_value=1.0,
         )
 
+    # --- Dreaming-loop Inc 1: singular beliefs (rfc-dreaming-loop-inc1-distill-specific.md) ---
+    # ADDITIVE, ISOLATED mechanism validated empirically (11/out): a single-source
+    # actionable memory (decision/learning/error) that never reaches PROVENANCE_FLOOR=2
+    # becomes an injectable "singular" belief with a fixed modest confidence, WITHOUT
+    # re-deriving/regrouping existing beliefs (multi-type intake re-derivation was proven
+    # to DESTROY the calibration of the derived beliefs — see memory f6126f64).
+    _SINGULAR_INTAKE_TYPES = ("decision", "learning", "error")
+    _SINGULAR_DEFAULT_CONFIDENCE = 0.55
+
+    @staticmethod
+    def _singular_enabled() -> bool:
+        """Opt-in flag MCP_BELIEF_SINGULAR (default OFF — byte-reversible, R6)."""
+        raw = os.environ.get("MCP_BELIEF_SINGULAR")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    @staticmethod
+    def _singular_confidence() -> float:
+        """Fixed modest confidence for singular beliefs (env-overridable). It does NOT
+        pass through derive_confidence (Σ support − λ·contradiction), so the derived-belief
+        calibration is never affected (R3)."""
+        from ..config import safe_get_float_env
+        return safe_get_float_env(
+            "MCP_SINGULAR_BELIEF_CONFIDENCE", BeliefService._SINGULAR_DEFAULT_CONFIDENCE,
+            min_value=0.0, max_value=1.0,
+        )
+
+    async def create_singular_belief(self, memory) -> bool:
+        """Create ONE additive singular belief for a single actionable memory.
+
+        This is the on-demand trigger (the CORRECT one, per the empirical finding
+        that batch creation floods the corpus with 1639 beliefs — memory f02ac3dd):
+        call this when an actionable memory is stored, so TODAY's fix becomes
+        injectable same-day without resurrecting the whole backlog.
+
+        Returns True if a singular belief was created. No-op when flag off, when the
+        content is noise, or when a belief for that content already exists.
+        """
+        if not self._singular_enabled():
+            return False
+        content = memory.content if hasattr(memory, "content") else memory.get("content", "")
+        chash = memory.content_hash if hasattr(memory, "content_hash") else memory.get("content_hash", "")
+        if not content or not chash or _is_noise(content):
+            return False
+        belief_hash = _hash_content(content)
+        if await self._get_belief(belief_hash):
+            return False
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        try:
+            await self._create_belief(belief_hash, content, self._singular_confidence(),
+                                      "active", [chash], [], now)
+            try:
+                import json as _json
+                self.storage.conn.execute(
+                    "UPDATE beliefs SET metadata=? WHERE belief_hash=?",
+                    (_json.dumps({"origin": "singular"}), belief_hash),
+                )
+                self.storage.conn.commit()
+            except Exception:
+                pass
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[belief] create_singular_belief failed: %s", _sanitize_log_value(str(e)))
+            return False
+
+    async def derive_singular_beliefs(self, since_hours: Optional[float] = None,
+                                      max_create: int = 50) -> dict:
+        """Create ADDITIVE singular beliefs for actionable single-source memories.
+
+        Opt-in (MCP_BELIEF_SINGULAR). BOUNDED by design (empirical finding: an
+        unbounded batch created 1639 beliefs and flooded the corpus — memory
+        f02ac3dd). Only memories newer than `since_hours` (default
+        MCP_SINGULAR_SINCE_HOURS or 24h) are considered, and at most `max_create`
+        singular beliefs are created per run. NEVER regroups or re-derives existing
+        beliefs — proven byte-safe for the derived corpus.
+        """
+        stats = {"singular_created": 0, "errors": []}
+        if not self._singular_enabled():
+            return stats
+        if since_hours is None:
+            from ..config import safe_get_float_env
+            since_hours = safe_get_float_env("MCP_SINGULAR_SINCE_HOURS", 24.0, min_value=0.0, max_value=8760.0)
+        try:
+            from datetime import datetime, timezone, timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).timestamp()
+            for mtype in self._SINGULAR_INTAKE_TYPES:
+                if stats["singular_created"] >= max_create:
+                    break
+                mems = await self.storage.get_all_memories(memory_type=mtype)
+                for mem in mems or []:
+                    if stats["singular_created"] >= max_create:
+                        break
+                    # Recency gate: only recent actionable memories (the "specific
+                    # recent fix" the RFC targets), not the whole backlog.
+                    created = getattr(mem, "created_at", None)
+                    if created is None and isinstance(mem, dict):
+                        created = mem.get("created_at")
+                    try:
+                        if created is not None and float(created) < cutoff:
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                    if await self.create_singular_belief(mem):
+                        stats["singular_created"] += 1
+            logger.info("[belief] singular batch: created=%d (<=%d, since %sh)",
+                        stats["singular_created"], max_create, since_hours)
+        except Exception as e:  # noqa: BLE001
+            stats["errors"].append(str(e))
+            logger.warning("[belief] singular derivation failed: %s", _sanitize_log_value(str(e)))
+        return stats
+
     async def derive_beliefs(self) -> dict:
         """Run belief derivation cycle. Called by scheduler.
 
