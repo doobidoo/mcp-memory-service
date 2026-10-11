@@ -184,6 +184,7 @@ _RERANK_A_DEFAULTS = {
     "conf": 0.15,  # saturated confidence (R6)
     "fresh": 0.10, # freshness term (R2 — integrate, don't compete)
     "gen": 0.25,   # generality PENALTY weight (subtracted, R4)
+    "util": 0.20,  # utility prior from D1 feedback (A↔D loop closure)
 }
 
 # Support count beyond which extra reinforcement buys no more confidence (R6).
@@ -286,6 +287,7 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
     w_conf = _rerank_a_weight("conf")
     w_fresh = _rerank_a_weight("fresh")
     w_gen = _rerank_a_weight("gen")
+    w_util = _rerank_a_weight("util")
 
     for s in scored:
         rel = s["relevance"]
@@ -295,12 +297,23 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
         # Generality is the REAL cross-theme signal (0.0 = neutral when no data).
         gen = generality.get(s.get("belief_hash"), 0.0)
         freshness = s.get("freshness_score", 0.0) or 0.0
+        # Utility prior from D1 feedback (neutral 0.5 when absent, anti rich-get-richer).
+        # Defensive coercion (tuvok G5 LOW): a present-but-invalid value (null/non-numeric/
+        # out-of-range in externally-written metadata) falls back to neutral, never crashes.
+        _util_raw = s.get("utility_prior", 0.5)
+        try:
+            util = float(_util_raw)
+            if not (0.0 <= util <= 1.0):
+                util = 0.5
+        except (TypeError, ValueError):
+            util = 0.5
 
         score = (
             w_rel * rel
             + w_adv * advantage
             + w_conf * conf_sat
             + w_fresh * freshness
+            + w_util * util
             - w_gen * gen
         )
         s["_rank_a_score"] = score
@@ -310,6 +323,7 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
             "conf_saturated": round(conf_sat, 4),
             "generality": round(gen, 4),
             "freshness": round(freshness, 4),
+            "utility": round(util, 4),
             "score": round(score, 4),
         }
 
@@ -442,6 +456,18 @@ async def memory_context(
         updated_at = b.get("updated_at") or b.get("created_at")
         freshness_score = _calculate_freshness_boost(updated_at)
 
+        # Extract utility_prior from belief metadata (D1 feedback signal for A↔D loop)
+        util_prior = 0.5  # neutral default (anti rich-get-richer)
+        try:
+            metadata = b.get("metadata")
+            if metadata:
+                if isinstance(metadata, str):
+                    metadata = json.loads(metadata)
+                if isinstance(metadata, dict):
+                    util_prior = metadata.get("utility_prior", 0.5)
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass  # Keep neutral default on parse failure
+
         scored.append(
             {
                 "content": content,
@@ -460,6 +486,8 @@ async def memory_context(
                 "created_at": b.get("created_at"),
                 # Freshness boost score for debugging/telemetry
                 "freshness_score": freshness_score,
+                # Utility prior from D1 feedback (A↔D loop closure)
+                "utility_prior": util_prior,
             }
         )
 
