@@ -206,9 +206,18 @@ vectors are still the old model's:
   the model check against the hub, so do it after the hub is back up with the new model), then
   restart.
 - **Different dimension**: the client's local database refuses to start (`RuntimeError`,
-  strict dimension check). Either export / re-import it as for the hub, or move the local
-  database aside and start the client: the hybrid initial sync pulls every memory it is missing
-  from the hub and stores it locally, which embeds it with the client's new model.
+  strict dimension check). Either export / re-import it as for the hub, or rebuild it from the
+  hub: move the local database aside and start the client, and the hybrid initial sync pulls
+  every memory it is missing from the hub and stores it locally, which embeds it with the
+  client's new model. **A rebuild only restores what reached the hub.** A hybrid write succeeds
+  locally first and is queued for the hub afterwards (`HybridMemoryStorage.store`); a request
+  that failed stays in the client's failed-operations list, so a client can hold memories the
+  hub never got. Before moving the database aside, with the client still on the old model,
+  check `GET /api/sync/status` on the client's HTTP process (or `get_sync_status()`): both
+  `pending_operations` and `failed_operations` must be zero — if they are not, wait for the
+  queue to drain or export the local database first with
+  `python scripts/sync/export_memories.py --db-path <the client's sqlite_vec.db>`. Keep the old
+  database file until the rebuilt client reports the memory count you expect.
 
 Order: stop everything → re-embed the hub → start the hub → re-embed (or rebuild) each client →
 start the clients.
