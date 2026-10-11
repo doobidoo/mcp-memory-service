@@ -345,6 +345,22 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             except Exception as e:
                 logger.debug("Belief quarantine check failed: %s", _sanitize_log_value(e))
 
+        # Dreaming-loop Inc 1: on-demand singular belief for an actionable memory.
+        # Opt-in (MCP_BELIEF_SINGULAR); best-effort, never breaks the store path. Makes
+        # TODAY's specific fix (type decision/learning/error, single source) injectable
+        # the same day — the correct on-demand trigger (batch floods, memory f02ac3dd).
+        if os.environ.get("MCP_BELIEF_SINGULAR", "").strip().lower() in {"true", "1", "yes"} \
+                and result.get("success") and "memory" in result:
+            try:
+                mtype = result["memory"].get("memory_type") or result["memory"].get("type")
+                if mtype in ("decision", "learning", "error"):
+                    from ...consolidation.belief_service import BeliefService
+                    created = await BeliefService(server.storage).create_singular_belief(result["memory"])
+                    if created:
+                        message += "\n🧠 Singular belief created (actionable, injectable now)."
+            except Exception as e:
+                logger.debug("Singular belief on-store failed: %s", _sanitize_log_value(e))
+
         # RFC #1008 §3: optional inline auto-capture from stored content
         from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
         from ...harvest.auto_capture import (
