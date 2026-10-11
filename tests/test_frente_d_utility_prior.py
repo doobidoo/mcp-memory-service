@@ -85,8 +85,8 @@ async def test_utility_prior_written_to_metadata_not_confidence(storage):
 
 
 @pytest.mark.asyncio
-async def test_unused_lowers_utility_prior(storage):
-    """A belief injected-and-never-used gets utility_prior BELOW neutral, confidence intact."""
+async def test_unused_is_neutral_not_penalty(storage):
+    """A belief injected-and-never-used stays NEUTRAL (~0.5), not penalized, confidence intact."""
     await _seed_belief(storage, "b2", conf=0.8)
     svc = BeliefService(storage)
     os.environ["MCP_BELIEF_UTILITY_PRIOR"] = "true"
@@ -100,7 +100,8 @@ async def test_unused_lowers_utility_prior(storage):
     conf, meta = row
     assert conf == 0.8, "confidence must stay intact"
     m = json.loads(meta or "{}")
-    assert m.get("utility_prior", 1.0) < 0.5, "an unused belief should have utility_prior below neutral"
+    # D2 semantics: unused is neutral (never_used), should stay around 0.5
+    assert abs(m.get("utility_prior", 0.5) - 0.5) < 0.1, "unused belief should be neutral (~0.5), not penalized"
 
 
 @pytest.mark.asyncio

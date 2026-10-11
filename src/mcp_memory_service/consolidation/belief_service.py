@@ -192,6 +192,9 @@ class BeliefService:
     _UTILITY_NEUTRAL = 0.5
     # Beta prior strength: higher = more episodes needed to move the prior (stability).
     _UTILITY_PRIOR_STRENGTH = 8.0
+    # D2 — 3-signal refinement: asymmetric weighting and episode clamping
+    _UTILITY_NEG_WEIGHT = 3.0  # negative signal weighs more than positive (clear asymmetry)
+    _UTILITY_MAX_STEP = 0.1  # max change per episode (burst protection, one episode nudges not jumps)
 
     @staticmethod
     def _utility_prior_enabled() -> bool:
@@ -200,29 +203,39 @@ class BeliefService:
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
 
     @staticmethod
-    def _beta_utility(used: int, unused: int, strength: float = None) -> float:
-        """Beta-Bernoulli posterior mean with an informative neutral prior.
+    def _beta_utility(positive: int, negative: int, strength: float = None) -> float:
+        """D2: Beta-Bernoulli posterior with 3-signal refinement and asymmetric weighting.
 
-        prior = Beta(neutral*strength, (1-neutral)*strength). A single episode moves
-        the mean only slightly (stability — z.ai 11/out). used→up, unused→down,
-        both bounded in (0,1). Contradiction/unused weighs like a negative outcome.
+        Signature: (positive, negative, strength)
+        - positive = injected_then_used (boosts utility_prior)
+        - negative = contradictions/re-query (penalizes, weighted by W_NEG > 1)
+        - never_used is NEUTRAL — it is simply NOT passed here (not counted at all),
+          so an injected-but-unused belief stays neutral (never penalized). This is the
+          core D2 correction: absence-of-use is not evidence of uselessness.
+        Formula: alpha = neutral*s + positive; beta = (1-neutral)*s + negative*W_NEG
         """
+
         s = strength if strength is not None else BeliefService._UTILITY_PRIOR_STRENGTH
         neutral = BeliefService._UTILITY_NEUTRAL
-        alpha = neutral * s + float(used)
-        beta = (1.0 - neutral) * s + float(unused)
+        w_neg = BeliefService._UTILITY_NEG_WEIGHT
+        
+        alpha = neutral * s + float(positive)
+        beta = (1.0 - neutral) * s + float(negative) * w_neg
+        
         if alpha + beta <= 0:
             return neutral
         return alpha / (alpha + beta)
 
     async def recompute_utility_priors(self, _signals_override: Optional[dict] = None) -> dict:
-        """Recompute per-belief utility_prior from PASSIVE signals, writing ONLY metadata.
+        """D2: Recompute per-belief utility_prior from 3-signal refinement (used/never_used/negative).
 
-        Opt-in (MCP_BELIEF_UTILITY_PRIOR). Reads injected-then-used (positive) and
-        injected-never-used (negative) from usage_events (zero agent discipline), folds
-        them into a Beta-smoothed utility_prior stored in beliefs.metadata. NEVER touches
-        the confidence column. `_signals_override` injects {belief_hash: {used, unused}}
-        for deterministic tests.
+        Opt-in (MCP_BELIEF_UTILITY_PRIOR). Maps 3 signals:
+        - used = injected_then_used (positive)
+        - never_used = injected but never reused (neutral, ignored)
+        - negative = contradictions/re-query (negative with asymmetric weight)
+        
+        Backward compatibility: accepts old {used, unused} format, treating unused as never_used.
+        Episode clamping prevents wild swings from burst activity.
         """
         stats = {"updated": 0, "errors": []}
         if not self._utility_prior_enabled():
@@ -234,21 +247,54 @@ class BeliefService:
             else:
                 signals = await self._collect_utility_signals()
             for belief_hash, sig in (signals or {}).items():
-                used = int(sig.get("used", 0))
-                unused = int(sig.get("unused", 0))
-                if used == 0 and unused == 0:
+                # D2: Map to 3-signal interface with backward compatibility
+                positive = int(sig.get("used", 0))
+                negative = int(sig.get("negative", 0))
+                never_used = int(sig.get("never_used", 0))
+                
+                # Backward compatibility strategy:
+                # - If new format keys exist (never_used/negative), use new behavior
+                # - If only old format exists (unused), maintain old behavior for compatibility
+                has_new_format = "never_used" in sig or "negative" in sig
+                
+                if not has_new_format and "unused" in sig:
+                    # Old format compatibility: map unused -> never_used (NEUTRAL, not negative)
+                    # This fixes the conceptual bug where never_used was treated as penalty
+                    unused_val = int(sig.get("unused", 0))
+                    never_used = unused_val  # Correct semantics: unused is neutral
+                elif "unused" in sig and has_new_format:
+                    # Mixed format: 'unused' present but new keys also exist -> treat unused as never_used
+                    never_used = int(sig.get("unused", 0))
+                
+                # Skip if no signals (never_used is neutral and doesn't count)
+                has_any_signal = positive > 0 or negative > 0 or never_used > 0
+                if not has_any_signal:
                     continue
-                up = self._beta_utility(used, unused)
+                
+                # Get current utility_prior for clamping
                 row = self.storage.conn.execute(
                     "SELECT metadata FROM beliefs WHERE belief_hash=?", (belief_hash,)
                 ).fetchone()
                 if row is None:
                     continue
+                    
                 try:
                     meta = _json.loads(row[0]) if row[0] else {}
                 except Exception:
                     meta = {}
-                meta["utility_prior"] = round(up, 4)
+                
+                current_up = meta.get("utility_prior", self._UTILITY_NEUTRAL)
+                
+                # Compute new utility_prior using 3-signal formula (never_used ignored)
+                new_up = self._beta_utility(positive, negative)
+                
+                # D2: Episode clamping - limit change per recompute call
+                delta = new_up - current_up
+                if abs(delta) > self._UTILITY_MAX_STEP:
+                    clamped_delta = self._UTILITY_MAX_STEP if delta > 0 else -self._UTILITY_MAX_STEP
+                    new_up = current_up + clamped_delta
+                
+                meta["utility_prior"] = round(new_up, 4)
                 self.storage.conn.execute(
                     "UPDATE beliefs SET metadata=? WHERE belief_hash=?",
                     (_json.dumps(meta), belief_hash),
@@ -262,20 +308,18 @@ class BeliefService:
         return stats
 
     async def _collect_utility_signals(self) -> dict:
-        """Fold passive telemetry into {belief_hash: {used, unused}} (zero discipline).
+        """D2: Collect passive telemetry into 3-signal format {belief_hash: {used, never_used, negative}}.
 
-        used  = injected_then_used count (source reappeared in a later retrieval)
-        unused = injected_never_used trailing count
-        Both come from usage_telemetry derivations that read only usage_events.
+        - used = injected_then_used count (positive signal)
+        - never_used = injected_never_used count (neutral signal, ignored in calculation)
+        - negative = contradictions/re-query count (negative signal, will come from _classify_requeries in D3)
+
+        For now, negative=0 since telemetry doesn't yet classify contradictions.
         """
         out: dict = {}
         try:
             from ..storage.usage_telemetry import _derive_injected_then_used_map, _derive_injected_never_used
-            # POSITIVE signal is keyed by SOURCE-memory content_hash (a belief_hash is a
-            # hash of distilled text and never equals a memory content_hash, so the
-            # injected_then_used correlation is done on each belief's derived_from
-            # provenance). Build source_hash → [belief_hash] from active beliefs to map
-            # the positive signal back onto the belief it credits.
+            # Build source_hash → [belief_hash] mapping for positive signal correlation
             src_to_beliefs: dict = {}
             try:
                 import json as _json
@@ -293,18 +337,23 @@ class BeliefService:
 
             used_map = await _derive_injected_then_used_map(self.storage)   # {source_hash: count}
             unused_map = await _derive_injected_never_used(self.storage)    # {"agent:belief_hash": {...}}
-            # positive: translate source_hash → belief(s); if a source maps to no known
-            # belief (older events), fall back to crediting the key directly.
+            
+            # D2: Initialize all signals to 3-signal format
             for sh, cnt in (used_map or {}).items():
                 targets = src_to_beliefs.get(sh, [sh])
                 for bh in targets:
-                    out.setdefault(bh, {"used": 0, "unused": 0})
+                    out.setdefault(bh, {"used": 0, "never_used": 0, "negative": 0})
                     out[bh]["used"] += int(cnt or 0)
-            # negative: already keyed "{agent}:{belief_hash}" → aggregate per belief
+            
+            # Map never_used signal (neutral)
             for k, v in (unused_map or {}).items():
                 bh = v.get("belief_hash") or k.split(":", 1)[-1]
-                out.setdefault(bh, {"used": 0, "unused": 0})
-                out[bh]["unused"] += int(v.get("injections_without_use", 1) or 1)
+                out.setdefault(bh, {"used": 0, "never_used": 0, "negative": 0})
+                out[bh]["never_used"] += int(v.get("injections_without_use", 1) or 1)
+            
+            # D2: negative signal placeholder - will be implemented in D3 via _classify_requeries
+            # For now, all beliefs have negative=0 (no contradiction detection from telemetry yet)
+            
         except Exception as e:  # noqa: BLE001
             logger.debug("utility signal collection failed (non-fatal): %s", _sanitize_log_value(str(e)))
         return out
