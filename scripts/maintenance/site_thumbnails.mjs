@@ -65,28 +65,56 @@ function findChrome() {
 async function launch(userDir) {
   const proc = spawn(findChrome(), ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--remote-debugging-port=0',
     `--user-data-dir=${userDir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  const wsUrl = await new Promise((ok, fail) => {
-    let buf = '';
-    proc.stderr.on('data', (d) => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) ok(m[1]); });
-    proc.on('exit', () => fail(new Error('Chrome exited before it was ready')));
-    setTimeout(() => fail(new Error('Chrome did not start')), 20000);
-  });
-  return { proc, wsUrl };
+  let timer;
+  try {
+    const wsUrl = await new Promise((ok, fail) => {
+      let buf = '';
+      proc.stderr.on('data', (d) => { buf += d; const m = buf.match(/DevTools listening on (ws:\/\/\S+)/); if (m) ok(m[1]); });
+      proc.on('error', fail);
+      proc.on('exit', () => fail(new Error('Chrome exited before it was ready')));
+      timer = setTimeout(() => fail(new Error('Chrome did not start within 20 s')), 20000);
+    });
+    return { proc, wsUrl };
+  } catch (err) {
+    proc.kill();
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl);
-  let id = 0; const pending = new Map(); const waiters = [];
+  let id = 0, dead = null, rejectOpen;
+  const pending = new Map(); const waiters = [];
+  const die = (err) => {
+    dead ||= err;
+    for (const p of pending.values()) p.fail(err);
+    for (const w of waiters) w.fail(err);
+    pending.clear(); waiters.length = 0; rejectOpen(err);
+  };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) { const { ok, fail } = pending.get(m.id); pending.delete(m.id); m.error ? fail(new Error(m.error.message)) : ok(m.result); }
     else if (m.method) for (const w of [...waiters]) if (w.method === m.method && (!w.session || w.session === m.sessionId)) { waiters.splice(waiters.indexOf(w), 1); w.ok(m.params); }
   };
-  const opened = new Promise((ok) => { ws.onopen = ok; });
+  ws.onerror = () => die(new Error('DevTools connection failed'));
+  ws.onclose = () => die(new Error('DevTools connection closed (did Chrome crash?)'));
+  const opened = new Promise((ok, no) => { ws.onopen = ok; rejectOpen = no; });
   return {
     opened,
-    send: (method, params = {}, sessionId) => new Promise((ok, fail) => { const i = ++id; pending.set(i, { ok, fail }); ws.send(JSON.stringify({ id: i, method, params, sessionId })); }),
-    once: (method, session) => new Promise((ok) => waiters.push({ method, session, ok })),
+    send: (method, params = {}, sessionId, ms = 30000) => dead ? Promise.reject(dead) : new Promise((ok, no) => {
+      const i = ++id;
+      const t = setTimeout(() => { pending.delete(i); no(new Error(`${method} timed out after ${ms / 1000} s`)); }, ms);
+      pending.set(i, { ok: (r) => { clearTimeout(t); ok(r); }, fail: (e) => { clearTimeout(t); no(e); } });
+      ws.send(JSON.stringify({ id: i, method, params, sessionId }));
+    }),
+    once: (method, session, ms = 60000) => dead ? Promise.reject(dead) : new Promise((ok, no) => {
+      const w = { method, session,
+        ok: (r) => { clearTimeout(t); ok(r); }, fail: (e) => { clearTimeout(t); no(e); } };
+      const t = setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); no(new Error(`${method} timed out after ${ms / 1000} s`)); }, ms);
+      waiters.push(w);
+    }),
     close: () => ws.close(),
   };
 }
@@ -94,7 +122,7 @@ function cdp(wsUrl) {
 async function shoot(browser, base, name, shot) {
   const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true });
-  const s = (m, p) => browser.send(m, p, sessionId);
+  const s = (m, p, ms) => browser.send(m, p, sessionId, ms);
   await s('Page.enable');
   await s('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: OUT_WIDTH / WIDTH, mobile: false });
   await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: shot.scheme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
@@ -102,7 +130,7 @@ async function shoot(browser, base, name, shot) {
   await s('Page.navigate', { url: base + shot.path });
   await loaded;
   const wait = `(async () => { await document.fonts.ready; ${shot.run ? `await ${shot.run};` : ''} await new Promise(r => setTimeout(r, 600)); })()`;
-  const r = await s('Runtime.evaluate', { expression: wait, awaitPromise: true });
+  const r = await s('Runtime.evaluate', { expression: wait, awaitPromise: true }, 180000);
   if (r.exceptionDetails) throw new Error(`${name}: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
   const { data } = await s('Page.captureScreenshot', { format: 'webp', quality: 82 });
   const file = join(OUT, `thumb-${name}.webp`);
@@ -115,14 +143,25 @@ const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys
 for (const n of names) if (!SHOTS[n]) { console.error(`Unknown thumbnail "${n}". Known: ${Object.keys(SHOTS).join(', ')}`); process.exit(2); }
 
 const server = await serve();
-const userDir = await mkdtemp(join(tmpdir(), 'site-thumbs-'));
-const { proc, wsUrl } = await launch(userDir);
-const browser = cdp(wsUrl);
+let userDir, proc, browser;
 try {
+  userDir = await mkdtemp(join(tmpdir(), 'site-thumbs-'));
+  let wsUrl;
+  ({ proc, wsUrl } = await launch(userDir));
+  browser = cdp(wsUrl);
   await browser.opened;
   const base = `http://127.0.0.1:${server.address().port}`;
   for (const n of names) console.log('wrote', await shoot(browser, base, n, SHOTS[n]));
+} catch (err) {
+  console.error(`site_thumbnails: ${err.message}`);
+  process.exitCode = 1;
 } finally {
-  browser.close(); proc.kill(); server.close();
-  await rm(userDir, { recursive: true, force: true }).catch(() => {});
+  browser?.close(); server.close();
+  if (proc && proc.exitCode === null) {
+    // Chrome keeps writing to its profile while it shuts down, so wait for it before deleting the directory.
+    const exited = new Promise((ok) => proc.once('exit', ok));
+    proc.kill();
+    await Promise.race([exited, new Promise((ok) => setTimeout(ok, 5000))]);
+  }
+  if (userDir) await rm(userDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => {});
 }
