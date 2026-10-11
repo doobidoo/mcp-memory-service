@@ -1,0 +1,346 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "mcp-memory-service: release and mirror topology",
+    "subtitle": "GitHub is origin, CI, releases and wiki since 5 September 2026",
+    "output": "site/deployment/index.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "visual_preset": "blueprint",
+    "repository": {
+      "url": "https://github.com/doobidoo/mcp-memory-service",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "48d7d7f595bc28834b2fc096aa2c8f4895ebca89"
+    },
+    "views": [
+      {
+        "id": "release-path",
+        "label": "Release path",
+        "focus": [
+          "mac",
+          "github",
+          "ghactions",
+          "pypi",
+          "dockerhub"
+        ],
+        "note": "A tag pushed with git starts release.yml on a GitHub-hosted runner, which publishes both distributions and the images."
+      },
+      {
+        "id": "site-path",
+        "label": "Site path",
+        "focus": [
+          "github",
+          "ghactions",
+          "ghpages",
+          "cfpages"
+        ],
+        "note": "A merge to main touching site/** deploys through wrangler. GitHub Pages only redirects to the same domain."
+      },
+      {
+        "id": "mirror",
+        "label": "GitLab mirror",
+        "focus": [
+          "mac",
+          "gitlab"
+        ],
+        "note": "GitLab receives a fast-forwarded main and never tags."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "mac",
+      "type": "external",
+      "label": "Developer Mac",
+      "sublabel": "manual pushes",
+      "pos": [
+        30,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "github",
+      "type": "backend",
+      "label": "GitHub",
+      "sublabel": "origin, issues, PRs",
+      "tag": "leading",
+      "pos": [
+        330,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "CLAUDE.md",
+          "line": 13,
+          "end_line": 13,
+          "label": "origin on GitHub"
+        },
+        {
+          "path": "CLAUDE.md",
+          "line": 64,
+          "end_line": 64,
+          "label": "CI and releases"
+        }
+      ]
+    },
+    {
+      "id": "ghactions",
+      "type": "cloud",
+      "label": "GitHub Actions",
+      "sublabel": "ubuntu-latest, hosted",
+      "tag": "CI",
+      "pos": [
+        620,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 26,
+          "end_line": 33,
+          "label": "tag trigger v*.*.*"
+        },
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 49,
+          "end_line": 67,
+          "label": "publish-pypi"
+        },
+        {
+          "path": ".github/workflows/release.yml",
+          "line": 125,
+          "end_line": 128,
+          "label": "docker buildx"
+        }
+      ]
+    },
+    {
+      "id": "ghpages",
+      "type": "cloud",
+      "label": "GitHub Pages",
+      "sublabel": "docs/ redirect stub",
+      "pos": [
+        620,
+        390
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "docs/index.html",
+          "line": 7,
+          "end_line": 14,
+          "label": "redirect stub"
+        }
+      ]
+    },
+    {
+      "id": "pypi",
+      "type": "external",
+      "label": "PyPI",
+      "sublabel": "main + lite",
+      "pos": [
+        960,
+        90
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "dockerhub",
+      "type": "external",
+      "label": "Docker Hub",
+      "sublabel": "doobidoo/mcp-memory-service",
+      "pos": [
+        960,
+        240
+      ],
+      "size": [
+        210,
+        66
+      ]
+    },
+    {
+      "id": "cfpages",
+      "type": "cloud",
+      "label": "Cloudflare Pages",
+      "sublabel": "mcpmemory.services",
+      "tag": "canonical",
+      "pos": [
+        960,
+        390
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": ".github/workflows/deploy-site.yml",
+          "line": 20,
+          "end_line": 23,
+          "label": "trigger: site/**"
+        },
+        {
+          "path": ".github/workflows/deploy-site.yml",
+          "line": 38,
+          "end_line": 42,
+          "label": "wrangler pages deploy"
+        }
+      ]
+    },
+    {
+      "id": "gitlab",
+      "type": "backend",
+      "label": "GitLab",
+      "sublabel": "private push mirror",
+      "tag": "mirror",
+      "pos": [
+        330,
+        570
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "CLAUDE.md",
+          "line": 70,
+          "end_line": 76,
+          "label": "push mirror, no tags"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "github.com",
+      "wraps": [
+        "github",
+        "ghactions",
+        "ghpages"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "the only place repository secrets live",
+      "wraps": [
+        "github",
+        "ghactions"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Cloudflare",
+      "wraps": [
+        "cfpages"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "gitlab.com / private",
+      "wraps": [
+        "gitlab"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "mac-github",
+      "from": "mac",
+      "to": "github",
+      "label": "git push + tag",
+      "variant": "emphasis"
+    },
+    {
+      "id": "github-actions",
+      "from": "github",
+      "to": "ghactions",
+      "label": "push, tag v*",
+      "variant": "emphasis"
+    },
+    {
+      "id": "actions-pypi",
+      "from": "ghactions",
+      "to": "pypi",
+      "label": "release.yml"
+    },
+    {
+      "id": "actions-docker",
+      "from": "ghactions",
+      "to": "dockerhub",
+      "label": "buildx push"
+    },
+    {
+      "id": "actions-cloudflare",
+      "from": "ghactions",
+      "to": "cfpages",
+      "label": "site/** to wrangler",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "github-pages",
+      "from": "github",
+      "to": "ghpages",
+      "label": "serves docs/",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "pages-redirect",
+      "from": "ghpages",
+      "to": "cfpages",
+      "label": "redirect",
+      "variant": "dashed"
+    },
+    {
+      "id": "mac-gitlab",
+      "from": "mac",
+      "to": "gitlab",
+      "label": "fast-forward main, never tags",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Exactly one publisher",
+      "items": [
+        "release.yml on a GitHub-hosted runner owns PyPI and Docker Hub",
+        "A tag must be pushed with git; one created through a forge API fires nothing"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "One-way streets",
+      "items": [
+        "GitLab only ever receives a fast-forwarded main, and never tags",
+        "GitHub Pages serves a redirect stub, not content"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,549 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "MCP Memory Service: three ways in",
+    "output": "site/architecture/index.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "visual_preset": "blueprint",
+    "repository": {
+      "url": "https://github.com/doobidoo/mcp-memory-service",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "48d7d7f595bc28834b2fc096aa2c8f4895ebca89"
+    },
+    "views": [
+      {
+        "id": "local",
+        "label": "Local MCP",
+        "focus": [
+          "agents-local",
+          "stdio",
+          "core",
+          "storage-api"
+        ],
+        "note": "stdio is the default mode of memory server. No network involved."
+      },
+      {
+        "id": "remote",
+        "label": "Remote MCP",
+        "focus": [
+          "chat",
+          "mcp-http",
+          "oauth",
+          "core",
+          "storage-api"
+        ],
+        "note": "Streamable HTTP on /mcp needs a Bearer token or API key."
+      },
+      {
+        "id": "rest",
+        "label": "REST API",
+        "focus": [
+          "agents-http",
+          "rest",
+          "storage-api",
+          "consolidation"
+        ],
+        "note": "The HTTP app also runs the consolidation scheduler."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "agents-http",
+      "type": "external",
+      "label": "Agent frameworks",
+      "sublabel": "LangGraph, CrewAI, HTTP",
+      "pos": [
+        30,
+        80
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "agents-local",
+      "type": "external",
+      "label": "Terminal and IDE agents",
+      "sublabel": "Claude Code, Codex, Cursor",
+      "pos": [
+        30,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "chat",
+      "type": "external",
+      "label": "Browser chat",
+      "sublabel": "claude.ai, ChatGPT",
+      "pos": [
+        30,
+        400
+      ],
+      "size": [
+        170,
+        66
+      ]
+    },
+    {
+      "id": "rest",
+      "type": "backend",
+      "label": "REST API",
+      "sublabel": "FastAPI, /api/*",
+      "pos": [
+        320,
+        80
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/web/app.py",
+          "line": 356,
+          "end_line": 360,
+          "label": "API routers"
+        },
+        {
+          "path": "src/mcp_memory_service/web/api/memories.py",
+          "line": 142,
+          "end_line": 147,
+          "label": "POST /memories"
+        },
+        {
+          "path": "src/mcp_memory_service/web/oauth/middleware.py",
+          "line": 449,
+          "end_line": 460,
+          "label": "access checks"
+        }
+      ]
+    },
+    {
+      "id": "stdio",
+      "type": "backend",
+      "label": "stdio server",
+      "sublabel": "memory server, default mode",
+      "pos": [
+        320,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
+          "line": 296,
+          "end_line": 298,
+          "label": "run_stdio"
+        },
+        {
+          "path": "src/mcp_memory_service/server_impl.py",
+          "line": 3068,
+          "end_line": 3079,
+          "label": "mode switch"
+        },
+        {
+          "path": "pyproject.toml",
+          "line": 157,
+          "end_line": 160,
+          "label": "entry points"
+        }
+      ]
+    },
+    {
+      "id": "mcp-http",
+      "type": "backend",
+      "label": "Streamable HTTP",
+      "sublabel": "/mcp, stateless",
+      "tag": "local-only tools off",
+      "pos": [
+        320,
+        400
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
+          "line": 416,
+          "end_line": 440,
+          "label": "run_streamable_http"
+        },
+        {
+          "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
+          "line": 523,
+          "end_line": 540,
+          "label": "auth on /mcp"
+        },
+        {
+          "path": "src/mcp_memory_service/server_impl.py",
+          "line": 1458,
+          "end_line": 1484,
+          "label": "local_only_tools"
+        }
+      ]
+    },
+    {
+      "id": "oauth",
+      "type": "security",
+      "label": "OAuth 2.1 app",
+      "sublabel": "discovery, DCR, token",
+      "pos": [
+        320,
+        570
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
+          "line": 444,
+          "end_line": 452,
+          "label": "OAuth sub-app"
+        },
+        {
+          "path": "src/mcp_memory_service/web/oauth/authorization.py",
+          "line": 343,
+          "end_line": 343,
+          "label": "/authorize"
+        },
+        {
+          "path": "src/mcp_memory_service/web/oauth/authorization.py",
+          "line": 920,
+          "end_line": 920,
+          "label": "/token"
+        }
+      ]
+    },
+    {
+      "id": "core",
+      "type": "backend",
+      "label": "MemoryServer",
+      "sublabel": "list_tools, call_tool",
+      "pos": [
+        620,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/server_impl.py",
+          "line": 243,
+          "end_line": 243,
+          "label": "MemoryServer"
+        },
+        {
+          "path": "src/mcp_memory_service/server_impl.py",
+          "line": 1486,
+          "end_line": 1520,
+          "label": "tool dispatch"
+        },
+        {
+          "path": "src/mcp_memory_service/tools/routing.py",
+          "line": 69,
+          "end_line": 80,
+          "label": "routing table"
+        }
+      ]
+    },
+    {
+      "id": "storage-api",
+      "type": "database",
+      "label": "MemoryStorage",
+      "sublabel": "backend interface",
+      "pos": [
+        920,
+        240
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/storage/base.py",
+          "line": 40,
+          "end_line": 40,
+          "label": "MemoryStorage"
+        },
+        {
+          "path": "src/mcp_memory_service/storage/factory.py",
+          "line": 55,
+          "end_line": 75,
+          "label": "backend factory"
+        },
+        {
+          "path": "src/mcp_memory_service/web/dependencies.py",
+          "line": 38,
+          "end_line": 42,
+          "label": "get_storage"
+        }
+      ]
+    },
+    {
+      "id": "consolidation",
+      "type": "backend",
+      "label": "Consolidation",
+      "sublabel": "scheduled, in the HTTP app",
+      "pos": [
+        920,
+        400
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/web/app.py",
+          "line": 190,
+          "end_line": 200,
+          "label": "scheduler setup"
+        },
+        {
+          "path": "src/mcp_memory_service/consolidation/scheduler.py",
+          "line": 62,
+          "end_line": 62,
+          "label": "ConsolidationScheduler"
+        }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "SQLite-vec",
+      "sublabel": "vector search",
+      "pos": [
+        1210,
+        80
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/storage/sqlite_vec.py",
+          "line": 57,
+          "end_line": 57,
+          "label": "SqliteVecMemoryStorage"
+        }
+      ]
+    },
+    {
+      "id": "hybrid",
+      "type": "database",
+      "label": "Hybrid",
+      "sublabel": "SQLite-vec + Cloudflare sync",
+      "pos": [
+        1210,
+        240
+      ],
+      "size": [
+        190,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/storage/hybrid.py",
+          "line": 1031,
+          "end_line": 1040,
+          "label": "HybridMemoryStorage"
+        },
+        {
+          "path": "src/mcp_memory_service/storage/hybrid.py",
+          "line": 248,
+          "end_line": 249,
+          "label": "primary, secondary"
+        }
+      ]
+    },
+    {
+      "id": "cloudflare",
+      "type": "cloud",
+      "label": "Cloudflare",
+      "sublabel": "D1 + Vectorize",
+      "pos": [
+        1210,
+        400
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/storage/cloudflare.py",
+          "line": 163,
+          "end_line": 163,
+          "label": "CloudflareStorage"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Bearer token or API key on /mcp",
+      "wraps": [
+        "mcp-http",
+        "oauth"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Backends implementing MemoryStorage",
+      "wraps": [
+        "sqlite",
+        "hybrid",
+        "cloudflare"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "frameworks-rest",
+      "from": "agents-http",
+      "to": "rest",
+      "label": "HTTP"
+    },
+    {
+      "id": "local-stdio",
+      "from": "agents-local",
+      "to": "stdio",
+      "label": "MCP stdio"
+    },
+    {
+      "id": "chat-mcp",
+      "from": "chat",
+      "to": "mcp-http",
+      "label": "Bearer token",
+      "variant": "security"
+    },
+    {
+      "id": "chat-oauth",
+      "from": "chat",
+      "to": "oauth",
+      "label": "sign in",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "mcp-verify",
+      "from": "mcp-http",
+      "to": "oauth",
+      "label": "verify token",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "stdio-core",
+      "from": "stdio",
+      "to": "core",
+      "label": "tool calls"
+    },
+    {
+      "id": "mcp-core",
+      "from": "mcp-http",
+      "to": "core",
+      "label": "tool calls",
+      "fromSide": "right",
+      "toSide": "bottom"
+    },
+    {
+      "id": "core-storage",
+      "from": "core",
+      "to": "storage-api",
+      "label": "reads, writes",
+      "variant": "emphasis"
+    },
+    {
+      "id": "rest-storage",
+      "from": "rest",
+      "to": "storage-api",
+      "label": "reads, writes",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "consolidation-storage",
+      "from": "consolidation",
+      "to": "storage-api",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "storage-sqlite",
+      "from": "storage-api",
+      "to": "sqlite"
+    },
+    {
+      "id": "storage-hybrid",
+      "from": "storage-api",
+      "to": "hybrid"
+    },
+    {
+      "id": "storage-cloudflare",
+      "from": "storage-api",
+      "to": "cloudflare"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Three ways in",
+      "items": [
+        "stdio: default mode of memory server, no network",
+        "Streamable HTTP: MCP for claude.ai and ChatGPT, OAuth 2.1 or API key",
+        "REST: /api/* for frameworks and the dashboard"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "One tool surface",
+      "items": [
+        "stdio and Streamable HTTP share MemoryServer",
+        "The remote transport filters tools that read local file paths",
+        "REST handlers use the storage layer directly"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Storage",
+      "items": [
+        "SQLite-vec, Cloudflare, Hybrid and Milvus implement MemoryStorage",
+        "Hybrid reads from SQLite-vec and syncs to Cloudflare in the background"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Scope",
+      "items": [
+        "Snapshot at the pinned commit, written from the source",
+        "Dashboard, hooks and document ingestion are not drawn",
+        "Auth is enforced when OAuth or an API key is configured"
+      ]
+    }
+  ]
+}
