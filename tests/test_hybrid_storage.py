@@ -356,8 +356,14 @@ class TestHybridMemoryStorage:
 
     @pytest.mark.asyncio
     async def test_get_stats_without_secondary(self, temp_sqlite_db):
-        """Without any secondary get_stats must not name one (#1482)."""
-        storage = HybridMemoryStorage(sqlite_db_path=temp_sqlite_db)
+        """Without any secondary get_stats must not name one (#1482).
+
+        `secondary_backend` is passed explicitly: left at None it falls back to
+        MCP_HYBRID_SECONDARY_BACKEND, so a developer's own hub settings would turn
+        this into an HTTP secondary (or a missing-URL error). 'cloudflare' with no
+        cloudflare_config is the SQLite-only path.
+        """
+        storage = HybridMemoryStorage(sqlite_db_path=temp_sqlite_db, secondary_backend='cloudflare')
         await storage.initialize()
         try:
             assert storage.secondary_backend_type is None

@@ -42,8 +42,24 @@ export MCP_API_KEY="$(openssl rand -base64 32)"
 export MCP_EMBEDDING_MODEL=all-MiniLM-L6-v2   # identical on every client
 ```
 
-Start it the way you start any HTTP deployment (`uv run memory server --http`, the systemd
-unit from `scripts/service/`, or Docker — see the [production guide](../deployment/production-guide.md) and [docker.md](../deployment/docker.md)).
+Start it with an entry point that honours `MCP_HTTPS_ENABLED`:
+
+- `uv run memory launch` (add `--foreground` to stay attached): resolves the certificate
+  paths and passes them to uvicorn (`cli/lifecycle.py`, `_resolve_server_tls`), and refuses
+  to come up on plain HTTP when TLS was requested but cannot be provided;
+- `python scripts/server/run_http_server.py`, which the systemd unit
+  `scripts/service/mcp-memory-http.service` runs, does the same;
+- or Docker — see the [production guide](../deployment/production-guide.md) and
+  [docker.md](../deployment/docker.md).
+
+**Do not start the hub with `memory server --http`.** That command passes no TLS arguments to
+uvicorn at all (`cli/main.py`, `server`), so it serves plain HTTP whatever `MCP_HTTPS_ENABLED`
+says, and clients configured with `https://hub.example.com:8443` cannot connect. With
+`MCP_HTTPS_ENABLED=true` and no `MCP_SSL_CERT_FILE` / `MCP_SSL_KEY_FILE`, both entry points
+above generate a self-signed development certificate; the hybrid client verifies the hub's
+certificate against the system trust store and has no switch to accept a self-signed one, so
+for a hub that other machines connect to, either point the two variables at a certificate the
+clients trust, or leave `MCP_HTTPS_ENABLED` unset and terminate TLS in nginx/caddy in front.
 
 ### One key, full access
 
@@ -132,6 +148,23 @@ auth (`consolidation/scheduler.py`, `_resolve_sync_peers`).
 (`web/app.py`, `_OPTIN_SCHEDULE_ENV_VARS`). The hub sets no `MCP_SYNC_*` peer variables: it
 is pulled from, never pulls.
 
+**The job only exists in a process that starts the scheduler — on a client, that is the HTTP
+server.** The HTTP server (`memory launch`, `run_http_server.py`) starts the scheduler as soon
+as `MCP_SYNC_SCHEDULE` is set, even with consolidation off (`web/app.py`, lifespan). The stdio
+`memory server` that Claude Desktop / Claude Code spawn starts it only when
+`MCP_CONSOLIDATION_ENABLED=true` and at least one consolidation cadence is not `disabled`
+(`server_impl.py`, `_initialize_consolidation`); with consolidation off, the stdio process
+never creates the job and the settings above do nothing. So a client that only runs the stdio
+server must also run the HTTP process with these variables, e.g.
+
+```bash
+# on the client, same environment as above
+uv run memory launch            # background HTTP process that owns the pull+push job
+```
+
+and, since the client now runs two processes on one database, set `MCP_HYBRID_SYNC_OWNER`
+(see above) so only one of them keeps the hybrid queue to the hub.
+
 ## Multi-client semantics
 
 <!-- Section to be written by @filhocf (Claudio) — see #1482: concurrent writers, conflict
@@ -159,8 +192,26 @@ Two scripts exist; pick by **vector dimension**, not by preference:
   local model with a new dimension, export the memories, start a fresh database with the new
   model, and re-import.
 
-Either way, stop the hub while re-embedding and let clients re-run their startup model check
-afterwards.
+**Re-embedding the hub is not enough: every client holds its own vectors.** A hybrid client
+answers searches from its local SQLite-vec database, not from the hub (`storage/hybrid.py`,
+`retrieve` / `search` delegate to the primary). After a model change, a client's local
+vectors are still the old model's:
+
+- **Same dimension**: startup accepts the old vectors (the existing-database check compares
+  dimensions only, `storage/mixins/migrations.py`), so the client silently compares new query
+  vectors with old stored ones and misses memories. Re-embed each client as you did the hub:
+  stop its processes, set the new `MCP_EMBEDDING_MODEL`, run
+  `python scripts/maintenance/regenerate_embeddings.py` with the client's own environment
+  (on a hybrid it re-embeds the local primary, `_resolve_actual_storage`; its startup includes
+  the model check against the hub, so do it after the hub is back up with the new model), then
+  restart.
+- **Different dimension**: the client's local database refuses to start (`RuntimeError`,
+  strict dimension check). Either export / re-import it as for the hub, or move the local
+  database aside and start the client: the hybrid initial sync pulls every memory it is missing
+  from the hub and stores it locally, which embeds it with the client's new model.
+
+Order: stop everything → re-embed the hub → start the hub → re-embed (or rebuild) each client →
+start the clients.
 
 ## Checklist
 
@@ -170,5 +221,8 @@ afterwards.
 - [ ] Dual-process clients: `MCP_HYBRID_SYNC_OWNER` set to one of `http` / `mcp`.
 - [ ] Delta-sync, if wanted: `MCP_SYNC_EVENTLOG=on` on hub and clients, `MCP_SYNC_*` peer
       variables on clients only, `MCP_SYNC_PEER_API_KEY` ≠ the client's own `MCP_API_KEY`.
-- [ ] Model change: re-embed the hub (`regenerate_embeddings.py` for same dimension) before
-      restarting clients.
+- [ ] Model change: re-embed the hub (`regenerate_embeddings.py` for same dimension), then
+      re-embed or rebuild **every client's local database** before restarting it.
+- [ ] Hub started with `memory launch` or `run_http_server.py`, never `memory server --http`
+      (it ignores `MCP_HTTPS_ENABLED`).
+- [ ] Scheduled sync on a client: the HTTP process runs there too (stdio alone never schedules it).
