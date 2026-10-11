@@ -33,6 +33,7 @@ except ImportError:
 from .consolidator import DreamInspiredConsolidator
 from .belief_service import BeliefService
 from ..compat import _sanitize_log_value
+from ..harvest.tracker_utils import read_tracker_strict, persist_tracker
 
 
 def sessions_to_track(results) -> set:
@@ -551,6 +552,10 @@ class ConsolidationScheduler:
             # sessions, mirroring the memory_harvest handler so scheduled runs
             # don't re-process (and duplicate) sessions every cycle.
             already = await self._read_harvest_tracker(memory_service)
+            if already is None:
+                # Read failed - abort harvest to avoid data loss
+                self.logger.error("Failed to read harvest tracker - aborting scheduled harvest for safety")
+                return
             all_config = HarvestConfig(sessions=9999, project_path=session_dir)
             all_sessions = harvester._resolve_sessions(all_config)
             pending = [s for s in all_sessions if harvester._session_id(s) not in already]
@@ -589,33 +594,25 @@ class ConsolidationScheduler:
             self.execution_stats['failed_jobs'] += 1
             self.logger.error("Scheduled session harvest failed: %s", e)
 
-    async def _read_harvest_tracker(self, memory_service) -> set:
-        """Read the set of already-harvested session ids from the tracker memory."""
-        try:
-            tracker = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
-            for mem in tracker.get("memories", []):
-                content = mem.get("content", "")
-                if content.startswith("harvested_sessions:"):
-                    ids_str = content.split(":", 1)[1]
-                    return {s for s in ids_str.split(",") if s}
-        except Exception:
-            pass  # first run or tracker missing — treat as empty
-        return set()
+    async def _read_harvest_tracker(self, memory_service):
+        """Read the set of already-harvested session ids from the tracker memory.
+        
+        Returns None if the read fails (database locked, etc.) to distinguish
+        from empty tracker on first run.
+        """
+        return await read_tracker_strict(memory_service)
 
     async def _update_harvest_tracker(self, memory_service, all_ids: set):
-        """Upsert the harvest-tracker memory (delete old + store merged set)."""
-        try:
-            old = await memory_service.list_memories(page=1, page_size=1, tags=["harvest-tracker"])
-            for mem in old.get("memories", []):
-                await memory_service.storage.delete(mem["content_hash"])
-            await memory_service.store_memory(
-                content=f"harvested_sessions:{','.join(sorted(all_ids))}",
-                tags=["harvest-tracker"],
-                memory_type="observation",
-                metadata={"count": len(all_ids)},
-            )
-        except Exception as e:
-            self.logger.warning("Failed to update harvest tracker: %s", e)
+        """Upsert the harvest-tracker memory with monotonic merge and safety guards."""
+        # FIX C2: Call persist_tracker instead of duplicating inline logic
+        # FIX A2: lock=None → persist_tracker falls back to the module-level _TRACKER_LOCK,
+        # which serializes concurrent scheduler runs. NOTE: the HTTP handler passes its own
+        # instance lock, so a scheduled harvest and an HTTP memory_harvest are NOT mutually
+        # serialized; impact is LOW (transient duplicate tracker reconciled next cleanup) and
+        # the 667→19 regression is prevented regardless by read_tracker_strict + monotonic merge.
+        success = await persist_tracker(memory_service, all_ids, force_shrink=False, lock=None)
+        if not success:
+            self.logger.error("Failed to update harvest tracker")
 
     def _create_trigger(self, horizon: str, schedule_spec: str):
         """Create APScheduler trigger from schedule specification."""

@@ -129,6 +129,9 @@ if CONSOLIDATION_ENABLED:
     from .consolidation.consolidator import DreamInspiredConsolidator
     from .consolidation.scheduler import ConsolidationScheduler
 
+# Harvest imports
+from .harvest.tracker_utils import read_tracker_strict, persist_tracker
+
 # Note: Logging is already configured in server.logging_config module
 
 # Configure performance-critical module logging
@@ -1789,18 +1792,11 @@ class MemoryServer:
         already_harvested = set()
         if not config.dry_run and not config.session_ids:
             async with self._harvest_lock:
-                try:
-                    tracker = await self.memory_service.list_memories(
-                        page=1, page_size=1, tags=["harvest-tracker"],
-                    )
-                    for mem in tracker.get("memories", []):
-                        content = mem.get("content", "")
-                        if content.startswith("harvested_sessions:"):
-                            ids_str = content.split(":", 1)[1]
-                            already_harvested = {s for s in ids_str.split(",") if s}
-                            break
-                except Exception:
-                    pass  # First run or tracker not found — proceed normally
+                result = await read_tracker_strict(self.memory_service)
+                if result is not None:
+                    already_harvested = result
+                # If result is None (read failure), keep already_harvested = set() 
+                # to proceed with harvest but prevent persist if read failed
 
         harvester = SessionHarvester(
             project_dir=project_path,
@@ -1837,23 +1833,13 @@ class MemoryServer:
             if results:
                 new_ids = {r.session_id for r in results if r.session_id}
                 if new_ids:
-                    all_harvested = already_harvested | new_ids
-                    tracker_content = f"harvested_sessions:{','.join(sorted(all_harvested))}"
-                    # Upsert tracker (delete old + store new)
-                    try:
-                        old_tracker = await self.memory_service.list_memories(
-                            page=1, page_size=1, tags=["harvest-tracker"],
-                        )
-                        for mem in old_tracker.get("memories", []):
-                            await self.memory_service.storage.delete(mem["content_hash"])
-                        await self.memory_service.store_memory(
-                            content=tracker_content,
-                            tags=["harvest-tracker"],
-                            memory_type="observation",
-                            metadata={"count": len(all_harvested)},
-                        )
-                    except Exception as e:
-                        logger.warning("Failed to update harvest tracker: %s", _sanitize_log_value(e))
+                    # Safe harvest tracker update with lock
+                    # FIX C2: Call persist_tracker instead of duplicating inline logic
+                    # FIX A2: Pass self._harvest_lock to persist_tracker  
+                    success = await persist_tracker(self.memory_service, new_ids, 
+                                                   force_shrink=False, lock=self._harvest_lock)
+                    if not success:
+                        logger.error("Failed to update harvest tracker")
 
         output = {
             "dry_run": config.dry_run,
