@@ -39,15 +39,13 @@
         "note": "A merge to main touching site/** deploys through wrangler. GitHub Pages only redirects to the same domain."
       },
       {
-        "id": "copies",
-        "label": "Second copies",
+        "id": "mirror",
+        "label": "GitLab mirror",
         "focus": [
           "mac",
-          "gitlab",
-          "codeberg",
-          "gitea"
+          "gitlab"
         ],
-        "note": "GitLab receives a fast-forwarded main and never tags. Codeberg is a frozen archive that nothing pushes to."
+        "note": "GitLab receives a fast-forwarded main and never tags."
       }
     ]
   },
@@ -231,36 +229,6 @@
           "label": "push mirror, no tags"
         }
       ]
-    },
-    {
-      "id": "codeberg",
-      "type": "external",
-      "label": "Codeberg",
-      "sublabel": "frozen archive",
-      "tag": "archive",
-      "pos": [
-        700,
-        570
-      ],
-      "size": [
-        170,
-        66
-      ]
-    },
-    {
-      "id": "gitea",
-      "type": "external",
-      "label": "Gitea 1.26.4",
-      "sublabel": "pull mirror, unverified",
-      "tag": "unverified",
-      "pos": [
-        1000,
-        570
-      ],
-      "size": [
-        170,
-        66
-      ]
     }
   ],
   "boundaries": [
@@ -293,13 +261,6 @@
       "label": "gitlab.com / private",
       "wraps": [
         "gitlab"
-      ]
-    },
-    {
-      "kind": "region",
-      "label": "tinyclaw, Hetzner VM",
-      "wraps": [
-        "gitea"
       ]
     }
   ],
@@ -362,13 +323,6 @@
       "variant": "dashed",
       "fromSide": "bottom",
       "toSide": "left"
-    },
-    {
-      "id": "codeberg-gitea",
-      "from": "codeberg",
-      "to": "gitea",
-      "label": "pulled every 8h",
-      "variant": "dashed"
     }
   ],
   "cards": [
@@ -377,7 +331,6 @@
       "title": "Exactly one publisher",
       "items": [
         "release.yml on a GitHub-hosted runner owns PyPI and Docker Hub",
-        "Codeberg lost its Actions secrets on 5 September 2026 and can no longer publish",
         "A tag must be pushed with git; one created through a forge API fires nothing"
       ]
     },
@@ -386,17 +339,7 @@
       "title": "One-way streets",
       "items": [
         "GitLab only ever receives a fast-forwarded main, and never tags",
-        "GitHub Pages serves a redirect stub, not content",
-        "Nothing pushes to Codeberg any more; it stays readable so old links resolve"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "What the move retired",
-      "items": [
-        "Releases no longer depend on one Hetzner VM; hosted runners replaced it",
-        "The Forgejo runner on tinyclaw still exists but has no job",
-        "The Gitea mirror still points at Codeberg; its state is unverified since the move"
+        "GitHub Pages serves a redirect stub, not content"
       ]
     }
   ]

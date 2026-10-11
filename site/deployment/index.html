@@ -4988,7 +4988,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
-      <svg viewBox="0 0 1240 724" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="blueprint" data-quality-profile="showcase" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
+      <svg viewBox="0 0 1210 724" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="blueprint" data-quality-profile="showcase" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
         <title id="archify-diagram-title">mcp-memory-service: release and mirror topology</title>
         <desc id="archify-diagram-description">GitHub is origin, CI, releases and wiki since 5 September 2026</desc>
         <!-- Definitions -->
@@ -5022,8 +5022,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="3" data-composition-frame-label="gitlab.com / private" x="300" y="540" width="230" height="116" rx="12" class="c-region" stroke-width="1"/>
 
-        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="4" data-composition-frame-label="tinyclaw, Hetzner VM" x="970" y="540" width="230" height="116" rx="12" class="c-region" stroke-width="1"/>
-
         <!-- Connection paths (before components for correct z-order) -->
         <g data-graph-role="automatic-crossover" style="--step:0">
           <path data-graph-role="automatic-crossover-underlay" d="M 200 273 L 330 273" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5056,10 +5054,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <g data-graph-role="automatic-crossover" style="--step:7">
           <path data-graph-role="automatic-crossover-underlay" d="M 115 306 L 115 322 Q 115 330 123 330 L 298 330 Q 306 330 306 338 L 306 595 Q 306 603 314 603 L 330 603" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="mac" data-edge-to="gitlab" data-edge-label="fast-forward main, never tags" data-edge-key="7" data-edge-id="mac-gitlab" data-composition-points="115,306;115,330;306,330;306,603;330,603" data-composition-crossover="halo" data-composition-independent="true" d="M 115 306 L 115 322 Q 115 330 123 330 L 298 330 Q 306 330 306 338 L 306 595 Q 306 603 314 603 L 330 603" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        </g>
-        <g data-graph-role="automatic-crossover" style="--step:8">
-          <path data-graph-role="automatic-crossover-underlay" d="M 870 603 L 1000 603" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="codeberg" data-edge-to="gitea" data-edge-label="pulled every 8h" data-edge-key="8" data-edge-id="codeberg-gitea" data-composition-points="870,603;1000,603" data-composition-crossover="halo" data-composition-independent="true" d="M 870 603 L 1000 603" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
 
         <!-- Components -->
@@ -5158,32 +5152,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="415" y="628" class="t-backend" font-size="7" text-anchor="middle">mirror</text>
         </g>
 
-        <g id="node-codeberg" data-node-id="codeberg" data-node-label="Codeberg" tabindex="0" role="button" aria-label="Focus Codeberg, frozen archive, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="frozen archive" data-node-tag="archive" data-node-context="Architecture component">
-          <title>Codeberg · frozen archive · Architecture component · archive</title>
-          <rect x="700" y="570" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="700" y="570" width="170" height="66" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(706 576) scale(0.6875)">
-            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
-            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="785" y="601" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Codeberg</text>
-        <text data-detail="context" x="785" y="617" class="t-muted" font-size="9" text-anchor="middle">frozen archive</text>
-        <text data-detail="fine" x="785" y="628" class="t-external" font-size="7" text-anchor="middle">archive</text>
-        </g>
-
-        <g id="node-gitea" data-node-id="gitea" data-node-label="Gitea 1.26.4" tabindex="0" role="button" aria-label="Focus Gitea 1.26.4, pull mirror, unverified, tinyclaw, Hetzner VM" aria-pressed="false" data-node-kind="external" data-node-sublabel="pull mirror, unverified" data-node-tag="unverified" data-node-context="tinyclaw, Hetzner VM">
-          <title>Gitea 1.26.4 · pull mirror, unverified · tinyclaw, Hetzner VM · unverified</title>
-          <rect x="1000" y="570" width="170" height="66" rx="6" class="c-mask"/>
-          <rect x="1000" y="570" width="170" height="66" rx="6" class="c-external" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1006 576) scale(0.6875)">
-            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
-            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="1085" y="601" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Gitea 1.26.4</text>
-        <text data-detail="context" x="1085" y="617" class="t-muted" font-size="9" text-anchor="middle">pull mirror, unverified</text>
-        <text data-detail="fine" x="1085" y="628" class="t-external" font-size="7" text-anchor="middle">unverified</text>
-        </g>
-
         <!-- Connection labels -->
         <g data-detail="context" data-edge-from="mac" data-edge-to="github" data-edge-label="git push + tag" data-edge-key="0" data-edge-id="mac-github">
           <rect x="226.4" y="253" width="77.2" height="14" rx="3" class="c-mask"/>
@@ -5217,10 +5185,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="135.9" y="310" width="149.2" height="14" rx="3" class="c-mask"/>
           <text x="210.5" y="320" class="t-edge-dashed" font-size="8" text-anchor="middle">fast-forward main, never tags</text>
         </g>
-        <g data-detail="context" data-edge-from="codeberg" data-edge-to="gitea" data-edge-label="pulled every 8h" data-edge-key="8" data-edge-id="codeberg-gitea">
-          <rect x="894" y="583" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="935" y="593" class="t-edge-dashed" font-size="8" text-anchor="middle">pulled every 8h</text>
-        </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
         <g data-graph-role="structural-frame-label" data-composition-frame-id="0" data-composition-frame-kind="region" data-composition-frame-label="github.com">
@@ -5241,11 +5205,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <g data-graph-role="structural-frame-label" data-composition-frame-id="3" data-composition-frame-kind="region" data-composition-frame-label="gitlab.com / private">
           <rect data-graph-role="structural-frame-label-mask" x="304" y="550" width="118" height="16" rx="3" class="c-mask"/>
           <text data-boundary-label="" x="308" y="563" class="t-cloud" font-size="9" font-weight="600">gitlab.com / private</text>
-        </g>
-
-        <g data-graph-role="structural-frame-label" data-composition-frame-id="4" data-composition-frame-kind="region" data-composition-frame-label="tinyclaw, Hetzner VM">
-          <rect data-graph-role="structural-frame-label-mask" x="974" y="550" width="118" height="16" rx="3" class="c-mask"/>
-          <text data-boundary-label="" x="978" y="563" class="t-cloud" font-size="9" font-weight="600">tinyclaw, Hetzner VM</text>
         </g>
 
         <!-- Legend -->
@@ -5447,7 +5406,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </div>
         <ul>
           <li>release.yml on a GitHub-hosted runner owns PyPI and Docker Hub</li>
-          <li>Codeberg lost its Actions secrets on 5 September 2026 and can no longer publish</li>
           <li>A tag must be pushed with git; one created through a forge API fires nothing</li>
         </ul>
       </div>
@@ -5460,19 +5418,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>GitLab only ever receives a fast-forwarded main, and never tags</li>
           <li>GitHub Pages serves a redirect stub, not content</li>
-          <li>Nothing pushes to Codeberg any more; it stays readable so old links resolve</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <div class="card-dot amber"></div>
-          <h3>What the move retired</h3>
-        </div>
-        <ul>
-          <li>Releases no longer depend on one Hetzner VM; hosted runners replaced it</li>
-          <li>The Forgejo runner on tinyclaw still exists but has no job</li>
-          <li>The Gitea mirror still points at Codeberg; its state is unverified since the move</li>
         </ul>
       </div>
     </div>
