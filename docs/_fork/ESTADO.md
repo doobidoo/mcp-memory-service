@@ -1,7 +1,7 @@
 # ESTADO — mcp-memory-service (Claudio)
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-11 (fim de semana casa — ARCO LEARNING AGÊNTICO fechado no valor: A re-rank + dreaming singular belief + D1 utility_prior passivo NO VIVO (commits bc51c4a5..b9a1d43e); ARCO HARVEST aberto: fix do tracker 667→19 commitado+no vivo (c5f3a3a4), causa-raiz real do furo descoberta (triage cego ao formato legado descartava 100%), incidente de embedding ausente resolvido; 6 subagentes evoluídos com disciplina anti-fabricação).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-11 (fim de semana casa — ARCO LEARNING AGÊNTICO fechado no valor: A re-rank + dreaming singular + D1 utility_prior + LOOP FECHADO (laço A↔D 0e720178 + D2 3-sinais c9ba2a14 + D3 negative b5f0544e) NO VIVO; ARCO HARVEST aberto: fix do tracker 667→19 commitado+no vivo (c5f3a3a4), causa-raiz real do furo descoberta (triage cego ao formato legado descartava 100%), incidente de embedding ausente resolvido; 6 subagentes evoluídos com disciplina anti-fabricação).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente · 09/out)
@@ -47,18 +47,18 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   ├─ L4-unblock agent_id no retrieve/feedback/injection .. 🟢 FORK 6/out · _resolve_telemetry_agent_id (MCP_AGENT_ID, null-safe RFC#1100) nos 3 call sites de usage_events · derive_signals já particionava · 5 tests (REQ-A5 anti-contaminação) · banco vivo: retrieval grava agent_id=zero. PERSISTÊNCIA ainda dry-run: histórico 16965 eventos None contamina 96% até janela 14d limpar (ou expurgo) — decisão Claudio
 │   ├─ ENRIQUECIMENTO 6/out (backfill + host) .............. 🟢 FORK · (a) backfill: 22534 memórias NULL→agent_id=zero (guri==zero), kiro/unknown preservados, backup+integridade OK · (b) host automático: RFC rfc-mcp-hostname-stamping, _resolve_hostname nos 3 call sites MCP (store_memory+2×session, G5 P2 fechado), flag MCP_MEMORY_INCLUDE_HOSTNAME=true ligada, E2E quente: metadata.hostname=DNBSCDC289.741 · host = CANDIDATO PR UPSTREAM (assimetria: flag só na Web API)
 │   ├─ N1 janela 1 semana — medir proveito REAL ............ ✅ MEDIDO 10/out · ACHADO: injection_coverage=0.0 era BUG ESTRUTURAL, não falta de volume (belief_hash nunca == content_hash). L3 push CONFIRMADO disparando (E2E memory_search via /mcp).
-│   ├─ 🔧 FIX PROVENIÊNCIA (10/out, 63ddfaaa, 3 hosts) .. 🟢 FORK · injeção grava source_hashes (=derived_from do belief) no evento injection; _event_belief_hashes correlaciona por eles. injection_coverage 0.0→0.013 no vivo (1º ciclo inject→use). É Context Utilization / Chunk Attribution (pesquisa 10/out). test_injection_provenance_coverage.py (4).
-│   ├─ ⭐ FRENTES B/C/E (10/out) ........................ 🟢 TODAS IMPL-FORK · ARC e3dc542d · gate+delegação completo · fork-only (falta só empacotar upstream = 85febdca)
-│   │     ├─ B sinal-negativo (forgetting de belief inútil) 🟢 FORK @abbea491 · injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k. usage_events + metadata JSON (zero DDL).
-│   │     ├─ C freshness (versão nova vence na injeção) ... 🟢 FORK @5b8c6d1f · v2>v1 no top-k. timestamp boost em context_injection.py:274 (zero DDL).
-│   │     └─ E eval adversarial + MRR ................... 🟢 FORK @708dcd38 · script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting. Loop mensurável E2E discrimina feature on/off.
-│   ├─ (próximo) ligar score no ranking do retrieval ... 🔴 após B/C/E · RFC-MM-01 §5
+│   ├─ 🔧 FIX PROVENIÊNCIA (10/out, 63ddfaaa, 3 hosts) ..... 🟢 FORK · injeção grava source_hashes (=derived_from do belief) no evento injection; _event_belief_hashes correlaciona por eles. injection_coverage 0.0→0.013 no vivo (1º ciclo inject→use). É Context Utilization / Chunk Attribution (pesquisa 10/out). test_injection_provenance_coverage.py (4).
+│   ├─ ⭐ FRENTES B/C/E (10/out) ........................... 🟢 TODAS IMPL-FORK · ARC e3dc542d · gate+delegação completo · fork-only (falta só empacotar upstream = 85febdca)
+│   │     ├─ B sinal-negativo (forgetting de belief inútil)  🟢 FORK @abbea491 · injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k. usage_events + metadata JSON (zero DDL).
+│   │     ├─ C freshness (versão nova vence na injeção) .... 🟢 FORK @5b8c6d1f · v2>v1 no top-k. timestamp boost em context_injection.py:274 (zero DDL).
+│   │     └─ E eval adversarial + MRR ...................... 🟢 FORK @708dcd38 · script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting. Loop mensurável E2E discrimina feature on/off.
+│   ├─ (próximo) ligar score no ranking do retrieval ....... 🔴 após B/C/E · RFC-MM-01 §5
 │   ├─ ⭐ ARCO LEARNING AGÊNTICO (11/out, ARC 07bcf182) FECHADO no valor entregue · A+dreaming+D1 NO VIVO (sirdata)
-│   │     ├─ A re-rank / context precision ............ 🟢 FORK commits bc51c4a5(RED)+727d9757 · flag MCP_INJECT_RERANK_A · soma ponderada (rel+advantage-sobre-campo+conf log-saturada−generality query_hash+freshness) · G5 tuvok pegou 3 ALTOs · E2E: generic-wins 2/5→0/5
-│   │     ├─ Dreaming Inc1 singular belief ............. 🟢 FORK commits 2d5b42c8+0ed9576e+fe735300 · flag MCP_BELIEF_SINGULAR+conf 0.55 · fix de fonte única vira injetável no dia, ADITIVO (origin=singular), 242 derivados byte-idênticos · wire on-store (metadata.type∈decision/learning/error) · batch cap anti-flood (1639→cap)
-│   │     ├─ D1 utility_prior passivo .................. 🟢 FORK commit b9a1d43e · flag MCP_BELIEF_UTILITY_PRIOR · Beta-smoothed (prior 0.5 força 8) em metadata, NUNCA toca confidence (desacopla "útil injetar" de "é verdade", desarma double-count A×B×C) · correlação por SOURCE_HASH (derived_from), não belief_hash · 5/5 testes incl. caminho real
+│   │     ├─ A re-rank / context precision ................. 🟢 FORK commits bc51c4a5(RED)+727d9757 · flag MCP_INJECT_RERANK_A · soma ponderada (rel+advantage-sobre-campo+conf log-saturada−generality query_hash+freshness) · G5 tuvok pegou 3 ALTOs · E2E: generic-wins 2/5→0/5
+│   │     ├─ Dreaming Inc1 singular belief ................. 🟢 FORK commits 2d5b42c8+0ed9576e+fe735300 · flag MCP_BELIEF_SINGULAR+conf 0.55 · fix de fonte única vira injetável no dia, ADITIVO (origin=singular), 242 derivados byte-idênticos · wire on-store (metadata.type∈decision/learning/error) · batch cap anti-flood (1639→cap)
+│   │     ├─ D1 utility_prior passivo ...................... 🟢 FORK commit b9a1d43e · flag MCP_BELIEF_UTILITY_PRIOR · Beta-smoothed (prior 0.5 força 8) em metadata, NUNCA toca confidence (desacopla "útil injetar" de "é verdade", desarma double-count A×B×C) · correlação por SOURCE_HASH (derived_from), não belief_hash · 5/5 testes incl. caminho real
 │   │     └─ ROADMAP D2/D3/D4 anotado (nota roadmap-d2-d3-d4 na fase 957bdac2 + CONSOLIDADO de 9 IAs) · gatilho = observar uso real · [B#] só bônus opt-in neutro (disciplina do agente não existe — insight 11/out)
-│   ├─ A re-rank / D chunk-attribution (design aberto)  ✅ RESOLVIDO acima (A feito, D1 feito) · pesquisa frente-d-attribution-sem-disciplina-2026-10 CONSOLIDADO
+│   ├─ A re-rank / D chunk-attribution (design aberto) ..... ✅ RESOLVIDO acima (A feito, D1 feito) · pesquisa frente-d-attribution-sem-disciplina-2026-10 CONSOLIDADO
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
@@ -69,11 +69,11 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 ├─ ⭐ ARCO HARVEST DE SESSÕES (11/out, ARC 323e1654) ... learning de COLHEITAS (par do learning de memórias) · RFC rfc-harvest-sessoes
 │   │   Dor: sessões .jsonl (~/.kiro/sessions/cli, 1336, ~900MB) = fonte mais rica, massivamente sub-colhida. Raiz = não depender da disciplina do agente.
 │   ├─ FASE 0 planejamento + RFC + decisão arquitetura (A→B, C descartado) . ✅ DONE (G0 seven)
-│   ├─ FASE 1 fix do tracker (667→19 regressão) ........ 🟢 FORK commit c5f3a3a4 · NO VIVO · persist_tracker (merge monotônico+anti-shrink+store-antes-delete+lock módulo) · gate 4 rodadas (tuvok reprovou guard invertido) · 6/6 · tracker reconstruído 19→1299 no vivo
-│   ├─ FASE 1b fix do triage cego ao formato ........... ⚠️ WORKAROUND (MCP_HARVEST_TRIAGE=0) · FIX CÓDIGO PENDENTE (item f52de007) · triage.py só lê formato v4, descartava 100% do legado — causa-raiz real do furo
-│   ├─ FASE 2 backfill das 788 pendentes (546 out) ..... 🔨 EM WORK · tracker reconstruído feito · dry-run comprova candidatos · FALTA harvest real com LLM (longo, cap anti-flood)
+│   ├─ FASE 1 fix do tracker (667→19 regressão) ......... 🟢 FORK commit c5f3a3a4 · NO VIVO · persist_tracker (merge monotônico+anti-shrink+store-antes-delete+lock módulo) · gate 4 rodadas (tuvok reprovou guard invertido) · 6/6 · tracker reconstruído 19→1299 no vivo
+│   ├─ FASE 1b fix do triage cego ao formato ............ ⚠️ WORKAROUND (MCP_HARVEST_TRIAGE=0) · FIX CÓDIGO PENDENTE (item f52de007) · triage.py só lê formato v4, descartava 100% do legado — causa-raiz real do furo
+│   ├─ FASE 2 backfill das 788 pendentes (546 out) ...... 🔨 EM WORK · tracker reconstruído feito · dry-run comprova candidatos · FALTA harvest real com LLM (longo, cap anti-flood)
 │   ├─ FASE 3 religar scheduler (MCP_HARVEST_SCHEDULE) .. 🔴 depende FASE 2
-│   ├─ FASE 4 resumo-por-sessão (session-summary, dec.B) 🔴 depende FASE 3
+│   ├─ FASE 4 resumo-por-sessão (session-summary, dec.B)  🔴 depende FASE 3
 │   └─ 🔧 INCIDENTE resolvido: serviço SEM backend embedding (onnxruntime/tokenizers ausentes no venv) recusava escrita (health 200 enganoso) → uv pip install · mistake 347f7009
 │
 ├─ 🟢 METODOLOGIA DE CURADORIA DE FORK (3/out) ......... nasceu do erro: reimplementei a trilogia que já existia
@@ -102,8 +102,8 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   │
 │   ├─ 📦 3 FONTES Kiro (WI d500bdfb — guarda-chuva "bring your agent"):
 │   │   ├─ CLI (cli/*.jsonl + nested v4) ................ ✅ parse+discovery OK
-│   │   ├─ IDE (workspace-sessions) .................... 🟡 neste host JÁ é v4 payload-wrapped (= CLI, só path difere; parse ok). history[] = formato ANTIGO (outros hosts). discovery do path IDE = evolução (WI ad09b221)
-│   │   └─ Crew (memory.db episodic/semantic) .......... 🔴 schema próprio, parse_sqlite lê só conversations_v2 (CLI). Importar via memory_store = evolução (WI 0a0fb0f9)
+│   │   ├─ IDE (workspace-sessions) ..................... 🟡 neste host JÁ é v4 payload-wrapped (= CLI, só path difere; parse ok). history[] = formato ANTIGO (outros hosts). discovery do path IDE = evolução (WI ad09b221)
+│   │   └─ Crew (memory.db episodic/semantic) ........... 🔴 schema próprio, parse_sqlite lê só conversations_v2 (CLI). Importar via memory_store = evolução (WI 0a0fb0f9)
 │   │
 │   └─ 🐛 BUG CANAL MCP (WI e5ac16db) ................... tool memory_consolidate action=harvest dá sessions:1 com sessions=20. Arch PROVOU: NÃO é código (handler real dá 20). Stale no canal (mcp-proxy/cliente Kiro cache). FIX: reiniciar CLIENTE Kiro. Não é bug do produto.
 │   │
