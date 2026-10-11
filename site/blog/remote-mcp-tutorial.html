@@ -15,142 +15,121 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/site.css">
 <style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --cyan:#00e5ff;--purple:#b388ff;--dark:#0a0e17;--card:#111827;
-  --text:#e2e8f0;--muted:#94a3b8;--green:#34d399;--glow:0 0 20px rgba(0,229,255,.3);
-}
-html{scroll-behavior:smooth}
-body{background:var(--dark);color:var(--text);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.7;overflow-x:hidden}
-a{color:var(--cyan);text-decoration:none;transition:opacity .2s}
-a:hover{opacity:.8}
+/* Post head sits in the navy band */
+.post-head{max-width:760px;padding:3.5rem 0 3.2rem}
+.post-head h1{font-size:clamp(2.2rem,5vw,3.6rem);font-weight:700;font-stretch:92%;line-height:1.03;letter-spacing:-.025em;margin:1.1rem 0 1.2rem}
+.post-head .subtitle{color:var(--band-muted);font-size:1.25rem;max-width:58ch}
+.article-meta{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:.8rem;color:var(--band-muted)}
+.article-meta .tag{border:1px solid var(--band-line);border-radius:999px;padding:.1rem .65rem;color:var(--band-text)}
 
-/* Canvas background */
-#bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none}
-
-/* Navigation */
-.nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,14,23,.9);backdrop-filter:blur(12px);border-bottom:1px solid #1e293b;padding:.8rem 2rem;display:flex;align-items:center;justify-content:space-between}
-.nav-brand{font-weight:700;font-size:1rem;color:var(--text)}
-.nav-brand span{color:var(--cyan)}
-.nav-links{display:flex;gap:1.5rem;font-size:.9rem}
-.nav-links a{color:var(--muted)}
-.nav-links a:hover{color:var(--cyan)}
-
-/* Article */
-.article{position:relative;z-index:1;max-width:780px;margin:0 auto;padding:6rem 2rem 4rem}
-.article-meta{color:var(--muted);font-size:.9rem;margin-bottom:2rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center}
-.article-meta .tag{background:rgba(0,229,255,.1);color:var(--cyan);padding:.2rem .6rem;border-radius:4px;font-size:.8rem}
-.article h1{font-size:clamp(2rem,5vw,3rem);font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem;line-height:1.2}
-.article .subtitle{font-size:1.2rem;color:var(--muted);margin-bottom:3rem;line-height:1.6}
-.article h2{font-size:1.6rem;font-weight:700;margin:3rem 0 1rem;color:var(--text);padding-top:1rem}
-.article h3{font-size:1.2rem;font-weight:600;margin:2rem 0 .8rem;color:var(--text)}
-.article p{margin-bottom:1.2rem;color:var(--text);font-size:1.05rem}
-.article ul,.article ol{margin:0 0 1.5rem 1.5rem;color:var(--text)}
-.article li{margin-bottom:.5rem;font-size:1.05rem}
-.article strong{color:#fff}
+/* Article body */
+.article{max-width:1120px;margin:0 auto;padding:3.5rem 1.5rem 4rem}
+.article>*{max-width:46rem}
+.article>.cta-section,.article>.flow-diagram{max-width:none}
+.article h2{font-size:clamp(1.6rem,3vw,2.1rem);margin:3.2rem 0 1rem}
+.article h3{font-size:1.3rem;margin:2rem 0 .7rem}
+.article p{margin-bottom:1.15rem}
+.article ul,.article ol{margin:0 0 1.5rem 1.4rem}
+.article li{margin-bottom:.45rem}
 .article em{color:var(--muted)}
+.article code{font-family:var(--mono);font-size:.85em;background:var(--cyan-soft);padding:.1em .35em;border-radius:3px;overflow-wrap:anywhere}
+.article pre{background:var(--console);color:var(--console-text);border-radius:8px;padding:1.1rem 1.3rem;overflow-x:auto;margin:1rem 0 1.5rem;font:400 .9rem/1.6 var(--mono)}
+.article pre code{background:none;padding:0;color:inherit;font-size:inherit;overflow-wrap:normal}
+.callout{border-left:4px solid var(--cyan);background:var(--panel);padding:1rem 1.3rem;margin:1.5rem 0;font-size:1rem}
+.callout.success{border-left-color:#1f9d6b}
+.callout.warning{border-left-color:#d98a00}
+.callout p{margin:0}
 
-/* Code blocks */
-.article pre{background:var(--card);border:1px solid #1e293b;border-radius:10px;padding:1.2rem 1.5rem;overflow-x:auto;margin:1rem 0 1.5rem;font-family:'SF Mono',Consolas,'Liberation Mono',monospace;font-size:.9rem;line-height:1.6;color:var(--cyan)}
-.article code{background:rgba(0,229,255,.08);color:var(--cyan);padding:.15rem .4rem;border-radius:4px;font-family:'SF Mono',Consolas,'Liberation Mono',monospace;font-size:.9em}
-.article pre code{background:none;padding:0;border-radius:0}
+/* Tables: our column is the second one */
+.table-wrap{overflow-x:auto;margin:1.5rem 0}
+.article table{width:100%;border-collapse:collapse;font-size:1rem;min-width:480px}
+.article th,.article td{padding:.65rem .9rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+.article th{font-family:var(--mono);font-size:.8rem;font-weight:600;color:var(--muted);border-bottom:2px solid var(--ink)}
+.article th:nth-child(2),.article td:nth-child(2){background:var(--cyan-soft);font-weight:600}
 
-/* Callout boxes */
-.callout{background:var(--card);border-left:3px solid var(--cyan);border-radius:0 10px 10px 0;padding:1.2rem 1.5rem;margin:1.5rem 0;font-size:.95rem}
-.callout.success{border-left-color:var(--green)}
-.callout.warning{border-left-color:#f59e0b}
-.callout p{margin-bottom:0}
-
-/* Comparison table */
-.article table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:.95rem}
-.article th{background:var(--card);color:var(--cyan);padding:.8rem 1rem;text-align:left;font-weight:600;border-bottom:2px solid #1e293b}
-.article td{padding:.7rem 1rem;border-bottom:1px solid #1e293b;color:var(--text)}
-.article tr:hover td{background:rgba(0,229,255,.03)}
-
-/* Step cards */
-.step{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.5rem 2rem;margin:1.5rem 0;transition:border-color .3s}
-.step:hover{border-color:rgba(0,229,255,.3)}
-.step-number{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,var(--cyan),var(--purple));color:var(--dark);font-weight:800;font-size:.9rem;margin-bottom:.8rem}
+/* Steps are a real sequence, so they are numbered */
+.step{position:relative;border-top:1px solid var(--line);padding:1.6rem 0 .4rem 3.4rem;margin-top:.4rem}
+.step-number{position:absolute;left:0;top:1.7rem;width:2.1rem;height:2.1rem;border:2px solid var(--cyan);border-radius:50%;display:grid;place-items:center;font:600 .85rem var(--mono)}
 .step h3{margin-top:0}
 
-/* Flow diagram */
-.flow-diagram{display:flex;align-items:center;justify-content:center;gap:.5rem;flex-wrap:wrap;padding:2rem 0;margin:1rem 0}
-.flow-node{background:var(--card);border:1px solid #1e293b;border-radius:10px;padding:.8rem 1.2rem;text-align:center;font-size:.85rem;min-width:110px}
-.flow-node .label{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.05em}
-.flow-node .name{font-weight:600;margin-top:.2rem}
-.flow-arrow{color:var(--cyan);font-size:1.3rem;animation:flow 1.5s ease-in-out infinite}
-@keyframes flow{0%,100%{opacity:.4}50%{opacity:1;text-shadow:0 0 8px var(--cyan)}}
+/* Flow */
+.flow-diagram{display:flex;align-items:stretch;flex-wrap:wrap;gap:.5rem;margin:1.5rem 0}
+.flow-node{border:1px solid var(--line);background:var(--panel);padding:.6rem 1rem;font-size:.95rem;min-width:110px}
+.flow-node .label{display:block;font:400 .72rem var(--mono);color:var(--muted)}
+.flow-node .name{font-family:var(--display);font-weight:600;line-height:1.3}
+.flow-arrow{align-self:center;color:var(--muted)}
 
-/* Cost comparison */
-.cost-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin:1.5rem 0}
-.cost-card{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:1.5rem}
-.cost-card.highlight{border-color:var(--cyan);box-shadow:0 0 20px rgba(0,229,255,.1)}
-.cost-card h4{font-size:1rem;margin-bottom:.8rem}
-.cost-card .price{font-size:1.8rem;font-weight:800;background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.cost-card .period{color:var(--muted);font-size:.85rem}
+/* Cost */
+.cost-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin:1.5rem 0}
+.cost-card{border:1px solid var(--line);background:var(--panel);padding:1.4rem}
+.cost-card.highlight{box-shadow:inset 0 3px 0 var(--cyan)}
+.cost-card h4{font-family:var(--display);font-size:1.05rem;margin-bottom:.6rem}
+.cost-card .price{font:700 2rem var(--display)}
+.cost-card .period{color:var(--muted);font-size:.9rem}
 .cost-card ul{list-style:none;margin:.8rem 0 0;padding:0}
-.cost-card li{color:var(--muted);font-size:.9rem;padding:.3rem 0}
-.cost-card li::before{content:'';margin-right:.5rem}
+.cost-card li{color:var(--muted);font-size:1rem;padding:.25rem 0;margin:0}
 
-/* CTA */
-.cta-section{text-align:center;background:var(--card);border:1px solid #1e293b;border-radius:16px;padding:3rem 2rem;margin:3rem 0}
-.cta-section h2{background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.8rem 1.8rem;border-radius:8px;font-size:1rem;font-weight:600;transition:all .3s;cursor:pointer;border:none;margin:.5rem}
-.btn-primary{background:linear-gradient(135deg,var(--cyan),var(--purple));color:var(--dark)}
-.btn-primary:hover{box-shadow:var(--glow);transform:translateY(-2px)}
-.btn-secondary{background:transparent;border:1px solid var(--muted);color:var(--text)}
-.btn-secondary:hover{border-color:var(--cyan);color:var(--cyan)}
-
-/* Use cases grid */
+/* Use cases */
 .use-cases{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin:1.5rem 0}
-.use-case{background:var(--card);border:1px solid #1e293b;border-radius:10px;padding:1.2rem;transition:border-color .3s}
-.use-case:hover{border-color:rgba(179,136,255,.3)}
-.use-case h4{font-size:1rem;margin-bottom:.5rem}
-.use-case p{font-size:.9rem;color:var(--muted);margin:0}
+.use-case{border:1px solid var(--line);background:var(--panel);padding:1.1rem 1.2rem}
+.use-case h4{font-family:var(--display);font-size:1.05rem;margin-bottom:.4rem}
+.use-case p{font-size:1rem;color:var(--muted);margin:0}
 
-/* Footer */
-footer{position:relative;z-index:1;text-align:center;padding:3rem 2rem;color:var(--muted);font-size:.85rem;border-top:1px solid #1e293b}
-footer a{color:var(--cyan)}
+/* Closing call to action */
+.cta-section{background:var(--band);color:var(--band-text);text-align:center;padding:3rem 1.5rem;margin:3.5rem 0 0}
+.cta-section h2{margin:0 0 .5rem}
+.cta-section p{color:var(--band-muted)}
+.cta-section .btn{margin:.4rem;border-color:var(--band-text);display:inline-flex;align-items:center;gap:.5rem}
+.cta-section .btn-primary{background:var(--cyan);border-color:var(--cyan);color:#06121f}
+.cta-section a{text-decoration:none}
 
-/* Mobile */
 @media(max-width:640px){
-  .nav-links{display:none}
-  .article{padding:5rem 1.2rem 3rem}
+  .article{padding:2.5rem 1.2rem 3rem}
   .cost-grid{grid-template-columns:1fr}
   .flow-diagram{flex-direction:column}
-  .flow-arrow{transform:rotate(90deg)}
+  .flow-arrow{transform:rotate(90deg);align-self:flex-start;margin-left:1rem}
+  .step{padding-left:2.9rem}
 }
 </style>
 </head>
 <body>
 
-<canvas id="bg-canvas"></canvas>
-
-<!-- Navigation -->
-<nav class="nav">
-  <a href="../index.html" class="nav-brand"><span>MCP</span> Memory Service</a>
-  <div class="nav-links">
-    <a href="https://github.com/doobidoo/mcp-memory-service">GitHub</a>
-    <a href="https://github.com/doobidoo/mcp-memory-service/wiki">Docs</a>
-    <a href="https://pypi.org/project/mcp-memory-service/">PyPI</a>
-    <a href="../index.html">Home</a>
-  </div>
-</nav>
-
-<!-- Article -->
-<article class="article">
-
-  <div class="article-meta">
+<div class="band">
+  <div class="wrap">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <ul>
+        <li><a href="/#features">Release</a></li>
+        <li><a href="/#compare">Compare</a></li>
+        <li><a href="/demo/">Demo</a></li>
+        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
+        <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </nav>
+    <header class="post-head">
+      <div class="article-meta">
     <span>March 2026</span>
     <span>8 min read</span>
     <span class="tag">Tutorial</span>
     <span class="tag">Remote MCP</span>
     <span class="tag">claude.ai</span>
   </div>
+      <h1>How to Add Persistent Memory to Claude.ai (5-Minute Setup)</h1>
+      <p class="subtitle">Give Claude a brain that persists across sessions. Self-hosted, open source, works directly in your browser &mdash; no desktop app required.</p>
+    </header>
+  </div>
+</div>
 
-  <h1>How to Add Persistent Memory to Claude.ai (5-Minute Setup)</h1>
-  <p class="subtitle">Give Claude a brain that persists across sessions. Self-hosted, open source, works directly in your browser &mdash; no desktop app required.</p>
+<article class="article">
+
+  
+
+  
+  
 
   <!-- The Problem -->
   <h2>The Problem</h2>
@@ -170,7 +149,7 @@ footer a{color:var(--cyan)}
   <p>An open-source persistent memory layer for Claude that implements the Model Context Protocol (MCP). Unlike other solutions, it supports <strong>Remote MCP</strong> &mdash; meaning it works directly in claude.ai browser without requiring Claude Desktop.</p>
 
   <h3>What Makes It Different?</h3>
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr><th>Feature</th><th>mcp-memory-service</th><th>mem0</th><th>Others</th></tr>
     </thead>
@@ -183,7 +162,7 @@ footer a{color:var(--cyan)}
       <tr><td>Hybrid search (BM25 + vector)</td><td><strong>Yes</strong></td><td>No</td><td>No</td></tr>
       <tr><td>License</td><td><strong>Apache 2.0</strong></td><td>MIT</td><td>Varies</td></tr>
     </tbody>
-  </table>
+  </table></div>
 
   <!-- 5-Minute Setup -->
   <h2>5-Minute Setup Tutorial</h2>
@@ -457,7 +436,7 @@ journalctl -u mcp-memory-service -f</code></pre>
   <!-- Troubleshooting -->
   <h2>Troubleshooting</h2>
 
-  <table>
+  <div class="table-wrap"><table>
     <thead>
       <tr><th>Problem</th><th>Solution</th></tr>
     </thead>
@@ -468,7 +447,7 @@ journalctl -u mcp-memory-service -f</code></pre>
       <tr><td>"Claude doesn't see connector"</td><td>Verify URL includes <code>/mcp</code> path. Check server logs.</td></tr>
       <tr><td>"Max token limit exceeded"</td><td>Use search filters and pagination (25k token limit per tool result)</td></tr>
     </tbody>
-  </table>
+  </table></div>
 
   <!-- Conclusion -->
   <h2>Conclusion</h2>
@@ -486,7 +465,7 @@ journalctl -u mcp-memory-service -f</code></pre>
   <!-- CTA -->
   <div class="cta-section">
     <h2>Ready to Give Claude a Memory?</h2>
-    <p style="color:var(--muted);margin:1rem 0 1.5rem">Open source. Self-hosted. 5 minutes to set up.</p>
+    <p style="margin:1rem 0 1.5rem">Open source. Self-hosted. 5 minutes to set up.</p>
     <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-primary" target="_blank">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
       View on GitHub
@@ -517,18 +496,8 @@ journalctl -u mcp-memory-service -f</code></pre>
   <p>MCP Memory Service &mdash; Open Source under Apache 2.0 &mdash; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a></p>
 </footer>
 
-<script>
-// Particle Network Background (reused from landing page)
-const canvas=document.getElementById('bg-canvas'),ctx=canvas.getContext('2d');let particles=[];const PC=50,CD=150;let mouse={x:-1e3,y:-1e3};
-function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
-window.addEventListener('resize',resize);resize();
-document.addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY});
-class P{constructor(){this.x=Math.random()*canvas.width;this.y=Math.random()*canvas.height;this.vx=(Math.random()-.5)*.4;this.vy=(Math.random()-.5)*.4;this.r=Math.random()*1.5+.5;this.c=Math.random()>.5}
-update(){this.x+=this.vx;this.y+=this.vy;if(this.x<0||this.x>canvas.width)this.vx*=-1;if(this.y<0||this.y>canvas.height)this.vy*=-1;const dx=this.x-mouse.x,dy=this.y-mouse.y,d=Math.sqrt(dx*dx+dy*dy);if(d<100){this.vx+=dx/d*.1;this.vy+=dy/d*.1}this.vx*=.99;this.vy*=.99}
-draw(){ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);ctx.fillStyle=this.c?'rgba(0,229,255,0.5)':'rgba(179,136,255,0.5)';ctx.fill()}}
-for(let i=0;i<PC;i++)particles.push(new P());
-function animate(){ctx.clearRect(0,0,canvas.width,canvas.height);for(let i=0;i<particles.length;i++){particles[i].update();particles[i].draw();for(let j=i+1;j<particles.length;j++){const dx=particles[i].x-particles[j].x,dy=particles[i].y-particles[j].y,d=Math.sqrt(dx*dx+dy*dy);if(d<CD){const o=(1-d/CD)*.12;ctx.beginPath();ctx.moveTo(particles[i].x,particles[i].y);ctx.lineTo(particles[j].x,particles[j].y);ctx.strokeStyle=particles[i].c?`rgba(0,229,255,${o})`:`rgba(179,136,255,${o})`;ctx.lineWidth=.5;ctx.stroke()}}}requestAnimationFrame(animate)}
-animate();
-</script>
+<footer>
+  <div class="wrap">MCP Memory Service, open source under Apache 2.0 &middot; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a></div>
+</footer>
 </body>
 </html>
