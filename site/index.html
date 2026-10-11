@@ -129,14 +129,22 @@ h2{font-size:clamp(1.9rem,3.6vw,2.7rem);font-weight:700;font-stretch:90%;margin-
 .rel code,.cmp-note code{font-family:var(--mono);font-size:.82em;background:var(--mark-soft);padding:.05em .3em;border-radius:3px;overflow-wrap:anywhere}
 .more{margin-top:1.5rem}
 
-/* How it works */
-.flow{list-style:none;display:flex;gap:0;align-items:stretch}
-.flow li{flex:1;border:1px solid var(--line);background:var(--panel);padding:1rem 1.1rem;position:relative}
-.flow li + li{margin-left:1.6rem}
-.flow li + li::before{content:"→";position:absolute;left:-1.5rem;top:50%;transform:translateY(-50%);width:1.4rem;text-align:center;color:var(--muted)}
-.flow .mono{color:var(--muted);display:block}
-.flow strong{font-family:var(--display);font-weight:600;font-size:1.1rem;line-height:1.3;display:block}
-.flow li.auth{box-shadow:inset 0 -3px 0 var(--cyan)}
+/* How it works: three lanes into one service */
+.lanes{display:grid;grid-template-columns:1fr 1fr 1.1fr;grid-template-rows:repeat(3,auto);gap:0 1.6rem}
+.lane{display:contents}
+.who,.how,.core{border:1px solid var(--line);background:var(--panel);padding:1rem 1.1rem;margin-bottom:1rem}
+.who{grid-column:1}
+.how{grid-column:2;position:relative}
+.how::before{content:"→";position:absolute;left:-1.5rem;top:50%;transform:translateY(-50%);width:1.4rem;text-align:center;color:var(--muted)}
+.core{grid-column:3;grid-row:1/4;margin-left:.2rem;display:flex;flex-direction:column;justify-content:center;gap:.5rem;background:var(--band);color:var(--band-text);border-color:var(--band)}
+.core{position:relative}
+.core::before{content:"→";position:absolute;left:-1.7rem;top:50%;transform:translateY(-50%);width:1.4rem;text-align:center;color:var(--muted)}
+.lanes .core .mono{color:var(--band-muted)}
+.core strong{font-size:1.35rem;line-height:1.25}
+.lane.auth .how{box-shadow:inset 0 -3px 0 var(--cyan)}
+.mono{display:block}
+.lanes strong{font-family:var(--display);font-weight:600;font-size:1.1rem;line-height:1.3;display:block}
+.lanes .mono{color:var(--muted)}
 .flow-note{margin-top:1rem;color:var(--muted);font-size:1rem}
 .btns{display:flex;flex-wrap:wrap;gap:1.5rem;margin-top:1.8rem;font-size:1rem}
 
@@ -191,10 +199,14 @@ footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);font-s
   .facts div:nth-child(3){border-left:0;padding-left:0}
   .facts div:nth-child(even){padding-right:0}
   .facts div:nth-child(n+3){border-top:1px solid var(--band-line)}
-  .flow{flex-direction:column}
-  .flow li{padding:.6rem 1rem}
-  .flow li + li{margin:1.1rem 0 0}
-  .flow li + li::before{content:"↓";left:50%;top:-1.15rem;transform:translateX(-50%);line-height:1}
+  .lanes{grid-template-columns:1fr;gap:0}
+  .lane{display:block;margin-bottom:1rem;border:1px solid var(--line);background:var(--panel)}
+  .who,.how,.core{grid-column:1;grid-row:auto;margin:0}
+  .lane .who,.lane .how{border:0;background:none}
+  .lane .how{border-top:1px solid var(--line);padding-top:.8rem}
+  .how::before{content:none}
+  .core{margin-top:.2rem}
+  .core::before{content:"↓";left:50%;top:-1.2rem;transform:translateX(-50%)}
   .rel li,.media li{grid-template-columns:1fr;gap:.3rem}
   .nav ul{display:none}
   .sec{padding:3.5rem 0}
@@ -317,16 +329,28 @@ footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);font-s
 
 <section class="sec" id="architecture">
   <div class="wrap">
-    <h2>How it works</h2>
-    <p class="lede">Claude.ai connects to your memory server through Streamable HTTP with OAuth 2.1 authentication.</p>
-    <ol class="flow">
-      <li><span class="mono">Browser</span><strong>Claude.ai</strong></li>
-      <li><span class="mono">Transport</span><strong>Streamable HTTP</strong></li>
-      <li class="auth"><span class="mono">Auth</span><strong>OAuth 2.1 + PKCE</strong></li>
-      <li><span class="mono">Server</span><strong>MCP Memory</strong></li>
-      <li><span class="mono">Storage</span><strong>Knowledge graph</strong></li>
-    </ol>
-    <p class="flow-note">The underlined step is the auth boundary.</p>
+    <h2>One service, three ways in</h2>
+    <p class="lede">Agents on your machine talk to it over stdio, frameworks over REST, and browser chat apps over Remote MCP with OAuth 2.1.</p>
+    <div class="lanes">
+      <div class="lane">
+        <div class="who"><span class="mono">Terminal and IDE agents</span><strong>Claude Code, Codex CLI, Cursor, OpenCode</strong></div>
+        <div class="how"><span class="mono">Local MCP</span><strong>stdio, on your machine</strong></div>
+      </div>
+      <div class="lane">
+        <div class="who"><span class="mono">Agent frameworks</span><strong>LangGraph, CrewAI, AutoGen, any HTTP client</strong></div>
+        <div class="how"><span class="mono">REST API</span><strong>HTTP with API key or OAuth</strong></div>
+      </div>
+      <div class="lane auth">
+        <div class="who"><span class="mono">Browser chat</span><strong>claude.ai, ChatGPT</strong></div>
+        <div class="how"><span class="mono">Remote MCP</span><strong>Streamable HTTP, OAuth 2.1 + PKCE</strong></div>
+      </div>
+      <div class="core">
+        <span class="mono">Memory service</span>
+        <strong>Search by meaning, knowledge graph, consolidation</strong>
+        <span class="mono">SQLite-vec, Cloudflare or Hybrid storage</span>
+      </div>
+    </div>
+    <p class="flow-note">The underlined lane is the one that crosses the network with OAuth. Local MCP is a process on your machine, with no network hop.</p>
     <div class="btns">
       <a href="/architecture/">Architecture diagram</a>
       <a href="/deployment/">Deployment landscape</a>
