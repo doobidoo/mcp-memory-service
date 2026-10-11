@@ -56,3 +56,8 @@ writes `site/assets/images/thumb-<name>.webp` at 1200x675. The demo run waits fo
 model to load and runs one search, so it takes about twenty seconds. Run it again
 after a visible change to one of the four pages, and after regenerating a diagram.
 
+The same script draws the Open Graph card, the picture shown when a link to the site is
+shared (`node scripts/maintenance/site_thumbnails.mjs og`). Its source is
+[`scripts/maintenance/og_card.html`](../../scripts/maintenance/og_card.html), the output
+`site/assets/images/og-home.jpg` at 1200x630. Social networks cache the image by URL, so
+when the card changes, give the file a new name and update the `og:image` tags too.
