@@ -7,25 +7,25 @@
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente · 09/out)
 │  Legenda: ✅ MERGED/feito · 🟢 feito fork-only · 🟡 parcial/design · 🔴 a fazer
 │
-├─ ⭐ ARCO DELTA-SYNC (#1345) ..... sync nativo máquina↔hub que APOSENTA o Insync · 4/5 fases MERGED
+├─ ⭐ ARCO DELTA-SYNC (#1345) ..... sync nativo máquina↔hub que APOSENTA o Insync · ✅ 5/5 FASES MERGED — ARCO FECHADO
 │   │   RFC: rfc-delta-sync (v0.4 colab ducanhnguyen223). Multi-writer mesh (vs #1304 hub-and-spoke).
 │   ├─ Fase 1 event-log local (mesma tx) ............... ✅ MERGED #1478 · ADR-0007/8/9
 │   ├─ Fase 2 HLC + resolver determinístico ............ ✅ MERGED #1485 · ADR-0010..0013
 │   ├─ Fase 3 embedding consistency guardrail .......... ✅ MERGED #1487 · ADR-0014..0017
 │   ├─ Fase 4 pull+push transport+orchestration+sched .. ✅ MERGED #1489 · ADR-0018..0028 · PULL+PUSH provados a quente
 │   │     └─ loop review 3 rodadas (Greptile 9 P1 materialização + CodeQL + follow-up Henry metadata convergence)
-│   └─ Fase 5 per-spoke identity + bootstrap ........... 🔴 PRÓXIMO — FECHA O ARCO
-│         (a) autoria forte por spoke (substitui allow-list pragmática da 4c, §8.4 anti-impersonação)
-│         (b) bootstrap de spoke novo na malha (§9.3 v0.4, 7 regras) · pré-req p/ desligar Insync com segurança
+│   └─ Fase 5 bootstrap + event version negotiation .... ✅ MERGED #1494 (e9c9ffc6) — FECHA O ARCO · spec: "Closes the delta-sync arc"
+│         bootstrap de spoke novo (§9.3) + version negotiation (§9.3 rule 6) = pré-req p/ aposentar Insync. DEFERIDO (RFC §5, trabalho futuro): per-spoke CRYPTO identity — a topologia hub+known-spokes da 4c é suficiente por ora.
+│         operacional pós-arco: ligar schedule de regime nas 3 máquinas + aposentar crons Insync (não é mais código, é operação).
 │   └─ operacional pós-Fase 5: schedule de regime (15m), ligar nas 3 máquinas, aposentar crons Insync
 │
 ├─ ⭐ #1304 HYBRID SELF-HOSTED SECONDARY (http) ........ ✅ FECHADO (4 fases MERGED) · raiz que destravou o delta-sync
 │   │   SPEC: ✅ rfc-hybrid-http-secondary (EARS R1-R16, Fases 1-4). Topologia validada em PROD: sirdata em hybrid-online com hub VPS (07/out).
 │   ├─ Fase 1 (R1-R5) list_content_hashes + bulk endpoint ... ✅ MERGED PR #1470
-│   ├─ Fase 2 (R6-R9+R9b) RemoteHTTPStorage + auth + pull real . ✅ MERGED PR #1471
-│   ├─ Fase 3 (R10-R13) desacoplar hybrid.py do CF (capability-gating) . ✅ MERGED PR #1474
+│   ├─ Fase 2 (R6-R9+R9b) RemoteHTTPStorage + auth + pull real ................... ✅ MERGED PR #1471
+│   ├─ Fase 3 (R10-R13) desacoplar hybrid.py do CF (capability-gating) ........... ✅ MERGED PR #1474
 │   ├─ Fase 4 (R14-R16) model-match startup check (fail-closed modelo hub≠local) . ✅ MERGED PR #1476
-│   ├─ fix: hybrid+http não exige creds Cloudflare (storage.py:164 guard) ... 🟢 PR #1480 ABERTO (CI verde, Greptile P2 resolvido, aguarda Henry)
+│   ├─ fix: hybrid+http não exige creds Cloudflare (storage.py:164 guard) ........ 🟢 PR #1480 ABERTO (CI verde, Greptile P2 resolvido, aguarda Henry)
 │   └─ 🧪 hybrid-online TESTADO no sirdata (07/out) e REVERTIDO p/ sqlite_vec. Provou conexão REST+push ao hub VPS; achou o bug CF-guard (#1480). Decisão 4/out: sync que aposenta Insync = DELTA-SYNC (#1345), não hybrid (hub=hub-and-spoke, tentativa anterior). remote_http do #1304 será o transporte da Fase 4 do delta-sync. Crons religados.
 │
 ├─ ✅ ARCO RATING / QUALITY ............................. FECHADO
@@ -48,10 +48,10 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   ├─ ENRIQUECIMENTO 6/out (backfill + host) ............. 🟢 FORK · (a) backfill: 22534 memórias NULL→agent_id=zero (guri==zero), kiro/unknown preservados, backup+integridade OK · (b) host automático: RFC rfc-mcp-hostname-stamping, _resolve_hostname nos 3 call sites MCP (store_memory+2×session, G5 P2 fechado), flag MCP_MEMORY_INCLUDE_HOSTNAME=true ligada, E2E quente: metadata.hostname=DNBSCDC289.741 · host = CANDIDATO PR UPSTREAM (assimetria: flag só na Web API)
 │   ├─ N1 janela 1 semana — medir proveito REAL ........ ✅ MEDIDO 10/out · ACHADO: injection_coverage=0.0 era BUG ESTRUTURAL, não falta de volume (belief_hash nunca == content_hash). L3 push CONFIRMADO disparando (E2E memory_search via /mcp).
 │   ├─ 🔧 FIX PROVENIÊNCIA (10/out, 63ddfaaa, 3 hosts) .. 🟢 FORK · injeção grava source_hashes (=derived_from do belief) no evento injection; _event_belief_hashes correlaciona por eles. injection_coverage 0.0→0.013 no vivo (1º ciclo inject→use). É Context Utilization / Chunk Attribution (pesquisa 10/out). test_injection_provenance_coverage.py (4).
-│   ├─ ⭐ FRENTES B/C/E (10/out) ........................ 🔨 EM ANDAMENTO · ARC e3dc542d · gate+delegação · G0 (seven) FEITO (métricas-alvo abaixo). Vira PRs atômicos.
-│   │     ├─ B sinal-negativo (forgetting de belief inútil) 🔴 spec · "injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k". Dá com usage_events + metadata JSON (zero DDL).
-│   │     ├─ C freshness (versão nova vence na injeção) ... 🔴 spec · "v2>v1 no top-k 100% casos". Rota barata: timestamp boost em context_injection.py:274 (zero DDL); robusta: beliefs.superseded_by (DDL).
-│   │     └─ E eval adversarial + MRR ................... 🔴 spec · "script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting". Harness LoCoMo reaproveitável (sem LLM no modo retrieval/ablation); precisa set adversarial novo.
+│   ├─ ⭐ FRENTES B/C/E (10/out) ........................ 🟢 TODAS IMPL-FORK · ARC e3dc542d · gate+delegação completo · fork-only (falta só empacotar upstream = 85febdca)
+│   │     ├─ B sinal-negativo (forgetting de belief inútil) 🟢 FORK @abbea491 · injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k. usage_events + metadata JSON (zero DDL).
+│   │     ├─ C freshness (versão nova vence na injeção) ... 🟢 FORK @5b8c6d1f · v2>v1 no top-k. timestamp boost em context_injection.py:274 (zero DDL).
+│   │     └─ E eval adversarial + MRR ................... 🟢 FORK @708dcd38 · script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting. Loop mensurável E2E discrimina feature on/off.
 │   ├─ (próximo) ligar score no ranking do retrieval ... 🔴 após B/C/E · RFC-MM-01 §5
 │   ├─ ⭐ ARCO LEARNING AGÊNTICO (11/out, ARC 07bcf182) FECHADO no valor entregue · A+dreaming+D1 NO VIVO (sirdata)
 │   │     ├─ A re-rank / context precision ............ 🟢 FORK commits bc51c4a5(RED)+727d9757 · flag MCP_INJECT_RERANK_A · soma ponderada (rel+advantage-sobre-campo+conf log-saturada−generality query_hash+freshness) · G5 tuvok pegou 3 ALTOs · E2E: generic-wins 2/5→0/5
@@ -97,7 +97,7 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   ├─ C1 registro/descoberta de N fontes ............... 🔴 design (absorve source-identity)
 │   │      declarativo + auto-descoberta assistida · lê sidecar identidade (agent_id.name/workspacePaths)
 │   ├─ C2 perfil de parsing por agente (YAML) ........... 🟢 PR1 FEITO 5/out (5308efda) — harvest/agents/kiro.yaml + loader, parser lê do profile, byte-idêntico (arch provou). Gate G0-G5. Triagem já plugada (02/out). Vira PR upstream.
-│   ├─ C3 extração/qualidade sinal-ruído ................ 🟡 design (absorve design-extraction)
+│   ├─ C3 extração/qualidade sinal-ruído ................ 🟡 design (absorve design-extraction) · ⚠️ BUG 11/out: triage.py (a peça de C3 já plugada) só lê formato v4 'payload' → descartava 100% das sessões CLI formato legado 'kind'. O PARSER lê os dois (C2 ok); o TRIAGE não. Workaround MCP_HARVEST_TRIAGE=0; fix no arco Harvest FASE 1b (f52de007). Lição: "parse OK" ≠ "triage OK".
 │   │      heurísticas O(n) 1º (95% prosa / 4% json medido) → LLM só gated · honra locale
 │   │
 │   ├─ 📦 3 FONTES Kiro (WI d500bdfb — guarda-chuva "bring your agent"):
