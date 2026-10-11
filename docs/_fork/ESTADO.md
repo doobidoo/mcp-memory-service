@@ -21,11 +21,11 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │
 ├─ ⭐ #1304 HYBRID SELF-HOSTED SECONDARY (http) ........ ✅ FECHADO (4 fases MERGED) · raiz que destravou o delta-sync
 │   │   SPEC: ✅ rfc-hybrid-http-secondary (EARS R1-R16, Fases 1-4). Topologia validada em PROD: sirdata em hybrid-online com hub VPS (07/out).
-│   ├─ Fase 1 (R1-R5) list_content_hashes + bulk endpoint ... ✅ MERGED PR #1470
+│   ├─ Fase 1 (R1-R5) list_content_hashes + bulk endpoint ........................ ✅ MERGED PR #1470
 │   ├─ Fase 2 (R6-R9+R9b) RemoteHTTPStorage + auth + pull real ................... ✅ MERGED PR #1471
 │   ├─ Fase 3 (R10-R13) desacoplar hybrid.py do CF (capability-gating) ........... ✅ MERGED PR #1474
 │   ├─ Fase 4 (R14-R16) model-match startup check (fail-closed modelo hub≠local) . ✅ MERGED PR #1476
-│   ├─ fix: hybrid+http não exige creds Cloudflare (storage.py:164 guard) ........ 🟢 PR #1480 ABERTO (CI verde, Greptile P2 resolvido, aguarda Henry)
+│   ├─ fix: hybrid+http não exige creds Cloudflare (storage.py:164 guard) ........ ✅ MERGED #1480 (08/out, Henry)
 │   └─ 🧪 hybrid-online TESTADO no sirdata (07/out) e REVERTIDO p/ sqlite_vec. Provou conexão REST+push ao hub VPS; achou o bug CF-guard (#1480). Decisão 4/out: sync que aposenta Insync = DELTA-SYNC (#1345), não hybrid (hub=hub-and-spoke, tentativa anterior). remote_http do #1304 será o transporte da Fase 4 do delta-sync. Crons religados.
 │
 ├─ ✅ ARCO RATING / QUALITY ............................. FECHADO
@@ -38,15 +38,15 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   │   Meta (Claudio): o CONJUNTO destilação+injeção+feedback. "Ao final, preciso de tudo."
 │   │   Correção de rumo (3/out): L4 feedback = RFC-MM-01 do CLAUDIO (jul), Henry endossou #1286.
 │   │
-│   ├─ D0 limpar beliefs ............................... ✅ já resolvido (noise filter existe; task dc1c7756 cancelada)
-│   ├─ D1 destilação (L2) .............................. ✅ belief store já destila (240 active conf 0.87-0.98)
-│   ├─ L1 telemetria de proveito (usage_events) ........ 🟢 FORK 3/out (cc412cfe) · migration 014 no banco VIVO · opt-out MCP_USAGE_TELEMETRY
-│   ├─ L2 injeção proativa (tool memory_context) ....... 🟢 FORK 3/out (f752dd13) · injeta por TEMA · E2E banco vivo 24k · opt-out MCP_CONTEXT_INJECTION_ENABLED
-│   ├─ D2 feedback SÍNCRONO (rating→belief) ............ ↩️ REVERTIDO 3/out · letra morta (rating manual que ninguém faz; a RFC-MM-01 já previa)
-│   ├─ L4 REAL = terminar RFC-MM-01 (feedback PASSIVO) . 🟢 FORK 5/out (reconciliado 6/out) · WIRING ATIVO: job quality_recompute (MCP_QUALITY_RECOMPUTE_SCHEDULE=6h, dry-run=true ADR-0006: agent_id=None contamina) + persist_quality_scores delega (clamp+effective_quality PRESERVA user_rating #1312) · tool get_assertiveness_metrics (ADR-0005) · 2944 tests pass
+│   ├─ D0 limpar beliefs ................................... ✅ já resolvido (noise filter existe; task dc1c7756 cancelada)
+│   ├─ D1 destilação (L2) .................................. ✅ belief store já destila (240 active conf 0.87-0.98)
+│   ├─ L1 telemetria de proveito (usage_events) ............ 🟢 FORK 3/out (cc412cfe) · migration 014 no banco VIVO · opt-out MCP_USAGE_TELEMETRY
+│   ├─ L2 injeção proativa (tool memory_context) ........... 🟢 FORK 3/out (f752dd13) · injeta por TEMA · E2E banco vivo 24k · opt-out MCP_CONTEXT_INJECTION_ENABLED
+│   ├─ D2 feedback SÍNCRONO (rating→belief) ................ ↩️ REVERTIDO 3/out · letra morta (rating manual que ninguém faz; a RFC-MM-01 já previa)
+│   ├─ L4 REAL = terminar RFC-MM-01 (feedback PASSIVO) ..... 🟢 FORK 5/out (reconciliado 6/out) · WIRING ATIVO: job quality_recompute (MCP_QUALITY_RECOMPUTE_SCHEDULE=6h, dry-run=true ADR-0006: agent_id=None contamina) + persist_quality_scores delega (clamp+effective_quality PRESERVA user_rating #1312) · tool get_assertiveness_metrics (ADR-0005) · 2944 tests pass
 │   ├─ L4-unblock agent_id no retrieve/feedback/injection .. 🟢 FORK 6/out · _resolve_telemetry_agent_id (MCP_AGENT_ID, null-safe RFC#1100) nos 3 call sites de usage_events · derive_signals já particionava · 5 tests (REQ-A5 anti-contaminação) · banco vivo: retrieval grava agent_id=zero. PERSISTÊNCIA ainda dry-run: histórico 16965 eventos None contamina 96% até janela 14d limpar (ou expurgo) — decisão Claudio
-│   ├─ ENRIQUECIMENTO 6/out (backfill + host) ............. 🟢 FORK · (a) backfill: 22534 memórias NULL→agent_id=zero (guri==zero), kiro/unknown preservados, backup+integridade OK · (b) host automático: RFC rfc-mcp-hostname-stamping, _resolve_hostname nos 3 call sites MCP (store_memory+2×session, G5 P2 fechado), flag MCP_MEMORY_INCLUDE_HOSTNAME=true ligada, E2E quente: metadata.hostname=DNBSCDC289.741 · host = CANDIDATO PR UPSTREAM (assimetria: flag só na Web API)
-│   ├─ N1 janela 1 semana — medir proveito REAL ........ ✅ MEDIDO 10/out · ACHADO: injection_coverage=0.0 era BUG ESTRUTURAL, não falta de volume (belief_hash nunca == content_hash). L3 push CONFIRMADO disparando (E2E memory_search via /mcp).
+│   ├─ ENRIQUECIMENTO 6/out (backfill + host) .............. 🟢 FORK · (a) backfill: 22534 memórias NULL→agent_id=zero (guri==zero), kiro/unknown preservados, backup+integridade OK · (b) host automático: RFC rfc-mcp-hostname-stamping, _resolve_hostname nos 3 call sites MCP (store_memory+2×session, G5 P2 fechado), flag MCP_MEMORY_INCLUDE_HOSTNAME=true ligada, E2E quente: metadata.hostname=DNBSCDC289.741 · host = CANDIDATO PR UPSTREAM (assimetria: flag só na Web API)
+│   ├─ N1 janela 1 semana — medir proveito REAL ............ ✅ MEDIDO 10/out · ACHADO: injection_coverage=0.0 era BUG ESTRUTURAL, não falta de volume (belief_hash nunca == content_hash). L3 push CONFIRMADO disparando (E2E memory_search via /mcp).
 │   ├─ 🔧 FIX PROVENIÊNCIA (10/out, 63ddfaaa, 3 hosts) .. 🟢 FORK · injeção grava source_hashes (=derived_from do belief) no evento injection; _event_belief_hashes correlaciona por eles. injection_coverage 0.0→0.013 no vivo (1º ciclo inject→use). É Context Utilization / Chunk Attribution (pesquisa 10/out). test_injection_provenance_coverage.py (4).
 │   ├─ ⭐ FRENTES B/C/E (10/out) ........................ 🟢 TODAS IMPL-FORK · ARC e3dc542d · gate+delegação completo · fork-only (falta só empacotar upstream = 85febdca)
 │   │     ├─ B sinal-negativo (forgetting de belief inútil) 🟢 FORK @abbea491 · injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k. usage_events + metadata JSON (zero DDL).
@@ -189,7 +189,7 @@ colher(limpo) → DESTILAR[L2] → VALIDAR/feedback[L4] → INJETAR proativo[L3]
 ## Feito recentemente (2/out)
 - **Fork sincronizado + serviço resgatado:** merge upstream/main (7 commits; nosso #1404/#1352 supersession mergeado pelo Henry). Serviço systemd em 11.14.0, 11 OURO colhidas.
 - **2 bugs achados e corrigidos POR GATE (reg + tuvok), não na mão:**
-  - **Bug rewriter `TYPE:` leak** (real, upstream também) → issue #1417 + **PR #1418 ABERTO** (CI tests-prove-fix verde, aguarda Henry). O LLM ecoava o placeholder literal `TYPE:` para dentro do content + degenerados; `_unleak_type` + prompt `<type>:`.
+  - **Bug rewriter `TYPE:` leak** (real, upstream também) → issue #1417 (CLOSED) + **PR #1418 ✅ MERGED** (02/out, Henry). O LLM ecoava o placeholder literal `TYPE:` para dentro do content + degenerados; `_unleak_type` + prompt `<type>:`.
   - **Bug triagem nunca ativada** (fork-only): `_apply_triage` plugado mas nenhum call-site passava a flag → feature morta. Corrigido (`harvest_config_from_env` nos 4 entry points, default OFF). NÃO vira PR de bug avulso — a triagem não existe no upstream, então entra junto no PR de FEAT.
     - ⚠️ **RECONCILIAÇÃO 11/out:** a triagem ativada (MCP_HARVEST_TRIAGE=1) tinha um 2º bug mais grave — `triage.py score_session` só lê o formato v4 `payload`, mas as sessões reais são formato LEGADO `kind` → dava score 0/empty p/ TODAS → descartava 100% das sessões ANTES do parser. ERA a causa-raiz real de 61% das sessões nunca colhidas. Workaround: MCP_HARVEST_TRIAGE=0. Fix de código pendente (arco Harvest FASE 1b, item f52de007). As "11 OURO colhidas" de 2/out foram com um acervo-fixture curado (layout 2-níveis), não as sessões reais do dia-a-dia.
 - **11 OURO gravadas** no banco vivo via `memory_consolidate action=harvest` (in-process, integridade intacta), triagem ativada (`MCP_HARVEST_TRIAGE=1`), rewriter já corrigido → 0 vazamento.
@@ -204,7 +204,7 @@ colher(limpo) → DESTILAR[L2] → VALIDAR/feedback[L4] → INJETAR proativo[L3]
   4. **Legacy Kiro `ToolResult`** ainda dropado vs v4 mantido — unificar ou documentar o porquê.
   Ordem dele: "cheapest first", PR do ponto 1 + respostas 2/3 como update do RFC. → Em vez de "ping" na #1393, entregar o ponto 1 e aí comentar linkando.
 - **#1345 delta-sync:** Fase 1 do #1304 MERGEADA (#1470) destravou a raiz (list_content_hashes). Falta Fase 2 (remote_http) virar PR. PR #4 recuperado em recovered/pr4-delta-sync-v04.
-- **PR #1418 (rewriter):** aguarda review do Henry. 1 PR de bug pode coexistir com outros (regra 2/out: 1-por-vez só p/ feat).
+- **PR #1418 (rewriter):** ✅ MERGED pelo Henry (02/out). 1 PR de bug pode coexistir com outros (regra 2/out: 1-por-vez só p/ feat).
 
 ## A DOR (o que falta de verdade, em 1 frase)
 A colheita do Kiro **lê os formatos** (feito) mas **NÃO filtra valor**: hoje colheria "hello v3", testes e dumps junto com o conhecimento. A triagem que resolve isso (`harvest/triage.py` — score calibrável, 2 eixos, 11 testes verdes) **já existe no código mas NÃO está plugada no harvester**. Fechar a dor = plugar a triagem + colher o acervo bom.
