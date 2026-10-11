@@ -19,7 +19,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--serif);font-size
 a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-decoration-thickness:2px;text-underline-offset:.2em;transition:text-decoration-color .15s}
 a:hover{text-decoration-color:var(--mark)}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:2px}
-.band :focus-visible,.band-end :focus-visible{outline-color:var(--band-text)}
+.band :focus-visible,.band-end :focus-visible,.cta-section :focus-visible{outline-color:var(--band-text)}
 mark{color:#10161d;background:var(--mark);padding:0 .12em;border-radius:2px}
 .wrap{max-width:1120px;margin:0 auto;padding:0 1.5rem}
 .sec{padding:5rem 0}
@@ -47,7 +47,6 @@ h2{font-size:clamp(1.9rem,3.6vw,2.7rem);font-weight:700;font-stretch:90%;margin-
 .cmd{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;max-width:25rem;padding:.85rem 1rem;background:var(--cyan);color:#06121f;border:0;border-radius:6px;font:600 1rem var(--mono);cursor:pointer;text-align:left}
 .cmd span:last-child{font-weight:400;font-size:.8rem;opacity:.75}
 .cmd:hover span:last-child{opacity:1}
-.cmd:focus-visible{outline-color:var(--band-text)}
 .btns{display:flex;flex-wrap:wrap;gap:1.5rem;margin-top:1.8rem;font-size:1rem}
 .btn{display:inline-block;padding:.65rem 1.2rem;border:1px solid var(--ink);border-radius:6px;text-decoration:none;font-size:1rem}
 .btn:hover{background:var(--cyan);color:#06121f;border-color:var(--cyan)}
