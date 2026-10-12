@@ -33,3 +33,22 @@ class TestEntityExtractorPtBrTerms:
         # Both complete terms should be preserved
         assert 'aplicação' in frequent_terms
         assert 'código' in frequent_terms
+
+    def test_entities_non_latin(self):
+        """
+        RED: extract_frequent_terms should capture non-Latin script terms but currently discards them.
+        
+        Cyrillic term 'конфигурация' repeated ≥min_count should be captured.
+        Today [a-zA-ZÀ-ÿ]{3,} regex discards non-Latin → empty result → RED.
+        Target: \\w{3,} with re.UNICODE captures ANY script.
+        """
+        memories = [
+            {"content": "Система использует конфигурация для запуска."},
+            {"content": "Проблема с конфигурация базы данных."},
+            {"content": "Нужно обновить конфигурация сервера."},
+        ]
+        
+        frequent_terms = EntityExtractor.extract_frequent_terms(memories, min_count=2)
+        
+        # Should capture the repeated Cyrillic term
+        assert 'конфигурация' in frequent_terms, f"Expected 'конфигурация' in frequent terms, got: {frequent_terms}"

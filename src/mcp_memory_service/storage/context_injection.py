@@ -59,14 +59,15 @@ _CANDIDATE_MIN_CONFIDENCE = 0.0
 # How many related memories to pull for the semantic relevance boost.
 _RETRIEVE_N = 50
 
-_WORD_RE = re.compile(r"[a-zà-ÿ0-9]+")
+_WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 # Very common tokens that carry little thematic signal; dropped from overlap.
 # Includes EN function words AND PT-BR function words + platitude tokens
 # ("sempre/primeiro/importante") that otherwise inflate a generic belief's
-# overlap relevance (frente A, R8). NOTE: since _WORD_RE became Latin-aware
-# ([a-zà-ÿ0-9]+, idioma fix 11/out), accented words tokenize WHOLE ("decisão",
-# "não") — the bare "n"/"o" entries below are now harmless legacy (kept: "o"/"a"
+# overlap relevance (frente A, R8). NOTE: since _WORD_RE became Unicode-aware
+# (\w+ with re.UNICODE, multilingual fix 12/out), accented words tokenize WHOLE 
+# ("decisão", "não") and non-Latin scripts (Cyrillic, Arabic, etc.) are captured —
+# the bare "n"/"o" entries below are now harmless legacy (kept: "o"/"a" 
 # are also legit PT articles that should be stopped anyway).
 _STOPWORDS = {
     # EN
