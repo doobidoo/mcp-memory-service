@@ -1,7 +1,7 @@
 # ESTADO — mcp-memory-service (Claudio)
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-11 (fim de semana casa — ARCO LEARNING AGÊNTICO fechado no valor: A re-rank + dreaming singular + D1 utility_prior + LOOP FECHADO (laço A↔D 0e720178 + D2 3-sinais c9ba2a14 + D3 negative b5f0544e) NO VIVO; ARCO HARVEST aberto: fix do tracker 667→19 commitado+no vivo (c5f3a3a4), causa-raiz real do furo descoberta (triage cego ao formato legado descartava 100%), incidente de embedding ausente resolvido; 6 subagentes evoluídos com disciplina anti-fabricação).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-12 (learning: F7 util modular R2 feito=aditivo→multiplicativo, off-topic@3→0; multilíngue: tokenizer ASCII→Unicode \w+ nos 2 pontos; achados: INC-5 retrieval INERTE, derive só observation→belief, assimetria injeção/retrieval; benchmark R1 + Recall@pool R0; metodologia destilada em dev-workflow/SKILL). F4 upstream TRAVADA (OK Claudio+Henry).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente · 09/out)
@@ -52,13 +52,18 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   │     ├─ B sinal-negativo (forgetting de belief inútil)  🟢 FORK @abbea491 · injetado ≥N sem uso → confiança −X%/ciclo → sai do top-k. usage_events + metadata JSON (zero DDL).
 │   │     ├─ C freshness (versão nova vence na injeção) .... 🟢 FORK @5b8c6d1f · v2>v1 no top-k. timestamp boost em context_injection.py:274 (zero DDL).
 │   │     └─ E eval adversarial + MRR ...................... 🟢 FORK @708dcd38 · script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting. Loop mensurável E2E discrimina feature on/off.
-│   ├─ (próximo) ligar score no ranking do retrieval ....... 🔴 após B/C/E · RFC-MM-01 §5
-│   ├─ ⭐ ARCO LEARNING AGÊNTICO (11/out, ARC 07bcf182) FECHADO no valor entregue · A+dreaming+D1 NO VIVO (sirdata)
-│   │     ├─ A re-rank / context precision ................. 🟢 FORK commits bc51c4a5(RED)+727d9757 · flag MCP_INJECT_RERANK_A · soma ponderada (rel+advantage-sobre-campo+conf log-saturada−generality query_hash+freshness) · G5 tuvok pegou 3 ALTOs · E2E: generic-wins 2/5→0/5
-│   │     ├─ Dreaming Inc1 singular belief ................. 🟢 FORK commits 2d5b42c8+0ed9576e+fe735300 · flag MCP_BELIEF_SINGULAR+conf 0.55 · fix de fonte única vira injetável no dia, ADITIVO (origin=singular), 242 derivados byte-idênticos · wire on-store (metadata.type∈decision/learning/error) · batch cap anti-flood (1639→cap)
-│   │     ├─ D1 utility_prior passivo ...................... 🟢 FORK commit b9a1d43e · flag MCP_BELIEF_UTILITY_PRIOR · Beta-smoothed (prior 0.5 força 8) em metadata, NUNCA toca confidence (desacopla "útil injetar" de "é verdade", desarma double-count A×B×C) · correlação por SOURCE_HASH (derived_from), não belief_hash · 5/5 testes incl. caminho real
-│   │     └─ ROADMAP D2/D3/D4 anotado (nota roadmap-d2-d3-d4 na fase 957bdac2 + CONSOLIDADO de 9 IAs) · gatilho = observar uso real · [B#] só bônus opt-in neutro (disciplina do agente não existe — insight 11/out)
-│   ├─ A re-rank / D chunk-attribution (design aberto) ..... ✅ RESOLVIDO acima (A feito, D1 feito) · pesquisa frente-d-attribution-sem-disciplina-2026-10 CONSOLIDADO
+│   ├─ ⚠️ INC-5 "ligar score no RETRIEVAL" (RFC-MM-01 §5, item 76522321) . 🔴 INERTE — achado 12/out: retrieve_with_quality_boost (base.py:161) usa quality_score que NÃO discrimina (INC-0: 89% em 1.0 = no-op). NUNCA usou o utility_prior. ASSIMETRIA: injeção (re-rank A) aprende (util), mas retrieval (memory_search composite) não. NUANCE: util vive no BELIEF, retrieval busca MEMÓRIA (sem util) → pauta de design (mem 222f9138), não fix trivial. NÃO confundir com o re-rank A da injeção (esse está no vivo).
+│   ├─ ⭐ ARCO LEARNING AGÊNTICO (ARC 07bcf182) · A+dreaming+D1/D2/D3+util-modular NO VIVO (sirdata) · fases:
+│   │     ├─ F1 A re-rank ............. ✅ done · bc51c4a5+727d9757 · MCP_INJECT_RERANK_A · generic-wins 2/5→0/5
+│   │     ├─ F2 D chunk-attribution ... ✅ done · D1 utility_prior passivo (b9a1d43e) Beta em metadata, NUNCA toca confidence, correlação por source_hash
+│   │     ├─ F3 Dreaming Inc1 singular . ✅ done · 2d5b42c8+0ed9576e+fe735300 · MCP_BELIEF_SINGULAR 0.55 · 242 derivados byte-idênticos
+│   │     ├─ F5 laço A↔D + D2 3-sinais . ✅ done · 0e720178(A consome util)+c9ba2a14(D2: never_used NEUTRO+assimetria W_NEG=3+clamp 0.1)
+│   │     ├─ F6 D3 negative real ....... ✅ done · b5f0544e · re-query ≤300s após injeção → negative; _is_requery DRY
+│   │     ├─ F7 util MODULAR ........... ✅ done 12/out (R2, 6abb063c) · aditivo→multiplicativo (rel*(1+λ*util_surplus), neutro=0 boost) · E2E: off-topic@3 0.083→0.0, MRR 0.658→0.683 · benchmark eval/rerank_bench.py (R1) + Recall@pool=100% (R0)
+│   │     └─ F4 UPSTREAM .............. 🔴 queue TRAVADA · só com OK Claudio + corroboração Henry (muda ranking de todos)
+│   │     ⚠️ DESAMBIGUAÇÃO "D2": o D2 feito = frente D 3-sinais (c9ba2a14, VIVO). NÃO confundir com o "D2 feedback SÍNCRONO (rating→belief)" do plano ANTIGO, revertido 3/out (letra morta — rating manual que ninguém faz; virou o feedback PASSIVO).
+│   │     📋 FILA (consenso 9 IAs, pesquisa ranking-util-modular-embedding-belief-2026-10, mem 12699e27): R3 propensity-por-rank no update Beta · R4 embedding no BELIEF (o que faz MRR saltar, tabela beliefs sem coluna hoje) · R5 fusão lex+sem · R6 FTS dual-index · R7 utility CONTEXTUAL por domínio (6/9: causa-raiz do rich-get-richer).
+│   │     🔑 ACHADO 12/out (mem 9ff8c7b8): derive_beliefs consome SÓ memory_type=observation → decision/learning/checkpoint NUNCA viram belief. Beliefs têm 2 fontes (memory_store + harvest) via o store de memórias. Design aberto: só observation→belief é intencional ou gap?
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
