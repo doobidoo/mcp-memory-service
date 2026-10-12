@@ -43,14 +43,18 @@ from mcp_memory_service.storage.context_injection import memory_context
 # Each query has expected gold belief_hashes that should rank highly for that theme
 BENCHMARK_QUERIES = [
     {
-        "query": "feedback passivo medir utilidade sem ver a saída",
+        # CANÁRIO do rich-get-richer: query de tema NICHO cujo gold existe e tem util
+        # moderado; o forbidden é um belief GENÉRICO de util 1.0 de OUTRO tema (RFC/spec).
+        # ALVO: o genérico-util-alto NÃO pode afogar o nicho-relevante (off-topic@3=0).
+        # (O caso original 'feedback passivo' foi removido: não existe belief desse tema —
+        #  é memória atômica, não belief derivado; gold era inválido. Ver mem 12699e27.)
+        "query": "geoserver réplica alta disponibilidade qa NFS",
         "gold": [
-            "8416d6d29e5c357b5f75c3337c32b1848079d05074ed3fd501fcb6f495d976ad",  # learning/validation content
-            "4932df108f1b8fcf7032d89b1d708e68fe2e0d82d57cda1147af5f0a686d0992",  # feedback de mentoria
+            "d41bf9f22647516483f0642e6d2f10d970cf3eda2f6a7320451ef8620df04217",  # geoserver=1 réplica qa (nicho real)
         ],
         "category": "canario",
         "off_topic_forbidden": [
-            "8ea69e766e9422cefef32493397ff941bde3bb1c138c0fa2b85f0fb8f9b49a68"  # EIP network issue - off-topic
+            "465448edaee19970a0232a466354438f9a8d58f423b8fd7e09384305b7a46ec7"  # Specs implemented/planned — genérico util 1.0, OUTRO tema
         ]
     },
     {
