@@ -78,3 +78,29 @@ checkpoints/session dumps out.
 - Exact representation of "singular" confidence: fixed value vs a separate column vs metadata
   flag. Must NOT contaminate `derive_confidence`. This is the RISK #1 the G0 flagged; it changes
   the core of belief derivation, so it gets explicit sign-off before implementation.
+
+---
+
+## Addendum (12/out) — R1 refinado: usar a ONTOLOGIA + filtrar STORE (medido)
+
+Diagnóstico empírico (veredito CLIENT + medição) refinou o R1 original:
+
+**Achado 1 — a ontologia já resolve o intake.** `derive_beliefs` (belief_service.py:425) filtra
+`memory_type="observation"` LITERAL, ignorando a hierarquia de `models/ontology.py`. Como `note`,
+`insight`, `bug`, `mistake` são SUBTYPES (de observation/learning/error), eles nunca entram — mesmo
+corretamente classificados. FIX: usar `get_parent_type()` / `get_base_types()` da ontologia para
+aceitar base types `{decision, learning, error, observation}` resolvendo subtypes. NÃO hardcodar lista
+(usa a taxonomia já definida, não cria paralela).
+
+**Achado 2 — filtrar por STORE (multi-store = RAG).** `derive_beliefs` não filtra `store`. O multi-store
+existe para o serviço servir de RAG (material HCSO/MIR ingerido em stores `docs`/`docs-shared`/`hackathon`/`mir`).
+Beliefs devem destilar SÓ do `default` (operacional), não do RAG. FIX: `get_all_memories(..., store="default")`.
+Corrige de brinde o mesmo defeito de store-não-propagado dos #1465/#1466.
+
+**Medição (cópia, store=default):** HOJE 5750 (observation literal) → R1 18147 (3.2x, +12397), composto por
+observation 8083 + learning 4386 + error 3721 + decision 1957 — quase tudo acionável (o ruído `document`
+de ~8k ficou isolado nos stores de RAG, fora do default). Resíduo: 665 `document` vazaram para o default
+(disciplina de store, não bloqueia).
+
+**R6 reforçado:** opt-in + cap de batch obrigatório (3.2x de intake sem cap floodaria num ciclo).
+Medir QUANTOS beliefs SAEM (agrupamento condensa) antes de ligar no vivo.
