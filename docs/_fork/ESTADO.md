@@ -71,6 +71,13 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │       ├─ rfc-mm-01 feedback-loop (L4) ............... 🟢 resgatado = É o "L4 REAL" acima (passivo, da RFC do Claudio)
 │       └─ p/ virar PR: completar spec ⚠️ (doc payload window-tools #1286 · EARS mm-03 · changelog) → 3 PRs → responder #1286
 │
+├─ 🟢 ARCO STORE PARTITION (multi-store) ... feature NOSSA · RFC retroativa docs/rfc/implemented/rfc-multi-store-partition.md
+│   │   Coluna `store TEXT DEFAULT 'default'` em memories+vec0 · scope de search/delete/analytics por store · stores vivos: default, docs, docs-shared, mir, hackathon.
+│   ├─ Feature base (#57→#62→#68→#1395→#1469) ............. ✅ MERGED upstream · store/retrieve/semantic-search scoped OK
+│   └─ 🐞 DÍVIDA ABERTA (bugs do Kenzokono, issues OPEN 06/out) · RED commitado 0c37921e (5 testes provam o leak):
+│       ├─ #1465 memory_delete ignora store (delete por hash/tag/tempo CRUZA partições — perda de dados) 🔴 PR candidato (fix de bug, não "muda ranking")
+│       └─ #1466 memory_search(store=) vaza outros stores em hybrid/quality_boost/exact/tag-only/time-only 🔴 (só semantic/ranked honram) · MESMA RAIZ do INC-5 (ramos não-semânticos de base.py divergiram)
+│
 ├─ ⭐ ARCO HARVEST DE SESSÕES (11/out, ARC 323e1654) ... learning de COLHEITAS (par do learning de memórias) · RFC rfc-harvest-sessoes
 │   │   Dor: sessões .jsonl (~/.kiro/sessions/cli, 1336, ~900MB) = fonte mais rica, massivamente sub-colhida. Raiz = não depender da disciplina do agente.
 │   ├─ FASE 0 planejamento + RFC + decisão arquitetura (A→B, C descartado) . ✅ DONE (G0 seven)
@@ -151,7 +158,7 @@ Fechamos o arco de rating; descobrimos que os 3 arcos de harvest/identidade/port
 ## 📋 BACKLOG COMPLETO — todas as RFCs/ideias (para enxergar tudo)
 > Detalhe e evidência de código em `docs/rfc/_index.md` (47 RFCs: 23 implemented, 24 planned). Aqui = visão de uma linha por ideia, agrupada. Regra: toda RFC/arco/ideia nova entra AQUI no mesmo passo.
 
-**🟢 ARCO LEARNING LOOP (o NORTE)** — ver árvore acima. RFCs: `rfc-learning-loop` (guarda-chuva).
+**🟢 ARCO LEARNING LOOP (o NORTE)** — ver árvore acima. RFCs: `rfc-learning-loop` (guarda-chuva) · specs IMPLEMENTADAS (fork, antes órfãs de rastreio): `rfc-learning-loop-a-rerank` (F1), `spec-learning-loop-b-negative-signal` (B), `spec-learning-loop-c-freshness` (C), `spec-learning-loop-e-eval-mrr` (E), `rfc-dreaming-loop-inc1-distill-specific` (F3) · roadmap ranking R3-R7 em mem 12699e27 (R4=item FASE 8).
 Alimentado por (os COMOs, hoje design/0-EARS): `rfc-mm-01-feedback-loop`, `rfc-mm-02-fact-extraction`, `rfc-mm-03-gap-detection`, `rfc-fact-extraction`, `rfc-self-service-memory-intelligence`, `rfc-autolearn-autodream`, `rfc-server-side-lifecycle`.
 
 **🟡 ARCO INGESTÃO MULTI-AGENTE** — ver árvore. RFCs: `rfc-ingestao-multi-agente` (guarda-chuva), `spec-fase0-kiro-yaml-triagem` (Fase 0 pronta), `rfc-pipeline-harvest-quality` ✅impl.
@@ -173,7 +180,8 @@ Alimentado por (os COMOs, hoje design/0-EARS): `rfc-mm-01-feedback-loop`, `rfc-m
 - `rfc-kiro-headless-llm-provider` — Kiro CLI headless como LLM provider (destilação sem API externa).
 - `rfc-structural-improvements` — melhorias estruturais diversas.
 
-**✅ INFRA JÁ IMPLEMENTADA (base, não precisa ação):** belief-store, nli-cascade, anti-hallucination, handler/tool-registry/routing, split-config, schema-versioning, multi-store-NER, quality-model. Detalhe no `_index.md`.
+**✅ INFRA JÁ IMPLEMENTADA (base, não precisa ação):** belief-store, nli-cascade, anti-hallucination, handler/tool-registry/routing, split-config, schema-versioning, multi-store-NER (NER por domínio ≠ store-partition), quality-model. Detalhe no `_index.md`.
+**🟢 STORE PARTITION (multi-store, feature de DADOS — distinta do NER):** RFC retroativa `rfc-multi-store-partition` · base MERGED (#57/#62/#68/#1395/#1469) · DÍVIDA aberta #1465/#1466 (ver arco acima). NÃO confundir com `rfc-multi-store-domain-ner` (que é roteamento de NER por domínio).
 
 ## ◄ RE-ENQUADRAMENTO (02/out): o NORTE é APRENDER, não colher
 > Pergunta do Claudio: "de que adianta colher memórias se não vira CONHECIMENTO? Como me fazer APRENDER?"
