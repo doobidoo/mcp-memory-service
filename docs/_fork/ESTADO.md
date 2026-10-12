@@ -54,8 +54,8 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente �
 │   │     └─ E eval adversarial + MRR ...................... 🟢 FORK @708dcd38 · script offline determinístico: MRR(vs 0.4140)+taxa_freshness+taxa_forgetting. Loop mensurável E2E discrimina feature on/off.
 │   ├─ ⚠️ INC-5 "ligar score no RETRIEVAL" (RFC-MM-01 §5, item 76522321) . 🔴 INERTE — achado 12/out: retrieve_with_quality_boost (base.py:161) usa quality_score que NÃO discrimina (INC-0: 89% em 1.0 = no-op). NUNCA usou o utility_prior. ASSIMETRIA: injeção (re-rank A) aprende (util), mas retrieval (memory_search composite) não. NUANCE: util vive no BELIEF, retrieval busca MEMÓRIA (sem util) → pauta de design (mem 222f9138), não fix trivial. NÃO confundir com o re-rank A da injeção (esse está no vivo).
 │   ├─ ⭐ ARCO LEARNING AGÊNTICO (ARC 07bcf182) · A+dreaming+D1/D2/D3+util-modular NO VIVO (sirdata) · fases:
-│   │     ├─ F1 A re-rank ............. ✅ done · bc51c4a5+727d9757 · MCP_INJECT_RERANK_A · generic-wins 2/5→0/5
-│   │     ├─ F2 D chunk-attribution ... ✅ done · D1 utility_prior passivo (b9a1d43e) Beta em metadata, NUNCA toca confidence, correlação por source_hash
+│   │     ├─ F1 A re-rank .............. ✅ done · bc51c4a5+727d9757 · MCP_INJECT_RERANK_A · generic-wins 2/5→0/5
+│   │     ├─ F2 D chunk-attribution .... ✅ done · D1 utility_prior passivo (b9a1d43e) Beta em metadata, NUNCA toca confidence, correlação por source_hash
 │   │     ├─ F3 Dreaming Inc1 singular . ✅ done · 2d5b42c8+0ed9576e+fe735300 · MCP_BELIEF_SINGULAR 0.55 · 242 derivados byte-idênticos
 │   │     ├─ F5 laço A↔D + D2 3-sinais . ✅ done · 0e720178(A consome util)+c9ba2a14(D2: never_used NEUTRO+assimetria W_NEG=3+clamp 0.1)
 │   │     ├─ F6 D3 negative real ....... ✅ done · b5f0544e · re-query ≤300s após injeção → negative; _is_requery DRY
