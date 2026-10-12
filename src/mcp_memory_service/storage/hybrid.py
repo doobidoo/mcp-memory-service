@@ -1258,7 +1258,14 @@ class HybridMemoryStorage(MemoryStorage):
             # Get all local hashes once for O(1) lookup and to diff against the secondary.
             local_hashes = await self.primary.get_all_content_hashes()
 
-            if secondary_count <= primary_count:
+            # Ask the secondary for its hash set whatever the counts say: a count says nothing
+            # about WHICH hashes are missing. When the secondary holds more memories than the
+            # primary, the newest-first scan below gives up after HYBRID_MAX_EMPTY_BATCHES
+            # batches without a new memory, so old cloud-only memories buried behind thousands
+            # of shared ones would never be reached. The exact diff has no such limit.
+            secondary_hashes = await _secondary_hash_set(self.secondary)
+
+            if secondary_hashes is not None or secondary_count <= primary_count:
                 # A count comparison can't prove the primary already holds everything the
                 # secondary does. With divergent sets — local-only writes queued while the
                 # cloud was unreachable, plus memories another device wrote straight to the
@@ -1268,8 +1275,8 @@ class HybridMemoryStorage(MemoryStorage):
                 # otherwise never reach this device. Confirm with a hash diff (the same
                 # bulk-hash fetch force_sync uses for the reverse direction) before
                 # concluding there is nothing to pull. If the secondary can't answer a
-                # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior.
-                secondary_hashes = await _secondary_hash_set(self.secondary)
+                # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior
+                # when it holds no more than the primary, and the scan below when it holds more.
                 missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
                 if not missing_hashes:
                     logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)

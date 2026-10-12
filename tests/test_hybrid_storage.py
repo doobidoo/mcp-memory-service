@@ -713,6 +713,90 @@ class TestBackgroundSyncService:
                 await storage.close()
 
 
+    @pytest.mark.asyncio
+    async def test_pull_sync_diffs_hashes_when_cloud_holds_more(self, temp_sqlite_db, mock_cloudflare_config):
+        """When the cloud holds MORE memories than the primary, the pull must still diff
+        hashes. It used to fall through to the newest-first scan, which gives up after
+        HYBRID_MAX_EMPTY_BATCHES batches without a new memory, so an old cloud-only
+        memory buried behind shared ones was never pulled."""
+
+        class PullMockCloudflareStorage(MockCloudflareStorage):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.base_url = "https://mock"
+                self.d1_database_id = "mock-db"
+                self.cursor_scan_calls = 0
+
+            async def get_by_hash(self, content_hash):
+                return self.stored_memories.get(content_hash)
+
+            async def _retry_request(self, method, url, **kwargs):
+                params = kwargs.get("json", {}).get("params", [])
+                last_id = params[0] if params else 0
+                resp = Mock()
+                rows = [
+                    {"id": i, "content_hash": m.content_hash}
+                    for i, m in enumerate(self.stored_memories.values(), start=1)
+                ] if last_id == 0 else []
+                resp.json = Mock(return_value={"success": True, "result": [{"results": rows}]})
+                return resp
+
+            async def get_all_memories_cursor(self, limit=100, cursor=None):
+                self.cursor_scan_calls += 1
+                return list(self.stored_memories.values()) if cursor is None else []
+
+        with patch('mcp_memory_service.storage.hybrid.CloudflareStorage', PullMockCloudflareStorage):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                cloudflare_config=mock_cloudflare_config,
+                sync_interval=1,
+                batch_size=5,
+            )
+            await storage.initialize()
+            try:
+                old = time.time() - 100_000
+                shared = Memory(
+                    content="shared",
+                    content_hash=generate_content_hash("shared"),
+                    tags=["shared"],
+                    memory_type="note",
+                )
+                await storage.primary.store(shared)
+                storage.secondary.stored_memories[shared.content_hash] = shared
+
+                cloud_only = []
+                for content in ("cloud-only", "cloud-only-older"):
+                    memory = Memory(
+                        content=content,
+                        content_hash=generate_content_hash(content),
+                        tags=["cloud"],
+                        memory_type="note",
+                        created_at=old,
+                        updated_at=old,
+                    )
+                    storage.secondary.stored_memories[memory.content_hash] = memory
+                    cloud_only.append(memory)
+
+                # The cloud holds more than the primary: 3 vs 1.
+                assert (await storage.primary.get_stats())["total_memories"] == 1
+                assert (await storage.secondary.get_stats())["total_memories"] == 3
+
+                result = await storage.force_pull_sync()
+                assert result["success"] is True
+                assert result["memories_pulled"] == 2
+
+                local_hashes = await storage.primary.get_all_content_hashes()
+                for memory in cloud_only:
+                    assert memory.content_hash in local_hashes
+                assert storage.secondary.cursor_scan_calls == 0, (
+                    "pull fell through to the paginated scan even though the exact "
+                    "missing hashes were known"
+                )
+            finally:
+                await storage.close()
+
+
 class TestPerformanceCharacteristics:
     """Test performance characteristics of hybrid storage."""
 
