@@ -293,10 +293,13 @@ class RemoteHTTPStorage(MemoryStorage):
             logger.error("Get by hash failed: %s", _sanitize_log_value(str(e)))
             return None
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
-        """Delete a memory via HTTP DELETE."""
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
+        """Delete a memory via HTTP DELETE, scoped to the given store partition."""
         try:
-            response = await self._request("DELETE", f"/api/memories/{content_hash}")
+            if store is not None:
+                response = await self._request("DELETE", f"/api/memories/{content_hash}", params={"store": store})
+            else:
+                response = await self._request("DELETE", f"/api/memories/{content_hash}")
 
             if response.status_code == 200:
                 result = response.json()
@@ -582,7 +585,7 @@ class RemoteHTTPStorage(MemoryStorage):
         """delete_by_tag is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('delete_by_tag not serviceable over RemoteHTTPStorage')
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """get_by_exact_content is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('get_by_exact_content not serviceable over RemoteHTTPStorage')
 
