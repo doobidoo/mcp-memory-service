@@ -214,6 +214,12 @@ async def _secondary_hash_set(secondary) -> Optional[set]:
     d1_hashes = await _fetch_secondary_content_hashes(secondary)
     if d1_hashes is not None:
         return d1_hashes
+
+    # A Cloudflare secondary whose D1 fetch failed has no hash set. The inherited
+    # list_content_hashes() would answer with an empty set, which callers read as
+    # "the secondary holds nothing" and skip the pull, so report the failure.
+    if hasattr(secondary, '_retry_request') and hasattr(secondary, 'd1_database_id'):
+        return None
         
     # Fall back to generic serviceable path for non-CF secondaries (HTTP)
     if hasattr(secondary, 'list_content_hashes'):
