@@ -4,7 +4,7 @@
 > Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-12 (learning: F7 util modular R2 feito=aditivo→multiplicativo, off-topic@3→0; multilíngue: tokenizer ASCII→Unicode \w+ nos 2 pontos; achados: INC-5 retrieval INERTE, derive só observation→belief, assimetria injeção/retrieval; benchmark R1 + Recall@pool R0; metodologia destilada em dev-workflow/SKILL). F4 upstream TRAVADA (OK Claudio+Henry).
 
 ```
-mcp-memory-service (fork = linha viva · 0 atrás do upstream · 246 à frente · 09/out)
+mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente · 09/out)
 │  Legenda: ✅ MERGED/feito · 🟢 feito fork-only · 🟡 parcial/design · 🔴 a fazer
 │
 ├─ ⭐ ARCO DELTA-SYNC (#1345) ..... sync nativo máquina↔hub que APOSENTA o Insync · ✅ 5/5 FASES MERGED — ARCO FECHADO
