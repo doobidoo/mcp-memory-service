@@ -62,3 +62,105 @@ extra sqlite-ml (onnxruntime>=1.17 + tokenizers). Lição: health 200 ≠ escrit
 ## Riscos (G0)
 Duplicação da lógica do tracker (tocar os 2 ou unificar) · harvest_session_id cobre só 228/4890 · delete sem transação +
 lock só na leitura · sessions_to_track com stored==0 reseleciona vazias (infla custo de B). Verificar logs do scheduler 09-11/set (hipótese VACUUM).
+
+---
+
+# v0.3 (11/out) — Evolução informada pela PoC e pela descoberta de idioma
+
+> Status: planned v0.3 · Enriquecido após a PoC de trituração (sessão cb14f957) + análise arch (seven) +
+> pesquisa web (Weaviate, arXiv). FATO = ancorado em código/dado. PROPOSTA = recomendação acionável.
+
+## v0.3-§1 PoC de trituração manual (ideia Claudio, insight em 2º plano)
+Experimento: Zero tritura UMA sessão (a própria, cb14f957, formato Kiro CLI atual) SEM o memory-service,
+com julgamento de prosa. Resultados (doc: pesquisa/frente-d-attribution-sem-disciplina-2026-10/POC-...md):
+- **FATO: 94% do .jsonl é ToolResults** (I/O: SQL/pytest/git). A prosa (prompt+raciocínio) é 6% (345KB de 5.5MB).
+  → RAG do bruto afogaria o conhecimento em ruído. **Colher a PROSA, não o arquivo.** (RAG-cru DESCARTADO por dado.)
+- **FATO: estrutura multi-tema** — principal (fechar learning-loop) / secundário (harvest, pesquisa) /
+  paralelo (evolução de agentes, doc-sync) / ortogonal (fato>memória, não depender da disciplina do agente).
+  Conhecimento de sessão é MULTI-CAMADA (fato atômico / resumo-de-sessão / grafo de temas), não uniforme.
+- **FATO (PoC de recall): o learning afogou o tema.** memory_context("feedback passivo…") trouxe no topo
+  "EIP não pode estar em 2 lugares" (rede, utility 0.95) — nenhum belief do tema. utility_prior ADITIVO alto
+  afoga relevância baixa. → fix na fila (FASE 7, util MODULAR não aditivo).
+
+## v0.3-§2 DESCOBERTA DE IDIOMA (pergunta do Claudio: pt-BR confunde o learning que roda p/ EN?)
+**SIM — confirmado empiricamente. Mas não onde se esperava.** O harvest (colheita) JÁ é bilíngue; a
+degradação pt-BR está no CONSUMO (re-rank/busca). Mapa (arch, ancorado):
+- **CRÍTICO — re-rank A tokeniza ASCII** (`context_injection.py:62` `_WORD_RE = re.compile(r"[a-z0-9]+")`).
+  Quebra acento: `injeção`→`inje`, `decisão`→`decis`, `função`→`fun`, `saída`→`sa`. Metade dos termos
+  técnicos pt-BR é MUTILADA → overlap lexical falha → relevância baixa (0.13-0.30 na PoC). ESTA é a causa-raiz
+  da PoC afogar o tema (soma-se ao util aditivo). Teste empírico confirmou (5/5 termos mutilados).
+- **SINTOMA — `_STOPWORDS`** (:70) tem `"n"`,`"o"` (fragmentos pós-quebra) como band-aid do bug acima.
+- **PARCIAL — FTS5 `tokenize='trigram'`** (`migrations.py:52`) é accent-SENSITIVE sem fold: `injeção`≠`injecao`.
+- **OK — parser/extractor/rewriter**: já multi-locale (`patterns/pt_BR.yaml`, `_detect_language`, rewriter
+  "same language"). triage e derivação de beliefs são idioma-neutros. (o furo do triage é FORMATO, não idioma.)
+- **IRONIA ESTRUTURAL**: o embedding é `paraphrase-multilingual-MiniLM` (entende pt-BR), MAS a tabela
+  `beliefs` NÃO tem coluna de embedding (`012_add_belief_store.sql`) → o re-rank é FORÇADO a usar overlap
+  ASCII em vez do embedding multilíngue que já existe. Temos a ferramenta certa e usamos a errada.
+
+**Respaldo (pesquisa web):** Weaviate — "BM25 e a tokenização que o alimenta falham silenciosamente quando
+o analisador está errado; nenhum ajuste de embedding salva. Divida uma palavra que não devia e o BM25 não
+tem nada útil para casar." Técnica nomeada: **accent folding**. arXiv 2210.05481 (tokenização p/ línguas sem
+tokenizer custom); arXiv 2510.20609 (BM25 word-level é forte e 10× mais rápido p/ PL→PL — lexical importa).
+
+## v0.3-§3 PROPOSTA DE EVOLUÇÃO DO HARVEST CLI + RECALL idioma-consciente (incrementos)
+Separar COLHEITA (quase ok) de RECALL (quebrado em pt-BR). Ordem por ganho/custo:
+- **I5 [CRÍTICO, barato — 1 linha + testes]**: `_WORD_RE` → `re.compile(r"\w+", re.UNICODE)` (ou `[^\W\d_]+`)
+  + `casefold()`. Destrava o learning em pt-BR HOJE. Sem ele, qualquer resumo-por-sessão pt-BR fica invisível
+  ao re-rank. Band-aid stopwords de fragmento tornam-se inócuos. (Opcional: normalização NFD p/ accent-fold.)
+- **I9 [cobertura]**: `harvest_session_id` em TODA memória de harvest (hoje só 228/4890) — pré-req de ligar sessão↔beliefs.
+- **I2 [colheita]**: rebaixar ToolResults a contexto (não candidato 1ª classe); extrair só prosa user/assistant → menos ruído ao LLM.
+- **I3/I4 [Opção B, = FASE 4]**: `memory_type=session-summary` — 1 resumo denso por sessão via LLM (reusa rewriter BATCH),
+  COM embedding, prompt multi-tema (principal/secundário/paralelo/ortogonal), preservando idioma. Sessão vira unidade recuperável.
+- **I6 [estrutural]**: dar embedding ao belief (coluna em `beliefs` ou cache on-the-fly) → re-rank faz cosine
+  multilíngue real (não overlap ASCII). Custo O(nº beliefs), baixo. Caminho híbrido: lexical unicode-aware + cosine, fusão RRF (`_fuse_rrf` já existe).
+- **I7 [FTS5]**: avaliar `unicode61 remove_diacritics 2` (fold de acento) vs trigram — decidir por benchmark pt-BR.
+- **I8**: `_consolidate_similar._jaccard` → tokenização unicode-aware (consistência com I5).
+- **I10 [prova]**: benchmark de recall pt-BR (query acentuada → espera belief/memória pt-BR) como regressão, ANTES de religar o scheduler (FASE 3).
+
+**Ordem:** I5 → I9 → I2 → I3/I4 → I6 → I7/I8/I10. I5 é o maior ganho/custo (destrava já).
+**Conexão com o learning:** colher não basta — os fatos têm que VIRAR BELIEFS (derivação/dreaming) para serem
+injetáveis, E o re-rank tem que enxergar pt-BR (I5/I6). harvest → dreaming → learning: o ciclo só fecha com idioma-consciência.
+
+## v0.3-§4 ARQUEOLOGIA: a decisão ASCII do Henry (escopada) vs os 3 ASCII indevidos (arch + git)
+Claudio lembrou que o ASCII foi DISCUTIDO com o Henry sob condições. CONFIRMADO no repo (arch, ancorado):
+
+**LEGÍTIMO (decisão do Henry, escopada a IDENTIFICADORES):** Codeberg #56/#61 (11/jun), doc
+`docs/handoffs/two-phase-query-skeletons.md:19` ("entity_id normalization — agreed: NFKD + hash fallback").
+Implementado em `storage/graph.py:43-60` `normalize_entity_id()`: NFKD → strip combining → slug `[a-z0-9-]` →
+fallback `e-<sha1[:8]>` para scripts não-latinos. CORRETO para chaves/ids (determinístico, dedup estável). NÃO MEXER.
+
+**INDEVIDO (3 pontos, introduzidos por nós, NÃO acordados com o Henry, aplicam ASCII onde fere relevância):**
+1. `storage/context_injection.py:62` `_WORD_RE=[a-z0-9]+` (commit f752dd13, 03/out) — tokenizer do re-rank.
+2. `reasoning/entities.py:175` `[a-zA-Z]{3,}` — tokenizer de entidade NLI.
+3. `storage/mixins/migrations.py:56` FTS5 `tokenize='trigram'` — accent-sensitive (query "decisao"≠índice "decisão").
+
+**PROVA EMPÍRICA (teste 11/out, tokenizer atual vs fix):** em 8 termos técnicos pt-BR, ASCII mutila **11 palavras**
+("consolidação"→`consolida`+`o`, "código"→`c`+`digo`, "injeção"→`inje`+`o`); o padrão `[a-zà-ÿ0-9]+` mutila **ZERO**.
+
+**A solução JÁ EXISTE no próprio repo:** `harvest/parser.py:127` usa `[a-zà-ÿ]+` (Latin-1 completo, accent-aware).
+O write-side (harvest) respeita acento; o recall-side (re-rank) não. **Não se perdeu em migração — nunca foi
+propagado.** `MCP_LOCALE` governa o que é EXTRAÍDO, não o que é RANKEADO/BUSCADO.
+
+**Mapa multilíngue VIVO vs NÃO-PROPAGADO (arch):**
+- VIVO (write/extraction): config/locale.py (MCP_LOCALE), patterns/{en,de,pt_BR}.yaml, nli_patterns, ner_patterns,
+  _detect_language (parser.py:120), rewriter "same language". Consumido por nli/rewriter/harvester/extractor/multilingual.
+- NÃO-PROPAGADO (recall/learning): context_injection.py (ASCII, zero locale), belief.py/belief_service.py
+  (grep locale/accent = VAZIO), entities.py:175, FTS5 trigram. O pt-BR MORRE na fronteira harvest→recall.
+
+## v0.3-§5 PLANO DAS DUAS FRENTES — multilíngue (pt-BR garantido)
+Princípio: NFKD-fold CONSISTENTE nos DOIS lados (query E índice) OU tokenizer Latin-aware `[a-zà-ÿ0-9]+` nos dois.
+Preservar a decisão do Henry (entity_id NFKD+hash intacto). Gate completo rok→reg→tuvok, pt-BR como teste de regressão.
+
+LEARNING (re-rank/recall):
+- L-I5 [crítico, barato]: `context_injection._WORD_RE` → `[a-zà-ÿ0-9]+` (padrão do parser.py:127) + casefold.
+  Remove a gambiarra de stopwords de fragmento (`"n"`,`"o"`). Benchmark pt-BR: query acentuada acha belief pt-BR.
+- L-I6 [estrutural]: embedding no belief (tabela beliefs SEM coluna embedding hoje, 012_add_belief_store.sql) →
+  re-rank cosine multilíngue real. Fecha também o FASE-7 (util modular) de forma coerente.
+- L-entities: entities.py:175 → Latin-aware consistente.
+HARVEST (busca/consolidação):
+- H-FTS5 [I7]: `unicode61 remove_diacritics 2` (fold query+índice igual) OU documentar trigram accent-sensitive — decidir por benchmark.
+- H-jaccard [I8]: `_consolidate_similar._jaccard` → tokenização Latin-aware (consistência).
+- belief_service locale-awareness: propagar MCP_LOCALE à derivação (hoje VAZIO).
+
+INVARIANTE: NÃO tocar `normalize_entity_id` (graph.py:43 — decisão Henry, ids). O fold de acento é para
+RELEVÂNCIA/BUSCA, não para chaves. Dois usos distintos de ASCII, dois tratamentos.
