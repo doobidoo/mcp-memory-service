@@ -187,7 +187,7 @@ _RERANK_A_DEFAULTS = {
     "conf": 0.15,  # saturated confidence (R6)
     "fresh": 0.10, # freshness term (R2 — integrate, don't compete)
     "gen": 0.25,   # generality PENALTY weight (subtracted, R4)
-    "util": 0.20,  # utility prior from D1 feedback (A↔D loop closure)
+    "util": 0.20,  # utility prior lambda for multiplicative modulation (FASE 7: changed from additive)
 }
 
 # Support count beyond which extra reinforcement buys no more confidence (R6).
@@ -311,12 +311,17 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
         except (TypeError, ValueError):
             util = 0.5
 
+        # FASE 7 / R2: Utility as MODULAR multiplier of relevance (not additive term).
+        # util_surplus: excess over neutral (0.5) normalized to [0, 1]. Below neutral = no penalty.
+        # util_mult: 1.0 + w_util * util_surplus. w_util now acts as lambda of multiplicative boost.
+        util_surplus = max(0.0, (util - 0.5) / 0.5)   # neutral 0.5 -> 0; util 1.0 -> 1.0
+        util_mult = 1.0 + w_util * util_surplus         # w_util reused as lambda of multiplicative
+
         score = (
-            w_rel * rel
+            w_rel * rel * util_mult                     # util MODULATES relevance (amplifies existing relevance)
             + w_adv * advantage
             + w_conf * conf_sat
             + w_fresh * freshness
-            + w_util * util
             - w_gen * gen
         )
         s["_rank_a_score"] = score
@@ -326,7 +331,8 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
             "conf_saturated": round(conf_sat, 4),
             "generality": round(gen, 4),
             "freshness": round(freshness, 4),
-            "utility": round(util, 4),
+            "util_surplus": round(util_surplus, 4),
+            "util_mult": round(util_mult, 4),
             "score": round(score, 4),
         }
 

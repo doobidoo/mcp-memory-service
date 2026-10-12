@@ -128,9 +128,8 @@ class TestFrente1LacoAD:
 
     @pytest.mark.asyncio  
     async def test_rerank_a_breakdown_includes_utility(self, storage):
-        """RED até FASE 5: The rerank_a breakdown must include 'utility' field."""
-        # RED até FASE 5
-        
+        """R2 (util modular): the breakdown must expose the modular utility fields
+        util_surplus and util_mult (replaced the old additive 'utility' field)."""
         scored = [
             {
                 "relevance": 0.6,
@@ -147,10 +146,12 @@ class TestFrente1LacoAD:
         
         breakdown = scored[0]["rerank_a"]
         
-        # EXPECTED: breakdown should include 'utility' field
-        # REALITY: will fail because 'utility' is not added to breakdown yet
-        assert "utility" in breakdown, f"rerank_a breakdown missing utility field: {breakdown.keys()}"
-        assert isinstance(breakdown["utility"], (int, float)), f"utility should be numeric: {breakdown['utility']}"
+        # R2 semantics: util is a multiplicative modulator, not an additive term.
+        # util=0.8 → surplus=(0.8-0.5)/0.5=0.6 ; mult=1+w_util*0.6.
+        assert "util_surplus" in breakdown, f"breakdown missing util_surplus: {breakdown.keys()}"
+        assert "util_mult" in breakdown, f"breakdown missing util_mult: {breakdown.keys()}"
+        assert abs(breakdown["util_surplus"] - 0.6) < 1e-6, f"surplus wrong: {breakdown['util_surplus']}"
+        assert breakdown["util_mult"] > 1.0, f"util>0.5 must amplify (mult>1): {breakdown['util_mult']}"
 
     @pytest.mark.asyncio
     async def test_utility_weight_configurable_via_env(self, storage):
@@ -175,13 +176,13 @@ class TestFrente1LacoAD:
             
             _apply_rerank_a(scored, generality)
             
-            # EXPECTED: The utility component should reflect the custom weight
-            # REALITY: will fail because MCP_INJECT_RERANK_A_W_UTIL is not implemented yet
+            # R2 semantics: MCP_INJECT_RERANK_A_W_UTIL is the λ of the multiplicative
+            # modulator. util=1.0 → surplus=1.0 → util_mult = 1 + 0.35*1.0 = 1.35.
             breakdown = scored[0]["rerank_a"]
-            expected_utility_contribution = 0.35 * 1.0  # weight * utility_prior
-            
-            # This will fail because the whole utility system is not implemented
-            assert "utility" in breakdown, "Utility field missing from breakdown"
+            assert "util_mult" in breakdown, "util_mult missing from breakdown"
+            assert abs(breakdown["util_mult"] - 1.35) < 1e-6, (
+                f"custom weight 0.35 must drive util_mult to 1.35, got {breakdown['util_mult']}"
+            )
             
         finally:
             os.environ.pop("MCP_INJECT_RERANK_A_W_UTIL", None)
