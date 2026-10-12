@@ -57,6 +57,10 @@ class StorageProtocol(Protocol):
     async def get_by_hash(self, content_hash: str) -> Optional[Memory]:
         pass
 
+    def _generate_embedding(self, text: str) -> List[float]:
+        """Encode text to a vector (R4: belief embedding hook calls this)."""
+        pass
+
     async def count_all_memories(
         self,
         memory_type: Optional[str] = None,

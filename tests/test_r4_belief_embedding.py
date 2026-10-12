@@ -83,9 +83,10 @@ async def test_belief_stored_with_embedding(storage):
     embedding_blob = row[0]
     assert embedding_blob is not None, "Embedding should not be NULL"
     
-    # Deserialize and verify dimensions (storage should have 384-dim embeddings)
-    embedding = json.loads(embedding_blob.decode('utf-8'))
-    assert isinstance(embedding, list), "Embedding should be a list"
+    # Deserialize and verify dimensions (serialize_float32 BLOB, same format as memories)
+    from mcp_memory_service.storage.mixins.base import deserialize_embedding
+    embedding = deserialize_embedding(embedding_blob)
+    assert isinstance(embedding, list), "Embedding should deserialize to a list"
     assert len(embedding) == 384, f"Expected 384 dimensions, got {len(embedding)}"
     assert all(isinstance(x, (int, float)) for x in embedding), "All elements should be numeric"
 

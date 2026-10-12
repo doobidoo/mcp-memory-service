@@ -566,13 +566,27 @@ class BeliefService:
         """Get beliefs filtered by status and confidence."""
         try:
             conn = self.storage.conn
-            cursor = conn.execute(
-                "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
-                "derived_from, contradicted_by, metadata FROM beliefs "
-                "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
-                (status, min_confidence),
-            )
-            rows = cursor.fetchall()
+            try:
+                cursor = conn.execute(
+                    "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
+                    "derived_from, contradicted_by, metadata, embedding FROM beliefs "
+                    "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
+                    (status, min_confidence),
+                )
+                rows = cursor.fetchall()
+                has_embedding = True
+            except Exception as e:
+                if "no such column: embedding" in str(e) or "has no column" in str(e):
+                    cursor = conn.execute(
+                        "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
+                        "derived_from, contradicted_by, metadata FROM beliefs "
+                        "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
+                        (status, min_confidence),
+                    )
+                    rows = cursor.fetchall()
+                    has_embedding = False
+                else:
+                    raise
             return [
                 {
                     "belief_hash": r[0],
@@ -584,6 +598,7 @@ class BeliefService:
                     "derived_from": json.loads(r[6]),
                     "contradicted_by": json.loads(r[7]),
                     "metadata": json.loads(r[8] or "{}"),
+                    "embedding": (r[9] if has_embedding else None),
                     "result_type": "belief",
                 }
                 for r in rows
@@ -738,19 +753,52 @@ class BeliefService:
     async def _create_belief(
         self, belief_hash, content, confidence, status, supporting_hashes, contradicting_hashes, now
     ):
-        """Insert a new belief."""
+        """Insert a new belief. Also stores a semantic embedding of the content (R4) when
+        an embedding model is available; NULL otherwise (re-rank falls back to lexical)."""
         conn = self.storage.conn
         now_iso = now.isoformat()
-        conn.execute(
-            "INSERT OR IGNORE INTO beliefs "
-            "(belief_hash, content, confidence, status, created_at, updated_at, derived_from, contradicted_by) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                belief_hash, content, confidence, status, now_iso, now_iso,
-                json.dumps(supporting_hashes), json.dumps(contradicting_hashes),
-            ),
-        )
+        embedding_blob = self._compute_belief_embedding(content)
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO beliefs "
+                "(belief_hash, content, confidence, status, created_at, updated_at, derived_from, contradicted_by, embedding) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    belief_hash, content, confidence, status, now_iso, now_iso,
+                    json.dumps(supporting_hashes), json.dumps(contradicting_hashes), embedding_blob,
+                ),
+            )
+        except Exception as e:
+            # Backward compat: belief table predates migration 021 (no embedding column).
+            if "no column named embedding" in str(e) or "has no column" in str(e):
+                conn.execute(
+                    "INSERT OR IGNORE INTO beliefs "
+                    "(belief_hash, content, confidence, status, created_at, updated_at, derived_from, contradicted_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        belief_hash, content, confidence, status, now_iso, now_iso,
+                        json.dumps(supporting_hashes), json.dumps(contradicting_hashes),
+                    ),
+                )
+            else:
+                raise
         conn.commit()
+
+    def _compute_belief_embedding(self, content: str):
+        """Return a serialized embedding BLOB for the belief content, or None if no model.
+
+        Never raises: embedding is an optional enrichment (R4). A failure degrades the
+        belief to lexical-only relevance in the re-rank, never blocks belief creation.
+        """
+        try:
+            if getattr(self.storage, "embedding_model", None) is None:
+                return None
+            from sqlite_vec import serialize_float32
+            vec = self.storage._generate_embedding(content)
+            return serialize_float32(vec)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("belief embedding skipped (%s): %s", _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
+            return None
 
     async def _update_belief(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now):
         """Update an existing belief's confidence and provenance."""

@@ -27,6 +27,7 @@ import math
 import sqlite3
 import sys
 from pathlib import Path
+import os
 from typing import Dict, List, Any, Tuple
 
 # Suppress debug logging for cleaner output
@@ -202,7 +203,10 @@ async def run_benchmark() -> Dict[str, Any]:
     """Run the complete rerank benchmark and return results."""
     
     # Initialize storage with production database
-    db_path = Path.home() / "local-data" / "mcp" / "sqlite_vec.db"
+    # Honor MCP_BENCH_DB override so experiments (e.g. R4 backfill) can run against
+    # a copy instead of always the live DB. Falls back to the live default.
+    _env_db = os.environ.get("MCP_BENCH_DB")
+    db_path = Path(_env_db) if _env_db else (Path.home() / "local-data" / "mcp" / "sqlite_vec.db")
     if not db_path.exists():
         raise FileNotFoundError(f"Database not found: {db_path}")
     

@@ -1780,10 +1780,13 @@ class HybridMemoryStorage(MemoryStorage):
             include_pending=include_pending,
         )
 
+    def _generate_embedding(self, text: str):
+        """Delegate embedding generation to the primary backend (R4 belief hook)."""
+        return self.primary._generate_embedding(text)
+
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory from primary storage and queue for secondary sync."""
         success, message = await self.primary.delete(content_hash, store=store)
-
         if success and self.sync_service:
             # Queue for background sync to secondary
             operation = SyncOperation(operation='delete', content_hash=content_hash)

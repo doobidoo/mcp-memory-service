@@ -176,6 +176,44 @@ def _get_rerank_a_enabled() -> bool:
     return raw.strip().lower() in {"true", "1", "yes"}
 
 
+def _get_rerank_alpha() -> float:
+    """Weight of the LEXICAL term in the R4 lex+semantic relevance fusion.
+
+    relevance = alpha * lexical + (1 - alpha) * cosine. Default 0.5 (equal blend).
+    Env MCP_INJECT_RERANK_ALPHA overrides; clamped to [0, 1]. alpha=1.0 reproduces
+    the pre-R4 lexical-only behavior (safe fallback).
+    """
+    raw = os.environ.get("MCP_INJECT_RERANK_ALPHA")
+    if raw is None:
+        return 0.5
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def _belief_cosine(query_emb, belief_blob) -> Optional[float]:
+    """Cosine similarity (normalized to [0,1]) between the query embedding and a
+    belief's stored embedding BLOB. Returns None when either side is unavailable
+    (caller falls back to lexical-only). Never raises (R4 is additive enrichment)."""
+    if query_emb is None or belief_blob is None:
+        return None
+    try:
+        from .mixins.base import deserialize_embedding
+        bvec = deserialize_embedding(belief_blob)
+        if not bvec:
+            return None
+        dot = sum(a * b for a, b in zip(query_emb, bvec))
+        na = math.sqrt(sum(a * a for a in query_emb))
+        nb = math.sqrt(sum(b * b for b in bvec))
+        if na == 0.0 or nb == 0.0:
+            return None
+        cos = dot / (na * nb)
+        return max(0.0, min(1.0, (cos + 1.0) / 2.0))  # map [-1,1] -> [0,1]
+    except Exception:
+        return None
+
+
 # Frente A weights (R10: env-overridable, normalized defaults). Mirror
 # RankedSearchWeights philosophy: a weighted SUM (not product) so a specific,
 # high-advantage belief with modest confidence can beat a generic high-confidence
@@ -442,6 +480,15 @@ async def memory_context(
     embedding_available = getattr(storage, "embedding_model", None) is not None
     semantic_terms = await _semantic_terms(storage, task) if embedding_available else set()
 
+    # R4: encode the query ONCE for lexical+semantic fusion in the re-rank.
+    _rerank_alpha = _get_rerank_alpha()
+    query_emb = None
+    if embedding_available:
+        try:
+            query_emb = storage._generate_embedding(task)
+        except Exception:
+            query_emb = None
+
     scored: List[Dict[str, Any]] = []
     for b in beliefs:
         content = b.get("content", "") or ""
@@ -456,7 +503,14 @@ async def memory_context(
                 content_terms = set(_tokenize(content))
                 if content_terms:
                     boost = len(content_terms & semantic_terms) / len(content_terms)
-            relevance = min(1.0, overlap + 0.25 * boost)
+            lexical = min(1.0, overlap + 0.25 * boost)
+            # R4: fuse lexical with semantic cosine (query x belief embedding).
+            # Falls back to lexical-only when the belief has no stored embedding.
+            cos = _belief_cosine(query_emb, b.get("embedding"))
+            if cos is None:
+                relevance = lexical
+            else:
+                relevance = _rerank_alpha * lexical + (1.0 - _rerank_alpha) * cos
         else:
             # No embedding model -> pure confidence fallback.
             relevance = 1.0
