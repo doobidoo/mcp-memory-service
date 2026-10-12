@@ -172,7 +172,7 @@ class EntityExtractor:
         ])
 
         term_docs = defaultdict(set)  # term -> set of memory indices
-        tokenize = _re.compile(r'[a-zA-Z]{3,}')
+        tokenize = _re.compile(r'[a-zA-ZÀ-ÿ]{3,}')
 
         for idx, item in enumerate(memories):
             text = item.get('content', '') if isinstance(item, dict) else str(item)
