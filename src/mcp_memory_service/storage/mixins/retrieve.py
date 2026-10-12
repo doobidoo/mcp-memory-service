@@ -573,21 +573,26 @@ class RetrieveMixin:
             logger.error('list_content_hashes_page failed: %s', _sanitize_log_value(e))
             raise
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
-        """Retrieve memories by exact content match."""
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
+        """Retrieve memories by exact content match. Scoped to store partition when given (#1466)."""
         try:
             if not self.conn:
                 return []
 
             def _get_by_exact_content():
-                cursor = self.conn.execute('''
+                sql = '''
                     SELECT content, tags, memory_type, metadata, content_hash,
                            created_at, created_at_iso, updated_at, updated_at_iso
                     FROM memories
                     WHERE content LIKE '%' || ? || '%' ESCAPE '\\' COLLATE NOCASE
                     AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)
-                    ORDER BY created_at DESC
-                ''', (_escape_like(content),))
+                '''
+                params = [_escape_like(content)]
+                if store is not None:
+                    sql += ' AND store = ?'
+                    params.append(store)
+                sql += ' ORDER BY created_at DESC'
+                cursor = self.conn.execute(sql, tuple(params))
                 return cursor.fetchall()
 
             memories = []
@@ -1313,8 +1318,9 @@ class RetrieveMixin:
         end_time: float,
         include_embeddings: bool = False,
         exclude_pending: bool = False,
+        store: Optional[str] = None,
     ) -> List[Memory]:
-        """Get memories within a specific time range.
+        """Get memories within a specific time range. Scoped to store partition when given (#1466).
 
         exclude_pending=True drops rows with embedding_pending=1, so a possibly-stale
         vector is never served as consistent (ADR-0016). Default False preserves the full
@@ -1327,6 +1333,9 @@ class RetrieveMixin:
             pending_pred = " AND (m.embedding_pending IS NULL OR m.embedding_pending = 0)" if exclude_pending else ""
             pending_pred_nojoin = " AND (embedding_pending IS NULL OR embedding_pending = 0)" if exclude_pending else ""
 
+            store_pred = " AND m.store = ?" if store is not None else ""
+            store_pred_nojoin = " AND store = ?" if store is not None else ""
+
             if include_embeddings:
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
@@ -1334,7 +1343,7 @@ class RetrieveMixin:
                            e.content_embedding
                     FROM memories m
                     LEFT JOIN memory_embeddings e ON m.id = e.rowid
-                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL{pending_pred}
+                    WHERE m.created_at BETWEEN ? AND ? AND m.deleted_at IS NULL{pending_pred}{store_pred}
                     ORDER BY m.created_at DESC
                 '''
             else:
@@ -1342,12 +1351,15 @@ class RetrieveMixin:
                     SELECT content_hash, content, tags, memory_type, metadata,
                            created_at, updated_at, created_at_iso, updated_at_iso
                     FROM memories
-                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL{pending_pred_nojoin}
+                    WHERE created_at BETWEEN ? AND ? AND deleted_at IS NULL{pending_pred_nojoin}{store_pred_nojoin}
                     ORDER BY created_at DESC
                 '''
 
             def _get_by_time_range():
-                cursor = self.conn.execute(sql, (start_time, end_time))
+                params = [start_time, end_time]
+                if store is not None:
+                    params.append(store)
+                cursor = self.conn.execute(sql, tuple(params))
                 return cursor.fetchall()
 
             results = []

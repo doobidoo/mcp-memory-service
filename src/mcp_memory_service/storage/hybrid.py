@@ -1780,9 +1780,9 @@ class HybridMemoryStorage(MemoryStorage):
             include_pending=include_pending,
         )
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory from primary storage and queue for secondary sync."""
-        success, message = await self.primary.delete(content_hash)
+        success, message = await self.primary.delete(content_hash, store=store)
 
         if success and self.sync_service:
             # Queue for background sync to secondary
@@ -1807,7 +1807,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         """
         Delete memories matching ANY of the given tags from primary storage and queue for secondary sync.
 
@@ -1827,7 +1827,7 @@ class HybridMemoryStorage(MemoryStorage):
         unique_memories = {m.content_hash: m for m in memories_to_delete}.values()
 
         # Delete from primary using optimized method if available
-        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags)
+        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags, store=store)
 
         # Queue individual deletes for secondary sync
         if count_deleted > 0 and self.sync_service:

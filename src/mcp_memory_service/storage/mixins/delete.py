@@ -21,17 +21,19 @@ def _escape_like(value: str) -> str:
 class DeleteMixin:
     """Mixin providing memory deletion operations."""
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
-        """Soft-delete a memory by setting deleted_at timestamp."""
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
+        """Soft-delete a memory by setting deleted_at timestamp. Scoped to store partition when given (#1465)."""
         try:
             if not self.conn:
                 return False, "Database not initialized"
 
             def _delete_memory():
-                cursor = self.conn.execute(
-                    'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
-                    (content_hash,)
-                )
+                select_sql = 'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NULL'
+                select_params = [content_hash]
+                if store is not None:
+                    select_sql += ' AND store = ?'
+                    select_params.append(store)
+                cursor = self.conn.execute(select_sql, tuple(select_params))
                 row = cursor.fetchone()
                 if not row:
                     return None
@@ -49,10 +51,12 @@ class DeleteMixin:
                     (content_hash, content_hash)
                 )
                 deleted_at = time.time()
-                cursor = self.conn.execute(
-                    'UPDATE memories SET deleted_at = ? WHERE content_hash = ? AND deleted_at IS NULL',
-                    (deleted_at, content_hash)
-                )
+                update_sql = 'UPDATE memories SET deleted_at = ? WHERE content_hash = ? AND deleted_at IS NULL'
+                update_params = [deleted_at, content_hash]
+                if store is not None:
+                    update_sql += ' AND store = ?'
+                    update_params.append(store)
+                cursor = self.conn.execute(update_sql, tuple(update_params))
 
                 # Append sync event between UPDATE and commit (ADR-0008)
                 if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
@@ -222,8 +226,8 @@ class DeleteMixin:
             logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
-        """Soft-delete memories matching ANY of the given tags."""
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
+        """Soft-delete memories matching ANY of the given tags. Scoped to store partition when given (#1465)."""
         try:
             if not self.conn:
                 return 0, "Database not initialized", []
@@ -235,11 +239,17 @@ class DeleteMixin:
             conditions = " OR ".join(["(',' || tags || ',') LIKE ? ESCAPE '\\'" for _ in stripped_tags])
             params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
-            select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}) AND deleted_at IS NULL'
-            update_query = f'UPDATE memories SET deleted_at = ? WHERE ({conditions}) AND deleted_at IS NULL'
+            store_clause = ""
+            store_param = []
+            if store is not None:
+                store_clause = " AND store = ?"
+                store_param = [store]
+
+            select_query = f'SELECT id, content_hash FROM memories WHERE ({conditions}){store_clause} AND deleted_at IS NULL'
+            update_query = f'UPDATE memories SET deleted_at = ? WHERE ({conditions}){store_clause} AND deleted_at IS NULL'
 
             def _delete_by_tags():
-                cursor = self.conn.execute(select_query, params)
+                cursor = self.conn.execute(select_query, params + store_param)
                 rows = cursor.fetchall()
                 memory_ids = [row[0] for row in rows]
                 hashes = [row[1] for row in rows]
@@ -265,7 +275,7 @@ class DeleteMixin:
                         (ch, ch)
                     )
 
-                cursor = self.conn.execute(update_query, [time.time()] + params)
+                cursor = self.conn.execute(update_query, [time.time()] + params + store_param)
                 self.conn.commit()
                 return cursor.rowcount, hashes
 

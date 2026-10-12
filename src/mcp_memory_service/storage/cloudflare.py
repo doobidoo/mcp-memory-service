@@ -1073,7 +1073,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to load memory from row: %s", _sanitize_log_value(e))
             return None
     
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory by its hash."""
         try:
             # Find memory in D1
@@ -1245,7 +1245,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to delete by tag %s: %s", _sanitize_log_value(tag), _sanitize_log_value(e))
             return 0, f"Deletion failed: {str(e)}"
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         """
         Delete memories matching ANY of the given tags (optimized for Issue #374).
 
