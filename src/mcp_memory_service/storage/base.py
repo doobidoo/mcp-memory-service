@@ -165,7 +165,8 @@ class MemoryStorage(ABC):
         tags: Optional[List[str]] = None,
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None,
-        include_superseded: bool = False
+        include_superseded: bool = False,
+        store: Optional[str] = "default"
     ) -> List[MemoryQueryResult]:
         """
         Retrieve memories with optional quality-based reranking.
@@ -210,12 +211,12 @@ class MemoryStorage(ABC):
 
         if not quality_boost:
             # Standard retrieval, no reranking
-            return await self.retrieve(query, n_results, tags=tags, include_superseded=include_superseded)
+            return await self.retrieve(query, n_results, tags=tags, include_superseded=include_superseded, store=store)
 
         # Quality-boosted retrieval
         # Step 1: Over-fetch (3x) to have pool for reranking
         oversample_factor = 3
-        candidates = await self.retrieve(query, n_results * oversample_factor, tags=tags, include_superseded=include_superseded)
+        candidates = await self.retrieve(query, n_results * oversample_factor, tags=tags, include_superseded=include_superseded, store=store)
 
         if not candidates:
             return []
@@ -310,8 +311,8 @@ class MemoryStorage(ABC):
         return memories
 
     @abstractmethod
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
-        """Delete a memory by its hash."""
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
+        """Delete a memory by its hash. If store is given, scope deletion to that partition (#1465)."""
         pass
 
     async def delete_memory(self, content_hash: str) -> bool:
@@ -423,7 +424,7 @@ class MemoryStorage(ABC):
         raise NotImplementedError("Subclasses must implement delete_before_date")
 
     @abstractmethod
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """
         Retrieve memories by exact content match.
 
@@ -453,7 +454,7 @@ class MemoryStorage(ABC):
         """Delete memories by tag. Returns (count_deleted, message)."""
         pass
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         """
         Delete memories matching ANY of the given tags.
 
@@ -566,7 +567,7 @@ class MemoryStorage(ABC):
             if content_hash:
                 if dry_run:
                     # Check if memory exists
-                    memory = await self.get_by_hash(content_hash)
+                    memory = await self.get_by_hash(content_hash, store=store)
                     if memory:
                         return {
                             "success": True,
@@ -585,7 +586,7 @@ class MemoryStorage(ABC):
                         }
 
                 # Execute deletion
-                success, message = await self.delete(content_hash)
+                success, message = await self.delete(content_hash, store=store)
                 return {
                     "success": success,
                     "deleted_count": 1 if success else 0,
@@ -614,7 +615,7 @@ class MemoryStorage(ABC):
             if tags and not before and not after and tag_match == "any":
                 # Optimized path: tag-only deletion with ANY match
                 if hasattr(self, 'delete_by_tags') and not dry_run:
-                    count, message, deleted_hashes = await self.delete_by_tags(tags)
+                    count, message, deleted_hashes = await self.delete_by_tags(tags, store=store)
                     return {
                         "success": count > 0,
                         "deleted_count": count,
@@ -646,7 +647,8 @@ class MemoryStorage(ABC):
 
                         filtered_memories = await self.get_memories_by_time_range(
                             start_time=start_time,
-                            end_time=end_time
+                            end_time=end_time,
+                            store=store
                         )
                     except ValueError as e:
                         return {
@@ -662,7 +664,7 @@ class MemoryStorage(ABC):
             # Deletion must never skip pending rows (they would silently survive and reappear
             # in search after embedding repair). Pending exclusion belongs on SEARCH paths only.
             if not use_optimized:
-                all_memories = await self.get_all_memories()
+                all_memories = await self.get_all_memories(store=store)
 
                 for memory in all_memories:
                     # Tag filter
@@ -734,7 +736,7 @@ class MemoryStorage(ABC):
 
             for memory in filtered_memories:
                 try:
-                    success, msg = await self.delete(memory.content_hash)
+                    success, msg = await self.delete(memory.content_hash, store=store)
                     if success:
                         deleted_count += 1
                         deleted_hashes.append(memory.content_hash)
@@ -1002,6 +1004,7 @@ class MemoryStorage(ABC):
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        store: Optional[str] = None,
     ) -> List[Memory]:
         """Get memories within a time range. Override for specific implementations.
 
@@ -1329,7 +1332,7 @@ class MemoryStorage(ABC):
                     }
 
                 # Get memories with exact content match
-                matched_memories = await self.get_by_exact_content(query)
+                matched_memories = await self.get_by_exact_content(query, store=store)
                 # Convert to MemoryQueryResult format for consistency
                 results = [
                     MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
@@ -1374,7 +1377,8 @@ class MemoryStorage(ABC):
                             results = await self.retrieve_hybrid(
                                 query,
                                 n_results=fetch_limit,
-                                include_superseded=include_superseded
+                                include_superseded=include_superseded,
+                                store=store
                             )
                         else:
                             # Fall back to semantic if hybrid disabled in config
@@ -1386,7 +1390,8 @@ class MemoryStorage(ABC):
                                     tags=tags,
                                     quality_boost=True,
                                     quality_weight=quality_boost,
-                                    include_superseded=include_superseded
+                                    include_superseded=include_superseded,
+                                    store=store
                                 )
                             else:
                                 results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time, store=store)
@@ -1398,7 +1403,8 @@ class MemoryStorage(ABC):
                             tags=tags,
                             quality_boost=True,
                             quality_weight=quality_boost,
-                            include_superseded=include_superseded
+                            include_superseded=include_superseded,
+                            store=store
                         )
                     else:
                         # Standard semantic search
@@ -1415,7 +1421,7 @@ class MemoryStorage(ABC):
                             use_optimized_search = True
                             st = start_time if start_time is not None else 0.0
                             et = end_time if end_time is not None else datetime.now().timestamp()
-                            memories = await self.get_memories_by_time_range(st, et, exclude_pending=True)
+                            memories = await self.get_memories_by_time_range(st, et, exclude_pending=True, store=store)
                             results = [
                                 MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                                 for m in memories
@@ -1424,7 +1430,7 @@ class MemoryStorage(ABC):
 
                     # Fallback: load all memories then filter
                     if not use_optimized_search:
-                        all_memories = await self.get_all_memories(exclude_pending=True)
+                        all_memories = await self.get_all_memories(exclude_pending=True, store=store)
                         results = [
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories

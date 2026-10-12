@@ -1780,9 +1780,9 @@ class HybridMemoryStorage(MemoryStorage):
             include_pending=include_pending,
         )
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory from primary storage and queue for secondary sync."""
-        success, message = await self.primary.delete(content_hash)
+        success, message = await self.primary.delete(content_hash, store=store)
 
         if success and self.sync_service:
             # Queue for background sync to secondary
@@ -1807,7 +1807,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         """
         Delete memories matching ANY of the given tags from primary storage and queue for secondary sync.
 
@@ -1820,26 +1820,22 @@ class HybridMemoryStorage(MemoryStorage):
         if not tags:
             return 0, "No tags provided", []
 
-        # First, get all memories with any of these tags for sync queue
-        memories_to_delete = await self.primary.search_by_tags(tags, operation="OR", include_pending=True)
-
-        # Remove duplicates based on content_hash
-        unique_memories = {m.content_hash: m for m in memories_to_delete}.values()
-
         # Delete from primary using optimized method if available
-        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags)
+        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags, store=store)
 
-        # Queue individual deletes for secondary sync
+        # Queue individual deletes for secondary sync — ONLY the hashes actually deleted
+        # from the (store-scoped) primary. Using the unfiltered tag match would delete
+        # other stores' memories from the cloud while keeping them locally (#1466).
         if count_deleted > 0 and self.sync_service:
-            for memory in unique_memories:
-                operation = SyncOperation(operation='delete', content_hash=memory.content_hash)
+            for content_hash in deleted_hashes:
+                operation = SyncOperation(operation='delete', content_hash=content_hash)
                 await self.sync_service.enqueue_operation(operation)
 
         return count_deleted, message, deleted_hashes
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Retrieve memories by exact content match from primary storage."""
-        return await self.primary.get_by_exact_content(content)
+        return await self.primary.get_by_exact_content(content, store=store)
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""
@@ -2108,6 +2104,7 @@ class HybridMemoryStorage(MemoryStorage):
         end_time: float,
         include_embeddings: bool = False,
         exclude_pending: bool = False,
+        store: Optional[str] = None,
     ) -> List[Memory]:
         """Get memories within time range from primary storage.
 
@@ -2116,7 +2113,7 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.get_memories_by_time_range(
             start_time, end_time, include_embeddings=include_embeddings,
-            exclude_pending=exclude_pending,
+            exclude_pending=exclude_pending, store=store,
         )
 
     async def close(self):

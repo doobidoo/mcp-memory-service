@@ -1799,7 +1799,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Delete --------------------------------------------------------------
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
@@ -1851,7 +1851,7 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0, f"No memories found with tag '{tag}'"
         return await self._delete_matching(tag_filter, f"Successfully deleted {{count}} memories with tag '{tag}'")
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized", []
         if not tags:
@@ -2030,7 +2030,7 @@ class MilvusMemoryStorage(MemoryStorage):
             return None
         return memory
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Case-insensitive substring match on content.
 
         Matches sqlite_vec's semantics (``LIKE '%...%' COLLATE NOCASE``
@@ -3884,7 +3884,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float,
-        include_embeddings: bool = False,
+        include_embeddings: bool = False, store: Optional[str] = None,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
