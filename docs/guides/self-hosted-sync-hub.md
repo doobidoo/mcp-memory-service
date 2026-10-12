@@ -189,8 +189,13 @@ Two scripts exist; pick by **vector dimension**, not by preference:
   (`--url` and `--model` are required). It has no path for a hub that embeds with a local
   sentence-transformers model, so it is a fit only if you move the hub to an external
   embedding server (see [external embeddings](../deployment/external-embeddings.md)). For a
-  local model with a new dimension, export the memories, start a fresh database with the new
-  model, and re-import.
+  local model with a new dimension, export the memories
+  (`python scripts/sync/export_memories.py --db-path <the hub's sqlite_vec.db>`; the export
+  only reads rows, so it opens the database whatever model it was built with), move the old
+  database aside, set the new `MCP_EMBEDDING_MODEL`, and re-import
+  (`python scripts/sync/import_memories.py <export.json> --db-path <new sqlite_vec.db>`):
+  the import builds the fresh database at the new model's dimension and embeds every memory
+  with it. Both scripts take the model from `MCP_EMBEDDING_MODEL`, as the server does.
 
 **Re-embedding the hub is not enough: every client holds its own vectors.** A hybrid client
 answers searches from its local SQLite-vec database, not from the hub (`storage/hybrid.py`,
@@ -216,8 +221,10 @@ vectors are still the old model's:
   check `GET /api/sync/status` on the client's HTTP process (or `get_sync_status()`): both
   `pending_operations` and `failed_operations` must be zero — if they are not, wait for the
   queue to drain or export the local database first with
-  `python scripts/sync/export_memories.py --db-path <the client's sqlite_vec.db>`. Keep the old
-  database file until the rebuilt client reports the memory count you expect.
+  `python scripts/sync/export_memories.py --db-path <the client's sqlite_vec.db>` (it opens the
+  database whatever model built it, so it works before or after you switch
+  `MCP_EMBEDDING_MODEL`). Keep the old database file until the rebuilt client reports the
+  memory count you expect.
 
 Order: stop everything → re-embed the hub → start the hub → re-embed (or rebuild) each client →
 start the clients.

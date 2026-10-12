@@ -35,7 +35,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.sync.importer import MemoryImporter
-from mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.config import SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
 
 # Configure logging
 logging.basicConfig(
@@ -111,7 +111,10 @@ async def import_memories(
     try:
         # Initialize storage
         logger.info("Initializing SQLite-vec storage...")
-        storage = SqliteVecMemoryStorage(str(db_path))
+        # Same model as the server (factory.py passes EMBEDDING_MODEL_NAME): a fresh
+        # database is built at this model's dimension, and the imported memories are
+        # embedded with it.
+        storage = SqliteVecMemoryStorage(str(db_path), embedding_model=EMBEDDING_MODEL_NAME)
         await storage.initialize()
         
         # Create importer
