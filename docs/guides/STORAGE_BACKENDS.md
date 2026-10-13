@@ -87,7 +87,7 @@ For self-hosted or on-premise deployments, the Hybrid backend can sync to a remo
 - Use `MCP_HYBRID_SECONDARY_AUTH_STYLE=x-api-key` for services behind nginx with basic auth
 - Set `MCP_HYBRID_SECONDARY_BASIC_USER` and `MCP_HYBRID_SECONDARY_BASIC_PASS` for nginx layer authentication
 
-This provides the same local SQLite-vec read performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts.
+This provides the same local SQLite-vec read performance with background sync to your own HTTP-accessible MCP Memory Service hub, avoiding the need for Cloudflare accounts. How to run the hub itself (backend, API key, sync owner, re-embedding) is in [self-hosted-sync-hub.md](self-hosted-sync-hub.md).
 
 > **Embedding model must match.** The client and the hub must use the same
 > `MCP_EMBEDDING_MODEL`. On startup the client verifies the hub's model via
