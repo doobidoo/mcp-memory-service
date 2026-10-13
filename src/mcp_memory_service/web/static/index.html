@@ -903,6 +903,10 @@
                                             <button id="graphDimensionBtn" class="btn btn-secondary" title="Toggle 3D / 2D rendering">
                                                 <span id="graphDimensionLabel">3D</span>
                                             </button>
+                                            <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                                                <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
+                                                <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
+                                            </div>
                                             <button id="graphRotateBtn" class="btn btn-secondary" title="Pause / resume auto-rotation (3D only)">
                                                 <span id="graphRotateLabel">Pause</span>
                                             </button>
@@ -1252,6 +1256,10 @@
                     <h3 data-i18n="analytics.graphVisualization">Interactive Graph Visualization</h3>
                     <div class="graph-fullscreen-controls">
                         <span id="graphFullscreenNodeCount" class="graph-node-count"></span>
+                        <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                            <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
+                            <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
+                        </div>
                         <button class="btn btn-secondary" id="graphFullscreenRotateBtn" title="Pause / resume rotation">
                             <span id="graphFullscreenRotateLabel">Pause</span>
                         </button>
