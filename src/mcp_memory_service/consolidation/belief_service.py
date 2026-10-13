@@ -523,14 +523,12 @@ class BeliefService:
     @staticmethod
     def _ontology_filtering_enabled() -> bool:
         """Check if ontology-based filtering is enabled via environment flag."""
-        import os
         raw = os.environ.get("MCP_BELIEF_ONTOLOGY_FILTERING")
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
     
     @staticmethod
     def _get_batch_cap() -> int:
         """Get batch processing cap from environment to prevent flooding."""
-        import os
         try:
             raw = os.environ.get("MCP_BELIEF_BATCH_CAP")
             if raw:
@@ -543,13 +541,15 @@ class BeliefService:
     async def _get_memories_by_ontology(self) -> list:
         """Get memories using ontology base types and store filtering.
         
-        Returns memories from store='default' that match ontology base types
-        or their subtypes (decision, learning, error, observation).
+        Returns memories from store='default' that match the curated belief-eligible
+        base types (decision, learning, error, observation) or their subtypes.
+        Restricts to the 4-type design scope, not all 12 ontology base types.
         """
-        from ..models.ontology import get_base_types, get_parent_type
+        from ..models.ontology import get_parent_type
         
-        # Get all base types from ontology
-        base_types = get_base_types()
+        # Curated set for belief derivation - restrict to the 4 designed types
+        # not all 12 ontology base types to avoid scope creep
+        BELIEF_ELIGIBLE_BASE_TYPES = {"decision", "learning", "error", "observation"}
         
         # Get all memories from default store only
         all_memories = await self.storage.get_all_memories(store="default")
@@ -559,18 +559,18 @@ class BeliefService:
         if len(all_memories) > batch_cap:
             all_memories = all_memories[:batch_cap]
         
-        # Filter memories to those with base types or subtypes that resolve to base types
+        # Filter memories to those with eligible base types or subtypes that resolve to eligible types
         filtered_memories = []
         for memory in all_memories:
             memory_type = memory.memory_type if hasattr(memory, "memory_type") else memory.get("memory_type", "")
             
-            # Check if it's already a base type
-            if memory_type in base_types:
+            # Check if it's already an eligible base type
+            if memory_type in BELIEF_ELIGIBLE_BASE_TYPES:
                 filtered_memories.append(memory)
             else:
-                # Check if it's a subtype that resolves to a base type
+                # Check if it's a subtype that resolves to an eligible base type
                 parent_type = get_parent_type(memory_type)
-                if parent_type and parent_type in base_types:
+                if parent_type and parent_type in BELIEF_ELIGIBLE_BASE_TYPES:
                     filtered_memories.append(memory)
         
         return filtered_memories

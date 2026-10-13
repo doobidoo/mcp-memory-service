@@ -121,35 +121,47 @@ async def test_derive_beliefs_includes_error_type_memories_via_ontology(mock_sto
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_filters_to_default_store_only(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_filters_to_default_store_only(mock_storage):
     """Test that derive_beliefs only processes memories from store='default', excluding RAG stores.
     
-    EXPECTED TO FAIL: Current implementation doesn't filter by store, would process all stores.
+    This test does NOT mock _group_observations to ensure it tests the real store filtering logic.
     """
     # Create memories in different stores
     default_mem = MockMemory("User prefers dark theme", "observation", store="default")
-    rag_mir_mem = MockMemory("MIR system documentation", "observation", store="docs-mir")
+    rag_mir_mem = MockMemory("MIR system documentation", "observation", store="docs-mir") 
     rag_shared_mem = MockMemory("Shared knowledge base", "observation", store="docs-shared")
     hackathon_mem = MockMemory("Hackathon project notes", "observation", store="hackathon")
     
-    # Mock storage to return all memories regardless of store filter
-    def mock_get_all_memories(**kwargs):
-        # Current implementation doesn't filter by store, returns all
-        if "store" not in kwargs or kwargs["store"] is None:
-            return AsyncMock(return_value=[default_mem, rag_mir_mem, rag_shared_mem, hackathon_mem])()
+    all_memories = [default_mem, rag_mir_mem, rag_shared_mem, hackathon_mem]
+    
+    # Mock storage.get_all_memories to return different results based on store parameter
+    async def mock_get_all_memories(store=None, **kwargs):
+        if store == "default":
+            return [default_mem]
+        elif store is None:
+            # Old behavior - return all memories regardless of store
+            return all_memories
         else:
-            # New behavior should only return default store memories
-            return AsyncMock(return_value=[default_mem])()
+            # Return memories from specific store
+            return [mem for mem in all_memories if mem.store == store]
     
     mock_storage.get_all_memories = mock_get_all_memories
     
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
         svc = BeliefService(mock_storage)
-        mock_belief_internals(svc, [default_mem])  # Only default store memory should be processed
+        
+        # Mock minimal internals but NOT _group_observations to test real filtering
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+        
+        # The service should call get_all_memories with store="default" 
+        # and only process the default store memory
         stats = await svc.derive_beliefs()
         
-        # Should only process 1 memory from default store
-        assert stats["created"] == 1, "Should only process memories from default store"
+        # Verify the storage was called with store="default"
+        # The real implementation should filter to only default store
+        assert stats["created"] == 1, f"Should create 1 belief from default store only, got {stats['created']}"
 
 
 @pytest.mark.asyncio
@@ -179,85 +191,78 @@ async def test_derive_beliefs_preserves_old_behavior_when_flag_disabled(mock_sto
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_respects_batch_cap_limit(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_respects_batch_cap_limit(mock_storage):
     """Test that derive_beliefs respects batch processing limits to prevent flooding.
     
-    EXPECTED TO FAIL: Current implementation has no batch cap protection.
+    This test does NOT mock the batch capping logic but tests it works in the real implementation.
     """
     # Create many memories to trigger batch cap
     many_memories = []
     for i in range(1000):  # Create more than reasonable batch size
-        mem = MockMemory(f"Observation {i}", "observation")
+        mem = MockMemory(f"Observation number {i}", "observation")
         many_memories.append(mem)
     
+    # Return all 1000 memories when asked
     mock_storage.get_all_memories = AsyncMock(return_value=many_memories)
     
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true", "MCP_BELIEF_BATCH_CAP": "100"}):
         svc = BeliefService(mock_storage)
-        # Mock with only 100 memories (the cap)
-        capped_memories = many_memories[:100]
-        mock_belief_internals(svc, capped_memories)
+        
+        # Mock minimal internals to track what was actually processed
+        processed_memories = []
+        
+        async def track_processed_groups(observations):
+            """Track which memories were actually processed by grouping."""
+            processed_memories.extend(observations)
+            # Return simple 1:1 groups to count processed memories
+            return {f"content_{i}": [obs] for i, obs in enumerate(observations)}
+        
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+        svc._group_observations = track_processed_groups
+        
         stats = await svc.derive_beliefs()
         
-        # Should cap processing to batch limit (100), not process all 1000
-        assert stats["created"] <= 100, "Should respect batch cap limit to prevent flooding"
+        # The real batch cap logic should limit processing to ≤100 memories
+        assert len(processed_memories) <= 100, f"Should process ≤100 memories due to batch cap, processed {len(processed_memories)}"
+        assert stats["created"] <= 100, f"Should create ≤100 beliefs due to batch cap, created {stats['created']}"
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_uses_ontology_get_base_types_not_hardcoded_list(mock_storage, mock_belief_internals):
-    """Test that derive_beliefs uses ontology.get_base_types() instead of hardcoded type list.
+async def test_derive_beliefs_uses_ontology_get_parent_type_not_hardcoded_list(mock_storage, mock_belief_internals):
+    """Test that derive_beliefs uses ontology.get_parent_type() for subtype resolution.
     
-    EXPECTED TO FAIL: Current implementation hardcodes memory_type='observation'.
+    Uses curated 4-type scope for beliefs, not all 12 ontology base types.
     """
-    # Create memories of all base types
+    # Create memories of curated base types and their subtypes
     observation_mem = MockMemory("User input received", "observation") 
     decision_mem = MockMemory("Choose REST over GraphQL", "decision")
     learning_mem = MockMemory("Caching improves performance", "learning")
     error_mem = MockMemory("Network timeout occurred", "error")
     
-    all_memories = [observation_mem, decision_mem, learning_mem, error_mem]
+    # Add subtypes that should resolve to curated base types
+    architecture_mem = MockMemory("Use microservices", "architecture")  # -> decision
+    insight_mem = MockMemory("Use async/await", "insight")  # -> learning
+    bug_mem = MockMemory("Null pointer exception", "bug")  # -> error
+    
+    all_memories = [observation_mem, decision_mem, learning_mem, error_mem, 
+                   architecture_mem, insight_mem, bug_mem]
     mock_storage.get_all_memories = AsyncMock(return_value=all_memories)
     
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
-        # Patch get_base_types to verify it's called
-        with patch('mcp_memory_service.models.ontology.get_base_types') as mock_get_base_types:
-            mock_get_base_types.return_value = {"observation", "decision", "learning", "error"}
-            
-            svc = BeliefService(mock_storage)
-            mock_belief_internals(svc, all_memories)
-            stats = await svc.derive_beliefs()
-            
-            # Should call get_base_types to get valid types, not hardcode
-            mock_get_base_types.assert_called_once()
-            # Should process all 4 base type memories
-            assert stats["created"] >= 4, "Should process all base types via ontology"
-
-
-@pytest.mark.asyncio 
-async def test_derive_beliefs_filters_subtypes_to_base_types_via_get_parent_type(mock_storage, mock_belief_internals):
-    """Test that derive_beliefs properly maps subtypes to base types using get_parent_type.
-    
-    EXPECTED TO FAIL: Current implementation doesn't use ontology subtype resolution.
-    """
-    # Create memories with subtypes that should map to base types
-    architecture_mem = MockMemory("Use microservices", "architecture")  # subtype -> decision
-    insight_mem = MockMemory("Use async/await", "insight")  # subtype -> learning  
-    bug_mem = MockMemory("Null pointer exception", "bug")  # subtype -> error
-    code_edit_mem = MockMemory("Fixed typo", "code_edit")  # subtype -> observation
-    
-    all_memories = [architecture_mem, insight_mem, bug_mem, code_edit_mem] 
-    mock_storage.get_all_memories = AsyncMock(return_value=all_memories)
-    
-    with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
-        # Mock ontology functions to verify they're used
+        # Patch get_parent_type to verify it's called for subtype resolution
         with patch('mcp_memory_service.models.ontology.get_parent_type') as mock_get_parent:
-            # Set up parent type mapping
+            # Set up parent type mapping for subtypes
             def parent_type_side_effect(memory_type):
                 mapping = {
                     "architecture": "decision",
                     "insight": "learning", 
                     "bug": "error",
-                    "code_edit": "observation"
+                    "observation": "observation",  # base types return themselves
+                    "decision": "decision",
+                    "learning": "learning",
+                    "error": "error"
                 }
                 return mapping.get(memory_type, memory_type)
             
@@ -267,7 +272,9 @@ async def test_derive_beliefs_filters_subtypes_to_base_types_via_get_parent_type
             mock_belief_internals(svc, all_memories)
             stats = await svc.derive_beliefs()
             
-            # Should call get_parent_type for subtype resolution
-            assert mock_get_parent.call_count >= 4, "Should resolve subtypes to base types"
-            # Should process all memories after mapping to base types
-            assert stats["created"] >= 4, "Should process subtypes mapped to base types"
+            # Should call get_parent_type for subtype resolution (at least 3 subtypes)
+            assert mock_get_parent.call_count >= 3, f"Should resolve subtypes, got {mock_get_parent.call_count} calls"
+            # Should process memories from curated base types (4) plus their subtypes (3)
+            assert stats["created"] >= 7, f"Should process curated base types + subtypes, got {stats['created']}"
+
+
