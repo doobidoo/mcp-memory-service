@@ -5,6 +5,7 @@ Provides GET /api/sync/events for pulling event feed with pagination.
 Implements ADR-0020 (pagination by seq) and ADR-0021 (enriched create events).
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -177,6 +178,51 @@ def _push_allowed_agents() -> Optional[set]:
     return {a.strip() for a in raw.split(",") if a.strip()}
 
 
+def _authorize_push_batch(storage: MemoryStorage, events: List[Dict[str, Any]]) -> None:
+    """R4: validate authorship for the WHOLE batch before anything is applied (403 on failure)."""
+    from ...storage.sync.apply import _event_identity_payload  # inline import: kept lazy, as the apply import here always was
+
+    allowed = _push_allowed_agents()
+    for ev in events:
+        agent_id = (ev.get("agent_id") or "").strip()
+        if not agent_id:
+            raise HTTPException(status_code=403, detail="event missing agent_id")
+        # An identity the hub already holds is not new authorship: spokes push back the
+        # events they pulled, including the hub's own `unknown` ones, and apply treats a
+        # known identity as a duplicate or rejects an altered payload (#1522).
+        if (allowed is not None and agent_id not in allowed
+                and _event_identity_payload(storage, agent_id, ev.get("event_id", "")) is None):
+            raise HTTPException(
+                status_code=403,
+                detail=f"agent_id not allowed to push: {agent_id}",
+            )
+
+
+def _apply_pushed_event(storage: MemoryStorage, ev: Dict[str, Any], apply_remote_event) -> str:
+    """Apply one pushed event and classify it as applied, skipped_duplicate or failed."""
+    eid = ev.get("event_id", "")
+    try:
+        res = apply_remote_event(storage, ev)
+    except Exception as e:
+        logger.error("ingest apply failed for %s: %s", _sanitize_log_value(eid), _sanitize_log_value(e))
+        return "failed"
+    # Classify by the real ApplyResult contract (apply.py uses INSERT OR IGNORE,
+    # so a duplicate does not fail — it returns applied=True, materialized=False).
+    if res.applied:
+        # Not materialized: duplicate or lost conflict resolution — for push semantics
+        # the hub already has it / local winner kept.
+        return "applied" if res.materialized else "skipped_duplicate"
+    if getattr(res, "skippable", False) or res.reason == "Replay with altered payload rejected":
+        # Benignly non-ingestable: either a permanently empty-content create
+        # (skippable) or a same-identity event whose payload diverges from the one
+        # the hub already holds (anti-replay protection kept the hub's version).
+        # Neither should fail-stop the push — the hub keeps its authoritative copy
+        # and the spoke must be allowed to advance past it (otherwise a single
+        # divergent event blocks the entire push backlog).
+        return "skipped_duplicate"
+    return "failed"
+
+
 @router.post("/sync/events", response_model=IngestEventsResponse)
 async def ingest_sync_events(
     body: IngestEventsRequest,
@@ -189,66 +235,26 @@ async def ingest_sync_events(
     Applies each event via apply_remote_event (idempotent, preserves authorship).
     Authorship guard (R4): if MCP_SYNC_PUSH_ALLOWED_AGENTS is set, a batch containing an
     event whose agent_id is not in the allow-list is rejected whole (403) and NOTHING is
-    applied. If unset, any non-empty agent_id is accepted.
+    applied. Events whose (agent_id, event_id) the hub already holds are exempt: they are
+    pulled events pushed back, not new authorship. If unset, any non-empty agent_id is accepted.
     """
-    from ...storage.sync.apply import apply_remote_event
+    from ...storage.sync.apply import apply_remote_event  # inline import: kept lazy, as the apply import here always was
 
-    allowed = _push_allowed_agents()
-
-    # R4: validate authorship for the WHOLE batch before applying anything.
-    for ev in body.events:
-        agent_id = (ev.get("agent_id") or "").strip()
-        if not agent_id:
-            raise HTTPException(status_code=403, detail="event missing agent_id")
-        if allowed is not None and agent_id not in allowed:
-            raise HTTPException(
-                status_code=403,
-                detail=f"agent_id not allowed to push: {agent_id}",
-            )
+    _authorize_push_batch(storage, body.events)
 
     results: List[IngestEventResult] = []
-    applied = skipped = failed = 0
     stop = False
     for ev in body.events:
         eid = ev.get("event_id", "")
-        if stop:
-            # Applied in order; after the first failure the remaining events are NOT
-            # applied (the spoke re-pushes from the last acked seq, R6).
-            results.append(IngestEventResult(event_id=eid, status="failed"))
-            failed += 1
-            continue
-        try:
-            res = apply_remote_event(storage, ev)
-            # Classify by the real ApplyResult contract (apply.py uses INSERT OR IGNORE,
-            # so a duplicate does not fail — it returns applied=True, materialized=False).
-            if res.applied and res.materialized:
-                status = "applied"
-                applied += 1
-            elif res.applied and not res.materialized:
-                # event recorded but not materialized: duplicate or lost conflict resolution
-                # — for push semantics the hub already has it / local winner kept.
-                status = "skipped_duplicate"
-                skipped += 1
-            elif getattr(res, "skippable", False) or res.reason == "Replay with altered payload rejected":
-                # Benignly non-ingestable: either a permanently empty-content create
-                # (skippable) or a same-identity event whose payload diverges from the one
-                # the hub already holds (anti-replay protection kept the hub's version).
-                # Neither should fail-stop the push — the hub keeps its authoritative copy
-                # and the spoke must be allowed to advance past it (otherwise a single
-                # divergent event blocks the entire push backlog).
-                status = "skipped_duplicate"
-                skipped += 1
-            else:
-                status = "failed"
-                failed += 1
-                stop = True
-        except Exception as e:
-            logger.error("ingest apply failed for %s: %s", _sanitize_log_value(eid), _sanitize_log_value(e))
-            status = "failed"
-            failed += 1
-            stop = True
+        # Applied in order; after the first failure the remaining events are NOT
+        # applied (the spoke re-pushes from the last acked seq, R6).
+        status = "failed" if stop else _apply_pushed_event(storage, ev, apply_remote_event)
+        stop = stop or status == "failed"
         results.append(IngestEventResult(event_id=eid, status=status))
 
+    applied = sum(r.status == "applied" for r in results)
+    skipped = sum(r.status == "skipped_duplicate" for r in results)
+    failed = sum(r.status == "failed" for r in results)
     return IngestEventsResponse(results=results, applied=applied, skipped=skipped, failed=failed)
 
 
@@ -271,7 +277,6 @@ async def get_sync_baseline(
     watermark is read atomically with the snapshot (see generate_baseline).
     """
     from ...storage.sync.bootstrap import generate_baseline
-    import asyncio
     try:
         # Greptile P2-1: generate_baseline is synchronous — it takes the snapshot lock, runs
         # BEGIN IMMEDIATE, reads the whole corpus and builds every event. Running it directly

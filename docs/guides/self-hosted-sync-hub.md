@@ -123,13 +123,17 @@ On the **hub** (it must record events for clients to pull):
 export MCP_SYNC_EVENTLOG=on
 ```
 
-`MCP_SYNC_PUSH_ALLOWED_AGENTS` (a comma-separated list of agent ids) makes the hub reject any
-pushed batch that contains an event from another agent, and the whole batch is rejected with
-403. Leave it unset for now. A client pushes every event in its log, including the ones it
-pulled from the hub (`storage/sync/orchestrator.py`, `_read_local_events_since`), and the hub
-stamps its own update and delete events `unknown`, because the hub has no `MCP_AGENT_ID`. An
-allow-list such as `laptop,desktop` therefore rejects the first batch that carries a pulled
-event, and that client's push stalls on every cycle from then on (#1522).
+Optionally, restrict who may push new events:
+
+```bash
+export MCP_SYNC_PUSH_ALLOWED_AGENTS=laptop,desktop   # the clients' MCP_AGENT_ID values
+```
+
+A pushed batch that contains a new event from an agent outside the list is rejected whole
+(403), and nothing in it is applied. Events the hub already holds are exempt, because clients
+push back the events they pulled, including the hub's own, which are stamped `unknown`. So
+every client needs its `MCP_AGENT_ID` set and listed here. A client without it stamps its
+events with the memory's own `agent_id` metadata or `unknown`, and those events get rejected.
 
 On each **client**:
 
