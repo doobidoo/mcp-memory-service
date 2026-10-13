@@ -5777,8 +5777,7 @@ class MemoryDashboard {
      * Render graph in a specific container with custom dimensions
      */
     renderGraphVisualizationInContainer(container, data, width, height, isFullscreen) {
-        const slot = isFullscreen ? '_fs' : '_main';
-        this['ringGraph' + slot] = null;
+        this._disposeConcentricRingView(isFullscreen);
 
         // PoC (Orrery-style): tear down any prior 3D instance bound to this slot
         this._disposeGraph3D(isFullscreen);
@@ -5941,6 +5940,10 @@ class MemoryDashboard {
     /**
      * Render the filtered graph in BFS-distance rings around the selected node.
      */
+    _concentricRingNodeRadius(item) {
+        return Math.min(20, 8 + Math.sqrt(item.connections || 1) * 2);
+    }
+
     renderConcentricRingGraph(container, data, width, height, isFullscreen) {
         const slot = isFullscreen ? '_fs' : '_main';
         const svg = d3.select(container)
@@ -5951,9 +5954,10 @@ class MemoryDashboard {
             .attr('class', 'graph-ring-canvas');
 
         const g = svg.append('g');
-        svg.call(d3.zoom()
+        const zoom = d3.zoom()
             .scaleExtent([0.1, 4])
-            .on('zoom', event => g.attr('transform', event.transform)));
+            .on('zoom', event => g.attr('transform', event.transform));
+        svg.call(zoom);
 
         const nodes = data.nodes.map(node => ({ ...node }));
         const nodeById = new Map(nodes.map(node => [node.id, node]));
@@ -5983,7 +5987,7 @@ class MemoryDashboard {
             .data(nodes)
             .join('circle')
             .attr('class', 'graph-node')
-            .attr('r', item => Math.min(20, 8 + Math.sqrt(item.connections || 1) * 2))
+            .attr('r', item => this._concentricRingNodeRadius(item))
             .attr('fill', item => nodeColors[item.type] || nodeColors.untyped)
             .style('cursor', 'pointer');
         const fontSize = nodes.length > 750 ? '8px' : nodes.length > 500 ? '10px' : '12px';
@@ -6006,6 +6010,7 @@ class MemoryDashboard {
             .style('opacity', 0);
 
         const view = {
+            clickTimer: null,
             edges,
             height,
             isFullscreen,
@@ -6015,7 +6020,9 @@ class MemoryDashboard {
             nodeById,
             nodes,
             ringLayer,
-            width
+            svg,
+            width,
+            zoom
         };
         this['ringGraph' + slot] = view;
         this._applyConcentricRingLayout(view, layout, false);
@@ -6024,11 +6031,19 @@ class MemoryDashboard {
             .on('click', (event, item) => {
                 if (event.defaultPrevented) return;
                 event.stopPropagation();
-                this.recenterConcentricRingGraph(item.id);
+                if (view.clickTimer) window.clearTimeout(view.clickTimer);
+                view.clickTimer = window.setTimeout(() => {
+                    view.clickTimer = null;
+                    this.recenterConcentricRingGraph(item.id);
+                }, 250);
             })
             .on('dblclick', (event, item) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (view.clickTimer) {
+                    window.clearTimeout(view.clickTimer);
+                    view.clickTimer = null;
+                }
                 this.handleGraphNodeClick(event, item);
             })
             .on('mouseover', (event, item) => {
@@ -6055,7 +6070,7 @@ class MemoryDashboard {
         const degree = node => adjacency.get(node.id)?.size || 0;
         const byDegree = [...nodes].sort((a, b) => degree(b) - degree(a) || String(a.id).localeCompare(String(b.id)));
         const center = nodes.find(node => node.id === requestedCenterId) || byDegree[0];
-        if (!center) return { centerId: null, positions: new Map(), radii: [] };
+        if (!center) return { centerId: null, outerRadius: 0, positions: new Map(), radii: [] };
 
         const depths = new Map([[center.id, 0]]);
         const queue = [center.id];
@@ -6092,12 +6107,26 @@ class MemoryDashboard {
 
         const cx = width / 2;
         const cy = height / 2;
-        const maxRadius = Math.max(40, Math.min(width, height) / 2 - 48);
+        const nominalRadius = Math.max(0, Math.min(width, height) / 2 - 48);
+        const nominalStep = Math.max(72, nominalRadius / Math.max(1, maxDepth + 0.35));
+        const nodeRadius = node => this._concentricRingNodeRadius(node);
         const positions = new Map([[center.id, { x: cx, y: cy, depth: 0 }]]);
         const radii = [];
+        let outerRadius = nodeRadius(center);
+        let previousNodeRadius = nodeRadius(center);
+        let previousRadius = 0;
         for (let depth = 1; depth <= maxDepth; depth += 1) {
             const ring = rings.get(depth) || [];
-            const radius = maxRadius * depth / (maxDepth + 0.35);
+            const ringNodeRadius = Math.max(10, ...ring.map(nodeRadius));
+            const circumferenceRadius = ring.reduce(
+                (length, node) => length + nodeRadius(node) * 2 + 12,
+                0
+            ) / (2 * Math.PI);
+            const radialRadius = previousRadius + Math.max(
+                nominalStep,
+                previousNodeRadius + ringNodeRadius + 24
+            );
+            const radius = Math.max(circumferenceRadius, radialRadius);
             radii.push(radius);
             ring.forEach((node, index) => {
                 const angle = -Math.PI / 2 + (2 * Math.PI * index / Math.max(1, ring.length));
@@ -6107,8 +6136,11 @@ class MemoryDashboard {
                     depth
                 });
             });
+            previousNodeRadius = ringNodeRadius;
+            previousRadius = radius;
+            outerRadius = Math.max(outerRadius, radius + ringNodeRadius + 28);
         }
-        return { centerId: center.id, positions, radii };
+        return { centerId: center.id, outerRadius, positions, radii };
     }
 
     /**
@@ -6170,12 +6202,73 @@ class MemoryDashboard {
             .attr('y1', edge => view.nodeById.get(edge.source).y)
             .attr('x2', edge => view.nodeById.get(edge.target).x)
             .attr('y2', edge => view.nodeById.get(edge.target).y);
+
+        const availableDiameter = Math.max(1, Math.min(view.width, view.height) - 64);
+        const contentDiameter = Math.max(1, layout.outerRadius * 2);
+        const scale = Math.min(1, availableDiameter / contentDiameter);
+        const fitTransform = d3.zoomIdentity
+            .translate(view.width / 2, view.height / 2)
+            .scale(scale)
+            .translate(-view.width / 2, -view.height / 2);
+        const zoomTarget = transition ? view.svg.transition(transition) : view.svg;
+        zoomTarget.call(view.zoom.transform, fitTransform);
+    }
+
+    _disposeConcentricRingView(isFullscreen) {
+        const slot = isFullscreen ? '_fs' : '_main';
+        const view = this['ringGraph' + slot];
+        if (!view) return;
+        if (view.clickTimer) window.clearTimeout(view.clickTimer);
+        this._interruptConcentricRingTransitions(view);
+        this['ringGraph' + slot] = null;
+    }
+
+    _interruptConcentricRingTransitions(view) {
+        view.svg.interrupt();
+        view.ringLayer.selectAll('circle').interrupt();
+        view.node.interrupt().each(function (node) {
+            const circle = d3.select(this);
+            const x = Number(circle.attr('cx'));
+            const y = Number(circle.attr('cy'));
+            if (Number.isFinite(x)) node.x = x;
+            if (Number.isFinite(y)) node.y = y;
+        });
+        view.label.interrupt()
+            .attr('x', node => node.x)
+            .attr('y', node => node.y);
+        view.link.interrupt()
+            .attr('x1', edge => view.nodeById.get(edge.source).x)
+            .attr('y1', edge => view.nodeById.get(edge.source).y)
+            .attr('x2', edge => view.nodeById.get(edge.target).x)
+            .attr('y2', edge => view.nodeById.get(edge.target).y);
+    }
+
+    _resizeConcentricRingView(view, width, height) {
+        width = Math.max(1, Math.round(width));
+        height = Math.max(1, Math.round(height));
+        if (view.width === width && view.height === height) return;
+        this._interruptConcentricRingTransitions(view);
+        view.width = width;
+        view.height = height;
+        view.svg
+            .attr('width', width)
+            .attr('height', height)
+            .attr('viewBox', [0, 0, width, height]);
+        const layout = this._calculateConcentricRingLayout(
+            view.nodes,
+            view.edges,
+            this.graphRingCenterId,
+            width,
+            height
+        );
+        this._applyConcentricRingLayout(view, layout, false);
     }
 
     /**
      * Keep node dragging available in ring mode. Re-centering restores the calculated positions.
      */
     concentricRingDragBehavior(view) {
+        const dashboard = this;
         const update = () => {
             view.node.attr('cx', node => node.x).attr('cy', node => node.y);
             view.label.attr('x', node => node.x).attr('y', node => node.y);
@@ -6187,6 +6280,7 @@ class MemoryDashboard {
         };
         return d3.drag()
             .on('start', function () {
+                dashboard._interruptConcentricRingTransitions(view);
                 d3.select(this).classed('dragging', true);
             })
             .on('drag', (event, node) => {
@@ -6475,6 +6569,8 @@ class MemoryDashboard {
      * redraw the previous graph over the empty-result or error message.
      */
     _clearGraphData() {
+        this._disposeConcentricRingView(false);
+        this._disposeConcentricRingView(true);
         this.currentGraphData = null;
         this.minGraphDegree = 1;
         this.graphRingCenterId = null;
@@ -6965,7 +7061,22 @@ class MemoryDashboard {
             const d = dims();
             const g = this.graph3d_fs;
             if (g) { g.width(d.w); g.height(d.h); }
+            if (this.ringGraph_fs) {
+                this._resizeConcentricRingView(this.ringGraph_fs, d.w, d.h);
+            }
         };
+        if (typeof ResizeObserver !== 'undefined') {
+            this._fsResizeObserver = new ResizeObserver(entries => {
+                const entry = entries[0];
+                if (!entry || !this.ringGraph_fs) return;
+                this._resizeConcentricRingView(
+                    this.ringGraph_fs,
+                    entry.contentRect.width,
+                    entry.contentRect.height
+                );
+            });
+            this._fsResizeObserver.observe(container);
+        }
         this._fsChangeHandler = () => {
             this._fsResizeHandler();
             // User left OS fullscreen (Esc / gesture) -> close the overlay too
@@ -7008,6 +7119,7 @@ class MemoryDashboard {
         }
 
         // Clear container
+        this._disposeConcentricRingView(true);
         document.getElementById('graphFullscreenContainer').innerHTML = '';
 
         // Remove resize / fullscreenchange handlers
@@ -7018,6 +7130,10 @@ class MemoryDashboard {
         if (this._fsChangeHandler) {
             document.removeEventListener('fullscreenchange', this._fsChangeHandler);
             this._fsChangeHandler = null;
+        }
+        if (this._fsResizeObserver) {
+            this._fsResizeObserver.disconnect();
+            this._fsResizeObserver = null;
         }
 
         // Remove escape listener
