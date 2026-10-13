@@ -30,11 +30,18 @@ Expandir o resultado da injeção com memórias/beliefs alcançados via associa�
 - VEREDITO CLIENT: `memory_context` de um tema traz, no top-k, um item alcançado SÓ via associação (não pelo lexical/embedding direto).
 
 ## Invariantes / anti-casos (os que quebraram na 1ª tentativa)
-1. ADITIVO, nunca subtrativo (REQ-4.4) — o erro que reverteu.
+1. ADITIVO, nunca subtrativo (REQ-4.4) — o erro que reverteu. A flag ON SÓ adiciona; NUNCA filtra/remove/reordena-para-baixo o `scored` baseline (nem com `relevance>0` filter).
 2. Convergência SEMPRE, nunca bypassada com <2 seeds (REQ-4.2/CA3).
 3. Sweet-spot + centralidade são OBRIGATÓRIOS, não "fase 2" (REQ-4.3).
-4. Usar o `find_connected` existente (graph.py), não reimplementar 1-hop.
-5. Teste do no-LLM deve ASSERIR ausência de chamada (mock), não só "injected is True".
+4. Usar o `find_connected` existente (graph.py) via a conexão/_conn_lock do storage EM USO — NÃO reimplementar 1-hop, NÃO abrir conexão nova por seed, NÃO criar event loop manual.
+5. Teste do no-LLM deve ASSERIR ausência de chamada (contador de embedding antes/depois = 0), não só "injected is True" nem filtro por substring.
+
+## ⚠️ FIX ARQUITETURAL (causa-raiz das 2 falhas — diagnóstico tuvok, OBRIGATÓRIO)
+A dor-raiz: SEM embedding model (fallback), `get_beliefs` põe `relevance=1.0` em TODAS as beliefs → a noção de "seed" colapsa (toda belief vira seed) → convergência/budget/centralidade ficam INERTES porque os candidatos de associação entram pela PORTA DO BASELINE, não pela via de grafo. Correções inegociáveis:
+- SEED = belief cuja relevância veio de CASAR COM A QUERY (lexical/semântica da task), NÃO o fallback uniforme. Se não há sinal de query real, não há seed → não há expansão (não inventar seeds).
+- A VIA DE GRAFO é a ÚNICA porta dos candidatos-por-associação. Um candidato de associação NÃO pode entrar por também ter relevância-fallback no baseline. O budget conta e trunca o conjunto adicionado POR ESSA via.
+- Convergência = ≥2 SEEDS-DE-QUERY DISTINTOS alcançando o candidato (não "≥2 beliefs sobreviventes").
+- Isto deve valer independentemente de haver embedding (ambiente de teste e ONNX degradado caem no fallback).
 
 ## Fora de escopo
 Reweighting das arestas (= INC 5). Gatilho automático (= INC 6).
