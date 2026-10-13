@@ -510,13 +510,13 @@ class DreamInspiredConsolidator:
     ) -> ConsolidationReport:
         """Run one full pipeline pass inside the sync-pause context."""
         memories = await self._get_memories_for_horizon(time_horizon, **kwargs)
-        
+
         # Apply theme filtering if specified (REQ-2.1)
         theme = kwargs.get("theme")
         if theme:
             memories = await self._filter_memories_by_theme(memories, theme)
-            self.logger.info("✓ Filtered to %s memories matching theme '%s'", len(memories), theme)
-        
+            self.logger.info("✓ Filtered to %s memories matching theme '%s'", len(memories), _sanitize_log_value(theme))
+
         report.memories_processed = len(memories)
 
         if not memories:
@@ -680,20 +680,20 @@ class DreamInspiredConsolidator:
 
     async def _filter_memories_by_theme(self, memories: List[Memory], theme: str) -> List[Memory]:
         """Filter memories by theme using semantic search (REQ-2.1).
-        
+
         Uses the storage's search_memories to find memories that match the theme,
         then filters the input list to only include those matches.
-        
+
         Args:
             memories: List of memories to filter
             theme: Theme query string for semantic search
-            
+
         Returns:
             Filtered list of memories that match the theme
         """
         if not memories or not theme:
             return memories
-            
+
         try:
             # Use storage's semantic search to find matching memories
             search_result = await self.storage.search_memories(
@@ -702,20 +702,20 @@ class DreamInspiredConsolidator:
                 limit=len(memories) * 2,  # Search more than we have to ensure we get all matches
                 include_debug=False
             )
-            
+
             # Extract content hashes from search results
             matching_hashes = {memory.content_hash for memory in search_result["memories"]}
-            
+
             # Filter the input memories to only those that match the theme
             filtered_memories = [
-                memory for memory in memories 
+                memory for memory in memories
                 if memory.content_hash in matching_hashes
             ]
-            
+
             return filtered_memories
-            
+
         except Exception as e:
-            self.logger.warning("Failed to filter memories by theme '%s': %s", theme, e)
+            self.logger.warning("Failed to filter memories by theme '%s': %s", _sanitize_log_value(theme), e)
             # Fall back to returning all memories if filtering fails
             return memories
 
