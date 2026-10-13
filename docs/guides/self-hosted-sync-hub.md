@@ -196,8 +196,9 @@ and only delta-sync makes the clients converge.
   same way, because the hub's `POST /api/memories` runs semantic deduplication.
 - **Updates land in arrival order, with no timestamp comparison.** Tags and `memory_type` are
   replaced, while metadata is merged key by key, so the last arrival wins.
-- **The queue lives in memory.** If a client stops before its queue drained, those operations
-  never reach the hub.
+- **The queue lives in memory.** A normal shutdown tries to send what is left
+  (`BackgroundSyncService.stop`). A crash, a forced kill, or a failed send during shutdown
+  leaves those operations unsynced.
 
 ### With delta-sync
 
@@ -217,8 +218,10 @@ and only delta-sync makes the clients converge.
   hub. A client hard-deletes soft-deleted memory rows after 30 days, while the delete event
   itself stays.
 - **One write produces two events on the hub:** one from the hybrid queue and one from the
-  client's push. The resolver keeps a single row per content hash, so this costs log space,
-  not correctness.
+  client's push. The resolver keeps a single row per content hash, but the two events carry
+  different clocks. The queued REST request gets the hub's clock when it arrives, while the
+  pushed event keeps the client's. A REST request that arrives late can therefore outrank a
+  newer change from another client and decide which version wins.
 - **A new client starts from the event log, not from a snapshot.** Its first pull covers the
   events since the hub turned the event log on. Memories that are older than that arrive
   through the hybrid startup sync. The baseline bootstrap from Phase 5 has no command that
