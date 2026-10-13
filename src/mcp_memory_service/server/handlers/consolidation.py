@@ -35,6 +35,59 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
+async def _run_incremental_with_timeout(server, extra: dict):
+    """Run incremental consolidation under a timeout.
+
+    Returns the report, or None if it timed out (caller renders the timeout message).
+    On timeout, advances last_run_at to prevent an infinite retry loop (#986).
+    """
+    import asyncio
+
+    INCREMENTAL_TIMEOUT_SECONDS = 10
+    try:
+        return await asyncio.wait_for(
+            server.consolidator.consolidate("incremental", **extra),
+            timeout=INCREMENTAL_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        if server.consolidator.run_tracker:
+            await server.consolidator.run_tracker.record_run("incremental", 0)
+        return None
+
+
+_VALID_HORIZONS = ("daily", "weekly", "monthly", "quarterly", "yearly", "incremental")
+
+
+def _validate_time_horizon(time_horizon) -> str | None:
+    """Return an error message if time_horizon is missing/invalid, else None."""
+    if not time_horizon:
+        return "Error: time_horizon is required"
+    if time_horizon not in _VALID_HORIZONS:
+        return (
+            "Error: Invalid time_horizon. Must be one of: "
+            "daily, weekly, monthly, quarterly, yearly, incremental"
+        )
+    return None
+
+
+def _format_report(report) -> str:
+    """Render a consolidation report as the tool's text response."""
+    result = f"""Consolidation completed successfully!
+
+Time Horizon: {report.time_horizon}
+Duration: {(report.end_time - report.start_time).total_seconds():.2f} seconds
+Memories Processed: {report.memories_processed}
+Associations Discovered: {report.associations_discovered}
+Clusters Created: {report.clusters_created}
+Memories Compressed: {report.memories_compressed}
+Memories Archived: {report.memories_archived}"""
+    if report.errors:
+        result += "\n\nWarnings/Errors:\n" + "\n".join(
+            f"- {error}" for error in report.errors
+        )
+    return result
+
+
 async def handle_consolidate_memories(
     server, arguments: dict
 ) -> List[types.TextContent]:
@@ -48,25 +101,9 @@ async def handle_consolidate_memories(
 
     try:
         time_horizon = arguments.get("time_horizon")
-        if not time_horizon:
-            return [
-                types.TextContent(type="text", text="Error: time_horizon is required")
-            ]
-
-        if time_horizon not in [
-            "daily",
-            "weekly",
-            "monthly",
-            "quarterly",
-            "yearly",
-            "incremental",
-        ]:
-            return [
-                types.TextContent(
-                    type="text",
-                    text="Error: Invalid time_horizon. Must be one of: daily, weekly, monthly, quarterly, yearly, incremental",
-                )
-            ]
+        horizon_error = _validate_time_horizon(time_horizon)
+        if horizon_error:
+            return [types.TextContent(type="text", text=horizon_error)]
 
         # time_horizon is checked against the allow-list above, so it can only be
         # one of six literals here — lazy %-formatting rather than a sanitize call.
@@ -78,18 +115,8 @@ async def handle_consolidate_memories(
 
         # Run consolidation (with timeout for incremental)
         if time_horizon == "incremental":
-            import asyncio
-
-            INCREMENTAL_TIMEOUT_SECONDS = 10
-            try:
-                report = await asyncio.wait_for(
-                    server.consolidator.consolidate(time_horizon, **extra),
-                    timeout=INCREMENTAL_TIMEOUT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                # Advance last_run_at even on timeout to prevent infinite retry loop (#986)
-                if server.consolidator.run_tracker:
-                    await server.consolidator.run_tracker.record_run("incremental", 0)
+            report = await _run_incremental_with_timeout(server, extra)
+            if report is None:
                 return [
                     types.TextContent(
                         type="text",
@@ -100,22 +127,7 @@ async def handle_consolidate_memories(
             report = await server.consolidator.consolidate(time_horizon, **extra)
 
         # Format response
-        result = f"""Consolidation completed successfully!
-
-Time Horizon: {report.time_horizon}
-Duration: {(report.end_time - report.start_time).total_seconds():.2f} seconds
-Memories Processed: {report.memories_processed}
-Associations Discovered: {report.associations_discovered}
-Clusters Created: {report.clusters_created}
-Memories Compressed: {report.memories_compressed}
-Memories Archived: {report.memories_archived}"""
-
-        if report.errors:
-            result += "\n\nWarnings/Errors:\n" + "\n".join(
-                f"- {error}" for error in report.errors
-            )
-
-        return [types.TextContent(type="text", text=result)]
+        return [types.TextContent(type="text", text=_format_report(report))]
 
     except Exception as e:
         error_msg = f"Error during consolidation: {str(e)}"
