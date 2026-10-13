@@ -23,7 +23,8 @@ This is a major release because of one default that changes: search summarizatio
 switched on by configuring a Harvest LLM provider. Operators who relied on that must now set
 `MCP_SEARCH_SUMMARIZE_ENABLED=true` (#1479, fixes #1451). The headline feature is the self-hosted
 sync hub: a hybrid client can use another mcp-memory-service instance as its secondary over HTTP
-(`MCP_HYBRID_SECONDARY_BACKEND=http`), with delta-sync (#1345, phases 1 to 5) as the transport.
+(`MCP_HYBRID_SECONDARY_BACKEND=http`). Separately configured, optional delta-sync (#1345,
+phases 1 to 5) provides event-based synchronization between hosts.
 v11.16.0 was never released; its changes are in this version.
 
 ### Added
