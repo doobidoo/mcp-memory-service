@@ -197,6 +197,14 @@ Two scripts exist; pick by **vector dimension**, not by preference:
   the import builds the fresh database at the new model's dimension and embeds every memory
   with it. Both scripts take the model from `MCP_EMBEDDING_MODEL`, as the server does.
 
+  Two limits of this round trip, both tracked in #1520. The export reads only the `default`
+  store: memories in any other store (for example `docs`) are not in the file, so do not
+  rely on it for a hub that uses named stores. And the import goes through the normal store
+  path, where semantic deduplication can drop a memory that resembles one imported shortly
+  before it while still counting it as imported. Run the import with
+  `MCP_SEMANTIC_DEDUP_ENABLED=false`, and compare the memory count of the new database with
+  the export before you delete the old one.
+
 **Re-embedding the hub is not enough: every client holds its own vectors.** A hybrid client
 answers searches from its local SQLite-vec database, not from the hub (`storage/hybrid.py`,
 `retrieve` / `search` delegate to the primary). After a model change, a client's local
