@@ -52,11 +52,10 @@ def mock_belief_internals():
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_includes_decision_type_memories_via_ontology(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_includes_decision_type_memories_via_ontology(mock_storage):
     """Test that derive_beliefs includes decision-type memories when using ontology-based filtering.
     
-    EXPECTED TO FAIL: Current implementation hardcodes memory_type='observation' and ignores
-    decision-type memories that should be included via ontology base types.
+    Does NOT mock _group_observations to ensure it tests the real ontology filtering logic.
     """
     # Create memories of different types - decision should be included as base type
     decision_mem = MockMemory("Use microservices architecture", "decision")
@@ -69,7 +68,12 @@ async def test_derive_beliefs_includes_decision_type_memories_via_ontology(mock_
     # Mock environment flag to enable new behavior
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
         svc = BeliefService(mock_storage)
-        mock_belief_internals(svc, all_memories)
+        
+        # Mock minimal internals but NOT _group_observations to test real filtering
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+        
         stats = await svc.derive_beliefs()
         
         # Should have processed all 3 memories (decision, architecture subtype, observation)
@@ -77,10 +81,10 @@ async def test_derive_beliefs_includes_decision_type_memories_via_ontology(mock_
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_includes_learning_type_memories_via_ontology(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_includes_learning_type_memories_via_ontology(mock_storage):
     """Test that derive_beliefs includes learning-type memories when using ontology-based filtering.
     
-    EXPECTED TO FAIL: Current implementation ignores learning-type memories.
+    Does NOT mock _group_observations to ensure it tests the real ontology filtering logic.
     """
     learning_mem = MockMemory("Always validate input parameters", "learning")
     insight_mem = MockMemory("Async functions improve performance", "insight")  # subtype of learning
@@ -91,7 +95,12 @@ async def test_derive_beliefs_includes_learning_type_memories_via_ontology(mock_
     
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
         svc = BeliefService(mock_storage)
-        mock_belief_internals(svc, all_memories)
+        
+        # Mock minimal internals but NOT _group_observations to test real filtering
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+        
         stats = await svc.derive_beliefs()
         
         # Should process learning and observation base types
@@ -99,10 +108,10 @@ async def test_derive_beliefs_includes_learning_type_memories_via_ontology(mock_
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_includes_error_type_memories_via_ontology(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_includes_error_type_memories_via_ontology(mock_storage):
     """Test that derive_beliefs includes error-type memories when using ontology-based filtering.
     
-    EXPECTED TO FAIL: Current implementation ignores error-type memories.
+    Does NOT mock _group_observations to ensure it tests the real ontology filtering logic.
     """
     error_mem = MockMemory("Database connection failed", "error")
     mistake_mem = MockMemory("Used wrong API endpoint", "mistake")  # subtype of error
@@ -113,7 +122,12 @@ async def test_derive_beliefs_includes_error_type_memories_via_ontology(mock_sto
     
     with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
         svc = BeliefService(mock_storage)
-        mock_belief_internals(svc, all_memories)
+        
+        # Mock minimal internals but NOT _group_observations to test real filtering
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+        
         stats = await svc.derive_beliefs()
         
         # Should process error and observation base types
@@ -218,7 +232,9 @@ async def test_derive_beliefs_respects_batch_cap_limit(mock_storage):
             return {f"content_{i}": [obs] for i, obs in enumerate(observations)}
         
         svc._get_belief = AsyncMock(return_value=None)
-        svc._create_belief = AsyncMock()
+        async def mock_create_belief(*args, **kwargs):
+            return None
+        svc._create_belief = mock_create_belief
         svc._find_contradictions = AsyncMock(return_value=[])
         svc._group_observations = track_processed_groups
         
@@ -230,10 +246,11 @@ async def test_derive_beliefs_respects_batch_cap_limit(mock_storage):
 
 
 @pytest.mark.asyncio
-async def test_derive_beliefs_uses_ontology_get_parent_type_not_hardcoded_list(mock_storage, mock_belief_internals):
+async def test_derive_beliefs_uses_ontology_get_parent_type_not_hardcoded_list(mock_storage):
     """Test that derive_beliefs uses ontology.get_parent_type() for subtype resolution.
     
     Uses curated 4-type scope for beliefs, not all 12 ontology base types.
+    Does NOT mock _group_observations to ensure it tests the real ontology filtering logic.
     """
     # Create memories of curated base types and their subtypes
     observation_mem = MockMemory("User input received", "observation") 
@@ -269,7 +286,12 @@ async def test_derive_beliefs_uses_ontology_get_parent_type_not_hardcoded_list(m
             mock_get_parent.side_effect = parent_type_side_effect
             
             svc = BeliefService(mock_storage)
-            mock_belief_internals(svc, all_memories)
+            
+            # Mock minimal internals but NOT _group_observations to test real filtering
+            svc._get_belief = AsyncMock(return_value=None)
+            svc._create_belief = AsyncMock()
+            svc._find_contradictions = AsyncMock(return_value=[])
+            
             stats = await svc.derive_beliefs()
             
             # Should call get_parent_type for subtype resolution (at least 3 subtypes)

@@ -554,11 +554,6 @@ class BeliefService:
         # Get all memories from default store only
         all_memories = await self.storage.get_all_memories(store="default")
         
-        # Apply batch cap to prevent flooding
-        batch_cap = self._get_batch_cap()
-        if len(all_memories) > batch_cap:
-            all_memories = all_memories[:batch_cap]
-        
         # Filter memories to those with eligible base types or subtypes that resolve to eligible types
         filtered_memories = []
         for memory in all_memories:
@@ -572,6 +567,11 @@ class BeliefService:
                 parent_type = get_parent_type(memory_type)
                 if parent_type and parent_type in BELIEF_ELIGIBLE_BASE_TYPES:
                     filtered_memories.append(memory)
+        
+        # Apply batch cap AFTER ontology filtering to prevent flooding eligible candidates
+        batch_cap = self._get_batch_cap()
+        if len(filtered_memories) > batch_cap:
+            filtered_memories = filtered_memories[:batch_cap]
         
         return filtered_memories
 
