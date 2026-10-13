@@ -72,16 +72,25 @@ async def handle_consolidate_memories(
         # one of six literals here — lazy %-formatting rather than a sanitize call.
         logger.info("Starting %s consolidation", time_horizon)
 
-        # Run consolidation (with timeout for incremental)
+        # Extract optional theme parameter
+        theme = arguments.get("theme")
+
+        # Run consolidation (with timeout for incremental)  
         if time_horizon == "incremental":
             import asyncio
 
             INCREMENTAL_TIMEOUT_SECONDS = 10
             try:
-                report = await asyncio.wait_for(
-                    server.consolidator.consolidate(time_horizon),
-                    timeout=INCREMENTAL_TIMEOUT_SECONDS,
-                )
+                if theme:
+                    report = await asyncio.wait_for(
+                        server.consolidator.consolidate(time_horizon, theme=theme),
+                        timeout=INCREMENTAL_TIMEOUT_SECONDS,
+                    )
+                else:
+                    report = await asyncio.wait_for(
+                        server.consolidator.consolidate(time_horizon),
+                        timeout=INCREMENTAL_TIMEOUT_SECONDS,
+                    )
             except asyncio.TimeoutError:
                 # Advance last_run_at even on timeout to prevent infinite retry loop (#986)
                 if server.consolidator.run_tracker:
@@ -93,7 +102,10 @@ async def handle_consolidate_memories(
                     )
                 ]
         else:
-            report = await server.consolidator.consolidate(time_horizon)
+            if theme:
+                report = await server.consolidator.consolidate(time_horizon, theme=theme)
+            else:
+                report = await server.consolidator.consolidate(time_horizon)
 
 
         # Format response
