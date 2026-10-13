@@ -210,7 +210,7 @@ async def test_derive_beliefs_preserves_old_behavior_when_flag_disabled(mock_sto
         
         # Mock the storage call to verify it's called with old signature
         with patch.object(mock_storage, 'get_all_memories') as mock_get:
-            mock_get.return_value = AsyncMock(return_value=[observation_mem])()
+            mock_get.return_value = [observation_mem]
             stats = await svc.derive_beliefs()
             
             # Should call get_all_memories with memory_type="observation" (old behavior)
