@@ -17,6 +17,160 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-10-13
+
+This is a major release because of one default that changes: search summarization is no longer
+switched on by configuring a Harvest LLM provider. Operators who relied on that must now set
+`MCP_SEARCH_SUMMARIZE_ENABLED=true` (#1479, fixes #1451). The headline feature is the self-hosted
+sync hub: a hybrid client can use another mcp-memory-service instance as its secondary over HTTP
+(`MCP_HYBRID_SECONDARY_BACKEND=http`), with delta-sync (#1345, phases 1 to 5) as the transport.
+v11.16.0 was never released; its changes are in this version.
+
+### Added
+
+- Add opt-in query-aware `memory_search` summaries with bounded LLM input, validated source citations, preserved source metadata, and visible fallback to raw results.
+- **Navigate the dashboard graph with concentric rings (#1114).** The Analytics graph can now
+  arrange memories by BFS distance from a center node and animate to a new center on click, while
+  retaining the force-directed view as a toggle.
+- **Add a mem0 export converter for the existing memory importer (#1390, Harbor404).**
+  mem0 OSS Qdrant exports and platform result/export JSON can now be converted into
+  `MemoryImporter` format, preserving timestamps and metadata while mapping
+  `user_id`, `agent_id`, and `run_id`. Dedupe hashes are identity-scoped, and
+  malformed records or timestamp fallbacks are reported without discarding valid records.
+- **Analytics graph gets a client-side Min Degree slider (#1454, kalo-biralo).**
+  A new slider next to Min Connections hides nodes with fewer distinct neighbours
+  than the chosen degree, working on the data already loaded, so moving it makes
+  no API call. Degree is counted after the type filter and the symmetric-pair
+  collapse, so a mutual relationship counts once and hiding a memory type lowers
+  its neighbours' degree. The range runs from 1 to the highest visible degree,
+  resets when the graph reloads, and applies to the 2D, 3D and fullscreen views.
+- Added an opt-in Prometheus `/metrics` endpoint (`MCP_METRICS_ENABLED`, default off) exposing aggregate cache, consolidation-health, and performance metrics in text exposition format, with graceful per-source degradation and no external dependency. (#1097)
+- Delta-sync Phase 3 (embedding consistency, #1345): sync events stamp the embedding model/version, and memories whose embedding does not match their content version are marked `embedding_pending` — excluded from all search surfaces (semantic recall, time-range, BM25, tag) but still visible to `list_content_hashes` so sync reconciliation sees them. Prevents serving a (new content, stale vector) pair as consistent. Migration 017 (additive).
+- Delta-sync Phase 4 (pull + push transport and orchestration, #1345): a spoke can now synchronize memories with a hub over HTTP without shipping whole database files. New `GET /api/sync/events` feed and `POST /api/sync/events` ingest endpoints, a `sync_from_peer` (pull) and `push_to_peer` (push) orchestrator, per-peer `sync_cursor` (migration 018) and dedicated `push_cursor` (migration 019), and an opt-in scheduled cycle on the consolidation scheduler (`MCP_SYNC_SCHEDULE`, Phase 4d). Both directions are initiated by the spoke so a firewalled/NAT'd node still syncs with a hub it cannot be reached from. Off by default (all new env vars unset → zero behaviour change). Migrations 018/019 are additive.
+- Delta-sync Phase 5 (bootstrap + event version negotiation, #1345): a new or reinstalled spoke can now bootstrap from a peer's current state instead of reprocessing the whole corpus. `generate_baseline(storage)` emits a deterministic, idempotent set of baseline events (create + tombstones) plus a durable watermark (MAX(seq) read under the sync lock, so a concurrent write is never lost); `install_baseline(...)` applies them through the existing Phase 4 apply path and parks the per-peer cursor at the watermark, so live pull/push continues with no reprocessing. Authorship is preserved (`metadata.agent_id`); memories with no verifiable author are marked `unattributed` rather than attributed to an invented agent. Soft-deleted memories bootstrap as tombstones. Plus: apply now rejects/quarantines an event whose envelope `schema_version` exceeds what this peer understands (`KNOWN_SCHEMA_VERSION`), without advancing the cursor past it — no silent accept of a newer protocol. On demand, sqlite_vec only; off unless invoked. Closes the delta-sync arc (Phases 1–5).
+- Decouple the hybrid background sync from Cloudflare: `BackgroundSyncService` is now typed against `MemoryStorage` and the Cloudflare-only steps (Vectorize capacity checks, metadata normalization, the 10 KB metadata limit) are gated behind two capability properties on the storage base — `supports_capacity_monitoring` and `requires_metadata_normalization` (default `False`, `True` on `CloudflareStorage`). An HTTP secondary skips those steps and forwards raw updates; the Cloudflare path is unchanged.
+- Local sync event-log (first slice of the delta-sync RFC #1345): a `sync_events` table and
+  per-mutation hooks record every supported mutation (store, store_batch, delete/soft-delete,
+  update_memory_metadata) as an append-only event, written in the SAME transaction as the
+  mutation (never a memory without its event). Idempotent via `UNIQUE(agent_id, event_id)`;
+  deletes are durable tombstones that survive `purge_deleted`. Gated by `MCP_SYNC_EVENTLOG`
+  (off by default — zero behavior change). No network/HLC/transport yet (later phases).
+- Deterministic ordering for the sync event-log (second slice of the delta-sync RFC #1345):
+  every event is now stamped with a Hybrid Logical Clock `(hlc_physical, hlc_logical)` in the
+  SAME transaction as the event, with a monotonic `last_hlc` persisted in `metadata` that never
+  regresses across restarts (ADR-0010/0011). A new pure resolver (`storage/sync/resolver.py`)
+  reconciles concurrent events for the same `content_hash` with a total, commutative order
+  (HLC → delete-vs-update → `agent_id` → `event_id`); quality/importance is deliberately
+  excluded so hosts converge (ADR-0012/0013). Migration 016 is additive and idempotent
+  (two nullable columns + one index + backfill of Phase 1 events). Still local-only: no
+  network or transport yet (that is a later phase). Gated by the existing `MCP_SYNC_EVENTLOG`
+  flag (off by default — zero behavior change).
+- MCP store path now honors `MCP_MEMORY_INCLUDE_HOSTNAME`: when enabled and the client sends no `client_hostname`, the server stamps its own hostname (`socket.gethostname()`) into memory metadata and a `source:{host}` tag — matching the Web API behavior. Best-effort; never fails the write.
+- Hybrid secondary backend is now pluggable via `MCP_HYBRID_SECONDARY_BACKEND=cloudflare|http`. The new `RemoteHTTPStorage` lets a self-hosted mcp-memory-service instance act as the hybrid secondary over the REST API (store, get, delete, metadata, stats, content-hash listing), with configurable auth (`bearer` default, `x-api-key` opt-in) and optional HTTP basic auth for instances behind an nginx `auth_basic` layer (#1304).
+- Add `list_content_hashes()` / `list_content_hashes_page()` to the storage base plus a cursor-paginated `GET /api/memories/hashes` endpoint, giving hybrid drift detection a backend-agnostic bulk hash listing (paginating `GET /memories` did not scale). sqlite-vec implements the paginated path; other backends return empty until their own override lands. Read-access gated.
+- Fail-closed embedding-model match check for the HTTP secondary. On startup, a hybrid client with an HTTP secondary verifies that the hub's configured embedding model matches its own via a new authenticated `GET /api/health/model` endpoint. A mismatch — or a missing/unreachable model — raises `EmbeddingModelMismatchError` and the service refuses to start, instead of silently degrading recall when nodes embed with different models. Set `expected_embedding_model` (wired automatically from the hybrid client's model) to enable the check; leaving it unset preserves the previous behavior.
+- **Claude Code plugin: `remember-session` skill.** `/mcp-memory-service:remember-session`
+  has the model save what a session actually decided and learned: decisions with their
+  reasons, root causes, reusable lessons, and one open-items memory with owners and
+  absolute dates. It searches before writing to skip duplicates, tags every memory with
+  the session's project, and reads the stored hashes back. It complements the automatic
+  keyword digest of the session-end hook rather than replacing it.
+
+### Fixed
+
+- **Require operator permission for search summaries (#1479, fixes #1451, VijaySreekar).** Configuring a Harvest LLM provider no longer enables search summarization by itself: the operator must set `MCP_SEARCH_SUMMARIZE_ENABLED=true`. Disabled requests return raw results with a warning, including searches with no matches, without initializing a provider or sending a summarization request.
+- Fixed relationship inference labelling associations with type pairs the ontology does not allow, such as a note or observation that "fixes" an error, or the non-existent label `uses`. Typed labels are now limited to the source → target pairs listed in each relationship's `valid_patterns`, and an allowed label is no longer lost when a disallowed one scores higher. (#1458)
+- Fixed `store_batch` silently dropping memories when a competing writer held the SQLite write lock. A transient `database is locked` on a batch item was caught and degraded to a permanent "Insert failed" result, so under real concurrency (several agents writing the same `sqlite_vec.db`) a store could lose data. Transient lock/busy errors are now re-raised so the existing retry logic reruns the whole atomic batch after a backoff, while non-transient errors still degrade the single item. (#1478)
+- **Hybrid `get_stats()` called every secondary "Cloudflare" (#1482, massimiliano1991).**
+  `HybridMemoryStorage` now records which secondary it built (`http` or `cloudflare`) and
+  reports it in `storage_backend` / `secondary_backend`, so a hybrid client synced to a
+  self-hosted hub no longer shows up as `Hybrid (SQLite-vec + Cloudflare)`; without a
+  secondary it says so instead of naming one. The hub side of the HTTP secondary gets its
+  own page, `docs/guides/self-hosted-sync-hub.md`, and `.env.example` lists the
+  `MCP_HYBRID_SECONDARY_*` and `MCP_SYNC_*` variables.
+- Delta-sync Phase 4 apply: fixed two concurrency/convergence P1s (#1345). update_metadata now rebuilds each metadata field from ALL update_metadata events for a hash via field-level last-writer-wins by HLC, so peers converge regardless of event arrival order (previously a newest-first peer discarded an older event's field edit). apply_remote_event and the sync/push cursor commits now run under the storage connection lock, so a sync write/commit can no longer drop an in-flight local write's savepoint on the shared SQLite connection.
+- **Key concepts no longer carry capitalized stop words or bare numbers (#1495, #1493, xiao115255).**
+  The stop-word check ran only over the lowercase frequent-word source, so `With`,
+  `That` and `What` — matched as capitalized terms — reached the cluster summary,
+  and the `numbers` pattern contributed values such as `0.682`. The check now runs
+  over every concept, case-insensitively, beside `SQL_KEYWORDS` and `META_CONCEPTS`,
+  and purely numeric concepts are dropped there too.
+- **Consolidation no longer stores pattern memories with nothing in them (#1500, #1492).**
+  Compression summarized memories the service wrote itself, so discovered
+  associations, auto-captured session summaries and earlier compression output
+  turned into patterns about `0.682, 0.695` or `Session, User, copies, Hash`.
+  Those memories are now left out of compression input; they are recognized by
+  tag (`association`, `session-consolidation`, `session-summary`, or `cluster`
+  plus `compressed`) or by `memory_type` `session`, since associations and most
+  session summaries are stored as `observation`. Theme keywords that only those
+  memories carried are dropped as well. The layout words `session`,
+  `summary`, `user`, `copies` and `hash` are dropped from key concepts, and a
+  cluster whose summary would hold no source sentence is skipped instead of being
+  stored as the generated overview line alone. The summary length budget no
+  longer counts the overview line twice, which had left room for source
+  sentences only up to about half the configured length.
+- **Hybrid pull skipped old cloud-only memories when the cloud held more than the local store (#1503).** `_sync_memories_from_cloudflare` only diffed content hashes when the secondary held no more memories than the primary; otherwise it fell back to the newest-first scan, which stops after `HYBRID_MAX_EMPTY_BATCHES` batches without a new memory and never reached old memories buried behind shared ones. The hash diff now runs whenever the secondary can answer a bulk hash fetch, and the scan is kept only for secondaries that cannot.
+- **Delta-sync push no longer stalls under `MCP_SYNC_PUSH_ALLOWED_AGENTS` (#1522).** Clients
+  push back the events they pulled from the hub, including the hub's own events stamped
+  `unknown`. The allow-list rejected those, so the first batch carrying one got a 403 and the
+  client's push stalled on every cycle. `POST /api/sync/events` now applies the allow-list
+  only to events the hub does not already hold. New events from unlisted agents are still
+  rejected whole.
+- Hybrid backend with an HTTP secondary (`MCP_HYBRID_SECONDARY_BACKEND=http`) no longer requires Cloudflare credentials. Previously the config validator demanded `CLOUDFLARE_*` and called `sys.exit(1)` whenever `MCP_MEMORY_STORAGE_BACKEND=hybrid`, even when the secondary was HTTP (which never touches Cloudflare), making hybrid-over-HTTP impossible without dummy Cloudflare values (#1304).
+- **Store partition is now honored in delete and non-semantic search (#1465, #1466).**
+  `delete_memories(store=...)` no longer crosses partitions: the `store` filter is
+  forwarded to delete-by-hash, delete-by-tag (any/all), and time-range deletion, and
+  the `store` kwarg was added to `delete`/`delete_by_tags`/`get_by_exact_content`/
+  `get_memories_by_time_range` across every backend to keep the interface uniform.
+  `search_memories(store=...)` now scopes `quality_boost`, `exact`, `tag-only`,
+  `time-only` and `hybrid` modes (previously only `semantic`/`ranked` honored it);
+  the hybrid path also applies a final store filter so the store-unaware BM25 half
+  cannot leak other partitions. Hybrid `delete_by_tags` queues cloud deletes only for
+  the hashes actually removed from the scoped primary, so deleting from one store no
+  longer removes another store's cloud copies.
+- Delta-sync no longer deadlocks on "poison" events. A create whose content is empty in both the event payload and the source table is now skippable (the orchestrator advances past it instead of fail-stopping the whole feed); the feed stops clobbering a payload's good content with an empty table value; and the push ingest classifies anti-replay payload-divergence rejections as skipped_duplicate so a single divergent event cannot block the entire push backlog. Anti-replay protection is unchanged — a divergent payload still never rewrites the stored memory.
+
+### Internal
+
+- **PyMilvus 3.x is supported (#1112).**
+  The `milvus` extra now declares `pymilvus>=2.5.0,<4.0.0`, and the Milvus CI
+  job gates both the 2.x and the 3.x line. The 3.0.2 probe passed 240 tests
+  before the bound was widened. The upper bound stays, so a future 4.x is not
+  shipped until a CI leg tests it, and Dependabot still ignores pymilvus majors.
+  `uv.lock` resolves 3.0.2.
+- **`health/integrity.py` cleared of unsanitised logger calls (#1444, mrhard9090; part of #1146).**
+  The integrity monitor logged what the corruption check and the repair printed, and the export path and
+  error, through f-strings, so a value carrying a newline could write forged lines into the server log.
+  Those values now go through `_sanitize_log_value` with `%`-style lazy formatting and every line
+  reads as before. The module is in `GUARDED_MODULES`, and `tests/health/test_integrity_logging.py` runs
+  the check, repair and export paths under `caplog` with a newline in each value.
+- **`models/memory.py` cleared of unsanitised logger calls (#1445, mrhard9090; part of #1146).**
+  Creating a memory logged the tags that fail namespace validation and the text of timestamp parse
+  errors without sanitising them, so a tag carrying a newline could write forged lines into the server
+  log. Those values now go through `_sanitize_log_value` with `%`-style lazy formatting and every line
+  reads as before. The module is in `GUARDED_MODULES`, and `tests/models/test_memory_logging.py` creates a
+  memory with a newline in a tag and in the memory type under `caplog`.
+- **Four CodeQL quality notes cleared (#1448, doobidoo).** An unused import in
+  `harvest/harvester.py` and two dead `status` initialisations in
+  `consolidation/health.py` are gone, and `memory stop` now returns `True` explicitly
+  instead of an implicit `None`, so its contract with `memory restart` (only `False`, a
+  refusal, stops the relaunch) is stated in code. No behaviour change.
+- **Landing page gets a 50-second explainer video (#1453).**
+  `site/index.html` now has a "See it in 50 seconds" section between the 3D knowledge graph and the
+  feature cards. It walks through store, retrieve, graph and consolidation with burned-in captions and a
+  locally generated narration track, as a plain `<video controls preload="metadata">` with a poster
+  frame, so nothing downloads until the visitor presses play. The 1080p H.264 file is 3.2 MB and lives
+  in `site/assets/videos/explainer.mp4`.
+- Sanitized unsanitised f-string logger calls in `storage/factory.py`, `quality/async_scorer.py`, and `consolidation/forgetting.py` (25 calls) via `_sanitize_log_value`, continuing the #1146 log-injection (CWE-117) cleanup. Logging-only; no behavior change.
+- **Analytics graph explains Min Connections vs Min Degree (#1477, kalo-biralo).**
+  Both controls filter on connection counts but count different things: Min Connections
+  counts a memory's linked memories across the whole database on the server, Min Degree
+  counts neighbours in the graph as drawn in the browser. Each control now has a tooltip
+  saying so, translated for English and Chinese through a new `data-i18n-title` attribute
+  in the i18n loader, and the dashboard guide gains a short section with the 10-vs-2
+  example.
+- **Split the unified memory-search handler into focused stages (#1484).** Retrieval and fallback, result filtering, optional summarization, and response formatting now live in separate helpers so each stage can be reviewed and tested independently without changing the returned content.
+
 ## [11.15.0] - 2026-10-03
 
 ### Added

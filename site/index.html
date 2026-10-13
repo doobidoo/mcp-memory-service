@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v11.15.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v12.0.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v11.15.0">
+<meta property="og:title" content="MCP Memory Service v12.0.0">
 <meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
@@ -194,7 +194,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
       <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
       <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
     </ul>
-    <span class="ver">v11.15</span>
+    <span class="ver">v12.0</span>
   </nav>
 </div>
 
@@ -224,7 +224,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
   <dl class="facts">
     <div><dd>5 ms</dd><dt>local read latency</dt></div>
     <div><dd>86%</dd><dt>LongMemEval R@5, session mode</dt></div>
-    <div><dd>4,128</dd><dt>tests</dt></div>
+    <div><dd>4,639</dd><dt>tests</dt></div>
     <div><dd>25+</dd><dt>AI apps supported</dt></div>
   </dl>
 </div>
@@ -256,32 +256,32 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 
 <section class="sec" id="features">
   <div class="wrap">
-    <h2>What's new in v11.15</h2>
-    <p class="lede">94 commits since the previous release, 4,128 tests.</p>
+    <h2>What's new in v12.0</h2>
+    <p class="lede">75 commits since the previous release, 4,639 tests.</p>
     <ul class="rel">
       <li>
-        <span class="tag">Security</span>
+        <span class="tag">Sync</span>
         <div>
-          <h3>mcp-memory-server refuses a non-loopback bind</h3>
-          <p>It used to serve the full MCP tool surface with no authentication on whatever address <code>MCP_HTTP_HOST</code> named. Network clients now use <code>memory server --streamable-http</code> with <code>MCP_API_KEY</code> or OAuth. GHSA-26rx-6fvr-qjqg, reported by @NotAFlightRisk.</p>
+          <h3>Self-hosted sync hub</h3>
+          <p>A hybrid client can now use another mcp-memory-service instance as its secondary over HTTP, with no Cloudflare credentials. <code>MCP_HYBRID_SECONDARY_BACKEND=http</code> selects it, and an embedding-model check fails closed on a mismatch. See the <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/guides/self-hosted-sync-hub.md" target="_blank" rel="noopener">operator guide</a>.</p>
         </div>
       </li>
       <li>
-        <span class="tag">API</span>
+        <span class="tag">Delta-sync</span>
         <div>
-          <h3>Scope memory and search by store</h3>
-          <p>The HTTP API scopes memory, search, CRUD and analytics by store, and <code>POST /api/search/by-tag</code> accepts a limit. Milvus now implements the full storage and graph contract.</p>
+          <h3>Event-log sync between hosts</h3>
+          <p>Mutations are recorded as ordered events with a hybrid logical clock, pulled and pushed over <code>/api/sync/events</code>, and a new spoke can bootstrap from a peer's current state instead of reprocessing the corpus.</p>
         </div>
       </li>
       <li>
-        <span class="tag">Retention and search</span>
+        <span class="tag">Breaking default</span>
         <div>
-          <h3>Long-standing correctness fixes</h3>
-          <p>A human rating no longer overwrites the machine quality score that retention reads, <code>MCP_DECAY_ENABLED=false</code> takes effect, hybrid BM25 matches keywords, and exact-mode search no longer treats <code>%</code> and <code>_</code> as wildcards.</p>
+          <h3>Search summaries need operator opt-in</h3>
+          <p>Configuring a Harvest LLM provider no longer turns on <code>memory_search</code> summarization. Set <code>MCP_SEARCH_SUMMARIZE_ENABLED=true</code> to keep it. Also new: an opt-in Prometheus <code>/metrics</code> endpoint, concentric-ring graph layout, and PyMilvus 3.x support.</p>
         </div>
       </li>
     </ul>
-    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v11.15.0" target="_blank" rel="noopener">Full release notes for v11.15.0</a></p>
+    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v12.0.0" target="_blank" rel="noopener">Full release notes for v12.0.0</a></p>
   </div>
 </section>
 
