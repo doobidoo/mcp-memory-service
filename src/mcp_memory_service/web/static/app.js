@@ -6206,6 +6206,7 @@ class MemoryDashboard {
         const availableDiameter = Math.max(1, Math.min(view.width, view.height) - 64);
         const contentDiameter = Math.max(1, layout.outerRadius * 2);
         const scale = Math.min(1, availableDiameter / contentDiameter);
+        view.zoom.scaleExtent([Math.min(0.1, scale), 4]);
         const fitTransform = d3.zoomIdentity
             .translate(view.width / 2, view.height / 2)
             .scale(scale)
@@ -6570,7 +6571,11 @@ class MemoryDashboard {
      */
     _clearGraphData() {
         this._disposeConcentricRingView(false);
-        this._disposeConcentricRingView(true);
+        if (this._graphFullscreenOpen) {
+            this.exitGraphFullscreen();
+        } else {
+            this._disposeConcentricRingView(true);
+        }
         this.currentGraphData = null;
         this.minGraphDegree = 1;
         this.graphRingCenterId = null;
