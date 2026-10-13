@@ -16,7 +16,8 @@
 
 import logging
 import os
-from typing import Dict, Any, Optional
+import asyncio
+from typing import Dict, Any, Optional, Set
 from datetime import datetime
 
 try:
@@ -87,6 +88,19 @@ class ConsolidationScheduler:
             'successful_jobs': 0,
             'failed_jobs': 0
         }
+        
+        # Initialize importance triggering (INC6) 
+        importance_enabled = os.getenv("MCP_IMPORTANCE_TRIGGER_ENABLED", "false").lower() == "true"
+        if importance_enabled:
+            self.theme_importance: Dict[str, float] = {}
+            self.theme_seeds: Dict[str, Set[str]] = {}  # Track distinct query seeds per theme
+            self.theme_last_triggered: Dict[str, datetime] = {}
+            self.importance_threshold = float(os.getenv("MCP_IMPORTANCE_THRESHOLD", "10.0"))
+            self.cooldown_minutes = int(os.getenv("MCP_IMPORTANCE_COOLDOWN_MINUTES", "30"))
+            
+            # Add importance methods when enabled
+            self.record_theme_usage = self._record_theme_usage_impl
+            self.calculate_theme_importance = self._calculate_theme_importance_impl
         
         # Initialize scheduler if APScheduler is available
         if APSCHEDULER_AVAILABLE and enabled:
@@ -783,6 +797,111 @@ class ConsolidationScheduler:
         """Handle job error events."""
         self.logger.error("Job error: %s - %s", _sanitize_log_value(event.job_id), _sanitize_log_value(event.exception))
     
+    def _should_trigger_theme(self, theme: str) -> bool:
+        """Check if theme should trigger consolidation based on convergence rules."""
+        # If we're tracking seeds for this theme, require convergence (≥2 distinct seeds)
+        seeds_for_theme = self.theme_seeds.get(theme, set())
+        has_seeds = len(seeds_for_theme) > 0
+        has_convergence = len(seeds_for_theme) >= 2
+        
+        # Trigger if: (no seeds being tracked) OR (seeds tracked and ≥2 distinct)
+        return not has_seeds or has_convergence
+        
+    def _is_theme_in_cooldown(self, theme: str) -> bool:
+        """Check if theme is still in cooldown period."""
+        last_triggered = self.theme_last_triggered.get(theme)
+        if not last_triggered:
+            return False
+        
+        elapsed = datetime.now() - last_triggered
+        return elapsed.total_seconds() < (self.cooldown_minutes * 60)
+        
+    def _fire_theme_consolidation(self, theme: str):
+        """Fire theme consolidation task. Importance só é zerada APÓS sucesso (dentro do trigger);
+        cooldown é marcado JÁ para evitar re-disparo imediato enquanto o task roda."""
+        # Marca cooldown imediatamente (evita re-disparo na janela do task async)
+        self.theme_last_triggered[theme] = datetime.now()
+        try:
+            task = asyncio.create_task(self._trigger_theme_consolidation(theme))
+            if not hasattr(self, '_background_tasks'):
+                self._background_tasks = set()
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except RuntimeError:
+            # Sem event loop (ex.: contexto de teste síncrono) — executa inline
+            try:
+                asyncio.run(self._trigger_theme_consolidation(theme))
+            except Exception as e:
+                self.logger.error("Failed to trigger theme consolidation: %s", _sanitize_log_value(e))
+    
+    def _record_theme_usage_impl(self, theme: str, importance: float, query_seed: Optional[str] = None):
+        """Implementation of record_theme_usage when enabled."""
+        # Accumulate importance for theme
+        self.theme_importance[theme] = self.theme_importance.get(theme, 0.0) + importance
+        
+        # Track query seeds for convergence requirement
+        if query_seed:
+            if theme not in self.theme_seeds:
+                self.theme_seeds[theme] = set()
+            self.theme_seeds[theme].add(query_seed)
+        
+        # Check if threshold crossed
+        theme_total = self.theme_importance[theme]
+        
+        if theme_total >= self.importance_threshold:
+            if self._should_trigger_theme(theme) and not self._is_theme_in_cooldown(theme):
+                self._fire_theme_consolidation(theme)
+
+    def _calculate_theme_importance_impl(self, theme: str, usage_events: list) -> float:
+        """Implementation of calculate_theme_importance when enabled."""
+        if not usage_events:
+            return 0.0
+        
+        importance = 0.0
+        
+        for event in usage_events:
+            # Weight by event type
+            event_type = event.get('event_type', 'unknown')
+            if event_type == 'search':
+                base_weight = 0.1
+            elif event_type == 'store':
+                base_weight = 0.2  # Store is more significant than search
+            else:
+                base_weight = 0.05
+            
+            # Weight by rating if available
+            rating = event.get('rating', 0)
+            rating_multiplier = max(0.1, 1.0 + (rating * 0.5))  # Positive rating increases weight
+            
+            # Weight by recency (more recent = higher weight)
+            timestamp_str = event.get('timestamp')
+            recency_multiplier = 1.0
+            if timestamp_str:
+                try:
+                    # Use standard library datetime parsing instead of dateutil
+                    event_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    age_hours = (datetime.now() - event_time.replace(tzinfo=None)).total_seconds() / 3600
+                    # Decay over time: 100% at 0 hours, 50% at 24 hours
+                    recency_multiplier = max(0.1, 1.0 - (age_hours / 48))
+                except Exception:
+                    pass  # Keep default multiplier on parse error
+            
+            importance += base_weight * rating_multiplier * recency_multiplier
+        
+        return importance
+    
+    async def _trigger_theme_consolidation(self, theme: str):
+        """Trigger consolidation for specific theme. Zera a importância SÓ após sucesso
+        (se falhar, o sinal acumulado é preservado para a próxima tentativa)."""
+        try:
+            await self.consolidator.consolidate(theme=theme)
+            self.theme_importance[theme] = 0.0  # reset só após sucesso
+            self.logger.info("Triggered importance-based consolidation for theme: %s",
+                           _sanitize_log_value(theme))
+        except Exception as e:
+            self.logger.error("Failed importance-triggered consolidation for theme %s: %s",
+                            _sanitize_log_value(theme), _sanitize_log_value(e))
+
     async def trigger_consolidation(self, time_horizon: str, immediate: bool = True) -> bool:
         """Manually trigger a consolidation job."""
         if not self.scheduler:
