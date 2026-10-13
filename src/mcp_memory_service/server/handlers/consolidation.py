@@ -74,23 +74,18 @@ async def handle_consolidate_memories(
 
         # Extract optional theme parameter
         theme = arguments.get("theme")
+        extra = {"theme": theme} if theme else {}
 
-        # Run consolidation (with timeout for incremental)  
+        # Run consolidation (with timeout for incremental)
         if time_horizon == "incremental":
             import asyncio
 
             INCREMENTAL_TIMEOUT_SECONDS = 10
             try:
-                if theme:
-                    report = await asyncio.wait_for(
-                        server.consolidator.consolidate(time_horizon, theme=theme),
-                        timeout=INCREMENTAL_TIMEOUT_SECONDS,
-                    )
-                else:
-                    report = await asyncio.wait_for(
-                        server.consolidator.consolidate(time_horizon),
-                        timeout=INCREMENTAL_TIMEOUT_SECONDS,
-                    )
+                report = await asyncio.wait_for(
+                    server.consolidator.consolidate(time_horizon, **extra),
+                    timeout=INCREMENTAL_TIMEOUT_SECONDS,
+                )
             except asyncio.TimeoutError:
                 # Advance last_run_at even on timeout to prevent infinite retry loop (#986)
                 if server.consolidator.run_tracker:
@@ -102,11 +97,7 @@ async def handle_consolidate_memories(
                     )
                 ]
         else:
-            if theme:
-                report = await server.consolidator.consolidate(time_horizon, theme=theme)
-            else:
-                report = await server.consolidator.consolidate(time_horizon)
-
+            report = await server.consolidator.consolidate(time_horizon, **extra)
 
         # Format response
         result = f"""Consolidation completed successfully!
