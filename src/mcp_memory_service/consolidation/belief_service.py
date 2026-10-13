@@ -550,15 +550,26 @@ class BeliefService:
         # Curated set for belief derivation - restrict to the 4 designed types
         # not all 12 ontology base types to avoid scope creep
         BELIEF_ELIGIBLE_BASE_TYPES = {"decision", "learning", "error", "observation"}
-        
+
+        # RAG document types resolve to "observation" via the ontology (get_parent_type),
+        # so they would pass the eligibility test — but they are ingested reference material
+        # (manuals, specs, API docs), NOT operational knowledge to distill beliefs from.
+        # Exclude them by type so a RAG chunk sitting in the default store (store leak) still
+        # never contaminates the belief loop. Store filter + type filter = defense in depth.
+        BELIEF_EXCLUDED_TYPES = {"document", "reference"}
+
         # Get all memories from default store only
         all_memories = await self.storage.get_all_memories(store="default")
-        
+
         # Filter memories to those with eligible base types or subtypes that resolve to eligible types
         filtered_memories = []
         for memory in all_memories:
             memory_type = memory.memory_type if hasattr(memory, "memory_type") else memory.get("memory_type", "")
-            
+
+            # RAG document types are never belief-eligible, even though they resolve to observation
+            if memory_type in BELIEF_EXCLUDED_TYPES:
+                continue
+
             # Check if it's already an eligible base type
             if memory_type in BELIEF_ELIGIBLE_BASE_TYPES:
                 filtered_memories.append(memory)

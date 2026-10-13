@@ -313,3 +313,36 @@ async def test_derive_beliefs_uses_ontology_get_parent_type_not_hardcoded_list(m
             assert stats["created"] >= 7, f"Should process curated base types + subtypes, got {stats['created']}"
 
 
+
+
+@pytest.mark.asyncio
+async def test_derive_beliefs_excludes_rag_document_types_in_default(mock_storage):
+    """RAG types (document, reference) resolve to 'observation' but must NOT enter the belief loop,
+    even when they leaked into store=default. Non-inert: removing BELIEF_EXCLUDED_TYPES lets them in.
+    """
+    obs = MockMemory("Operational observation worth distilling", "observation")
+    doc = MockMemory("Huawei HCSO manual: Getting Started chapter 1", "document")   # RAG leaked to default
+    ref = MockMemory("API reference: endpoint list for the gateway", "reference")   # RAG leaked to default
+
+    all_memories = [obs, doc, ref]
+    mock_storage.get_all_memories = AsyncMock(return_value=all_memories)
+
+    with patch.dict(os.environ, {"MCP_BELIEF_ONTOLOGY_FILTERING": "true"}):
+        svc = BeliefService(mock_storage)
+        captured = []
+        real_filter = svc._get_memories_by_ontology
+        async def spy_filter(*a, **k):
+            res = await real_filter(*a, **k)
+            captured.extend(res)
+            return res
+        svc._get_memories_by_ontology = spy_filter
+        svc._group_observations = AsyncMock(return_value={})
+        svc._get_belief = AsyncMock(return_value=None)
+        svc._create_belief = AsyncMock()
+        svc._find_contradictions = AsyncMock(return_value=[])
+
+        await svc.derive_beliefs()
+
+        types = sorted(m.memory_type for m in captured)
+        assert types == ["observation"], (
+            f"RAG document/reference must be excluded even in default store, got {types}")
