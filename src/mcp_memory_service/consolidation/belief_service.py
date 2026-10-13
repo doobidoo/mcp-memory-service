@@ -413,7 +413,7 @@ class BeliefService:
     async def derive_beliefs(self) -> dict:
         """Run belief derivation cycle. Called by scheduler.
 
-        1. Get all observation-type memories
+        1. Get all observation-type memories (or ontology base types if filtering enabled)
         2. Group by semantic similarity (existing embeddings)
         3. For each group, derive/update a belief
         4. Promote candidates meeting provenance floor
@@ -422,7 +422,16 @@ class BeliefService:
         stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0, "errors": []}
 
         try:
-            observations = await self.storage.get_all_memories(memory_type="observation")
+            # Check if ontology-based filtering is enabled
+            ontology_filtering_enabled = self._ontology_filtering_enabled()
+            
+            if ontology_filtering_enabled:
+                # New behavior: get all memories from default store and filter by base types
+                observations = await self._get_memories_by_ontology()
+            else:
+                # Old behavior: get only observation type memories (no store filter)
+                observations = await self.storage.get_all_memories(memory_type="observation")
+                
             if not observations:
                 return stats
 
@@ -510,6 +519,61 @@ class BeliefService:
             stats["created"], stats["updated"], stats["promoted"], stats["superseded"],
         )
         return stats
+
+    @staticmethod
+    def _ontology_filtering_enabled() -> bool:
+        """Check if ontology-based filtering is enabled via environment flag."""
+        import os
+        raw = os.environ.get("MCP_BELIEF_ONTOLOGY_FILTERING")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+    
+    @staticmethod
+    def _get_batch_cap() -> int:
+        """Get batch processing cap from environment to prevent flooding."""
+        import os
+        try:
+            raw = os.environ.get("MCP_BELIEF_BATCH_CAP")
+            if raw:
+                cap = int(raw.strip())
+                return cap if cap > 0 else 1000  # Default cap if invalid
+            return 1000  # Default cap
+        except (ValueError, TypeError):
+            return 1000  # Default cap on error
+    
+    async def _get_memories_by_ontology(self) -> list:
+        """Get memories using ontology base types and store filtering.
+        
+        Returns memories from store='default' that match ontology base types
+        or their subtypes (decision, learning, error, observation).
+        """
+        from ..models.ontology import get_base_types, get_parent_type
+        
+        # Get all base types from ontology
+        base_types = get_base_types()
+        
+        # Get all memories from default store only
+        all_memories = await self.storage.get_all_memories(store="default")
+        
+        # Apply batch cap to prevent flooding
+        batch_cap = self._get_batch_cap()
+        if len(all_memories) > batch_cap:
+            all_memories = all_memories[:batch_cap]
+        
+        # Filter memories to those with base types or subtypes that resolve to base types
+        filtered_memories = []
+        for memory in all_memories:
+            memory_type = memory.memory_type if hasattr(memory, "memory_type") else memory.get("memory_type", "")
+            
+            # Check if it's already a base type
+            if memory_type in base_types:
+                filtered_memories.append(memory)
+            else:
+                # Check if it's a subtype that resolves to a base type
+                parent_type = get_parent_type(memory_type)
+                if parent_type and parent_type in base_types:
+                    filtered_memories.append(memory)
+        
+        return filtered_memories
 
     async def challenge_belief(self, belief_hash: str) -> dict:
         """Force re-derivation of a specific belief."""
