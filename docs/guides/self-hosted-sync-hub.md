@@ -121,9 +121,15 @@ On the **hub** (it must record events for clients to pull):
 
 ```bash
 export MCP_SYNC_EVENTLOG=on
-# optional: only accept pushed batches from these agent ids (whole batch rejected otherwise)
-export MCP_SYNC_PUSH_ALLOWED_AGENTS=laptop,desktop
 ```
+
+`MCP_SYNC_PUSH_ALLOWED_AGENTS` (a comma-separated list of agent ids) makes the hub reject any
+pushed batch that contains an event from another agent, and the whole batch is rejected with
+403. Leave it unset for now. A client pushes every event in its log, including the ones it
+pulled from the hub (`storage/sync/orchestrator.py`, `_read_local_events_since`), and the hub
+stamps its own update and delete events `unknown`, because the hub has no `MCP_AGENT_ID`. An
+allow-list such as `laptop,desktop` therefore rejects the first batch that carries a pulled
+event, and that client's push stalls on every cycle from then on (#1522).
 
 On each **client**:
 
@@ -167,9 +173,60 @@ and, since the client now runs two processes on one database, set `MCP_HYBRID_SY
 
 ## Multi-client semantics
 
-<!-- Section to be written by @filhocf (Claudio) — see #1482: concurrent writers, conflict
-     resolution between clients, delete propagation, what a client sees after another client's
-     write. -->
+The two layers give different guarantees. The hybrid queue alone is a one-way backup to the hub,
+and only delta-sync makes the clients converge.
+
+### Hybrid queue only
+
+- **Other clients see a write only after their own restart.** A client pulls from the hub in
+  its startup sync (`MCP_HYBRID_SYNC_ON_STARTUP`, default on) or when `POST /api/sync/force`
+  is called. The periodic drift check is skipped for an HTTP secondary (`storage/hybrid.py`,
+  the `supports_delete_operations` guard), so `MCP_HYBRID_SYNC_UPDATES` and
+  `MCP_HYBRID_DRIFT_CHECK_INTERVAL` have no effect here. `MCP_HYBRID_SYNC_INTERVAL` only
+  paces health probes and retries.
+- **The startup sync adds missing memories, nothing else.** It compares content hashes, so
+  updates and deletes that another client made never reach a client that already holds the
+  memory. Each client keeps its own version.
+- **Deletes stay local to the hub.** The hub soft-deletes the row, and every other client
+  keeps its copy. `POST /api/sync/force` on such a client pushes its whole database and
+  re-creates the deleted memory on the hub.
+- **Identity is the content hash.** If two clients store the same content, the hub keeps the
+  first one. It rejects the second as a duplicate, and that client's tags and metadata are lost.
+  Near-identical content inside the semantic-dedup window (24 h by default) can be rejected the
+  same way, because the hub's `POST /api/memories` runs semantic deduplication.
+- **Updates land in arrival order, with no timestamp comparison.** Tags and `memory_type` are
+  replaced, while metadata is merged key by key, so the last arrival wins.
+- **The queue lives in memory.** If a client stops before its queue drained, those operations
+  never reach the hub.
+
+### With delta-sync
+
+- **Writes reach the other clients on their next sync.** A client's queued write creates an
+  event on the hub (with `MCP_SYNC_EVENTLOG=on` there) within seconds, and every other client
+  pulls it at its next `MCP_SYNC_SCHEDULE` tick. Updates and deletes arrive the same way.
+- **Conflicts resolve by hybrid logical clock.** Every event carries an HLC (wall-clock
+  milliseconds plus a counter). The later HLC wins. On a tie, a delete wins, then the agent id
+  and event id decide (`storage/sync/resolver.py`, ADR-0010 to 0013). Metadata updates are
+  merged field by field, with the later HLC winning per field. A node whose clock runs ahead
+  wins concurrent conflicts, so keep the clocks synced (NTP).
+- **A delete wins only against older events.** A create with a later HLC than the delete
+  brings the memory back. A replayed old create under a new identity does not. ADR-0012
+  intends tombstones to block re-creation, but the apply step does not enforce that yet
+  (#1522).
+- **Events are never compacted.** `sync_events` keeps every event, on the clients and on the
+  hub. A client hard-deletes soft-deleted memory rows after 30 days, while the delete event
+  itself stays.
+- **One write produces two events on the hub:** one from the hybrid queue and one from the
+  client's push. The resolver keeps a single row per content hash, so this costs log space,
+  not correctness.
+- **A new client starts from the event log, not from a snapshot.** Its first pull covers the
+  events since the hub turned the event log on. Memories that are older than that arrive
+  through the hybrid startup sync. The baseline bootstrap from Phase 5 has no command that
+  runs it yet (#1522).
+- **Memories from a different embedding model stay invisible.** A pulled create stamped with
+  another `embedding_model` is stored without a vector, and search and tag queries skip it.
+  Nothing clears that state later, even after the models match again (#1522). This is one
+  more reason for one model everywhere.
 
 ## Re-embedding the hub
 
@@ -183,6 +240,11 @@ Two scripts exist; pick by **vector dimension**, not by preference:
   `python scripts/maintenance/regenerate_embeddings.py`. It takes no arguments and re-embeds
   every memory with the model the storage itself loads, so it uses exactly what the hub will
   serve with afterwards. Then set the same model on every client and restart them.
+  **On a database that has the `store` column, this script currently writes vectors without
+  their store** (it inserts only `rowid` and `content_embedding` into `memory_embeddings`,
+  where `store` is the partition key), so store-scoped searches miss them. Until that is
+  fixed (#1521), use the export / re-import route below for a same-dimension change too,
+  with the limits listed there.
 
 - **Different dimension** (e.g. 384 → 768): `scripts/maintenance/migrate_embeddings.py` rebuilds
   the vector table, but it fetches embeddings from an **OpenAI-compatible HTTP API**
