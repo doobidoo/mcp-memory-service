@@ -214,6 +214,12 @@ async def _secondary_hash_set(secondary) -> Optional[set]:
     d1_hashes = await _fetch_secondary_content_hashes(secondary)
     if d1_hashes is not None:
         return d1_hashes
+
+    # A Cloudflare secondary whose D1 fetch failed has no hash set. The inherited
+    # list_content_hashes() would answer with an empty set, which callers read as
+    # "the secondary holds nothing" and skip the pull, so report the failure.
+    if hasattr(secondary, '_retry_request') and hasattr(secondary, 'd1_database_id'):
+        return None
         
     # Fall back to generic serviceable path for non-CF secondaries (HTTP)
     if hasattr(secondary, 'list_content_hashes'):
@@ -1263,7 +1269,14 @@ class HybridMemoryStorage(MemoryStorage):
             # Get all local hashes once for O(1) lookup and to diff against the secondary.
             local_hashes = await self.primary.get_all_content_hashes()
 
-            if secondary_count <= primary_count:
+            # Ask the secondary for its hash set whatever the counts say: a count says nothing
+            # about WHICH hashes are missing. When the secondary holds more memories than the
+            # primary, the newest-first scan below gives up after HYBRID_MAX_EMPTY_BATCHES
+            # batches without a new memory, so old cloud-only memories buried behind thousands
+            # of shared ones would never be reached. The exact diff has no such limit.
+            secondary_hashes = await _secondary_hash_set(self.secondary)
+
+            if secondary_hashes is not None or secondary_count <= primary_count:
                 # A count comparison can't prove the primary already holds everything the
                 # secondary does. With divergent sets — local-only writes queued while the
                 # cloud was unreachable, plus memories another device wrote straight to the
@@ -1273,8 +1286,8 @@ class HybridMemoryStorage(MemoryStorage):
                 # otherwise never reach this device. Confirm with a hash diff (the same
                 # bulk-hash fetch force_sync uses for the reverse direction) before
                 # concluding there is nothing to pull. If the secondary can't answer a
-                # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior.
-                secondary_hashes = await _secondary_hash_set(self.secondary)
+                # bulk-hash fetch (non-Cloudflare backends), keep the count-only behavior
+                # when it holds no more than the primary, and the scan below when it holds more.
                 missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
                 if not missing_hashes:
                     logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
@@ -1772,9 +1785,9 @@ class HybridMemoryStorage(MemoryStorage):
             include_pending=include_pending,
         )
 
-    async def delete(self, content_hash: str) -> Tuple[bool, str]:
+    async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory from primary storage and queue for secondary sync."""
-        success, message = await self.primary.delete(content_hash)
+        success, message = await self.primary.delete(content_hash, store=store)
 
         if success and self.sync_service:
             # Queue for background sync to secondary
@@ -1799,7 +1812,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message
 
-    async def delete_by_tags(self, tags: List[str]) -> Tuple[int, str, List[str]]:
+    async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         """
         Delete memories matching ANY of the given tags from primary storage and queue for secondary sync.
 
@@ -1812,26 +1825,22 @@ class HybridMemoryStorage(MemoryStorage):
         if not tags:
             return 0, "No tags provided", []
 
-        # First, get all memories with any of these tags for sync queue
-        memories_to_delete = await self.primary.search_by_tags(tags, operation="OR", include_pending=True)
-
-        # Remove duplicates based on content_hash
-        unique_memories = {m.content_hash: m for m in memories_to_delete}.values()
-
         # Delete from primary using optimized method if available
-        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags)
+        count_deleted, message, deleted_hashes = await self.primary.delete_by_tags(tags, store=store)
 
-        # Queue individual deletes for secondary sync
+        # Queue individual deletes for secondary sync — ONLY the hashes actually deleted
+        # from the (store-scoped) primary. Using the unfiltered tag match would delete
+        # other stores' memories from the cloud while keeping them locally (#1466).
         if count_deleted > 0 and self.sync_service:
-            for memory in unique_memories:
-                operation = SyncOperation(operation='delete', content_hash=memory.content_hash)
+            for content_hash in deleted_hashes:
+                operation = SyncOperation(operation='delete', content_hash=content_hash)
                 await self.sync_service.enqueue_operation(operation)
 
         return count_deleted, message, deleted_hashes
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Retrieve memories by exact content match from primary storage."""
-        return await self.primary.get_by_exact_content(content)
+        return await self.primary.get_by_exact_content(content, store=store)
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""
@@ -2105,6 +2114,7 @@ class HybridMemoryStorage(MemoryStorage):
         end_time: float,
         include_embeddings: bool = False,
         exclude_pending: bool = False,
+        store: Optional[str] = None,
     ) -> List[Memory]:
         """Get memories within time range from primary storage.
 
@@ -2113,7 +2123,7 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.get_memories_by_time_range(
             start_time, end_time, include_embeddings=include_embeddings,
-            exclude_pending=exclude_pending,
+            exclude_pending=exclude_pending, store=store,
         )
 
     async def close(self):

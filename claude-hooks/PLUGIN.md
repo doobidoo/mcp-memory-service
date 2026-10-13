@@ -47,6 +47,18 @@ warning on stderr. Logs go to `~/.mcp-memory-service/http.log` (fallback:
 
 Set `ENSURE_SERVER_NO_SPAWN=1` to disable the spawn path (probe-only mode).
 
+## Saving a session on purpose
+
+The session-end hook stores a keyword digest of every session automatically.
+For the content that matters, run `/mcp-memory-service:remember-session` (or
+just ask Claude to save the session to memory). The skill in
+`skills/remember-session/` has the model pick out decisions, root causes,
+lessons and open items, check them against what is already stored, write them
+as separate memories tagged with the project name, and read them back.
+
+The skill ships with the plugin only. With the Python installer, copy or link
+`claude-hooks/skills/remember-session/` into `~/.claude/skills/`.
+
 ## Migrating from `install_hooks.py`
 
 If you already installed via the Python installer, remove its hook entries
