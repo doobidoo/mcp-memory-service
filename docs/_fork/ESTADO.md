@@ -67,6 +67,15 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   │     📋 FILA (consenso 9 IAs, pesquisa ranking-util-modular-embedding-belief-2026-10, mem 12699e27): R3 propensity-por-rank no update Beta · R4 embedding no BELIEF (o que faz MRR saltar, tabela beliefs sem coluna hoje) · R5 fusão lex+sem · R6 FTS dual-index · R7 utility CONTEXTUAL por domínio (6/9: causa-raiz do rich-get-richer).
 │   │     🔑 ACHADO 12/out (mem 9ff8c7b8): derive_beliefs consome SÓ memory_type=observation → decision/learning/checkpoint NUNCA viram belief. Beliefs têm 2 fontes (memory_store + harvest) via o store de memórias. Design aberto: só observation→belief é intencional ou gap?
 │   │
+│   ├─ 💤 DREAMING-LOOP (item FASE 3 = 03c1d773, guarda-chuva) · o aprendizado "SONO" (offline: consolida/associa/agrupa por tema). Decomposto 13/out nos INC 2-7 do CONSOLIDADO (pesquisa dreaming-loop-navegacao-2026-10, 9 IAs). INC1=R1(F9)=✅. Dreaming inteiro é NECESSÁRIO (decisão Claudio 13/out), não menu. Ordem por dependência:
+│   │     ├─ INC 2 consolidate(theme=...) ..... 🔴 queue (22a05831) · 6 fases restritas a subconjunto por tema; gap=seleção de candidatos, não pipeline · 0 dep
+│   │     ├─ INC 3 grafo heterogêneo tipado ... 🔴 queue (78601fcf) · ALTER memory_graph node_type/edge_type + backfill idempotente; estende, não reescreve · PRÉ-REQ de 4/5/7
+│   │     ├─ INC 4 associações→injeção ........ 🔴 queue (28798758, HIGH) · ⭐ RESOLVE "vem por palavra, não por tema" · spreading activation/PPR semeado pela busca + regra de convergência + ≤2 hops + budget, sem LLM no hot-path · PRODUTOR vivo (528k edges), falta CONSUMIDOR (achado 1d84a7c4) · dep INC3
+│   │     ├─ INC 5 loop sono→acordado ......... 🔴 queue (ed46db92) · reweighting Hebbiano das arestas via usage_events (EMA+half-life, nunca salto) · dep INC3+INC4
+│   │     ├─ INC 6 gatilho por importância ..... 🔴 queue (bfb19476) · ⭐ ataca LOOP LENTO · reflection-trigger por tema COMPLEMENTO ao cron, sinais existentes (não LLM) · dep INC2
+│   │     └─ INC 7 (opc) memory_explore + reflection LLM-gated 🔴 queue (f138b8d3, LOW) · dep INC3 · só se 2-6 provarem valor
+│   │     ➡️ PRÓXIMO: enriquecer RFC dreaming (guarda-chuva, EARS dos INC 2-7 do CONSOLIDADO) → spec/gate/E2E INC por INC na ordem de dep (INC3 primeiro). F4 upstream só com CLIENT feliz.
+│   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
 │       ├─ rfc-mm-03 gap-detection (L4) ............... 🟢 resgatado · migration + handler · spec: 0 EARS (completar)
