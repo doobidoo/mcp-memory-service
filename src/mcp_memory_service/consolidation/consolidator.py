@@ -704,7 +704,7 @@ class DreamInspiredConsolidator:
             )
 
             # Extract content hashes from search results
-            matching_hashes = {memory.content_hash for memory in search_result["memories"]}
+            matching_hashes = {m["content_hash"] for m in search_result["memories"]}
 
             # Filter the input memories to only those that match the theme
             filtered_memories = [

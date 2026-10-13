@@ -745,6 +745,10 @@ Examples:
                     "type": "string",
                     "description": "Memory type for the merged memory (default: inherited from first source)",
                 },
+                "theme": {
+                    "type": "string",
+                    "description": "Optional: restrict consolidation to memories matching this theme (semantic)",
+                },
             },
             "required": ["action"],
         },

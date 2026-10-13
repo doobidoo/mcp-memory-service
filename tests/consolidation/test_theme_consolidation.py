@@ -81,7 +81,7 @@ def mock_storage_with_themes(theme_memories):
     # Mock search_memories to return themed results based on query
     async def mock_search_memories(query=None, limit=10, **kwargs):
         if not query:
-            return {"memories": theme_memories, "total": len(theme_memories)}
+            return {"memories": [m.to_dict() for m in theme_memories], "total": len(theme_memories)}
         
         # Simulate semantic search - return memories matching theme
         results = []
@@ -92,7 +92,7 @@ def mock_storage_with_themes(theme_memories):
         elif "kubernetes" in query.lower():
             results = [m for m in theme_memories if "kubernetes" in m.content.lower() or "k8s" in m.content_hash]
         
-        return {"memories": results, "total": len(results)}
+        return {"memories": [m.to_dict() for m in results], "total": len(results)}
     
     storage.search_memories.side_effect = mock_search_memories
     return storage
