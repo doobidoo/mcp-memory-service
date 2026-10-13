@@ -189,9 +189,10 @@ def _authorize_push_batch(storage: MemoryStorage, events: List[Dict[str, Any]]) 
             raise HTTPException(status_code=403, detail="event missing agent_id")
         # An identity the hub already holds is not new authorship: spokes push back the
         # events they pulled, including the hub's own `unknown` ones, and apply treats a
-        # known identity as a duplicate or rejects an altered payload (#1522).
+        # known identity as a duplicate or rejects an altered payload (#1522). Look it up by
+        # the raw agent_id that apply will record, so a padded copy cannot borrow it.
         if (allowed is not None and agent_id not in allowed
-                and _event_identity_payload(storage, agent_id, ev.get("event_id", "")) is None):
+                and _event_identity_payload(storage, ev.get("agent_id"), ev.get("event_id", "")) is None):
             raise HTTPException(
                 status_code=403,
                 detail=f"agent_id not allowed to push: {agent_id}",

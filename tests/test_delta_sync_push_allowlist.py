@@ -84,3 +84,21 @@ async def test_allowlist_still_rejects_new_events_from_unlisted_agents(temp_db_p
         "SELECT COUNT(*) FROM memories WHERE content_hash = ?",
         (generate_content_hash("Memory the laptop wrote"),),
     ).fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_allowlist_rejects_padded_copy_of_a_held_identity(temp_db_path, monkeypatch):
+    """A padded agent_id must not borrow a held identity's exemption: apply would see it as new."""
+    hub, spoke = await _hub_and_spoke(temp_db_path, monkeypatch)
+    monkeypatch.setenv("MCP_SYNC_PUSH_ALLOWED_AGENTS", "laptop")
+
+    held = _read_local_events_since(hub, 0, 100)[0]
+    forged = dict(held, agent_id=" unknown ", op="delete", payload={"deleted_at": 1.0})
+
+    with pytest.raises(HTTPException) as exc:
+        await ingest_sync_events(IngestEventsRequest(events=[forged]), True, hub)
+
+    assert exc.value.status_code == 403
+    assert hub.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?", (held["content_hash"],)
+    ).fetchone()[0] is None
