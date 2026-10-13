@@ -104,3 +104,23 @@ de ~8k ficou isolado nos stores de RAG, fora do default). Resíduo: 665 `documen
 
 **R6 reforçado:** opt-in + cap de batch obrigatório (3.2x de intake sem cap floodaria num ciclo).
 Medir QUANTOS beliefs SAEM (agrupamento condensa) antes de ligar no vivo.
+
+## Implementado (13/out, DNBSCDC289) — R1 DONE via gate TDD
+
+`_get_memories_by_ontology()` em `belief_service.py`: escopo curado `BELIEF_ELIGIBLE_BASE_TYPES =
+{decision, learning, error, observation}` (resolvendo subtypes via `get_parent_type`), `store="default"`,
+opt-in `MCP_BELIEF_ONTOLOGY_FILTERING`, cap `MCP_BELIEF_BATCH_CAP` aplicado APÓS o filtro de ontologia.
+Comportamento antigo byte-compatível com a flag OFF. Commits atômicos na main (fork-only, SEM PR upstream):
+`77e100ef` (feat), `a37ee5dc` (escopo curado + 1ª rodada de testes), `e4569091` (ajustes), `692c68c0`
+(testes não-inertes), `98b1d12e` (cleanup G5 LOW). Gate: rok RED → reg GREEN → tuvok NEEDS_CHANGES (testes
+inertes) → fix pelo manager → tuvok PASS (confirmado por sabotagem independente). 127 belief tests, 0 regressão.
+
+**Achado da ontologia (corrige a narrativa do Achado 2):** `get_parent_type("document") == "observation"`,
+logo `document` É belief-eligible POR TIPO. Documentos NÃO são barrados pelo filtro de tipo — é o filtro de
+**STORE** (`default`) que mantém o RAG fora do belief loop, pois os `document` vivem em stores de RAG
+(docs-shared/hackathon/mir). O resíduo de 665 `document` no default entraria por tipo; o store filter é a
+defesa correta. Tipos realmente não-elegíveis (base types que resolvem a si mesmos): meeting, ceremony,
+milestone, stakeholder, research, planning, pattern, communication.
+
+**PENDENTE p/ ligar no vivo:** medir beliefs SAÍDOS com a flag ON em cópia do banco real antes de setar
+`MCP_BELIEF_ONTOLOGY_FILTERING` no serviço. F4 (upstream) só com veredito CLIENT feliz + Henry.
