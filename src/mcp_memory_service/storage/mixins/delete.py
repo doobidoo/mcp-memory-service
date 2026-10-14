@@ -132,7 +132,6 @@ class DeleteMixin:
                         self.conn.commit()
                     else:
                         self.conn.execute(f'RELEASE SAVEPOINT {savepoint}')
-                    savepoint_open = False
                     return outcome
                 except Exception:
                     if savepoint_open:
