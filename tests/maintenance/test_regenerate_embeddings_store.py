@@ -8,10 +8,9 @@ The test exercises the real core functions (_load_memories + _regenerate_all) ag
 in-memory sqlite-vec storage, so it goes RED without the fix and GREEN with it.
 """
 
+import importlib.util
 import os
 import time
-import tempfile
-import importlib.util
 from pathlib import Path
 
 import pytest
@@ -23,13 +22,11 @@ except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
 if SQLITE_VEC_AVAILABLE:
-    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
     from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
     from mcp_memory_service.utils.hashing import generate_content_hash
 
 pytestmark = pytest.mark.skipif(not SQLITE_VEC_AVAILABLE, reason="sqlite-vec not available")
-
-os.environ['MCP_MEMORY_ALLOW_HASH_EMBEDDINGS'] = '1'
 
 
 def _load_regen_module():
@@ -41,12 +38,13 @@ def _load_regen_module():
 
 
 @pytest.fixture
-async def storage():
-    d = tempfile.mkdtemp()
-    s = SqliteVecMemoryStorage(os.path.join(d, "regen.db"))
-    await s.initialize()
-    yield s
-    await s.close()
+async def storage(temp_db_path):
+    s = SqliteVecMemoryStorage(os.path.join(temp_db_path, "regen.db"))
+    try:
+        await s.initialize()
+        yield s
+    finally:
+        await s.close()
 
 
 @pytest.mark.asyncio
@@ -82,3 +80,47 @@ async def test_regenerate_writes_into_named_store_partition(storage):
     results = await storage.retrieve(content, n_results=5, store="projectX")
     hashes = [r.memory.content_hash for r in results] if results else []
     assert h in hashes, "store-scoped retrieve must find the regenerated memory"
+
+
+
+@pytest.mark.asyncio
+async def test_regenerate_skips_soft_deleted_memories(storage):
+    """A soft-deleted (tombstoned) memory must NOT be reloaded by _load_memories nor get its
+    vector regenerated — otherwise the maintenance script resurrects it into the vector index.
+    Guards the Greptile P2 soft-delete fix (WHERE deleted_at IS NULL)."""
+    regen = _load_regen_module()
+
+    # One live memory and one soft-deleted memory.
+    live = "A live memory that should be regenerated"
+    gone = "A deleted memory that must stay out of the index"
+    h_live = generate_content_hash(live)
+    h_gone = generate_content_hash(gone)
+    await storage.store(Memory(content=live, content_hash=h_live, tags=["x"]))
+    await storage.store(Memory(content=gone, content_hash=h_gone, tags=["x"]))
+
+    # Soft-delete the second one and drop every vector (state the script repairs).
+    storage.conn.execute(
+        "UPDATE memories SET deleted_at = ? WHERE content_hash = ?", (time.time(), h_gone)
+    )
+    storage.conn.execute("DELETE FROM memory_embeddings")
+    storage.conn.commit()
+
+    # _load_memories must return only the live row.
+    memories, total = regen._load_memories(storage)
+    loaded_hashes = {m["content_hash"] for m in memories}
+    assert h_live in loaded_hashes, "live memory must be loaded for regeneration"
+    assert h_gone not in loaded_hashes, "soft-deleted memory must not be loaded"
+    assert total == 1, f"count must exclude soft-deleted rows, got {total}"
+
+    # And after regeneration the deleted row still has no vector.
+    _success, errors = await regen._regenerate_all(storage, memories)
+    storage.conn.commit()
+    assert errors == 0, f"regeneration errored: {errors}"
+
+    gone_rowid = storage.conn.execute(
+        "SELECT id FROM memories WHERE content_hash = ?", (h_gone,)
+    ).fetchone()[0]
+    vec = storage.conn.execute(
+        "SELECT 1 FROM memory_embeddings WHERE rowid = ?", (gone_rowid,)
+    ).fetchone()
+    assert vec is None, "soft-deleted memory must not get a regenerated vector"

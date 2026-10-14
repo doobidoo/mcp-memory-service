@@ -40,7 +40,13 @@ def _load_memories(actual_storage):
 
     Returns a ``(memories, total_count)`` tuple.
     """
-    cursor = actual_storage.conn.execute('SELECT COUNT(*) FROM memories')
+    # Exclude soft-deleted rows: regenerating a tombstoned memory's vector would
+    # re-index it and effectively resurrect it in search (repo rule: reads skip
+    # deleted_at unless intentionally handling deleted data). Matches every other
+    # maintenance script (migrate_embeddings, repair_missing_embeddings_onnx, ...).
+    cursor = actual_storage.conn.execute(
+        'SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL'
+    )
     total_count = cursor.fetchone()[0]
 
     cursor = actual_storage.conn.execute('''
@@ -48,6 +54,7 @@ def _load_memories(actual_storage):
                created_at, updated_at, created_at_iso, updated_at_iso,
                COALESCE(store, 'default')
         FROM memories
+        WHERE deleted_at IS NULL
     ''')
 
     memories = []
