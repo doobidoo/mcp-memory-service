@@ -287,6 +287,8 @@
   "analytics.minConnectionsTip": "Load only memories with at least N links in the database. Reloads the graph.",
   "analytics.minDegreeTip": "Hide nodes with fewer than N neighbours among shown memory types (1 = off). No reload.",
   "analytics.refresh": "Refresh",
+  "analytics.forceLayout": "Force",
+  "analytics.ringLayout": "Rings",
   "analytics.loadingGraph": "Loading graph...",
   "analytics.legend": "Legend",
   "analytics.nodeColors": "Node Colors",

@@ -1114,7 +1114,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to delete memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return False, f"Deletion failed: {str(e)}"
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Retrieve memories by case-insensitive substring match."""
         try:
             # Use LIKE for substring matching (D1 SQL is case-insensitive by default)
@@ -2326,6 +2326,7 @@ class CloudflareStorage(MemoryStorage):
         start_time: float,
         end_time: float,
         include_embeddings: bool = False,
+        store: Optional[str] = None,
     ) -> List[Memory]:
         """
         Get memories within a specific time range (v8.31.0+).

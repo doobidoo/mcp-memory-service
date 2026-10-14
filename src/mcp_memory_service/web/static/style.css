@@ -4999,6 +4999,63 @@ body.dark-mode .quality-tier-low,
     box-shadow: 0 0 4px rgba(255, 255, 255, 0.3);
 }
 
+.graph-layout-toggle {
+    display: inline-flex;
+    min-height: 36px;
+    overflow: hidden;
+    border: 1px solid var(--neutral-300);
+    border-radius: 6px;
+    background: var(--neutral-100);
+}
+
+.graph-layout-toggle button {
+    min-width: 58px;
+    padding: 0.45rem 0.65rem;
+    border: 0;
+    border-right: 1px solid var(--neutral-300);
+    border-radius: 0;
+    background: transparent;
+    color: var(--neutral-800);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.graph-layout-toggle button:last-child {
+    border-right: 0;
+}
+
+.graph-layout-toggle button:hover {
+    background: var(--neutral-200);
+}
+
+.graph-layout-toggle button.active {
+    background: var(--primary);
+    color: white;
+}
+
+.graph-layout-toggle button:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid var(--accent, #4A90E2);
+    outline-offset: -2px;
+}
+
+body.dark-mode .graph-layout-toggle {
+    border-color: var(--neutral-600);
+    background: var(--neutral-800);
+}
+
+body.dark-mode .graph-layout-toggle button {
+    border-right-color: var(--neutral-600);
+    color: var(--neutral-100);
+}
+
+body.dark-mode .graph-layout-toggle button:hover {
+    background: var(--neutral-700);
+}
+
 /* Instant, always-on-top count tooltip for a filter pill (JS-positioned).
    position:fixed + very high z-index so it escapes the filter bar's stacking
    context and never sits behind the graph layer. */
@@ -5198,6 +5255,29 @@ body.dark-mode .quality-tier-low,
 
 .graph-link.link-related {
     stroke: #95A5A6;
+}
+
+.graph-ring-guide {
+    fill: none;
+    stroke: var(--neutral-400);
+    stroke-width: 1px;
+    stroke-dasharray: 4 6;
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+body.dark-mode .graph-ring-guide {
+    stroke: var(--neutral-500);
+}
+
+.graph-node.ring-center {
+    stroke: var(--primary);
+    stroke-width: 4px;
+    filter: drop-shadow(0 0 7px color-mix(in srgb, var(--primary) 55%, transparent));
+}
+
+.graph-node.dragging {
+    stroke-width: 4px;
 }
 
 .graph-label {
@@ -5452,6 +5532,41 @@ body.dark-mode .quality-tier-low,
 
     .graph-card-large {
         min-height: 500px;
+    }
+
+    .graph-fullscreen-content {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+    }
+
+    .graph-fullscreen-header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 10px 12px;
+    }
+
+    .graph-fullscreen-header h3 {
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .graph-fullscreen-controls {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .graph-fullscreen-controls .graph-node-count {
+        flex: 1 0 100%;
+        min-height: 32px;
+        padding: 0 8px;
+    }
+
+    .graph-fullscreen-controls .btn {
+        min-height: 36px;
+        padding: 0.45rem 0.65rem;
     }
 
     .legend-items {

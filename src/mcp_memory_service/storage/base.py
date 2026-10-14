@@ -166,7 +166,7 @@ class MemoryStorage(ABC):
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
-        store: Optional[str] = None
+        store: Optional[str] = "default"
     ) -> List[MemoryQueryResult]:
         """
         Retrieve memories with optional quality-based reranking.
@@ -647,7 +647,8 @@ class MemoryStorage(ABC):
 
                         filtered_memories = await self.get_memories_by_time_range(
                             start_time=start_time,
-                            end_time=end_time
+                            end_time=end_time,
+                            store=store
                         )
                     except ValueError as e:
                         return {
@@ -663,7 +664,7 @@ class MemoryStorage(ABC):
             # Deletion must never skip pending rows (they would silently survive and reappear
             # in search after embedding repair). Pending exclusion belongs on SEARCH paths only.
             if not use_optimized:
-                all_memories = await self.get_all_memories()
+                all_memories = await self.get_all_memories(store=store)
 
                 for memory in all_memories:
                     # Tag filter
@@ -735,7 +736,7 @@ class MemoryStorage(ABC):
 
             for memory in filtered_memories:
                 try:
-                    success, msg = await self.delete(memory.content_hash)
+                    success, msg = await self.delete(memory.content_hash, store=store)
                     if success:
                         deleted_count += 1
                         deleted_hashes.append(memory.content_hash)
@@ -1376,7 +1377,8 @@ class MemoryStorage(ABC):
                             results = await self.retrieve_hybrid(
                                 query,
                                 n_results=fetch_limit,
-                                include_superseded=include_superseded
+                                include_superseded=include_superseded,
+                                store=store
                             )
                         else:
                             # Fall back to semantic if hybrid disabled in config
@@ -1428,7 +1430,7 @@ class MemoryStorage(ABC):
 
                     # Fallback: load all memories then filter
                     if not use_optimized_search:
-                        all_memories = await self.get_all_memories(exclude_pending=True)
+                        all_memories = await self.get_all_memories(exclude_pending=True, store=store)
                         results = [
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories

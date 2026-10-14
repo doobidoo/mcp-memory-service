@@ -177,12 +177,18 @@ class HybridMixin:
         n_results: int = 5,
         keyword_weight: Optional[float] = None,
         semantic_weight: Optional[float] = None,
-        include_superseded: bool = False
+        include_superseded: bool = False,
+        store: Optional[str] = "default"
     ) -> List[MemoryQueryResult]:
-        """Hybrid search combining BM25 keyword matching and vector similarity."""
+        """Hybrid search combining BM25 keyword matching and vector similarity.
+
+        When ``store`` is given, results are scoped to that partition: the vector
+        half already filters by store, and a final store filter is applied over the
+        merged set so the (store-unaware) BM25 half cannot leak other partitions.
+        """
         try:
             bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded))
-            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded))
+            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded, store=store))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
 
@@ -260,6 +266,29 @@ class HybridMixin:
                     ))
 
             merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
+
+            # Store isolation (#1466): BM25 is not store-aware, so drop any merged
+            # result whose row is not in the requested store before truncating.
+            if store is not None and merged_results:
+                hashes = [r.memory.content_hash for r in merged_results]
+                in_store = set()
+                try:
+                    for batch_start in range(0, len(hashes), 999):
+                        batch = hashes[batch_start:batch_start + 999]
+                        ph = ",".join("?" for _ in batch)
+                        cur = self.conn.execute(
+                            f"SELECT content_hash FROM memories WHERE content_hash IN ({ph}) AND store = ? AND deleted_at IS NULL",
+                            (*batch, store),
+                        )
+                        in_store.update(row[0] for row in cur.fetchall())
+                    merged_results = [r for r in merged_results if r.memory.content_hash in in_store]
+                except Exception as e:
+                    # Fail CLOSED: a store-scoped search must never fall back to unfiltered
+                    # results (BM25 spans every store), so on error return nothing rather
+                    # than leaking other partitions.
+                    logger.warning("Hybrid store filter failed, returning no results (fail-closed): %s", _sanitize_log_value(e))
+                    merged_results = []
+
             results = merged_results[:n_results]
 
             logger.info("Hybrid search found %d results (BM25: %d, Vector: %d)",

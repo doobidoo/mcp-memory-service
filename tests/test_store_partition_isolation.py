@@ -13,6 +13,7 @@ BUG #1466: search_memories only honors store parameter in semantic and ranked mo
 """
 
 import os
+import shutil
 import tempfile
 import pytest
 
@@ -40,6 +41,7 @@ async def storage():
     await s.initialize()
     yield s
     await s.close()
+    shutil.rmtree(d, ignore_errors=True)
 
 
 class TestDeleteMemoriesStoreIsolation:
@@ -83,28 +85,40 @@ class TestDeleteMemoriesStoreIsolation:
         assert default_remaining == 1, "Memory in default store should not be deleted"
         assert docs_remaining == 0, "Memory in docs store should be deleted"
 
+        # Stronger (P2): deleting a hash scoped to the WRONG store must NOT delete it.
+        # The old unscoped implementation would delete regardless of store — this proves scoping.
+        await storage.store(Memory(content="wrong store guard content", content_hash="wrongstore_hash", tags=["g"]), store="docs")
+        res_wrong = await storage.delete_memories(content_hash="wrongstore_hash", store="default")
+        still = storage.conn.execute("SELECT COUNT(*) FROM memories WHERE content_hash='wrongstore_hash' AND deleted_at IS NULL").fetchone()[0]
+        assert still == 1, "Deleting a docs hash scoped to 'default' must NOT delete it"
+        assert res_wrong["deleted_count"] == 0, "Wrong-store delete must report 0 deleted"
+
     @pytest.mark.asyncio
     async def test_delete_by_tag_respects_store(self, storage):
-        """Delete by tag should only affect memories in specified store."""
-        # Create memories with same tag in different stores
-        mem1 = Memory(content="Content 1", content_hash="hash1", tags=["shared_tag"])
-        mem2 = Memory(content="Content 2", content_hash="hash2", tags=["shared_tag"])
-        
+        """Delete by tag should only affect memories in specified store (#1465).
+
+        Conteúdos deliberadamente distintos (não-similares) para que a dedup
+        semântica — que não é store-aware — não rejeite o segundo store.
+        """
+        mem1 = Memory(content="Postgres replication lag runbook for the default partition", content_hash="tag1_default", tags=["shared_tag_1465"])
+        mem2 = Memory(content="Kubernetes ingress TLS renewal notes kept in the docs partition", content_hash="tag2_docs", tags=["shared_tag_1465"])
+
         # Store in different stores
-        await storage.store(mem1, store="default")
-        await storage.store(mem2, store="docs")
-        
+        ok1, _ = await storage.store(mem1, store="default")
+        ok2, _ = await storage.store(mem2, store="docs")
+        assert ok1 and ok2, "both memories must be stored (distinct content avoids dedup)"
+
         # Delete by tag from docs store only
-        result = await storage.delete_memories(tags=["shared_tag"], store="docs")
+        result = await storage.delete_memories(tags=["shared_tag_1465"], store="docs")
         assert result["success"] is True
         assert result["deleted_count"] == 1
-        
+
         # Memory in default store should still exist (RED before #1465 fix)
         cursor = storage.conn.execute("SELECT COUNT(*) FROM memories WHERE store = 'default' AND deleted_at IS NULL")
         default_remaining = cursor.fetchone()[0]
         cursor = storage.conn.execute("SELECT COUNT(*) FROM memories WHERE store = 'docs' AND deleted_at IS NULL")
         docs_remaining = cursor.fetchone()[0]
-        
+
         assert default_remaining == 1, "Memory in default store should not be deleted"
         assert docs_remaining == 0, "Memory in docs store should be deleted"
 
@@ -125,6 +139,8 @@ class TestSearchMemoriesStoreIsolation:
         results = await storage.search_memories(query="databases", store="docs", mode="semantic", quality_boost=0.3)
 
         returned_hashes = [m["content_hash"] for m in results["memories"]]
+        # P2: must actually FIND the docs memory — an empty result must NOT pass this test.
+        assert "qb_docs" in returned_hashes, "quality_boost search must return the docs-store memory (not empty)"
         for hash_val in returned_hashes:
             row = storage.conn.execute("SELECT store FROM memories WHERE content_hash = ?", (hash_val,)).fetchone()
             assert row[0] == "docs", f"Memory {hash_val} should be from docs store, but is from {row[0]}"
@@ -163,3 +179,19 @@ class TestSearchMemoriesStoreIsolation:
         hashes = [m.content_hash for m in memories]
         assert "tm_docs" in hashes, "time-range should find the docs memory"
         assert "tm_default" not in hashes, "time-range must not leak default-store memory"
+
+    @pytest.mark.asyncio
+    async def test_search_tag_only_scoped_to_store(self, storage):
+        """Tag-only search (no query) must be scoped to the store (#1466, P1 #4).
+
+        The tag-only branch loads via get_all_memories, which previously defaulted
+        to the 'default' store regardless of the requested partition.
+        """
+        await storage.store(Memory(content="alpha note in default partition", content_hash="to_default", tags=["scoped_tag"]), store="default")
+        await storage.store(Memory(content="beta note in docs partition", content_hash="to_docs", tags=["scoped_tag"]), store="docs")
+
+        results = await storage.search_memories(tags=["scoped_tag"], store="docs")
+
+        returned_hashes = [m["content_hash"] for m in results["memories"]]
+        assert "to_docs" in returned_hashes, "tag-only search must return the docs memory"
+        assert "to_default" not in returned_hashes, "tag-only search must not leak default-store memory"

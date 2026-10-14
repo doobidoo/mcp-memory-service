@@ -21,7 +21,8 @@
 The Knowledge Graph Dashboard provides an interactive visualization of your memory relationships using D3.js v7.9.0. It allows you to explore the connections between memories, understand causal chains, and discover hidden patterns in your knowledge base.
 
 **Key Capabilities:**
-- **Visual Exploration**: Interactive force-directed graph with zoom, pan, and drag
+- **Visual Exploration**: Interactive force-directed and concentric-ring layouts with zoom, pan,
+  drag, and animated re-centering
 - **Typed Relationships**: 6 semantic relationship types for rich knowledge graphs
 - **Analytics**: Bar chart showing distribution of relationship types
 - **Multi-Language**: Full UI localization in 7 languages
@@ -49,6 +50,21 @@ The graph visualization uses D3.js force simulation to automatically layout memo
 - **Pan**: Click and drag background
 - **Drag Nodes**: Click and drag any node to explore connections
 - **Hover Tooltips**: Shows memory details (content, type, created date)
+
+### Concentric Ring Layout
+
+Use the **Force / Rings** control to switch the 2D graph to a stable, node-centered view. Rings
+represent shortest-path distance from the center: direct neighbors occupy the first ring, their
+neighbors the second, and so on. The highest-degree visible node is used initially.
+
+- **Re-center**: Click a node to animate the rings around it without reloading graph data.
+- **Open details**: Double-click a node while using Rings.
+- **Drag**: Drag remains available for temporary positioning; the next re-center restores the
+  calculated layout.
+- **Disconnected nodes**: Nodes outside the center's component are placed on the outermost ring.
+
+Selecting Rings switches the renderer to 2D. Switching back to 3D restores the force-directed
+layout.
 
 ### Relationship Type Distribution Chart
 
@@ -160,6 +176,11 @@ memory launch
 - **Mouse**: Click and drag any node to reposition
 - **Release**: Node continues moving with simulation forces
 - **Pin**: Node stays in place while you explore
+
+**Ring Navigation:**
+- Select **Rings** to center the highest-degree visible node
+- Click any node to animate it into the center
+- Double-click a node to open its memory details
 
 **Hover:**
 - **Mouse**: Hover over any node to see tooltip with:

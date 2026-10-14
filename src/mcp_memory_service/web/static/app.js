@@ -112,6 +112,10 @@ class MemoryDashboard {
         this.documentsListenersSetup = false;
         this.processingMode = 'batch'; // 'batch' or 'individual'
 
+        // Knowledge graph view state
+        this.graphLayout = 'force';
+        this.graphRingCenterId = null;
+
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
         this.handleQuickSearch = this.handleQuickSearch.bind(this);
@@ -666,6 +670,9 @@ class MemoryDashboard {
         document.getElementById('graphMinConnectionsSelect')?.addEventListener('change', this.handleGraphRefresh.bind(this));
         document.getElementById('graphDegreeSlider')?.addEventListener('input', this.handleGraphDegreeChange.bind(this));
         document.getElementById('graphDimensionBtn')?.addEventListener('click', this.toggleGraphDimension.bind(this));
+        document.querySelectorAll('[data-graph-layout]').forEach(button => {
+            button.addEventListener('click', () => this.setGraphLayout(button.dataset.graphLayout));
+        });
         document.getElementById('graphRotateBtn')?.addEventListener('click', this.toggleGraphRotation.bind(this));
         document.getElementById('graphFullscreenRotateBtn')?.addEventListener('click', this.toggleGraphRotation.bind(this));
         document.getElementById('graphFullscreenLegendBtn')?.addEventListener('click', this.toggleGraphLegend.bind(this));
@@ -5728,6 +5735,7 @@ class MemoryDashboard {
 
             // Store data for fullscreen use
             this.currentGraphData = data;
+            this.graphRingCenterId = null;
 
             // A reload brings a new node set, so the degree filter starts over.
             this.minGraphDegree = 1;
@@ -5769,6 +5777,7 @@ class MemoryDashboard {
      * Render graph in a specific container with custom dimensions
      */
     renderGraphVisualizationInContainer(container, data, width, height, isFullscreen) {
+        this._disposeConcentricRingView(isFullscreen);
 
         // PoC (Orrery-style): tear down any prior 3D instance bound to this slot
         this._disposeGraph3D(isFullscreen);
@@ -5778,6 +5787,7 @@ class MemoryDashboard {
         // ticking against detached nodes until it cooled on its own.
         const previousSimulation = isFullscreen ? this.fullscreenSimulation : this.graphSimulation;
         if (previousSimulation) previousSimulation.stop();
+        container.innerHTML = '';
 
         // Default to 3D once the (ESM, deferred) 3d-force-graph module has set
         // window.ForceGraph3D. Don't cache `false` — the module may still be
@@ -5786,16 +5796,20 @@ class MemoryDashboard {
         if (this.use3DGraph === undefined && typeof window.ForceGraph3D !== 'undefined') {
             this.use3DGraph = true;
         }
-        if (this.use3DGraph && typeof window.ForceGraph3D !== 'undefined') {
+        if (this.graphLayout !== 'rings' && this.use3DGraph && typeof window.ForceGraph3D !== 'undefined') {
             this.render3DGraph(container, data, width, height, isFullscreen);
             return;
         }
 
-        // ----- Legacy 2D D3.js force-directed fallback -----
         // Apply the same type filter + edge-dedup on fresh copies (D3 mutates
         // node/link objects, so never run it on the shared currentGraphData).
         data = this._filterGraphData(data);
+        if (this.graphLayout === 'rings') {
+            this.renderConcentricRingGraph(container, data, width, height, isFullscreen);
+            return;
+        }
 
+        // ----- Legacy 2D D3.js force-directed fallback -----
         // Create SVG
         const svg = d3.select(container)
             .append('svg')
@@ -5921,6 +5935,363 @@ class MemoryDashboard {
             this.graphSimulation = simulation;
             this.graphSvg = svg;
         }
+    }
+
+    /**
+     * Render the filtered graph in BFS-distance rings around the selected node.
+     */
+    _concentricRingNodeRadius(item) {
+        return Math.min(20, 8 + Math.sqrt(item.connections || 1) * 2);
+    }
+
+    renderConcentricRingGraph(container, data, width, height, isFullscreen) {
+        const slot = isFullscreen ? '_fs' : '_main';
+        const svg = d3.select(container)
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height)
+            .attr('viewBox', [0, 0, width, height])
+            .attr('class', 'graph-ring-canvas');
+
+        const g = svg.append('g');
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on('zoom', event => g.attr('transform', event.transform));
+        svg.call(zoom);
+
+        const nodes = data.nodes.map(node => ({ ...node }));
+        const nodeById = new Map(nodes.map(node => [node.id, node]));
+        const idOf = value => (value && typeof value === 'object') ? value.id : value;
+        const edges = data.edges
+            .map(edge => ({ ...edge, source: idOf(edge.source), target: idOf(edge.target) }))
+            .filter(edge => nodeById.has(edge.source) && nodeById.has(edge.target));
+        const layout = this._calculateConcentricRingLayout(
+            nodes,
+            edges,
+            this.graphRingCenterId,
+            width,
+            height
+        );
+        this.graphRingCenterId = layout.centerId;
+
+        const ringLayer = g.append('g').attr('class', 'graph-ring-guides');
+        const link = g.append('g')
+            .selectAll('line')
+            .data(edges)
+            .join('line')
+            .attr('class', edge => `graph-link link-${edge.relationship_type || 'related'}`)
+            .attr('stroke-width', 1.5);
+        const nodeColors = this.graphTypeColors || { 'untyped': '#9B59B6' };
+        const node = g.append('g')
+            .selectAll('circle')
+            .data(nodes)
+            .join('circle')
+            .attr('class', 'graph-node')
+            .attr('r', item => this._concentricRingNodeRadius(item))
+            .attr('fill', item => nodeColors[item.type] || nodeColors.untyped)
+            .style('cursor', 'pointer');
+        const fontSize = nodes.length > 750 ? '8px' : nodes.length > 500 ? '10px' : '12px';
+        const label = g.append('g')
+            .selectAll('text')
+            .data(nodes)
+            .join('text')
+            .attr('class', 'graph-label')
+            .attr('font-size', fontSize)
+            .attr('fill', isFullscreen ? '#ffffff' : 'currentColor')
+            .attr('dy', -15)
+            .text(item => {
+                const content = item.content || '';
+                return content.length > 20 ? content.substring(0, 20) + '...' : content;
+            });
+        const tooltip = d3.select(container)
+            .append('div')
+            .attr('class', 'graph-tooltip')
+            .style('position', 'absolute')
+            .style('opacity', 0);
+
+        const view = {
+            clickTimer: null,
+            edges,
+            height,
+            isFullscreen,
+            label,
+            link,
+            node,
+            nodeById,
+            nodes,
+            ringLayer,
+            svg,
+            width,
+            zoom
+        };
+        this['ringGraph' + slot] = view;
+        this._applyConcentricRingLayout(view, layout, false);
+
+        node
+            .on('click', (event, item) => {
+                if (event.defaultPrevented) return;
+                event.stopPropagation();
+                if (view.clickTimer) window.clearTimeout(view.clickTimer);
+                view.clickTimer = window.setTimeout(() => {
+                    view.clickTimer = null;
+                    this.recenterConcentricRingGraph(item.id);
+                }, 250);
+            })
+            .on('dblclick', (event, item) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (view.clickTimer) {
+                    window.clearTimeout(view.clickTimer);
+                    view.clickTimer = null;
+                }
+                this.handleGraphNodeClick(event, item);
+            })
+            .on('mouseover', (event, item) => {
+                tooltip.transition().duration(200).style('opacity', 1);
+                tooltip
+                    .html(this.formatGraphTooltip(item, 'Click to center; double-click for details'))
+                    .style('left', (event.pageX + 10) + 'px')
+                    .style('top', (event.pageY - 28) + 'px');
+            })
+            .on('mouseout', () => tooltip.transition().duration(500).style('opacity', 0))
+            .call(this.concentricRingDragBehavior(view));
+    }
+
+    /**
+     * Calculate stable node coordinates by shortest-path distance from a center node.
+     */
+    _calculateConcentricRingLayout(nodes, edges, requestedCenterId, width, height) {
+        const adjacency = new Map(nodes.map(node => [node.id, new Set()]));
+        const nodeById = new Map(nodes.map(node => [node.id, node]));
+        edges.forEach(edge => {
+            adjacency.get(edge.source)?.add(edge.target);
+            adjacency.get(edge.target)?.add(edge.source);
+        });
+        const degree = node => adjacency.get(node.id)?.size || 0;
+        const byDegree = [...nodes].sort((a, b) => degree(b) - degree(a) || String(a.id).localeCompare(String(b.id)));
+        const center = nodes.find(node => node.id === requestedCenterId) || byDegree[0];
+        if (!center) return { centerId: null, outerRadius: 0, positions: new Map(), radii: [] };
+
+        const depths = new Map([[center.id, 0]]);
+        const queue = [center.id];
+        for (let cursor = 0; cursor < queue.length; cursor += 1) {
+            const current = queue[cursor];
+            const nextDepth = depths.get(current) + 1;
+            const neighbors = [...(adjacency.get(current) || [])]
+                .map(id => nodeById.get(id))
+                .filter(Boolean)
+                .sort((a, b) => degree(b) - degree(a) || String(a.id).localeCompare(String(b.id)));
+            neighbors.forEach(neighbor => {
+                if (depths.has(neighbor.id)) return;
+                depths.set(neighbor.id, nextDepth);
+                queue.push(neighbor.id);
+            });
+        }
+
+        let maxDepth = Math.max(0, ...depths.values());
+        const disconnected = byDegree.filter(node => !depths.has(node.id));
+        if (disconnected.length) {
+            maxDepth += 1;
+            disconnected.forEach(node => depths.set(node.id, maxDepth));
+        }
+
+        const rings = new Map();
+        nodes.forEach(node => {
+            const depth = depths.get(node.id);
+            if (!rings.has(depth)) rings.set(depth, []);
+            rings.get(depth).push(node);
+        });
+        rings.forEach(ring => ring.sort(
+            (a, b) => degree(b) - degree(a) || String(a.id).localeCompare(String(b.id))
+        ));
+
+        const cx = width / 2;
+        const cy = height / 2;
+        const nominalRadius = Math.max(0, Math.min(width, height) / 2 - 48);
+        const nominalStep = Math.max(72, nominalRadius / Math.max(1, maxDepth + 0.35));
+        const nodeRadius = node => this._concentricRingNodeRadius(node);
+        const positions = new Map([[center.id, { x: cx, y: cy, depth: 0 }]]);
+        const radii = [];
+        let outerRadius = nodeRadius(center);
+        let previousNodeRadius = nodeRadius(center);
+        let previousRadius = 0;
+        for (let depth = 1; depth <= maxDepth; depth += 1) {
+            const ring = rings.get(depth) || [];
+            const ringNodeRadius = Math.max(10, ...ring.map(nodeRadius));
+            const circumferenceRadius = ring.reduce(
+                (length, node) => length + nodeRadius(node) * 2 + 12,
+                0
+            ) / (2 * Math.PI);
+            const radialRadius = previousRadius + Math.max(
+                nominalStep,
+                previousNodeRadius + ringNodeRadius + 24
+            );
+            const radius = Math.max(circumferenceRadius, radialRadius);
+            radii.push(radius);
+            ring.forEach((node, index) => {
+                const angle = -Math.PI / 2 + (2 * Math.PI * index / Math.max(1, ring.length));
+                positions.set(node.id, {
+                    x: cx + radius * Math.cos(angle),
+                    y: cy + radius * Math.sin(angle),
+                    depth
+                });
+            });
+            previousNodeRadius = ringNodeRadius;
+            previousRadius = radius;
+            outerRadius = Math.max(outerRadius, radius + ringNodeRadius + 28);
+        }
+        return { centerId: center.id, outerRadius, positions, radii };
+    }
+
+    /**
+     * Move both rendered ring views to a new center without another API request.
+     */
+    recenterConcentricRingGraph(centerId) {
+        this.graphRingCenterId = centerId;
+        ['_main', '_fs'].forEach(slot => {
+            const view = this['ringGraph' + slot];
+            if (!view) return;
+            const layout = this._calculateConcentricRingLayout(
+                view.nodes,
+                view.edges,
+                centerId,
+                view.width,
+                view.height
+            );
+            this._applyConcentricRingLayout(view, layout, true);
+        });
+    }
+
+    _applyConcentricRingLayout(view, layout, animate) {
+        view.nodes.forEach(node => {
+            const position = layout.positions.get(node.id);
+            if (position) {
+                node.x = position.x;
+                node.y = position.y;
+                node.ringDepth = position.depth;
+            }
+        });
+        const transition = animate ? d3.transition().duration(650).ease(d3.easeCubicInOut) : null;
+        const move = selection => transition ? selection.transition(transition) : selection;
+
+        const guides = view.ringLayer
+            .selectAll('circle')
+            .data(layout.radii);
+        guides.exit().remove();
+        const mergedGuides = guides.enter()
+            .append('circle')
+            .attr('class', 'graph-ring-guide')
+            .attr('cx', view.width / 2)
+            .attr('cy', view.height / 2)
+            .attr('r', 0)
+            .merge(guides);
+        move(mergedGuides)
+            .attr('cx', view.width / 2)
+            .attr('cy', view.height / 2)
+            .attr('r', radius => radius);
+
+        view.node.classed('ring-center', node => node.id === layout.centerId);
+        move(view.node)
+            .attr('cx', node => node.x)
+            .attr('cy', node => node.y);
+        move(view.label)
+            .attr('x', node => node.x)
+            .attr('y', node => node.y);
+        move(view.link)
+            .attr('x1', edge => view.nodeById.get(edge.source).x)
+            .attr('y1', edge => view.nodeById.get(edge.source).y)
+            .attr('x2', edge => view.nodeById.get(edge.target).x)
+            .attr('y2', edge => view.nodeById.get(edge.target).y);
+
+        const availableDiameter = Math.max(1, Math.min(view.width, view.height) - 64);
+        const contentDiameter = Math.max(1, layout.outerRadius * 2);
+        const scale = Math.min(1, availableDiameter / contentDiameter);
+        view.zoom.scaleExtent([Math.min(0.1, scale), 4]);
+        const fitTransform = d3.zoomIdentity
+            .translate(view.width / 2, view.height / 2)
+            .scale(scale)
+            .translate(-view.width / 2, -view.height / 2);
+        const zoomTarget = transition ? view.svg.transition(transition) : view.svg;
+        zoomTarget.call(view.zoom.transform, fitTransform);
+    }
+
+    _disposeConcentricRingView(isFullscreen) {
+        const slot = isFullscreen ? '_fs' : '_main';
+        const view = this['ringGraph' + slot];
+        if (!view) return;
+        if (view.clickTimer) window.clearTimeout(view.clickTimer);
+        this._interruptConcentricRingTransitions(view);
+        this['ringGraph' + slot] = null;
+    }
+
+    _interruptConcentricRingTransitions(view) {
+        view.svg.interrupt();
+        view.ringLayer.selectAll('circle').interrupt();
+        view.node.interrupt().each(function (node) {
+            const circle = d3.select(this);
+            const x = Number(circle.attr('cx'));
+            const y = Number(circle.attr('cy'));
+            if (Number.isFinite(x)) node.x = x;
+            if (Number.isFinite(y)) node.y = y;
+        });
+        view.label.interrupt()
+            .attr('x', node => node.x)
+            .attr('y', node => node.y);
+        view.link.interrupt()
+            .attr('x1', edge => view.nodeById.get(edge.source).x)
+            .attr('y1', edge => view.nodeById.get(edge.source).y)
+            .attr('x2', edge => view.nodeById.get(edge.target).x)
+            .attr('y2', edge => view.nodeById.get(edge.target).y);
+    }
+
+    _resizeConcentricRingView(view, width, height) {
+        width = Math.max(1, Math.round(width));
+        height = Math.max(1, Math.round(height));
+        if (view.width === width && view.height === height) return;
+        this._interruptConcentricRingTransitions(view);
+        view.width = width;
+        view.height = height;
+        view.svg
+            .attr('width', width)
+            .attr('height', height)
+            .attr('viewBox', [0, 0, width, height]);
+        const layout = this._calculateConcentricRingLayout(
+            view.nodes,
+            view.edges,
+            this.graphRingCenterId,
+            width,
+            height
+        );
+        this._applyConcentricRingLayout(view, layout, false);
+    }
+
+    /**
+     * Keep node dragging available in ring mode. Re-centering restores the calculated positions.
+     */
+    concentricRingDragBehavior(view) {
+        const dashboard = this;
+        const update = () => {
+            view.node.attr('cx', node => node.x).attr('cy', node => node.y);
+            view.label.attr('x', node => node.x).attr('y', node => node.y);
+            view.link
+                .attr('x1', edge => view.nodeById.get(edge.source).x)
+                .attr('y1', edge => view.nodeById.get(edge.source).y)
+                .attr('x2', edge => view.nodeById.get(edge.target).x)
+                .attr('y2', edge => view.nodeById.get(edge.target).y);
+        };
+        return d3.drag()
+            .on('start', function () {
+                dashboard._interruptConcentricRingTransitions(view);
+                d3.select(this).classed('dragging', true);
+            })
+            .on('drag', (event, node) => {
+                node.x = event.x;
+                node.y = event.y;
+                update();
+            })
+            .on('end', function () {
+                d3.select(this).classed('dragging', false);
+            });
     }
 
     /**
@@ -6199,8 +6570,15 @@ class MemoryDashboard {
      * redraw the previous graph over the empty-result or error message.
      */
     _clearGraphData() {
+        this._disposeConcentricRingView(false);
+        if (this._graphFullscreenOpen) {
+            this.exitGraphFullscreen();
+        } else {
+            this._disposeConcentricRingView(true);
+        }
         this.currentGraphData = null;
         this.minGraphDegree = 1;
+        this.graphRingCenterId = null;
         this._syncDegreeSlider(1, 1);
     }
 
@@ -6222,8 +6600,7 @@ class MemoryDashboard {
                 if (g) g.graphData(graphData);
             });
         } else {
-            const container = document.getElementById('graphVisualizationContainer');
-            if (container) this.renderGraphVisualization(container, this.currentGraphData);
+            this._renderCurrentGraphViews();
         }
     }
 
@@ -6358,6 +6735,11 @@ class MemoryDashboard {
             const el = document.getElementById(id);
             if (el) el.textContent = text;
         });
+        const enabled = Boolean(this.use3DGraph) && this.graphLayout !== 'rings';
+        ['graphRotateBtn', 'graphFullscreenRotateBtn'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.disabled = !enabled;
+        });
     }
 
     /**
@@ -6486,11 +6868,55 @@ class MemoryDashboard {
      */
     toggleGraphDimension() {
         this.use3DGraph = !this.use3DGraph;
+        if (this.use3DGraph) {
+            this.graphLayout = 'force';
+            this._updateGraphLayoutButtons();
+        }
         const label = document.getElementById('graphDimensionLabel');
         if (label) label.textContent = this.use3DGraph ? '3D' : '2D';
-        if (this.currentGraphData) {
-            const container = document.getElementById('graphVisualizationContainer');
-            if (container) this.renderGraphVisualization(container, this.currentGraphData);
+        this._updateRotateButton();
+        this._renderCurrentGraphViews();
+    }
+
+    /**
+     * Switch between the force-directed and concentric-ring 2D layouts.
+     */
+    setGraphLayout(layout) {
+        if (layout !== 'force' && layout !== 'rings') return;
+        this.graphLayout = layout;
+        if (layout === 'rings') {
+            this.use3DGraph = false;
+            const dimensionLabel = document.getElementById('graphDimensionLabel');
+            if (dimensionLabel) dimensionLabel.textContent = '2D';
+        }
+        this._updateGraphLayoutButtons();
+        this._updateRotateButton();
+        this._renderCurrentGraphViews();
+    }
+
+    _updateGraphLayoutButtons() {
+        document.querySelectorAll('[data-graph-layout]').forEach(button => {
+            const active = button.dataset.graphLayout === this.graphLayout;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-pressed', String(active));
+        });
+    }
+
+    _renderCurrentGraphViews() {
+        if (!this.currentGraphData) return;
+        const container = document.getElementById('graphVisualizationContainer');
+        if (container) this.renderGraphVisualization(container, this.currentGraphData);
+        if (this._graphFullscreenOpen) {
+            const fullscreen = document.getElementById('graphFullscreenContainer');
+            if (fullscreen) {
+                this.renderGraphVisualizationInContainer(
+                    fullscreen,
+                    this.currentGraphData,
+                    fullscreen.clientWidth || window.innerWidth,
+                    fullscreen.clientHeight || Math.max(200, window.innerHeight - 64),
+                    true
+                );
+            }
         }
     }
 
@@ -6504,7 +6930,7 @@ class MemoryDashboard {
     /**
      * Format enhanced tooltip with quality score, timestamps, and metadata
      */
-    formatGraphTooltip(d) {
+    formatGraphTooltip(d, interactionHint = 'Click node to view full memory') {
         const qualityClass = d.quality_score >= 0.7 ? 'high' : d.quality_score >= 0.4 ? 'medium' : 'low';
         const qualityColor = qualityClass === 'high' ? '#50C878' : qualityClass === 'medium' ? '#F39C12' : '#E24A4A';
 
@@ -6552,7 +6978,7 @@ class MemoryDashboard {
                     <span class="tooltip-icon">🔑</span>
                     <span title="${d.id}">${d.id.substring(0, 12)}...</span>
                 </div>
-                <div class="tooltip-hint">💡 Click node to view full memory</div>
+                <div class="tooltip-hint">💡 ${this.escapeHtml(interactionHint)}</div>
             </div>
         `;
     }
@@ -6640,7 +7066,22 @@ class MemoryDashboard {
             const d = dims();
             const g = this.graph3d_fs;
             if (g) { g.width(d.w); g.height(d.h); }
+            if (this.ringGraph_fs) {
+                this._resizeConcentricRingView(this.ringGraph_fs, d.w, d.h);
+            }
         };
+        if (typeof ResizeObserver !== 'undefined') {
+            this._fsResizeObserver = new ResizeObserver(entries => {
+                const entry = entries[0];
+                if (!entry || !this.ringGraph_fs) return;
+                this._resizeConcentricRingView(
+                    this.ringGraph_fs,
+                    entry.contentRect.width,
+                    entry.contentRect.height
+                );
+            });
+            this._fsResizeObserver.observe(container);
+        }
         this._fsChangeHandler = () => {
             this._fsResizeHandler();
             // User left OS fullscreen (Esc / gesture) -> close the overlay too
@@ -6683,6 +7124,7 @@ class MemoryDashboard {
         }
 
         // Clear container
+        this._disposeConcentricRingView(true);
         document.getElementById('graphFullscreenContainer').innerHTML = '';
 
         // Remove resize / fullscreenchange handlers
@@ -6693,6 +7135,10 @@ class MemoryDashboard {
         if (this._fsChangeHandler) {
             document.removeEventListener('fullscreenchange', this._fsChangeHandler);
             this._fsChangeHandler = null;
+        }
+        if (this._fsResizeObserver) {
+            this._fsResizeObserver.disconnect();
+            this._fsResizeObserver = null;
         }
 
         // Remove escape listener

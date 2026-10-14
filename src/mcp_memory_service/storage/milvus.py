@@ -2030,7 +2030,7 @@ class MilvusMemoryStorage(MemoryStorage):
             return None
         return memory
 
-    async def get_by_exact_content(self, content: str) -> List[Memory]:
+    async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Case-insensitive substring match on content.
 
         Matches sqlite_vec's semantics (``LIKE '%...%' COLLATE NOCASE``
@@ -3884,7 +3884,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float,
-        include_embeddings: bool = False,
+        include_embeddings: bool = False, store: Optional[str] = None,
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
