@@ -82,9 +82,9 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   │
 │   ├─ 🟢 ARCO CONSUMIDOR DE GRAFO NA INJEÇÃO (40e6ecfb, ex-INC4 reposicionado 13/out) · navegação por tema/entidade na busca · SEPARADO do dreaming (que foca consolidação)
 │   │     │   ACHADO (seven, código): memory_graph tem 3 arestas: (A) memória↔memória, (B) memória→entidade has_entity=agrupamento-por-tema estilo Obsidian, (C) entidade↔entidade SPO. Vídeo do Henry (/graph-visualization D3) desenha SÓ (A), EXCLUI has_entity de propósito (#256). Busca/injeção NÃO navega NENHUM grafo (~528k edges sem consumidor). memory_explore/detail usam has_entity+shares_entity, fora da busca.
-│   │     ├─ PRÉ-REQ qualidade de belief (f0e2c306, HIGH) ... 🔴 queue · beliefs degenerados ('learning','TYPE:') limitam teto; atacar destilação ANTES · bloqueia spec
-│   │     ├─ RFC+SPEC consumidor ADITIVO (a74c0e1f) ......... 🔴 queue · INVARIANTE append-only (nunca descartar ranking R4) · dep qualidade
-│   │     └─ Impl+gate (9fe4abd0) ........................... 🔴 queue · core pelo MANAGER (reg falhou 2×), testes/review delegados · A/B R4 vs R4+grafo · dep spec
+│   │     ├─ PRÉ-REQ qualidade de belief (f0e2c306, HIGH) ... ✅ DONE 14/out (PR #1533: len>500 só é ruído se dump real, entropy<0.4 OR words<10; +497 memórias acionáveis resgatadas, medido)
+│   │     ├─ RFC+SPEC consumidor ADITIVO (a74c0e1f) ......... ✅ DONE 14/out · docs/rfc/planned/rfc-learning-loop-graph-proximity.md (EARS R1-R7, CA1-CA3, G0 seven) · INVARIANTE append-only honrado
+│   │     └─ Impl+gate (9fe4abd0) ........................... ✅ DONE 14/out (merge f45e9bbe) · gate G0(seven)→G1(RFC)→G3(rok)→G4(reg)→G5(tuvok 2 rodadas) · termo aditivo graph_proximity no _apply_rerank_a, opt-in MCP_INJECT_GRAPH_PROXIMITY+W_GRAPH (default 0.0=R4 byte-idêntico) · reusa get_graph_storage()+find_memories_by_entity+EntityExtractor (sem DDL) · 11 testes, 0 regressão · G5 pegou 4 bloqueadores (gate morto storage.graph→get_graph_storage #219; complexidade; CA1 baseline anchor por mutation; domain_extractors) TODOS corrigidos · ACHADO: minha verificação de manager passou código-morto (storage.graph), o tuvok independente pegou — review externo é obrigatório · ⚠️ ANTES DE LIGAR a flag: medir recall de entidades em prosa + CA3 MRR + tunar peso (seção 'Before enabling' no RFC)
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
