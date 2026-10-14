@@ -24,10 +24,35 @@ class TestNoiseFilter:
         content = "Some context\nUser: how do I fix this?\nAssistant: try X"
         assert _is_noise(content) is True
 
-    def test_noise_filter_long_content(self):
-        """Content over 500 chars should be filtered as noise."""
+    def test_noise_filter_long_degenerate_content(self):
+        """Long but degenerate content (one giant token, no real words) is still noise."""
         long_content = "x" * 601
         assert _is_noise(long_content) is True
+
+    def test_noise_filter_long_low_entropy_dump(self):
+        """Long AND repetitive (low entropy) content is a dump → noise."""
+        dump = "\n".join([f"- status ok item {i % 3}" for i in range(60)])
+        assert len(dump) > 500
+        assert _is_noise(dump) is True
+
+    def test_noise_filter_long_substantive_insight_not_noise(self):
+        """A long but SUBSTANTIVE actionable insight (high entropy, many words) must
+        NOT be filtered just for exceeding 500 chars. Guards #f0e2c306: the old
+        length>500 rule discarded 538 real decision/learning memories (99.8% of them
+        substantive, entropy>=0.49) — length alone is a bad proxy for 'dump'."""
+        insight = (
+            "RER architectural analysis: drop the Git submodules and keep independent "
+            "repositories. Core becomes the deploy orchestrator via docker-compose and "
+            "install.sh, and also serves the project landing page for external visitors. "
+            "This removes the submodule sync pain and lets each service version on its own. "
+            "The gateway routes requests to backend, frontend and geoserver; authentication "
+            "flows through Keycloak with a dedicated realm, and the frontend redirect was "
+            "fixed so relative URLs no longer break the login handshake across containers. "
+            "Each repository publishes its own image to the registry and the compose file "
+            "pins explicit tags, so a broken build in one service never blocks the others."
+        )
+        assert len(insight) > 500
+        assert _is_noise(insight) is False
 
     def test_noise_filter_bullet_dump(self):
         """Content that is mostly bullet points (>60%) should be noise."""
