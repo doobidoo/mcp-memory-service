@@ -1,7 +1,7 @@
 # ESTADO — mcp-memory-service (Claudio)
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-13 noite (venv-ONNX BLINDADO 2 camadas — fecha bloqueador crônico 4e6323c5; INC2+INC6 done, INC6 ligado no vivo; INC3 já satisfeito pelo schema; INC4 CANCELADO/reposicionado em arco próprio 40e6ecfb (consumidor de grafo na injeção, pré-req qualidade-de-belief); R4 medido pós-blindagem 0.25→~0.55 ~2×; subagents com MCP provados nas 3 máquinas). Antes (manhã): F9 R1 derive por ontologia+store DONE. F4 upstream TRAVADA (CLIENT ainda não 100% feliz — dor migrou de corpus p/ loop-lento+ranking+fragmentos-lixo).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-14 (fork sincronizado v12.0.0; arco novo INBOX INTER-AGENTE = RFC + discussion #1529; delta-sync reabriu 1 ponto de design = ADR-0012 v2 tombstone via auditoria #1522 do Henry. NOTA DE CURADORIA: bugs/apoio pontual ao Henry — #1522 #3/#4, #1521, #1518, PRs #1530/#1531 — NÃO entram aqui; vivem no task-orch + memória. Este mapa é só dos NOSSOS ARCOS). Antes (13/out): venv-ONNX blindado; INC2+INC6 done; INC4 reposicionado (arco 40e6ecfb). F4 upstream TRAVADA (CLIENT não 100% feliz — loop-lento+ranking+fragmentos-lixo).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente · 09/out)
@@ -18,6 +18,7 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │         bootstrap de spoke novo (§9.3) + version negotiation (§9.3 rule 6) = pré-req p/ aposentar Insync. DEFERIDO (RFC §5, trabalho futuro): per-spoke CRYPTO identity — a topologia hub+known-spokes da 4c é suficiente por ora.
 │         operacional pós-arco: ligar schedule de regime nas 3 máquinas + aposentar crons Insync (não é mais código, é operação).
 │   └─ operacional pós-Fase 5: schedule de regime (15m), ligar nas 3 máquinas, aposentar crons Insync
+│   └─ 🔧 FOLLOW-UP 14/out (auditoria #1522 do Henry): #3 bootstrap-no-1º-sync + #4 embedding_pending/store corrigidos (PR #1530, apoio — fora deste mapa). MAS 1 achado reabre DESIGN NOSSO: #2 tombstone não honrado no apply (ADR-0012 §8.1c nunca implementado no apply) → ARCO/item ADR-0012 v2 (8c9b1345, 🔴): HLC sozinho não distingue ressurreição-maliciosa de re-create legítimo → precisa SINAL DE INTENCIONALIDADE no evento. Precede G1 arch (seven). Teste xfail no vivo.
 │
 ├─ ⭐ #1304 HYBRID SELF-HOSTED SECONDARY (http) ........ ✅ FECHADO (4 fases MERGED) · raiz que destravou o delta-sync
 │   │   SPEC: ✅ rfc-hybrid-http-secondary (EARS R1-R16, Fases 1-4). Topologia validada em PROD: sirdata em hybrid-online com hub VPS (07/out).
@@ -151,6 +152,12 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
     ├─ SPEC-hub F0-F8 ................................. 🟡 spec pronta
     ├─ delta-sync (#1345) ............................. ✅ 4/5 MERGED (ver arco DELTA-SYNC no topo) · Fase 5 fecha
     └─ F3-F8: estrela, consolidação nas pontas, NLI cross-agent  🔴 a fazer
+
+   ⭐ ARCO INBOX INTER-AGENTE (14/out) ... entrega confiável de mensagem entre agentes · NOSSA proposta ao projeto · RFC fork-only docs/rfc/planned/rfc-inter-agent-inbox.md
+    │   TESE: heartbeat/disciplina periódica do agente é não-confiável → gatilho de entrega tem que ser SERVER-SIDE. Evidência (4 casos nossos): checkpoint-gate (falhou), A3-pull (falhou), session-registry heartbeat (falhou parcial), learning-scheduler server-side (funciona). Endereçamento 3 níveis (host/agent/session) p/ N instâncias do mesmo agente.
+    ├─ RFC escrita + revisada (seven) ................. 🟢 commit e2fd1cf0 (fork main)
+    ├─ Discussion #1529 (Ideas, upstream) ............. 🟢 postada + ping #1526 · aguardando reação do Henry
+    └─ 3 etapas: (1) pull tag [= #1526/#1527 do Henry] · (2) endereçamento dirigido + injeção ativa · (3) gatilho server-side push [o alvo real, SSE address-filtered] 🔴 depende da reação do Henry na discussion
 ```
 
 ## Onde estamos, em uma frase
