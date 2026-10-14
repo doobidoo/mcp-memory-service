@@ -192,6 +192,23 @@ def _get_rerank_alpha() -> float:
         return 0.5
 
 
+def _get_excluded_insight_types() -> frozenset[str]:
+    """Insight types to exclude from context injection (opt-in).
+
+    Consolidation emits meta-beliefs (`insights.py`) whose content is prefixed
+    `[<TYPE>]` where TYPE is the insight_type uppercased — e.g. `[GAP] ...`,
+    `[PATTERN] ...`, `[TREND] ...`. These are analysis *about* the corpus, useful
+    in a dashboard but noise in conversational context injection, where they can
+    crowd out real knowledge. Env MCP_INJECT_EXCLUDE_TYPES is a comma-separated
+    list of insight_types to drop from injection (matched case-insensitively on
+    the `[TYPE]` prefix). Empty or unset → nothing is excluded (back-compat).
+    """
+    raw = os.environ.get("MCP_INJECT_EXCLUDE_TYPES")
+    if not raw:
+        return frozenset()
+    return frozenset(t.strip().upper() for t in raw.split(",") if t.strip())
+
+
 def _belief_cosine(query_emb, belief_blob) -> Optional[float]:
     """Cosine similarity (normalized to [0,1]) between the query embedding and a
     belief's stored embedding BLOB. Returns None when either side is unavailable
@@ -471,6 +488,18 @@ async def memory_context(
     except Exception as e:  # noqa: BLE001 - never break on belief fetch
         logger.warning("context_injection: get_beliefs failed (non-fatal): %s", e)
         beliefs = []
+
+    # Opt-in: drop consolidation meta-beliefs (e.g. [GAP], [PATTERN]) from injection
+    # so they do not crowd out real knowledge. Matched on the `[TYPE]` content prefix,
+    # which insights.py derives deterministically from insight_type.upper().
+    excluded_types = _get_excluded_insight_types()
+    if excluded_types:
+        prefixes = tuple(f"[{t}]" for t in excluded_types)
+        before = len(beliefs)
+        beliefs = [b for b in beliefs if not (b.get("content", "") or "").lstrip().startswith(prefixes)]
+        dropped = before - len(beliefs)
+        if dropped:
+            logger.debug("context_injection: excluded %d meta-belief(s) by type %s", dropped, sorted(excluded_types))
 
     task_terms = set(_tokenize(task))
 
