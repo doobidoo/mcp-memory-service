@@ -1,7 +1,7 @@
 # ESTADO — mcp-memory-service (Claudio)
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-13 (F9 R1 derive por ontologia+store DONE via gate na DNBSCDC289 — fecha a dor do corpus do veredito CLIENT; tripulação migrada p/ v3 localmente e provada em 2.30.0). Antes (12/out): F7 util modular R2 + F8 R4 embedding no belief + multilíngue tokenizer + achados INC-5 inerte/derive-só-observation. F4 upstream TRAVADA (OK Claudio+Henry; CLIENT ainda não feliz — reavaliar após ligar R1 no vivo).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-13 noite (venv-ONNX BLINDADO 2 camadas — fecha bloqueador crônico 4e6323c5; INC2+INC6 done, INC6 ligado no vivo; INC3 já satisfeito pelo schema; INC4 CANCELADO/reposicionado em arco próprio 40e6ecfb (consumidor de grafo na injeção, pré-req qualidade-de-belief); R4 medido pós-blindagem 0.25→~0.55 ~2×; subagents com MCP provados nas 3 máquinas). Antes (manhã): F9 R1 derive por ontologia+store DONE. F4 upstream TRAVADA (CLIENT ainda não 100% feliz — dor migrou de corpus p/ loop-lento+ranking+fragmentos-lixo).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente · 09/out)
@@ -67,15 +67,21 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   │     📋 FILA (consenso 9 IAs, pesquisa ranking-util-modular-embedding-belief-2026-10, mem 12699e27): R3 propensity-por-rank no update Beta · R4 embedding no BELIEF (o que faz MRR saltar, tabela beliefs sem coluna hoje) · R5 fusão lex+sem · R6 FTS dual-index · R7 utility CONTEXTUAL por domínio (6/9: causa-raiz do rich-get-richer).
 │   │     🔑 ACHADO 12/out (mem 9ff8c7b8): derive_beliefs consome SÓ memory_type=observation → decision/learning/checkpoint NUNCA viram belief. Beliefs têm 2 fontes (memory_store + harvest) via o store de memórias. Design aberto: só observation→belief é intencional ou gap?
 │   │
-│   ├─ ⚠️ BLOQUEADOR CRÔNICO: venv perde onnxruntime repetidamente (gates com uv removem [sqlite]) → R4 inerte → 'por palavra'. Mistake 4e6323c5. Fix: onnxruntime no pyproject BASE ou guard no restart. RESOLVER ANTES dos INCs.
-│   ├─ 💤 DREAMING-LOOP (item FASE 3 = 03c1d773, guarda-chuva) · o aprendizado "SONO" (offline: consolida/associa/agrupa por tema). Decomposto 13/out nos INC 2-7 do CONSOLIDADO (pesquisa dreaming-loop-navegacao-2026-10, 9 IAs). INC1=R1(F9)=✅. Dreaming inteiro é NECESSÁRIO (decisão Claudio 13/out), não menu. Ordem por dependência:
-│   │     ├─ INC 2 consolidate(theme=...) ..... ✅ DONE (522d9cf6..13374daa) · theme filtra candidatos antes das 6 fases · 6 fases restritas a subconjunto por tema; gap=seleção de candidatos, não pipeline · 0 dep
-│   │     ├─ INC 3 grafo heterogêneo tipado ... 🔴 queue (78601fcf) · ALTER memory_graph node_type/edge_type + backfill idempotente; estende, não reescreve · PRÉ-REQ de 4/5/7
-│   │     ├─ INC 4 associações→injeção ........ 🔴 REVERTIDO 2× (subtrativo; tag backup/inc4-subtractive) · DESPRIORIZADO: R4 backfill (relevância 0.25→0.42) já entrega boa parte do 'por tema' sem ele · ⭐ RESOLVE "vem por palavra, não por tema" · spreading activation/PPR semeado pela busca + regra de convergência + ≤2 hops + budget, sem LLM no hot-path · PRODUTOR vivo (528k edges), falta CONSUMIDOR (achado 1d84a7c4) · dep INC3
-│   │     ├─ INC 5 loop sono→acordado ......... 🔴 queue (ed46db92) · reweighting Hebbiano das arestas via usage_events (EMA+half-life, nunca salto) · dep INC3+INC4
-│   │     ├─ INC 6 gatilho por importância .... 🔴 queue (bfb19476) · ⭐ ataca LOOP LENTO · reflection-trigger por tema COMPLEMENTO ao cron, sinais existentes (não LLM) · dep INC2
-│   │     └─ INC 7 (opc) memory_explore + reflection LLM-gated 🔴 queue (f138b8d3, LOW) · dep INC3 · só se 2-6 provarem valor
-│   │     ➡️ PRÓXIMO: enriquecer RFC dreaming (guarda-chuva, EARS dos INC 2-7 do CONSOLIDADO) → spec/gate/E2E INC por INC na ordem de dep (INC3 primeiro). F4 upstream só com CLIENT feliz.
+│   ├─ ✅ BLOQUEADOR CRÔNICO RESOLVIDO 13/out: venv perdia onnxruntime (gates com uv removem [sqlite]) → R4 inerte → 'por palavra'. BLINDADO em 2 camadas: (1) ExecStartPre ensure-onnx-venv.sh na unit (auto-reinstala [sqlite] no restart, provado); (2) nota de proteção no Gate 3 do dev-workflow (não uv sync cru; manager repete no prompt do subagent). Mistake 4e6323c5/3d1b91f8. R4 medido no vivo pós-blindagem: relevância top-1 0.25→0.51-0.57 (~2×).
+│   ├─ 💤 DREAMING-LOOP (item FASE 3 = 03c1d773, guarda-chuva) · o aprendizado "SONO" (offline: consolida/associa/agrupa por tema). Decomposto 13/out nos INC 2-7 do CONSOLIDADO (pesquisa dreaming-loop-navegacao-2026-10, 9 IAs). INC1=R1(F9)=✅. Ordem por dependência:
+│   │     ├─ INC 2 consolidate(theme=...) ..... ✅ DONE (522d9cf6..13374daa) · theme filtra candidatos antes das 6 fases · 0 dep
+│   │     ├─ INC 3 grafo heterogêneo tipado ... ✅ JÁ SATISFEITO · schema memory_graph já tem relationship_type populado (migration 9) — sem ALTER necessário. Era pré-req de 4/5/7.
+│   │     ├─ INC 4 associações→injeção ........ ❌ CANCELADO/REPOSICIONADO 13/out · revertido 2× (subtrativo; tag backup/inc4-subtractive-20261013, stash dropado 6c8595af no reflog) · MEDIDO: R4 estável já resolve 'por tema PONTO-A-PONTO' (0.25→~0.55); o eixo de NAVEGAÇÃO ASSOCIATIVA multi-hop virou ARCO PRÓPRIO (40e6ecfb, ver abaixo) com pré-req qualidade-de-belief
+│   │     ├─ INC 5 loop sono→acordado ......... 🔴 queue (ed46db92) · reweighting Hebbiano das arestas via usage_events (EMA+half-life) · dep INC3(ok)+ex-INC4(agora arco 40e6ecfb)
+│   │     ├─ INC 6 gatilho por importância .... ✅ DONE (106b9576) · reflection-trigger por tema COMPLEMENTO ao cron (sinais existentes, não LLM) · ⭐ ataca LOOP LENTO · LIGADO NO VIVO 13/out (MCP_IMPORTANCE_TRIGGER_ENABLED=true no env DNBSCDC289, threshold 10/cooldown 30min defaults) · fix manager: reset de importância só após sucesso do task async
+│   │     └─ INC 7 (opc) memory_explore + reflection LLM-gated 🔴 queue (f138b8d3, LOW) · dep INC3(ok) · só se os outros provarem valor
+│   │     ➡️ PRÓXIMO: re-medir veredito CLIENT com venv blindado + INC6 no vivo (dar uns dias p/ gatilho acumular). INC5/INC7 após. F4 upstream só com CLIENT feliz.
+│   │
+│   ├─ 🟢 ARCO CONSUMIDOR DE GRAFO NA INJEÇÃO (40e6ecfb, ex-INC4 reposicionado 13/out) · navegação por tema/entidade na busca · SEPARADO do dreaming (que foca consolidação)
+│   │     │   ACHADO (seven, código): memory_graph tem 3 arestas: (A) memória↔memória, (B) memória→entidade has_entity=agrupamento-por-tema estilo Obsidian, (C) entidade↔entidade SPO. Vídeo do Henry (/graph-visualization D3) desenha SÓ (A), EXCLUI has_entity de propósito (#256). Busca/injeção NÃO navega NENHUM grafo (~528k edges sem consumidor). memory_explore/detail usam has_entity+shares_entity, fora da busca.
+│   │     ├─ PRÉ-REQ qualidade de belief (f0e2c306, HIGH) ... 🔴 queue · beliefs degenerados ('learning','TYPE:') limitam teto; atacar destilação ANTES · bloqueia spec
+│   │     ├─ RFC+SPEC consumidor ADITIVO (a74c0e1f) ......... 🔴 queue · INVARIANTE append-only (nunca descartar ranking R4) · dep qualidade
+│   │     └─ Impl+gate (9fe4abd0) ........................... 🔴 queue · core pelo MANAGER (reg falhou 2×), testes/review delegados · A/B R4 vs R4+grafo · dep spec
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req

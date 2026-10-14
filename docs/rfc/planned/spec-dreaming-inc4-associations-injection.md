@@ -1,6 +1,8 @@
 # SPEC — Dreaming INC 4: associações→injeção (navegação por tema)
 
-**Status:** planned · **RFC:** rfc-dreaming-loop.md · **Fase:** INC 4 (HIGH) · **Dep:** INC 3 (satisfeito pelo schema atual).
+> ⚠️ **REPOSICIONADO 13/out — NÃO é mais INC do dreaming.** Esta spec foi movida de conceito para o **ARCO PRÓPRIO "Consumidor de grafo na injeção"** (task-orch 40e6ecfb), separado do dreaming (que foca consolidação/beliefs). Motivo: medição com venv blindado mostrou que o R4 estável já resolve o "por tema ponto-a-ponto" (0.25→~0.55, 2×); sobra o eixo de NAVEGAÇÃO ASSOCIATIVA, que ganhou arco próprio COM pré-requisito explícito de QUALIDADE DE BELIEF (beliefs degenerados limitam o teto). O código da 1ª/2ª tentativa foi DROPADO (stash 6c8595af no reflog; tag backup/inc4-subtractive-20261013). Esta spec vira INSUMO da nova RFC+SPEC (item a74c0e1f) quando o pré-req (f0e2c306) estiver feito. Invariantes abaixo continuam válidos (append-only, convergência).
+
+**Status:** superseded-by-arc 40e6ecfb · **RFC:** rfc-dreaming-loop.md (origem) · **Dep:** qualidade-de-belief (f0e2c306) ANTES.
 **Histórico:** 1ª tentativa revertida (tag backup/inc4-subtractive-20261013) por sair SUBTRATIVA + convergência bypassada. Esta spec fixa os invariantes que faltaram. Mistake 436d3a7b (pular spec).
 
 ## Problema
