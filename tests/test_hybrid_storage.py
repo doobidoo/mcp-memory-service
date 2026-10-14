@@ -966,6 +966,135 @@ class TestBackgroundSyncService:
         assert secondary.d1_read_count == 2
 
     @pytest.mark.asyncio
+    async def test_pull_sync_uses_latest_state_for_hashes_seen_on_later_d1_pages(
+        self, temp_sqlite_db, mock_cloudflare_config
+    ):
+        """A later restore or delete must replace stale state from an earlier page."""
+
+        class ChangingD1StateStorage(TombstoneD1MockCloudflareStorage):
+            async def _retry_request(self, method, url, **kwargs):
+                self.d1_read_count += 1
+                params = kwargs.get("json", {}).get("params", [])
+                last_id = params[0] if params else 0
+                if last_id == 0:
+                    rows = [
+                        {
+                            "id": 1,
+                            "content_hash": self.hashes[0],
+                            "deleted_at": self.deleted_at,
+                        },
+                        {
+                            "id": 2,
+                            "content_hash": self.hashes[1],
+                            "deleted_at": None,
+                        },
+                    ] + [
+                        {
+                            "id": row_id,
+                            "content_hash": f"filler-{row_id}",
+                            "deleted_at": None,
+                        }
+                        for row_id in range(3, 1001)
+                    ]
+                else:
+                    assert last_id == 1000
+                    # Cloudflare removes a tombstone before inserting its restore,
+                    # and a later delete marks the restored row in place. The
+                    # resulting states arrive in id order across separate pages.
+                    self.remote_tombstones.pop(self.hashes[0], None)
+                    self.remote_tombstones[self.hashes[1]] = self.deleted_at
+                    rows = [
+                        {
+                            "id": 1001,
+                            "content_hash": self.hashes[0],
+                            "deleted_at": None,
+                        },
+                        {
+                            "id": 1002,
+                            "content_hash": self.hashes[1],
+                            "deleted_at": self.deleted_at,
+                        },
+                    ]
+
+                response = Mock()
+                response.json = Mock(
+                    return_value={"success": True, "result": [{"results": rows}]}
+                )
+                return response
+
+        with patch(
+            "mcp_memory_service.storage.hybrid.CloudflareStorage",
+            ChangingD1StateStorage,
+        ):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                cloudflare_config=mock_cloudflare_config,
+                sync_interval=1,
+                batch_size=5,
+            )
+            await storage.initialize()
+            try:
+                old = time.time() - 100
+                restored = Memory(
+                    content="restored during paginated sync scan",
+                    content_hash=generate_content_hash(
+                        "restored during paginated sync scan"
+                    ),
+                    tags=["sync"],
+                    created_at=old,
+                    updated_at=old,
+                )
+                deleted = Memory(
+                    content="deleted during paginated sync scan",
+                    content_hash=generate_content_hash(
+                        "deleted during paginated sync scan"
+                    ),
+                    tags=["sync"],
+                    created_at=old,
+                    updated_at=old,
+                )
+                await storage.primary.store(restored)
+                await storage.primary.store(deleted)
+                storage.secondary.hashes = [
+                    restored.content_hash,
+                    deleted.content_hash,
+                ]
+                storage.secondary.deleted_at = old + 10
+                storage.secondary.stored_memories[restored.content_hash] = restored
+                storage.secondary.stored_memories[deleted.content_hash] = deleted
+                storage.secondary.remote_tombstones[restored.content_hash] = old + 10
+
+                # The filler rows force pagination; this focused sync test treats
+                # them as already present locally so only the two changing hashes
+                # matter.
+                filler_hashes = {
+                    f"filler-{row_id}" for row_id in range(3, 1001)
+                }
+
+                async def local_hashes_after_tombstone_reconciliation():
+                    hashes = set(filler_hashes)
+                    for memory in (restored, deleted):
+                        if not await storage.primary.is_deleted(memory.content_hash):
+                            hashes.add(memory.content_hash)
+                    return hashes
+
+                storage.primary.get_all_content_hashes = (
+                    local_hashes_after_tombstone_reconciliation
+                )
+
+                result = await storage.force_pull_sync()
+
+                assert result["success"] is True
+                assert result["tombstones_applied"] == 1
+                assert not await storage.primary.is_deleted(restored.content_hash)
+                assert await storage.primary.get_by_hash(restored.content_hash) is not None
+                assert await storage.primary.is_deleted(deleted.content_hash)
+                assert await storage.primary.get_by_hash(deleted.content_hash) is None
+            finally:
+                await storage.close()
+
+    @pytest.mark.asyncio
     async def test_d1_sync_state_fails_closed_if_a_later_page_fails(self):
         secondary = TombstoneD1MockCloudflareStorage()
         secondary.stored_memories = {

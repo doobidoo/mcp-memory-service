@@ -249,8 +249,14 @@ async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
                 content_hash = row["content_hash"]
                 deleted_at = row.get("deleted_at")
                 if deleted_at is None:
+                    # A restore deletes its tombstone and inserts a new row with a
+                    # higher id. Since D1 pages are separate reads, a restore can
+                    # land between them; the later row must replace the earlier
+                    # state for this hash.
+                    tombstones.pop(content_hash, None)
                     live_hashes.add(content_hash)
                 else:
+                    live_hashes.discard(content_hash)
                     tombstones[content_hash] = float(deleted_at)
             last_id = batch[-1]["id"]
             if len(batch) < limit:
