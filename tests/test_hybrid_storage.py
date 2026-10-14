@@ -901,6 +901,88 @@ class TestBackgroundSyncService:
             finally:
                 await storage.close()
 
+    @pytest.mark.asyncio
+    async def test_pull_sync_skips_semantic_dedup(self, temp_sqlite_db, mock_cloudflare_config):
+        """A memory pulled from the secondary was already deduplicated when it was first
+        written, so the receiving device must not run semantic dedup on it again. With
+        dedup on, a pulled memory that is close to something the primary already holds
+        was rejected ("Duplicate content detected") and never arrived, on every sync."""
+
+        class PullMockCloudflareStorage(MockCloudflareStorage):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.base_url = "https://mock"
+                self.d1_database_id = "mock-db"
+
+            async def get_by_hash(self, content_hash):
+                return self.stored_memories.get(content_hash)
+
+            async def _retry_request(self, method, url, **kwargs):
+                params = kwargs.get("json", {}).get("params", [])
+                last_id = params[0] if params else 0
+                resp = Mock()
+                rows = [
+                    {"id": i, "content_hash": h}
+                    for i, h in enumerate(self.stored_memories, start=1)
+                ] if last_id == 0 else []
+                resp.json = Mock(return_value={"success": True, "result": [{"results": rows}]})
+                return resp
+
+        def make(content):
+            return Memory(content=content, content_hash=generate_content_hash(content),
+                          tags=["t"], memory_type="note")
+
+        original = make("Claude Code is a powerful CLI tool for software engineering.")
+        near_dup = make("The Claude Code CLI is an excellent software development tool.")
+        local_only = make("Totally unrelated: the quarterly invoice is due on Friday.")
+
+        # No automatic pull at startup: the only pull in this test is the explicit one below.
+        with patch('mcp_memory_service.storage.hybrid.HYBRID_SYNC_ON_STARTUP', False), \
+                patch('mcp_memory_service.storage.hybrid.CloudflareStorage', PullMockCloudflareStorage):
+            storage = HybridMemoryStorage(
+                sqlite_db_path=temp_sqlite_db,
+                embedding_model="all-MiniLM-L6-v2",
+                cloudflare_config=mock_cloudflare_config,
+                sync_interval=1,
+                batch_size=5,
+            )
+            await storage.initialize()
+            try:
+                # Semantic dedup is on for the primary (tests/conftest.py turns it off by
+                # default). Which memories count as similar is the input of this test, not the
+                # logic under test, so it is fixed here instead of depending on an embedding
+                # model being installed: the near-duplicate is always judged similar.
+                storage.primary.semantic_dedup_enabled = True
+
+                async def judge_similarity(content, **kwargs):
+                    if content == near_dup.content:
+                        return True, original.content_hash
+                    return False, None
+
+                storage.primary._check_semantic_duplicate = judge_similarity
+
+                # Primary holds the original plus a local-only memory (so local >= cloud
+                # and the hash-diff pull runs); the near-duplicate exists only in the cloud.
+                for memory in (original, local_only):
+                    ok, msg = await storage.primary.store(memory)
+                    assert ok, msg
+                for memory in (original, near_dup):
+                    storage.secondary.stored_memories[memory.content_hash] = memory
+
+                # A normal store of the near-duplicate is rejected, so dedup is in effect.
+                ok, msg = await storage.primary.store(near_dup)
+                assert not ok and "semantically similar" in msg
+
+                result = await storage.force_pull_sync()
+                assert result["success"] is True
+
+                local_hashes = await storage.primary.get_all_content_hashes()
+                assert near_dup.content_hash in local_hashes, (
+                    "pulled memory was rejected by semantic dedup on the receiving device"
+                )
+            finally:
+                await storage.close()
+
 
 class TestPerformanceCharacteristics:
     """Test performance characteristics of hybrid storage."""
