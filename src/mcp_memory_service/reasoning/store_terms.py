@@ -69,10 +69,22 @@ class StoreTermsExtractor:
     def extract(self, content, metadata=None):
         """Extract domain terms from content based on store in metadata."""
         md = metadata or {}
-        store = md.get('store') or 'default'
+        store = md.get('store')
         
-        # Get rules for the specified store, fallback to default
-        rules = self._compiled.get(store, self._compiled.get('default', []))
+        # If store is specified (and not empty), use only that store with default fallback
+        if store:
+            rules = self._compiled.get(store, self._compiled.get('default', []))
+        else:
+            # If no store specified, use union of all stores except 'default'
+            # (default is empty by design and should not be included in union)
+            rules = []
+            seen_terms = set()
+            for store_name, store_rules in self._compiled.items():
+                if store_name != 'default':  # Skip empty default store
+                    for term, regex in store_rules:
+                        if term not in seen_terms:  # Dedup by name
+                            rules.append((term, regex))
+                            seen_terms.add(term)
         
         entities = []
         for term, regex in rules:

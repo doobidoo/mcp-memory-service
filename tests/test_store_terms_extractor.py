@@ -1,12 +1,13 @@
 """Tests for StoreTermsExtractor - RED phase (class doesn't exist yet)."""
 
 import json
+
 import pytest
-from pathlib import Path
+
+from mcp_memory_service.reasoning.entities import EntityExtractor
 
 # These imports will fail initially - expected for RED phase
 from mcp_memory_service.reasoning.store_terms import StoreTermsExtractor
-from mcp_memory_service.reasoning.entities import Entity, EntityExtractor
 
 
 @pytest.fixture
@@ -79,25 +80,33 @@ class TestStoreTermsExtractor:
         assert "F008" not in entity_names  # F008 is mir-specific
     
     def test_sem_store_usa_default_retorna_vazio(self, store_terms_json):
-        """Test that missing store metadata uses default store."""
+        """Test that missing store metadata extracts from all stores (union behavior)."""
         extractor = StoreTermsExtractor(path=store_terms_json)
         content = "F008 SICAR CAR"
         metadata = {}
         
         entities = extractor.extract(content, metadata)
         
-        # default store has empty terms list
-        assert len(entities) == 0
+        # Should extract from union of all stores
+        assert len(entities) == 3
+        entity_names = [e.name for e in entities]
+        assert "F008" in entity_names  # from mir
+        assert "SICAR" in entity_names  # from mir (and rer, but deduplicated)  
+        assert "CAR" in entity_names  # from both mir and rer, deduplicated
     
     def test_sem_metadata_usa_default_retorna_vazio(self, store_terms_json):
-        """Test that None metadata uses default store."""
+        """Test that None metadata extracts from all stores (union behavior)."""
         extractor = StoreTermsExtractor(path=store_terms_json)
         content = "F008 SICAR CAR"
         
         entities = extractor.extract(content, None)
         
-        # default store has empty terms list
-        assert len(entities) == 0
+        # Should extract from union of all stores  
+        assert len(entities) == 3
+        entity_names = [e.name for e in entities]
+        assert "F008" in entity_names  # from mir
+        assert "SICAR" in entity_names  # from mir (and rer, but deduplicated)
+        assert "CAR" in entity_names  # from both mir and rer, deduplicated
     
     def test_store_desconhecido_fallback_default_retorna_vazio(self, store_terms_json):
         """Test that unknown store falls back to default."""
@@ -242,3 +251,65 @@ class TestStoreTermsExtractor:
         assert "F008" not in [e.name for e in extractor.extract("document-F008-version", metadata)]
         assert "F008" not in [e.name for e in extractor.extract("F008_update", metadata)]
         assert "F008" not in [e.name for e in extractor.extract("xF008x", metadata)]
+    
+    def test_sem_store_extrai_uniao_todos_stores(self, store_terms_json):
+        """Test that missing store extracts terms from ALL stores (union)."""
+        extractor = StoreTermsExtractor(path=store_terms_json)
+        # Content with terms from different stores: F008 (mir), geoserver (rer)
+        content = "F008 SICAR geoserver CAR analysis"
+        metadata = {}
+        
+        entities = extractor.extract(content, metadata)
+        
+        # Should extract terms from any store
+        assert len(entities) >= 4
+        entity_names = [e.name for e in entities]
+        assert "F008" in entity_names  # from mir
+        assert "SICAR" in entity_names  # from both mir and rer, should appear once
+        assert "geoserver" in entity_names  # from rer
+        assert "CAR" in entity_names  # from both mir and rer, should appear once
+        
+        for entity in entities:
+            assert entity.entity_type == "domain_term"
+            assert entity.source == "domain"
+    
+    def test_sem_store_dedup_termo_multiplos_stores(self, store_terms_json):
+        """Test that terms appearing in multiple stores are deduplicated."""
+        extractor = StoreTermsExtractor(path=store_terms_json)
+        # CAR appears in both mir and rer, SICAR appears in both mir and rer
+        content = "CAR SICAR document"
+        metadata = {}
+        
+        entities = extractor.extract(content, metadata)
+        
+        # Should have exactly 2 entities (no duplicates)
+        assert len(entities) == 2
+        entity_names = [e.name for e in entities]
+        assert "CAR" in entity_names
+        assert "SICAR" in entity_names
+        
+        # Verify no duplicates by checking unique names
+        assert len(entity_names) == len(set(entity_names))
+    
+    def test_sem_store_none_metadata_extrai_uniao(self, store_terms_json):
+        """Test that None metadata extracts terms from ALL stores."""
+        extractor = StoreTermsExtractor(path=store_terms_json)
+        content = "F008 geoserver analysis"
+        
+        entities = extractor.extract(content, None)
+        
+        # Should extract from union of all stores
+        assert len(entities) == 2
+        entity_names = [e.name for e in entities]
+        assert "F008" in entity_names  # from mir
+        assert "geoserver" in entity_names  # from rer
+    
+    def test_content_sem_nenhum_termo_vazio(self, store_terms_json):
+        """Test that content with no terms returns empty list."""
+        extractor = StoreTermsExtractor(path=store_terms_json)
+        content = "some random text without domain terms"
+        metadata = {}
+        
+        entities = extractor.extract(content, metadata)
+        
+        assert len(entities) == 0
