@@ -22,7 +22,7 @@ import platform
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from ..models.memory import Memory
 from ..storage.base import MemoryStorage
@@ -91,13 +91,14 @@ class MemoryExporter:
             "python_version": platform.python_version(),
             "include_embeddings": include_embeddings,
             "filter_tags": filter_tags,
+            "stores": sorted({store for store, _ in all_memories}),
             "exporter_version": "5.0.1"
         }
         
         # Convert memories to exportable format
         exported_memories = []
-        for memory in all_memories:
-            memory_dict = await self._memory_to_dict(memory, include_embeddings)
+        for store, memory in all_memories:
+            memory_dict = await self._memory_to_dict(memory, include_embeddings, store)
             exported_memories.append(memory_dict)
         
         # Create final export structure
@@ -126,23 +127,30 @@ class MemoryExporter:
             "export_timestamp": export_metadata["export_timestamp"]
         }
     
-    async def _get_filtered_memories(self, filter_tags: Optional[List[str]]) -> List[Memory]:
-        """Get memories with optional tag filtering."""
+    async def _get_all_memories_by_store(self) -> List[Tuple[str, Memory]]:
+        """Every live memory, paired with the store it lives in.
+
+        ``get_all_memories()`` reads one store (``default`` unless told otherwise), so the
+        export walks ``get_stores()`` and asks for each name in turn (#1520).
+        """
+        memories = []
+        for store in await self.storage.get_stores():
+            for memory in await self.storage.get_all_memories(store=store):
+                memories.append((store, memory))
+        return memories
+
+    async def _get_filtered_memories(self, filter_tags: Optional[List[str]]) -> List[Tuple[str, Memory]]:
+        """Get (store, memory) pairs with optional tag filtering."""
+        all_memories = await self._get_all_memories_by_store()
         if not filter_tags:
-            # Get all memories
-            return await self.storage.get_all_memories()
-        
-        # Filter by tags if specified
-        filtered_memories = []
-        all_memories = await self.storage.get_all_memories()
-        
-        for memory in all_memories:
-            if any(tag in memory.tags for tag in filter_tags):
-                filtered_memories.append(memory)
-        
-        return filtered_memories
+            return all_memories
+
+        return [
+            (store, memory) for store, memory in all_memories
+            if any(tag in memory.tags for tag in filter_tags)
+        ]
     
-    async def _memory_to_dict(self, memory: Memory, include_embeddings: bool) -> Dict[str, Any]:
+    async def _memory_to_dict(self, memory: Memory, include_embeddings: bool, store: str = "default") -> Dict[str, Any]:
         """Convert a Memory object to a dictionary for JSON export."""
         memory_dict = {
             "content": memory.content,
@@ -152,6 +160,7 @@ class MemoryExporter:
             "updated_at": memory.updated_at,
             "memory_type": memory.memory_type,
             "metadata": memory.metadata or {},
+            "store": store,
             "export_source": self.machine_name
         }
         
@@ -168,14 +177,17 @@ class MemoryExporter:
         Returns:
             Summary statistics about the memories in the database
         """
-        all_memories = await self.storage.get_all_memories()
+        all_memories = await self._get_all_memories_by_store()
         
         # Analyze tags
         tag_counts = {}
         memory_types = {}
+        stores = {}
         date_range = {"earliest": None, "latest": None}
         
-        for memory in all_memories:
+        for store, memory in all_memories:
+            stores[store] = stores.get(store, 0) + 1
+
             # Count tags
             for tag in memory.tags:
                 tag_counts[tag] = tag_counts.get(tag, 0) + 1
@@ -194,6 +206,7 @@ class MemoryExporter:
             "machine_name": self.machine_name,
             "tag_counts": dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)),
             "memory_types": memory_types,
+            "stores": stores,
             "date_range": date_range,
             "estimated_json_size_mb": len(all_memories) * 0.001  # Rough estimate
         }
