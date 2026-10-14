@@ -970,6 +970,15 @@ class MemoryStorage(ABC):
         """
         return []
 
+    async def get_stores(self) -> List[str]:
+        """Return the name of every store that holds at least one live memory.
+
+        Backends without named stores keep the default: the single ``default`` store.
+        Callers that need every memory, such as the export, walk this list and call
+        ``get_all_memories(store=...)`` for each name (#1520).
+        """
+        return ["default"]
+
     async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
         """
         Get total count of memories in storage.
