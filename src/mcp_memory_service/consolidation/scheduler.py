@@ -144,6 +144,9 @@ class ConsolidationScheduler:
             # Add scheduled quality recompute job (opt-in via MCP_QUALITY_RECOMPUTE_SCHEDULE)
             self._schedule_quality_recompute_job()
 
+            # Add scheduled utility_prior recompute job (opt-in via MCP_UTILITY_RECOMPUTE_SCHEDULE)
+            self._schedule_utility_recompute_job()
+
             # Add scheduled delta-sync cycle job (opt-in via MCP_SYNC_SCHEDULE) — Phase 4d, ADR-0028
             self._schedule_sync_job()
 
@@ -333,6 +336,83 @@ class ConsolidationScheduler:
             # or the consolidation jobs sharing it.
             self.execution_stats['failed_jobs'] += 1
             self.logger.error("Quality recompute failed: %s", e)
+
+    def _schedule_utility_recompute_job(self):
+        """Schedule belief utility_prior recompute (opt-in via MCP_UTILITY_RECOMPUTE_SCHEDULE).
+
+        The learning loop's frente-D ``utility_prior`` (a passive, usage-derived
+        per-belief signal that modulates the injection re-rank) is computed by
+        ``BeliefService.recompute_utility_priors`` — but nothing ever called it, so on
+        a live DB every belief's ``utility_prior`` stayed NULL and the re-rank's utility
+        term was a no-op (util_mult=1.0 for all). This wires it to the same in-process
+        cadence as the quality recompute, closing the loop so today's usage actually
+        shapes tomorrow's ranking.
+
+        MCP_UTILITY_RECOMPUTE_SCHEDULE accepts an interval like "6h", "30m", "90s", or a
+        plain number of hours ("6"). Unset/blank/"disabled" → no job (default, zero
+        regression). The recompute itself is additionally gated by MCP_BELIEF_UTILITY_PRIOR
+        (``recompute_utility_priors`` is a no-op when that flag is off).
+        """
+        if not self.scheduler:
+            self.logger.debug("Utility recompute scheduling skipped - scheduler not available")
+            return
+
+        schedule_spec = os.getenv("MCP_UTILITY_RECOMPUTE_SCHEDULE", "").strip()
+        if not schedule_spec or schedule_spec.lower() == "disabled":
+            self.logger.debug("Utility recompute scheduling disabled (MCP_UTILITY_RECOMPUTE_SCHEDULE unset)")
+            return
+
+        seconds = self._parse_interval_seconds(schedule_spec)
+        if not seconds or seconds <= 0:
+            self.logger.error(
+                "Invalid MCP_UTILITY_RECOMPUTE_SCHEDULE=%r — expected e.g. '6h', '30m', '90s' or hours; skipping",
+                schedule_spec,
+            )
+            return
+
+        try:
+            self.scheduler.add_job(
+                func=self._run_utility_recompute,
+                trigger=IntervalTrigger(seconds=seconds),
+                id="utility_recompute",
+                name="Utility Prior Recompute",
+                replace_existing=True,
+            )
+            self.logger.info("Scheduled utility recompute every %ss (MCP_UTILITY_RECOMPUTE_SCHEDULE=%s)", seconds, schedule_spec)
+        except Exception as e:
+            self.logger.error("Error scheduling utility recompute: %s", e)
+
+    async def _run_utility_recompute(self):
+        """Execute belief utility_prior recomputation and persistence.
+
+        Builds a BeliefService over the consolidator's storage and calls
+        ``recompute_utility_priors`` (opt-in via MCP_BELIEF_UTILITY_PRIOR; a no-op
+        when that flag is off). Persistence writes only ``utility_prior`` into each
+        belief's metadata — it never touches ``confidence`` (frente-D invariant:
+        "useful to inject?" is decoupled from "is it true?").
+        """
+        storage = getattr(self.consolidator, "storage", None)
+        if storage is None:
+            self.logger.warning("Utility recompute skipped: consolidator has no storage")
+            return
+
+        try:
+            job_start = datetime.now()
+            self.logger.info("Starting utility_prior recompute")
+
+            service = BeliefService(storage)
+            result = await service.recompute_utility_priors()
+
+            self.execution_stats['successful_jobs'] += 1
+            self.last_execution_times['utility_recompute'] = job_start
+            duration = (datetime.now() - job_start).total_seconds()
+            self.logger.info("Completed utility_prior recompute in %.2fs: %s", duration, result)
+
+        except Exception as e:
+            # Never re-raise: a failing utility recompute must not tear down the scheduler
+            # or the consolidation jobs sharing it.
+            self.execution_stats['failed_jobs'] += 1
+            self.logger.error("Utility recompute failed: %s", e)
 
     async def _run_fact_extraction(self):
         """Execute fact extraction pipeline on pending memory chunks.
