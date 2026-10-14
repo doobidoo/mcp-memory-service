@@ -118,9 +118,13 @@ class DeleteMixin:
                                 if hasattr(self, '_append_sync_event'):
                                     self._append_sync_event(
                                         self.conn,
-                                        'delete',
+                                        "delete",
                                         content_hash,
-                                        {'content_hash': content_hash, 'deleted_at': remote_deleted_at},
+                                        {
+                                            "content_hash": content_hash,
+                                            "deleted_at": remote_deleted_at,
+                                        },
+                                        hlc_override=(int(remote_deleted_at * 1000), 0),
                                     )
                                 outcome = "applied"
                                 commit_after = True

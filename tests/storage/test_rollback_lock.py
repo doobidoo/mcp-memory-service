@@ -99,12 +99,12 @@ async def test_remote_tombstone_failure_cannot_rollback_a_concurrent_store(
     release_failure = threading.Event()
     original_append = storage._append_sync_event
 
-    def fail_tombstone_event(conn, operation, content_hash, payload):
+    def fail_tombstone_event(conn, operation, content_hash, payload, **kwargs):
         if operation == "delete" and content_hash == deleted_memory.content_hash:
             hook_entered.set()
             assert release_failure.wait(timeout=3)
             raise RuntimeError("synthetic sync-event failure")
-        return original_append(conn, operation, content_hash, payload)
+        return original_append(conn, operation, content_hash, payload, **kwargs)
 
     monkeypatch.setattr(storage, "_append_sync_event", fail_tombstone_event)
 
