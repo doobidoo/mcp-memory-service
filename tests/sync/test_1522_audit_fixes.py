@@ -265,6 +265,93 @@ async def test_existing_cursor_skips_bootstrap(store):
 
 
 @pytest.mark.asyncio
+async def test_first_sync_installs_baseline_and_resumes_at_watermark(store):
+    """INV-3a (deeper, per Greptile): a real bootstrap (no mock) on first sync must install
+    the baseline AND park the cursor at the peer's watermark, so the following pull resumes
+    from the watermark — not from 0. Proves the cursor re-read is load-bearing."""
+    base_hash = generate_content_hash("baseline memory")
+    later_hash = generate_content_hash("post-baseline edit")
+    # Baseline carries one memory at seq 5 (watermark 5); a later event sits at seq 6.
+    baseline = [_create_event(base_hash, content="baseline memory", event_id="b1",
+                              hlc_physical=10)]
+    baseline[0]["seq"] = 5
+    later = _create_event(later_hash, content="post-baseline edit", event_id="l1",
+                          hlc_physical=20)
+    later["seq"] = 6
+    # Peer serves baseline (watermark 5) and, on get_events_since, only the later event.
+    peer = FakePeerAdapter([baseline[0], later], has_baseline=True)
+
+    await sync_from_peer(store, peer, "wm_peer")
+
+    # The baseline memory is installed...
+    assert await store.get_by_hash(base_hash) is not None, "baseline memory must be installed"
+    # ...the later event (seq 6 > watermark 5) is pulled...
+    assert await store.get_by_hash(later_hash) is not None, "post-watermark event must be pulled"
+    # ...and the cursor is at the watermark-or-beyond, never reset to 0.
+    cur = store.conn.execute(
+        "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?", ("wm_peer",)
+    ).fetchone()
+    assert cur is not None and cur[0] >= 5, f"cursor must resume at the watermark, got {cur}"
+
+
+@pytest.mark.asyncio
+async def test_first_sync_falls_back_when_baseline_fails(store):
+    """INV-3a fallback (per Greptile): if the baseline fetch fails, first sync must fall back
+    to pull-from-0 and still converge, not abort."""
+    h = generate_content_hash("fallback memory")
+    ev = _create_event(h, content="fallback memory", event_id="f1", hlc_physical=10)
+    ev["seq"] = 1
+
+    class FailingBaselinePeer(FakePeerAdapter):
+        async def get_baseline(self):
+            self.get_baseline_called = True
+            raise RuntimeError("baseline endpoint down")
+
+    peer = FailingBaselinePeer([ev], has_baseline=True)
+    # Must not raise; falls back to pull-from-0 and applies the event.
+    await sync_from_peer(store, peer, "fb_peer")
+    assert await store.get_by_hash(h) is not None, "event must be pulled via fallback-from-0"
+
+
+@pytest.mark.asyncio
+async def test_reembed_respects_named_store(store):
+    """#4/#1521 (per Greptile): the repair must write each vector into the memory's OWN store
+    partition, not 'default'. A memory in a named store must be found by a search scoped to
+    that store after repair."""
+    import importlib.util
+    content = "Memory living in a named store"
+    h = generate_content_hash(content)
+    # Insert into a NAMED store with embedding_pending=1 and no vector.
+    store.conn.execute("""
+        INSERT INTO memories
+        (content_hash, content, tags, memory_type, metadata, created_at, created_at_iso,
+         updated_at, updated_at_iso, deleted_at, embedding_pending, store, superseded_by)
+        VALUES (?, ?, '', 'note', '{}', ?, ?, ?, ?, NULL, 1, 'projectX', NULL)
+    """, (h, content, 1000.0, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(1000.0)),
+          1000.0, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(1000.0))))
+    store.conn.commit()
+
+    _repair_path = Path(__file__).resolve().parents[2] / "scripts" / "maintenance" / "repair_missing_embeddings_onnx.py"
+    _spec = importlib.util.spec_from_file_location("repair_missing_embeddings_onnx", _repair_path)
+    _repair = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_repair)
+    await _repair.reembed_missing_embeddings(store)
+
+    # The vector must land in the 'projectX' partition, not 'default'.
+    rowid = store.conn.execute("SELECT id FROM memories WHERE content_hash = ?", (h,)).fetchone()[0]
+    vec_store = store.conn.execute(
+        "SELECT store FROM memory_embeddings WHERE rowid = ?", (rowid,)
+    ).fetchone()
+    assert vec_store is not None and vec_store[0] == "projectX", \
+        f"vector must be written into the memory's own store partition, got {vec_store}"
+    # And the flag is cleared.
+    pend = store.conn.execute(
+        "SELECT embedding_pending FROM memories WHERE content_hash = ?", (h,)
+    ).fetchone()[0]
+    assert pend == 0, "embedding_pending must be cleared after repair"
+
+
+@pytest.mark.asyncio
 async def test_reembed_clears_pending(store):
     """
     INV-4a (#4): re-embedding a memory with embedding_pending=1 must clear the flag and make it searchable.
