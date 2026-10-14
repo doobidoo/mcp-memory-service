@@ -380,13 +380,37 @@ async def get_current_user(
                 logger.debug("Authenticated via X-API-Key header")
                 return api_key_result
 
-        # Try query parameter as fallback (less secure, but convenient)
-        api_key_param = request.query_params.get("api_key")
-        if api_key_param:
-            api_key_result = authenticate_api_key(api_key_param)
-            if api_key_result.authenticated:
-                logger.debug("Authenticated via api_key query parameter")
-                return api_key_result
+        # `api_key` as a query parameter used to be accepted here for the same
+        # reason `token` still is below: EventSource cannot set headers. It is
+        # gone deliberately (issue #1117). uvicorn logs the whole request line,
+        # so `?api_key=...` wrote the long-lived key in cleartext into
+        # ~/.local/share/mcp-memory/logs/server.log on every reconnect — under
+        # HTTPS too, since TLS protects the wire and not the log. That file
+        # outlives the session and gets pasted into bug reports.
+        #
+        # The replacement is a single-use, short-TTL ticket issued over POST
+        # (see /api/events/ticket). Kept as a distinct check rather than folded
+        # into the Bearer fallback so the failure message can name the migration.
+        if request.query_params.get("api_key"):
+            logger.warning(
+                "api_key query parameter is no longer accepted; "
+                "fetch a short-lived ticket from POST /api/events/ticket "
+                "and connect with ?ticket= (issue #1117)"
+            )
+
+        ticket_param = request.query_params.get("ticket")
+        if ticket_param:
+            from ..sse_ticket import sse_tickets
+
+            if sse_tickets.redeem(ticket_param, scope="read"):
+                logger.debug("Authenticated via single-use SSE ticket")
+                return AuthenticationResult(
+                    authenticated=True,
+                    client_id="sse-ticket",
+                    scope="read",
+                    auth_method="ticket",
+                )
+            logger.warning("Rejected an SSE ticket: expired, used, or unknown")
 
     # Try OAuth token as query parameter (EventSource API doesn't support headers)
     if OAUTH_ENABLED:
