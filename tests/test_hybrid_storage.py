@@ -655,6 +655,36 @@ class TestBackgroundSyncService:
         assert memory.content_hash not in secondary.stored_memories
 
     @pytest.mark.asyncio
+    async def test_queued_store_uploads_newer_primary_metadata_snapshot(
+        self, sync_service_components
+    ):
+        """An old queued create must not be dropped when a later tag edit precedes it."""
+        primary, secondary, sync_service = sync_service_components
+        old_timestamp = time.time() - 60
+        content = "queued create must include later metadata edits"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["before-edit"],
+            created_at=old_timestamp,
+            updated_at=old_timestamp,
+        )
+        assert (await primary.store(memory))[0]
+
+        # This models a create already waiting in the queue while a client edits
+        # the tags. The follow-up update cannot create a missing remote row.
+        assert (await primary.update_memory_metadata(
+            memory.content_hash, {"tags": ["after-edit"]}
+        ))[0]
+
+        await sync_service._process_single_operation(
+            SyncOperation(operation="store", memory=memory)
+        )
+
+        assert memory.content_hash in secondary.stored_memories
+        assert secondary.stored_memories[memory.content_hash].tags == ["after-edit"]
+
+    @pytest.mark.asyncio
     async def test_queued_store_waits_for_remote_tombstone_reconciliation(
         self, sync_service_components, monkeypatch
     ):

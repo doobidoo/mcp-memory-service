@@ -907,13 +907,17 @@ class BackgroundSyncService:
             logger.error("Permanent error for %s: %s", _sanitize_log_value(operation.operation), _sanitize_log_value(error))
             self.sync_stats['operations_failed'] += 1
 
-    async def _should_sync_queued_store(self, memory: Memory) -> bool:
-        """Reject queued snapshots superseded or deleted in primary storage.
+    async def _get_current_queued_store_memory(
+        self, memory: Memory
+    ) -> Optional[Memory]:
+        """Return a live primary snapshot for a queued create, or skip it.
 
         Queue retries can outlive a remote tombstone reconciliation. Re-read the
         primary row immediately before upload so neither pending nor retried store
-        operations can turn a deleted hash live again. The read method propagates
-        database errors; those must enter the normal retry path rather than fail open.
+        operations can turn a deleted hash live again. If the queued snapshot was
+        superseded by a metadata edit, use the current row: dropping the create would
+        leave the later queued update unable to create the missing secondary row.
+        Sync-state read errors propagate to the normal retry path rather than fail open.
         """
         state = await self.primary.get_sync_state_for_hash(memory.content_hash)
         if state is None:
@@ -921,7 +925,7 @@ class BackgroundSyncService:
                 "Skipping queued store for %s because the primary row no longer exists",
                 _sanitize_log_value(memory.content_hash[:16]),
             )
-            return False
+            return None
 
         current_updated_at, deleted_at = state
         if deleted_at is not None:
@@ -929,7 +933,7 @@ class BackgroundSyncService:
                 "Skipping queued store for %s because the primary row is tombstoned",
                 _sanitize_log_value(memory.content_hash[:16]),
             )
-            return False
+            return None
 
         queued_updated_at = memory.updated_at
         if (
@@ -939,24 +943,45 @@ class BackgroundSyncService:
                 or float(current_updated_at) > float(queued_updated_at)
             )
         ):
+            current_memory = await self.primary.get_by_hash(memory.content_hash)
+            if current_memory is None:
+                # get_by_hash's public contract returns None on retrieval failures.
+                # Recheck tombstone state so real deletions stay skipped, while a
+                # still-live row with an unreadable snapshot enters retry handling.
+                latest_state = await self.primary.get_sync_state_for_hash(
+                    memory.content_hash
+                )
+                if latest_state is None or latest_state[1] is not None:
+                    logger.debug(
+                        "Skipping queued store for %s because the primary row is no longer live",
+                        _sanitize_log_value(memory.content_hash[:16]),
+                    )
+                    return None
+                raise RuntimeError(
+                    "Could not read the newer primary snapshot for queued store "
+                    f"{memory.content_hash[:16]}"
+                )
             logger.debug(
-                "Skipping stale queued store for %s; primary has a newer edit",
+                "Using current primary snapshot for queued store %s; it has a newer edit",
                 _sanitize_log_value(memory.content_hash[:16]),
             )
-            return False
-        return True
+            return current_memory
+        return memory
 
     async def _process_single_operation(self, operation: SyncOperation):
         """Process a single sync operation to secondary storage."""
         try:
             if operation.operation == 'store' and operation.memory:
                 async with self._store_sync_lock:
-                    if not await self._should_sync_queued_store(operation.memory):
+                    memory_to_sync = await self._get_current_queued_store_memory(
+                        operation.memory
+                    )
+                    if memory_to_sync is None:
                         return
 
                     # Validate memory before syncing (only for backends that support capacity monitoring)
                     if getattr(self.secondary, 'supports_capacity_monitoring', False):
-                        is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
+                        is_valid, validation_error = await self.validate_memory_for_cloudflare(memory_to_sync)
                         if not is_valid:
                             logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
                             # Don't retry if it's a hard limit
@@ -965,7 +990,7 @@ class BackgroundSyncService:
                                 return  # Skip this memory permanently
                             raise RuntimeError(validation_error)
 
-                    success, message = await self.secondary.store(operation.memory)
+                    success, message = await self.secondary.store(memory_to_sync)
                     if not success:
                         raise RuntimeError(f"Store operation failed: {message}")
 
