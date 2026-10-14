@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mcp_memory_service.storage.factory import create_storage_instance
-from mcp_memory_service.storage.sqlite_vec import serialize_float32
+from sqlite_vec import serialize_float32
 from mcp_memory_service.config import SQLITE_VEC_PATH
 from mcp_memory_service.compat import _sanitize_log_value
 
@@ -45,14 +45,16 @@ def _load_memories(actual_storage):
 
     cursor = actual_storage.conn.execute('''
         SELECT content_hash, content, tags, memory_type, metadata,
-               created_at, updated_at, created_at_iso, updated_at_iso
+               created_at, updated_at, created_at_iso, updated_at_iso,
+               COALESCE(store, 'default')
         FROM memories
     ''')
 
     memories = []
     for row in cursor.fetchall():
         content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-        created_at, updated_at, created_at_iso, updated_at_iso = row[5:]
+        created_at, updated_at, created_at_iso, updated_at_iso = row[5:9]
+        store = row[9]
 
         # Parse tags
         tags = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
@@ -69,7 +71,8 @@ def _load_memories(actual_storage):
             'created_at': created_at,
             'updated_at': updated_at,
             'created_at_iso': created_at_iso,
-            'updated_at_iso': updated_at_iso
+            'updated_at_iso': updated_at_iso,
+            'store': store,
         })
 
     return memories, total_count
@@ -99,10 +102,12 @@ async def _regenerate_all(actual_storage, memories):
                 error_count += 1
                 continue
 
-            # Insert embedding
+            # Insert embedding into the memory's own store partition. memory_embeddings is
+            # a vec0 table with `store` as a partition key (#1521); writing without it lands
+            # the vector in the wrong partition, invisible to store-scoped KNN search.
             actual_storage.conn.execute(
-                'INSERT OR REPLACE INTO memory_embeddings(rowid, content_embedding) VALUES (?, ?)',
-                (result[0], serialize_float32(embedding))
+                'INSERT OR REPLACE INTO memory_embeddings(rowid, content_embedding, store) VALUES (?, ?, ?)',
+                (result[0], serialize_float32(embedding), mem['store'])
             )
 
             success_count += 1
