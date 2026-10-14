@@ -693,6 +693,24 @@ class RetrieveMixin:
             logger.error("Error getting all memories: %s", _sanitize_log_value(e))
             return []
 
+    async def get_stores(self) -> List[str]:
+        """Name of every store with at least one live memory, in name order."""
+        try:
+            await self.initialize()
+
+            def _get_stores():
+                cursor = self.conn.execute(
+                    "SELECT DISTINCT COALESCE(store, 'default') FROM memories "
+                    "WHERE deleted_at IS NULL ORDER BY 1"
+                )
+                return [row[0] for row in cursor.fetchall()]
+
+            return await self._execute_with_retry(_get_stores)
+
+        except Exception as e:
+            logger.error("Error listing stores: %s", _sanitize_log_value(e))
+            return []
+
     async def get_recent_memories(self, n: int = 10) -> List[Memory]:
         """Get n most recent memories."""
         return await self.get_all_memories(limit=n, offset=0)

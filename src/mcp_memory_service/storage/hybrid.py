@@ -2069,6 +2069,10 @@ class HybridMemoryStorage(MemoryStorage):
         """Recall memories using natural language time expressions."""
         return await self.primary.recall_memory(query, n_results)
 
+    async def get_stores(self) -> List[str]:
+        """Store names come from primary storage, like ``get_all_memories``."""
+        return await self.primary.get_stores()
+
     async def get_all_memories(
         self,
         limit: int = None,
