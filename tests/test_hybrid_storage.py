@@ -529,6 +529,7 @@ class TestBackgroundSyncService:
         """Test enqueuing sync operations."""
         primary, secondary, sync_service = sync_service_components
 
+        assert (await primary.store(sample_memory))[0]
         await sync_service.start()
 
         # Enqueue a store operation
@@ -562,6 +563,7 @@ class TestBackgroundSyncService:
             tags=["test"],
             memory_type="test"
         )
+        assert (await primary.store(memory))[0]
 
         # Enqueue operation
         operation = SyncOperation(operation='store', memory=memory)
@@ -627,6 +629,84 @@ class TestBackgroundSyncService:
         assert 'cloudflare_available' in status
 
         await sync_service.stop()
+
+    @pytest.mark.asyncio
+    async def test_queued_store_does_not_resurrect_a_remote_tombstone(
+        self, sync_service_components
+    ):
+        """A delayed store/retry must not undo a tombstone applied during pull."""
+        primary, secondary, sync_service = sync_service_components
+        deleted_at = time.time()
+        content = "delayed store must not undo remote delete"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            created_at=deleted_at - 20,
+            updated_at=deleted_at - 20,
+        )
+        assert (await primary.store(memory))[0]
+        assert await primary.delete_if_not_updated_after(
+            memory.content_hash, deleted_at
+        ) == "applied"
+
+        operation = SyncOperation(operation="store", memory=memory, retries=2)
+        await sync_service._process_single_operation(operation)
+
+        assert memory.content_hash not in secondary.stored_memories
+
+    @pytest.mark.asyncio
+    async def test_queued_store_waits_for_remote_tombstone_reconciliation(
+        self, sync_service_components, monkeypatch
+    ):
+        """A queued store cannot slip between remote tombstone discovery and apply."""
+        primary, secondary, sync_service = sync_service_components
+        deleted_at = time.time()
+        content = "queued store must wait for remote tombstone reconciliation"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            created_at=deleted_at - 20,
+            updated_at=deleted_at - 20,
+        )
+        assert (await primary.store(memory))[0]
+
+        remote_tombstone_seen = asyncio.Event()
+        apply_remote_tombstone = asyncio.Event()
+        local_tombstone_applied = asyncio.Event()
+        finish_reconciliation = asyncio.Event()
+
+        async def reconcile_snapshot():
+            remote_tombstone_seen.set()
+            await apply_remote_tombstone.wait()
+            outcome = await primary.delete_if_not_updated_after(
+                memory.content_hash, deleted_at
+            )
+            assert outcome == "applied"
+            local_tombstone_applied.set()
+            await finish_reconciliation.wait()
+            return {"status": "completed"}
+
+        monkeypatch.setattr(sync_service, "_force_sync_locked", reconcile_snapshot)
+        force_sync_task = asyncio.create_task(sync_service.force_sync())
+        await asyncio.wait_for(remote_tombstone_seen.wait(), timeout=2)
+
+        queued_store_task = asyncio.create_task(
+            sync_service._process_single_operation(
+                SyncOperation(operation="store", memory=memory)
+            )
+        )
+        await asyncio.sleep(0)
+        assert memory.content_hash not in secondary.stored_memories
+
+        apply_remote_tombstone.set()
+        await asyncio.wait_for(local_tombstone_applied.wait(), timeout=2)
+        await asyncio.sleep(0)
+        assert memory.content_hash not in secondary.stored_memories
+
+        finish_reconciliation.set()
+        await asyncio.wait_for(force_sync_task, timeout=2)
+        await asyncio.wait_for(queued_store_task, timeout=2)
+        assert memory.content_hash not in secondary.stored_memories
 
     @pytest.mark.asyncio
     async def test_force_sync_dedupes_against_secondary(self, temp_sqlite_db):

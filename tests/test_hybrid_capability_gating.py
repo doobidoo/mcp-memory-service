@@ -284,6 +284,7 @@ class TestCapabilityGating:
             tags=["test"],
             memory_type="observation"
         )
+        assert (await primary.store(memory))[0]
 
         with patch.object(sync_service, 'validate_memory_for_cloudflare') as mock_validate, \
              patch('mcp_memory_service.storage.hybrid._normalize_metadata_for_cloudflare') as mock_normalize, \
@@ -407,6 +408,7 @@ class TestByteIdenticalBehavior:
                 tags=["test", "byte-identical"],
                 memory_type="observation"
             )
+            assert (await primary.store(memory))[0]
 
             with patch('mcp_memory_service.storage.hybrid._normalize_metadata_for_cloudflare') as mock_normalize, \
                  patch.object(sync_service, 'check_cloudflare_capacity') as mock_capacity:

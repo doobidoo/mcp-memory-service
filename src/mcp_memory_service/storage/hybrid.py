@@ -356,6 +356,10 @@ class BackgroundSyncService:
                  max_queue_size: int = None):  # Use config default if None
         self.primary = primary_storage
         self.secondary = secondary_storage
+        # Serialize outbound memory stores with reconciliation scans. A store
+        # admitted before a remote tombstone scan must finish before that scan
+        # reads state; later queued stores must re-check the resulting tombstone.
+        self._store_sync_lock = asyncio.Lock()
 
         # Use config values if parameters not provided (for backward compatibility)
         # Defensive None checks to prevent Queue initialization with maxsize=None (Issue #316)
@@ -494,8 +498,13 @@ class BackgroundSyncService:
         """
         return await _fetch_secondary_content_hashes(getattr(self, 'secondary', None))
 
-    async def force_sync(self) -> Dict[str, Any]:
-        """Force an immediate full synchronization between backends."""
+    async def force_sync(self) -> dict[str, Any]:
+        """Force a full sync, serialized against queued outbound stores."""
+        async with self._store_sync_lock:
+            return await self._force_sync_locked()
+
+    async def _force_sync_locked(self) -> dict[str, Any]:
+        """Run full synchronization while holding the outbound-store lock."""
         logger.info("Starting forced sync between primary and secondary storage")
         sync_start_time = time.time()
 
@@ -898,24 +907,67 @@ class BackgroundSyncService:
             logger.error("Permanent error for %s: %s", _sanitize_log_value(operation.operation), _sanitize_log_value(error))
             self.sync_stats['operations_failed'] += 1
 
+    async def _should_sync_queued_store(self, memory: Memory) -> bool:
+        """Reject queued snapshots superseded or deleted in primary storage.
+
+        Queue retries can outlive a remote tombstone reconciliation. Re-read the
+        primary row immediately before upload so neither pending nor retried store
+        operations can turn a deleted hash live again. The read method propagates
+        database errors; those must enter the normal retry path rather than fail open.
+        """
+        state = await self.primary.get_sync_state_for_hash(memory.content_hash)
+        if state is None:
+            logger.debug(
+                "Skipping queued store for %s because the primary row no longer exists",
+                _sanitize_log_value(memory.content_hash[:16]),
+            )
+            return False
+
+        current_updated_at, deleted_at = state
+        if deleted_at is not None:
+            logger.debug(
+                "Skipping queued store for %s because the primary row is tombstoned",
+                _sanitize_log_value(memory.content_hash[:16]),
+            )
+            return False
+
+        queued_updated_at = memory.updated_at
+        if (
+            current_updated_at is not None
+            and (
+                queued_updated_at is None
+                or float(current_updated_at) > float(queued_updated_at)
+            )
+        ):
+            logger.debug(
+                "Skipping stale queued store for %s; primary has a newer edit",
+                _sanitize_log_value(memory.content_hash[:16]),
+            )
+            return False
+        return True
+
     async def _process_single_operation(self, operation: SyncOperation):
         """Process a single sync operation to secondary storage."""
         try:
             if operation.operation == 'store' and operation.memory:
-                # Validate memory before syncing (only for backends that support capacity monitoring)
-                if getattr(self.secondary, 'supports_capacity_monitoring', False):
-                    is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
-                    if not is_valid:
-                        logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
-                        # Don't retry if it's a hard limit
-                        if "exceeds Cloudflare limit" in validation_error or "limit of" in validation_error:
-                            self.sync_stats['operations_failed'] += 1
-                            return  # Skip this memory permanently
-                        raise Exception(validation_error)
+                async with self._store_sync_lock:
+                    if not await self._should_sync_queued_store(operation.memory):
+                        return
 
-                success, message = await self.secondary.store(operation.memory)
-                if not success:
-                    raise Exception(f"Store operation failed: {message}")
+                    # Validate memory before syncing (only for backends that support capacity monitoring)
+                    if getattr(self.secondary, 'supports_capacity_monitoring', False):
+                        is_valid, validation_error = await self.validate_memory_for_cloudflare(operation.memory)
+                        if not is_valid:
+                            logger.warning("Memory validation failed for sync: %s", _sanitize_log_value(validation_error))
+                            # Don't retry if it's a hard limit
+                            if "exceeds Cloudflare limit" in validation_error or "limit of" in validation_error:
+                                self.sync_stats['operations_failed'] += 1
+                                return  # Skip this memory permanently
+                            raise RuntimeError(validation_error)
+
+                    success, message = await self.secondary.store(operation.memory)
+                    if not success:
+                        raise RuntimeError(f"Store operation failed: {message}")
 
             elif operation.operation == 'delete' and operation.content_hash:
                 success, message = await self.secondary.delete(operation.content_hash)
