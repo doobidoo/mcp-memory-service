@@ -176,6 +176,18 @@ def _get_rerank_a_enabled() -> bool:
     return raw.strip().lower() in {"true", "1", "yes"}
 
 
+def _get_graph_proximity_enabled() -> bool:
+    """Return whether graph proximity boost is enabled.
+
+    OPT-IN: default OFF. Only enabled when the value is 'true'/'1'/'yes'
+    (case-insensitive). Follows same pattern as _get_rerank_a_enabled.
+    """
+    raw = os.environ.get("MCP_INJECT_GRAPH_PROXIMITY")
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"true", "1", "yes"}
+
+
 def _get_rerank_alpha() -> float:
     """Weight of the LEXICAL term in the R4 lex+semantic relevance fusion.
 
@@ -243,6 +255,7 @@ _RERANK_A_DEFAULTS = {
     "fresh": 0.10, # freshness term (R2 — integrate, don't compete)
     "gen": 0.25,   # generality PENALTY weight (subtracted, R4)
     "util": 0.20,  # utility prior lambda for multiplicative modulation (FASE 7: changed from additive)
+    "graph": 0.0,  # graph proximity signal weight (default 0 = invariant R4)
 }
 
 # Support count beyond which extra reinforcement buys no more confidence (R6).
@@ -315,7 +328,80 @@ async def _generality_by_query_hash(storage, belief_hashes: List[str]) -> Dict[s
     return {h: (len(qs) / total_q) for h, qs in per_belief.items()}
 
 
-def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) -> None:
+def _resolve_task_entities(task: str) -> set:
+    """Extract entity names from the task text. Returns a set (possibly empty).
+
+    Uses the same EntityExtractor + domain extractors as the graph handlers, so query
+    entity recognition matches how memory entities were linked at store time.
+    """
+    try:
+        from ..reasoning.entities import EntityExtractor
+        extractor = EntityExtractor(domain_extractors=EntityExtractor.get_domain_extractors())
+        ents = extractor.extract_entities(task, {})
+        return {e.name for e in ents} if ents else set()
+    except Exception:
+        return set()
+
+
+async def _entity_memory_sets(graph_storage, entity_names: set) -> dict:
+    """For each entity, the set of source-memory hashes that carry it (has_entity)."""
+    out = {}
+    for name in entity_names:
+        try:
+            hashes = await graph_storage.find_memories_by_entity(name, limit=50)
+            out[name] = set(hashes) if hashes else set()
+        except Exception:
+            out[name] = set()  # one bad entity must not sink the rest
+    return out
+
+
+def _proximity_for_belief(belief: dict, entity_memory_sets: dict, total_entities: int) -> float:
+    """Fraction of the query's entities whose memories intersect this belief's sources."""
+    derived_from = set(belief.get("derived_from", []))
+    if not derived_from or total_entities <= 0:
+        return 0.0
+    shared = sum(1 for mems in entity_memory_sets.values() if mems & derived_from)
+    return shared / total_entities
+
+
+async def _graph_proximity_by_entity(storage, task: str, scored: list[dict[str, Any]]) -> dict[str, float]:
+    """Compute graph proximity scores based on shared entities between task and beliefs.
+
+    Returns dict mapping belief_hash -> proximity in [0.0, 1.0]
+    (= #query-entities whose memories intersect the belief's sources / #query-entities).
+
+    Returns {} (neutral, R5) when there is no belief pool, no task entity resolves, no
+    graph storage is available, or any error occurs — best-effort, never breaks injection.
+    """
+    if not scored:
+        return {}
+    try:
+        task_entity_names = _resolve_task_entities(task)
+        if not task_entity_names:
+            return {}  # R5: neutral when no entities
+
+        # Resolve graph storage the way every other module does. storage.graph never
+        # exists on any storage class (Issue #219), so use get_graph_storage().
+        from ..server.handlers.graph import get_graph_storage
+        graph_storage = await get_graph_storage()
+        if not graph_storage:
+            return {}  # graceful degradation — no graph backend
+
+        ent_mem = await _entity_memory_sets(graph_storage, task_entity_names)
+        total = len(task_entity_names)
+        proximity_scores = {}
+        for belief in scored:
+            bh = belief.get("belief_hash")
+            if not bh:
+                continue
+            proximity_scores[bh] = _proximity_for_belief(belief, ent_mem, total)
+        return proximity_scores
+    except Exception:
+        # Best-effort: any failure returns empty dict (neutral, R5)
+        return {}
+
+
+def _apply_rerank_a(scored: list[dict[str, Any]], generality: dict[str, float], graph_proximity: dict[str, float] | None = None) -> None:
     """Compute the frente-A weighted-sum score IN PLACE on each scored item.
 
     Writes item['rerank_a'] (breakdown) and item['_rank_a_score'] (sort key). Pure
@@ -329,6 +415,7 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
         (neutral — we do NOT fall back to len(derived_from), which conflates
         well-evidenced with generic — G5 finding #2/#3)
       - freshness: existing bounded freshness_score (R2)
+      - graph_proximity: entity-level thematic coherence boost (optional)
 
     Deferred to later increments (NOT implemented here, documented so the reader
     does not assume R1 is fully met): specificity via IDF (R3, needs Inc 0 job) and
@@ -346,6 +433,7 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
     w_fresh = _rerank_a_weight("fresh")
     w_gen = _rerank_a_weight("gen")
     w_util = _rerank_a_weight("util")
+    w_graph = _rerank_a_weight("graph")
 
     for s in scored:
         rel = s["relevance"]
@@ -371,6 +459,9 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
         # util_mult: 1.0 + w_util * util_surplus. w_util now acts as lambda of multiplicative boost.
         util_surplus = max(0.0, (util - 0.5) / 0.5)   # neutral 0.5 -> 0; util 1.0 -> 1.0
         util_mult = 1.0 + w_util * util_surplus         # w_util reused as lambda of multiplicative
+        
+        # Graph proximity: entity-level thematic coherence (optional signal).
+        gp = (graph_proximity or {}).get(s.get("belief_hash"), 0.0)
 
         score = (
             w_rel * rel * util_mult                     # util MODULATES relevance (amplifies existing relevance)
@@ -378,9 +469,10 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
             + w_conf * conf_sat
             + w_fresh * freshness
             - w_gen * gen
+            + w_graph * gp                              # graph proximity boost
         )
         s["_rank_a_score"] = score
-        s["rerank_a"] = {
+        breakdown_dict = {
             "relevance": round(rel, 4),
             "advantage": round(advantage, 4),
             "conf_saturated": round(conf_sat, 4),
@@ -390,6 +482,12 @@ def _apply_rerank_a(scored: List[Dict[str, Any]], generality: Dict[str, float]) 
             "util_mult": round(util_mult, 4),
             "score": round(score, 4),
         }
+        
+        # Only add graph_proximity to breakdown when graph_proximity dict is provided (non-None/non-empty)
+        if graph_proximity:
+            breakdown_dict["graph_proximity"] = round(gp, 4)
+            
+        s["rerank_a"] = breakdown_dict
 
 
 def _calculate_freshness_boost(updated_at: Optional[str]) -> float:
@@ -600,7 +698,13 @@ async def memory_context(
         # below instead of inverting on frequency (G5 finding #1).
         belief_hashes_for_gen = [s.get("belief_hash") for s in scored if s.get("belief_hash")]
         generality = await _generality_by_query_hash(storage, belief_hashes_for_gen)
-        _apply_rerank_a(scored, generality)
+        
+        # Graph proximity: conditionally compute entity-based thematic coherence
+        graph_proximity = {}
+        if _get_graph_proximity_enabled():
+            graph_proximity = await _graph_proximity_by_entity(storage, task, scored)
+        
+        _apply_rerank_a(scored, generality, graph_proximity)
         scored.sort(
             key=lambda s: (s["_rank_a_score"], s["confidence"], s.get("freshness_score", 0.0)),
             reverse=True,
