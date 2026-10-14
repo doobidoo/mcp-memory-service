@@ -1,0 +1,2 @@
+- **`regenerate_embeddings.py` wrote vectors without their store partition (#1521).**
+  Since multi-store, `memory_embeddings` is a vec0 table with `store` as a partition key; the maintenance script inserted `(rowid, content_embedding)` with no `store`, so every regenerated vector landed outside the partition that store-scoped KNN queries, invisible to search while the script reported success. It now reads each memory's `store` and writes the vector into that partition. Also fixes a broken `serialize_float32` import that prevented the script from running at all.
