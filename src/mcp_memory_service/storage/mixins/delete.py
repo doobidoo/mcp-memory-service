@@ -2,6 +2,7 @@
 
 import sqlite3
 import logging
+import math
 import time
 from datetime import datetime, date
 from typing import List, Tuple, Optional
@@ -20,6 +21,89 @@ def _escape_like(value: str) -> str:
 
 class DeleteMixin:
     """Mixin providing memory deletion operations."""
+
+    async def delete_if_not_updated_after(
+        self, content_hash: str, deleted_at: float
+    ) -> str:
+        """Apply a remote tombstone unless the local memory has a newer edit.
+
+        Returns ``applied``, ``already_deleted``, ``missing``, ``conflict``, or
+        ``failed``. The timestamp predicate is repeated in the UPDATE so a write
+        racing this reconciliation cannot be deleted based on a stale read.
+        """
+        try:
+            remote_deleted_at = float(deleted_at)
+            if not math.isfinite(remote_deleted_at):
+                return "failed"
+            if not self.conn:
+                return "failed"
+
+            def _apply_remote_tombstone():
+                row = self.conn.execute(
+                    'SELECT id, updated_at, deleted_at FROM memories '
+                    'WHERE content_hash = ?',
+                    (content_hash,),
+                ).fetchone()
+                if row is None:
+                    return "missing"
+                memory_id, updated_at, existing_deleted_at = row
+                if existing_deleted_at is not None:
+                    return "already_deleted"
+                if updated_at is not None and float(updated_at) > remote_deleted_at:
+                    return "conflict"
+
+                cursor = self.conn.execute(
+                    'UPDATE memories SET deleted_at = ? '
+                    'WHERE id = ? AND deleted_at IS NULL '
+                    'AND (updated_at IS NULL OR updated_at <= ?)',
+                    (remote_deleted_at, memory_id, remote_deleted_at),
+                )
+                if cursor.rowcount == 0:
+                    # Re-read to distinguish a racing edit from a disappeared row.
+                    current = self.conn.execute(
+                        'SELECT updated_at, deleted_at FROM memories WHERE id = ?',
+                        (memory_id,),
+                    ).fetchone()
+                    if current is None:
+                        self.conn.commit()
+                        return "missing"
+                    if current[1] is not None:
+                        self.conn.commit()
+                        return "already_deleted"
+                    self.conn.commit()
+                    return "conflict"
+
+                try:
+                    self.conn.execute(
+                        'DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,)
+                    )
+                except Exception as vec_err:
+                    logger.warning(
+                        "Could not delete embedding for remotely deleted memory %s: %s",
+                        _sanitize_log_value(content_hash), _sanitize_log_value(vec_err),
+                    )
+                self.conn.execute(
+                    'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                    (content_hash, content_hash),
+                )
+                if hasattr(self, '_append_sync_event'):
+                    self._append_sync_event(
+                        self.conn,
+                        'delete',
+                        content_hash,
+                        {'content_hash': content_hash, 'deleted_at': remote_deleted_at},
+                    )
+                self.conn.commit()
+                return "applied"
+
+            return await self._execute_with_retry(_apply_remote_tombstone)
+        except Exception as e:
+            try:
+                await self._run_in_thread(self.conn.rollback)
+            except Exception:
+                pass
+            logger.error("Failed to apply remote tombstone: %s", _sanitize_log_value(e))
+            return "failed"
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Soft-delete a memory by setting deleted_at timestamp. Scoped to store partition when given (#1465)."""

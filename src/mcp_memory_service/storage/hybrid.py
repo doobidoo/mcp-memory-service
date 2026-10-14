@@ -199,6 +199,109 @@ async def _fetch_secondary_content_hashes(secondary) -> Optional[set]:
     return hashes
 
 
+def _has_cloudflare_d1(secondary) -> bool:
+    """Whether ``secondary`` exposes the Cloudflare D1 query path."""
+    return bool(
+        secondary
+        and hasattr(secondary, '_retry_request')
+        and hasattr(secondary, 'd1_database_id')
+    )
+
+
+async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
+    """Fetch the Cloudflare live hashes and tombstones from one consistent D1 scan.
+
+    ``None`` means the D1 snapshot could not be read. Callers must fail closed for
+    Cloudflare rather than interpreting an unavailable snapshot as an empty remote.
+    Non-Cloudflare backends are not supported by this helper.
+    """
+    if not _has_cloudflare_d1(secondary):
+        return None
+
+    live_hashes: set = set()
+    tombstones: Dict[str, float] = {}
+    limit = 1000
+    last_id = 0
+    while True:
+        try:
+            resp = await secondary._retry_request(
+                "POST",
+                f"{secondary.base_url}/d1/database/{secondary.d1_database_id}/query",
+                json={
+                    "sql": (
+                        "SELECT id, content_hash, deleted_at FROM memories "
+                        "WHERE id > ? ORDER BY id ASC LIMIT ?"
+                    ),
+                    "params": [last_id, limit],
+                },
+            )
+            data = resp.json()
+            if not data.get("success"):
+                logger.warning(
+                    "Secondary sync-state fetch failed: %s",
+                    _sanitize_log_value(data.get('errors')),
+                )
+                return None
+            batch = data["result"][0].get("results", [])
+            if not batch:
+                break
+            for row in batch:
+                content_hash = row["content_hash"]
+                deleted_at = row.get("deleted_at")
+                if deleted_at is None:
+                    live_hashes.add(content_hash)
+                else:
+                    tombstones[content_hash] = float(deleted_at)
+            last_id = batch[-1]["id"]
+            if len(batch) < limit:
+                break
+        except Exception as e:
+            logger.warning(
+                "Could not fetch secondary sync state: %s", _sanitize_log_value(e)
+            )
+            return None
+
+    return {"live_hashes": live_hashes, "tombstones": tombstones}
+
+
+async def _reconcile_remote_tombstones(
+    primary, tombstones: Dict[str, float]
+) -> Dict[str, int]:
+    """Apply remote deletes without overwriting a newer local edit."""
+    counts = {
+        "tombstones_applied": 0,
+        "tombstone_conflicts": 0,
+        "tombstone_failures": 0,
+    }
+    if not tombstones:
+        return counts
+
+    delete_if_older = getattr(primary, "delete_if_not_updated_after", None)
+    if delete_if_older is None:
+        counts["tombstone_failures"] = len(tombstones)
+        logger.error("Primary storage cannot safely reconcile remote tombstones")
+        return counts
+
+    for content_hash, deleted_at in tombstones.items():
+        try:
+            outcome = await delete_if_older(content_hash, deleted_at)
+        except Exception as e:
+            logger.warning(
+                "Failed to reconcile remote tombstone %s: %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(e),
+            )
+            counts["tombstone_failures"] += 1
+            continue
+        if outcome == "applied":
+            counts["tombstones_applied"] += 1
+        elif outcome == "conflict":
+            counts["tombstone_conflicts"] += 1
+        elif outcome not in ("missing", "already_deleted"):
+            counts["tombstone_failures"] += 1
+    return counts
+
+
 async def _secondary_hash_set(secondary) -> Optional[set]:
     """Return the secondary's non-deleted content-hash set, or None if the
     secondary cannot answer a bulk hash fetch by ANY supported mechanism.
@@ -397,7 +500,8 @@ class BackgroundSyncService:
         sync_start_time = time.time()
 
         try:
-            # Get all memories from primary storage
+            # Keep the local count available even when the secondary health check
+            # fails, as in the pre-tombstone implementation.
             primary_memories = await self.primary.get_all_memories()
 
             # Check Cloudflare availability
@@ -415,18 +519,73 @@ class BackgroundSyncService:
                     'duration': time.time() - sync_start_time
                 }
 
+            # Read Cloudflare live rows and tombstones before enumerating/pushing
+            # local memories. If D1 is unavailable, pushing without its deletion
+            # state could resurrect remotely deleted data (#1502).
+            remote_tombstones: Dict[str, float] = {}
+            if _has_cloudflare_d1(self.secondary):
+                sync_state = await _fetch_secondary_sync_state(self.secondary)
+                if sync_state is None:
+                    self.sync_stats['cloudflare_available'] = False
+                    return {
+                        'status': 'partial',
+                        'cloudflare_available': False,
+                        'primary_memories': len(primary_memories),
+                        'synced_to_secondary': 0,
+                        'failed_operations': 0,
+                        'skipped_already_present': 0,
+                        'skipped_remote_tombstones': 0,
+                        'tombstones_applied': 0,
+                        'tombstone_conflicts': 0,
+                        'tombstone_failures': 1,
+                        'duration': time.time() - sync_start_time,
+                        'error': (
+                            'Could not read Cloudflare tombstones; skipped push '
+                            'to prevent resurrection'
+                        ),
+                    }
+                remote_tombstones = sync_state['tombstones']
+                tombstone_counts = await _reconcile_remote_tombstones(
+                    self.primary, remote_tombstones
+                )
+                secondary_hashes = sync_state['live_hashes']
+            else:
+                tombstone_counts = {
+                    'tombstones_applied': 0,
+                    'tombstone_conflicts': 0,
+                    'tombstone_failures': 0,
+                }
+                secondary_hashes = await self._fetch_secondary_hashes()
+
             # Dedupe: skip memories that already exist on the secondary. Without this,
             # force_sync calls embed+upsert for every local memory and burns the CF
             # Workers AI quota on duplicates — the root cause of `0 synced / N failed`
             # reported in issue #750.
-            secondary_hashes = await self._fetch_secondary_hashes()
             if secondary_hashes is not None:
-                new_memories = [m for m in primary_memories if m.content_hash not in secondary_hashes]
-                skipped_count = len(primary_memories) - len(new_memories)
-                logger.info("Dedupe: %s of %s memories already on secondary, pushing %s", skipped_count, len(primary_memories), len(new_memories))
+                new_memories = [
+                    m for m in primary_memories
+                    if m.content_hash not in secondary_hashes
+                    and m.content_hash not in remote_tombstones
+                ]
+                skipped_count = sum(
+                    1 for m in primary_memories
+                    if m.content_hash in secondary_hashes
+                )
+                skipped_tombstones = sum(
+                    1 for m in primary_memories
+                    if m.content_hash in remote_tombstones
+                )
+                logger.info(
+                    "Dedupe: %s already present, %s protected by remote tombstones, "
+                    "pushing %s",
+                    skipped_count,
+                    skipped_tombstones,
+                    len(new_memories),
+                )
             else:
                 new_memories = primary_memories
                 skipped_count = 0
+                skipped_tombstones = 0
                 logger.debug("Secondary hash fetch unavailable — pushing all memories")
 
             # Sync from primary to secondary using concurrent operations
@@ -470,12 +629,20 @@ class BackgroundSyncService:
             logger.info("Force sync completed: %s synced, %s failed, %s skipped (already on secondary) in %.2fs", synced_count, failed_count, skipped_count, sync_duration)
 
             return {
-                'status': 'completed',
+                'status': (
+                    'completed'
+                    if not failed_count
+                    and not tombstone_counts['tombstone_conflicts']
+                    and not tombstone_counts['tombstone_failures']
+                    else 'partial'
+                ),
                 'cloudflare_available': cloudflare_available,
                 'primary_memories': len(primary_memories),
                 'synced_to_secondary': synced_count,
                 'failed_operations': failed_count,
                 'skipped_already_present': skipped_count,
+                'skipped_remote_tombstones': skipped_tombstones,
+                **tombstone_counts,
                 'duration': sync_duration
             }
 
@@ -1254,8 +1421,31 @@ class HybridMemoryStorage(MemoryStorage):
             - time_taken_seconds: float
         """
         sync_start_time = time.time()
+        tombstone_counts = {
+            'tombstones_applied': 0,
+            'tombstone_conflicts': 0,
+            'tombstone_failures': 0,
+        }
 
         try:
+            sync_state = None
+            if _has_cloudflare_d1(self.secondary):
+                sync_state = await _fetch_secondary_sync_state(self.secondary)
+                if sync_state is None:
+                    # Pull-only is safe to continue through the existing live-row
+                    # cursor scan; unlike force_sync it cannot overwrite remote rows.
+                    # Surface the incomplete tombstone check so the caller does not
+                    # report a fully synchronized state.
+                    tombstone_counts['tombstone_failures'] = 1
+                    logger.warning(
+                        "Cloudflare tombstone snapshot unavailable; "
+                        "continuing pull-only scan"
+                    )
+                else:
+                    tombstone_counts = await _reconcile_remote_tombstones(
+                        self.primary, sync_state['tombstones']
+                    )
+
             # Get memory count from both storages to compare
             primary_stats = await self.primary.get_stats()
             secondary_stats = await self.secondary.get_stats()
@@ -1274,7 +1464,11 @@ class HybridMemoryStorage(MemoryStorage):
             # primary, the newest-first scan below gives up after HYBRID_MAX_EMPTY_BATCHES
             # batches without a new memory, so old cloud-only memories buried behind thousands
             # of shared ones would never be reached. The exact diff has no such limit.
-            secondary_hashes = await _secondary_hash_set(self.secondary)
+            secondary_hashes = (
+                sync_state['live_hashes']
+                if sync_state is not None
+                else await _secondary_hash_set(self.secondary)
+            )
 
             if secondary_hashes is not None or secondary_count <= primary_count:
                 # A count comparison can't prove the primary already holds everything the
@@ -1291,12 +1485,28 @@ class HybridMemoryStorage(MemoryStorage):
                 missing_hashes = (secondary_hashes - local_hashes) if secondary_hashes is not None else None
                 if not missing_hashes:
                     logger.info("No new memories to sync from Cloudflare (%s sync)", sync_type)
+                    has_tombstone_issues = bool(
+                        tombstone_counts['tombstone_conflicts']
+                        or tombstone_counts['tombstone_failures']
+                    )
+                    message = 'No new memories to pull from Cloudflare'
+                    if tombstone_counts['tombstone_conflicts']:
+                        message += (
+                            f"; preserved {tombstone_counts['tombstone_conflicts']} "
+                            "newer local edit(s) with tombstone conflicts"
+                        )
+                    if tombstone_counts['tombstone_failures']:
+                        message += (
+                            "; tombstone reconciliation incomplete "
+                            f"({tombstone_counts['tombstone_failures']} failure(s))"
+                        )
                     return {
-                        'success': True,
+                        'success': not has_tombstone_issues,
                         'memories_synced': 0,
                         'total_checked': 0,
-                        'message': 'No new memories to pull from Cloudflare',
-                        'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                        'message': message,
+                        'time_taken_seconds': round(time.time() - sync_start_time, 3),
+                        **tombstone_counts,
                     }
                 # The exact missing hashes are known here, so pull precisely those
                 # instead of falling through to the full scan: the scan pages
@@ -1356,13 +1566,35 @@ class HybridMemoryStorage(MemoryStorage):
                     except Exception as e:
                         logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
 
+                has_tombstone_issues = bool(
+                    tombstone_counts['tombstone_conflicts']
+                    or tombstone_counts['tombstone_failures']
+                )
+                message = (
+                    f'Successfully pulled {synced_count} memories from Cloudflare'
+                    if failed_count == 0
+                    else (
+                        f'Pulled {synced_count} of {missing_count} memories '
+                        f'from Cloudflare ({failed_count} failed)'
+                    )
+                )
+                if tombstone_counts['tombstone_conflicts']:
+                    message += (
+                        f"; preserved {tombstone_counts['tombstone_conflicts']} "
+                        "newer local edit(s) with tombstone conflicts"
+                    )
+                if tombstone_counts['tombstone_failures']:
+                    message += (
+                        "; tombstone reconciliation incomplete "
+                        f"({tombstone_counts['tombstone_failures']} failure(s))"
+                    )
                 return {
-                    'success': failed_count == 0,
+                    'success': failed_count == 0 and not has_tombstone_issues,
                     'memories_synced': synced_count,
                     'total_checked': missing_count,
-                    'message': f'Successfully pulled {synced_count} memories from Cloudflare' if failed_count == 0
-                               else f'Pulled {synced_count} of {missing_count} memories from Cloudflare ({failed_count} failed)',
-                    'time_taken_seconds': round(time_taken, 3)
+                    'message': message,
+                    'time_taken_seconds': round(time_taken, 3),
+                    **tombstone_counts,
                 }
 
             missing_count = secondary_count - primary_count
@@ -1432,13 +1664,25 @@ class HybridMemoryStorage(MemoryStorage):
                     except Exception as e:
                         logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
 
+                has_tombstone_issues = bool(
+                    tombstone_counts['tombstone_conflicts']
+                    or tombstone_counts['tombstone_failures']
+                )
+                message = (
+                    f'Successfully pulled {synced_count} memories from secondary'
+                    if failed_count == 0
+                    else (
+                        f'Pulled {synced_count} of {missing_count} memories '
+                        f'from secondary ({failed_count} failed)'
+                    )
+                )
                 return {
-                    'success': failed_count == 0,
+                    'success': failed_count == 0 and not has_tombstone_issues,
                     'memories_synced': synced_count,
                     'total_checked': missing_count,
-                    'message': f'Successfully pulled {synced_count} memories from secondary' if failed_count == 0
-                               else f'Pulled {synced_count} of {missing_count} memories from secondary ({failed_count} failed)',
-                    'time_taken_seconds': round(time_taken, 3)
+                    'message': message,
+                    'time_taken_seconds': round(time_taken, 3),
+                    **tombstone_counts,
                 }
 
             # CF secondary: use original scan logic (BYTE-IDENTICAL)
@@ -1632,12 +1876,28 @@ class HybridMemoryStorage(MemoryStorage):
                 except Exception as e:
                     logger.debug("Failed to broadcast SSE completion: %s", _sanitize_log_value(e))
 
+            has_tombstone_issues = bool(
+                tombstone_counts['tombstone_conflicts']
+                or tombstone_counts['tombstone_failures']
+            )
+            message = f'Successfully pulled {synced_count} memories from Cloudflare'
+            if tombstone_counts['tombstone_conflicts']:
+                message += (
+                    f"; preserved {tombstone_counts['tombstone_conflicts']} "
+                    "newer local edit(s) with tombstone conflicts"
+                )
+            if tombstone_counts['tombstone_failures']:
+                message += (
+                    "; tombstone reconciliation incomplete "
+                    f"({tombstone_counts['tombstone_failures']} failure(s))"
+                )
             return {
-                'success': True,
+                'success': not has_tombstone_issues,
                 'memories_synced': synced_count,
                 'total_checked': processed_count,
-                'message': f'Successfully pulled {synced_count} memories from Cloudflare',
-                'time_taken_seconds': round(time_taken, 3)
+                'message': message,
+                'time_taken_seconds': round(time_taken, 3),
+                **tombstone_counts,
             }
 
         except Exception as e:
@@ -1647,7 +1907,8 @@ class HybridMemoryStorage(MemoryStorage):
                 'memories_synced': 0,
                 'total_checked': 0,
                 'message': f'Failed to pull from Cloudflare: {str(e)}',
-                'time_taken_seconds': round(time.time() - sync_start_time, 3)
+                'time_taken_seconds': round(time.time() - sync_start_time, 3),
+                **tombstone_counts,
             }
 
     async def _perform_initial_sync(self) -> None:
@@ -2205,7 +2466,10 @@ class HybridMemoryStorage(MemoryStorage):
             'success': result['success'],
             'message': result['message'],
             'memories_pulled': result['memories_synced'],
-            'time_taken_seconds': result['time_taken_seconds']
+            'time_taken_seconds': result['time_taken_seconds'],
+            'tombstones_applied': result.get('tombstones_applied', 0),
+            'tombstone_conflicts': result.get('tombstone_conflicts', 0),
+            'tombstone_failures': result.get('tombstone_failures', 0),
         }
 
     async def get_sync_status(self) -> Dict[str, Any]:
