@@ -73,6 +73,19 @@ verbatim ratio drops.
 3. Source expansion (R4/R5) — include decision/learning/mistake; wire singular path.
 4. Flag + A/B (R6) — measure Recall@pool and verbatim ratio on/off.
 
+### Salvaged from rfc-s2 (good design, never implemented — fold in here)
+
+5. **Belief subtypes** (rfc-s2 §1: convention/preference/avoidance/tool_pattern/causal) —
+   absent from ontology.py. The synthesized claim SHOULD be classified into a subtype; it
+   is the conceptual abstraction the verbatim copy throws away.
+6. **Scope: global vs project:xxx** (rfc-s2 §4) — absent (beliefs have empty scope,
+   100/100). Directly attacks the measured rich-get-richer: a `global` belief and a
+   `project:mir` belief must not compete in the same query. A relevance axis never wired.
+7. **Staged promotion emerging→active** (rfc-s2 §3) — confidence gradation by confirmation,
+   BUT with the 14/out correction: requiring ≥2-3 sessions kills say-it-once knowledge
+   (the 7/10 missing in Recall@pool); the singular path (R5) must bypass the threshold for
+   decision/learning/mistake.
+
 ## Acceptance criteria (measurable)
 
 - **CA1** — Flag off → derived belief content byte-identical to current (zero regression).

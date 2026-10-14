@@ -1,5 +1,23 @@
 # Spec: §2 Belief Store (Incremental Approach)
 
+> **⚠️ STATUS CORRIGIDO (14/out/2026):** esta RFC foi marcada "implemented" por engano. O
+> código real (`BeliefService.derive_beliefs`, #33) DIVERGIU desta spec desde o dia 1:
+> usa uma tabela `beliefs` própria + clusterização verbatim, NÃO o `_promote_to_belief` /
+> `memory_type=belief` aqui descritos (que nunca foram construídos). Ver
+> `docs/rfc/planned/rfc-belief-synthesis.md` para o estado real e o arco de correção.
+>
+> **O QUE AINDA VALE RESGATAR desta RFC (design bom, nunca implementado):**
+> 1. **Subtipos de belief** (§1: convention/preference/avoidance/tool_pattern/causal) —
+>    ausentes do ontology.py; são a tipologia conceitual que a SÍNTESE deve classificar.
+> 2. **Scope classifier global vs project:xxx** (§4) — ausente; beliefs vivos têm scope
+>    vazio (100/100). Ataca o rich-get-richer: global não deve competir com project na
+>    mesma query. Eixo de relevância nunca ligado.
+> 3. **Promoção emerging→active** (§3) — gradação por confirmação, MAS com a correção
+>    medida 14/out: exigir ≥2-3 sessões mata o conhecimento dito-uma-vez (Recall@pool 0.30);
+>    precisa do singular path para decision/learning.
+> **O QUE É MORTO:** _promote_to_belief (nunca existiu), memory_type=belief (código usa
+> tabela própria — decisão de arquitetura reaberta), §5-§7 bootstrap (tema separado).
+
 **Date:** 2026-06-01
 **Branch:** `feat/rfc1-s2-belief-store` (create from `main`)
 **Repo:** `~/git/mcp-memory-service`
