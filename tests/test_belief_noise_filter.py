@@ -30,9 +30,12 @@ class TestNoiseFilter:
         assert _is_noise(long_content) is True
 
     def test_noise_filter_long_low_entropy_dump(self):
-        """Long AND repetitive (low entropy) content is a dump → noise."""
-        dump = "\n".join([f"- status ok item {i % 3}" for i in range(60)])
+        """Long AND repetitive (low entropy) content is a dump → noise. Uses bulletless
+        prose so it is NOT caught by the pre-existing bullet-ratio rule — it must be
+        rejected by the entropy branch specifically (per Greptile review on #1533)."""
+        dump = "status ok item " * 60
         assert len(dump) > 500
+        assert not any(l.lstrip().startswith("- ") for l in dump.split("\n"))
         assert _is_noise(dump) is True
 
     def test_noise_filter_long_substantive_insight_not_noise(self):
