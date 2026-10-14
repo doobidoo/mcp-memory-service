@@ -44,54 +44,76 @@ def confirm_write(skip_confirmation: bool) -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
-async def repair_missing_embeddings(database_path: str) -> None:
-    from sqlite_vec import serialize_float32  # inline import: deferred so the repair only loads storage code after the target is confirmed
+async def reembed_missing_embeddings(storage) -> int:
+    """Generate vectors for rows that have none, under the local model, and clear
+    `embedding_pending` (#1522 finding #4) so they become visible to search again.
 
-    from mcp_memory_service.storage.factory import create_storage_instance  # inline import: see above
+    Operates on an already-open storage instance (so it is unit-testable); the CLI wrapper
+    `repair_missing_embeddings` opens storage from a path and delegates here. Returns the
+    number of rows embedded.
+    """
+    from sqlite_vec import serialize_float32  # inline import: deferred, see CLI wrapper
+
+    s = storage.primary if hasattr(storage, "primary") else storage
+
+    cur = s.conn.execute("""
+        SELECT id, content, COALESCE(store, 'default') FROM memories
+        WHERE deleted_at IS NULL
+          AND id NOT IN (SELECT rowid FROM memory_embeddings)
+        """)
+    rows = cur.fetchall()
+    log.info("Missing embeddings: %d", len(rows))
+    if not rows:
+        log.info("Nothing to do.")
+        return 0
+
+    fixed = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i : i + BATCH]
+        contents = [r[1] for r in batch]
+        # _generate_embedding accepts one string; call the model directly for a batch.
+        embeddings = s.embedding_model.encode(contents, convert_to_numpy=True)
+        for (mem_id, _, mem_store), emb in zip(batch, embeddings):
+            # #1521: memory_embeddings is a vec0 table partitioned by `store`; the vector
+            # must be written into the memory's own partition or store-scoped KNN never
+            # finds it. Writing without `store` lands it in the wrong partition.
+            s.conn.execute(
+                """
+                INSERT OR IGNORE INTO memory_embeddings(rowid, content_embedding, store)
+                VALUES (?, ?, ?)
+                """,
+                (mem_id, serialize_float32(emb), mem_store),
+            )
+            # #1522 finding #4: clear embedding_pending once the vector exists under
+            # the local model, or the row stays invisible to search/tag forever.
+            s.conn.execute(
+                "UPDATE memories SET embedding_pending = 0 WHERE id = ?",
+                (mem_id,),
+            )
+        s.conn.commit()
+        fixed += len(batch)
+        log.info(
+            "Progress: %d/%d (%d%%)", fixed, len(rows), fixed * 100 // len(rows)
+        )
+
+    deleted = s.conn.execute("""
+        DELETE FROM memory_embeddings
+        WHERE rowid NOT IN (SELECT id FROM memories)
+        """).rowcount
+    s.conn.commit()
+    log.info("Orphaned embeddings deleted: %d", deleted)
+    log.info("Done. Fixed %d missing embeddings.", fixed)
+    return fixed
+
+
+async def repair_missing_embeddings(database_path: str) -> None:
+    from mcp_memory_service.storage.factory import create_storage_instance  # inline import: deferred so the repair only loads storage code after the target is confirmed
 
     storage = await create_storage_instance(database_path)
     try:
         s = storage.primary if hasattr(storage, "primary") else storage
         s.conn.text_factory = lambda b: b.decode("utf-8", errors="replace")
-
-        cur = s.conn.execute("""
-            SELECT id, content FROM memories
-            WHERE deleted_at IS NULL
-              AND id NOT IN (SELECT rowid FROM memory_embeddings)
-            """)
-        rows = cur.fetchall()
-        log.info("Missing embeddings: %d", len(rows))
-        if not rows:
-            log.info("Nothing to do.")
-            return
-
-        fixed = 0
-        for i in range(0, len(rows), BATCH):
-            batch = rows[i : i + BATCH]
-            contents = [r[1] for r in batch]
-            # _generate_embedding accepts one string; call the model directly for a batch.
-            embeddings = s.embedding_model.encode(contents, convert_to_numpy=True)
-            for (mem_id, _), emb in zip(batch, embeddings):
-                s.conn.execute(
-                    """
-                    INSERT OR IGNORE INTO memory_embeddings(rowid, content_embedding)
-                    VALUES (?, ?)
-                    """,
-                    (mem_id, serialize_float32(emb)),
-                )
-            s.conn.commit()
-            fixed += len(batch)
-            log.info(
-                "Progress: %d/%d (%d%%)", fixed, len(rows), fixed * 100 // len(rows)
-            )
-
-        deleted = s.conn.execute("""
-            DELETE FROM memory_embeddings
-            WHERE rowid NOT IN (SELECT id FROM memories)
-            """).rowcount
-        s.conn.commit()
-        log.info("Orphaned embeddings deleted: %d", deleted)
-        log.info("Done. Fixed %d missing embeddings.", fixed)
+        await reembed_missing_embeddings(storage)
     finally:
         await storage.close()
 
