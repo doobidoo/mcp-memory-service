@@ -160,11 +160,14 @@ async def import_memories(
         logger.info(f"  Total processed: {result['total_processed']}")
         logger.info(f"  Successfully imported: {result['imported']}")
         logger.info(f"  Duplicates skipped: {result['duplicates_skipped']}")
+        logger.info(f"  Rejected by storage: {result['rejected']}")
         logger.info(f"  Errors: {result['errors']}")
         
         logger.info(f"  Source breakdown:")
         for source, stats in result['sources'].items():
-            logger.info(f"    {source}: {stats['imported']}/{stats['total']} imported, {stats['duplicates']} duplicates")
+            logger.info(f"    {source}: {stats['imported']}/{stats['total']} imported, {stats['duplicates']} duplicates, {stats['rejected']} rejected")
+        for rejection in result['rejections']:
+            logger.info(f"    rejected {rejection['content_hash'][:12]} ({rejection['store']}): {rejection['reason']}")
         
         if not dry_run and result['imported'] > 0:
             # Show next steps
