@@ -40,7 +40,7 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   │   Correção de rumo (3/out): L4 feedback = RFC-MM-01 do CLAUDIO (jul), Henry endossou #1286.
 │   │
 │   ├─ D0 limpar beliefs ................................... ✅ já resolvido (noise filter existe; task dc1c7756 cancelada)
-│   ├─ D1 destilação (L2) .................................. ✅ belief store já destila (240 active conf 0.87-0.98)
+│   ├─ D1 destilação (L2) .................................. ⚠️ REABERTO 14/out — NÃO destila: derive_beliefs COPIA o representante do cluster VERBATIM (314/314 beliefs = cópia literal de uma memória-fonte, medido). conf 0.87-0.98 engana (é da fórmula, não de síntese). RFC §2 presumiu síntese no rewriter LLM a montante; o caminho real não passa por ele → síntese caiu num vão. É A DOENÇA do learning loop (ranking afina leme de barco sem motor). mem 0ab1aff0+25a0766. ARCO SÍNTESE abaixo.
 │   ├─ L1 telemetria de proveito (usage_events) ............ 🟢 FORK 3/out (cc412cfe) · migration 014 no banco VIVO · opt-out MCP_USAGE_TELEMETRY
 │   ├─ L2 injeção proativa (tool memory_context) ........... 🟢 FORK 3/out (f752dd13) · injeta por TEMA · E2E banco vivo 24k · opt-out MCP_CONTEXT_INJECTION_ENABLED
 │   ├─ D2 feedback SÍNCRONO (rating→belief) ................ ↩️ REVERTIDO 3/out · letra morta (rating manual que ninguém faz; a RFC-MM-01 já previa)
@@ -85,6 +85,17 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   │     ├─ PRÉ-REQ qualidade de belief (f0e2c306, HIGH) ... ✅ DONE 14/out (PR #1533: len>500 só é ruído se dump real, entropy<0.4 OR words<10; +497 memórias acionáveis resgatadas, medido)
 │   │     ├─ RFC+SPEC consumidor ADITIVO (a74c0e1f) ......... ✅ DONE 14/out · docs/rfc/planned/rfc-learning-loop-graph-proximity.md (EARS R1-R7, CA1-CA3, G0 seven) · INVARIANTE append-only honrado
 │   │     └─ Impl+gate (9fe4abd0) ........................... ✅ DONE 14/out (merge f45e9bbe) · gate G0(seven)→G1(RFC)→G3(rok)→G4(reg)→G5(tuvok 2 rodadas) · termo aditivo graph_proximity no _apply_rerank_a, opt-in MCP_INJECT_GRAPH_PROXIMITY+W_GRAPH (default 0.0=R4 byte-idêntico) · reusa get_graph_storage()+find_memories_by_entity+EntityExtractor (sem DDL) · 11 testes, 0 regressão · G5 pegou 4 bloqueadores (gate morto storage.graph→get_graph_storage #219; complexidade; CA1 baseline anchor por mutation; domain_extractors) TODOS corrigidos · ACHADO: minha verificação de manager passou código-morto (storage.graph), o tuvok independente pegou — review externo é obrigatório · ⚠️ ANTES DE LIGAR a flag: medir recall de entidades em prosa + CA3 MRR + tunar peso (seção 'Before enabling' no RFC)
+│   │
+│   ├─ ⭐⭐ ARCO SÍNTESE DE BELIEF (a DOENÇA, não o sintoma) · 🔴 NOVO 14/out · O NORTE REAL do learning loop
+│   │     │   DESCOBERTA (seven + 3 medições banco vivo): o maquinário todo (re-rank A, util, grafo, NER, cosine) é RANKING. Mas o loop não quebra no ranking — quebra ANTES: derive_beliefs NÃO sintetiza, COPIA (314/314 verbatim). "belief = memória com crachá". Afinar ranking = leme perfeito em barco sem motor.
+│   │     │   AUTORIA: NOSSO (belief_service.py criado #33 filhocf 03/jun; 13 commits Claudio). RFC docs/rfc/implemented/rfc-s2-belief-store.md marcada 'implemented' MAS presumiu síntese no rewriter LLM a montante (§3 Promotion + §4 Scope Classifier in distill/rewriter) — o derive_beliefs real pega observação crua SEM passar pelo rewriter → síntese caiu num VÃO de concepção. mem 25a0766+0ab1aff0.
+│   │     │   A PERGUNTA (definição, não feature): "o que É um belief, QUEM o escreve abstrato, COMO sabemos que foi útil sem o agente reportar?" Hoje: belief=cópia verbatim; útil=reuso circular (injected_then_used=0).
+│   │     ├─ PRÉ-REVISÃO RFC §2 (Claudio pediu 14/out): revisar rfc-s2-belief-store.md — o que falta p/ ser FUNCIONAL (síntese real), melhorias, mover de 'implemented' p/ 'planned/reaberto' honestamente (Gate +1: 'implemented' sem efeito é dívida)
+│   │     ├─ G-1 VIABILIDADE: medir Recall@pool (existe belief que responde a query de tema? seven: se <0.8 prova que é corpus não ranking); auditar origem (15/314 beliefs têm fonte decision/learning; 578 observation dominam); verbatim-ratio (314/314 hoje)
+│   │     ├─ Síntese real: derive_beliefs produz CLAIM abstrato do cluster — (a) ligar ao rewriter LLM que a RFC presumiu, OU (b) passo de síntese explícito (template/LLM + representante por centralidade, não o 1º do loop). belief_service.py:413-521 (_create/group_content), _group_observations:687-749
+│   │     ├─ Incluir decision/learning/mistake na derivação (hoje só observation vira belief — mem 9ff8c7b8)
+│   │     └─ Definir 'útil' com fonte de verdade real (injected_then_used=0 estruturalmente — proxy de reuso é circular/rich-get-richer)
+│   │     ⚠️ INC5/INC7 do dreaming e 'ligar flag do grafo' ficam ABAIXO disto na prioridade — ranking sobre corpus-sem-síntese reencena rich-get-richer. Síntese PRIMEIRO.
 │   │
 │   └─ 📦 COMOs resgatados (protótipo 2e1978d5 = os 3 jobs da trilogia; branch validacao, 93 testes):
 │       ├─ rfc-mm-02 fact-extraction (L2) ............. 🟢 resgatado · job scheduler + migration · spec: 6 req
@@ -218,7 +229,7 @@ O produto NÃO é "mais memórias colhidas" — é o **ciclo de aprendizado fech
 ```
 colher(limpo) → DESTILAR[L2] → VALIDAR/feedback[L4] → INJETAR proativo[L3] → agir melhor → recalibra ⟲
 ```
-- **L1 Memória** ✅ · **L2 Destilação** ✅ (beliefs active conf 0.87-0.98, noise filter ativo) · **L3 Injeção** 🟡 por-tema (memory_context, one-shot) · **L4 Feedback** 🟡 1º passo fechado (negative-use).
+- **L1 Memória** ✅ · **L2 Destilação** ❌ REABERTO 14/out: NÃO destila (314/314 beliefs verbatim, derive_beliefs copia o representante cru; conf alta é da fórmula, não síntese) — é A DOENÇA · **L3 Injeção** 🟡 por-tema (memory_context, one-shot) · **L4 Feedback** 🟡 1º passo fechado (negative-use).
 - **Colher (Fase 0) é PRÉ-REQUISITO, não o objetivo** — enche o reservatório limpo. O motor é destilar+validar+injetar.
 - **Gargalo real = SINAL DE USO** (o serviço é cego pro agente; não sabe se a injeção ajudou). Priorizar **negative learning** (contradição = sinal forte e barato) antes do positivo.
 - **É do SERVIÇO, não do agente** (agente é efêmero; serviço é o substrato persistente). Não é fine-tuning — o aprendizado vive no harness, efeito indistinguível de aprender no contexto.
