@@ -99,3 +99,19 @@ the signal is off (byte-identical score at weight 0).
   consumer reads; only valuable AFTER this consumer proves out. Follow-up, not a goal.
 - INC7 (memory_explore + LLM-gated reflection): LOW, re-evaluate or cancel after this.
 - Changing the R4 fusion (lex+cosine), util model, or any existing term.
+
+## Before enabling (G5 caveats — merge approved ≠ activation approved)
+
+The code is merged opt-in default-off (byte-identical R4 when off, verified). Resolve
+these BEFORE turning `MCP_INJECT_GRAPH_PROXIMITY` on in any environment:
+
+- **Entity recall on prose queries:** `EntityExtractor` is term/pattern based; a prose
+  task without @mention/#hashtag/URL/path may extract no entities, so `graph_proximity`
+  degrades to {} (neutral R4) — the feature is then inert, not harmful. Before activation,
+  measure entity recall on real abstract-theme queries (the 14/out case) and, if low,
+  decide whether to seed `MCP_ENTITY_CUSTOM_TERMS` or add a retrieval→has_entity fallback
+  (the explore pattern). CA2 only bites if the theme's entities are actually extractable.
+- **CA3 (offline MRR) not yet exercised:** run `eval/rerank_bench` with the signal on at
+  the tuned weight and confirm no MRR regression before activation.
+- **Weight tuning:** `MCP_INJECT_RERANK_A_W_GRAPH` default 0.0; pick the activation weight
+  from the A/B (CA2) + MRR (CA3), not by guess.
