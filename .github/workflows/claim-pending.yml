@@ -1,0 +1,44 @@
+# Labels an issue `claim-pending` the moment a comment claims it, so an
+# unassigned claim is visible at once instead of only in the daily digest.
+# scripts/ci/mark_claim_pending.py has the rules (claim phrases, guards).
+#
+# The label is the whole signal: this never assigns anyone and never comments.
+# A maintainer still confirms every claim by hand; the issues: assigned path in
+# claim-check.yml removes the label when they do, so it does not go stale.
+#
+# issue_comment runs on the default branch with a write token, like
+# pull_request_target. It is safe only while no PR code is ever run here: the
+# checkout below is the default branch, never a PR head, and the script reads
+# the event payload and the API alone. Keep it that way.
+
+name: Claim Pending
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: claim-pending-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    # Issue comments only. issue_comment also fires on pull request comments,
+    # and the script skips those too, but gating here saves a runner.
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    name: Mark an unassigned claim as pending
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Label the issue if the comment is a claim
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/ci/mark_claim_pending.py
