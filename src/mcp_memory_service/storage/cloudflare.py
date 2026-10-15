@@ -621,48 +621,73 @@ class CloudflareStorage(MemoryStorage):
             memory, expected_deleted_at=expected_deleted_at
         )
 
+    def _memory_r2_key(
+        self, memory: Memory, restore_id: Optional[str], content_size: int
+    ) -> Optional[str]:
+        """Return the content key when this memory belongs in R2."""
+        if not self.r2_bucket or content_size <= self.large_content_threshold:
+            return None
+        if restore_id is not None:
+            return f"content/{memory.content_hash}/restore-{restore_id}.txt"
+        return f"content/{memory.content_hash}.txt"
+
+    def _memory_vector_metadata(self, memory: Memory) -> Dict[str, Any]:
+        """Build the metadata stored alongside a memory's vector."""
+        return {
+            "content_hash": memory.content_hash,
+            "memory_type": memory.memory_type or "standard",
+            "tags": ",".join(memory.tags) if memory.tags else "",
+            "created_at": memory.created_at_iso or datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _stage_memory_artifacts(
+        self, memory: Memory, vector_id: str, restore_id: Optional[str]
+    ) -> Tuple[int, Optional[str], str]:
+        """Write the vector and optional R2 body before committing D1 metadata."""
+        content_size = len(memory.content.encode("utf-8"))
+        r2_key = self._memory_r2_key(memory, restore_id, content_size)
+        stored_content = memory.content
+        r2_write_attempted = False
+        vector_write_attempted = False
+        try:
+            embedding = await self._generate_embedding(memory.content)
+            if r2_key:
+                r2_write_attempted = True
+                await self._store_r2_content(r2_key, memory.content)
+                stored_content = f"[R2 Content: {r2_key}]"
+
+            vector_write_attempted = True
+            await self._store_vectorize_vector(
+                vector_id, embedding, self._memory_vector_metadata(memory)
+            )
+        except Exception:
+            if restore_id is not None:
+                await self._cleanup_staged_restore_artifacts(
+                    vector_id if vector_write_attempted else None,
+                    r2_key if r2_write_attempted else None,
+                )
+            raise
+        return content_size, r2_key, stored_content
+
+    def _memory_storage_ids(
+        self, memory: Memory, expected_deleted_at: Optional[float]
+    ) -> Tuple[Optional[str], str]:
+        """Give a restore attempt isolated remote keys before staging any writes."""
+        restore_id = uuid.uuid4().hex if expected_deleted_at is not None else None
+        vector_id = f"restore-{restore_id}" if restore_id else memory.content_hash
+        return restore_id, vector_id
+
     async def _store_memory(
         self, memory: Memory, expected_deleted_at: Optional[float] = None
     ) -> Tuple[Optional[bool], str]:
-        restore_id = uuid.uuid4().hex if expected_deleted_at is not None else None
-        vector_id = f"restore-{restore_id}" if restore_id else memory.content_hash
+        restore_id, vector_id = self._memory_storage_ids(
+            memory, expected_deleted_at
+        )
         r2_key = None
-        r2_write_attempted = False
-        vector_write_attempted = False
-        d1_write_attempted = False
         try:
-            # Generate embedding for the content
-            embedding = await self._generate_embedding(memory.content)
-            
-            # Determine storage strategy based on content size
-            content_size = len(memory.content.encode('utf-8'))
-            use_r2 = self.r2_bucket and content_size > self.large_content_threshold
-            
-            # Store large content in R2 if needed
-            stored_content = memory.content
-            
-            if use_r2:
-                if restore_id:
-                    r2_key = f"content/{memory.content_hash}/restore-{restore_id}.txt"
-                else:
-                    r2_key = f"content/{memory.content_hash}.txt"
-                r2_write_attempted = True
-                await self._store_r2_content(r2_key, memory.content)
-                stored_content = f"[R2 Content: {r2_key}]"  # Placeholder in D1
-            
-            # Store vector in Vectorize
-            vector_metadata = {
-                "content_hash": memory.content_hash,
-                "memory_type": memory.memory_type or "standard",
-                "tags": ",".join(memory.tags) if memory.tags else "",
-                "created_at": memory.created_at_iso or datetime.now(timezone.utc).isoformat()
-            }
-
-            vector_write_attempted = True
-            await self._store_vectorize_vector(vector_id, embedding, vector_metadata)
-            
-            # Store metadata in D1
-            d1_write_attempted = True
+            content_size, r2_key, stored_content = await self._stage_memory_artifacts(
+                memory, vector_id, restore_id
+            )
             stored = await self._store_d1_memory(
                 memory,
                 vector_id,
@@ -674,8 +699,8 @@ class CloudflareStorage(MemoryStorage):
             if not stored:
                 if expected_deleted_at is not None:
                     await self._cleanup_staged_restore_artifacts(
-                        vector_id if vector_write_attempted else None,
-                        r2_key if r2_write_attempted else None,
+                        vector_id,
+                        r2_key,
                     )
                     return None, "tombstone_changed"
                 return False, "Cloudflare tombstone changed before the memory was stored."
@@ -685,8 +710,8 @@ class CloudflareStorage(MemoryStorage):
 
         except _D1TombstoneRestoreIncomplete as e:
             await self._cleanup_staged_restore_artifacts(
-                vector_id if vector_write_attempted else None,
-                r2_key if r2_write_attempted else None,
+                vector_id if restore_id is not None else None,
+                r2_key if restore_id is not None else None,
             )
             logger.error(
                 "Tombstone restore did not complete for %s: %s",
@@ -696,15 +721,9 @@ class CloudflareStorage(MemoryStorage):
             return False, f"Storage failed: {str(e)}"
 
         except Exception as e:
-            # Before the D1 write begins, the unique staging keys cannot be
-            # referenced by a committed memory. Once D1 has been called, keep
-            # them on an ambiguous transport error: the server may have
-            # committed the row before the response was lost.
-            if expected_deleted_at is not None and not d1_write_attempted:
-                await self._cleanup_staged_restore_artifacts(
-                    vector_id if vector_write_attempted else None,
-                    r2_key if r2_write_attempted else None,
-                )
+            # Staging failures clean up inside _stage_memory_artifacts. After
+            # D1 is called, preserve staged artifacts on an ambiguous response:
+            # the server may have committed the row before the response was lost.
             logger.error("Failed to store memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return False, f"Storage failed: {str(e)}"
 
