@@ -697,6 +697,9 @@ class MemoryDashboard {
      * Set up Server-Sent Events for real-time updates
      */
     setupSSE() {
+        // Bump first: any in-flight ticket exchange from a previous call is now
+        // stale and will refuse to open a stream (see _openSSEWithTicket).
+        this._sseSetupGeneration = (this._sseSetupGeneration || 0) + 1;
         // Close any existing connection to prevent connection multiplication.
         // Without this, each failed reconnect spawns a new EventSource while
         // the old one may still be retrying, leading to exponential 401 spam.
@@ -806,22 +809,50 @@ class MemoryDashboard {
      * The key travels in a POST body; only the ticket goes on the URL.
      */
     async _openSSEWithTicket(sseUrl) {
-        try {
-            const headers = { 'Content-Type': 'application/json' };
-            if (this.authState.apiKey) headers['X-API-Key'] = this.authState.apiKey;
-            const resp = await fetch(`${this.apiBase}/events/ticket`, {
-                method: 'POST',
-                headers,
-                body: '{}',
-                credentials: 'same-origin',
-            });
-            if (!resp.ok) throw new Error(`ticket request failed: ${resp.status}`);
-            const data = await resp.json();
-            sseUrl.searchParams.set(data.param_name || 'ticket', data.ticket);
-            this._connectSSE(sseUrl);
-        } catch (err) {
-            console.error('SSE ticket exchange failed:', err);
-            this.updateConnectionStatus('error');
+        // Greptile: a failed exchange used to leave the page disconnected with
+        // no EventSource and therefore no onerror retry — a transient 429 or
+        // blip killed live updates until a reload. Retry with backoff, and bail
+        // out if the user signed out meanwhile.
+        // The generation counter also stops a slow response from an earlier
+        // setupSSE opening a second stream after a newer one is already live.
+        const attempt = ++this._sseSetupGeneration;
+        const maxAttempts = 4;
+        for (let i = 0; i < maxAttempts; i++) {
+            if (attempt !== this._sseSetupGeneration) return; // superseded
+            if (this.authState.requiresAuth && !this.authState.isAuthenticated) return;
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.authState.apiKey) headers['X-API-Key'] = this.authState.apiKey;
+                const resp = await fetch(`${this.apiBase}/events/ticket`, {
+                    method: 'POST',
+                    headers,
+                    body: '{}',
+                    credentials: 'same-origin',
+                });
+                // 401 is not transient: the credential is wrong. Retry only
+                // what a retry can fix.
+                if (resp.status === 401 || resp.status === 403) {
+                    console.error(`SSE ticket refused (${resp.status}); not retrying`);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                if (!resp.ok) throw new Error(`ticket request failed: ${resp.status}`);
+                const data = await resp.json();
+                if (attempt !== this._sseSetupGeneration) return;
+                sseUrl.searchParams.set(data.param_name || 'ticket', data.ticket);
+                this._connectSSE(sseUrl);
+                return;
+            } catch (err) {
+                if (attempt !== this._sseSetupGeneration) return;
+                if (i === maxAttempts - 1) {
+                    console.error('SSE ticket exchange failed:', err);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                // 250ms, 500ms, 1000ms — short, because the user is waiting
+                // for live updates, not for a background sync.
+                await new Promise((r) => setTimeout(r, 250 * Math.pow(2, i)));
+            }
         }
     }
 

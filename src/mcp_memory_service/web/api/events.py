@@ -15,7 +15,7 @@ from ..sse import create_event_stream, sse_manager
 from ..sse_ticket import sse_tickets
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..oauth.middleware import require_read_access, require_real_credential, AuthenticationResult
 
 router = APIRouter()
 
@@ -46,7 +46,7 @@ class TicketResponse(BaseModel):
 
 @router.post("/events/ticket")
 async def issue_event_ticket(
-    user: AuthenticationResult = Depends(require_read_access),
+    user: AuthenticationResult = Depends(require_real_credential),
 ) -> TicketResponse:
     """Exchange real credentials for a short-lived, single-use SSE ticket.
 

@@ -75,17 +75,23 @@ class TicketStore:
         return self._ttl
 
     def issue(self, scope: str = "read") -> Ticket:
-        """Mint a ticket. Raises if the table is saturated."""
-        now = time.monotonic()
-        self._purge_locked(now)
-        if len(self._pending) >= _MAX_PENDING:
-            # Refuse rather than grow unbounded: a client hammering this
-            # endpoint must not become a memory leak.
-            raise RuntimeError("too many pending SSE tickets; retry shortly")
+        """Mint a ticket. Raises if the table is saturated.
+
+        The lock spans purge, size check and insert — Greptile caught that it
+        did not, which let two concurrent callers both pass the limit or both
+        delete the same expired entry. Thread-safety is only real if the
+        check-then-act is inside the critical section.
+        """
         # 32 bytes = 256 bits. This is a bearer credential — do not skimp.
         token = secrets.token_urlsafe(32)
-        ticket = Ticket(token=token, expires_at=now + self._ttl, scope=scope)
+        now = time.monotonic()
         with self._lock:
+            self._purge_locked(now)
+            if len(self._pending) >= _MAX_PENDING:
+                # Refuse rather than grow unbounded: a client hammering this
+                # endpoint must not become a memory leak.
+                raise RuntimeError("too many pending SSE tickets; retry shortly")
+            ticket = Ticket(token=token, expires_at=now + self._ttl, scope=scope)
             self._pending[token] = ticket
         return ticket
 
@@ -96,6 +102,12 @@ class TicketStore:
         "wrong scope" from "already used" by whether the ticket still exists.
         """
         if not token or not isinstance(token, str):
+            return False
+        # hmac.compare_digest raises TypeError on non-ASCII strings; refuse
+        # before comparing so the caller sees a clean False, not a 500.
+        try:
+            token.encode("ascii")
+        except UnicodeEncodeError:
             return False
         now = time.monotonic()
         with self._lock:

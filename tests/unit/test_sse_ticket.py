@@ -17,6 +17,8 @@ What matters and is asserted here:
 
 from __future__ import annotations
 
+import inspect
+import threading
 import time
 
 import pytest
@@ -90,3 +92,59 @@ class TestTicketStore:
 
     def test_module_level_store_exists(self):
         assert isinstance(sse_tickets, TicketStore)
+
+
+class TestTicketHardening:
+    """Regressions Greptile found in review. Each one names the failure."""
+
+    def test_non_ascii_token_is_refused_not_raised(self):
+        # hmac.compare_digest raises TypeError on non-ASCII, which escaped
+        # authentication as a 500 instead of a 401.
+        store = TicketStore()
+        store.issue()  # a pending ticket must be present for this to matter
+        assert store.redeem("é") is False
+        assert store.redeem("\u00e9\u00e9") is False
+
+    def test_issue_holds_the_lock_across_check_and_insert(self):
+        # The purge, size check and insert must be one critical section.
+        # Before, two concurrent callers could both pass the limit.
+        src = inspect.getsource(TicketStore.issue)
+        lock_idx = src.find("self._lock")
+        purge_idx = src.find("_purge_locked")
+        insert_idx = src.find("self._pending[token] = ticket")
+        assert lock_idx != -1 and purge_idx != -1 and insert_idx != -1
+        assert lock_idx < purge_idx < insert_idx, (
+            "issue() must acquire the lock before purging and hold it through the insert"
+        )
+
+    def test_capacity_is_enforced_under_concurrency(self):
+        # A direct check of the property the lock is there for: never exceed
+        # the ceiling, no matter how many callers arrive at once.
+        from mcp_memory_service.web.sse_ticket import _MAX_PENDING
+
+        store = TicketStore()
+        now = time.monotonic()
+        from mcp_memory_service.web.sse_ticket import Ticket
+
+        for i in range(_MAX_PENDING - 1):
+            store._pending[f"k{i}"] = Ticket(token=f"k{i}", expires_at=now + 60, scope="read")
+
+        results = []
+        errors = []
+
+        def _try():
+            try:
+                store.issue()
+                results.append("ok")
+            except RuntimeError:
+                results.append("refused")
+
+        threads = [threading.Thread(target=_try) for _ in range(8)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=5)
+
+        assert not errors
+        assert len(store) <= _MAX_PENDING, f"ceiling exceeded: {len(store)}"
+        assert results.count("ok") == 1, f"exactly one caller should succeed, got {results}"
