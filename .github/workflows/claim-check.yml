@@ -57,9 +57,9 @@ jobs:
       run: python3 scripts/ci/check_issue_claim.py "$PR_NUMBER"
 
     - name: Drop the claim-pending label now that the issue is assigned
-      # Before the re-run below: that step makes several checked API calls, and if
-      # one fails this cleanup must still run, or the label outlives the assignment
-      # (Greptile). Keeping it first means the label is gone regardless of the re-run.
+      # Independent of the re-run below (which has `if: always()`), so neither step
+      # blocks the other: a cleanup failure is surfaced here but still lets the PR
+      # check re-run, and a re-run failure never leaves the label behind (Greptile).
       if: github.event_name == 'issues'
       env:
         GH_TOKEN: ${{ github.token }}
@@ -82,7 +82,9 @@ jobs:
         fi
 
     - name: Re-run the checks of PRs closing this issue
-      if: github.event_name == 'issues'
+      # always(): run even if the cleanup step above failed, so a transient cleanup
+      # error never blocks the contributor's claim check from turning green.
+      if: always() && github.event_name == 'issues'
       env:
         GH_TOKEN: ${{ github.token }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
