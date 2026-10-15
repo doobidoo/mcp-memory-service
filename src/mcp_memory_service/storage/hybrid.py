@@ -24,7 +24,11 @@ This implementation provides the best of both worlds:
 
 import asyncio
 import logging
+import math
+import os
+import threading
 import time
+import weakref
 from typing import List, Dict, Any, Sequence, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
@@ -87,6 +91,38 @@ _min_check = getattr(app_config, 'HYBRID_MIN_CHECK_COUNT', 1000)
 HYBRID_MIN_CHECK_COUNT = _min_check if _min_check is not None else 1000
 
 logger = logging.getLogger(__name__)
+
+_tombstone_resolution_locks = weakref.WeakKeyDictionary()
+_tombstone_resolution_locks_guard = threading.Lock()
+
+
+def _get_tombstone_resolution_lock(sqlite_db_path: str) -> asyncio.Lock:
+    """Get the process-wide conflict-resolution lock for a SQLite database."""
+    loop = asyncio.get_running_loop()
+    database_key = os.path.realpath(sqlite_db_path)
+    with _tombstone_resolution_locks_guard:
+        loop_locks = _tombstone_resolution_locks.setdefault(loop, {})
+        lock_ref = loop_locks.get(database_key)
+        lock = lock_ref() if lock_ref is not None else None
+        if lock is not None:
+            return lock
+
+        lock = asyncio.Lock()
+        loop_ref = weakref.ref(loop)
+
+        def discard_lock(reference):
+            active_loop = loop_ref()
+            if active_loop is None:
+                return
+            with _tombstone_resolution_locks_guard:
+                active_locks = _tombstone_resolution_locks.get(active_loop)
+                if active_locks and active_locks.get(database_key) is reference:
+                    del active_locks[database_key]
+                    if not active_locks:
+                        _tombstone_resolution_locks.pop(active_loop, None)
+
+        loop_locks[database_key] = weakref.ref(lock, discard_lock)
+        return lock
 
 @dataclass
 class SyncOperation:
@@ -272,12 +308,13 @@ async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
 
 async def _reconcile_remote_tombstones(
     primary, tombstones: Dict[str, float]
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Apply remote deletes without overwriting a newer local edit."""
     counts = {
         "tombstones_applied": 0,
         "tombstone_conflicts": 0,
         "tombstone_failures": 0,
+        "tombstone_conflict_hashes": [],
     }
     if not tombstones:
         return counts
@@ -303,6 +340,8 @@ async def _reconcile_remote_tombstones(
             counts["tombstones_applied"] += 1
         elif outcome == "conflict":
             counts["tombstone_conflicts"] += 1
+            if len(counts["tombstone_conflict_hashes"]) < 100:
+                counts["tombstone_conflict_hashes"].append(content_hash)
         elif outcome not in ("missing", "already_deleted"):
             counts["tombstone_failures"] += 1
     return counts
@@ -515,151 +554,28 @@ class BackgroundSyncService:
         sync_start_time = time.time()
 
         try:
-            # Keep the local count available even when the secondary health check
-            # fails, as in the pre-tombstone implementation.
             primary_memories = await self.primary.get_all_memories()
+            state, early_result = await self._load_force_sync_state(
+                primary_memories, sync_start_time
+            )
+            if early_result is not None:
+                return early_result
 
-            # Check Cloudflare availability
-            try:
-                await self.secondary.get_stats()  # Simple health check
-                cloudflare_available = True
-            except Exception as e:
-                logger.warning("Cloudflare not available during force sync: %s", _sanitize_log_value(e))
-                self.sync_stats['cloudflare_available'] = False
-                return {
-                    'status': 'partial',
-                    'cloudflare_available': False,
-                    'primary_memories': len(primary_memories),
-                    'synced_to_secondary': 0,
-                    'duration': time.time() - sync_start_time
-                }
-
-            # Read Cloudflare live rows and tombstones before enumerating/pushing
-            # local memories. If D1 is unavailable, pushing without its deletion
-            # state could resurrect remotely deleted data (#1502).
-            remote_tombstones: Dict[str, float] = {}
-            if _has_cloudflare_d1(self.secondary):
-                sync_state = await _fetch_secondary_sync_state(self.secondary)
-                if sync_state is None:
-                    self.sync_stats['cloudflare_available'] = False
-                    return {
-                        'status': 'partial',
-                        'cloudflare_available': False,
-                        'primary_memories': len(primary_memories),
-                        'synced_to_secondary': 0,
-                        'failed_operations': 0,
-                        'skipped_already_present': 0,
-                        'skipped_remote_tombstones': 0,
-                        'tombstones_applied': 0,
-                        'tombstone_conflicts': 0,
-                        'tombstone_failures': 1,
-                        'duration': time.time() - sync_start_time,
-                        'error': (
-                            'Could not read Cloudflare tombstones; skipped push '
-                            'to prevent resurrection'
-                        ),
-                    }
-                remote_tombstones = sync_state['tombstones']
-                tombstone_counts = await _reconcile_remote_tombstones(
-                    self.primary, remote_tombstones
-                )
-                secondary_hashes = sync_state['live_hashes']
-            else:
-                tombstone_counts = {
-                    'tombstones_applied': 0,
-                    'tombstone_conflicts': 0,
-                    'tombstone_failures': 0,
-                }
-                secondary_hashes = await self._fetch_secondary_hashes()
-
-            # Dedupe: skip memories that already exist on the secondary. Without this,
-            # force_sync calls embed+upsert for every local memory and burns the CF
-            # Workers AI quota on duplicates — the root cause of `0 synced / N failed`
-            # reported in issue #750.
-            if secondary_hashes is not None:
-                new_memories = [
-                    m for m in primary_memories
-                    if m.content_hash not in secondary_hashes
-                    and m.content_hash not in remote_tombstones
-                ]
-                skipped_count = sum(
-                    1 for m in primary_memories
-                    if m.content_hash in secondary_hashes
-                )
-                skipped_tombstones = sum(
-                    1 for m in primary_memories
-                    if m.content_hash in remote_tombstones
-                )
-                logger.info(
-                    "Dedupe: %s already present, %s protected by remote tombstones, "
-                    "pushing %s",
-                    skipped_count,
-                    skipped_tombstones,
-                    len(new_memories),
-                )
-            else:
-                new_memories = primary_memories
-                skipped_count = 0
-                skipped_tombstones = 0
-                logger.debug("Secondary hash fetch unavailable — pushing all memories")
-
-            # Sync from primary to secondary using concurrent operations
-            async def sync_memory(memory):
-                try:
-                    success, message = await self.secondary.store(memory)
-                    if success:
-                        return True, None
-                    else:
-                        logger.debug("Failed to sync memory to secondary: %s", _sanitize_log_value(message))
-                        return False, message
-                except Exception as e:
-                    logger.debug("Exception syncing memory to secondary: %s", _sanitize_log_value(e))
-                    return False, str(e)
-
-            # Process memories concurrently in batches
-            synced_count = 0
-            failed_count = 0
-
-            # Process in batches to avoid overwhelming the system
-            batch_size = self.batch_size  # Use configured batch size
-            for i in range(0, len(new_memories), batch_size):
-                batch = new_memories[i:i + batch_size]
-                results = await asyncio.gather(*[sync_memory(m) for m in batch], return_exceptions=True)
-
-                for result in results:
-                    if isinstance(result, Exception):
-                        failed_count += 1
-                        logger.debug("Exception in batch sync: %s", _sanitize_log_value(result))
-                    elif isinstance(result, tuple):
-                        success, _ = result
-                        if success:
-                            synced_count += 1
-                        else:
-                            failed_count += 1
-
-            sync_duration = time.time() - sync_start_time
-            self.sync_stats['last_sync_duration'] = sync_duration
-            self.sync_stats['cloudflare_available'] = cloudflare_available
-
-            logger.info("Force sync completed: %s synced, %s failed, %s skipped (already on secondary) in %.2fs", synced_count, failed_count, skipped_count, sync_duration)
-
-            return {
-                'status': (
-                    'completed'
-                    if not failed_count
-                    and not tombstone_counts['tombstone_conflicts']
-                    and not tombstone_counts['tombstone_failures']
-                    else 'partial'
-                ),
-                'cloudflare_available': cloudflare_available,
-                'primary_memories': len(primary_memories),
-                'synced_to_secondary': synced_count,
-                'failed_operations': failed_count,
-                'skipped_already_present': skipped_count,
-                'skipped_remote_tombstones': skipped_tombstones,
-                **tombstone_counts,
-                'duration': sync_duration
-            }
+            new_memories, skipped_count, skipped_tombstones = (
+                self._select_force_sync_memories(primary_memories, state)
+            )
+            synced_count, failed_count = await self._sync_force_sync_memories(
+                new_memories
+            )
+            return self._force_sync_result(
+                primary_memories,
+                state,
+                synced_count,
+                failed_count,
+                skipped_count,
+                skipped_tombstones,
+                sync_start_time,
+            )
 
         except Exception as e:
             logger.error("Error during force sync: %s", _sanitize_log_value(e))
@@ -668,6 +584,191 @@ class BackgroundSyncService:
                 'error': str(e),
                 'duration': time.time() - sync_start_time
             }
+
+    async def _load_force_sync_state(
+        self, primary_memories: List[Memory], sync_start_time: float
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """Read remote state, returning an early response when it is unavailable."""
+        try:
+            await self.secondary.get_stats()
+        except Exception as e:
+            logger.warning(
+                "Cloudflare not available during force sync: %s",
+                _sanitize_log_value(e),
+            )
+            self.sync_stats['cloudflare_available'] = False
+            return {}, {
+                'status': 'partial',
+                'cloudflare_available': False,
+                'primary_memories': len(primary_memories),
+                'synced_to_secondary': 0,
+                'duration': time.time() - sync_start_time,
+            }
+
+        remote_tombstones: Dict[str, float] = {}
+        if _has_cloudflare_d1(self.secondary):
+            sync_state = await _fetch_secondary_sync_state(self.secondary)
+            if sync_state is None:
+                self.sync_stats['cloudflare_available'] = False
+                return {}, {
+                    'status': 'partial',
+                    'cloudflare_available': False,
+                    'primary_memories': len(primary_memories),
+                    'synced_to_secondary': 0,
+                    'failed_operations': 0,
+                    'skipped_already_present': 0,
+                    'skipped_remote_tombstones': 0,
+                    'tombstones_applied': 0,
+                    'tombstone_conflicts': 0,
+                    'tombstone_failures': 1,
+                    'tombstone_conflict_hashes': [],
+                    'duration': time.time() - sync_start_time,
+                    'error': (
+                        'Could not read Cloudflare tombstones; skipped push '
+                        'to prevent resurrection'
+                    ),
+                }
+            remote_tombstones = sync_state['tombstones']
+            tombstone_counts = await _reconcile_remote_tombstones(
+                self.primary, remote_tombstones
+            )
+            secondary_hashes = sync_state['live_hashes']
+        else:
+            tombstone_counts = {
+                'tombstones_applied': 0,
+                'tombstone_conflicts': 0,
+                'tombstone_failures': 0,
+                'tombstone_conflict_hashes': [],
+            }
+            secondary_hashes = await self._fetch_secondary_hashes()
+
+        return {
+            'cloudflare_available': True,
+            'remote_tombstones': remote_tombstones,
+            'secondary_hashes': secondary_hashes,
+            'tombstone_counts': tombstone_counts,
+        }, None
+
+    @staticmethod
+    def _select_force_sync_memories(
+        primary_memories: List[Memory], state: Dict[str, Any]
+    ) -> Tuple[List[Memory], int, int]:
+        """Exclude known remote rows and tombstones before pushing local memories."""
+        secondary_hashes = state['secondary_hashes']
+        if secondary_hashes is None:
+            logger.debug("Secondary hash fetch unavailable — pushing all memories")
+            return primary_memories, 0, 0
+
+        remote_tombstones = state['remote_tombstones']
+        new_memories = []
+        skipped_count = 0
+        skipped_tombstones = 0
+        for memory in primary_memories:
+            content_hash = memory.content_hash
+            if content_hash in secondary_hashes:
+                skipped_count += 1
+            if content_hash in remote_tombstones:
+                skipped_tombstones += 1
+            if (
+                content_hash not in secondary_hashes
+                and content_hash not in remote_tombstones
+            ):
+                new_memories.append(memory)
+        logger.info(
+            "Dedupe: %s already present, %s protected by remote tombstones, "
+            "pushing %s",
+            skipped_count,
+            skipped_tombstones,
+            len(new_memories),
+        )
+        return new_memories, skipped_count, skipped_tombstones
+
+    async def _sync_one_force_sync_memory(
+        self, memory: Memory
+    ) -> Tuple[bool, Optional[str]]:
+        """Push one memory to secondary storage without aborting its batch."""
+        try:
+            success, message = await self.secondary.store(memory)
+            if success:
+                return True, None
+            logger.debug(
+                "Failed to sync memory to secondary: %s",
+                _sanitize_log_value(message),
+            )
+            return False, message
+        except Exception as e:
+            logger.debug(
+                "Exception syncing memory to secondary: %s",
+                _sanitize_log_value(e),
+            )
+            return False, str(e)
+
+    async def _sync_force_sync_memories(
+        self, memories: List[Memory]
+    ) -> Tuple[int, int]:
+        """Push memories concurrently in configured batches and count outcomes."""
+        synced_count = 0
+        failed_count = 0
+        for start in range(0, len(memories), self.batch_size):
+            batch = memories[start:start + self.batch_size]
+            results = await asyncio.gather(
+                *(self._sync_one_force_sync_memory(memory) for memory in batch),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    failed_count += 1
+                    logger.debug(
+                        "Exception in batch sync: %s", _sanitize_log_value(result)
+                    )
+                elif isinstance(result, tuple):
+                    if result[0]:
+                        synced_count += 1
+                    else:
+                        failed_count += 1
+        return synced_count, failed_count
+
+    def _force_sync_result(
+        self,
+        primary_memories: List[Memory],
+        state: Dict[str, Any],
+        synced_count: int,
+        failed_count: int,
+        skipped_count: int,
+        skipped_tombstones: int,
+        sync_start_time: float,
+    ) -> Dict[str, Any]:
+        """Record sync metrics and return the completed force-sync response."""
+        sync_duration = time.time() - sync_start_time
+        self.sync_stats['last_sync_duration'] = sync_duration
+        self.sync_stats['cloudflare_available'] = state['cloudflare_available']
+        tombstone_counts = state['tombstone_counts']
+        logger.info(
+            "Force sync completed: %s synced, %s failed, %s skipped "
+            "(already on secondary) in %.2fs",
+            synced_count,
+            failed_count,
+            skipped_count,
+            sync_duration,
+        )
+        status = (
+            'completed'
+            if not failed_count
+            and not tombstone_counts['tombstone_conflicts']
+            and not tombstone_counts['tombstone_failures']
+            else 'partial'
+        )
+        return {
+            'status': status,
+            'cloudflare_available': state['cloudflare_available'],
+            'primary_memories': len(primary_memories),
+            'synced_to_secondary': synced_count,
+            'failed_operations': failed_count,
+            'skipped_already_present': skipped_count,
+            'skipped_remote_tombstones': skipped_tombstones,
+            **tombstone_counts,
+            'duration': sync_duration,
+        }
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current sync service status and statistics."""
@@ -1342,7 +1443,6 @@ class HybridMemoryStorage(MemoryStorage):
             db_path=sqlite_db_path,
             embedding_model=embedding_model
         )
-
         # Initialize secondary storage based on backend type
         self.secondary = None
         self.sync_service = None
@@ -1508,6 +1608,7 @@ class HybridMemoryStorage(MemoryStorage):
             'tombstones_applied': 0,
             'tombstone_conflicts': 0,
             'tombstone_failures': 0,
+            'tombstone_conflict_hashes': [],
         }
 
         try:
@@ -2553,6 +2654,178 @@ class HybridMemoryStorage(MemoryStorage):
             'tombstones_applied': result.get('tombstones_applied', 0),
             'tombstone_conflicts': result.get('tombstone_conflicts', 0),
             'tombstone_failures': result.get('tombstone_failures', 0),
+            'tombstone_conflict_hashes': result.get(
+                'tombstone_conflict_hashes', []
+            ),
+        }
+
+    async def resolve_tombstone_conflict(
+        self, content_hash: str, action: str
+    ) -> Dict[str, Any]:
+        """Resolve one current Cloudflare tombstone conflict explicitly."""
+        if action not in {"keep_local", "accept_delete"}:
+            raise ValueError("action must be 'keep_local' or 'accept_delete'")
+        if (
+            self.secondary_backend_type != "cloudflare"
+            or self.secondary is None
+            or not hasattr(self.secondary, "get_tombstone_for_hash")
+        ):
+            return {
+                "success": False,
+                "status": "unsupported",
+                "action": action,
+                "message": "Tombstone conflict resolution requires a Cloudflare secondary.",
+            }
+
+        async with _get_tombstone_resolution_lock(self.primary.db_path):
+            return await self._resolve_tombstone_conflict_locked(
+                content_hash, action
+            )
+
+    async def _resolve_tombstone_conflict_locked(
+        self, content_hash: str, action: str
+    ) -> Dict[str, Any]:
+        conflict = await self._read_tombstone_conflict(content_hash)
+        if conflict is None:
+            return self._tombstone_resolution_result(
+                "no_conflict",
+                action,
+                "No current tombstone conflict for this hash; no changes were made.",
+            )
+        if action == "accept_delete":
+            return await self._accept_tombstone_delete(content_hash, action, conflict)
+        return await self._keep_local_tombstone_conflict(content_hash, action)
+
+    async def _read_tombstone_conflict(
+        self, content_hash: str
+    ) -> Optional[tuple[float, float]]:
+        remote_deleted_at = await self.secondary.get_tombstone_for_hash(content_hash)
+        local_state = await self.primary.get_sync_state_for_hash(content_hash)
+        if remote_deleted_at is None or local_state is None:
+            return None
+
+        local_updated_at, local_deleted_at = local_state
+        if local_deleted_at is not None or local_updated_at is None:
+            return None
+        try:
+            remote_timestamp = float(remote_deleted_at)
+            local_timestamp = float(local_updated_at)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Invalid tombstone conflict timestamp") from exc
+        if not math.isfinite(remote_timestamp) or not math.isfinite(local_timestamp):
+            raise RuntimeError("Invalid tombstone conflict timestamp")
+        if local_timestamp <= remote_timestamp:
+            return None
+        return remote_timestamp, local_timestamp
+
+    async def _accept_tombstone_delete(
+        self, content_hash: str, action: str, conflict: tuple[float, float]
+    ) -> Dict[str, Any]:
+        outcome = await self.primary.delete_if_not_updated_after(
+            content_hash, conflict[1]
+        )
+        responses = {
+            "applied": (
+                "resolved",
+                "The current Cloudflare deletion was applied locally.",
+            ),
+            "missing": (
+                "no_conflict",
+                "The local conflict changed before resolution; no action was needed.",
+            ),
+            "already_deleted": (
+                "no_conflict",
+                "The local conflict changed before resolution; no action was needed.",
+            ),
+            "conflict": (
+                "conflict_changed",
+                "The local memory changed during resolution; it was preserved.",
+            ),
+        }
+        status, message = responses.get(
+            outcome,
+            ("failed", "The local deletion could not be applied safely."),
+        )
+        return self._tombstone_resolution_result(status, action, message)
+
+    async def _keep_local_tombstone_conflict(
+        self, content_hash: str, action: str
+    ) -> Dict[str, Any]:
+        # Retry once if the local row changes while its snapshot is read.
+        for attempt in range(2):
+            local_memory, conflict = await self._read_live_tombstone_snapshot(
+                content_hash
+            )
+            if local_memory is None or conflict is None:
+                return self._tombstone_resolution_result(
+                    "no_conflict",
+                    action,
+                    "No current tombstone conflict for this hash; no changes were made.",
+                )
+            if local_memory.updated_at != conflict[1]:
+                continue
+            return await self._store_keep_local_snapshot(
+                content_hash, action, local_memory, conflict[0]
+            )
+        return self._tombstone_resolution_result(
+            "conflict_changed",
+            action,
+            "The local memory kept changing during resolution; no upload was made.",
+        )
+
+    async def _read_live_tombstone_snapshot(
+        self, content_hash: str
+    ) -> tuple[Optional[Memory], Optional[tuple[float, float]]]:
+        local_memory = await self.primary.get_by_hash(content_hash)
+        conflict = await self._read_tombstone_conflict(content_hash)
+        if local_memory is None and conflict is not None:
+            raise RuntimeError(
+                "Could not read the live local memory for tombstone resolution"
+            )
+        return local_memory, conflict
+
+    async def _store_keep_local_snapshot(
+        self,
+        content_hash: str,
+        action: str,
+        local_memory: Memory,
+        expected_deleted_at: float,
+    ) -> Dict[str, Any]:
+        success, message = await self.secondary.store_if_tombstone_matches(
+            local_memory, expected_deleted_at
+        )
+        if success is None:
+            return self._tombstone_resolution_result(
+                "conflict_changed",
+                action,
+                "The Cloudflare tombstone changed during resolution; no memory was restored.",
+            )
+        if not success:
+            logger.warning(
+                "Could not resolve tombstone conflict for %s: %s",
+                _sanitize_log_value(content_hash[:16]),
+                _sanitize_log_value(message),
+            )
+            return self._tombstone_resolution_result(
+                "failed",
+                action,
+                "Cloudflare could not store the local memory.",
+            )
+        return self._tombstone_resolution_result(
+            "resolved",
+            action,
+            "The local memory was kept and uploaded to Cloudflare.",
+        )
+
+    @staticmethod
+    def _tombstone_resolution_result(
+        status: str, action: str, message: str
+    ) -> Dict[str, Any]:
+        return {
+            "success": status in {"resolved", "no_conflict"},
+            "status": status,
+            "action": action,
+            "message": message,
         }
 
     async def get_sync_status(self) -> Dict[str, Any]:

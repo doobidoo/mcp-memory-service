@@ -1481,7 +1481,7 @@ wheels = [
 
 [[package]]
 name = "mcp-memory-service"
-version = "12.0.0"
+version = "12.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
@@ -1613,7 +1613,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.5" },
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "huggingface-hub", marker = "extra == 'sqlite'", specifier = ">=0.20" },
-    { name = "mcp", specifier = ">=1.8.0,<2.0.0" },
+    { name = "mcp", specifier = ">=1.9.2,<2.0.0" },
     { name = "mcp-memory-service", extras = ["ml"], marker = "extra == 'milvus'" },
     { name = "mcp-memory-service", extras = ["sqlite", "ml"], marker = "extra == 'sqlite-ml'" },
     { name = "mcp-memory-service", extras = ["sqlite", "ml", "dev"], marker = "extra == 'full'" },

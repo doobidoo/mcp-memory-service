@@ -83,6 +83,10 @@ async def _credentials_authenticate(scope) -> bool:
     Three ways in, tried in order: an OAuth bearer token, an X-API-Key
     header, and a bearer token that is really the API key (which some MCP
     clients send that way).
+
+    On success the granted scope is recorded as `scope["mcp_auth_scope"]`,
+    so `MemoryServer` can refuse write tools to a read-only token on this
+    message (GHSA-9x7v-2vjj-xghg). Authenticating alone did not do that.
     """
     from ..config import OAUTH_ENABLED, API_KEY
     from ..web.oauth.middleware import (
@@ -97,13 +101,17 @@ async def _credentials_authenticate(scope) -> bool:
     is_bearer = auth_header.lower().startswith("bearer ")
     token = auth_header[7:] if is_bearer else ""
 
-    if is_bearer and OAUTH_ENABLED and (await authenticate_bearer_token(token)).authenticated:
-        return True
-    if api_key_header and API_KEY and authenticate_api_key(api_key_header).authenticated:
-        return True
-    if is_bearer and API_KEY and authenticate_api_key(token).authenticated:
-        return True
-    return False
+    result = None
+    if is_bearer and OAUTH_ENABLED:
+        result = await authenticate_bearer_token(token)
+    if not (result and result.authenticated) and api_key_header and API_KEY:
+        result = authenticate_api_key(api_key_header)
+    if not (result and result.authenticated) and is_bearer and API_KEY:
+        result = authenticate_api_key(token)
+    if not (result and result.authenticated):
+        return False
+    scope["mcp_auth_scope"] = result.scope or ""
+    return True
 
 
 async def _send_unauthorized(scope, receive, send) -> None:

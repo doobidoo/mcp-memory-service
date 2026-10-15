@@ -17,19 +17,22 @@ Cloudflare storage backend for MCP Memory Service.
 Provides cloud-native storage using Vectorize, D1, and R2.
 """
 
+import asyncio
+import hashlib
 import json
 import logging
-import hashlib
-import asyncio
+import math
 import time
-from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime, timezone, timedelta, date
+import uuid
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
 import httpx
 
-from .base import MemoryStorage
-from ..models.memory import Memory, MemoryQueryResult
-from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 from ..compat import _sanitize_log_value
+from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
+from ..models.memory import Memory, MemoryQueryResult
+from .base import MemoryStorage
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,10 @@ logger = logging.getLogger(__name__)
 # raises instead of returning results.
 # https://developers.cloudflare.com/vectorize/platform/limits/
 _VECTORIZE_MAX_TOPK = 100
+
+
+class _D1TombstoneRestoreIncomplete(RuntimeError):
+    """A D1 restore batch failed before its active-row guard could pass."""
 
 
 def _recall_ceiling_info(
@@ -603,43 +610,138 @@ class CloudflareStorage(MemoryStorage):
                 storage does not implement semantic deduplication, so this flag
                 has no effect.
         """
-        try:
-            # Generate embedding for the content
-            embedding = await self._generate_embedding(memory.content)
-            
-            # Determine storage strategy based on content size
-            content_size = len(memory.content.encode('utf-8'))
-            use_r2 = self.r2_bucket and content_size > self.large_content_threshold
-            
-            # Store large content in R2 if needed
-            r2_key = None
-            stored_content = memory.content
-            
-            if use_r2:
-                r2_key = f"content/{memory.content_hash}.txt"
-                await self._store_r2_content(r2_key, memory.content)
-                stored_content = f"[R2 Content: {r2_key}]"  # Placeholder in D1
-            
-            # Store vector in Vectorize
-            vector_id = memory.content_hash
-            vector_metadata = {
-                "content_hash": memory.content_hash,
-                "memory_type": memory.memory_type or "standard",
-                "tags": ",".join(memory.tags) if memory.tags else "",
-                "created_at": memory.created_at_iso or datetime.now(timezone.utc).isoformat()
-            }
+        success, message = await self._store_memory(memory)
+        return success is True, message
 
-            await self._store_vectorize_vector(vector_id, embedding, vector_metadata)
-            
-            # Store metadata in D1
-            await self._store_d1_memory(memory, vector_id, content_size, r2_key, stored_content)
+    async def store_if_tombstone_matches(
+        self, memory: Memory, expected_deleted_at: float
+    ) -> Tuple[Optional[bool], str]:
+        """Store only if the D1 tombstone still matches the observed timestamp."""
+        return await self._store_memory(
+            memory, expected_deleted_at=expected_deleted_at
+        )
+
+    def _memory_r2_key(
+        self, memory: Memory, restore_id: Optional[str], content_size: int
+    ) -> Optional[str]:
+        """Return the content key when this memory belongs in R2."""
+        if not self.r2_bucket or content_size <= self.large_content_threshold:
+            return None
+        if restore_id is not None:
+            return f"content/{memory.content_hash}/restore-{restore_id}.txt"
+        return f"content/{memory.content_hash}.txt"
+
+    def _memory_vector_metadata(self, memory: Memory) -> Dict[str, Any]:
+        """Build the metadata stored alongside a memory's vector."""
+        return {
+            "content_hash": memory.content_hash,
+            "memory_type": memory.memory_type or "standard",
+            "tags": ",".join(memory.tags) if memory.tags else "",
+            "created_at": memory.created_at_iso or datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _stage_memory_artifacts(
+        self, memory: Memory, vector_id: str, restore_id: Optional[str]
+    ) -> Tuple[int, Optional[str], str]:
+        """Write the vector and optional R2 body before committing D1 metadata."""
+        content_size = len(memory.content.encode("utf-8"))
+        r2_key = self._memory_r2_key(memory, restore_id, content_size)
+        stored_content = memory.content
+        r2_write_attempted = False
+        vector_write_attempted = False
+        try:
+            embedding = await self._generate_embedding(memory.content)
+            if r2_key:
+                r2_write_attempted = True
+                await self._store_r2_content(r2_key, memory.content)
+                stored_content = f"[R2 Content: {r2_key}]"
+
+            vector_write_attempted = True
+            await self._store_vectorize_vector(
+                vector_id, embedding, self._memory_vector_metadata(memory)
+            )
+        except Exception:
+            if restore_id is not None:
+                await self._cleanup_staged_restore_artifacts(
+                    vector_id if vector_write_attempted else None,
+                    r2_key if r2_write_attempted else None,
+                )
+            raise
+        return content_size, r2_key, stored_content
+
+    def _memory_storage_ids(
+        self, memory: Memory, expected_deleted_at: Optional[float]
+    ) -> Tuple[Optional[str], str]:
+        """Give a restore attempt isolated remote keys before staging any writes."""
+        restore_id = uuid.uuid4().hex if expected_deleted_at is not None else None
+        vector_id = f"restore-{restore_id}" if restore_id else memory.content_hash
+        return restore_id, vector_id
+
+    async def _store_memory(
+        self, memory: Memory, expected_deleted_at: Optional[float] = None
+    ) -> Tuple[Optional[bool], str]:
+        restore_id, vector_id = self._memory_storage_ids(
+            memory, expected_deleted_at
+        )
+        r2_key = None
+        try:
+            content_size, r2_key, stored_content = await self._stage_memory_artifacts(
+                memory, vector_id, restore_id
+            )
+            stored = await self._store_d1_memory(
+                memory,
+                vector_id,
+                content_size,
+                r2_key,
+                stored_content,
+                expected_deleted_at=expected_deleted_at,
+            )
+            if not stored:
+                if expected_deleted_at is not None:
+                    await self._cleanup_staged_restore_artifacts(
+                        vector_id,
+                        r2_key,
+                    )
+                    return None, "tombstone_changed"
+                return False, "Cloudflare tombstone changed before the memory was stored."
             
             logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully (vector_id: {vector_id})"
-            
+
+        except _D1TombstoneRestoreIncomplete as e:
+            await self._cleanup_staged_restore_artifacts(
+                vector_id if restore_id is not None else None,
+                r2_key if restore_id is not None else None,
+            )
+            logger.error(
+                "Tombstone restore did not complete for %s: %s",
+                _sanitize_log_value(memory.content_hash),
+                _sanitize_log_value(e),
+            )
+            return False, f"Storage failed: {str(e)}"
+
         except Exception as e:
+            # Staging failures clean up inside _stage_memory_artifacts. After
+            # D1 is called, preserve staged artifacts on an ambiguous response:
+            # the server may have committed the row before the response was lost.
             logger.error("Failed to store memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return False, f"Storage failed: {str(e)}"
+
+    async def _cleanup_staged_restore_artifacts(
+        self, vector_id: Optional[str], r2_key: Optional[str]
+    ) -> None:
+        """Remove unique artifacts from a restore that D1 did not accept."""
+        if vector_id:
+            try:
+                await self._delete_vectorize_vector(vector_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to clean staged Vectorize restore %s: %s",
+                    _sanitize_log_value(vector_id),
+                    _sanitize_log_value(exc),
+                )
+        if r2_key:
+            await self._delete_r2_content(r2_key)
     
     async def _store_vectorize_vector(self, vector_id: str, embedding: List[float], metadata: Dict[str, Any]) -> None:
         """Store vector in Vectorize."""
@@ -692,42 +794,45 @@ class CloudflareStorage(MemoryStorage):
             logger.error("URL was: %s/upsert", _sanitize_log_value(self.vectorize_url))
             raise ValueError(f"Failed to store vector: {e}")
     
-    async def _store_d1_memory(self, memory: Memory, vector_id: str, content_size: int, r2_key: Optional[str], stored_content: str) -> None:
+    async def _store_d1_memory(
+        self,
+        memory: Memory,
+        vector_id: str,
+        content_size: int,
+        r2_key: Optional[str],
+        stored_content: str,
+        expected_deleted_at: Optional[float] = None,
+    ) -> bool:
         """Store memory metadata in D1, replacing only a matching tombstone."""
-        # Soft deletion retains unique keys. Release them before re-inserting the
-        # same content; the foreign key cascade also removes obsolete tag links.
-        # Active memories and tombstones for other content must remain untouched.
-        response = await self._retry_request(
-            "POST", f"{self.d1_url}/query",
-            json={
-                "sql": "DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL",
-                "params": [memory.content_hash],
-            },
+        values = self._d1_memory_values(
+            memory, vector_id, content_size, r2_key, stored_content
         )
-        result = response.json()
-        if not result.get("success"):
-            raise ValueError(f"Failed to remove memory tombstone in D1: {result}")
+        if expected_deleted_at is None:
+            memory_id = await self._insert_d1_memory_row(values)
+            if memory.tags:
+                await self._store_d1_tags(memory_id, memory.tags)
+        else:
+            restored, memory_id = await self._restore_d1_tombstone(
+                values, expected_deleted_at, memory.tags
+            )
+            if not restored:
+                return False
+        return True
 
-        # Insert memory record.
-        # The `tags` TEXT column is a denormalized cache required by `delete_by_tags`
-        # and `delete_by_timeframe`, both of which query it with LIKE patterns.
-        # Tags are also stored relationally via `_store_d1_tags` (join table) for reads.
+    @staticmethod
+    def _d1_memory_values(
+        memory: Memory,
+        vector_id: str,
+        content_size: int,
+        r2_key: Optional[str],
+        stored_content: str,
+    ) -> list[Any]:
+        """Build a stable parameter list for inserting or restoring a D1 row."""
         tags_str = ",".join(filter(None, memory.tags)) if memory.tags else None
-
-        insert_sql = """
-        INSERT INTO memories (
-            content_hash, content, memory_type, created_at, created_at_iso,
-            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-
         now = time.time()
-        # Use UTC ISO to keep `updated_at_iso` aligned with the float `updated_at`
-        # (which is already UTC epoch). Local-TZ ISO strings cause a 1h/2h offset
-        # on read that floods logs with "Timezone mismatch detected" warnings.
+        # Keep the ISO timestamp aligned with the UTC epoch float values.
         now_iso = datetime.now(timezone.utc).isoformat()
-
-        params = [
+        return [
             memory.content_hash,
             stored_content,
             memory.memory_type,
@@ -741,18 +846,163 @@ class CloudflareStorage(MemoryStorage):
             r2_key,
             tags_str,
         ]
-        
-        payload = {"sql": insert_sql, "params": params}
+
+    async def _insert_d1_memory_row(self, values: list[Any]) -> int:
+        """Replace stale soft-deleted rows, then insert a new D1 memory row."""
+        # Soft deletion retains unique keys. Release them before re-inserting the
+        # same content; the foreign key cascade also removes obsolete tag links.
+        # Active memories and tombstones for other content must remain untouched.
+        delete_sql = (
+            "DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL"
+        )
+        response = await self._retry_request(
+            "POST", f"{self.d1_url}/query",
+            json={"sql": delete_sql, "params": [values[0]]},
+        )
+        result = response.json()
+        if not result.get("success"):
+            raise ValueError(f"Failed to remove memory tombstone in D1: {result}")
+
+        # The `tags` TEXT column is a denormalized cache required by `delete_by_tags`
+        # and `delete_by_timeframe`, both of which query it with LIKE patterns.
+        # Tags are also stored relationally via `_store_d1_tags` (join table) for reads.
+        insert_sql = """
+        INSERT INTO memories (
+            content_hash, content, memory_type, created_at, created_at_iso,
+            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        payload = {"sql": insert_sql, "params": values}
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
         result = response.json()
-        
         if not result.get("success"):
             raise ValueError(f"Failed to store memory in D1: {result}")
-        
-        # Store tags if present
-        if memory.tags:
-            memory_id = result["result"][0]["meta"]["last_row_id"]
-            await self._store_d1_tags(memory_id, memory.tags)
+
+        return result["result"][0]["meta"]["last_row_id"]
+
+    async def _restore_d1_tombstone(
+        self,
+        values: list[Any],
+        expected_deleted_at: float,
+        tags: List[str],
+    ) -> Tuple[bool, Optional[int]]:
+        """Restore one matching tombstone after its exact tag set is linked."""
+        update_sql = """
+        UPDATE memories SET
+            content = ?, memory_type = ?, created_at = ?, created_at_iso = ?,
+            updated_at = ?, updated_at_iso = ?, metadata_json = ?, vector_id = ?,
+            content_size = ?, r2_key = ?, tags = ?, deleted_at = NULL
+        WHERE content_hash = ? AND deleted_at = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(?) AS expected_tag
+            WHERE NOT EXISTS (
+                SELECT 1 FROM memory_tags
+                JOIN tags ON tags.id = memory_tags.tag_id
+                WHERE memory_tags.memory_id = memories.id
+                  AND tags.name = expected_tag.value
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_tags
+            JOIN tags ON tags.id = memory_tags.tag_id
+            WHERE memory_tags.memory_id = memories.id
+              AND tags.name NOT IN (SELECT value FROM json_each(?))
+          )
+        """
+        identity = self._d1_memory_identity()
+        delete_tags_sql = """
+        DELETE FROM memory_tags WHERE memory_id = (
+            SELECT id FROM memories WHERE content_hash = ? AND deleted_at = ?
+        )
+        """
+        insert_tags_sql = """
+        INSERT OR IGNORE INTO tags (name)
+        SELECT value FROM json_each(?)
+        WHERE EXISTS (
+            SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at = ?
+        )
+        """
+        link_tags_sql = """
+        INSERT OR IGNORE INTO memory_tags (memory_id, tag_id)
+        SELECT memories.id, tags.id
+        FROM memories JOIN tags
+          ON tags.name IN (SELECT value FROM json_each(?))
+        WHERE memories.content_hash = ? AND memories.deleted_at = ?
+        """
+        select_id_sql = f"SELECT id FROM memories WHERE {identity} LIMIT 1"
+        tag_names_json = json.dumps([tag for tag in tags if tag])
+        payload = {
+            "batch": [
+                {
+                    "sql": delete_tags_sql,
+                    "params": [values[0], expected_deleted_at],
+                },
+                {
+                    "sql": insert_tags_sql,
+                    "params": [tag_names_json, values[0], expected_deleted_at],
+                },
+                {
+                    "sql": link_tags_sql,
+                    "params": [tag_names_json, values[0], expected_deleted_at],
+                },
+                {
+                    "sql": update_sql,
+                    "params": values[1:]
+                    + [values[0], expected_deleted_at, tag_names_json, tag_names_json],
+                },
+                {"sql": select_id_sql, "params": [values[0], values[8], values[10]]},
+            ]
+        }
+        response = await self._retry_request(
+            "POST", f"{self.d1_url}/query", json=payload
+        )
+        return self._restored_d1_memory_id(response.json())
+
+    @staticmethod
+    def _d1_memory_identity() -> str:
+        """Match a committed restore by its unique staged resources on retry."""
+        return (
+            "content_hash IS ? AND vector_id IS ? AND r2_key IS ? "
+            "AND deleted_at IS NULL"
+        )
+
+    @staticmethod
+    def _d1_batch_result_sets(result: Any) -> list[Dict[str, Any]]:
+        """Validate the outer D1 batch response and return its ordered results."""
+        if not isinstance(result, dict) or not result.get("success"):
+            raise ValueError(f"Failed to restore memory tombstone in D1: {result}")
+        result_sets = result.get("result")
+        if not isinstance(result_sets, list) or len(result_sets) != 5:
+            raise ValueError(f"D1 returned an invalid tombstone batch result: {result}")
+        return result_sets
+
+    @staticmethod
+    def _d1_result_succeeded(result_set: Any) -> bool:
+        """Return whether one D1 query result reports success."""
+        return isinstance(result_set, dict) and bool(result_set.get("success"))
+
+    @staticmethod
+    def _d1_result_rows(result_set: Any) -> list[Dict[str, Any]]:
+        """Validate and return rows from a D1 query result."""
+        rows = result_set.get("results") if isinstance(result_set, dict) else None
+        if not isinstance(rows, list):
+            raise RuntimeError("Cloudflare D1 omitted the restored memory lookup result")
+        return rows
+
+    def _restored_d1_memory_id(self, result: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
+        """Validate a batched restore result and return its matching row ID."""
+        result_sets = self._d1_batch_result_sets(result)
+        rows = self._d1_result_rows(result_sets[-1])
+        if not rows:
+            if not all(map(self._d1_result_succeeded, result_sets)):
+                raise _D1TombstoneRestoreIncomplete(
+                    "Cloudflare D1 did not complete the guarded tombstone restore."
+                )
+            return False, None
+        memory_id = rows[0].get("id") if isinstance(rows[0], dict) else None
+        if not isinstance(memory_id, int):
+            raise RuntimeError("Cloudflare D1 returned an invalid restored memory ID")
+        return True, memory_id
     
     async def _store_d1_tags(self, memory_id: int, tags: List[str]) -> None:
         """Store tags for a memory in D1."""
@@ -764,7 +1014,7 @@ class CloudflareStorage(MemoryStorage):
             
             # Link tag to memory
             link_sql = """
-            INSERT INTO memory_tags (memory_id, tag_id)
+            INSERT OR IGNORE INTO memory_tags (memory_id, tag_id)
             SELECT ?, id FROM tags WHERE name = ?
             """
             payload = {"sql": link_sql, "params": [memory_id, tag]}
@@ -885,10 +1135,10 @@ class CloudflareStorage(MemoryStorage):
                 logger.warning("Vectorize match without an id: %s", _sanitize_log_value(match))
                 return None
 
-            # Load from D1 by vector_id: store() writes memory.content_hash
-            # as both the Vectorize id and this column, so the lookup needs
-            # nothing from the match metadata (queries run with
-            # returnMetadata="none", which keeps the topK ceiling at 100).
+            # Load from D1 by vector_id: normal stores use content_hash, while
+            # conditional restores may use a unique staged id. D1 keeps the
+            # exact id indexed here, so this needs no match metadata (queries
+            # use returnMetadata="none", which keeps the topK ceiling at 100).
             # Exclude soft-deleted rows: _delete_vectorize_vector only warns
             # on failure, so delete() can tombstone D1 while the vector
             # survives, and a match on it must not resurface the memory.
@@ -1144,6 +1394,63 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error("Error in exact content match (Cloudflare): %s", _sanitize_log_value(str(e)))
             return []
+
+    async def get_tombstone_for_hash(self, content_hash: str) -> Optional[float]:
+        """Return the current D1 deletion timestamp for a content hash.
+
+        ``None`` means that the hash has no current tombstone (it is either live
+        or absent). Read failures are raised so callers cannot mistake an
+        unavailable D1 state for a cleared conflict.
+        """
+        response = await self._retry_request(
+            "POST",
+            f"{self.d1_url}/query",
+            json={
+                "sql": (
+                    "SELECT deleted_at FROM memories "
+                    "WHERE content_hash = ? LIMIT 1"
+                ),
+                "params": [content_hash],
+            },
+        )
+        result = response.json()
+        return self._parse_tombstone_response(result)
+
+    @staticmethod
+    def _parse_tombstone_response(result: Dict[str, Any]) -> Optional[float]:
+        """Validate a D1 query result and return its finite deletion time."""
+        if not result.get("success"):
+            raise RuntimeError("Failed to read tombstone state from Cloudflare D1")
+
+        result_sets = result.get("result")
+        if not isinstance(result_sets, list) or not result_sets:
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        rows = result_sets[0].get("results")
+        if not isinstance(rows, list):
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        if not rows:
+            return None
+
+        if not isinstance(rows[0], dict) or "deleted_at" not in rows[0]:
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        return CloudflareStorage._parse_tombstone_timestamp(rows[0]["deleted_at"])
+
+    @staticmethod
+    def _parse_tombstone_timestamp(deleted_at: Any) -> Optional[float]:
+        if deleted_at is None:
+            return None
+
+        try:
+            timestamp = float(deleted_at)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Cloudflare D1 returned an invalid tombstone timestamp"
+            ) from exc
+        if not math.isfinite(timestamp):
+            raise RuntimeError(
+                "Cloudflare D1 returned an invalid tombstone timestamp"
+            )
+        return timestamp
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
