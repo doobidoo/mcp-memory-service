@@ -850,25 +850,34 @@ class CloudflareStorage(MemoryStorage):
         return " AND ".join(comparisons) + " AND deleted_at IS NULL"
 
     @staticmethod
-    def _restored_d1_memory_id(result: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
-        """Validate a batched restore result and return its matching row ID."""
-        result_sets = result.get("result") if isinstance(result, dict) else None
-        if (
-            not isinstance(result, dict)
-            or not result.get("success")
-            or not isinstance(result_sets, list)
-            or len(result_sets) != 3
-        ):
+    def _d1_batch_result_sets(result: Any) -> list[Dict[str, Any]]:
+        """Validate the outer D1 batch response and return its ordered results."""
+        if not isinstance(result, dict) or not result.get("success"):
             raise ValueError(f"Failed to restore memory tombstone in D1: {result}")
-        if any(
-            not isinstance(item, dict) or not item.get("success")
-            for item in result_sets
-        ):
-            raise RuntimeError("Cloudflare D1 reported a failed tombstone batch step")
-        selected = result_sets[2]
-        rows = selected.get("results") if isinstance(selected, dict) else None
+        result_sets = result.get("result")
+        if not isinstance(result_sets, list) or len(result_sets) != 3:
+            raise ValueError(f"D1 returned an invalid tombstone batch result: {result}")
+        return result_sets
+
+    @staticmethod
+    def _d1_result_succeeded(result_set: Any) -> bool:
+        """Return whether one D1 query result reports success."""
+        return isinstance(result_set, dict) and bool(result_set.get("success"))
+
+    @staticmethod
+    def _d1_result_rows(result_set: Any) -> list[Dict[str, Any]]:
+        """Validate and return rows from a D1 query result."""
+        rows = result_set.get("results") if isinstance(result_set, dict) else None
         if not isinstance(rows, list):
             raise RuntimeError("Cloudflare D1 omitted the restored memory lookup result")
+        return rows
+
+    def _restored_d1_memory_id(self, result: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
+        """Validate a batched restore result and return its matching row ID."""
+        result_sets = self._d1_batch_result_sets(result)
+        if not all(map(self._d1_result_succeeded, result_sets)):
+            raise RuntimeError("Cloudflare D1 reported a failed tombstone batch step")
+        rows = self._d1_result_rows(result_sets[2])
         if not rows:
             return False, None
         memory_id = rows[0].get("id") if isinstance(rows[0], dict) else None
