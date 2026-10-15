@@ -1553,8 +1553,8 @@
                                 <span class="info-value" id="settingsNextBackup">-</span>
                             </div>
                             <div class="backup-actions">
-                                <button type="button" id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow" onclick="if(window.app) window.app.createBackup()">Create Backup Now</button>
-                                <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups" onclick="if(window.app) window.app.openViewBackupsModal()">View Backups</button>
+                                <button type="button" id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow">Create Backup Now</button>
+                                <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups">View Backups</button>
                             </div>
                         </div>
                     </div>
@@ -1608,7 +1608,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="if(window.app) window.app.closeModal(document.getElementById('viewBackupsModal'))">Close</button>
+                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary">Close</button>
                 </div>
             </div>
         </div>
