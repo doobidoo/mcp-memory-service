@@ -22,8 +22,11 @@ permissions:
   issues: write
 
 concurrency:
+  # Serialize per issue so two comments do not race on the label, but NEVER cancel
+  # an in-flight run: a later non-claim reply would otherwise abort a /claim run
+  # before it labels (Greptile). Queueing keeps every claim processed.
   group: claim-pending-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   label:

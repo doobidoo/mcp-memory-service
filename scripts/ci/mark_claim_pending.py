@@ -62,10 +62,43 @@ _CLAIM_PATTERNS = (
 # Match per line so a phrase ending one line still "ends" with text on the next.
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE | re.MULTILINE)
 
+# A phrase preceded by a negation or doubt is the opposite of a claim:
+# "I don't think I can take this", "I can't take this", "I'm not sure I can take it".
+# Python's re has no variable-width lookbehind, so instead of baking this into
+# every pattern we re-read the few words just before each match. A negator in that
+# window turns the match back into prose. `/claim` as a line-start command is never
+# subject to this (it is unambiguous and cannot be negated into prose).
+#
+# The set is only the words whose job is to negate: "not", the n't contractions,
+# and doubt words ("unable", "unsure"). Short tokens like "no"/"never"/"nor" are
+# left OUT on purpose — they appear in affirmative idioms right before a claim
+# ("No, I can take this") and would drop a real claim. "not" is kept (it covers
+# "I can not take this"), at the cost of the rare affirmative "why not" idiom,
+# which becomes an accepted miss. A dropped claim only loses the label (the
+# maintainer still sees the comment), so the simpler rule wins over parsing.
+_NEGATORS = {
+    "not", "don't", "dont", "cannot", "can't", "cant", "won't", "wont",
+    "wouldn't", "wouldnt", "couldn't", "couldnt", "shouldn't", "shouldnt",
+    "unable", "unsure",
+}
+_WORD = re.compile(r"[a-z']+", re.IGNORECASE)
+
 
 def is_claim(body: str) -> bool:
-    """True when a comment body reads as a claim on the issue."""
-    return bool(_CLAIM_RE.search((body or "").replace("\u2019", "'")))
+    """True when a comment body reads as a claim on the issue.
+
+    A phrase match is rejected when one of the three words immediately before it
+    is a negator ("I don't think I can take this" is a refusal, not a claim).
+    """
+    text = (body or "").replace("\u2019", "'")
+    for m in _CLAIM_RE.finditer(text):
+        if m.group().lstrip().startswith("/claim"):
+            return True  # the command is unambiguous; no negation window
+        preceding = _WORD.findall(text[:m.start()])[-3:]
+        if any(w.lower() in _NEGATORS for w in preceding):
+            continue  # negated: "I don't think I can take this"
+        return True
+    return False
 
 
 def gh(*args: str) -> str:
@@ -133,6 +166,20 @@ def should_label(event: dict, repo: str, has_open_pr=None) -> tuple[bool, str]:
     return True, "unassigned claim"
 
 
+def _issue_still_eligible(repo: str, number: int) -> tuple[bool, str]:
+    """Re-read the issue right before writing, to close the race with a manual
+    assignment that finished while this comment run sat in the queue (Greptile).
+    Returns (eligible, reason)."""
+    out = gh("api", f"repos/{repo}/issues/{number}",
+             "--jq", '{assignees: [.assignees[].login], labels: [.labels[].name]}')
+    state = json.loads(out)
+    if state.get("assignees"):
+        return False, "issue was assigned before the label could be written"
+    if LABEL in state.get("labels", []):
+        return False, "issue is already labelled claim-pending"
+    return True, "still eligible"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--event", default=os.environ.get("GITHUB_EVENT_PATH"),
@@ -156,11 +203,22 @@ def main() -> int:
         print(f"Issue #{number}: no label ({reason})")
         return 0
 
-    note = " [dry-run skipped the open-PR check]" if args.dry_run else ""
-    print(f"Issue #{number}: labelling {LABEL} ({reason}){note}")
-    if not args.dry_run:
-        gh("api", f"repos/{args.repo}/issues/{number}/labels",
-           "-f", f"labels[]={LABEL}")
+    if args.dry_run:
+        print(f"Issue #{number}: labelling {LABEL} ({reason}) "
+              f"[dry-run skipped the open-PR and freshness checks]")
+        return 0
+
+    # Guard the write against a maintainer who assigned (and claim-check.yml
+    # cleaned up) while this run waited in the queue: the event payload is a
+    # snapshot, so re-read the live issue before adding the label back.
+    fresh, fresh_reason = _issue_still_eligible(args.repo, number)
+    if not fresh:
+        print(f"Issue #{number}: no label ({fresh_reason})")
+        return 0
+
+    print(f"Issue #{number}: labelling {LABEL} ({reason})")
+    gh("api", f"repos/{args.repo}/issues/{number}/labels",
+       "-f", f"labels[]={LABEL}")
     return 0
 
 

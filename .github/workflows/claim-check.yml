@@ -56,20 +56,34 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: python3 scripts/ci/check_issue_claim.py "$PR_NUMBER"
 
+    - name: Drop the claim-pending label now that the issue is assigned
+      # Before the re-run below: that step makes several checked API calls, and if
+      # one fails this cleanup must still run, or the label outlives the assignment
+      # (Greptile). Keeping it first means the label is gone regardless of the re-run.
+      if: github.event_name == 'issues'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+      # Ignore only the 404 of a label that was never set (most issues); any other
+      # error (network, auth) must fail so the label is not silently left behind.
+      run: |
+        status=$(gh api -X DELETE \
+          "repos/$REPO/issues/$ISSUE_NUMBER/labels/claim-pending" \
+          --silent 2>/tmp/err; echo "$?")
+        if [ "$status" = "0" ]; then
+          echo "Removed claim-pending from #$ISSUE_NUMBER"
+        elif grep -q "HTTP 404" /tmp/err; then
+          echo "No claim-pending label on #$ISSUE_NUMBER (nothing to remove)"
+        else
+          echo "Failed to remove claim-pending from #$ISSUE_NUMBER:" >&2
+          cat /tmp/err >&2
+          exit 1
+        fi
+
     - name: Re-run the checks of PRs closing this issue
       if: github.event_name == 'issues'
       env:
         GH_TOKEN: ${{ github.token }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
       run: python3 scripts/ci/check_issue_claim.py --issue "$ISSUE_NUMBER"
-
-    - name: Drop the claim-pending label now that the issue is assigned
-      if: github.event_name == 'issues'
-      env:
-        GH_TOKEN: ${{ github.token }}
-        REPO: ${{ github.repository }}
-        ISSUE_NUMBER: ${{ github.event.issue.number }}
-      # 404 when the label is not set (most issues never carried it): ignore it.
-      run: |
-        gh api -X DELETE "repos/$REPO/issues/$ISSUE_NUMBER/labels/claim-pending" \
-          >/dev/null 2>&1 || true

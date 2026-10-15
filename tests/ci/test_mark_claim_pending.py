@@ -29,6 +29,9 @@ _spec.loader.exec_module(mark)
     "I'm taking this",
     "I would like to work on this",
     "Hi! I'd like to work on this, thanks",
+    # an affirmative "No," before a claim must still read as a claim ("no" is
+    # not in the negator set; only "not"/n't/unable/unsure negate):
+    "No, I can take this",
 ])
 def test_claim_phrases_match(body):
     assert mark.is_claim(body) is True
@@ -48,6 +51,17 @@ def test_claim_phrases_match(body):
     "a bill take this to the floor",                       # "ill" of b·ill·
     "The grid like to work on this layout",                # "id like" of gr·id·
     "The denomination 'im taking this' is odd",            # "im taking" mid-word
+    # negated / refusal phrases must not read as claims (Greptile: "Refusals look like claims")
+    "I don't think I can take this",
+    "I can't take this right now",
+    "Not sure I can take this on",
+    "I won't be able to work on this",
+    "No, I can't take this",
+    "I don't think I'd like to work on this",
+    # accepted miss: "why not" is affirmative but contains "not"; telling it apart
+    # from "I will not" needs real parsing. A miss only loses the label, so we take
+    # the simpler rule and let this rare idiom through as a non-claim.
+    "why not, I'll take this",
 ])
 def test_non_claims_do_not_match(body):
     assert mark.is_claim(body) is False
@@ -148,4 +162,97 @@ def test_dry_run_labels_without_network_or_write(tmp_path, monkeypatch, capsys):
     )
     assert mark.main() == 0
     assert "labelling claim-pending" in capsys.readouterr().out
+
+
+# --- the gh-backed paths, exercised by mocking gh (not replacing the helpers) ---
+
+def _gh_stub(responses):
+    """Return a fake gh(*args) that dispatches on the subcommand and records calls.
+
+    responses maps a key ('graphql' or 'api-DELETE' or 'api-GET' or 'api-POST')
+    to the stdout string to return. Unmapped calls raise, so a test only passes
+    if the code made exactly the call it claims to.
+    """
+    calls = []
+
+    def fake_gh(*args):
+        calls.append(args)
+        if args[:2] == ("api", "graphql"):
+            return responses["graphql"]
+        if args[0] == "api" and "-X" in args and "DELETE" in args:
+            return responses.get("api-DELETE", "")
+        if args[0] == "api" and args[1].endswith("/labels") and any(
+            a.startswith("labels[]=") for a in args
+        ):
+            return responses.get("api-POST", "")
+        if args[0] == "api":
+            return responses.get("api-GET", "{}")
+        raise AssertionError(f"unexpected gh call: {args}")
+
+    fake_gh.calls = calls
+    return fake_gh
+
+
+def _pr_graphql(states):
+    import json
+    payload = {"data": {"repository": {"issue": {
+        "closedByPullRequestsReferences": {
+            "nodes": [{"state": s} for s in states]
+        }
+    }}}}
+    return json.dumps(payload)
+
+
+def test_has_open_closing_pr_true_on_open(monkeypatch):
+    monkeypatch.setattr(mark, "gh", _gh_stub({"graphql": _pr_graphql(["OPEN"])}))
+    assert mark._has_open_closing_pr("owner/repo", 1) is True
+
+
+def test_has_open_closing_pr_false_on_merged_only(monkeypatch):
+    monkeypatch.setattr(mark, "gh", _gh_stub({"graphql": _pr_graphql(["MERGED"])}))
+    assert mark._has_open_closing_pr("owner/repo", 1) is False
+
+
+def test_has_open_closing_pr_false_on_empty(monkeypatch):
+    monkeypatch.setattr(mark, "gh", _gh_stub({"graphql": _pr_graphql([])}))
+    assert mark._has_open_closing_pr("owner/repo", 1) is False
+
+
+def test_main_writes_label_with_correct_args(tmp_path, monkeypatch):
+    """Non-dry-run path: open-PR check clears, freshness clears, label POST fires."""
+    import json
+    stub = _gh_stub({
+        "graphql": _pr_graphql([]),                                   # no open PR
+        "api-GET": '{"assignees": [], "labels": []}',                 # still eligible
+        "api-POST": "",                                               # label write
+    })
+    monkeypatch.setattr(mark, "gh", stub)
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps(event(number=7)))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mark_claim_pending.py", "--event", str(payload), "--repo", "owner/repo"],
+    )
+    assert mark.main() == 0
+    writes = [c for c in stub.calls if c[0] == "api" and c[1].endswith("/labels")]
+    assert writes == [("api", "repos/owner/repo/issues/7/labels", "-f", "labels[]=claim-pending")]
+
+
+def test_main_skips_write_when_assigned_before_run(tmp_path, monkeypatch):
+    """Freshness race: the issue got an assignee while the run was queued."""
+    import json
+    stub = _gh_stub({
+        "graphql": _pr_graphql([]),
+        "api-GET": '{"assignees": ["dev"], "labels": []}',            # assigned meanwhile
+    })
+    monkeypatch.setattr(mark, "gh", stub)
+    payload = tmp_path / "event.json"
+    payload.write_text(json.dumps(event(number=7)))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["mark_claim_pending.py", "--event", str(payload), "--repo", "owner/repo"],
+    )
+    assert mark.main() == 0
+    assert not [c for c in stub.calls if c[0] == "api" and c[1].endswith("/labels")]
+
 
