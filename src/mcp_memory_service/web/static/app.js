@@ -1245,9 +1245,6 @@ class MemoryDashboard {
         // Sync buttons event listeners are attached in checkSyncStatus()
         // after buttons are confirmed to be accessible in the DOM
 
-        // Backup buttons use inline onclick handlers in HTML
-        // (setupEventListeners runs before settings modal DOM is interactive)
-
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
         const docSearchInput = document.getElementById('docSearchInput');
