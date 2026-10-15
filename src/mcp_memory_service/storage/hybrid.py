@@ -554,153 +554,28 @@ class BackgroundSyncService:
         sync_start_time = time.time()
 
         try:
-            # Keep the local count available even when the secondary health check
-            # fails, as in the pre-tombstone implementation.
             primary_memories = await self.primary.get_all_memories()
+            state, early_result = await self._load_force_sync_state(
+                primary_memories, sync_start_time
+            )
+            if early_result is not None:
+                return early_result
 
-            # Check Cloudflare availability
-            try:
-                await self.secondary.get_stats()  # Simple health check
-                cloudflare_available = True
-            except Exception as e:
-                logger.warning("Cloudflare not available during force sync: %s", _sanitize_log_value(e))
-                self.sync_stats['cloudflare_available'] = False
-                return {
-                    'status': 'partial',
-                    'cloudflare_available': False,
-                    'primary_memories': len(primary_memories),
-                    'synced_to_secondary': 0,
-                    'duration': time.time() - sync_start_time
-                }
-
-            # Read Cloudflare live rows and tombstones before enumerating/pushing
-            # local memories. If D1 is unavailable, pushing without its deletion
-            # state could resurrect remotely deleted data (#1502).
-            remote_tombstones: Dict[str, float] = {}
-            if _has_cloudflare_d1(self.secondary):
-                sync_state = await _fetch_secondary_sync_state(self.secondary)
-                if sync_state is None:
-                    self.sync_stats['cloudflare_available'] = False
-                    return {
-                        'status': 'partial',
-                        'cloudflare_available': False,
-                        'primary_memories': len(primary_memories),
-                        'synced_to_secondary': 0,
-                        'failed_operations': 0,
-                        'skipped_already_present': 0,
-                        'skipped_remote_tombstones': 0,
-                        'tombstones_applied': 0,
-                        'tombstone_conflicts': 0,
-                        'tombstone_failures': 1,
-                        'tombstone_conflict_hashes': [],
-                        'duration': time.time() - sync_start_time,
-                        'error': (
-                            'Could not read Cloudflare tombstones; skipped push '
-                            'to prevent resurrection'
-                        ),
-                    }
-                remote_tombstones = sync_state['tombstones']
-                tombstone_counts = await _reconcile_remote_tombstones(
-                    self.primary, remote_tombstones
-                )
-                secondary_hashes = sync_state['live_hashes']
-            else:
-                tombstone_counts = {
-                    'tombstones_applied': 0,
-                    'tombstone_conflicts': 0,
-                    'tombstone_failures': 0,
-                    'tombstone_conflict_hashes': [],
-                }
-                secondary_hashes = await self._fetch_secondary_hashes()
-
-            # Dedupe: skip memories that already exist on the secondary. Without this,
-            # force_sync calls embed+upsert for every local memory and burns the CF
-            # Workers AI quota on duplicates — the root cause of `0 synced / N failed`
-            # reported in issue #750.
-            if secondary_hashes is not None:
-                new_memories = [
-                    m for m in primary_memories
-                    if m.content_hash not in secondary_hashes
-                    and m.content_hash not in remote_tombstones
-                ]
-                skipped_count = sum(
-                    1 for m in primary_memories
-                    if m.content_hash in secondary_hashes
-                )
-                skipped_tombstones = sum(
-                    1 for m in primary_memories
-                    if m.content_hash in remote_tombstones
-                )
-                logger.info(
-                    "Dedupe: %s already present, %s protected by remote tombstones, "
-                    "pushing %s",
-                    skipped_count,
-                    skipped_tombstones,
-                    len(new_memories),
-                )
-            else:
-                new_memories = primary_memories
-                skipped_count = 0
-                skipped_tombstones = 0
-                logger.debug("Secondary hash fetch unavailable — pushing all memories")
-
-            # Sync from primary to secondary using concurrent operations
-            async def sync_memory(memory):
-                try:
-                    success, message = await self.secondary.store(memory)
-                    if success:
-                        return True, None
-                    else:
-                        logger.debug("Failed to sync memory to secondary: %s", _sanitize_log_value(message))
-                        return False, message
-                except Exception as e:
-                    logger.debug("Exception syncing memory to secondary: %s", _sanitize_log_value(e))
-                    return False, str(e)
-
-            # Process memories concurrently in batches
-            synced_count = 0
-            failed_count = 0
-
-            # Process in batches to avoid overwhelming the system
-            batch_size = self.batch_size  # Use configured batch size
-            for i in range(0, len(new_memories), batch_size):
-                batch = new_memories[i:i + batch_size]
-                results = await asyncio.gather(*[sync_memory(m) for m in batch], return_exceptions=True)
-
-                for result in results:
-                    if isinstance(result, Exception):
-                        failed_count += 1
-                        logger.debug("Exception in batch sync: %s", _sanitize_log_value(result))
-                    elif isinstance(result, tuple):
-                        success, _ = result
-                        if success:
-                            synced_count += 1
-                        else:
-                            failed_count += 1
-
-            sync_duration = time.time() - sync_start_time
-            self.sync_stats['last_sync_duration'] = sync_duration
-            self.sync_stats['cloudflare_available'] = cloudflare_available
-
-            logger.info("Force sync completed: %s synced, %s failed, %s skipped (already on secondary) in %.2fs", synced_count, failed_count, skipped_count, sync_duration)
-
-            return {
-                'status': (
-                    'completed'
-                    if not failed_count
-                    and not tombstone_counts['tombstone_conflicts']
-                    and not tombstone_counts['tombstone_failures']
-                    else 'partial'
-                ),
-                'cloudflare_available': cloudflare_available,
-                'primary_memories': len(primary_memories),
-                'synced_to_secondary': synced_count,
-                'failed_operations': failed_count,
-                'skipped_already_present': skipped_count,
-                'skipped_remote_tombstones': skipped_tombstones,
-                **tombstone_counts,
-                'duration': sync_duration
-            }
+            new_memories, skipped_count, skipped_tombstones = (
+                self._select_force_sync_memories(primary_memories, state)
+            )
+            synced_count, failed_count = await self._sync_force_sync_memories(
+                new_memories
+            )
+            return self._force_sync_result(
+                primary_memories,
+                state,
+                synced_count,
+                failed_count,
+                skipped_count,
+                skipped_tombstones,
+                sync_start_time,
+            )
 
         except Exception as e:
             logger.error("Error during force sync: %s", _sanitize_log_value(e))
@@ -709,6 +584,191 @@ class BackgroundSyncService:
                 'error': str(e),
                 'duration': time.time() - sync_start_time
             }
+
+    async def _load_force_sync_state(
+        self, primary_memories: List[Memory], sync_start_time: float
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """Read remote state, returning an early response when it is unavailable."""
+        try:
+            await self.secondary.get_stats()
+        except Exception as e:
+            logger.warning(
+                "Cloudflare not available during force sync: %s",
+                _sanitize_log_value(e),
+            )
+            self.sync_stats['cloudflare_available'] = False
+            return {}, {
+                'status': 'partial',
+                'cloudflare_available': False,
+                'primary_memories': len(primary_memories),
+                'synced_to_secondary': 0,
+                'duration': time.time() - sync_start_time,
+            }
+
+        remote_tombstones: Dict[str, float] = {}
+        if _has_cloudflare_d1(self.secondary):
+            sync_state = await _fetch_secondary_sync_state(self.secondary)
+            if sync_state is None:
+                self.sync_stats['cloudflare_available'] = False
+                return {}, {
+                    'status': 'partial',
+                    'cloudflare_available': False,
+                    'primary_memories': len(primary_memories),
+                    'synced_to_secondary': 0,
+                    'failed_operations': 0,
+                    'skipped_already_present': 0,
+                    'skipped_remote_tombstones': 0,
+                    'tombstones_applied': 0,
+                    'tombstone_conflicts': 0,
+                    'tombstone_failures': 1,
+                    'tombstone_conflict_hashes': [],
+                    'duration': time.time() - sync_start_time,
+                    'error': (
+                        'Could not read Cloudflare tombstones; skipped push '
+                        'to prevent resurrection'
+                    ),
+                }
+            remote_tombstones = sync_state['tombstones']
+            tombstone_counts = await _reconcile_remote_tombstones(
+                self.primary, remote_tombstones
+            )
+            secondary_hashes = sync_state['live_hashes']
+        else:
+            tombstone_counts = {
+                'tombstones_applied': 0,
+                'tombstone_conflicts': 0,
+                'tombstone_failures': 0,
+                'tombstone_conflict_hashes': [],
+            }
+            secondary_hashes = await self._fetch_secondary_hashes()
+
+        return {
+            'cloudflare_available': True,
+            'remote_tombstones': remote_tombstones,
+            'secondary_hashes': secondary_hashes,
+            'tombstone_counts': tombstone_counts,
+        }, None
+
+    @staticmethod
+    def _select_force_sync_memories(
+        primary_memories: List[Memory], state: Dict[str, Any]
+    ) -> Tuple[List[Memory], int, int]:
+        """Exclude known remote rows and tombstones before pushing local memories."""
+        secondary_hashes = state['secondary_hashes']
+        if secondary_hashes is None:
+            logger.debug("Secondary hash fetch unavailable — pushing all memories")
+            return primary_memories, 0, 0
+
+        remote_tombstones = state['remote_tombstones']
+        new_memories = []
+        skipped_count = 0
+        skipped_tombstones = 0
+        for memory in primary_memories:
+            content_hash = memory.content_hash
+            if content_hash in secondary_hashes:
+                skipped_count += 1
+            if content_hash in remote_tombstones:
+                skipped_tombstones += 1
+            if (
+                content_hash not in secondary_hashes
+                and content_hash not in remote_tombstones
+            ):
+                new_memories.append(memory)
+        logger.info(
+            "Dedupe: %s already present, %s protected by remote tombstones, "
+            "pushing %s",
+            skipped_count,
+            skipped_tombstones,
+            len(new_memories),
+        )
+        return new_memories, skipped_count, skipped_tombstones
+
+    async def _sync_one_force_sync_memory(
+        self, memory: Memory
+    ) -> Tuple[bool, Optional[str]]:
+        """Push one memory to secondary storage without aborting its batch."""
+        try:
+            success, message = await self.secondary.store(memory)
+            if success:
+                return True, None
+            logger.debug(
+                "Failed to sync memory to secondary: %s",
+                _sanitize_log_value(message),
+            )
+            return False, message
+        except Exception as e:
+            logger.debug(
+                "Exception syncing memory to secondary: %s",
+                _sanitize_log_value(e),
+            )
+            return False, str(e)
+
+    async def _sync_force_sync_memories(
+        self, memories: List[Memory]
+    ) -> Tuple[int, int]:
+        """Push memories concurrently in configured batches and count outcomes."""
+        synced_count = 0
+        failed_count = 0
+        for start in range(0, len(memories), self.batch_size):
+            batch = memories[start:start + self.batch_size]
+            results = await asyncio.gather(
+                *(self._sync_one_force_sync_memory(memory) for memory in batch),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    failed_count += 1
+                    logger.debug(
+                        "Exception in batch sync: %s", _sanitize_log_value(result)
+                    )
+                elif isinstance(result, tuple):
+                    if result[0]:
+                        synced_count += 1
+                    else:
+                        failed_count += 1
+        return synced_count, failed_count
+
+    def _force_sync_result(
+        self,
+        primary_memories: List[Memory],
+        state: Dict[str, Any],
+        synced_count: int,
+        failed_count: int,
+        skipped_count: int,
+        skipped_tombstones: int,
+        sync_start_time: float,
+    ) -> Dict[str, Any]:
+        """Record sync metrics and return the completed force-sync response."""
+        sync_duration = time.time() - sync_start_time
+        self.sync_stats['last_sync_duration'] = sync_duration
+        self.sync_stats['cloudflare_available'] = state['cloudflare_available']
+        tombstone_counts = state['tombstone_counts']
+        logger.info(
+            "Force sync completed: %s synced, %s failed, %s skipped "
+            "(already on secondary) in %.2fs",
+            synced_count,
+            failed_count,
+            skipped_count,
+            sync_duration,
+        )
+        status = (
+            'completed'
+            if not failed_count
+            and not tombstone_counts['tombstone_conflicts']
+            and not tombstone_counts['tombstone_failures']
+            else 'partial'
+        )
+        return {
+            'status': status,
+            'cloudflare_available': state['cloudflare_available'],
+            'primary_memories': len(primary_memories),
+            'synced_to_secondary': synced_count,
+            'failed_operations': failed_count,
+            'skipped_already_present': skipped_count,
+            'skipped_remote_tombstones': skipped_tombstones,
+            **tombstone_counts,
+            'duration': sync_duration,
+        }
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current sync service status and statistics."""
