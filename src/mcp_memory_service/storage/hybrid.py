@@ -24,6 +24,7 @@ This implementation provides the best of both worlds:
 
 import asyncio
 import logging
+import math
 import time
 from typing import List, Dict, Any, Sequence, Tuple, Optional
 from collections import deque
@@ -272,12 +273,13 @@ async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
 
 async def _reconcile_remote_tombstones(
     primary, tombstones: Dict[str, float]
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Apply remote deletes without overwriting a newer local edit."""
     counts = {
         "tombstones_applied": 0,
         "tombstone_conflicts": 0,
         "tombstone_failures": 0,
+        "tombstone_conflict_hashes": [],
     }
     if not tombstones:
         return counts
@@ -303,6 +305,8 @@ async def _reconcile_remote_tombstones(
             counts["tombstones_applied"] += 1
         elif outcome == "conflict":
             counts["tombstone_conflicts"] += 1
+            if len(counts["tombstone_conflict_hashes"]) < 100:
+                counts["tombstone_conflict_hashes"].append(content_hash)
         elif outcome not in ("missing", "already_deleted"):
             counts["tombstone_failures"] += 1
     return counts
@@ -553,6 +557,7 @@ class BackgroundSyncService:
                         'tombstones_applied': 0,
                         'tombstone_conflicts': 0,
                         'tombstone_failures': 1,
+                        'tombstone_conflict_hashes': [],
                         'duration': time.time() - sync_start_time,
                         'error': (
                             'Could not read Cloudflare tombstones; skipped push '
@@ -569,6 +574,7 @@ class BackgroundSyncService:
                     'tombstones_applied': 0,
                     'tombstone_conflicts': 0,
                     'tombstone_failures': 0,
+                    'tombstone_conflict_hashes': [],
                 }
                 secondary_hashes = await self._fetch_secondary_hashes()
 
@@ -1508,6 +1514,7 @@ class HybridMemoryStorage(MemoryStorage):
             'tombstones_applied': 0,
             'tombstone_conflicts': 0,
             'tombstone_failures': 0,
+            'tombstone_conflict_hashes': [],
         }
 
         try:
@@ -2553,6 +2560,159 @@ class HybridMemoryStorage(MemoryStorage):
             'tombstones_applied': result.get('tombstones_applied', 0),
             'tombstone_conflicts': result.get('tombstone_conflicts', 0),
             'tombstone_failures': result.get('tombstone_failures', 0),
+            'tombstone_conflict_hashes': result.get(
+                'tombstone_conflict_hashes', []
+            ),
+        }
+
+    async def resolve_tombstone_conflict(
+        self, content_hash: str, action: str
+    ) -> Dict[str, Any]:
+        """Resolve a current Cloudflare tombstone conflict for one local memory.
+
+        The remote tombstone and local row are read immediately before a
+        resolution. ``accept_delete`` repeats its timestamp guard in SQLite so
+        a newer local edit that races the read is preserved. ``keep_local``
+        rechecks both sides after reading the local memory before uploading it
+        through the secondary backend, whose D1 store path removes only the
+        matching tombstone.
+        """
+        if action not in {"keep_local", "accept_delete"}:
+            raise ValueError("action must be 'keep_local' or 'accept_delete'")
+        if (
+            self.secondary_backend_type != "cloudflare"
+            or self.secondary is None
+            or not hasattr(self.secondary, "get_tombstone_for_hash")
+        ):
+            return {
+                "success": False,
+                "status": "unsupported",
+                "action": action,
+                "message": "Tombstone conflict resolution requires a Cloudflare secondary.",
+            }
+
+        async def current_conflict() -> Optional[tuple[float, float]]:
+            remote_deleted_at = await self.secondary.get_tombstone_for_hash(
+                content_hash
+            )
+            local_state = await self.primary.get_sync_state_for_hash(content_hash)
+            if remote_deleted_at is None or local_state is None:
+                return None
+
+            local_updated_at, local_deleted_at = local_state
+            if local_deleted_at is not None or local_updated_at is None:
+                return None
+
+            try:
+                remote_timestamp = float(remote_deleted_at)
+                local_timestamp = float(local_updated_at)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Invalid tombstone conflict timestamp") from exc
+            if not math.isfinite(remote_timestamp) or not math.isfinite(local_timestamp):
+                raise RuntimeError("Invalid tombstone conflict timestamp")
+            if local_timestamp <= remote_timestamp:
+                return None
+            return remote_timestamp, local_timestamp
+
+        conflict = await current_conflict()
+        if conflict is None:
+            return {
+                "success": True,
+                "status": "no_conflict",
+                "action": action,
+                "message": "No current tombstone conflict for this hash; no changes were made.",
+            }
+
+        if action == "accept_delete":
+            _, local_updated_at = conflict
+            outcome = await self.primary.delete_if_not_updated_after(
+                content_hash, local_updated_at
+            )
+            if outcome == "applied":
+                return {
+                    "success": True,
+                    "status": "resolved",
+                    "action": action,
+                    "message": "The current Cloudflare deletion was applied locally.",
+                }
+            if outcome in {"missing", "already_deleted"}:
+                return {
+                    "success": True,
+                    "status": "no_conflict",
+                    "action": action,
+                    "message": "The local conflict changed before resolution; no action was needed.",
+                }
+            if outcome == "conflict":
+                return {
+                    "success": False,
+                    "status": "conflict_changed",
+                    "action": action,
+                    "message": "The local memory changed during resolution; it was preserved.",
+                }
+            return {
+                "success": False,
+                "status": "failed",
+                "action": action,
+                "message": "The local deletion could not be applied safely.",
+            }
+
+        # Fetch the local object, then recheck D1 and SQLite before uploading.
+        # Retry once if its timestamp changed while we read the object.
+        for attempt in range(2):
+            if await current_conflict() is None:
+                return {
+                    "success": True,
+                    "status": "no_conflict",
+                    "action": action,
+                    "message": "No current tombstone conflict for this hash; no changes were made.",
+                }
+            local_memory = await self.primary.get_by_hash(content_hash)
+            if local_memory is None:
+                if await current_conflict() is None:
+                    return {
+                        "success": True,
+                        "status": "no_conflict",
+                        "action": action,
+                        "message": "No current tombstone conflict for this hash; no changes were made.",
+                    }
+                raise RuntimeError(
+                    "Could not read the live local memory for tombstone resolution"
+                )
+            latest_conflict = await current_conflict()
+            if latest_conflict is None:
+                return {
+                    "success": True,
+                    "status": "no_conflict",
+                    "action": action,
+                    "message": "No current tombstone conflict for this hash; no changes were made.",
+                }
+            _, latest_local_updated_at = latest_conflict
+            if local_memory.updated_at == latest_local_updated_at:
+                success, message = await self.secondary.store(local_memory)
+                if not success:
+                    logger.warning(
+                        "Could not resolve tombstone conflict for %s: %s",
+                        _sanitize_log_value(content_hash[:16]),
+                        _sanitize_log_value(message),
+                    )
+                return {
+                    "success": bool(success),
+                    "status": "resolved" if success else "failed",
+                    "action": action,
+                    "message": (
+                        "The local memory was kept and uploaded to Cloudflare."
+                        if success
+                        else "Cloudflare could not store the local memory."
+                    ),
+                }
+            if attempt == 1:
+                break
+
+        return {
+            "success": False,
+            "status": "conflict_changed",
+            "action": action,
+            "message": "The local memory kept changing during resolution; no upload was made.",
         }
 
     async def get_sync_status(self) -> Dict[str, Any]:

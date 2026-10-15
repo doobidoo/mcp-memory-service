@@ -82,3 +82,29 @@ async def test_force_sync_api_does_not_double_count_tombstone_conflict():
     assert response.tombstone_conflicts == 1
     assert response.message.count("tombstone conflict") == 1
     assert "already synchronized" not in response.message
+
+
+@pytest.mark.asyncio
+async def test_force_sync_api_returns_deduplicated_conflict_hashes_capped_at_100():
+    pull_hashes = [f"hash-{index}" for index in range(99)]
+    storage = ForceSyncStorage(
+        pull_result={
+            "success": False,
+            "memories_pulled": 0,
+            "tombstone_conflicts": 100,
+            "tombstone_conflict_hashes": pull_hashes,
+            "message": "preserved 100 newer local edits with tombstone conflicts",
+        },
+        push_result={
+            "status": "partial",
+            "failed_operations": 0,
+            "tombstone_conflicts": 2,
+            "tombstone_conflict_hashes": ["hash-98", "extra-hash"],
+        },
+    )
+
+    response = await force_sync(storage=storage, user=None)
+
+    assert response.tombstone_conflicts == 100
+    assert response.tombstone_conflict_hashes == pull_hashes + ["extra-hash"]
+    assert len(response.tombstone_conflict_hashes) == 100

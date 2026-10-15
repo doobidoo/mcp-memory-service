@@ -20,9 +20,10 @@ Provides status monitoring and manual sync triggering for hybrid storage mode.
 
 import time
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
 from ..dependencies import get_storage
@@ -63,6 +64,22 @@ class SyncForceResponse(BaseModel):
     tombstones_applied: int = 0
     tombstone_conflicts: int = 0
     tombstone_failures: int = 0
+    tombstone_conflict_hashes: list[str] = Field(default_factory=list)
+
+
+class TombstoneConflictResolutionRequest(BaseModel):
+    """Explicit resolution choice for one current sync conflict."""
+
+    action: Literal["keep_local", "accept_delete"]
+
+
+class TombstoneConflictResolutionResponse(BaseModel):
+    """Outcome of a requested tombstone conflict resolution."""
+
+    success: bool
+    status: str
+    action: Literal["keep_local", "accept_delete"]
+    message: str
 
 
 @router.get("/sync/status", response_model=SyncStatusResponse)
@@ -194,6 +211,10 @@ async def force_sync(
             pull_result.get('tombstone_failures', 0) if pull_result else 0,
             push_result.get('tombstone_failures', 0),
         )
+        tombstone_conflict_hashes = list(dict.fromkeys(
+            (pull_result.get('tombstone_conflict_hashes', []) if pull_result else [])
+            + push_result.get('tombstone_conflict_hashes', [])
+        ))[:100]
 
         # Check success flags from both operations. `status == 'completed'` means push
         # finished (may still have item-level failures, reported via failed_operations).
@@ -267,6 +288,7 @@ async def force_sync(
             tombstones_applied=tombstones_applied,
             tombstone_conflicts=tombstone_conflicts,
             tombstone_failures=tombstone_failures,
+            tombstone_conflict_hashes=tombstone_conflict_hashes,
         )
 
     except Exception as e:
@@ -274,6 +296,37 @@ async def force_sync(
             status_code=500,
             detail=f"Failed to force sync: {str(e)}"
         )
+
+
+@router.post(
+    "/sync/tombstone-conflicts/{content_hash}",
+    response_model=TombstoneConflictResolutionResponse,
+)
+async def resolve_tombstone_conflict(
+    content_hash: str,
+    payload: TombstoneConflictResolutionRequest,
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_write_access),
+) -> TombstoneConflictResolutionResponse:
+    """Resolve one currently conflicting remote deletion explicitly."""
+    resolver = getattr(storage, "resolve_tombstone_conflict", None)
+    if (
+        getattr(storage, "secondary_backend_type", None) != "cloudflare"
+        or resolver is None
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Tombstone conflict resolution is only available with a Cloudflare secondary",
+        )
+
+    try:
+        result = await resolver(content_hash, payload.action)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to resolve tombstone conflict safely",
+        ) from exc
+    return TombstoneConflictResolutionResponse(**result)
 
 
 class SyncPauseResponse(BaseModel):

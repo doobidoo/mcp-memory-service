@@ -21,6 +21,7 @@ import json
 import logging
 import hashlib
 import asyncio
+import math
 import time
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timezone, timedelta, date
@@ -1144,6 +1145,55 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error("Error in exact content match (Cloudflare): %s", _sanitize_log_value(str(e)))
             return []
+
+    async def get_tombstone_for_hash(self, content_hash: str) -> Optional[float]:
+        """Return the current D1 deletion timestamp for a content hash.
+
+        ``None`` means that the hash has no current tombstone (it is either live
+        or absent). Read failures are raised so callers cannot mistake an
+        unavailable D1 state for a cleared conflict.
+        """
+        response = await self._retry_request(
+            "POST",
+            f"{self.d1_url}/query",
+            json={
+                "sql": (
+                    "SELECT deleted_at FROM memories "
+                    "WHERE content_hash = ? LIMIT 1"
+                ),
+                "params": [content_hash],
+            },
+        )
+        result = response.json()
+        if not result.get("success"):
+            raise RuntimeError("Failed to read tombstone state from Cloudflare D1")
+
+        result_sets = result.get("result")
+        if not isinstance(result_sets, list) or not result_sets:
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        rows = result_sets[0].get("results")
+        if not isinstance(rows, list):
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        if not rows:
+            return None
+
+        if not isinstance(rows[0], dict) or "deleted_at" not in rows[0]:
+            raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
+        deleted_at = rows[0]["deleted_at"]
+        if deleted_at is None:
+            return None
+
+        try:
+            timestamp = float(deleted_at)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Cloudflare D1 returned an invalid tombstone timestamp"
+            ) from exc
+        if not math.isfinite(timestamp):
+            raise RuntimeError(
+                "Cloudflare D1 returned an invalid tombstone timestamp"
+            )
+        return timestamp
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
