@@ -2082,12 +2082,17 @@ class MemoryDashboard {
     }
 
     /**
-     * Escape HTML to prevent XSS
+     * Escape HTML to prevent XSS. Safe in element text and in quoted attribute
+     * values: quotes are encoded too, since callers interpolate the result into
+     * data-tag="..." and similar attributes (GHSA-j664-v823-6p9f).
      */
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return String(text ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
