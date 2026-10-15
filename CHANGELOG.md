@@ -17,6 +17,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.1.0] - 2026-10-15
+
+### Added
+
+- **Dashboard now uses the same brand tokens, fonts and logo as the project site (#1525, george07-t).**
+  The `:root` and `body.dark-mode` tokens in `style.css` point at the site's cyan/blue accent and paper/panel/line/ink neutrals (names unchanged, `--success`, `--warning` and `--error` untouched), text on cyan fills is dark instead of white, Bricolage Grotesque and JetBrains Mono are self-hosted under `static/fonts/` so the dashboard still works offline, and the header shows the brain icon instead of the emoji.
+- **Resolve newer local edits that conflict with remote tombstones (#1538).** Sync results expose capped conflict hashes, and the authenticated sync API can explicitly keep the local memory or accept the current remote deletion after rechecking both stores. Competing resolutions are serialized across hybrid storage instances sharing a SQLite database. A restore links the exact tag set before clearing the observed D1 tombstone, stages unique Vectorize/R2 artifacts, and attempts to clean them if the compare-and-set rejects the restore.
+
+### Fixed
+
+- **A stored memory tag could run JavaScript in the dashboard (GHSA-j664-v823-6p9f, Taewoong1378).**
+  The dashboard's `escapeHtml()` encoded `<`, `>` and `&` but left `"` and `'` alone, and its
+  output is interpolated into quoted attributes such as `data-tag="..."`. A client with write
+  access could store a tag like `z" onmouseover="..." q="`, and the handler ran when anyone
+  hovered that tag in Browse, with access to the API key or OAuth token the dashboard keeps in
+  `localStorage`. Affected since v7.2.1. `escapeHtml()` now encodes both quote characters, which
+  closes every attribute sink at once: the tag cloud, the tag list, tag management, active filters
+  and upload rows.
+
 ## [12.0.1] - 2026-10-15
 
 ### Fixed
