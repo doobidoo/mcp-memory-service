@@ -1,0 +1,4 @@
+- Belief quality (Camada 1): filter out degenerate belief fragments at derivation intake and via an opt-in backlog sweep.
+  - New `_is_degenerate_fragment` applies rules D1–D4 (dangling cut-stopword, dangling punctuation, unbalanced brackets, orphan markdown heading), composed into `_is_noise` behind `MCP_BELIEF_DEGENERATE_FILTER` (default off; flag off = byte-identical behaviour).
+  - New `sweep_degenerate_beliefs()` one-shot pass behind `MCP_BELIEF_DEGENERATE_SWEEP` (+ `MCP_BELIEF_DEGENERATE_SWEEP_CAP`, default 1000) marks already-stored degenerate beliefs as `superseded` (never deletes, preserves provenance), idempotent, per-belief error isolation.
+  - Legitimate short sentences and inline-bold sentences are preserved (invariant).

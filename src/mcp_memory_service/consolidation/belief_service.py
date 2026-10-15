@@ -47,6 +47,90 @@ _NOISE_PATTERNS = [
 ]
 
 
+# D4 regex: Strip heading markers, test single-line bold-title shape
+ORPHAN_HEADING = re.compile(
+    r"""^\s*
+        (?:\#{1,6}\s*)?          # optional ATX heading hashes
+        \*{0,2}                   # optional opening bold
+        [^\n*][^\n]*?             # title text (no newline)
+        \*{0,2}                   # optional closing bold
+        \s*:?                     # optional trailing colon
+        \s*$                      # end — single line only
+    """,
+    re.VERBOSE,
+)
+
+
+def _is_degenerate_fragment(content: str) -> bool:
+    """Check if content is a degenerate fragment using D1-D4 rules.
+    
+    Returns True if ANY of D1-D4 rules apply.
+    """
+    text = (content or "").strip()
+    if not text:
+        return False
+        
+    # D1: Dangling cut-stopword (truncated sentence ending)
+    # Extract last alphabetic token
+    tokens = re.findall(r"[A-Za-zÀ-ÿ'`-]+", text)
+    if tokens:
+        last_token = tokens[-1].lower()
+        
+        # Cut-stopwords lists from spec
+        CUT_STOPWORDS = {
+            # Portuguese prepositions
+            'de', 'da', 'do', 'das', 'dos', 'em', 'na', 'no', 'nas', 'nos', 'a', 'à', 
+            'ao', 'aos', 'às', 'para', 'pra', 'por', 'pelo', 'pela', 'pelos', 'pelas',
+            'com', 'sem', 'sob', 'sobre', 'entre', 'até', 'desde', 'perante', 'ante',
+            'após', 'contra', 'trás',
+            # Portuguese conjunctions  
+            'e', 'ou', 'mas', 'porém', 'contudo', 'todavia', 'que', 'se', 'como',
+            'quando', 'porque', 'pois', 'logo', 'portanto', 'então', 'nem', 'enquanto',
+            'embora', 'conforme', 'caso',
+            # Portuguese articles/determiners
+            'o', 'a', 'os', 'as', 'um', 'uma', 'uns', 'umas', 'este', 'esta', 'esse',
+            'essa', 'aquele', 'aquela', 'seu', 'sua', 'meu', 'minha',
+            # English prepositions
+            'of', 'in', 'on', 'at', 'to', 'for', 'with', 'without', 'by', 'from',
+            'into', 'onto', 'upon', 'about', 'over', 'under', 'between', 'among',
+            'through', 'during', 'before', 'after', 'against', 'per', 'via',
+            # English conjunctions
+            'and', 'or', 'but', 'nor', 'yet', 'so', 'because', 'that', 'if', 'when',
+            'while', 'as', 'than', 'whether', 'although', 'though', 'since', 'unless',
+            # English articles/determiners
+            'the', 'a', 'an', 'this', 'that', 'these', 'those', 'its', 'their',
+            'his', 'her', 'my', 'our', 'your'
+        }
+        
+        if last_token in CUT_STOPWORDS:
+            return True
+    
+    # D2: Dangling punctuation
+    if re.search(r"[:,;\-–—/(\[{]\s*$", text):
+        return True
+    
+    # D3: Unbalanced opener brackets
+    if (text.count("(") > text.count(")") or 
+        text.count("[") > text.count("]") or 
+        text.count("{") > text.count("}")):
+        return True
+    
+    # D4: Orphan markdown heading
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) == 1:
+        line = lines[0]
+        # Check if it looks like a heading/bold title AND matches the regex pattern
+        looks_heading = (
+            line.lstrip().startswith("#") or
+            (line.strip().startswith('**') and line.strip().endswith('**')) or
+            line.rstrip().endswith(":")
+        )
+        if looks_heading and ORPHAN_HEADING.match(line):
+            return True
+    
+    return False
+
+
 def _is_noise(content: str) -> bool:
     """Filter out non-useful observations using structural heuristics."""
     text = content.lstrip()
@@ -75,6 +159,11 @@ def _is_noise(content: str) -> bool:
     if len(lines) > 3:
         bullet_ratio = sum(1 for l in lines if l.lstrip().startswith("- ")) / len(lines)
         if bullet_ratio > 0.6:
+            return True
+
+    # Degenerate fragment filter (opt-in via MCP_BELIEF_DEGENERATE_FILTER flag)
+    if os.environ.get("MCP_BELIEF_DEGENERATE_FILTER"):
+        if _is_degenerate_fragment(content):
             return True
 
     return False
@@ -682,6 +771,82 @@ class BeliefService:
             logger.error("[belief] get_beliefs failed: %s", _sanitize_log_value(str(e)))
             return []
 
+    def sweep_degenerate_beliefs(self) -> dict:
+        """One-shot sweep to mark degenerate beliefs as superseded.
+        
+        Opt-in behind MCP_BELIEF_DEGENERATE_SWEEP flag. Applies the same
+        degenerate fragment rule used at intake to existing beliefs, 
+        marking them as superseded while preserving provenance.
+        
+        Returns stats: {"evaluated": N, "superseded": M, "capped": bool, "errors": [...]}
+        """
+        stats = {"evaluated": 0, "superseded": 0, "capped": False, "errors": []}
+        
+        # Check if sweep is enabled
+        if not os.environ.get("MCP_BELIEF_DEGENERATE_SWEEP"):
+            return stats
+        
+        # Get sweep cap
+        try:
+            cap_str = os.environ.get("MCP_BELIEF_DEGENERATE_SWEEP_CAP", "1000")
+            cap = int(cap_str) if cap_str else 1000
+        except (ValueError, TypeError):
+            cap = 1000
+        
+        try:
+            conn = self.storage.conn
+            now = datetime.now(timezone.utc).isoformat()
+            
+            # Get active and candidate beliefs to evaluate
+            cursor = conn.execute(
+                "SELECT belief_hash, content, status FROM beliefs WHERE status IN ('active', 'candidate')"
+            )
+            beliefs = cursor.fetchall()
+            
+            superseded_count = 0
+            
+            for belief_hash, content, status in beliefs:
+                stats["evaluated"] += 1
+                
+                # Apply degenerate fragment rule per-belief with individual try/except
+                try:
+                    # Guard content to prevent None issues
+                    safe_content = content or ""
+                    
+                    # Apply the same rule used at intake
+                    if _is_degenerate_fragment(safe_content):
+                        # Mark as superseded (preserve provenance, don't delete)
+                        conn.execute(
+                            "UPDATE beliefs SET status = ?, updated_at = ? WHERE belief_hash = ?",
+                            ("superseded", now, belief_hash)
+                        )
+                        superseded_count += 1
+                        
+                        # Check cap
+                        if superseded_count >= cap:
+                            stats["capped"] = True
+                            break
+                            
+                except Exception as e:
+                    # Log individual belief errors but continue processing others
+                    stats["errors"].append(f"belief {belief_hash}: {str(e)}")
+                    continue
+            
+            # Commit all successful updates outside the loop
+            conn.commit()
+            stats["superseded"] = superseded_count
+            
+            logger.info(
+                "[belief] degenerate sweep: evaluated=%d superseded=%d capped=%s", 
+                stats["evaluated"], stats["superseded"], stats["capped"]
+            )
+            
+        except Exception as e:
+            stats["errors"].append(str(e))
+            logger.error("[belief] sweep failed: %s", _sanitize_log_value(str(e)))
+        
+        return stats
+
     # --- Internal helpers ---
 
     async def _group_observations(self, observations) -> dict:
@@ -1004,3 +1169,4 @@ class BeliefService:
                 _sanitize_log_value(str(e))
             )
             return confidence
+
