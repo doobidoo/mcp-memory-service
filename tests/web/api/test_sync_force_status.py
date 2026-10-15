@@ -1,8 +1,60 @@
 """Status reporting tests for the force-sync endpoint."""
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from mcp_memory_service.web.api.sync import force_sync
+
+
+def _cyclomatic_complexity(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """Count McCabe decision points for the repository's complexity budget."""
+    nodes = list(ast.walk(function))
+    complexity = 1 + sum(
+        isinstance(
+            node,
+            (ast.If, ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler, ast.IfExp),
+        )
+        for node in nodes
+    )
+    complexity += sum(
+        len(node.values) - 1 for node in nodes if isinstance(node, ast.BoolOp)
+    )
+    complexity += sum(
+        1 + len(node.ifs)
+        for node in nodes
+        if isinstance(node, ast.comprehension)
+    )
+    return complexity
+
+
+def test_force_sync_response_helpers_stay_within_complexity_budget():
+    source_path = (
+        Path(__file__).resolve().parents[3]
+        / "src/mcp_memory_service/web/api/sync.py"
+    )
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    functions = {
+        node.name: node
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    changed_functions = (
+        "force_sync",
+        "_force_sync_metrics",
+        "_force_sync_transfer_message",
+        "_force_sync_base_message",
+        "_force_sync_message_details",
+        "_force_sync_operation_details",
+        "_force_sync_tombstone_details",
+        "_force_sync_message",
+        "_build_force_sync_response",
+    )
+
+    for name in changed_functions:
+        complexity = _cyclomatic_complexity(functions[name])
+        assert complexity <= 8, f"{name} complexity is {complexity}; budget is 8"
 
 
 class ForceSyncStorage:

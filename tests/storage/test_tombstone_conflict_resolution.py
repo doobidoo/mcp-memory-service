@@ -513,6 +513,8 @@ async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_chan
                     {"success": True, "meta": {"changes": 0}, "results": []},
                     {"success": True, "meta": {"changes": 0}, "results": []},
                     {"success": True, "results": []},
+                    {"success": True, "meta": {"changes": 0}, "results": []},
+                    {"success": True, "results": []},
                 ],
             }
         )
@@ -538,9 +540,174 @@ async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_chan
     assert stored is False
     assert len(calls) == 1
     batch = calls[0]["batch"]
-    assert "deleted_at = ?" in batch[0]["sql"]
-    assert batch[0]["params"][-2:] == ["hash-123", 99.0]
-    assert len(batch) == 3
+    assert "deleted_at = ?" in batch[3]["sql"]
+    assert batch[3]["params"][-4:-2] == ["hash-123", 99.0]
+    assert len(batch) == 5
+    assert "json_each" in batch[1]["sql"]
+    assert "json_each" in batch[2]["sql"]
+    assert "json_each" in batch[3]["sql"]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_rejected_tombstone_restore_cleans_staged_remote_artifacts(
+    monkeypatch,
+):
+    storage = CloudflareStorage.__new__(CloudflareStorage)
+    storage.r2_bucket = "test-bucket"
+    storage.large_content_threshold = 1
+    storage.vectorize_url = "https://example.invalid/vectorize"
+    stored = {}
+    deleted = {"vectors": [], "r2": []}
+
+    async def generate_embedding(content):
+        return [0.1, 0.2]
+
+    async def store_r2(key, content):
+        stored["r2"] = (key, content)
+
+    async def store_vector(vector_id, embedding, metadata):
+        stored["vector"] = (vector_id, embedding, metadata)
+
+    async def reject_d1_restore(memory, vector_id, content_size, r2_key, content, **kwargs):
+        stored["d1"] = (vector_id, r2_key)
+        return False
+
+    async def delete_vector(vector_id):
+        deleted["vectors"].append(vector_id)
+
+    async def delete_r2(key):
+        deleted["r2"].append(key)
+
+    monkeypatch.setattr(storage, "_generate_embedding", generate_embedding)
+    monkeypatch.setattr(storage, "_store_r2_content", store_r2)
+    monkeypatch.setattr(storage, "_store_vectorize_vector", store_vector)
+    monkeypatch.setattr(storage, "_store_d1_memory", reject_d1_restore)
+    monkeypatch.setattr(storage, "_delete_vectorize_vector", delete_vector)
+    monkeypatch.setattr(storage, "_delete_r2_content", delete_r2)
+
+    memory = Memory(
+        content="large staged tombstone restore",
+        content_hash="stable-content-hash",
+        created_at=100.0,
+        updated_at=101.0,
+        tags=["__test__"],
+    )
+    success, message = await storage._store_memory(
+        memory, expected_deleted_at=99.0
+    )
+
+    assert success is None
+    assert message == "tombstone_changed"
+    staged_vector_id, staged_r2_key = stored["d1"]
+    assert staged_vector_id != memory.content_hash
+    assert len(staged_vector_id.encode("utf-8")) <= 64
+    assert staged_r2_key != f"content/{memory.content_hash}.txt"
+    assert stored["vector"][0] == staged_vector_id
+    assert stored["r2"][0] == staged_r2_key
+    assert deleted == {"vectors": [staged_vector_id], "r2": [staged_r2_key]}
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_restore_keeps_tombstone_when_tag_link_step_fails(
+    monkeypatch,
+):
+    storage = CloudflareStorage.__new__(CloudflareStorage)
+    storage.d1_url = "https://example.invalid/d1/database/test"
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(
+        """
+        CREATE TABLE memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content_hash TEXT UNIQUE NOT NULL,
+            content TEXT NOT NULL,
+            memory_type TEXT,
+            created_at REAL NOT NULL,
+            created_at_iso TEXT NOT NULL,
+            updated_at REAL,
+            updated_at_iso TEXT,
+            metadata_json TEXT,
+            vector_id TEXT UNIQUE,
+            content_size INTEGER DEFAULT 0,
+            r2_key TEXT,
+            tags TEXT,
+            deleted_at REAL DEFAULT NULL
+        );
+        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);
+        CREATE TABLE memory_tags (
+            memory_id INTEGER,
+            tag_id INTEGER,
+            PRIMARY KEY (memory_id, tag_id)
+        );
+        """
+    )
+    memory = Memory(
+        content="restore only after tags are linked",
+        content_hash="hash-tag-failure",
+        created_at=100.0,
+        updated_at=101.0,
+        tags=["required-tag"],
+    )
+    db.execute(
+        """
+        INSERT INTO memories (
+            content_hash, content, created_at, created_at_iso,
+            updated_at, updated_at_iso, vector_id, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            memory.content_hash,
+            memory.content,
+            memory.created_at,
+            memory.created_at_iso,
+            memory.updated_at,
+            memory.updated_at_iso,
+            memory.content_hash,
+            99.0,
+        ),
+    )
+    db.commit()
+
+    async def partially_failed_batch(method, url, **kwargs):
+        results = []
+        for index, statement in enumerate(kwargs["json"]["batch"]):
+            if index == 2:
+                results.append(
+                    {"success": False, "meta": {"changes": 0}, "results": []}
+                )
+                continue
+            cursor = db.execute(statement["sql"], statement.get("params", []))
+            rows = [dict(row) for row in cursor.fetchall()] if cursor.description else []
+            results.append(
+                {
+                    "success": True,
+                    "results": rows,
+                    "meta": {"changes": cursor.rowcount},
+                }
+            )
+        db.commit()
+        return SimpleNamespace(json=lambda: {"success": True, "result": results})
+
+    monkeypatch.setattr(storage, "_retry_request", partially_failed_batch)
+    try:
+        with pytest.raises(RuntimeError, match="did not complete"):
+            await storage._store_d1_memory(
+                memory,
+                vector_id="staged-vector",
+                content_size=len(memory.content),
+                r2_key=None,
+                stored_content=memory.content,
+                expected_deleted_at=99.0,
+            )
+
+        row = db.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?",
+            (memory.content_hash,),
+        ).fetchone()
+        assert row["deleted_at"] == 99.0
+        assert db.execute("SELECT COUNT(*) FROM memory_tags").fetchone()[0] == 0
+    finally:
+        db.close()
 
 
 @pytest.mark.asyncio
@@ -655,13 +822,11 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
 
         assert stored is True
         assert batch_attempts == 2
-        assert request_calls == 3  # one restore batch and two idempotent tag writes
+        assert request_calls == 1  # restore and tag links share one D1 batch
         row = db.execute(
             "SELECT content_hash, content, deleted_at FROM memories"
         ).fetchone()
         assert tuple(row) == (memory.content_hash, memory.content, None)
-        await storage._store_d1_tags(1, memory.tags)
-        await storage._store_d1_tags(1, memory.tags)
         linked_tags = db.execute(
             "SELECT COUNT(*) FROM memory_tags WHERE memory_id = 1"
         ).fetchone()[0]
