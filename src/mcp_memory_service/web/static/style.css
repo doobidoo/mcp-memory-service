@@ -21,6 +21,7 @@
     --primary: #19c2da;
     --primary-dark: #12a3ba;
     --primary-text: #0a86b8;
+    --primary-text-hover: #086a93;
     --on-primary: #06121f;
     --secondary: #0a86b8;
     --accent: #19c2da;
@@ -769,7 +770,7 @@ h3 { font-size: var(--text-xl); }
 
 .btn-icon-sm.btn-icon-primary:hover {
     background: rgba(59, 130, 246, 0.15);
-    color: var(--primary-text);
+    color: var(--primary-text-hover);
 }
 
 .btn-icon-sm:disabled {
@@ -2354,6 +2355,7 @@ body.dark-mode {
 
     /* Cyan is readable as text on the dark surfaces */
     --primary-text: #19c2da;
+    --primary-text-hover: #5fdcec;
 
     /* Apply inverted variables to body */
     background-color: var(--neutral-50);
@@ -2711,7 +2713,7 @@ body.dark-mode .footer-copyright {
 }
 
 .link-button:hover {
-    color: var(--primary-text);
+    color: var(--primary-text-hover);
 }
 
 /* Upload Configuration */
@@ -3759,8 +3761,8 @@ body.dark-mode .metric-card {
     color: var(--on-primary) !important;
 }
 
-body.dark-mode .metric-value,
-body.dark-mode .metric-label {
+body.dark-mode .metric-card .metric-value,
+body.dark-mode .metric-card .metric-label {
     color: var(--on-primary) !important;
 }
 
@@ -4477,7 +4479,7 @@ body.dark-mode .result-content {
 
 .chunk-part.unique {
     background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-    color: var(--primary-text);
+    color: var(--primary-text-hover);
     flex: 1;
     border: 2px solid var(--primary);
 }
