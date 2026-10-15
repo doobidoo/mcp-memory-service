@@ -311,6 +311,10 @@ class TestIntegrationScenarios:
                 metadata={"index": i}
             )
             memories.append(memory)
+            stored, message = await hybrid_with_limits.primary.store(
+                memory, skip_semantic_dedup=True
+            )
+            assert stored, message
 
         # Process memories
         successful = 0
@@ -334,6 +338,7 @@ class TestIntegrationScenarios:
         # Should stop at or before the limit
         assert successful <= 100
         assert failed >= 5  # At least 5 should fail due to limit
+        assert hybrid_with_limits.sync_service.secondary.vector_count == 100
 
     @pytest.mark.asyncio
     async def test_periodic_capacity_check(self, hybrid_with_limits):
