@@ -5715,7 +5715,7 @@ body.dark-mode .auth-footer {
 
 body.dark-mode .auth-footer code {
     background: var(--neutral-700);
-    color: var(--primary-text);
+    color: var(--on-primary);
 }
 
 /* Server Management */
