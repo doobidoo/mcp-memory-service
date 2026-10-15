@@ -488,6 +488,23 @@ class MemoryDashboard {
             }
         });
 
+        // The memory detail content is rendered dynamically, so delegate metadata toggles.
+        document.getElementById('modalContent')?.addEventListener('click', (e) => {
+            const toggle = e.target.closest('.metadata-toggle');
+            if (toggle) {
+                toggle.parentElement.classList.toggle('expanded');
+            }
+        });
+
+        // The recent-memory empty state is rendered dynamically after startup.
+        document.getElementById('recentMemoriesList')?.addEventListener('click', (e) => {
+            const addMemoryLink = e.target.closest('[data-action="add-memory"]');
+            if (addMemoryLink) {
+                e.preventDefault();
+                this.handleAddMemory();
+            }
+        });
+
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
@@ -633,6 +650,18 @@ class MemoryDashboard {
 
         document.getElementById('cancelSettingsBtn')?.addEventListener('click', () => {
             this.closeModal(document.getElementById('settingsModal'));
+        });
+
+        document.getElementById('backupNowButton')?.addEventListener('click', () => {
+            this.createBackup();
+        });
+
+        document.getElementById('viewBackupsButton')?.addEventListener('click', () => {
+            this.openViewBackupsModal();
+        });
+
+        document.getElementById('viewBackupsCloseButton')?.addEventListener('click', () => {
+            this.closeModal(document.getElementById('viewBackupsModal'));
         });
 
         // Initialize settings tabs
@@ -2700,7 +2729,7 @@ class MemoryDashboard {
 
                 ${memory.metadata ? `
                     <div class="memory-metadata">
-                        <h4 class="metadata-toggle" onclick="this.parentElement.classList.toggle('expanded')" style="cursor: pointer; user-select: none;">
+                        <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
                             <span class="toggle-icon">▶</span> Metadata
                         </h4>
                         <div class="metadata-content">
@@ -2937,7 +2966,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" onclick="app.handleAddMemory()">Add your first memory</a></p>';
+    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
     return;
     }
 
