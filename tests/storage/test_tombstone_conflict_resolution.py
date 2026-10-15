@@ -1,6 +1,7 @@
 """Regression tests for issue #1538 tombstone conflict resolution."""
 
 import asyncio
+import sqlite3
 import time
 from types import SimpleNamespace
 
@@ -309,6 +310,63 @@ async def test_keep_local_and_accept_delete_are_serialized_for_same_conflict(
 
 
 @pytest.mark.asyncio
+async def test_keep_local_and_accept_delete_are_serialized_across_hybrid_instances(
+    temp_db_path, unique_content, monkeypatch
+):
+    keep_hybrid = await _make_hybrid(temp_db_path)
+    delete_hybrid = await _make_hybrid(temp_db_path)
+    await delete_hybrid.primary.initialize()
+    delete_hybrid.secondary = keep_hybrid.secondary
+    try:
+        local = await _store_local_memory(
+            keep_hybrid.primary, unique_content, time.time() - 10
+        )
+        deleted_at = local.updated_at - 1
+        keep_hybrid.secondary.tombstones[local.content_hash] = deleted_at
+        store_started = asyncio.Event()
+        finish_store = asyncio.Event()
+        original_store = keep_hybrid.secondary.store_if_tombstone_matches
+
+        async def pause_remote_store(memory, expected_deleted_at):
+            store_started.set()
+            await finish_store.wait()
+            return await original_store(memory, expected_deleted_at)
+
+        monkeypatch.setattr(
+            keep_hybrid.secondary,
+            "store_if_tombstone_matches",
+            pause_remote_store,
+        )
+        keep_task = asyncio.create_task(
+            keep_hybrid.resolve_tombstone_conflict(local.content_hash, "keep_local")
+        )
+        delete_task = None
+        try:
+            await store_started.wait()
+            delete_task = asyncio.create_task(
+                delete_hybrid.resolve_tombstone_conflict(
+                    local.content_hash, "accept_delete"
+                )
+            )
+            await asyncio.sleep(0)
+
+            assert not delete_task.done()
+        finally:
+            finish_store.set()
+
+        keep_result, delete_result = await asyncio.gather(keep_task, delete_task)
+
+        assert keep_result["status"] == "resolved"
+        assert delete_result["status"] == "no_conflict"
+        assert await keep_hybrid.primary.get_by_hash(local.content_hash) is not None
+        assert keep_hybrid.secondary.tombstones == {}
+        assert len(keep_hybrid.secondary.stored) == 1
+    finally:
+        await keep_hybrid.primary.close()
+        await delete_hybrid.primary.close()
+
+
+@pytest.mark.asyncio
 async def test_keep_local_does_not_overwrite_a_changed_remote_tombstone(
     temp_db_path, unique_content, monkeypatch
 ):
@@ -451,7 +509,11 @@ async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_chan
         return SimpleNamespace(
             json=lambda: {
                 "success": True,
-                "result": [{"meta": {"changes": 0}, "results": []}],
+                "result": [
+                    {"success": True, "meta": {"changes": 0}, "results": []},
+                    {"success": True, "meta": {"changes": 0}, "results": []},
+                    {"success": True, "results": []},
+                ],
             }
         )
 
@@ -475,8 +537,137 @@ async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_chan
 
     assert stored is False
     assert len(calls) == 1
-    assert "deleted_at = ?" in calls[0]["sql"]
-    assert calls[0]["params"] == ["hash-123", 99.0]
+    batch = calls[0]["batch"]
+    assert "deleted_at = ?" in batch[0]["sql"]
+    assert batch[0]["params"][-2:] == ["hash-123", 99.0]
+    assert len(batch) == 3
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
+    monkeypatch,
+):
+    storage = CloudflareStorage.__new__(CloudflareStorage)
+    storage.d1_url = "https://example.invalid/d1/database/test"
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(
+        """
+        CREATE TABLE memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content_hash TEXT UNIQUE NOT NULL,
+            content TEXT NOT NULL,
+            memory_type TEXT,
+            created_at REAL NOT NULL,
+            created_at_iso TEXT NOT NULL,
+            updated_at REAL,
+            updated_at_iso TEXT,
+            metadata_json TEXT,
+            vector_id TEXT UNIQUE,
+            content_size INTEGER DEFAULT 0,
+            r2_key TEXT,
+            tags TEXT,
+            deleted_at REAL DEFAULT NULL
+        );
+        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);
+        CREATE TABLE memory_tags (
+            memory_id INTEGER,
+            tag_id INTEGER,
+            PRIMARY KEY (memory_id, tag_id)
+        );
+        """
+    )
+    memory = Memory(
+        content="restore after a lost D1 response",
+        content_hash="hash-restore-retry",
+        created_at=100.0,
+        created_at_iso="1970-01-01T00:01:40+00:00",
+        updated_at=101.0,
+        updated_at_iso="1970-01-01T00:01:41+00:00",
+        tags=["retry-safe"],
+    )
+    db.execute(
+        """
+        INSERT INTO memories (
+            content_hash, content, created_at, created_at_iso,
+            updated_at, updated_at_iso, vector_id, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            memory.content_hash,
+            memory.content,
+            memory.created_at,
+            memory.created_at_iso,
+            memory.updated_at,
+            memory.updated_at_iso,
+            memory.content_hash,
+            99.0,
+        ),
+    )
+    db.commit()
+    request_calls = 0
+    batch_attempts = 0
+
+    async def apply_request(kwargs):
+        body = kwargs["json"]
+        statements = body.get("batch") or [body]
+        results = []
+        db.execute("BEGIN")
+        try:
+            for statement in statements:
+                cursor = db.execute(statement["sql"], statement.get("params", []))
+                rows = [dict(row) for row in cursor.fetchall()] if cursor.description else []
+                results.append(
+                    {
+                        "success": True,
+                        "results": rows,
+                        "meta": {"changes": cursor.rowcount},
+                    }
+                )
+            db.commit()
+        except sqlite3.Error:
+            db.rollback()
+            raise
+        return results
+
+    async def retry_request(method, url, **kwargs):
+        nonlocal batch_attempts, request_calls
+        request_calls += 1
+        results = await apply_request(kwargs)
+        if "batch" in kwargs["json"] and batch_attempts == 0:
+            # Simulate the D1 commit succeeding but the response being lost.
+            batch_attempts += 1
+            results = await apply_request(kwargs)
+        if "batch" in kwargs["json"]:
+            batch_attempts += 1
+        return SimpleNamespace(json=lambda: {"success": True, "result": results})
+
+    monkeypatch.setattr(storage, "_retry_request", retry_request)
+    try:
+        stored = await storage._store_d1_memory(
+            memory,
+            vector_id=memory.content_hash,
+            content_size=len(memory.content),
+            r2_key=None,
+            stored_content=memory.content,
+            expected_deleted_at=99.0,
+        )
+
+        assert stored is True
+        assert batch_attempts == 2
+        assert request_calls == 3  # one restore batch and two idempotent tag writes
+        row = db.execute(
+            "SELECT content_hash, content, deleted_at FROM memories"
+        ).fetchone()
+        assert tuple(row) == (memory.content_hash, memory.content, None)
+        await storage._store_d1_tags(1, memory.tags)
+        await storage._store_d1_tags(1, memory.tags)
+        linked_tags = db.execute(
+            "SELECT COUNT(*) FROM memory_tags WHERE memory_id = 1"
+        ).fetchone()[0]
+        assert linked_tags == 1
+    finally:
+        db.close()
 
 
 @pytest.mark.asyncio

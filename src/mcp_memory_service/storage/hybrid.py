@@ -25,7 +25,10 @@ This implementation provides the best of both worlds:
 import asyncio
 import logging
 import math
+import os
+import threading
 import time
+import weakref
 from typing import List, Dict, Any, Sequence, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
@@ -88,6 +91,38 @@ _min_check = getattr(app_config, 'HYBRID_MIN_CHECK_COUNT', 1000)
 HYBRID_MIN_CHECK_COUNT = _min_check if _min_check is not None else 1000
 
 logger = logging.getLogger(__name__)
+
+_tombstone_resolution_locks = weakref.WeakKeyDictionary()
+_tombstone_resolution_locks_guard = threading.Lock()
+
+
+def _get_tombstone_resolution_lock(sqlite_db_path: str) -> asyncio.Lock:
+    """Get the process-wide conflict-resolution lock for a SQLite database."""
+    loop = asyncio.get_running_loop()
+    database_key = os.path.realpath(sqlite_db_path)
+    with _tombstone_resolution_locks_guard:
+        loop_locks = _tombstone_resolution_locks.setdefault(loop, {})
+        lock_ref = loop_locks.get(database_key)
+        lock = lock_ref() if lock_ref is not None else None
+        if lock is not None:
+            return lock
+
+        lock = asyncio.Lock()
+        loop_ref = weakref.ref(loop)
+
+        def discard_lock(reference):
+            active_loop = loop_ref()
+            if active_loop is None:
+                return
+            with _tombstone_resolution_locks_guard:
+                active_locks = _tombstone_resolution_locks.get(active_loop)
+                if active_locks and active_locks.get(database_key) is reference:
+                    del active_locks[database_key]
+                    if not active_locks:
+                        _tombstone_resolution_locks.pop(active_loop, None)
+
+        loop_locks[database_key] = weakref.ref(lock, discard_lock)
+        return lock
 
 @dataclass
 class SyncOperation:
@@ -1348,10 +1383,6 @@ class HybridMemoryStorage(MemoryStorage):
             db_path=sqlite_db_path,
             embedding_model=embedding_model
         )
-        # The web API uses one shared storage instance. Serialize explicit
-        # tombstone resolutions so keep_local cannot race accept_delete.
-        self._tombstone_resolution_lock = asyncio.Lock()
-
         # Initialize secondary storage based on backend type
         self.secondary = None
         self.sync_service = None
@@ -2586,7 +2617,7 @@ class HybridMemoryStorage(MemoryStorage):
                 "message": "Tombstone conflict resolution requires a Cloudflare secondary.",
             }
 
-        async with self._tombstone_resolution_lock:
+        async with _get_tombstone_resolution_lock(self.primary.db_path):
             return await self._resolve_tombstone_conflict_locked(
                 content_hash, action
             )
