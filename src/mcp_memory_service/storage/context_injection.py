@@ -39,7 +39,7 @@ import logging
 import math
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,9 @@ _CANDIDATE_MIN_CONFIDENCE = 0.0
 # How many related memories to pull for the semantic relevance boost.
 _RETRIEVE_N = 50
 
+# How many raw memories to inject by default.
+_INJECT_RAW_MEMORIES_N_DEFAULT = 5
+
 _WORD_RE = re.compile(r"\w+", re.UNICODE)
 
 # Very common tokens that carry little thematic signal; dropped from overlap.
@@ -75,9 +78,9 @@ _STOPWORDS = {
     "should", "i", "configure", "my", "is", "are", "with", "at", "by", "it",
     "this", "that", "be", "as", "do", "does",
     # PT-BR function words
-    "de", "da", "do", "das", "dos", "e", "ou", "em", "no", "na", "nos", "nas",
+    "de", "da", "das", "dos", "e", "ou", "em", "no", "na", "nos", "nas",
     "um", "uma", "uns", "umas", "para", "pra", "por", "com", "sem", "ao", "aos",
-    "que", "se", "o", "os", "as", "n", "é", "ser", "antes", "depois", "qualquer",
+    "que", "se", "o", "os", "n", "é", "ser", "antes", "depois", "qualquer",
     "coisa", "todo", "toda", "todos", "todas",
     # PT-BR platitude tokens (generic, low thematic signal)
     "sempre", "nunca", "primeiro", "importante", "melhor", "deve", "devemos",
@@ -95,7 +98,18 @@ def get_context_injection_flag() -> bool:
     return raw.strip().lower() not in _DISABLED_VALUES
 
 
-def _effective_budget(budget_tokens: Optional[int]) -> int:
+def get_inject_raw_memories_flag() -> bool:
+    """Return whether raw memories injection is enabled.
+
+    Default OFF. Only 'true', '1', or 'yes' (case-insensitive, trimmed) enable it.
+    """
+    raw = os.environ.get("MCP_INJECT_RAW_MEMORIES")
+    if raw is None:
+        return False
+    return raw.strip().lower() not in _DISABLED_VALUES
+
+
+def _effective_budget(budget_tokens: int | None) -> int:
     """Resolve the effective token budget."""
     if budget_tokens is not None:
         return int(budget_tokens)
@@ -108,7 +122,37 @@ def _effective_budget(budget_tokens: Optional[int]) -> int:
     return _DEFAULT_MAX_TOKENS
 
 
-def _tokenize(text: str) -> List[str]:
+def _effective_raw_memories_n() -> int:
+    """Resolve the effective raw memories N value."""
+    raw = os.environ.get("MCP_INJECT_RAW_MEMORIES_N")
+    if raw:
+        try:
+            n = int(raw)
+            return n if n > 0 else _INJECT_RAW_MEMORIES_N_DEFAULT
+        except (TypeError, ValueError):
+            logger.warning("Invalid MCP_INJECT_RAW_MEMORIES_N=%r; using default", raw)
+    return _INJECT_RAW_MEMORIES_N_DEFAULT
+
+
+def _get_inject_raw_memories_budget_frac() -> float:
+    """Get the budget fraction reserved for raw memories when injection is enabled.
+    
+    Default 0.5 (50% of budget reserved for memories, 50% for beliefs).
+    Set MCP_INJECT_RAW_MEMORIES_BUDGET_FRAC=0.0 to use old behavior (memories get scraps).
+    Clamped to [0.0, 1.0].
+    """
+    raw = os.environ.get("MCP_INJECT_RAW_MEMORIES_BUDGET_FRAC")
+    if raw is None:
+        return 0.5  # Default: 50% reserved for memories
+    try:
+        frac = float(raw)
+        return max(0.0, min(1.0, frac))  # Clamp to [0, 1]
+    except (TypeError, ValueError):
+        logger.warning("Invalid MCP_INJECT_RAW_MEMORIES_BUDGET_FRAC=%r; using default 0.5", raw)
+        return 0.5
+
+
+def _tokenize(text: str) -> list[str]:
     """Lowercase word tokens with stopwords removed."""
     if not text:
         return []
@@ -221,7 +265,7 @@ def _get_excluded_insight_types() -> frozenset[str]:
     return frozenset(t.strip().upper() for t in raw.split(",") if t.strip())
 
 
-def _belief_cosine(query_emb, belief_blob) -> Optional[float]:
+def _belief_cosine(query_emb, belief_blob) -> float | None:
     """Cosine similarity (normalized to [0,1]) between the query embedding and a
     belief's stored embedding BLOB. Returns None when either side is unavailable
     (caller falls back to lexical-only). Never raises (R4 is additive enrichment)."""
@@ -280,7 +324,7 @@ def _saturated_confidence(support: int) -> float:
     return min(1.0, math.log1p(support) / math.log1p(_RERANK_A_CONF_CAP))
 
 
-async def _generality_by_query_hash(storage, belief_hashes: List[str]) -> Dict[str, float]:
+async def _generality_by_query_hash(storage, belief_hashes: list[str]) -> dict[str, float]:
     """Compute REAL cross-theme generality per belief (R4), NOT a source-count proxy.
 
     Generality(b) = (distinct query_hash in whose injection b appeared) / (total
@@ -309,7 +353,7 @@ async def _generality_by_query_hash(storage, belief_hashes: List[str]) -> Dict[s
 
     import json as _json
     all_queries: set = set()
-    per_belief: Dict[str, set] = {h: set() for h in belief_hashes}
+    per_belief: dict[str, set] = {h: set() for h in belief_hashes}
     wanted = set(belief_hashes)
     for qh, meta in rows:
         all_queries.add(qh)
@@ -490,7 +534,7 @@ def _apply_rerank_a(scored: list[dict[str, Any]], generality: dict[str, float], 
         s["rerank_a"] = breakdown_dict
 
 
-def _calculate_freshness_boost(updated_at: Optional[str]) -> float:
+def _calculate_freshness_boost(updated_at: str | None) -> float:
     """Calculate a bounded freshness boost from updated_at timestamp.
 
     Returns a score in [0.0, 0.1] based on recency. Newer = higher score.
@@ -545,9 +589,9 @@ def _calculate_freshness_boost(updated_at: Optional[str]) -> float:
 async def memory_context(
     storage,
     task: str,
-    budget_tokens: Optional[int] = None,
-    limit: Optional[int] = None,
-) -> Dict[str, Any]:
+    budget_tokens: int | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
     """Return theme-relevant beliefs for a task, ranked, budgeted, and logged.
 
     Result dict:
@@ -575,7 +619,7 @@ async def memory_context(
 
     # Fetch candidate beliefs (low confidence floor so the ranker, not a blind
     # confidence cutoff, decides what surfaces).
-    beliefs: List[dict] = []
+    beliefs: list[dict] = []
     try:
         from ..consolidation.belief_service import BeliefService
 
@@ -616,7 +660,7 @@ async def memory_context(
         except Exception:
             query_emb = None
 
-    scored: List[Dict[str, Any]] = []
+    scored: list[dict[str, Any]] = []
     for b in beliefs:
         content = b.get("content", "") or ""
         confidence = b.get("confidence", 0.0) or 0.0
@@ -726,23 +770,150 @@ async def memory_context(
         # Original ordering (no freshness consideration)
         scored.sort(key=lambda s: (s["relevance"] * s["confidence"], s["confidence"]), reverse=True)
 
+    # Add 'source' field to beliefs when raw memories injection is enabled
+    raw_memories_enabled = get_inject_raw_memories_flag()
+    if raw_memories_enabled:
+        for item in scored:
+            if 'source' not in item:
+                item['source'] = 'belief'
+
+    # Raw memories injection: fetch memories when flag is ON and killswitch is ON
+    raw_memories: list[dict[str, Any]] = []
+    if raw_memories_enabled:
+        # Collect derived_from hashes from selected beliefs for deduplication
+        derived_from_hashes = {
+            h for s in scored for h in (s.get('derived_from') or []) if h
+        }
+        
+        try:
+            n_memories = _effective_raw_memories_n()
+            results = await storage.retrieve(task, n_results=n_memories)
+            for result in results or []:
+                try:
+                    # Extract content and relevance from retrieve result
+                    if hasattr(result, 'memory') and hasattr(result, 'relevance_score'):
+                        # Standard storage result format
+                        memory = result.memory
+                        content = getattr(memory, 'content', '') if memory else ''
+                        content_hash = getattr(memory, 'content_hash', '') if memory else ''
+                        relevance = result.relevance_score
+                    elif isinstance(result, dict):
+                        # Dict format
+                        content = result.get('content', '')
+                        content_hash = result.get('content_hash', '')
+                        relevance = result.get('relevance_score', 0.0)
+                    else:
+                        # Fallback: try to get attributes directly
+                        content = getattr(result, 'content', '')
+                        content_hash = getattr(result, 'content_hash', '')
+                        relevance = getattr(result, 'relevance_score', 0.0)
+                    
+                    # Skip memory if its content_hash is already in derived_from of selected beliefs
+                    if content_hash and content_hash in derived_from_hashes:
+                        continue
+                    
+                    if content:  # Only add non-empty memories
+                        raw_memories.append({
+                            'content': content,
+                            'relevance': float(relevance) if relevance is not None else 0.0,
+                            'source': 'memory',
+                            'content_hash': content_hash or ''
+                        })
+                except Exception:
+                    # Skip malformed result, don't crash the whole function
+                    continue
+        except Exception as e:  # noqa: BLE001 - non-fatal as specified in task
+            logger.debug("context_injection: retrieve() failed for raw memories (non-fatal): %s", e)
+            raw_memories = []
+
     # Apply explicit item limit first.
     if limit is not None:
         scored = scored[: int(limit)]
 
     # Budget: keep items while concatenated content stays within budget chars.
+    # When raw memories are enabled with reserved fraction, implement two-pass allocation:
+    # 1. Reserve budget quotas for beliefs vs memories
+    # 2. If one side has leftover quota, the other can use it
     budget_chars = budget * _CHARS_PER_TOKEN
-    selected: List[Dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
+    raw_memories_selected: list[dict[str, Any]] = []
     used = 0
     truncated = False
-    for item in scored:
-        piece = len(item["content"])
-        addition = piece if not selected else piece + 1  # +1 for the join space
-        if selected and used + addition > budget_chars:
+    
+    if raw_memories_enabled:
+        # Two-pass budget allocation with reserved quotas
+        budget_frac = _get_inject_raw_memories_budget_frac()
+        belief_budget = int(budget_chars * (1.0 - budget_frac))
+        memory_budget = int(budget_chars * budget_frac)
+        
+        # Pass 1: Fill beliefs up to their reserved quota
+        belief_used = 0
+        for item in scored:
+            piece = len(item["content"])
+            addition = piece if not selected else piece + 1  # +1 for the join space
+            if selected and belief_used + addition > belief_budget:
+                break  # Hit belief quota, stop here for pass 1
+            selected.append(item)
+            belief_used += addition
+        
+        # Pass 1: Fill memories up to their reserved quota
+        memory_used = 0
+        for memory in raw_memories:
+            piece = len(memory["content"])
+            addition = piece if not raw_memories_selected else piece + 1
+            if raw_memories_selected and memory_used + addition > memory_budget:
+                break  # Hit memory quota, stop here for pass 1
+            raw_memories_selected.append(memory)
+            memory_used += addition
+        
+        # Pass 2: Distribute any leftover quota
+        belief_leftover = belief_budget - belief_used
+        memory_leftover = memory_budget - memory_used
+        
+        # Give memory leftovers to beliefs
+        if memory_leftover > 0:
+            belief_remaining = scored[len(selected):]
+            for item in belief_remaining:
+                piece = len(item["content"])
+                addition = piece if not selected else piece + 1
+                if selected and belief_used + addition > belief_budget + memory_leftover:
+                    truncated = True
+                    break
+                selected.append(item)
+                belief_used += addition
+        
+        # Give belief leftovers to memories
+        if belief_leftover > 0:
+            memory_remaining = raw_memories[len(raw_memories_selected):]
+            for memory in memory_remaining:
+                piece = len(memory["content"])
+                addition = piece if not raw_memories_selected else piece + 1
+                if raw_memories_selected and memory_used + addition > memory_budget + belief_leftover:
+                    truncated = True
+                    break
+                raw_memories_selected.append(memory)
+                memory_used += addition
+        
+        # Check for overall truncation
+        if (len(selected) < len(scored)) or (len(raw_memories_selected) < len(raw_memories)):
             truncated = True
-            break
-        selected.append(item)
-        used += addition
+        
+        used = belief_used + memory_used
+        
+    else:
+        # Original single-pass logic when raw memories disabled
+        for item in scored:
+            piece = len(item["content"])
+            addition = piece if not selected else piece + 1  # +1 for the join space
+            if selected and used + addition > budget_chars:
+                truncated = True
+                break
+            selected.append(item)
+            used += addition
+
+    # Add memories to the items list when enabled
+    if raw_memories_enabled:
+        selected.extend(raw_memories_selected)
 
     # If even the first item overflows, keep it (one item minimum) but flag the
     # cut so the caller knows the budget was exceeded by the single top pick.
@@ -752,7 +923,7 @@ async def memory_context(
             truncated = True
         if len(scored) > 1:
             truncated = True
-    elif truncated is False and len(selected) < len(scored):
+    elif truncated is False and len(selected) < (len(scored) + (len(raw_memories) if raw_memories_enabled else 0)):
         truncated = True
 
     belief_hashes = [s["belief_hash"] for s in selected if s.get("belief_hash")]
@@ -767,7 +938,11 @@ async def memory_context(
 
     # Best-effort injection telemetry.
     try:
-        from .usage_telemetry import log_usage_event, resolve_telemetry_agent_id, query_hash
+        from .usage_telemetry import (
+            log_usage_event,
+            query_hash,
+            resolve_telemetry_agent_id,
+        )
 
         await log_usage_event(
             storage,
@@ -782,7 +957,7 @@ async def memory_context(
     except Exception as e:  # noqa: BLE001 - telemetry is best-effort
         logger.warning("context_injection: injection event log failed (non-fatal): %s", e)
 
-    return {
+    result = {
         "items": selected,
         "beliefs": selected,
         "truncated": truncated,
@@ -792,3 +967,9 @@ async def memory_context(
         "count": count,
         "budget_tokens": budget,
     }
+    
+    # Add memories key when raw memories injection is enabled
+    if raw_memories_enabled:
+        result["memories"] = raw_memories_selected
+    
+    return result
