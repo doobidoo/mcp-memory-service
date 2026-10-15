@@ -604,6 +604,20 @@ class CloudflareStorage(MemoryStorage):
                 storage does not implement semantic deduplication, so this flag
                 has no effect.
         """
+        success, message = await self._store_memory(memory)
+        return success is True, message
+
+    async def store_if_tombstone_matches(
+        self, memory: Memory, expected_deleted_at: float
+    ) -> Tuple[Optional[bool], str]:
+        """Store only if the D1 tombstone still matches the observed timestamp."""
+        return await self._store_memory(
+            memory, expected_deleted_at=expected_deleted_at
+        )
+
+    async def _store_memory(
+        self, memory: Memory, expected_deleted_at: Optional[float] = None
+    ) -> Tuple[Optional[bool], str]:
         try:
             # Generate embedding for the content
             embedding = await self._generate_embedding(memory.content)
@@ -633,7 +647,18 @@ class CloudflareStorage(MemoryStorage):
             await self._store_vectorize_vector(vector_id, embedding, vector_metadata)
             
             # Store metadata in D1
-            await self._store_d1_memory(memory, vector_id, content_size, r2_key, stored_content)
+            stored = await self._store_d1_memory(
+                memory,
+                vector_id,
+                content_size,
+                r2_key,
+                stored_content,
+                expected_deleted_at=expected_deleted_at,
+            )
+            if not stored:
+                if expected_deleted_at is not None:
+                    return None, "tombstone_changed"
+                return False, "Cloudflare tombstone changed before the memory was stored."
             
             logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully (vector_id: {vector_id})"
@@ -693,21 +718,51 @@ class CloudflareStorage(MemoryStorage):
             logger.error("URL was: %s/upsert", _sanitize_log_value(self.vectorize_url))
             raise ValueError(f"Failed to store vector: {e}")
     
-    async def _store_d1_memory(self, memory: Memory, vector_id: str, content_size: int, r2_key: Optional[str], stored_content: str) -> None:
+    async def _store_d1_memory(
+        self,
+        memory: Memory,
+        vector_id: str,
+        content_size: int,
+        r2_key: Optional[str],
+        stored_content: str,
+        expected_deleted_at: Optional[float] = None,
+    ) -> bool:
         """Store memory metadata in D1, replacing only a matching tombstone."""
         # Soft deletion retains unique keys. Release them before re-inserting the
         # same content; the foreign key cascade also removes obsolete tag links.
         # Active memories and tombstones for other content must remain untouched.
+        delete_sql = (
+            "DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL"
+        )
+        delete_params: list[Any] = [memory.content_hash]
+        if expected_deleted_at is not None:
+            delete_sql += " AND deleted_at = ?"
+            delete_params.append(expected_deleted_at)
         response = await self._retry_request(
             "POST", f"{self.d1_url}/query",
             json={
-                "sql": "DELETE FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL",
-                "params": [memory.content_hash],
+                "sql": delete_sql,
+                "params": delete_params,
             },
         )
         result = response.json()
         if not result.get("success"):
             raise ValueError(f"Failed to remove memory tombstone in D1: {result}")
+        if expected_deleted_at is not None:
+            result_sets = result.get("result")
+            metadata = (
+                result_sets[0].get("meta")
+                if isinstance(result_sets, list)
+                and result_sets
+                and isinstance(result_sets[0], dict)
+                else None
+            )
+            if not isinstance(metadata, dict) or "changes" not in metadata:
+                raise RuntimeError(
+                    "Cloudflare D1 omitted the conditional tombstone change count"
+                )
+            if metadata["changes"] != 1:
+                return False
 
         # Insert memory record.
         # The `tags` TEXT column is a denormalized cache required by `delete_by_tags`
@@ -754,6 +809,7 @@ class CloudflareStorage(MemoryStorage):
         if memory.tags:
             memory_id = result["result"][0]["meta"]["last_row_id"]
             await self._store_d1_tags(memory_id, memory.tags)
+        return True
     
     async def _store_d1_tags(self, memory_id: int, tags: List[str]) -> None:
         """Store tags for a memory in D1."""
@@ -1165,6 +1221,11 @@ class CloudflareStorage(MemoryStorage):
             },
         )
         result = response.json()
+        return self._parse_tombstone_response(result)
+
+    @staticmethod
+    def _parse_tombstone_response(result: Dict[str, Any]) -> Optional[float]:
+        """Validate a D1 query result and return its finite deletion time."""
         if not result.get("success"):
             raise RuntimeError("Failed to read tombstone state from Cloudflare D1")
 
@@ -1179,7 +1240,10 @@ class CloudflareStorage(MemoryStorage):
 
         if not isinstance(rows[0], dict) or "deleted_at" not in rows[0]:
             raise RuntimeError("Cloudflare D1 returned an invalid tombstone response")
-        deleted_at = rows[0]["deleted_at"]
+        return CloudflareStorage._parse_tombstone_timestamp(rows[0]["deleted_at"])
+
+    @staticmethod
+    def _parse_tombstone_timestamp(deleted_at: Any) -> Optional[float]:
         if deleted_at is None:
             return None
 

@@ -1,5 +1,6 @@
 """Regression tests for issue #1538 tombstone conflict resolution."""
 
+import asyncio
 import time
 from types import SimpleNamespace
 
@@ -28,6 +29,11 @@ class CloudflareStub:
         self.stored.append(memory)
         self.tombstones.pop(memory.content_hash, None)
         return True, "stored"
+
+    async def store_if_tombstone_matches(self, memory, expected_deleted_at):
+        if self.tombstones.get(memory.content_hash) != expected_deleted_at:
+            return None, "tombstone_changed"
+        return await self.store(memory)
 
 
 async def _make_hybrid(temp_db_path):
@@ -256,6 +262,87 @@ async def test_keep_local_rechecks_remote_tombstone_before_upload(
 
 
 @pytest.mark.asyncio
+async def test_keep_local_and_accept_delete_are_serialized_for_same_conflict(
+    temp_db_path, unique_content, monkeypatch
+):
+    hybrid = await _make_hybrid(temp_db_path)
+    try:
+        local = await _store_local_memory(
+            hybrid.primary, unique_content, time.time() - 10
+        )
+        hybrid.secondary.tombstones[local.content_hash] = local.updated_at - 1
+        original_store = hybrid.secondary.store
+        store_started = asyncio.Event()
+        finish_store = asyncio.Event()
+
+        async def pause_remote_store(memory):
+            store_started.set()
+            await finish_store.wait()
+            return await original_store(memory)
+
+        monkeypatch.setattr(hybrid.secondary, "store", pause_remote_store)
+        keep_task = asyncio.create_task(
+            hybrid.resolve_tombstone_conflict(local.content_hash, "keep_local")
+        )
+        delete_task = None
+        try:
+            await store_started.wait()
+            delete_task = asyncio.create_task(
+                hybrid.resolve_tombstone_conflict(local.content_hash, "accept_delete")
+            )
+            await asyncio.sleep(0)
+
+            assert not delete_task.done()
+        finally:
+            finish_store.set()
+
+        keep_result = await keep_task
+        delete_result = await delete_task
+
+        assert keep_result["status"] == "resolved"
+        assert delete_result["status"] == "no_conflict"
+        assert await hybrid.primary.get_by_hash(local.content_hash) is not None
+        assert hybrid.secondary.tombstones == {}
+        assert len(hybrid.secondary.stored) == 1
+    finally:
+        await hybrid.primary.close()
+
+
+@pytest.mark.asyncio
+async def test_keep_local_does_not_overwrite_a_changed_remote_tombstone(
+    temp_db_path, unique_content, monkeypatch
+):
+    hybrid = await _make_hybrid(temp_db_path)
+    try:
+        local = await _store_local_memory(
+            hybrid.primary, unique_content, time.time() - 10
+        )
+        hybrid.secondary.tombstones[local.content_hash] = local.updated_at - 1
+        original_conditional_store = hybrid.secondary.store_if_tombstone_matches
+
+        async def change_tombstone_then_store(memory, expected_deleted_at):
+            hybrid.secondary.tombstones[memory.content_hash] = expected_deleted_at + 1
+            return await original_conditional_store(memory, expected_deleted_at)
+
+        monkeypatch.setattr(
+            hybrid.secondary,
+            "store_if_tombstone_matches",
+            change_tombstone_then_store,
+        )
+
+        result = await hybrid.resolve_tombstone_conflict(
+            local.content_hash, "keep_local"
+        )
+
+        assert result["success"] is False
+        assert result["status"] == "conflict_changed"
+        assert hybrid.secondary.stored == []
+        assert await hybrid.primary.get_by_hash(local.content_hash) is not None
+    finally:
+        await hybrid.primary.close()
+
+
+@pytest.mark.asyncio
 async def test_remote_tombstone_read_error_fails_closed_without_local_mutation(
     temp_db_path, unique_content, monkeypatch
 ):
@@ -349,6 +436,47 @@ async def test_cloudflare_tombstone_lookup_uses_hash_parameter_and_reads_deleted
         "SELECT deleted_at FROM memories WHERE content_hash = ? LIMIT 1"
     )
     assert seen["json"]["params"] == ["hash-with-?&-characters"]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_changes(
+    monkeypatch,
+):
+    storage = CloudflareStorage.__new__(CloudflareStorage)
+    storage.d1_url = "https://example.invalid/d1/database/test"
+    calls = []
+
+    async def changed_tombstone_request(method, url, **kwargs):
+        calls.append(kwargs["json"])
+        return SimpleNamespace(
+            json=lambda: {
+                "success": True,
+                "result": [{"meta": {"changes": 0}, "results": []}],
+            }
+        )
+
+    monkeypatch.setattr(storage, "_retry_request", changed_tombstone_request)
+    memory = Memory(
+        content="conditional tombstone test",
+        content_hash="hash-123",
+        created_at=100.0,
+        updated_at=101.0,
+        tags=[],
+    )
+
+    stored = await storage._store_d1_memory(
+        memory,
+        vector_id="hash-123",
+        content_size=len(memory.content),
+        r2_key=None,
+        stored_content=memory.content,
+        expected_deleted_at=99.0,
+    )
+
+    assert stored is False
+    assert len(calls) == 1
+    assert "deleted_at = ?" in calls[0]["sql"]
+    assert calls[0]["params"] == ["hash-123", 99.0]
 
 
 @pytest.mark.asyncio
