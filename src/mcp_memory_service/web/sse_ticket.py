@@ -118,7 +118,12 @@ class TicketStore:
             del self._pending[k]
 
     def __len__(self) -> int:
+        """Live ticket count. Purges first, so an expired ticket does not count
+        as pending — `len()` reporting dead entries would be a lie about how
+        many credentials are actually out there."""
+        now = time.monotonic()
         with self._lock:
+            self._purge_locked(now)
             return len(self._pending)
 
 

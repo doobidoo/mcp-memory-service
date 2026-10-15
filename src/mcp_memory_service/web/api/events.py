@@ -5,7 +5,10 @@ Server-Sent Events endpoints for real-time updates.
 from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi import status
 from pydantic import BaseModel
+import logging
 from typing import List
+
+from mcp_memory_service.compat import _sanitize_log_value
 
 # OAuth config no longer needed - auth is always enabled
 from ..sse import create_event_stream, sse_manager
@@ -124,8 +127,7 @@ async def get_sse_stats(
             "connections": connections
         }
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Error getting SSE stats: {str(e)}")
+        logging.getLogger(__name__).error(f"Error getting SSE stats: {_sanitize_log_value(str(e))}")
         # Return safe default stats if there's an error
         return {
             "total_connections": 0,
