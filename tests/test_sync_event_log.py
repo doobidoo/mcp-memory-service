@@ -1263,3 +1263,116 @@ class TestDeltaSyncHLC:
         assert int(saved["sync_hlc_physical"]) >= newer_physical, (
             f"seed clobbered the concurrently-committed clock: {saved['sync_hlc_physical']} < {newer_physical}"
         )
+
+    @pytest.mark.asyncio
+    async def test_imported_tombstone_keeps_remote_hlc_against_newer_peer_create(
+        self, storage, monkeypatch
+    ):
+        """An imported historical delete must not outrank a later peer create.
+
+        The primary has an old local row, while a delta-sync peer has already created
+        a newer version. Reconciliation imports a tombstone dated between those two
+        events. Its local import time is later still, but that must not become the
+        tombstone's conflict-resolution clock.
+        """
+        import tempfile
+
+        from mcp_memory_service.storage.sync.apply import apply_remote_event
+
+        monkeypatch.setenv("MCP_SYNC_EVENTLOG", "on")
+        content = "stale primary row with a newer unsynced peer create"
+        content_hash = generate_content_hash(content)
+        base_time = 1_700_000_000.0
+
+        monkeypatch.setenv("MCP_AGENT_ID", "primary")
+        with patch("time.time", return_value=base_time):
+            success, message = await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=content_hash,
+                    tags=["sync"],
+                    memory_type="note",
+                ),
+                skip_semantic_dedup=True,
+            )
+        assert success, f"Primary store failed: {message}"
+        saved_before_import = dict(
+            storage.conn.execute(
+                "SELECT key, value FROM metadata "
+                "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            ).fetchall()
+        )
+
+        with tempfile.TemporaryDirectory() as peer_dir:
+            peer = SqliteVecMemoryStorage(os.path.join(peer_dir, "peer.db"))
+            await peer.initialize()
+            try:
+                monkeypatch.setenv("MCP_AGENT_ID", "peer")
+                with patch("time.time", return_value=base_time + 25):
+                    peer_success, peer_message = await peer.store(
+                        Memory(
+                            content=content,
+                            content_hash=content_hash,
+                            tags=["sync"],
+                            memory_type="note",
+                        ),
+                        skip_semantic_dedup=True,
+                    )
+                assert peer_success, f"Peer store failed: {peer_message}"
+
+                remote_deleted_at = base_time + 20
+                monkeypatch.setenv("MCP_AGENT_ID", "primary")
+                with patch("time.time", return_value=base_time + 30):
+                    outcome = await storage.delete_if_not_updated_after(
+                        content_hash, remote_deleted_at
+                    )
+                assert outcome == "applied"
+
+                row = storage.conn.execute(
+                    "SELECT agent_id, event_id, op, content_hash, hlc_physical, "
+                    "hlc_logical, embedding_model, embedding_dim, payload "
+                    "FROM sync_events WHERE content_hash = ? AND op = 'delete'",
+                    (content_hash,),
+                ).fetchone()
+                assert row is not None, "Import should append a delete event"
+                event = {
+                    "schema_version": 1,
+                    "agent_id": row[0],
+                    "event_id": row[1],
+                    "op": row[2],
+                    "content_hash": row[3],
+                    "hlc_physical": row[4],
+                    "hlc_logical": row[5],
+                    "embedding_model": row[6],
+                    "embedding_dim": row[7],
+                    "payload": json.loads(row[8]),
+                }
+
+                assert (event["hlc_physical"], event["hlc_logical"]) == (
+                    int(remote_deleted_at * 1000),
+                    0,
+                ), "Imported delete must retain the remote deletion time as its HLC"
+                current_clock = dict(
+                    storage.conn.execute(
+                        "SELECT key, value FROM metadata "
+                        "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+                    ).fetchall()
+                )
+                assert current_clock == saved_before_import, (
+                    "Importing a historical tombstone must not advance the local HLC"
+                )
+
+                result = apply_remote_event(peer, event)
+                assert result.applied, (
+                    f"Peer rejected imported tombstone: {result.reason}"
+                )
+                winner = peer.conn.execute(
+                    "SELECT deleted_at FROM memories WHERE content_hash = ?",
+                    (content_hash,),
+                ).fetchone()
+                assert winner is not None and winner[0] is None, (
+                    "The peer's create event is newer than the remote tombstone and "
+                    "must remain materialized"
+                )
+            finally:
+                await peer.close()
