@@ -58,6 +58,11 @@ class SyncForceResponse(BaseModel):
     memories_pulled: int
     time_taken_seconds: float
     timestamp: str
+    failed_operations: int = 0
+    skipped_remote_tombstones: int = 0
+    tombstones_applied: int = 0
+    tombstone_conflicts: int = 0
+    tombstone_failures: int = 0
 
 
 @router.get("/sync/status", response_model=SyncStatusResponse)
@@ -174,12 +179,36 @@ async def force_sync(
         # 'operations_synced' for compatibility with other implementations.
         operations_synced = push_result.get('synced_to_secondary', push_result.get('operations_synced', 0))
         skipped_already_present = push_result.get('skipped_already_present', 0)
+        failed_operations = push_result.get('failed_operations', 0)
+        skipped_remote_tombstones = push_result.get('skipped_remote_tombstones', 0)
+        pull_tombstones_applied = pull_result.get('tombstones_applied', 0) if pull_result else 0
+        push_tombstones_applied = push_result.get('tombstones_applied', 0)
+        tombstones_applied = pull_tombstones_applied + push_tombstones_applied
+        # Pull and push each reconcile the same D1 snapshot in this endpoint. Use
+        # the larger unresolved count instead of reporting the same tombstone twice.
+        tombstone_conflicts = max(
+            pull_result.get('tombstone_conflicts', 0) if pull_result else 0,
+            push_result.get('tombstone_conflicts', 0),
+        )
+        tombstone_failures = max(
+            pull_result.get('tombstone_failures', 0) if pull_result else 0,
+            push_result.get('tombstone_failures', 0),
+        )
 
         # Check success flags from both operations. `status == 'completed'` means push
         # finished (may still have item-level failures, reported via failed_operations).
         pull_success = pull_result.get('success', True) if pull_result else True
-        push_success = push_result.get('status') == 'completed' if 'status' in push_result else push_result.get('success', False)
-        overall_success = pull_success and push_success
+        push_success = (
+            push_result.get('status') == 'completed' and failed_operations == 0
+            if 'status' in push_result
+            else push_result.get('success', False) and failed_operations == 0
+        )
+        overall_success = (
+            pull_success
+            and push_success
+            and tombstone_conflicts == 0
+            and tombstone_failures == 0
+        )
 
         time_taken = time.time() - start_time
 
@@ -190,10 +219,41 @@ async def force_sync(
             combined_message = f"Pulled {memories_pulled} from Cloudflare"
         elif operations_synced > 0:
             combined_message = f"Pushed {operations_synced} to Cloudflare"
+        elif tombstones_applied > 0:
+            combined_message = f"Applied {tombstones_applied} remote deletion(s) locally"
+        elif skipped_remote_tombstones > 0:
+            combined_message = (
+                "No memories uploaded ("
+                f"{skipped_remote_tombstones} remote tombstone(s) protected from resurrection)"
+            )
+        elif tombstone_conflicts or tombstone_failures:
+            combined_message = "Sync incomplete; tombstone reconciliation needs attention"
         elif skipped_already_present > 0:
             combined_message = f"No changes to sync ({skipped_already_present} already synchronized)"
         else:
             combined_message = "No changes to sync (already synchronized)"
+
+        # A sync may still transfer data while reporting a tombstone conflict or
+        # an unreadable D1 snapshot. Preserve the detailed status instead of
+        # returning a reassuring no-op message for an incomplete reconciliation.
+        details = []
+        if pull_result and not pull_success and pull_result.get('message'):
+            details.append(pull_result['message'])
+        if not push_success and push_result.get('error'):
+            details.append(push_result['error'])
+        if failed_operations:
+            details.append(f"{failed_operations} push operation(s) failed")
+        pull_message = pull_result.get('message', '').lower() if pull_result else ''
+        if tombstone_conflicts and 'conflict' not in pull_message:
+            details.append(
+                f"preserved {tombstone_conflicts} newer local edit(s) with tombstone conflicts"
+            )
+        if tombstone_failures and 'tombstone reconciliation incomplete' not in pull_message:
+            details.append(
+                f"tombstone reconciliation incomplete ({tombstone_failures} failure(s))"
+            )
+        if details:
+            combined_message = f"{combined_message}; {'; '.join(details)}"
 
         return SyncForceResponse(
             success=overall_success,
@@ -201,7 +261,12 @@ async def force_sync(
             operations_synced=operations_synced,
             memories_pulled=memories_pulled,
             time_taken_seconds=round(time_taken, 3),
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            failed_operations=failed_operations,
+            skipped_remote_tombstones=skipped_remote_tombstones,
+            tombstones_applied=tombstones_applied,
+            tombstone_conflicts=tombstone_conflicts,
+            tombstone_failures=tombstone_failures,
         )
 
     except Exception as e:
