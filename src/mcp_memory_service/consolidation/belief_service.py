@@ -58,9 +58,15 @@ def _is_noise(content: str) -> bool:
     if any(pat.search(text) for pat in _NOISE_PATTERNS):
         return True
 
-    # Length check: very long observations are usually dumps, not insights
+    # Length check: a long observation is noise only when it is actually a DUMP —
+    # low token diversity (repetitive) or degenerate (a few giant tokens). Length
+    # alone is a bad proxy: measured against the live corpus, a blind `len > 500`
+    # discarded 538 actionable decision/learning memories, 537 of them substantive
+    # (entropy >= 0.49). Use _content_entropy (information density) to keep those.
     if len(text) > 500:
-        return True
+        words = text.split()
+        if _content_entropy(text) < 0.4 or len(words) < 10:
+            return True
 
     # Bullet-list ratio: >60% lines starting with "- " = likely a list dump
     lines = [l for l in text.split("\n") if l.strip()]

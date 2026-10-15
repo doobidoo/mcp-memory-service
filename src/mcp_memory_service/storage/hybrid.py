@@ -953,7 +953,7 @@ class BackgroundSyncService:
                         stats['drift_detected'] += 1
                         logger.debug("Memory %s missing locally, syncing...", _sanitize_log_value(cf_memory.content_hash[:8]))
                         if not dry_run:
-                            success, _ = await self.primary.store(cf_memory)
+                            success, _ = await self.primary.store(cf_memory, skip_semantic_dedup=True)
                             if success:
                                 stats['synced'] += 1
                         else:
@@ -1330,7 +1330,7 @@ class HybridMemoryStorage(MemoryStorage):
                             failed_count += 1
                             logger.warning("Cloud-only memory %s disappeared or was deleted before pull", _sanitize_log_value(content_hash[:8]))
                             continue
-                        success, message = await self.primary.store(cf_memory)
+                        success, message = await self.primary.store(cf_memory, skip_semantic_dedup=True)
                         if success:
                             synced_count += 1
                             local_hashes.add(content_hash)
@@ -1406,7 +1406,7 @@ class HybridMemoryStorage(MemoryStorage):
                             failed_count += 1
                             logger.warning("Secondary memory %s disappeared or was deleted before pull", _sanitize_log_value(content_hash[:8]))
                             continue
-                        success, message = await self.primary.store(memory)
+                        success, message = await self.primary.store(memory, skip_semantic_dedup=True)
                         if success:
                             synced_count += 1
                             local_hashes.add(content_hash)
@@ -1510,7 +1510,7 @@ class HybridMemoryStorage(MemoryStorage):
 
                                     batch_missing += 1
                                     # Memory doesn't exist locally, sync it
-                                    success, message = await self.primary.store(cf_memory)
+                                    success, message = await self.primary.store(cf_memory, skip_semantic_dedup=True)
                                     if success:
                                         batch_synced += 1
                                         synced_count += 1
@@ -2068,6 +2068,10 @@ class HybridMemoryStorage(MemoryStorage):
     async def recall_memory(self, query: str, n_results: int = 5) -> List[Memory]:
         """Recall memories using natural language time expressions."""
         return await self.primary.recall_memory(query, n_results)
+
+    async def get_stores(self) -> List[str]:
+        """Store names come from primary storage, like ``get_all_memories``."""
+        return await self.primary.get_stores()
 
     async def get_all_memories(
         self,

@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Protocol, Tuple
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
 from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock
+from .bootstrap import bootstrap_from_peer
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,23 @@ async def sync_from_peer(
         "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?",
         (peer_id,)
     ).fetchone()
+
+    # First sync with this peer (no cursor row): install the peer's baseline before the
+    # pull loop so a fresh spoke gets the pre-existing corpus, not only events since seq 0
+    # (#1522 finding #3 — delta-sync Phase 5 bootstrap was unreachable). Only when the peer
+    # can serve a baseline; otherwise fall back to the legacy pull-from-0 (back-compat).
+    if cursor_result is None and hasattr(peer, "get_baseline"):
+        logger.info("First sync with peer %s: bootstrapping from baseline", _sanitize_log_value(peer_id))
+        try:
+            await bootstrap_from_peer(local_storage, peer, peer_id)
+        except Exception as e:
+            logger.warning("Bootstrap from peer %s failed, falling back to pull from 0: %s",
+                           _sanitize_log_value(peer_id), _sanitize_log_value(e))
+        # Re-read the cursor: bootstrap parks it at the peer's watermark.
+        cursor_result = _sqlite(local_storage).conn.execute(
+            "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?",
+            (peer_id,)
+        ).fetchone()
 
     cursor = cursor_result[0] if cursor_result else 0
     initial_cursor = cursor

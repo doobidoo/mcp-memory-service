@@ -36,6 +36,7 @@ sys.path.insert(0, str(project_root / "src"))
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.sync.importer import MemoryImporter
 from mcp_memory_service.config import SQLITE_VEC_PATH, EMBEDDING_MODEL_NAME
+from mcp_memory_service.compat import _sanitize_log_value
 
 # Configure logging
 logging.basicConfig(
@@ -160,11 +161,20 @@ async def import_memories(
         logger.info(f"  Total processed: {result['total_processed']}")
         logger.info(f"  Successfully imported: {result['imported']}")
         logger.info(f"  Duplicates skipped: {result['duplicates_skipped']}")
+        logger.info(f"  Rejected by storage: {result['rejected']}")
         logger.info(f"  Errors: {result['errors']}")
         
         logger.info(f"  Source breakdown:")
         for source, stats in result['sources'].items():
-            logger.info(f"    {source}: {stats['imported']}/{stats['total']} imported, {stats['duplicates']} duplicates")
+            logger.info(f"    {_sanitize_log_value(source)}: {stats['imported']}/{stats['total']} imported, {stats['duplicates']} duplicates, {stats['rejected']} rejected")
+        for rejection in result['rejections']:
+            # Hash, store and reason come from the export file and the storage: sanitise before logging.
+            logger.info(
+                "    rejected %s (%s): %s",
+                _sanitize_log_value(rejection['content_hash'][:12]),
+                _sanitize_log_value(rejection['store']),
+                _sanitize_log_value(rejection['reason']),
+            )
         
         if not dry_run and result['imported'] > 0:
             # Show next steps
