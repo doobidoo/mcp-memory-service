@@ -17,6 +17,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.0.1] - 2026-10-15
+
+### Fixed
+
+- **Keep Cloudflare tombstones authoritative during hybrid sync (#1502).** A force sync
+  could treat a deleted remote hash as absent and upload its stale local copy again.
+  Hybrid sync now reconciles deletion timestamps before pulling or pushing, preserves
+  local edits newer than the remote delete as a reported conflict, and skips a push
+  when the D1 tombstone snapshot cannot be read. During a paginated scan, the latest
+  row for a hash now wins if that memory is restored or deleted while the scan runs.
+  Imported tombstones retain their original deletion HLC, so a later import cannot
+  make an old Cloudflare delete override a newer, unsynced peer create.
+- Hybrid backend: memories pulled from the secondary are no longer run through semantic dedup again on the receiving device. A pulled memory that was close to one the device already held was rejected with "Duplicate content detected" and never arrived, on every sync (#1504).
+- **The export/import round trip lost memories: the export read only the `default` store, and the import counted memories that `store()` had rejected (#1520, massimiliano1991).**
+  `MemoryExporter` now walks every store (`get_stores()`, new on the storage interface; sqlite-vec lists them, hybrid delegates to its primary) and writes each memory's `store` into the file. `MemoryImporter` writes each memory back to its store, skips semantic deduplication (the exact-hash check stays), and reports what the storage refused under `rejected`, with the reason, instead of counting it as imported. Export files written before the `store` field existed load into `default`.
+- **ONNX loader logged environment values and download errors unsanitised (#1540, part of #1146, massimiliano1991).**
+  `embeddings/onnx_embeddings.py` interpolated the model name, the Hub repo id, the cache paths and the text of a failed download straight into its log lines, so a newline in any of them forged a log record. They go through `_sanitize_log_value` now; the module is in `GUARDED_MODULES`, and a runtime test covers both download paths.
+- **`regenerate_embeddings.py` wrote vectors without their store partition (#1521).**
+  Since multi-store, `memory_embeddings` is a vec0 table with `store` as a partition key; the maintenance script inserted `(rowid, content_embedding)` with no `store`, so every regenerated vector landed outside the partition that store-scoped KNN queries, invisible to search while the script reported success. It now reads each memory's `store` and writes the vector into that partition. Also fixes a broken `serialize_float32` import that prevented the script from running at all.
+- **Soft-deleted memories are no longer regenerated.** `_load_memories` now filters
+  `WHERE deleted_at IS NULL` (count and select), so a tombstoned memory is not reloaded
+  and does not get a fresh vector that would resurrect it in the index — matching the other
+  maintenance scripts (`migrate_embeddings.py`, `repair_missing_embeddings_onnx.py`).
+- **Delta-sync first sync never installed the peer's baseline, and re-embedding left memories invisible (#1522 findings #3 and #4).**
+  `sync_from_peer` now calls `bootstrap_from_peer` on the first sync with a peer (no `sync_cursor` row) when the peer can serve a baseline, then resumes the pull loop at the parked watermark; it falls back to the previous pull-from-0 if the peer has no `get_baseline` or the bootstrap fails. The embedding repair (`reembed_missing_embeddings`, extracted from `repair_missing_embeddings_onnx.py`) now clears `embedding_pending=0` after embedding and writes each vector into the memory's own store partition instead of `default` (the latter also fixes #1521). Finding #2 (tombstone resurrection) is deferred pending an intentionality signal and ships as an xfail; #1 was fixed by #1523; #5 is doc-only.
+- **A read-only OAuth token could still write memories over SSE, Streamable HTTP and `prompts/get` (GHSA-9x7v-2vjj-xghg, gigio1023).**
+  The `write` scope check from GHSA-2r68-g678-7qr3 lived in the FastAPI JSON-RPC shim only.
+  SSE and Streamable HTTP authenticated the token, dropped its scope and dispatched straight
+  into `MemoryServer.call_tool`, so a `read` token could call `memory_store`, `memory_update`
+  and `memory_delete`; the `learning_session` prompt stored a memory without going through
+  `call_tool` at all. The transports now record the granted scope on each request, and
+  `call_tool` and `learning_session` refuse writes without `write`, per message. The
+  `readOnlyHint` classification moved onto `MemoryServer` so the shim and the transports share
+  it. The `mcp` SDK floor rises from 1.8.0 to 1.9.2, the first release that hands the
+  per-message request to handlers. Only affects servers with `MCP_OAUTH_ENABLED=true`; stdio
+  and API-key callers are unchanged.
+- **Belief noise filter no longer discards long but substantive insights.**
+  `_is_noise` rejected any observation over 500 characters as a "dump". Measured
+  against a live corpus of 6,896 actionable memories (decision/learning/error/
+  insight/pattern), that blind length rule discarded 538 of them — 537 (99.8%)
+  substantive, with token-diversity entropy ≥ 0.49, i.e. real detailed decisions
+  and learnings, not dumps. The rule now treats a long observation as noise only
+  when it is an actual dump: low information density (`_content_entropy < 0.4`) or
+  degenerate (fewer than 10 words). This reuses the already-present `_content_entropy`
+  helper and recovers ~497 actionable memories into belief eligibility while still
+  filtering genuine low-entropy dumps.
+
+### Internal
+
+- **CONTRIBUTING.md points agent users to Greptile's greploop skill.** The skill
+  automates the review-fix-resolve loop that `ResolveThreads` makes mandatory, but it
+  resolves false-positive threads without a reply and iterates toward a 5/5 score.
+  The note states where this repository differs: reply before resolving, stop at
+  resolved threads plus green checks, keep conventional commits.
+
 ## [12.0.0] - 2026-10-13
 
 This is a major release because of one default that changes: search summarization is no longer
