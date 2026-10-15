@@ -1,6 +1,7 @@
 """Regression tests for issue #1538 tombstone conflict resolution."""
 
 import asyncio
+import json
 import sqlite3
 import time
 from types import SimpleNamespace
@@ -716,6 +717,8 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
 ):
     storage = CloudflareStorage.__new__(CloudflareStorage)
     storage.d1_url = "https://example.invalid/d1/database/test"
+    storage.r2_bucket = "test-bucket"
+    storage.large_content_threshold = 1
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
     db.executescript(
@@ -752,6 +755,7 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
         updated_at=101.0,
         updated_at_iso="1970-01-01T00:01:41+00:00",
         tags=["retry-safe"],
+        metadata={"restore_attempt": "original"},
     )
     db.execute(
         """
@@ -774,6 +778,29 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
     db.commit()
     request_calls = 0
     batch_attempts = 0
+    stored = {"vectors": [], "r2": []}
+    deleted = {"vectors": [], "r2": []}
+
+    async def generate_embedding(content):
+        return [0.1, 0.2]
+
+    async def store_r2(key, content):
+        stored["r2"].append((key, content))
+
+    async def store_vector(vector_id, embedding, metadata):
+        stored["vectors"].append((vector_id, embedding, metadata))
+
+    async def delete_vector(vector_id):
+        deleted["vectors"].append(vector_id)
+
+    async def delete_r2(key):
+        deleted["r2"].append(key)
+
+    monkeypatch.setattr(storage, "_generate_embedding", generate_embedding)
+    monkeypatch.setattr(storage, "_store_r2_content", store_r2)
+    monkeypatch.setattr(storage, "_store_vectorize_vector", store_vector)
+    monkeypatch.setattr(storage, "_delete_vectorize_vector", delete_vector)
+    monkeypatch.setattr(storage, "_delete_r2_content", delete_r2)
 
     async def apply_request(kwargs):
         body = kwargs["json"]
@@ -804,6 +831,16 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
         if "batch" in kwargs["json"] and batch_attempts == 0:
             # Simulate the D1 commit succeeding but the response being lost.
             batch_attempts += 1
+            db.execute(
+                "UPDATE memories SET metadata_json = ?, updated_at_iso = ? "
+                "WHERE content_hash = ?",
+                (
+                    json.dumps({"edited_after_restore": "keep"}),
+                    "1970-01-01T00:02:00+00:00",
+                    memory.content_hash,
+                ),
+            )
+            db.commit()
             results = await apply_request(kwargs)
         if "batch" in kwargs["json"]:
             batch_attempts += 1
@@ -811,26 +848,29 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
 
     monkeypatch.setattr(storage, "_retry_request", retry_request)
     try:
-        stored = await storage._store_d1_memory(
-            memory,
-            vector_id=memory.content_hash,
-            content_size=len(memory.content),
-            r2_key=None,
-            stored_content=memory.content,
-            expected_deleted_at=99.0,
+        success, message = await storage._store_memory(
+            memory, expected_deleted_at=99.0
         )
 
-        assert stored is True
+        assert success is True
+        assert message.startswith("Memory stored successfully (vector_id: restore-")
         assert batch_attempts == 2
         assert request_calls == 1  # restore and tag links share one D1 batch
         row = db.execute(
-            "SELECT content_hash, content, deleted_at FROM memories"
+            "SELECT content_hash, content, deleted_at, metadata_json, vector_id, r2_key "
+            "FROM memories"
         ).fetchone()
-        assert tuple(row) == (memory.content_hash, memory.content, None)
+        assert row["content_hash"] == memory.content_hash
+        assert row["content"] == f"[R2 Content: {stored['r2'][0][0]}]"
+        assert row["deleted_at"] is None
+        assert row["metadata_json"] == json.dumps({"edited_after_restore": "keep"})
+        assert row["vector_id"] == stored["vectors"][0][0]
+        assert row["r2_key"] == stored["r2"][0][0]
         linked_tags = db.execute(
             "SELECT COUNT(*) FROM memory_tags WHERE memory_id = 1"
         ).fetchone()[0]
         assert linked_tags == 1
+        assert deleted == {"vectors": [], "r2": []}
     finally:
         db.close()
 

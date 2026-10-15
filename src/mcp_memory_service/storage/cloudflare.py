@@ -931,7 +931,7 @@ class CloudflareStorage(MemoryStorage):
                     "params": values[1:]
                     + [values[0], expected_deleted_at, tag_names_json, tag_names_json],
                 },
-                {"sql": select_id_sql, "params": values},
+                {"sql": select_id_sql, "params": [values[0], values[8], values[10]]},
             ]
         }
         response = await self._retry_request(
@@ -941,14 +941,11 @@ class CloudflareStorage(MemoryStorage):
 
     @staticmethod
     def _d1_memory_identity() -> str:
-        """Return the exact active-row predicate used to identify a retry."""
-        columns = (
-            "content_hash", "content", "memory_type", "created_at",
-            "created_at_iso", "updated_at", "updated_at_iso", "metadata_json",
-            "vector_id", "content_size", "r2_key", "tags",
+        """Match a committed restore by its unique staged resources on retry."""
+        return (
+            "content_hash IS ? AND vector_id IS ? AND r2_key IS ? "
+            "AND deleted_at IS NULL"
         )
-        comparisons = [f"{column} IS ?" for column in columns]
-        return " AND ".join(comparisons) + " AND deleted_at IS NULL"
 
     @staticmethod
     def _d1_batch_result_sets(result: Any) -> list[Dict[str, Any]]:
