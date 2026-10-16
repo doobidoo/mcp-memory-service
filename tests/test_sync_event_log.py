@@ -1265,15 +1265,23 @@ class TestDeltaSyncHLC:
         )
 
     @pytest.mark.asyncio
-    async def test_imported_tombstone_keeps_remote_hlc_against_newer_peer_create(
+    async def test_imported_tombstone_wins_over_v2_empty_recreate_even_with_newer_hlc(
         self, storage, monkeypatch
     ):
-        """An imported historical delete must not outrank a later peer create.
+        """An imported tombstone WINS over a v2 EMPTY-recreate peer create, even newer-HLC.
 
-        The primary has an old local row, while a delta-sync peer has already created
-        a newer version. Reconciliation imports a tombstone dated between those two
-        events. Its local import time is later still, but that must not become the
-        tombstone's conflict-resolution clock.
+        3-state model (Henry Ponto 2, 2026-10-16): the peer create is emitted by a REAL v2
+        producer (peer.store()) that NEVER saw this delete, so it carries recreate_of="" (the
+        EMPTY sentinel). Under the 3-state rule the EMPTY sentinel means "delete wins"
+        whenever a delete exists — EVEN when the create's HLC is strictly newer than the
+        delete's. This is precisely the concurrent hole the PR closes: a peer that re-created
+        without seeing another peer's delete no longer resurrects it. (Pre-3-state this
+        asserted revive-by-HLC; that LWW-by-HLC premise was the bug Henry named — it does NOT
+        collide with P1-A, it confirms the same direction: a newer HLC alone never revives.)
+
+        The HLC-PRESERVATION assertions below are orthogonal to liveness and still hold: the
+        imported tombstone must keep the remote deletion time as its HLC and must not advance
+        the local clock. Only the FINAL liveness assertion reflects the 3-state flip.
         """
         import tempfile
 
@@ -1370,9 +1378,17 @@ class TestDeltaSyncHLC:
                     "SELECT deleted_at FROM memories WHERE content_hash = ?",
                     (content_hash,),
                 ).fetchone()
-                assert winner is not None and winner[0] is None, (
-                    "The peer's create event is newer than the remote tombstone and "
-                    "must remain materialized"
+                # 3-STATE model (Henry Ponto 2, 2026-10-16): the peer's create was emitted by
+                # a REAL v2 producer (peer.store()) that NEVER saw this delete, so it carries
+                # recreate_of="" (the EMPTY sentinel). Under the 3-state rule the EMPTY sentinel
+                # means "delete wins" whenever a delete exists — EVEN when the create's HLC is
+                # strictly newer. This is EXACTLY the concurrent hole the PR closes: a peer that
+                # re-created without seeing another peer's delete no longer resurrects it.
+                # (Before the 3-state model this asserted revive; that was the bug Henry named.)
+                # The HLC-preservation assertions above are unchanged and still hold.
+                assert winner is not None and winner[0] is not None, (
+                    "3-state: the peer's create carries recreate_of='' (never saw the delete), "
+                    "so the imported tombstone WINS and the memory stays deleted"
                 )
             finally:
                 await peer.close()
