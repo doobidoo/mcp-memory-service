@@ -54,7 +54,7 @@ def test_dashboard_renders_stored_labels_as_text(view):
 const container = {innerHTML: '', addEventListener() {}};
 global.document = {getElementById: () => container};
 const tag = {tag: payload, count: 11, percentage: 100, growth_rate: null};
-const view = process.argv[1];
+const view = process.argv[2];
 if (view === 'management') app.renderTagManagementTable({tags: [tag]});
 if (view === 'usage') app.renderTagUsageChart(container, {tags: [tag]});
 if (view === 'top') app.renderTopTagsReport(container, {tags: [tag], period: '30d'});
@@ -66,7 +66,7 @@ if (view === 'types') app.renderMemoryTypesChart(container, {
 });
 console.log(container.innerHTML);
 """
-    result = subprocess.run(["node", "-e", script, view], capture_output=True, text=True)
+    result = subprocess.run(["node", "-", view], input=script, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     output = result.stdout
 
