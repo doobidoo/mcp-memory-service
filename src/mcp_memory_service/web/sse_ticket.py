@@ -123,6 +123,36 @@ class TicketStore:
             ticket = self._pending.pop(match)
             return ticket.expires_at > now and ticket.scope == scope
 
+    def redeem_scope(self, token: str) -> "str | None":
+        """Consume a ticket and return the scope it was issued with.
+
+        Like ``redeem`` (single-use, constant-time, and it always consumes so a
+        miss is indistinguishable from a wrong token), but it *recovers* the
+        stored scope instead of asserting a fixed one. This lets a ticket carry
+        a store-restricted read grant (e.g. ``read:projectA``) so the SSE
+        endpoint confines the connection to exactly what the minting credential
+        could read, rather than every ticket conferring global ``read``.
+        Returns None for an unknown, expired, or already-used token.
+        """
+        if not token or not isinstance(token, str):
+            return None
+        try:
+            token.encode("ascii")
+        except UnicodeEncodeError:
+            return None
+        now = time.monotonic()
+        with self._lock:
+            self._purge_locked(now)
+            match = None
+            for candidate in list(self._pending):
+                if hmac.compare_digest(candidate, token):
+                    match = candidate
+                    break
+            if match is None:
+                return None
+            ticket = self._pending.pop(match)
+            return ticket.scope if ticket.expires_at > now else None
+
     def _purge_locked(self, now: float) -> None:
         """Drop expired tickets. Caller must hold the lock, or own the table."""
         stale = [k for k, t in self._pending.items() if t.expires_at <= now]

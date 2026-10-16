@@ -813,10 +813,38 @@ async def _handle_refresh_token_grant(
     )
 
 
+def _client_credentials_scope(requested_scope: Optional[str]) -> str:
+    """Resolve the scope granted to a client_credentials token.
+
+    No request -> the historical default "read write". A requested scope is
+    honored verbatim (so a client can self-restrict to a store-scoped grant
+    such as "read:projectA"), except that "admin" may never be obtained this
+    way -> HTTP 400 invalid_scope.
+    """
+    if requested_scope and requested_scope.strip():
+        if "admin" in requested_scope.split():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_scope",
+                    "error_description": "The client_credentials grant cannot issue 'admin' scope",
+                },
+            )
+        return requested_scope.strip()
+    return "read write"
+
+
 async def _handle_client_credentials_grant(
-    final_client_id: str, final_client_secret: str
+    final_client_id: str, final_client_secret: str, requested_scope: Optional[str] = None
 ) -> TokenResponse:
-    """Handle OAuth client_credentials grant type."""
+    """Handle OAuth client_credentials grant type.
+
+    When the client requests a ``scope``, it is honored so machine-to-machine
+    clients can mint store-restricted tokens (e.g. ``read:projectA``). The
+    request may only narrow, never escalate: ``admin`` cannot be obtained this
+    way. With no requested scope the grant keeps its historical default of
+    ``read write``.
+    """
     # Registration gates the grant, not just at registration time. Refusing
     # only in /oauth/register would leave every client that registered while
     # DCR was open still holding the grant, and those are exactly the
@@ -897,14 +925,18 @@ async def _handle_client_credentials_grant(
             },
         )
 
+    # Resolve the granted scope (default "read write"; a request may narrow it,
+    # including to store-scoped grants, but never escalate to "admin").
+    granted_scope = _client_credentials_scope(requested_scope)
+
     # Create access token
-    access_token, expires_in = create_access_token(final_client_id, "read write")
+    access_token, expires_in = create_access_token(final_client_id, granted_scope)
 
     # Store access token
     await get_oauth_storage().store_access_token(
         token=access_token,
         client_id=final_client_id,
-        scope="read write",
+        scope=granted_scope,
         expires_in=expires_in,
     )
 
@@ -913,7 +945,7 @@ async def _handle_client_credentials_grant(
         access_token=access_token,
         token_type="Bearer",
         expires_in=expires_in,
-        scope="read write",
+        scope=granted_scope,
     )
 
 
@@ -960,7 +992,7 @@ async def token(
             )
         elif grant_type == "client_credentials":
             return await _handle_client_credentials_grant(
-                final_client_id, final_client_secret
+                final_client_id, final_client_secret, scope
             )
         elif grant_type == "refresh_token":
             return await _handle_refresh_token_grant(
