@@ -26,6 +26,8 @@ from typing import Optional
 
 from fastapi import HTTPException, status
 
+from mcp_memory_service.config.base import safe_get_int_env
+
 # RFC 7636 §4.1: code_verifier is 43-128 unreserved characters.
 PKCE_CODE_VERIFIER_MIN_LEN = 43
 PKCE_CODE_VERIFIER_MAX_LEN = 128
@@ -43,9 +45,13 @@ SUPPORTED_CODE_CHALLENGE_METHODS = frozenset({"S256"})
 MAX_CLIENT_SECRET_LEN = 512
 MAX_AUTHORIZATION_CODE_LEN = 512
 MAX_REFRESH_TOKEN_LEN = 1024
-MAX_SCOPE_LEN = 1024
-MAX_STATE_LEN = 1024
-MAX_REDIRECT_URI_LEN = 2048
+# Configurable upper bounds so operators can accommodate clients with
+# unusually long opaque parameters (e.g. Google Gemini's ~2400-char OAuth
+# state) without patching source. Defaults raised from the previous hard
+# 1024 to give headroom while still bounding abusive input.
+MAX_SCOPE_LEN = safe_get_int_env("MCP_OAUTH_MAX_SCOPE_LEN", 2048, min_value=256, max_value=8192)
+MAX_STATE_LEN = safe_get_int_env("MCP_OAUTH_MAX_STATE_LEN", 4096, min_value=256, max_value=16384)
+MAX_REDIRECT_URI_LEN = safe_get_int_env("MCP_OAUTH_MAX_REDIRECT_URI_LEN", 2048, min_value=256, max_value=8192)
 
 # Bearer/JWT tokens and API keys arriving via header or query string.
 MAX_JWT_LEN = 8192
