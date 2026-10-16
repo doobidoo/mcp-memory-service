@@ -29,6 +29,25 @@ from ..models.ontology import (
 
 logger = logging.getLogger(__name__)
 
+# Consolidation review policy, not calibrated probabilities. In particular,
+# keyword-only contradictions score 0.75 and must remain in the review band.
+REVIEW_LOW_CONFIDENCE = 0.60
+REVIEW_HIGH_CONFIDENCE = 0.85
+
+
+def apply_review_band(relationship_type: str, confidence: float) -> tuple[str, bool]:
+    """Return the stored label and whether an inferred edge needs review.
+
+    Scores at or below 0.60 become ``related``; scores strictly between 0.60
+    and 0.85 keep their typed label with a review flag; scores at or above
+    0.85 keep the label without that flag. Existing ``related`` results stay
+    related, preserving the inference engine's similarity and ontology guards.
+    """
+    if relationship_type == "related" or confidence <= REVIEW_LOW_CONFIDENCE:
+        return "related", False
+    return relationship_type, confidence < REVIEW_HIGH_CONFIDENCE
+
+
 # Common English stopwords excluded from domain-keyword matching
 _STOPWORDS: Set[str] = {
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
