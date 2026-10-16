@@ -4974,7 +4974,7 @@ class MemoryDashboard {
 
         data.tags.forEach(tagStat => {
         html += '<tr>';
-        html += `<td class="tag-name">${tagStat.tag}</td>`;
+        html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;
         html += '<td class="tag-actions">';
         html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
@@ -5311,7 +5311,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
-                <span class="chart-label">${tag.tag}</span>
+                <span class="chart-label">${this.escapeHtml(tag.tag)}</span>
             </div>`;
         });
 
@@ -5365,7 +5365,7 @@ class MemoryDashboard {
         // Render significant types
         significantTypes.forEach(type => {
             const barWidthPx = (type.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
-            const typeName = type.memory_type || 'untyped';
+            const typeName = this.escapeHtml(type.memory_type || 'untyped');
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${type.count} (${type.percentage.toFixed(1)}%)</span>
@@ -5423,12 +5423,12 @@ class MemoryDashboard {
             const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
         html += `<li>
                 <div class="tag-header">
-                    <strong>${tag.tag}</strong>${trendIcon}
+                    <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
                     <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
                 html += '<div class="tag-cooccurrence">Often with: ';
-                html += tag.co_occurring_tags.slice(0, 3).map(co => `${co.tag} (${co.strength.toFixed(2)})`).join(', ');
+                html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
             html += '</li>';

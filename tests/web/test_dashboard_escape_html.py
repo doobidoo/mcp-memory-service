@@ -9,6 +9,7 @@ import json
 import re
 import shutil
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -37,3 +38,52 @@ def test_escape_html_encodes_attribute_delimiters():
         "",
         "5",
     ]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.parametrize("view", ["management", "usage", "top", "cooccurrence", "types"])
+def test_dashboard_renders_stored_labels_as_text(view):
+    """Stored markup must not become an element or an event attribute."""
+    payload = '<img src=x onerror="window.compromised=1">'
+    source = APP_JS.read_text()
+    # Load the real class without bootstrapping the application or its network calls.
+    script = source[source.index("class MemoryDashboard {"):source.index("// Initialize the application when DOM is ready")]
+    script += "\nconst app = Object.create(MemoryDashboard.prototype);\n"
+    script += f"const payload = {json.dumps(payload)};\n"
+    script += """
+const container = {innerHTML: '', addEventListener() {}};
+global.document = {getElementById: () => container};
+const tag = {tag: payload, count: 11, percentage: 100, growth_rate: null};
+const view = process.argv[1];
+if (view === 'management') app.renderTagManagementTable({tags: [tag]});
+if (view === 'usage') app.renderTagUsageChart(container, {tags: [tag]});
+if (view === 'top') app.renderTopTagsReport(container, {tags: [tag], period: '30d'});
+if (view === 'cooccurrence') app.renderTopTagsReport(container, {
+    tags: [{...tag, tag: 'safe', co_occurring_tags: [{tag: payload, strength: 1}]}], period: '30d'
+});
+if (view === 'types') app.renderMemoryTypesChart(container, {
+    types: [{memory_type: payload, count: 11, percentage: 100}]
+});
+console.log(container.innerHTML);
+"""
+    result = subprocess.run(["node", "-e", script, view], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    output = result.stdout
+
+    class ParsedHTML(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.elements = []
+            self.text = []
+
+        def handle_starttag(self, tag, attrs):
+            self.elements.append((tag, dict(attrs)))
+
+        def handle_data(self, data):
+            self.text.append(data)
+
+    parsed = ParsedHTML()
+    parsed.feed(output)
+    assert all(tag != "img" for tag, _ in parsed.elements)
+    assert all(not key.startswith("on") for _, attrs in parsed.elements for key in attrs)
+    assert payload in "".join(parsed.text)
