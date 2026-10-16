@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 class StoreMixin:
     """Mixin providing memory storage operations."""
 
+    @staticmethod
+    def _exact_duplicate_message(
+        existing_store: str | None, requested_store: str
+    ) -> str:
+        """Describe a global exact-hash conflict and name its other store."""
+        message = "Duplicate content detected (exact match)"
+        if existing_store is not None and existing_store != requested_store:
+            return f"{message}; already exists in store {existing_store!r}"
+        return message
+
     def _purge_tombstone(self, content_hash: str) -> None:
         """Remove a soft-deleted tombstone so the UNIQUE constraint allows re-insert.
 
@@ -51,9 +61,10 @@ class StoreMixin:
         self,
         content: str,
         time_window_hours: int = 24,
-        similarity_threshold: float = 0.85
+        similarity_threshold: float = 0.85,
+        store: str = 'default',
     ) -> Tuple[bool, Optional[str]]:
-        """Check if a semantically similar memory was stored within time window."""
+        """Check for a similar memory in ``store`` within the configured time window."""
         if not self.conn:
             return False, None
 
@@ -70,9 +81,10 @@ class StoreMixin:
                 JOIN memory_embeddings me ON m.rowid = me.rowid
                 WHERE m.created_at > ?
                   AND m.deleted_at IS NULL
+                  AND m.store = ?
                 ORDER BY similarity ASC
                 LIMIT 1
-            ''', (embedding_blob, cutoff_timestamp))
+            ''', (embedding_blob, cutoff_timestamp, store))
             return cursor.fetchone()
 
         result = await self._execute_with_retry(_search_semantic_dup)
@@ -89,18 +101,21 @@ class StoreMixin:
 
             def _check_exact_dup():
                 cursor = self.conn.execute(
-                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    'SELECT store FROM memories '
+                    'WHERE content_hash = ? AND deleted_at IS NULL',
                     (memory.content_hash,)
                 )
                 return cursor.fetchone()
-            if await self._execute_with_retry(_check_exact_dup):
-                return False, "Duplicate content detected (exact match)"
+            existing = await self._execute_with_retry(_check_exact_dup)
+            if existing:
+                return False, self._exact_duplicate_message(existing[0], store)
 
             if self.semantic_dedup_enabled and not skip_semantic_dedup:
                 is_duplicate, existing_hash = await self._check_semantic_duplicate(
                     memory.content,
                     time_window_hours=self.semantic_dedup_time_window,
-                    similarity_threshold=self.semantic_dedup_threshold
+                    similarity_threshold=self.semantic_dedup_threshold,
+                    store=store,
                 )
                 if is_duplicate:
                     return False, f"Duplicate content detected (semantically similar to {existing_hash})"
@@ -199,6 +214,20 @@ class StoreMixin:
             logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully{conflict_msg}"
 
+        except sqlite3.IntegrityError as e:
+            # A second writer can insert the same globally unique hash after the
+            # pre-check. Report the same store-aware conflict as the non-racing path.
+            try:
+                existing = await self._execute_with_retry(_check_exact_dup)
+            except sqlite3.Error:
+                existing = None
+            if existing:
+                return False, self._exact_duplicate_message(existing[0], store)
+
+            error_msg = f"Failed to store memory: {e!s}"
+            logger.error("%s", _sanitize_log_value(error_msg))
+            logger.error("%s", _sanitize_log_value(traceback.format_exc()))
+            return False, error_msg
         except Exception as e:
             error_msg = f"Failed to store memory: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
@@ -235,11 +264,16 @@ class StoreMixin:
             self.conn.execute('BEGIN')
             for j, memory in enumerate(memories):
                 cursor = self.conn.execute(
-                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    'SELECT store FROM memories '
+                    'WHERE content_hash = ? AND deleted_at IS NULL',
                     (memory.content_hash,)
                 )
-                if cursor.fetchone():
-                    local_results[j] = (False, "Duplicate content detected (exact match)")
+                existing = cursor.fetchone()
+                if existing:
+                    local_results[j] = (
+                        False,
+                        self._exact_duplicate_message(existing[0], store),
+                    )
                     continue
 
                 embedding = raw_embeddings[j]
@@ -298,7 +332,16 @@ class StoreMixin:
                 except sqlite3.IntegrityError:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
-                    local_results[j] = (False, "Duplicate content detected (race condition)")
+                    existing = self.conn.execute(
+                        'SELECT store FROM memories '
+                        'WHERE content_hash = ? AND deleted_at IS NULL',
+                        (memory.content_hash,),
+                    ).fetchone()
+                    if existing:
+                        message = self._exact_duplicate_message(existing[0], store)
+                    else:
+                        message = "Duplicate content detected (race condition)"
+                    local_results[j] = (False, message)
                 except sqlite3.OperationalError as op_err:
                     # A transient 'database is locked'/'busy' is NOT a permanent item failure:
                     # on this deployment several agents write the same sqlite_vec.db (single
