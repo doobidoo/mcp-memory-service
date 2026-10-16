@@ -186,6 +186,64 @@ def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def _most_informative_representative(cluster) -> Optional[object]:
+    """Pick the MOST INFORMATIVE observation of a cluster as its representative.
+
+    ARCO SÍNTESE Slice 1 (opt-in via MCP_BELIEF_BEST_REPRESENTATIVE). Returns the
+    observation whose content best represents the cluster, instead of merely the first one
+    encountered in the grouping loop.
+
+    Scoring (deterministic, no embeddings):
+      1. COVERAGE of the cluster's SHARED vocabulary — the tokens that appear in at least
+         two observations. The observation covering the most shared terms wins. This is the
+         primary signal: it rewards the source that says the most about what the cluster is
+         collectively about, and is immune to a trivially short paraphrase.
+      2. LENGTH (distinct-token count) as the secondary signal — penalizes trivial short
+         observations that happen to cover the few shared terms but carry little else.
+      3. Entropy (_content_entropy, unique-token ratio) as a tertiary density tiebreak.
+      4. content_hash (descending) as the final, order-independent tiebreak so the result
+         does NOT depend on insertion/iteration order.
+
+    NOTE on why entropy is NOT primary: _content_entropy is len(unique)/len(words); a short
+    trivial observation scores 1.0 and would beat a longer, richer one — the opposite of the
+    goal. Entropy is therefore only a late tiebreak, never the driver.
+    """
+    if not cluster:
+        return None
+    if len(cluster) == 1:
+        return cluster[0]
+
+    def _content_of(o) -> str:
+        return o.content if hasattr(o, "content") else o.get("content", "")
+
+    def _hash_of(o) -> str:
+        return o.content_hash if hasattr(o, "content_hash") else o.get("content_hash", "")
+
+    # Tokenize each observation once (lowercased whitespace split, same tokenizer as
+    # _content_entropy so signals are consistent).
+    token_sets = [set(_content_of(o).lower().split()) for o in cluster]
+
+    # Shared vocabulary: tokens appearing in >= 2 observations of the cluster.
+    token_doc_freq: dict = {}
+    for tokens in token_sets:
+        for tok in tokens:
+            token_doc_freq[tok] = token_doc_freq.get(tok, 0) + 1
+    shared_terms = {tok for tok, df in token_doc_freq.items() if df >= 2}
+
+    def _score(idx: int):
+        obs = cluster[idx]
+        tokens = token_sets[idx]
+        content = _content_of(obs)
+        coverage = len(tokens & shared_terms) if shared_terms else 0
+        length = len(tokens)
+        entropy = _content_entropy(content)
+        # content_hash descending → use the hash string directly as a stable final key.
+        return (coverage, length, entropy, _hash_of(obs))
+
+    best_idx = max(range(len(cluster)), key=_score)
+    return cluster[best_idx]
+
+
 class BeliefService:
     # Default belief-grouping similarity. Decoupled from the store() dedup
     # threshold (MCP_SEMANTIC_DEDUP_THRESHOLD) so the two — which serve opposite
@@ -650,6 +708,19 @@ class BeliefService:
         raw = os.environ.get("MCP_BELIEF_STABLE_IDENTITY")
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
 
+    @staticmethod
+    def _best_representative_enabled() -> bool:
+        """Check if best-representative selection is enabled.
+
+        ARCO SÍNTESE Slice 1 (opt-in, default OFF). When OFF the grouping path is
+        byte-identical to today: the cluster representative is the FIRST observation
+        encountered in the loop. When ON, the representative becomes the MOST INFORMATIVE
+        observation of the cluster (coverage of shared vocabulary + length, deterministic),
+        so the resulting belief content is sourced from the richest observation.
+        """
+        raw = os.environ.get("MCP_BELIEF_BEST_REPRESENTATIVE")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
     async def _find_belief_by_provenance(self, supporting_hashes, threshold: float = 0.6):
         """Locate an existing belief whose provenance majority-overlaps the given sources.
 
@@ -1007,14 +1078,26 @@ class BeliefService:
             except Exception:
                 pass  # If search fails, rely on exact-match grouping above
 
+            # ARCO SÍNTESE Slice 1 (flag-gated, default OFF): choose the cluster
+            # representative — the key that becomes the belief content — as the MOST
+            # INFORMATIVE observation of the cluster, not merely the first one in the loop.
+            # OFF path keeps `content` (the first obs) → byte-identical to today.
+            representative_content = content
+            if self._best_representative_enabled():
+                best = _most_informative_representative(cluster)
+                if best is not None:
+                    representative_content = (
+                        best.content if hasattr(best, "content") else best.get("content", "")
+                    )
+
             # Dedup: normalize content, hash it. Skip if we already have near-identical representative.
-            normalized = " ".join(content.lower().split())
+            normalized = " ".join(representative_content.lower().split())
             content_digest = hashlib.sha256(normalized.encode()).hexdigest()[:16]
             if content_digest in content_hashes_seen:
                 continue  # Skip this cluster — near-identical to an existing one
             content_hashes_seen.add(content_digest)
 
-            groups[content] = cluster
+            groups[representative_content] = cluster
 
         return groups
 
