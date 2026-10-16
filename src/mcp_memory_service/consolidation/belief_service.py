@@ -186,6 +186,76 @@ def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+# ── ARCO SÍNTESE Slice 2: extractive marker cleaning ──
+# Structural NOISE markers that pollute a belief's content and inflate generic
+# false-positive overlap. The extractive step (opt-in, MCP_BELIEF_EXTRACTIVE) strips
+# these from the chosen representative so what remains is the CLAIM, never the metadata.
+# This reuses the SAME intent as harvest/rewriter.py's `_LEAKED_TYPE_RE` (stripping a
+# leaked ``TYPE: <realtype>`` wrapper); here the wrapper is EMBEDDED mid-content, so the
+# patterns are anchored on the marker token itself rather than the start of the string.
+
+# Bracketed structural tags: [CHECKPOINT], [GAP], [PATTERN], [TREND], [SESSÃO], [MINED: ...].
+_MARKER_BRACKET_TAG_RE = re.compile(
+    r"\[(?:CHECKPOINT|GAP|PATTERN|TREND|SESS[ÃA]O|MINED[^\]]*)\]",
+    re.IGNORECASE,
+)
+
+# ``Session: <id-or-date-or-text up to the next marker/eol>``. Narrow: consume the
+# ``Session:`` label and the token(s) right after it (a UUID, date, or single word), not
+# the rest of the sentence.
+_MARKER_SESSION_RE = re.compile(
+    r"Session:\s*\S*",
+    re.IGNORECASE,
+)
+
+# ``TYPE: <realtype>`` leak, same shape as rewriter._LEAKED_TYPE_RE but EMBEDDED: strip the
+# ``TYPE:`` label plus an immediately-following known type word (decision/bug/…); keep the
+# claim that follows. Mirrors rewriter.VALID_TYPES so the two stay consistent.
+_MARKER_TYPE_RE = re.compile(
+    r"TYPE:\s*(?:decision|bug|convention|learning|context|error|observation)?\b",
+    re.IGNORECASE,
+)
+
+# ISO-8601 timestamp of any shape: 2026-10-16 or 2026-10-16T14:00:00(.ms)(±tz/Z).
+_MARKER_ISO_TS_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?",
+)
+
+# Order matters: strip the timestamp BEFORE Session: would otherwise leave a bare date,
+# and strip bracket tags / TYPE: / Session: labels first.
+_EXTRACTIVE_MARKER_RES = (
+    _MARKER_BRACKET_TAG_RE,
+    _MARKER_TYPE_RE,
+    _MARKER_SESSION_RE,
+    _MARKER_ISO_TS_RE,
+)
+
+
+def _clean_markers(content: str) -> str:
+    """Extractively strip structural noise markers from a belief representative.
+
+    Pure, deterministic (regex only — NO LLM; LLM synthesis is Slice 4). Removes
+    ``[CHECKPOINT]``/``[GAP]``/``[PATTERN]``/``[TREND]`` bracket tags, ``TYPE: <type>``
+    and ``Session: <id>`` labels, and ISO timestamps, then normalizes whitespace. The
+    thematic claim tokens are never targeted, so the anti-abstraction guard holds: the
+    cleaned claim still carries the cluster's key terms.
+
+    Guard: if cleaning would empty the content (a representative made entirely of markers),
+    the original is returned unchanged — we never produce an empty belief. Callers gate
+    this behind MCP_BELIEF_EXTRACTIVE; OFF path never calls it (byte-identical contract).
+    """
+    if not content:
+        return content
+    cleaned = content
+    for pat in _EXTRACTIVE_MARKER_RES:
+        cleaned = pat.sub(" ", cleaned)
+    # Collapse the whitespace the substitutions left behind; keep a single space between
+    # the remaining claim tokens.
+    cleaned = " ".join(cleaned.split()).strip()
+    # Anti-abstraction / safety: never return empty — fall back to the verbatim original.
+    return cleaned if cleaned else content
+
+
 def _most_informative_representative(cluster) -> Optional[object]:
     """Pick the MOST INFORMATIVE observation of a cluster as its representative.
 
@@ -607,6 +677,16 @@ class BeliefService:
 
             for group_content, group_obs in groups.items():
                 try:
+                    # ARCO SÍNTESE Slice 2 (flag-gated, default OFF): extractively strip
+                    # structural noise markers from the chosen representative so the belief
+                    # carries the CLAIM, not metadata. Applied here — after Slice 1 picked
+                    # the representative, before hashing/create/update — so belief_hash,
+                    # _create_belief and the Slice 0 in-place _update_belief all use the
+                    # cleaned content consistently. OFF path leaves group_content verbatim
+                    # (byte-identical contract).
+                    if self._extractive_enabled():
+                        group_content = _clean_markers(group_content)
+
                     obs_dicts = [self._obs_to_dict(o) for o in group_obs]
                     # All observations in a group are supporting; contradictions come from
                     # memories explicitly marked via contradiction detection
@@ -719,6 +799,22 @@ class BeliefService:
         so the resulting belief content is sourced from the richest observation.
         """
         raw = os.environ.get("MCP_BELIEF_BEST_REPRESENTATIVE")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    @staticmethod
+    def _extractive_enabled() -> bool:
+        """Check if the extractive marker-cleaning step is enabled.
+
+        ARCO SÍNTESE Slice 2 (opt-in, default OFF). When OFF the belief content is
+        byte-identical to today: the representative is stored VERBATIM (markers and all).
+        When ON, the representative's structural noise markers ([CHECKPOINT]/[GAP]/
+        [PATTERN]/[TREND], ``TYPE:``/``Session:`` labels, ISO timestamps) are stripped by
+        `_clean_markers` BEFORE the belief is created/updated, leaving the CLAIM. It is
+        deterministic/extractive (regex), NOT LLM synthesis (that is Slice 4), and composes
+        with Slice 0 (stable identity keys on provenance, not content) and Slice 1 (cleaning
+        applies to the chosen best representative).
+        """
+        raw = os.environ.get("MCP_BELIEF_EXTRACTIVE")
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
 
     async def _find_belief_by_provenance(self, supporting_hashes, threshold: float = 0.6):
