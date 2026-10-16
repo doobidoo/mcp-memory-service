@@ -59,6 +59,7 @@ def test_dashboard_assets_and_requests_are_root_relative():
     index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     sse_html = (STATIC_DIR / "sse_test.html").read_text(encoding="utf-8")
+    sse_js = (STATIC_DIR / "sse_test.js").read_text(encoding="utf-8")
 
     assert not re.search(r'(?:href|src)="/(?:api|static)', index_html)
     assert "this.apiBase = 'api'" in app_js
@@ -66,8 +67,9 @@ def test_dashboard_assets_and_requests_are_root_relative():
         r"(?:fetch|EventSource)\((?:`|'|\")/(?:api|oauth|static)", app_js
     )
     assert "new URL(`${this.apiBase}/events`, document.baseURI)" in app_js
-    assert "new EventSource('../api/events')" in sse_html
-    assert not re.search(r"(?:fetch|EventSource)\((?:`|'|\")/api", sse_html)
+    assert '<script src="sse_test.js" defer></script>' in sse_html
+    assert "new EventSource('../api/events')" in sse_js
+    assert not re.search(r"(?:fetch|EventSource)\((?:`|'|\")/api", sse_js)
 
 
 def test_authorization_form_posts_relative_to_root_path():
