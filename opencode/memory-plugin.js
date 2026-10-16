@@ -6,6 +6,8 @@ import path from "node:path"
 
 const STATUS_FILE = process.env.OPENCODE_MEMORY_STATUS_FILE
   || path.join(homedir(), ".local", "state", "opencode", ".memory-status.json")
+const INBOX_STATE_FILE = process.env.OPENCODE_MEMORY_INBOX_STATE_FILE
+  || path.join(path.dirname(STATUS_FILE), ".memory-inbox-state.json")
 
 // TLS certificate verification stays on by default. Setting
 // allowSelfSignedCerts disables it for that request only, with a warning —
@@ -97,6 +99,13 @@ const DEFAULT_CONFIG = {
     minConfidence: 0.6,
     types: ["decision", "bug", "convention", "learning", "context"],
   },
+  inbox: {
+    enabled: false,
+    tags: ["msg:cluster"],
+    maxItems: 10,
+    checkIntervalMinutes: 5,
+    agentId: null,
+  },
 }
 
 function parseInteger(value) {
@@ -105,9 +114,17 @@ function parseInteger(value) {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function parseBoolean(value) {
+  if (typeof value !== "string") return undefined
+  if (["true", "1"].includes(value.toLowerCase())) return true
+  if (["false", "0"].includes(value.toLowerCase())) return false
+  return undefined
+}
+
 function environmentOverrides() {
   const overrides = {
     memoryService: {},
+    inbox: {},
   }
 
   const endpoint = process.env.OPENCODE_MEMORY_ENDPOINT || process.env.OPENCODE_MEMORY_URL
@@ -133,6 +150,31 @@ function environmentOverrides() {
   const allowSelfSignedCerts = process.env.OPENCODE_MEMORY_ALLOW_SELF_SIGNED_CERTS
   if (allowSelfSignedCerts !== undefined) {
     overrides.memoryService.allowSelfSignedCerts = allowSelfSignedCerts === "true" || allowSelfSignedCerts === "1"
+  }
+
+  const inboxEnabled = parseBoolean(process.env.OPENCODE_MEMORY_INBOX_ENABLED)
+  if (inboxEnabled !== undefined) {
+    overrides.inbox.enabled = inboxEnabled
+  }
+
+  const inboxTags = process.env.OPENCODE_MEMORY_INBOX_TAGS
+  if (inboxTags) {
+    overrides.inbox.tags = inboxTags.split(",").map((tag) => tag.trim()).filter(Boolean)
+  }
+
+  const inboxMaxItems = parseInteger(process.env.OPENCODE_MEMORY_INBOX_MAX_ITEMS)
+  if (inboxMaxItems !== undefined) {
+    overrides.inbox.maxItems = inboxMaxItems
+  }
+
+  const inboxInterval = parseInteger(process.env.OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES)
+  if (inboxInterval !== undefined) {
+    overrides.inbox.checkIntervalMinutes = inboxInterval
+  }
+
+  const inboxAgentId = process.env.OPENCODE_MEMORY_INBOX_AGENT_ID
+  if (inboxAgentId) {
+    overrides.inbox.agentId = inboxAgentId
   }
 
   return overrides
@@ -162,6 +204,11 @@ function mergeConfig(base, overrides = {}) {
     harvest: {
       ...base.harvest,
       ...(overrides.harvest || {}),
+    },
+    inbox: {
+      ...base.inbox,
+      ...(overrides.inbox || {}),
+      tags: overrides.inbox?.tags ?? base.inbox.tags,
     },
   }
 }
@@ -560,6 +607,156 @@ async function searchMemories(config, query, tags, limit) {
   return normalized
 }
 
+function inboxStateKey(inboxConfig) {
+  const tags = [...(inboxConfig.tags || [])].map(String).sort()
+  return JSON.stringify({ tags, agentId: inboxConfig.agentId || null })
+}
+
+async function readInboxState(stateFile) {
+  try {
+    const parsed = JSON.parse(await readFile(stateFile, "utf8"))
+    return parsed && typeof parsed === "object" ? parsed : { markers: {} }
+  } catch (_) {
+    return { markers: {} }
+  }
+}
+
+async function readInboxMarker(key, stateFile = INBOX_STATE_FILE) {
+  const state = await readInboxState(stateFile)
+  const marker = state.markers?.[key]
+  return typeof marker === "string" && Number.isFinite(Date.parse(marker)) ? marker : null
+}
+
+async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
+  const state = await readInboxState(stateFile)
+  state.markers = { ...(state.markers || {}), [key]: marker }
+  await mkdir(path.dirname(stateFile), { recursive: true })
+  await writeFile(stateFile, JSON.stringify(state, null, 2))
+}
+
+function inboxLookbackDays(since, now) {
+  const elapsed = Math.max(0, now.getTime() - since.getTime())
+  return Math.max(1, Math.ceil(elapsed / (24 * 60 * 60 * 1000)))
+}
+
+async function searchInboxMemories(config, since, now, request = requestJson) {
+  const maxItems = Math.max(1, config.inbox.maxItems || DEFAULT_CONFIG.inbox.maxItems)
+  const result = await request(config, "/api/search/by-tag", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tags: config.inbox.tags,
+      match_all: false,
+      time_filter: `last ${inboxLookbackDays(since, now)} days`,
+      limit: maxItems,
+    }),
+  })
+
+  const rows = Array.isArray(result)
+    ? result
+    : Array.isArray(result?.results)
+      ? result.results
+      : Array.isArray(result?.memories)
+        ? result.memories
+        : []
+  const ownAgentTag = config.inbox.agentId
+    ? `agent:${config.inbox.agentId}`.toLowerCase()
+    : null
+
+  return rows
+    .map(normalizeMemory)
+    .filter(Boolean)
+    .filter((memory) => {
+      const createdAt = memory.createdAt ? Date.parse(memory.createdAt) : Number.NaN
+      if (!Number.isFinite(createdAt) || createdAt <= since.getTime()) return false
+      if (!ownAgentTag) return true
+      return !memory.tags.some((tag) => String(tag).toLowerCase() === ownAgentTag)
+    })
+    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+    .slice(0, maxItems)
+}
+
+function inboxCheckDue(marker, now, intervalMinutes) {
+  if (!marker) return true
+  const markerTime = Date.parse(marker)
+  if (!Number.isFinite(markerTime)) return true
+  const intervalMs = Math.max(0, Number(intervalMinutes) || 0) * 60 * 1000
+  return now.getTime() - markerTime >= intervalMs
+}
+
+function createInboxChecker({
+  config,
+  stateFile = INBOX_STATE_FILE,
+  search = searchInboxMemories,
+  readMarker = readInboxMarker,
+  writeMarker = writeInboxMarker,
+  now = () => new Date(),
+}) {
+  const checkedSessions = new Set()
+  const key = inboxStateKey(config.inbox || {})
+  let markerLoaded = false
+  let marker = null
+
+  const check = async (sessionID) => {
+    if (!config.inbox?.enabled || !sessionID) return null
+    if (!markerLoaded) {
+      marker = await readMarker(key, stateFile)
+      markerLoaded = true
+    }
+
+    const checkedThisSession = checkedSessions.has(sessionID)
+    const checkedAt = now()
+    if (checkedThisSession && !inboxCheckDue(
+      marker,
+      checkedAt,
+      config.inbox.checkIntervalMinutes,
+    )) return null
+
+    const since = marker
+      ? new Date(marker)
+      : new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000)
+    const memories = await search(config, since, checkedAt)
+    const nextMarker = checkedAt.toISOString()
+    await writeMarker(key, nextMarker, stateFile)
+    marker = nextMarker
+    checkedSessions.add(sessionID)
+    return { memories, since }
+  }
+
+  return { check }
+}
+
+function formatInboxDate(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return "unknown"
+  return date.toISOString().slice(0, 16).replace("T", " ")
+}
+
+function formatInboxTime(value) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toISOString().slice(11, 16)
+}
+
+function formatInboxBlock(memories, since, config) {
+  if (!memories.length) return ""
+  const lines = [`Messages from other agents (since ${formatInboxDate(since)}):`]
+
+  for (const memory of memories) {
+    const author = memory.tags.find((tag) => String(tag).startsWith("agent:"))
+      || "agent:unknown"
+    const receivedAt = formatInboxTime(memory.createdAt)
+    const label = receivedAt ? `${author}, ${receivedAt}` : author
+    const content = truncateText(
+      memory.content.replace(/\s+/g, " ").trim(),
+      config.output.maxContentLength,
+    )
+    lines.push(`- [${label}] ${content}`)
+  }
+
+  return lines.join("\n")
+}
+
 async function getHealth(config) {
   // /api/health was hardened (GHSA-73hc-m4hx-79pj) and returns only {status}.
   // Storage backend info now lives on /api/health/detailed (requires API key).
@@ -625,6 +822,7 @@ const createPlugin = async ({ directory, client }) => {
   const sessionState = new Map()
   const healthState = { checked: false }
   const harvestFirstRun = { done: false }
+  const inboxChecker = createInboxChecker({ config })
 
   // Per-instance status snapshot. Each plugin instance owns its own picture
   // of memory activity and writes the whole object to disk on update so that
@@ -1008,30 +1206,61 @@ const createPlugin = async ({ directory, client }) => {
         state = sessionState.get(input.sessionID)
       }
       state = await waitForSession(input.sessionID, directory)
-      if (!state?.memories?.length) return
 
-      const formatted = formatMemories(state.projectName, state.memories, config)
-      if (formatted) {
-        await logInfo(`Memory: ${state.memories.length} loaded for ${state.projectName}`)
-        await writeStatus({
-          projectName: state.projectName,
-          loadedCount: state.memories.length,
-          lastAction: `Loaded ${state.memories.length} memories`,
-        })
-        if (!state._loadToastShown) {
-          state._loadToastShown = true
+      if (state?.memories?.length) {
+        const formatted = formatMemories(state.projectName, state.memories, config)
+        if (formatted) {
+          await logInfo(`Memory: ${state.memories.length} loaded for ${state.projectName}`)
+          await writeStatus({
+            projectName: state.projectName,
+            loadedCount: state.memories.length,
+            lastAction: `Loaded ${state.memories.length} memories`,
+          })
+          if (!state._loadToastShown) {
+            state._loadToastShown = true
+            try {
+              await client?.tui?.showToast?.({
+                body: {
+                  title: "Memory Service",
+                  message: `Loaded ${state.memories.length} memories for ${state.projectName}.`,
+                  variant: "info",
+                },
+                query: { directory },
+              })
+            } catch (_) {}
+          }
+          output.system.push(formatted)
+        }
+      }
+
+      try {
+        const inboxResult = await inboxChecker.check(input.sessionID)
+        if (inboxResult?.memories?.length) {
+          const inboxBlock = formatInboxBlock(
+            inboxResult.memories,
+            inboxResult.since,
+            config,
+          )
+          output.system.push(inboxBlock)
+          const count = inboxResult.memories.length
+          const messageLabel = count === 1 ? "message" : "messages"
+          await writeStatus({
+            projectName: state?.projectName || projectNameFromDirectory(directory),
+            lastAction: `${count} new ${messageLabel} from other agents`,
+          })
           try {
             await client?.tui?.showToast?.({
               body: {
                 title: "Memory Service",
-                message: `Loaded ${state.memories.length} memories for ${state.projectName}.`,
+                message: `${count} new ${messageLabel} from other agents`,
                 variant: "info",
               },
               query: { directory },
             })
           } catch (_) {}
         }
-        output.system.push(formatted)
+      } catch (error) {
+        await logWarn(`Inbox check failed: ${error.message}`)
       }
     },
 
@@ -1059,4 +1288,10 @@ export default { id: "opencode-memory", server: createPlugin }
 // Test-only surface, mirroring claude-hooks' `_internal` convention. The TLS gate
 // is a security control, so it gets tested directly rather than only through a
 // request path that needs a live server.
-export const _internal = { applySelfSignedCertsOption }
+export const _internal = {
+  DEFAULT_CONFIG,
+  applySelfSignedCertsOption,
+  createInboxChecker,
+  formatInboxBlock,
+  searchInboxMemories,
+}

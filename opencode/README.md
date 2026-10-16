@@ -64,6 +64,12 @@ Then it applies environment overrides:
 - `OPENCODE_MEMORY_TIMEOUT_MS`
 - `OPENCODE_MEMORY_LOAD_TIMEOUT_MS`
 - `OPENCODE_MEMORY_ALLOW_SELF_SIGNED_CERTS` — set to `true` or `1` to disable TLS certificate verification (self-signed certs only, off by default)
+- `OPENCODE_MEMORY_INBOX_ENABLED` — set to `true` or `1` to enable the inter-agent inbox
+- `OPENCODE_MEMORY_INBOX_TAGS` — comma-separated sentinel tags (default: `msg:cluster`)
+- `OPENCODE_MEMORY_INBOX_MAX_ITEMS`
+- `OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES`
+- `OPENCODE_MEMORY_INBOX_AGENT_ID` — excludes messages tagged `agent:<id>` for this agent
+- `OPENCODE_MEMORY_INBOX_STATE_FILE` — overrides the persisted last-check marker path
 
 If you load the plugin with explicit plugin options, those win last.
 
@@ -124,6 +130,26 @@ On `session.idle` (after each assistant turn), the plugin:
 - optionally triggers pattern harvest via `POST /api/harvest` (opt-in, dry-run first-use safety)
 
 `session.deleted` is also handled when received but tends to fire after the plugin's event subscribers have already been torn down, so it cannot be relied on as the only end-of-session trigger.
+
+## Inbox
+
+The optional inbox surfaces messages written by other agents through sentinel tags such as `msg:cluster`. It is disabled by default. Enable it in `memory-plugin.json`:
+
+```json
+{
+  "inbox": {
+    "enabled": true,
+    "tags": ["msg:cluster"],
+    "maxItems": 10,
+    "checkIntervalMinutes": 5,
+    "agentId": "local-agent"
+  }
+}
+```
+
+On the first system prompt of each session, and then at the configured interval, the plugin queries `/api/search/by-tag` for messages stored since its last successful check. Messages carrying `agent:<agentId>` are excluded so an agent does not read its own posts. New messages are injected into the system prompt, announced with one toast, and reflected in the sidebar's last-action status.
+
+The successful-check marker is stored in `~/.local/state/opencode/.memory-inbox-state.json`; the first run looks back 24 hours. Failed queries do not advance the marker. See [Tags as inter-agent signals](../docs/agents/README.md#tags-as-inter-agent-signals) for the shared message-bus convention and a storage example.
 
 ## Verification
 
