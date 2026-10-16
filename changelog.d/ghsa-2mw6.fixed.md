@@ -1,1 +1,0 @@
-- Require OAuth write scope for graph entity extraction through the MCP dispatcher and HTTP shim, while keeping existing graph read operations available to read-only clients.
