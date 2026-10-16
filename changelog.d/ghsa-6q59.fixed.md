@@ -1,0 +1,1 @@
+- Escape stored tag, co-occurring tag and memory-type labels in dashboard management and analytics views to prevent stored HTML from executing in a viewer's session.
