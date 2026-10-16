@@ -510,6 +510,42 @@ class HarvestRewriter:
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"] or ""
 
+    async def _call_openai_compatible_with_usage(
+        self, base_url: str, model: str, api_key: str, prompt: str, timeout: float,
+        max_tokens: int = 200,
+    ) -> tuple[str, dict]:
+        """OpenAI-compatible call that ALSO returns the provider ``usage`` block.
+
+        Sibling of :meth:`_call_openai_compatible` (which discards ``usage`` and returns
+        only the content, preserving its existing callers). Added for ARCO SÍNTESE
+        Slice 4 cost instrumentation: belief synthesis needs prompt/completion token
+        counts to emit a ``belief_synthesis`` usage_event. Returns
+        ``(content, usage_dict)`` where ``usage_dict`` carries ``prompt_tokens`` /
+        ``completion_tokens`` / ``total_tokens`` (empty dict if the provider omitted it).
+        """
+        import httpx  # inline import — same rationale as _call_openai_compatible
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": max_tokens,
+                },
+            )
+            if resp.status_code == 429:
+                raise Exception(f"Rate limit exceeded: {resp.text[:100]}")
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"] or ""
+            usage = data.get("usage") or {}
+            return content, usage
+
     async def _call_groq(self, prompt: str, timeout: float, max_tokens: int = 200) -> str:
         """Call Groq API."""
         try:

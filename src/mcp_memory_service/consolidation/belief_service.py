@@ -314,6 +314,85 @@ def _most_informative_representative(cluster) -> Optional[object]:
     return cluster[best_idx]
 
 
+# ── ARCO SÍNTESE Slice 4: LLM synthesis of the cluster ──
+# Prompt adapted from harvest/rewriter.REWRITE_PROMPT: instead of extracting one excerpt,
+# it asks the LLM to SYNTHESIZE a single generalized, actionable CLAIM from the cluster's
+# representative content, in the SAME LANGUAGE as the input. Kept deliberately close to the
+# rewriter's wording so a provider already tuned for harvest behaves consistently.
+BELIEF_SYNTHESIS_PROMPT = """You are consolidating repeated observations from a developer's
+coding sessions into ONE general, reusable BELIEF.
+---
+{text}
+---
+
+Write a SINGLE generalized, actionable claim (1-2 sentences) that captures the reusable
+rule, decision, convention or learning in the text above.
+
+RULES:
+- GENERALIZE — state the reusable rule, do NOT copy the input verbatim.
+- Stay FAITHFUL — keep the concrete tools, technologies and terms the text is about; do NOT
+  introduce a topic the text does not mention.
+- Be SELF-CONTAINED (understandable without the original conversation).
+- Remove conversational filler, markdown, emojis, timestamps and session metadata.
+- Respond in the SAME LANGUAGE as the input text.
+- Respond with ONLY the claim — no preamble, no quotes, no "Claim:" label."""
+
+# Portuguese + English stopwords to ignore when computing the cluster's SHARED thematic
+# terms for the anti-hallucination guard (so the guard checks CONTENT words, not glue).
+_SYNTHESIS_STOPWORDS = frozenset({
+    "de", "da", "do", "das", "dos", "em", "na", "no", "nas", "nos", "a", "à", "ao", "aos",
+    "às", "para", "pra", "por", "pelo", "pela", "com", "sem", "sob", "sobre", "entre", "o",
+    "os", "as", "um", "uma", "uns", "umas", "e", "ou", "mas", "que", "se", "como", "ao",
+    "the", "a", "an", "of", "in", "on", "at", "to", "for", "with", "and", "or", "but", "is",
+    "are", "as", "by", "from", "this", "that",
+})
+
+
+def _shared_terms(cluster) -> set:
+    """Thematic content terms shared across the cluster (appear in >=2 observations).
+
+    Lowercased, stopwords and short (<=2 char) tokens dropped. For a single-observation
+    cluster, falls back to that observation's content terms (there is nothing to intersect,
+    but the guard still needs the topic vocabulary to check against)."""
+    def _content_of(o) -> str:
+        return o.content if hasattr(o, "content") else o.get("content", "")
+
+    def _terms(text: str) -> set:
+        return {
+            t for t in re.findall(r"[0-9A-Za-zÀ-ÿ]+", (text or "").lower())
+            if len(t) > 2 and t not in _SYNTHESIS_STOPWORDS
+        }
+
+    token_sets = [_terms(_content_of(o)) for o in cluster]
+    if len(token_sets) == 1:
+        return token_sets[0]
+    df: dict = {}
+    for tokens in token_sets:
+        for tok in tokens:
+            df[tok] = df.get(tok, 0) + 1
+    return {tok for tok, n in df.items() if n >= 2}
+
+
+def _claim_retains_terms(claim: str, shared_terms: set, min_ratio: float = 0.34) -> bool:
+    """Anti-hallucination guard: does the synthesized claim RETAIN the cluster's shared
+    thematic terms?
+
+    A claim that drops (almost) all of the cluster's content vocabulary means the LLM
+    wandered off-topic and must be discarded. We require that at least ``min_ratio`` of the
+    shared terms survive in the claim. ``min_ratio`` defaults to 0.34 — i.e. ~1/3 of the
+    shared thematic terms must be retained; this is the term-retention threshold of the
+    guard (roughly one third), chosen so a faithful generalization that rewords but keeps
+    the topic passes, while a claim that abandons two-thirds-plus of the cluster's
+    vocabulary is rejected. With no shared terms to check against the guard passes (nothing
+    to violate). Comparison is lowercased substring containment so inflections/morphology
+    (e.g. "respostas" in "resposta") still count."""
+    if not shared_terms:
+        return True
+    lowered = (claim or "").lower()
+    retained = sum(1 for term in shared_terms if term in lowered)
+    return retained >= max(1, int(round(min_ratio * len(shared_terms))))
+
+
 class BeliefService:
     # Default belief-grouping similarity. Decoupled from the store() dedup
     # threshold (MCP_SEMANTIC_DEDUP_THRESHOLD) so the two — which serve opposite
@@ -687,6 +766,20 @@ class BeliefService:
                     if self._extractive_enabled():
                         group_content = _clean_markers(group_content)
 
+                    # ARCO SÍNTESE Slice 4 (flag-gated, default OFF): synthesize a
+                    # generalized, actionable CLAIM from the cluster via the LLM. On success
+                    # (usable provider + call OK + anti-hallucination guard accepts) the
+                    # belief content becomes the SYNTHESIZED claim; on ANY failure (flag OFF,
+                    # no usable provider, call error, guard rejection) _synthesize_claim
+                    # returns None and we keep the extractive/verbatim group_content
+                    # (gracious fallback, byte-identical OFF contract). Applied AFTER Slice 2
+                    # cleaning and BEFORE hashing/_create_belief so belief_hash and the
+                    # stored content are the synthesized claim consistently.
+                    if self._synthesis_enabled():
+                        synthesized = await self._synthesize_claim(group_content, group_obs)
+                        if synthesized:
+                            group_content = synthesized
+
                     obs_dicts = [self._obs_to_dict(o) for o in group_obs]
                     # All observations in a group are supporting; contradictions come from
                     # memories explicitly marked via contradiction detection
@@ -816,6 +909,123 @@ class BeliefService:
         """
         raw = os.environ.get("MCP_BELIEF_EXTRACTIVE")
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    @staticmethod
+    def _synthesis_enabled() -> bool:
+        """Check if LLM synthesis of the cluster is enabled.
+
+        ARCO SÍNTESE Slice 4 (opt-in, default OFF — same gate shape as the other slices).
+        When OFF, the belief content is byte-identical to Slice 2 / current (extractive or
+        verbatim representative); NO LLM provider is ever consulted. When ON *and* a usable
+        LLM provider is configured (``load_llm_providers`` + ``is_usable_provider``), the
+        cluster is sent to the LLM for a generalized, actionable CLAIM (synthesis, not a
+        verbatim copy). Fallback is gracious: provider unavailable / call error / the
+        anti-hallucination guard rejecting the claim → fall back to the extractive path,
+        NEVER crashing derive_beliefs. Runs OFFLINE (scheduler), so latency never touches
+        the query path.
+        """
+        raw = os.environ.get("MCP_BELIEF_SYNTHESIS")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    async def _synthesize_claim(self, representative_content: str, cluster) -> Optional[str]:
+        """Synthesize ONE generalized claim for the cluster via the LLM (Slice 4).
+
+        Best-effort and gracious: returns the synthesized claim ONLY when the flag is ON,
+        a usable provider resolves, the call succeeds, and the anti-hallucination guard
+        accepts the result. In every other case (flag OFF, no usable provider, call error,
+        empty/guard-rejected claim) returns ``None`` so the caller falls back to the
+        extractive/verbatim path. NEVER raises — a failure must not break derive_beliefs.
+
+        On a successful synthesis it also emits a ``belief_synthesis`` usage_event carrying
+        prompt/completion token counts, model and measured latency (cost instrumentation).
+        """
+        if not representative_content:
+            return None
+        try:
+            from ..harvest.rewriter import (
+                HarvestRewriter,
+                is_usable_provider,
+                load_llm_providers,
+            )
+        except Exception:  # noqa: BLE001 - harvest optional; fall back silently
+            return None
+
+        providers = [p for p in (load_llm_providers() or []) if is_usable_provider(p)]
+        if not providers:
+            return None
+        provider = providers[0]
+
+        prompt = BELIEF_SYNTHESIS_PROMPT.format(text=representative_content)
+        rewriter = HarvestRewriter()
+
+        import time as _time
+        start = _time.monotonic()
+        usage: dict = {}
+        try:
+            # Call the usage-returning seam the harvest client exposes: it returns BOTH the
+            # claim content AND the provider ``usage`` block (prompt/completion/total
+            # tokens). We need the REAL token counts for the belief_synthesis cost event —
+            # word-count is only a fallback when the provider omits ``usage``.
+            claim, usage = await rewriter._call_openai_compatible_with_usage(
+                provider.base_url, provider.model, provider.api_key, prompt,
+                timeout=30.0, max_tokens=200,
+            )
+        except Exception as e:  # noqa: BLE001 - gracious fallback, never crash derive
+            logger.warning(
+                "[belief] synthesis call failed (non-fatal), falling back to extractive: %s",
+                _sanitize_log_value(str(e)),
+            )
+            return None
+        latency_ms = int((_time.monotonic() - start) * 1000)
+
+        claim = (claim or "").strip()
+        if not claim:
+            return None
+
+        # Anti-hallucination guard: the claim must retain the cluster's shared thematic
+        # terms, else the LLM wandered off-topic → discard, fall back to extractive.
+        if not _claim_retains_terms(claim, _shared_terms(cluster)):
+            logger.info("[belief] synthesis claim discarded by anti-hallucination guard")
+            return None
+
+        # Cost instrumentation (best-effort — never breaks derive). Token counts come from
+        # the REAL provider ``usage`` block (OpenAI-compatible: prompt_tokens /
+        # completion_tokens / total_tokens) so the belief_synthesis event measures TRUE
+        # cost. Word-count is only a fallback for providers that omit the usage block.
+        try:
+            prompt_tokens = usage.get("prompt_tokens")
+            if prompt_tokens is None:
+                prompt_tokens = len(prompt.split())
+            completion_tokens = usage.get("completion_tokens")
+            if completion_tokens is None:
+                completion_tokens = len(claim.split())
+            total_tokens = usage.get("total_tokens")
+            if total_tokens is None:
+                total_tokens = prompt_tokens + completion_tokens
+            from ..storage.usage_telemetry import (
+                log_usage_event,
+                resolve_telemetry_agent_id,
+            )
+            metadata = json.dumps({
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "model": provider.model,
+                "latency_ms": latency_ms,
+            })
+            await log_usage_event(
+                self.storage, "belief_synthesis",
+                latency_ms=latency_ms,
+                agent_id=resolve_telemetry_agent_id(),
+                metadata=metadata,
+            )
+        except Exception as e:  # noqa: BLE001 - telemetry is best-effort
+            logger.debug(
+                "[belief] belief_synthesis telemetry failed (non-fatal): %s",
+                _sanitize_log_value(str(e)),
+            )
+
+        return claim
 
     async def _find_belief_by_provenance(self, supporting_hashes, threshold: float = 0.6):
         """Locate an existing belief whose provenance majority-overlaps the given sources.
