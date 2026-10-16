@@ -44,6 +44,7 @@ LEARNING_ARGS = {"topic": "scope-test", "key_points": "a, b", "questions": "c"}
 # Valid arguments, so the SDK's schema validation passes and the request
 # reaches the scope check, as a real attack would.
 TOOL_ARGS = {
+    "memory_graph": {"action": "extract_entities", "hash": "deadbeef" * 8},
     "memory_store": {"content": "x"},
     "memory_update": {"content_hash": "h", "updates": {"tags": ["t"]}},
     "memory_delete": {"content_hash": "h"},
@@ -121,6 +122,47 @@ class TestToolCallScope:
         assert result.isError is True
         assert "insufficient_scope" in result.content[0].text
         assert server.handled == [], "the handler must not run"
+
+    @pytest.mark.asyncio
+    async def test_read_token_cannot_extract_graph_entities(self, server):
+        # The SDK currently rejects this hidden action via schema validation.
+        result = await _call_tool(server, "memory_graph", "read")
+        assert result.isError is True
+        assert server.handled == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("arguments", [TOOL_ARGS["memory_graph"], {}, {"action": "future_write"}])
+    async def test_dispatch_itself_blocks_graph_extraction(self, server, arguments):
+        # Protect dispatch even when a transport does not validate the schema.
+        token = _as_caller("read")
+        try:
+            with pytest.raises(PermissionError, match="insufficient_scope"):
+                await server.call_tool("memory_graph", arguments)
+            assert server.handled == []
+        finally:
+            request_ctx.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_write_token_can_extract_graph_entities(self, server):
+        token = _as_caller("read write")
+        try:
+            result = await server.call_tool("memory_graph", TOOL_ARGS["memory_graph"])
+            assert result[0].text == "handled"
+        finally:
+            request_ctx.reset(token)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action", [
+        "connected", "path", "subgraph", "infer", "suggest", "abduct",
+        "list_entities", "entity_profile",
+    ])
+    async def test_read_token_keeps_graph_traversal(self, server, action):
+        token = _as_caller("read")
+        try:
+            result = await server.call_tool("memory_graph", {"action": action, "hash": "h"})
+            assert result[0].text == "handled"
+        finally:
+            request_ctx.reset(token)
 
     @pytest.mark.asyncio
     async def test_read_token_can_search(self, server):

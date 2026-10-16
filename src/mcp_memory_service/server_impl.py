@@ -1513,10 +1513,14 @@ class MemoryServer:
         scope = request.scope.get("mcp_auth_scope")
         return scope is None or "write" in scope.split()
 
-    async def tool_requires_write(self, name: Optional[str]) -> bool:
+    async def tool_requires_write(self, name: Optional[str], arguments: Optional[dict] = None) -> bool:
         """Return True if calling this tool requires the 'write' scope.
 
-        Derived per-call from `list_tools()`: a tool counts as write unless
+        Mixed graph operations are classified by action, not just the tool
+        annotation (GHSA-2mw6-h564-86wv). Only known read actions are exempt;
+        entity extraction and unknown actions require write scope.
+
+        Otherwise derived per-call from `list_tools()`: a tool counts as write unless
         its annotations explicitly set `readOnlyHint=True`. This matches the
         MCP spec's default ("destructive=True, readOnly=False" unless declared
         otherwise) and keeps the set in lockstep with the canonical tool list.
@@ -1531,6 +1535,11 @@ class MemoryServer:
         """
         if not name:
             return False
+        if name == "memory_graph":
+            return not (arguments and arguments.get("action") in (
+                "connected", "path", "subgraph", "infer", "suggest", "abduct",
+                "list_entities", "entity_profile",
+            ))
         try:
             tools = await self.list_tools()
         except Exception:
@@ -1589,7 +1598,7 @@ class MemoryServer:
         # The FastAPI shim checked write scope on its own since GHSA-2r68-g678-7qr3,
         # but SSE and Streamable HTTP dispatch straight here (GHSA-9x7v-2vjj-xghg).
         # Raise rather than return content, so the SDK answers isError=True.
-        if not self._caller_has_write_scope() and await self.tool_requires_write(name):
+        if not self._caller_has_write_scope() and await self.tool_requires_write(name, arguments):
             logger.warning("Refused write tool for a read-only caller: %s", _sanitize_log_value(name))
             raise PermissionError(f"insufficient_scope: tool '{name}' requires 'write' access")
 
