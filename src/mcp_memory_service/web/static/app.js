@@ -726,6 +726,9 @@ class MemoryDashboard {
      * Set up Server-Sent Events for real-time updates
      */
     setupSSE() {
+        // Bump first: any in-flight ticket exchange from a previous call is now
+        // stale and will refuse to open a stream (see _openSSEWithTicket).
+        this._sseSetupGeneration = (this._sseSetupGeneration || 0) + 1;
         // Close any existing connection to prevent connection multiplication.
         // Without this, each failed reconnect spawns a new EventSource while
         // the old one may still be retrying, leading to exponential 401 spam.
@@ -741,75 +744,144 @@ class MemoryDashboard {
         }
 
         try {
-            // Build SSE URL with query parameter auth (EventSource API doesn't support custom headers)
+            // EventSource cannot set an Authorization header. It used to carry
+            // `?api_key=<long-lived key>`, which uvicorn wrote verbatim into the
+            // access log on every reconnect (issue #1117) — TLS protects the wire,
+            // not the log. Now we ask for a single-use ticket over POST: the real
+            // credential travels in a body no access-log line contains, and the
+            // ticket is dead within a minute and cannot be replayed.
             const sseUrl = new URL(`${this.apiBase}/events`, document.baseURI);
             if (this.authState.apiKey) {
-                sseUrl.searchParams.set('api_key', this.authState.apiKey);
-            } else if (this.authState.oauthToken) {
+                this._openSSEWithTicket(sseUrl);
+                return;
+            }
+            if (this.authState.oauthToken) {
+                // OAuth tokens are short-lived and revocable, so a URL carries far
+                // less risk here. Unchanged by this fix.
                 sseUrl.searchParams.set('token', this.authState.oauthToken);
             }
-            this.eventSource = new EventSource(sseUrl.toString());
-
-            this.eventSource.onopen = () => {
-                // Reset backoff on successful connection
-                this._sseReconnectAttempts = 0;
-                this.updateConnectionStatus('connected');
-            };
-
-            this.eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleRealtimeUpdate(data);
-                } catch (error) {
-                    console.error('Error parsing SSE data:', error);
-                }
-            };
-
-            // Add specific event listeners for sync progress
-            this.eventSource.addEventListener('sync_progress', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleSyncProgress(data);
-                } catch (error) {
-                    console.error('Error parsing sync_progress event:', error);
-                }
-            });
-
-            this.eventSource.addEventListener('sync_completed', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleSyncCompleted(data);
-                } catch (error) {
-                    console.error('Error parsing sync_completed event:', error);
-                }
-            });
-
-            this.eventSource.onerror = (error) => {
-                console.error('SSE connection error:', error);
-                this.updateConnectionStatus('disconnected');
-
-                // Don't reconnect if we're not authenticated — avoids infinite
-                // 401 loop when EventSource can't send auth headers and the
-                // query-param fallback isn't accepted.
-                if (!this.authState.isAuthenticated) {
-                    return;
-                }
-
-                // Exponential backoff: 5s → 10s → 20s → 40s → 60s max
-                const attempts = this._sseReconnectAttempts || 0;
-                const delay = Math.min(5000 * Math.pow(2, attempts), 60000);
-                this._sseReconnectAttempts = attempts + 1;
-
-                setTimeout(() => {
-                    if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
-                        this.setupSSE();
-                    }
-                }, delay);
-            };
-
+            this._connectSSE(sseUrl);
         } catch (error) {
             console.error('Failed to establish SSE connection:', error);
             this.updateConnectionStatus('disconnected');
+        }
+    }
+
+    /**
+     * Open the EventSource and bind handlers. One connection path so a retry
+     * cannot leave a second socket behind (see the close() at the top of setupSSE).
+     */
+    _connectSSE(sseUrl) {
+        this.eventSource = new EventSource(sseUrl.toString());
+
+        this.eventSource.onopen = () => {
+            // Reset backoff on successful connection
+            this._sseReconnectAttempts = 0;
+            this.updateConnectionStatus('connected');
+        };
+
+        this.eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleRealtimeUpdate(data);
+            } catch (error) {
+                console.error('Error parsing SSE data:', error);
+            }
+        };
+
+        // Add specific event listeners for sync progress
+        this.eventSource.addEventListener('sync_progress', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleSyncProgress(data);
+            } catch (error) {
+                console.error('Error parsing sync_progress event:', error);
+            }
+        });
+
+        this.eventSource.addEventListener('sync_completed', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleSyncCompleted(data);
+            } catch (error) {
+                console.error('Error parsing sync_completed event:', error);
+            }
+        });
+
+        this.eventSource.onerror = (error) => {
+            console.error('SSE connection error:', error);
+            this.updateConnectionStatus('disconnected');
+
+            // Don't reconnect if we're not authenticated — avoids infinite
+            // 401 loop when EventSource can't send auth headers and the
+            // query-param fallback isn't accepted.
+            if (!this.authState.isAuthenticated) {
+                return;
+            }
+
+            // Exponential backoff: 5s → 10s → 20s → 40s → 60s max
+            const attempts = this._sseReconnectAttempts || 0;
+            const delay = Math.min(5000 * Math.pow(2, attempts), 60000);
+            this._sseReconnectAttempts = attempts + 1;
+
+            setTimeout(() => {
+                if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
+                    this.setupSSE();
+                }
+            }, delay);
+        };
+
+    }
+
+    /**
+     * Exchange the long-lived API key for a single-use SSE ticket, then connect.
+     * The key travels in a POST body; only the ticket goes on the URL.
+     */
+    async _openSSEWithTicket(sseUrl) {
+        // Greptile: a failed exchange used to leave the page disconnected with
+        // no EventSource and therefore no onerror retry — a transient 429 or
+        // blip killed live updates until a reload. Retry with backoff, and bail
+        // out if the user signed out meanwhile.
+        // The generation counter also stops a slow response from an earlier
+        // setupSSE opening a second stream after a newer one is already live.
+        const attempt = ++this._sseSetupGeneration;
+        const maxAttempts = 4;
+        for (let i = 0; i < maxAttempts; i++) {
+            if (attempt !== this._sseSetupGeneration) return; // superseded
+            if (this.authState.requiresAuth && !this.authState.isAuthenticated) return;
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.authState.apiKey) headers['X-API-Key'] = this.authState.apiKey;
+                const resp = await fetch(`${this.apiBase}/events/ticket`, {
+                    method: 'POST',
+                    headers,
+                    body: '{}',
+                    credentials: 'same-origin',
+                });
+                // 401 is not transient: the credential is wrong. Retry only
+                // what a retry can fix.
+                if (resp.status === 401 || resp.status === 403) {
+                    console.error(`SSE ticket refused (${resp.status}); not retrying`);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                if (!resp.ok) throw new Error(`ticket request failed: ${resp.status}`);
+                const data = await resp.json();
+                if (attempt !== this._sseSetupGeneration) return;
+                sseUrl.searchParams.set(data.param_name || 'ticket', data.ticket);
+                this._connectSSE(sseUrl);
+                return;
+            } catch (err) {
+                if (attempt !== this._sseSetupGeneration) return;
+                if (i === maxAttempts - 1) {
+                    console.error('SSE ticket exchange failed:', err);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                // 250ms, 500ms, 1000ms — short, because the user is waiting
+                // for live updates, not for a background sync.
+                await new Promise((r) => setTimeout(r, 250 * Math.pow(2, i)));
+            }
         }
     }
 
