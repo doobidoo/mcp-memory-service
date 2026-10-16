@@ -567,13 +567,35 @@ class BeliefService:
                     belief_hash = _hash_content(group_content)
                     existing = await self._get_belief(belief_hash)
 
+                    # ARCO SÍNTESE Slice 0 (flag-gated, default OFF): if the content-keyed
+                    # lookup missed, try to locate the SAME belief by provenance overlap
+                    # (a re-derivation whose content drifted). On a match, update that row
+                    # IN PLACE (content + confidence + derived_from) preserving metadata,
+                    # keeping belief identity stable across content changes.
+                    stable_update = False
+                    if not existing and self._stable_identity_enabled():
+                        prov_hash = await self._find_belief_by_provenance(supporting_hashes)
+                        if prov_hash:
+                            prov_existing = await self._get_belief(prov_hash)
+                            if prov_existing:
+                                belief_hash = prov_hash
+                                existing = prov_existing
+                                stable_update = True
+
                     if existing:
                         # Apply negative use-signal penalty before updating (learning-loop frente B)
                         confidence = await self._apply_unused_penalty(belief_hash, confidence, existing)
-                        
-                        await self._update_belief(
-                            belief_hash, confidence, supporting_hashes, contradicting_hashes, now
-                        )
+
+                        if stable_update:
+                            # In-place identity: rewrite content too, preserving metadata.
+                            await self._update_belief(
+                                belief_hash, confidence, supporting_hashes, contradicting_hashes, now,
+                                content=group_content,
+                            )
+                        else:
+                            await self._update_belief(
+                                belief_hash, confidence, supporting_hashes, contradicting_hashes, now
+                            )
                         stats["updated"] += 1
 
                         # Promote or supersede
@@ -614,6 +636,89 @@ class BeliefService:
         """Check if ontology-based filtering is enabled via environment flag."""
         raw = os.environ.get("MCP_BELIEF_ONTOLOGY_FILTERING")
         return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    @staticmethod
+    def _stable_identity_enabled() -> bool:
+        """Check if stable belief identity (in-place update via provenance) is enabled.
+
+        ARCO SÍNTESE Slice 0 (opt-in, default OFF). When OFF the derivation path is
+        byte-identical to today: belief identity is keyed on sha256(content), so a
+        content change produces a new row. When ON, a re-derivation of the same cluster
+        locates the existing belief by majority overlap of its `derived_from` sources and
+        updates it IN PLACE, preserving metadata (feedback counters, utility_prior).
+        """
+        raw = os.environ.get("MCP_BELIEF_STABLE_IDENTITY")
+        return raw is not None and raw.strip().lower() in {"true", "1", "yes"}
+
+    async def _find_belief_by_provenance(self, supporting_hashes, threshold: float = 0.6):
+        """Locate an existing belief whose provenance majority-overlaps the given sources.
+
+        Scores each active/candidate belief by the OVERLAP (containment) coefficient
+        |A∩B| / min(|A|, |B|) between the candidate cluster's source set (A) and the
+        belief's `derived_from` set (B), returning the belief_hash of the best match at or
+        above `threshold`, else None.
+
+        Design note: the containment coefficient (not plain Jaccard |A∩B|/|A∪B|) is the
+        correct "majority overlap" metric for the gain/lose-an-observation tolerance this
+        feature targets. Identical observations dedup to a single content_hash at storage,
+        so a run that "lost one of N sources" presents as a strict SUBSET of the stored
+        provenance (e.g. {h} vs {h, dropped}); Jaccard would score that 0.5 and miss a true
+        re-derivation, whereas containment scores it 1.0 — matching the intended semantics
+        ("the cluster's sources are mostly/all still backing this belief").
+
+        Best-effort: any failure (missing table, malformed JSON) is swallowed and returns
+        None, so the caller falls back to the normal CREATE path and the derivation cycle
+        is never broken. Never raises.
+        """
+        try:
+            sources = {h for h in (supporting_hashes or []) if h}
+            if not sources:
+                return None
+            conn = self.storage.conn
+            best_hash = None
+            best_score = 0.0
+            # TODO(ARCO SÍNTESE perf): this is a full-scan O(N·M) over every active/candidate
+            # belief for each cluster this cycle (N beliefs × M clusters). Tolerable at a few
+            # hundred beliefs, but a future improvement should load the active/candidate
+            # beliefs once before the derivation loop, or maintain a source_hash → belief_hash
+            # inverted index, to avoid re-querying per group.
+            cursor = conn.execute(
+                "SELECT belief_hash, derived_from FROM beliefs "
+                "WHERE status IN ('active', 'candidate')"
+            )
+            for belief_hash, derived_from_raw in cursor.fetchall():
+                try:
+                    existing_sources = {
+                        h for h in (json.loads(derived_from_raw or "[]") or []) if h
+                    }
+                except (ValueError, TypeError):
+                    continue
+                if not existing_sources:
+                    continue
+                denom = min(len(sources), len(existing_sources))
+                if denom == 0:
+                    continue
+                inter = len(sources & existing_sources)
+                overlap = inter / denom
+                # P1-B: containment alone (denom = min(|A|,|B|)) scores ANY subset 1.0, so a
+                # small cluster (2 sources) that is a strict subset of a large mature belief
+                # (10 sources) would hijack and overwrite it. Require, in addition to
+                # containment ≥ threshold, a proportion guard: the symmetric difference must be
+                # at most one element on EACH side (|A∩B| ≥ |B|−1 AND |A∩B| ≥ |A|−1). That
+                # admits the "gained/lost at most one observation" case the ±1 tolerance (T3)
+                # targets, and rejects a disproportionate subset.
+                proportionate = (inter >= len(existing_sources) - 1) and (inter >= len(sources) - 1)
+                if overlap >= threshold and proportionate and overlap > best_score:
+                    best_score = overlap
+                    best_hash = belief_hash
+            return best_hash
+        except Exception as e:  # noqa: BLE001 - best-effort lookup, never break derivation
+            logger.debug(
+                "[belief] provenance lookup failed (non-fatal): %s",
+                _sanitize_log_value(str(e)),
+            )
+            return None
+
     
     @staticmethod
     def _get_batch_cap() -> int:
@@ -1040,14 +1145,47 @@ class BeliefService:
             logger.debug("belief embedding skipped (%s): %s", _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
             return None
 
-    async def _update_belief(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now):
-        """Update an existing belief's confidence and provenance."""
+    async def _update_belief(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now,
+                             content: Optional[str] = None):
+        """Update an existing belief's confidence and provenance.
+
+        When `content` is provided (ARCO SÍNTESE Slice 0 in-place identity), the belief's
+        content is rewritten as well, and its semantic embedding (R4) is RECOMPUTED from the
+        new content so the re-rank matches the current content, not the stale old vector.
+        The `metadata` column is intentionally NOT touched by this method, so feedback
+        counters / utility_prior on the existing row survive an in-place update.
+        `content=None` keeps the byte-identical legacy behavior.
+        """
         conn = self.storage.conn
-        conn.execute(
-            "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, updated_at = ? "
-            "WHERE belief_hash = ?",
-            (confidence, json.dumps(supporting_hashes), json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
-        )
+        if content is not None:
+            # P1-A: recompute the embedding from the new content; a stale embedding would
+            # make R4 re-rank the belief by its OLD semantics after an in-place rewrite.
+            embedding_blob = self._compute_belief_embedding(content)
+            try:
+                conn.execute(
+                    "UPDATE beliefs SET content = ?, confidence = ?, derived_from = ?, "
+                    "contradicted_by = ?, updated_at = ?, embedding = ? WHERE belief_hash = ?",
+                    (content, confidence, json.dumps(supporting_hashes),
+                     json.dumps(contradicting_hashes), now.isoformat(), embedding_blob,
+                     belief_hash),
+                )
+            except Exception as e:
+                # Backward compat: belief table predates migration 021 (no embedding column).
+                if "no such column: embedding" in str(e) or "has no column" in str(e):
+                    conn.execute(
+                        "UPDATE beliefs SET content = ?, confidence = ?, derived_from = ?, "
+                        "contradicted_by = ?, updated_at = ? WHERE belief_hash = ?",
+                        (content, confidence, json.dumps(supporting_hashes),
+                         json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
+                    )
+                else:
+                    raise
+        else:
+            conn.execute(
+                "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, updated_at = ? "
+                "WHERE belief_hash = ?",
+                (confidence, json.dumps(supporting_hashes), json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
+            )
         conn.commit()
 
     async def _set_belief_status(self, belief_hash: str, status: str, now: datetime):
