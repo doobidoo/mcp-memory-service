@@ -628,9 +628,20 @@ def test_max_state_len_default_accommodates_long_clients():
 
 def test_max_state_len_is_env_configurable(monkeypatch):
     """Operators can raise the cap via MCP_OAUTH_MAX_STATE_LEN without code changes."""
+    import importlib
+    from mcp_memory_service.web.oauth import limits
+
     monkeypatch.setenv("MCP_OAUTH_MAX_STATE_LEN", "8000")
-    # Re-import after env change (safe_get_int_env reads at call time only if re-evaluated;
-    # since the constant is evaluated at import, we re-execute the assignment for the test).
-    from mcp_memory_service.config.base import safe_get_int_env
-    custom = safe_get_int_env("MCP_OAUTH_MAX_STATE_LEN", 4096, min_value=256, max_value=16384)
-    assert custom == 8000
+    importlib.reload(limits)
+    assert limits.MAX_STATE_LEN == 8000
+
+    # Boundary checks: accept at the new limit, reject above it
+    limits.reject_if_too_long("x" * 8000, limits.MAX_STATE_LEN, "state")
+    with pytest.raises(HTTPException) as exc:
+        limits.reject_if_too_long("x" * 8001, limits.MAX_STATE_LEN, "state")
+    assert "exceeds maximum length" in str(exc.value.detail).lower()
+
+    # Restore so later tests see the default
+    monkeypatch.delenv("MCP_OAUTH_MAX_STATE_LEN", raising=False)
+    importlib.reload(limits)
+    assert limits.MAX_STATE_LEN == 4096

@@ -49,7 +49,7 @@ MAX_REFRESH_TOKEN_LEN = 1024
 # unusually long opaque parameters (e.g. Google Gemini's ~2400-char OAuth
 # state) without patching source. Defaults raised from the previous hard
 # 1024 to give headroom while still bounding abusive input.
-MAX_SCOPE_LEN = safe_get_int_env("MCP_OAUTH_MAX_SCOPE_LEN", 2048, min_value=256, max_value=8192)
+MAX_SCOPE_LEN = safe_get_int_env("MCP_OAUTH_MAX_SCOPE_LEN", 1024, min_value=256, max_value=8192)
 MAX_STATE_LEN = safe_get_int_env("MCP_OAUTH_MAX_STATE_LEN", 4096, min_value=256, max_value=16384)
 MAX_REDIRECT_URI_LEN = safe_get_int_env("MCP_OAUTH_MAX_REDIRECT_URI_LEN", 2048, min_value=256, max_value=8192)
 
