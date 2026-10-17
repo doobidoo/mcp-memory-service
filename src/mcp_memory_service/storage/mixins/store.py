@@ -57,6 +57,71 @@ class StoreMixin:
             (content_hash,)
         )
 
+    def _recreate_of_for(self, content_hash: str) -> Optional[Tuple[str, list]]:
+        """#1522 #2 (ADR-0012 v2): the `recreate_of` signal for a re-create of this hash.
+
+        Returns `(event_id, [hlc_physical, hlc_logical, agent_id])` of the dominant local
+        delete for `content_hash` whenever a delete event is recorded in sync_events —
+        INDEPENDENTLY of whether a soft-deleted tombstone row still exists (#1564). The
+        producer stamps the `event_id` on the re-create's payload
+        (retrocompat name-match) AND the HLC+agent triple as `recreate_of_hlc` — a STABLE
+        identity anchor that survives event_id rewrites (P1-B, 2026-10-16): the bootstrap
+        baseline rewrites the delete's event_id to `bl-...` but PRESERVES its HLC
+        (bootstrap.py:132 `hlc_by_hash`), so apply can still match the named delete by the
+        anchor when the raw event_id no longer matches. Call BEFORE `_purge_tombstone`,
+        which hard-deletes the tombstone row but does NOT touch sync_events, so the delete
+        event is still the latest for the hash.
+
+        Returns None when no delete event is recorded for the hash (a fresh create carries no
+        recreate_of) or when the lookup is unavailable.
+
+        P2 tied-deletes (Greptile): the dominant delete is selected by the resolver's FULL
+        total order (`_winner_key`: HLC -> delete-vs-update -> agent_id -> event_id), NOT by
+        `(hlc_physical, hlc_logical)` alone. With two deletes at the SAME HLC, a raw
+        `ORDER BY hlc DESC LIMIT 1` is non-deterministic across peers; `_winner_key` breaks the
+        tie the same way apply's `recompute_liveness` elects Dtop, so producer and consumer agree.
+        """
+        # Local import keeps the resolver's canonical order the single source of truth and
+        # avoids a module-load cycle (store mixin <-> sync package).
+        from ..sync.resolver import EventView, _winner_key
+        try:
+            # #1564: decide SOLELY from the recorded delete in sync_events, NOT from the
+            # presence of a tombstone row. purge_deleted/_purge_tombstone hard-delete the
+            # soft-deleted memories row but never touch sync_events, so the delete event
+            # survives the purge. The old tombstone guard (`if tomb is None: return None`)
+            # was redundant with `if not rows` below — sync_events only carries op='delete'
+            # when a live row was actually deleted (delete.py emits it on rowcount>0), so a
+            # fresh create (never deleted) has zero delete rows and still returns None here.
+            # Requiring the tombstone row made a re-create AFTER a purge emit recreate_of=""
+            # (EMPTY), which apply treats as delete-wins → origin live, peer dead forever.
+            rows = list(self.conn.execute(
+                "SELECT event_id, hlc_physical, hlc_logical, agent_id FROM sync_events "
+                "WHERE content_hash = ? AND op = 'delete'",
+                (content_hash,),
+            ).fetchall())
+        except Exception as e:  # noqa: BLE001 - never break store() on this lookup
+            logger.debug(
+                "recreate_of lookup failed for %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(e),
+            )
+            return None
+        if not rows:
+            return None
+        # Elect the dominant delete (smallest _winner_key == resolver winner among deletes).
+        dtop = min(
+            rows,
+            key=lambda r: _winner_key(EventView(
+                hlc_physical=r[1] or 0, hlc_logical=r[2] or 0, agent_id=r[3],
+                event_id=r[0] or "", op="delete", content_hash=content_hash,
+            )),
+        )
+        # event_id (name-match, retrocompat) + the STABLE HLC+agent anchor (P1-B): the anchor
+        # survives the bootstrap's `bl-...` event_id rewrite, so apply can still match this
+        # delete when the raw event_id has been rewritten. Delete events always carry a
+        # stamped HLC, so the physical/logical are never NULL here; apply's _load_hash_events
+        # coerces NULL→0 on the read side symmetrically.
+        return dtop[0], [dtop[1], dtop[2], dtop[3]]
+
     async def _check_semantic_duplicate(
         self,
         content: str,
@@ -137,6 +202,10 @@ class StoreMixin:
             def insert_memory_and_embedding():
                 self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
+                    # #1522 #2: capture the delete this create supersedes BEFORE purging the
+                    # tombstone (purge does not touch sync_events). Only set when a tombstone
+                    # actually exists for this hash; a fresh create carries no recreate_of.
+                    _recreate_info = self._recreate_of_for(memory.content_hash)
                     self._purge_tombstone(memory.content_hash)
                     cursor = self.conn.execute('''
                         INSERT INTO memories (
@@ -185,6 +254,22 @@ class StoreMixin:
                             'metadata': memory.metadata or {},
                             'store': store,
                         }
+                        # #1522 #2 (Henry, 3-state): v2 stamps recreate_of on EVERY create —
+                        # the delete's event_id when re-creating over a tombstone, else the
+                        # explicit empty sentinel "". Absence of the key now means "v1 peer"
+                        # only; a v2 producer that never saw the delete emits "" (not absent),
+                        # which apply treats as "delete wins". Sentinel is "" (not null): null
+                        # round-trips through json as None and collapses with absence via
+                        # .get(); "" survives distinct (seven G0, 2026-10-16).
+                        # P1-B (2026-10-16): when NAMED, also stamp recreate_of_hlc = the
+                        # delete's [hlc_physical, hlc_logical, agent_id] — a STABLE anchor that
+                        # survives the bootstrap's `bl-...` event_id rewrite so apply can match
+                        # the delete by HLC when the raw event_id no longer matches.
+                        if _recreate_info is not None:
+                            payload['recreate_of'] = _recreate_info[0]
+                            payload['recreate_of_hlc'] = _recreate_info[1]
+                        else:
+                            payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
                     
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
@@ -289,6 +374,8 @@ class StoreMixin:
                 try:
                     self.conn.execute(f'SAVEPOINT {sp}')
 
+                    # #1522 #2: capture the superseded delete BEFORE purge (same as store()).
+                    _recreate_info = self._recreate_of_for(memory.content_hash)
                     self._purge_tombstone(memory.content_hash)
 
                     cur = self.conn.execute('''
@@ -325,6 +412,17 @@ class StoreMixin:
                             'metadata': memory.metadata or {},
                             'store': store,
                         }
+                        # #1522 #2 (Henry, 3-state): stamp recreate_of on EVERY create —
+                        # delete's event_id over a tombstone, else "" (explicit empty
+                        # sentinel). Same contract as store(); "" (not null) so absence vs
+                        # empty survive the json round-trip distinctly. P1-B: when NAMED, also
+                        # stamp recreate_of_hlc (the delete's [hlc_physical, hlc_logical,
+                        # agent_id]) — a stable anchor robust to the bootstrap `bl-...` rewrite.
+                        if _recreate_info is not None:
+                            payload['recreate_of'] = _recreate_info[0]
+                            payload['recreate_of_hlc'] = _recreate_info[1]
+                        else:
+                            payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
 
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
