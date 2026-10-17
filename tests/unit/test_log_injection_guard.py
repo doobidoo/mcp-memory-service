@@ -53,6 +53,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/graph.py",
     "mcp_memory_service/storage/mixins/migrations.py",
     "mcp_memory_service/storage/mixins/embeddings.py",
+    "mcp_memory_service/discovery/client.py",
     "mcp_memory_service/discovery/mdns_service.py",
     "mcp_memory_service/sync/importer.py",
     "mcp_memory_service/backup/scheduler.py",
