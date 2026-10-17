@@ -111,7 +111,7 @@ def test_issue_mentioned_in_the_description_counts_as_linked(body):
 
 def test_template_placeholder_is_not_a_link():
     """The PR template's hidden hint says "Fixes #123"; leaving it in links nothing."""
-    template = (Path(__file__).parents[2] / ".github" / "pull_request_template.md").read_text()
+    template = (Path(__file__).parents[2] / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
     data = pr([])
     data["body"] = template
     assert "#123" in template
