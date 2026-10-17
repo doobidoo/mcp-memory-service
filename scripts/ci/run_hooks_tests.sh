@@ -28,7 +28,7 @@
 #
 # Env overrides (for tests):
 #   MCS_HOOKS_TEST_DIRS space-separated directories to scan
-#                       (default: "claude-hooks/tests opencode/tests")
+#                       (default: "claude-hooks/tests opencode/tests codex/tests")
 #   MCS_HOOKS_TEST_DIR  a single directory, overriding the list above
 #   MCS_NODE_BIN        node binary to use (default: node)
 #
@@ -41,7 +41,7 @@ set -uo pipefail
 # Every directory of JS tests in the repo. MCS_HOOKS_TEST_DIR overrides with a
 # single directory (used by the test harness); MCS_HOOKS_TEST_DIRS with a
 # space-separated list.
-DEFAULT_TEST_DIRS="claude-hooks/tests opencode/tests"
+DEFAULT_TEST_DIRS="claude-hooks/tests opencode/tests codex/tests"
 if [ -n "${MCS_HOOKS_TEST_DIR:-}" ]; then
   TEST_DIRS="$MCS_HOOKS_TEST_DIR"
 else
