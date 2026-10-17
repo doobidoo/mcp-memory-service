@@ -33,6 +33,8 @@
 | B8 | Meu comportamento inicial violou o §8.1 | eu mesma rodei greps no código antes de delegar | Autocorreção: a partir do G0, investigação é delegada |
 | B9 | Edição concorrente de artefato compartilhado | ao tentar atualizar `workflow-memoria-checkpoint` (porta 8000 / troca de tema), ela JÁ estava atualizada com o modelo de dois eixos — feita por outra sessão em paralelo | Definir convenção de colisão para skills/config entre instâncias; verificar antes de editar (ler o arquivo, não a versão em cache) |
 | B10 | Testes verdes com critério de aceitação violado | G4 passou 9/9 e ruff limpo; o dry-run REAL mostrou 9,33M de 19,94M chars (46,8%) contra CA3 ≤10% — o mock do transporte escondia o defeito | Rodar o caminho real com dados reais ANTES de declarar G4 cumprido; teste verde não é critério atendido |
+| B11 | Vazamento de payload de tool SÓ apareceu em produção | 48 das 88 memórias importadas começam com `[tool]` e carregam até 2.000 chars de saída crua. Causa: o resumo corta por "primeira linha", e a saída real de `read_file` é um JSON de UMA linha — logo a "primeira linha" é o arquivo inteiro. As fixtures dos testes tinham quebras de linha | Fixtures devem incluir o formato REAL (linha única e longa); todo resumo de tool precisa de teto em caracteres, não só corte por linha. Corrigir e limpar o que já foi gravado |
+| B12 | Métrica errada quase gerou falso positivo (erro meu) | após corrigir B11, contei "memórias >260 chars começando com [tool]" e concluí que o fix falhara. Errado: o chunk do serviço (1.500 chars) começa com um turno de tool e segue com turnos de assistant. Medindo o TURNO gerado: 571 chamadas, máx 227 chars, zero acima de 260 | Definir a métrica ANTES de concluir: medir a unidade de origem (turno), não o artefato derivado (chunk). Verificar antes de reportar bug |
 
 ## C. Decisões metodológicas tomadas hoje
 
@@ -43,6 +45,7 @@
 | C3 | Papéis de execução = delegate + toolsets recortados + modelo por papel | Contexto é orçamento: mms com 30 tools = ~10.2k tokens por turno |
 | C4 | Fork-first com números; upstream só depois de medido | Prática do Claudio; documentação no repo é a contrapartida |
 | C5 | Não criar RFC nova: revisar as duas existentes + spec onde não havia nada | Evitar duplicação (já custou trilogia e quality-recompute) |
+| C6 | Calibração de custo: incremento trivial (≤50 linhas, 1 arquivo) usa UM worker em TDD interno (RED mostrado antes do GREEN); lógica nova ou >1 arquivo usa dois workers (rok/reg); review independente é sempre separado | Cada ciclo de dois workers custou 2-10 min; para 3 linhas isso é ritual, não rigor. O valor está no RED falhar antes, não em quem digita |
 
 ## D. Pendências de método (para a conversa final)
 

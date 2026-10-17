@@ -29,6 +29,10 @@ DEFAULT_STATE = str(Path.home() / ".hermes" / "cache" / "mms-hermes-import.json"
 DEFAULT_ENDPOINT = "http://127.0.0.1:3202/mcp"
 MAX_TURN_CHARS = 2000
 MAX_SESSION_CHARS = 15_000
+# Teto do RESUMO de mensagens role='tool' (D1): independente de haver
+# quebra de linha — saidas de tool (ex.: JSON de uma linha de read_file)
+# nao podem vazar para alem disso.
+MAX_TOOL_SUMMARY_CHARS = 200
 _HEAD_RATIO = 0.4
 MIN_USEFUL = 2
 
@@ -140,12 +144,30 @@ def _detect_error(text: str) -> str:
     return "erro" if any(m in low for m in _ERROR_MARKERS) else "ok"
 
 
+def _tool_summary(content: str) -> tuple[str, str]:
+    """Resumo de tool (D1): devolve ``(sinal, resumo)``.
+
+    Usa a PRIMEIRA linha da saída, normaliza espaços/quebras múltiplas
+    (colapsa para um único espaço) e corta o resumo em
+    ``MAX_TOOL_SUMMARY_CHARS`` — teto em caracteres independente de
+    haver quebra de linha (saídas de tool como read_file são JSON de
+    uma única linha; cortar só pela linha deixaria o payload inteiro).
+    O sinal ok/erro é detectado na primeira linha ANTES do corte, para
+    que o truncamento do resumo nunca altere a heurística de falha.
+    """
+    first_line = (content or "").split("\n", 1)[0]
+    signal = _detect_error(first_line)
+    normalized = " ".join(first_line.split())
+    return signal, normalized[:MAX_TOOL_SUMMARY_CHARS]
+
+
 def build_turns(messages, max_turn_chars: int = MAX_TURN_CHARS) -> list[dict]:
     """Normaliza mensagens em turnos ``{role, content}``.
 
     - ``user``/``assistant``: conteúdo truncado em ``max_turn_chars``.
-    - ``tool``: SOMENTE metadados (nome + ok/erro + 1ª linha truncada, D1);
-      o payload completo nunca sai.
+    - ``tool``: SOMENTE metadados (nome + ok/erro + resumo da 1ª linha
+      com teto de ``MAX_TOOL_SUMMARY_CHARS``, D1); o payload completo
+      nunca sai.
     - Descarta ``role='session_meta'``, ``compacted=1`` e ``active=0`` (R2).
     """
     turns: list[dict] = []
@@ -161,9 +183,9 @@ def build_turns(messages, max_turn_chars: int = MAX_TURN_CHARS) -> list[dict]:
         if role in ("user", "assistant"):
             turns.append({"role": role, "content": content[:max_turn_chars]})
         elif role == "tool":
-            first_line = content.split("\n", 1)[0]
             name = _field(m, "tool_name") or "?"
-            meta = f"[tool:{name}] {_detect_error(first_line)} — {first_line}"
+            signal, summary = _tool_summary(content)
+            meta = f"[tool:{name}] {signal} — {summary}"
             turns.append({"role": "tool", "content": meta[:max_turn_chars]})
         # outros roles: descartados (não fazem parte do acervo)
     return turns
@@ -534,6 +556,8 @@ def _parse_args(argv) -> argparse.Namespace:
     p.add_argument("--apply", action="store_true", help="grava (padrão é dry-run)")
     p.add_argument("--dry-run", action="store_true",
                    help="apenas relata (comportamento padrão)")
+    p.add_argument("--only-session", metavar="ID", default=None,
+                   help="restringe a coleta/relatório a uma sessão específica")
     return p.parse_args(list(argv) if argv is not None else None)
 
 
@@ -551,6 +575,43 @@ def main(argv=None) -> int:
     try:
         state = _load_state(args.state)
         collected = _collect(conn, state)
+
+        if args.only_session:
+            sid = args.only_session
+            matching = [r for r in collected["records"] if r["id"] == sid]
+            if not matching:
+                all_sessions = _fetch_sessions(conn)
+                all_ids = {s["id"] for s in all_sessions}
+                if sid not in all_ids:
+                    print(
+                        f"erro: sessao '{sid}' nao encontrada no banco",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(
+                    f"erro: sessao '{sid}' nao elegivel "
+                    f"(< {MIN_USEFUL} mensagens uteis)",
+                    file=sys.stderr,
+                )
+                return 1
+            collected["records"] = matching
+            collected["totals"] = {
+                "sessions_total": 1,
+                "eligible": len(matching),
+                "to_store": sum(
+                    1 for r in matching
+                    if r["action"] in ("new", "delta", "updated")
+                ),
+                "skipped": sum(1 for r in matching if r["action"] == "skip"),
+                "discarded": 0,
+                "sessions_truncated": sum(
+                    1 for r in matching if r["truncated"]
+                ),
+                "chars_to_send": sum(
+                    r["chars_to_send"] for r in matching
+                ),
+            }
+
         report = _to_report(collected, mode=mode)
         if args.apply:
             endpoint_kwargs = (

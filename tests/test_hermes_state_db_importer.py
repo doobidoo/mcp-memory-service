@@ -61,6 +61,16 @@ o .db fica bit-a-bit identico, CA7 no modo real de producao) e T20
 (state corrompido gera WARNING e comportamento explicito — erro ou
 reimport declarado — nunca JSONDecodeError engolido em silencio).
 
+G3.3 (quarta rodada RED — bug de producao apos import de sessoes reais):
+testes 24-26 travam o vazamento de payload de tool no resumo: o corte
+era feito apenas pela PRIMEIRA linha, mas a saida real de ferramentas
+como read_file e um JSON de UMA UNICA linha — a 'primeira linha' e o
+conteudo inteiro (ate 2.000 chars de payload cru vazavam para o
+acervo, violando D1). Corrigido com teto fixo em caracteres no
+resumo: MAX_TOOL_SUMMARY_CHARS = 200, independente de haver quebra
+de linha, com normalizacao de espacos/quebras multiplas antes do
+corte e sinal ok/erro detectado ANTES do truncamento.
+
 Mapeamento teste -> requisito/criterio:
   1 test_tool_payload_excluded        R2, D1
   2 test_compactada_excluida          R2, CA4
@@ -84,6 +94,10 @@ Mapeamento teste -> requisito/criterio:
   20 test_parse_sse_vazio_ou_truncado_levanta  G3.2/T18
   21 test_readonly_em_wal_le_dados_e_preserva_db  G3.2/T19, CA7 (WAL)
   22 test_state_corrompido_nao_e_silencioso  G3.2/T20 (WARNING explicito)
+  23 test_only_session_*  G3.2 (flags --only-session: restricao/falhas claras)
+  24 test_tool_resumo_limitado_sem_quebra_de_linha  G3.3/D1 (payload de 1 linha: teto 200)
+  25 test_tool_resumo_com_quebra_de_linha  G3.3/D1 (1a linha + teto 200, sem vazar linhas 2/3)
+  26 test_tool_resumo_nao_altera_sinal_erro  G3.3/D1 (corte nao altera o sinal ok/erro)
 """
 
 import hashlib
@@ -1068,3 +1082,242 @@ def test_state_corrompido_nao_e_silencioso(tmp_path, monkeypatch, caplog):
     resent = any(p.get("session_id") == "s1" for p in spy2.payloads)
     assert (rc is not None and rc != 0) or resent, \
         "comportamento com state corrompido nao e explicito (nem erro, nem reimport)"
+
+
+# ---------------------------------------------------------------------------
+# 21. --only-session: restringe relatorio a uma unica sessao
+# ---------------------------------------------------------------------------
+
+def test_only_session_restringe_ao_id(tmp_path, monkeypatch, capsys):
+    """T21: --only-session s2 reporta apenas s2 (sessions_total=1, to_store=1).
+
+    Fixture: 3 sessoes elegiveis (s1, s2, s3). Comportamento travado:
+    main(['--dry-run', '--only-session', 's2', ...]) limita o relatorio a
+    s2 e os totais refletem apenas essa sessao.
+    """
+    hs = _hs()
+    msgs = []
+    for sid in ("s1", "s2", "s3"):
+        msgs += [M(sid, "user", f"pergunta {sid}"),
+                 M(sid, "assistant", f"resposta {sid}")]
+    db = _make_state_db(
+        tmp_path,
+        sessions=[S("s1"), S("s2"), S("s3")],
+        messages=msgs,
+    )
+    _run_main(hs, [
+        "--dry-run", "--only-session", "s2",
+        "--db", str(db), "--state", str(tmp_path / "state.json"),
+    ])
+    report = _extract_json(capsys.readouterr().out)
+    session_ids = [s["id"] for s in report["sessions"]]
+    assert session_ids == ["s2"], \
+        f"--only-session s2 deveria relatar apenas s2, deu: {session_ids}"
+    assert report["totals"]["sessions_total"] == 1, \
+        f"sessions_total deve ser 1 com --only-session, deu: {report['totals']}"
+    assert report["totals"]["eligible"] == 1, \
+        f"eligible deve ser 1 com --only-session, deu: {report['totals']}"
+    assert report["totals"]["to_store"] == 1, \
+        f"to_store deve ser 1 com --only-session, deu: {report['totals']}"
+
+
+# ---------------------------------------------------------------------------
+# 22. --only-session: ID inexistente → falha clara, exit != 0
+# ---------------------------------------------------------------------------
+
+def test_only_session_id_inexistente_falha(tmp_path, monkeypatch, capsys):
+    """T22: --only-session com ID que nao existe no banco → exit != 0,
+    mensagem clara no stderr (menciona o ID), nada gravado, sem traceback."""
+    hs = _hs()
+    db = _make_state_db(
+        tmp_path,
+        sessions=[S("s1")],
+        messages=[M("s1", "user", "pergunta"),
+                  M("s1", "assistant", "resposta")],
+    )
+    spy = FakeTransport()
+    _install_spy(monkeypatch, hs, spy)
+    state_path = tmp_path / "state.json"
+    rc, exc = _run_main_capture(
+        hs, ["--apply", "--only-session", "s_inexistente",
+             "--db", str(db), "--state", str(state_path)]
+    )
+    out_err = capsys.readouterr()
+    assert exc is None, \
+        f"main nao pode propagar excecao para ID inexistente: {exc!r}"
+    assert rc is not None and rc != 0, \
+        f"ID inexistente deve dar exit != 0, deu rc={rc!r}"
+    assert "s_inexistente" in out_err.err, \
+        f"stderr deve mencionar o ID inexistente 's_inexistente': {out_err.err!r}"
+    assert "nao encontrada" in out_err.err, \
+        f"stderr deve ter mensagem clara de ID nao encontrado: {out_err.err!r}"
+    assert "Traceback" not in out_err.err, \
+        "falha com ID inexistente nao pode imprimir traceback"
+    assert spy.payloads == [], \
+        f"nada pode ser gravado quando o ID nao existe: {spy.payloads}"
+    if state_path.exists():
+        st = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "s_inexistente" not in st, \
+            f"state nao deve conter entrada para ID inexistente: {st}"
+
+
+# ---------------------------------------------------------------------------
+# 23. --only-session: sessao nao elegivel (<2 msgs uteis) → falha clara
+# ---------------------------------------------------------------------------
+
+def test_only_session_nao_elegivel_falha(tmp_path, monkeypatch, capsys):
+    """T23: --only-session com sessao que tem <2 mensagens uteis → exit != 0,
+    mensagem clara no stderr (menciona o ID), nada gravado, sem traceback."""
+    hs = _hs()
+    db = _make_state_db(
+        tmp_path,
+        sessions=[S("s_ok"), S("s_pobre")],
+        messages=[M("s_ok", "user", "pergunta"), M("s_ok", "assistant", "resposta"),
+                  M("s_pobre", "user", "apenas uma mensagem")],
+    )
+    spy = FakeTransport()
+    _install_spy(monkeypatch, hs, spy)
+    state_path = tmp_path / "state.json"
+    rc, exc = _run_main_capture(
+        hs, ["--apply", "--only-session", "s_pobre",
+             "--db", str(db), "--state", str(state_path)]
+    )
+    out_err = capsys.readouterr()
+    assert exc is None, \
+        f"main nao pode propagar excecao para sessao nao elegivel: {exc!r}"
+    assert rc is not None and rc != 0, \
+        f"sessao nao elegivel deve dar exit != 0, deu rc={rc!r}"
+    assert "s_pobre" in out_err.err, \
+        f"stderr deve mencionar o ID 's_pobre': {out_err.err!r}"
+    assert "nao elegivel" in out_err.err, \
+        f"stderr deve ter mensagem clara de sessao nao elegivel: {out_err.err!r}"
+    assert "Traceback" not in out_err.err, \
+        "falha para sessao nao elegivel nao pode imprimir traceback"
+    assert spy.payloads == [], \
+        f"nada pode ser gravado quando a sessao nao e elegivel: {spy.payloads}"
+
+
+# ---------------------------------------------------------------------------
+# 24. G3.3/D1 — payload de tool em UMA linha (sem \n): teto de 200 chars
+# ---------------------------------------------------------------------------
+
+def _tool_turn_content(turns, tool_name):
+    """Extrai o content do turno de tool e valida o formato D1.
+
+    Devolve (content, signal, summary) de
+    ``'[tool:<nome>] <ok|erro> — <resumo>'``; falha a assercao se o
+    formato (prefixo + separador ' — ') estiver quebrado.
+    """
+    tool_turns = [t for t in turns if t.get("role") == "tool"]
+    assert tool_turns, "turno de tool deve existir como metadado resumido (D1)"
+    content = tool_turns[0].get("content", "")
+    prefix = f"[tool:{tool_name}] "
+    assert content.startswith(prefix), \
+        f"formato '[tool:<nome>] <ok|erro> — <resumo>' violado: {content[:80]!r}"
+    rest = content[len(prefix):]
+    signal, sep, summary = rest.partition(" — ")
+    assert sep, f"separador ' — ' ausente no turno de tool: {content[:80]!r}"
+    assert signal in ("ok", "erro"), f"sinal inesperado: {signal!r}"
+    return content, signal, summary
+
+
+def test_tool_resumo_limitado_sem_quebra_de_linha():
+    """T24: payload de tool de 5.000 chars em UMA unica linha (sem \\n —
+    o caso real de producao: JSON de uma linha vindo de read_file) nao
+    pode vazar inteiro: o RESUMO do turno de tool deve ter no maximo
+    200 chars (teto MAX_TOOL_SUMMARY_CHARS), independente de haver
+    quebra de linha, e o turno inteiro fica em ~260 chars.
+
+    Bug: o corte era feito pela 'primeira linha'; com payload de uma
+    linha, a primeira linha e o conteudo inteiro (2.000 chars de
+    payload cru vazavam, violando D1).
+    """
+    hs = _hs()
+    head_s, tail_s = '{"content": "1|', '"}'
+    payload = head_s + "A" * (5000 - len(head_s) - len(tail_s)) + tail_s
+    assert len(payload) == 5000 and "\n" not in payload, \
+        "fixture: payload deve ter exatamente 5.000 chars em uma linha"
+    msgs = [
+        {"role": "user", "content": "leia o arquivo do parser",
+         "tool_name": None, "active": 1, "compacted": 0},
+        {"role": "tool", "content": payload,
+         "tool_name": "read_file", "active": 1, "compacted": 0},
+        {"role": "assistant", "content": "arquivo lido, sem problemas",
+         "tool_name": None, "active": 1, "compacted": 0},
+    ]
+    turns = hs.build_turns(msgs)
+    content, signal, summary = _tool_turn_content(turns, "read_file")
+    assert len(summary) <= 200, \
+        (f"resumo de tool excedeu o teto de 200 chars com payload de uma "
+         f"linha (sem quebra): {len(summary)} — D1 violado (G3.3)")
+    assert len(content) <= 260, \
+        (f"turno de tool excedeu ~260 chars no total: {len(content)} "
+         f"— D1 violado (G3.3)")
+    assert hs.MAX_TOOL_SUMMARY_CHARS == 200, \
+        "constante MAX_TOOL_SUMMARY_CHARS deve existir e valer 200 (G3.3)"
+
+
+# ---------------------------------------------------------------------------
+# 25. G3.3/D1 — saida com 3 linhas: usa a 1a linha e respeita o teto
+# ---------------------------------------------------------------------------
+
+def test_tool_resumo_com_quebra_de_linha():
+    """T25: saida de tool com 3 linhas usa a PRIMEIRA linha no resumo e
+    respeita o teto de 200 chars (1a linha de 300 chars deve ser
+    cortada em 200; as linhas 2 e 3 nao podem vazar para o resumo)."""
+    hs = _hs()
+    first_line = "B" * 300
+    content = first_line + "\nSEGUNDA_LINHA_MARKER\nTERCEIRA_LINHA_MARKER"
+    msgs = [
+        {"role": "user", "content": "pergunta sobre o parser",
+         "tool_name": None, "active": 1, "compacted": 0},
+        {"role": "tool", "content": content,
+         "tool_name": "grep_search", "active": 1, "compacted": 0},
+        {"role": "assistant", "content": "resposta com a correcao",
+         "tool_name": None, "active": 1, "compacted": 0},
+    ]
+    turns = hs.build_turns(msgs)
+    turn, signal, summary = _tool_turn_content(turns, "grep_search")
+    assert summary.startswith("B"), \
+        f"resumo deve usar a primeira linha da saida: {summary[:60]!r}"
+    assert len(summary) <= 200, \
+        (f"resumo de tool com quebras de linha excedeu o teto de 200: "
+         f"{len(summary)} (G3.3/D1)")
+    assert "SEGUNDA_LINHA_MARKER" not in turn, \
+        "2a linha da saida vazou para o resumo (D1)"
+    assert "TERCEIRA_LINHA_MARKER" not in turn, \
+        "3a linha da saida vazou para o resumo (D1)"
+
+
+# ---------------------------------------------------------------------------
+# 26. G3.3/D1 — o corte do resumo nao pode alterar o sinal ok/erro
+# ---------------------------------------------------------------------------
+
+def test_tool_resumo_nao_altera_sinal_erro():
+    """T26: saida longa de uma unica linha com 'Traceback' no MEIO
+    (alem da posicao do corte em 200 chars) — o sinal do turno deve
+    continuar 'erro'. O corte do resumo nao pode afetar a deteccao do
+    sinal: a heuristica roda no conteudo ANTES do truncamento (se a
+    deteccao fosse feita no resumo ja cortado, o marcador cairia fora
+    do corte e o sinal viraria 'ok')."""
+    hs = _hs()
+    head = "K" * 1500
+    marker = "Traceback (most recent call last):"
+    content = head + marker + "L" * (5000 - len(head) - len(marker))
+    assert len(content) == 5000 and "\n" not in content, \
+        "fixture: payload de 5.000 chars em uma linha"
+    assert marker not in content[:200], \
+        "fixture: 'Traceback' deve estar alem da posicao do corte (200)"
+    msgs = [
+        {"role": "user", "content": "pergunta sobre o parser",
+         "tool_name": None, "active": 1, "compacted": 0},
+        {"role": "tool", "content": content,
+         "tool_name": "terminal", "active": 1, "compacted": 0},
+        {"role": "assistant", "content": "resposta",
+         "tool_name": None, "active": 1, "compacted": 0},
+    ]
+    turns = hs.build_turns(msgs)
+    turn, signal, summary = _tool_turn_content(turns, "terminal")
+    assert signal == "erro", \
+        (f"corte do resumo alterou o sinal: esperado 'erro' (marker "
+         f"além da posição do corte), veio {signal!r} (G3.3/D1)")
