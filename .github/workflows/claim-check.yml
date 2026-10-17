@@ -24,11 +24,11 @@ name: Claim Check
 on:
   pull_request_target:
     # synchronize: a pushed commit can add a "Fixes #N" link after opening.
-    # labeled: a maintainer's `skip-issue` takes effect at once. The script reads
-    # labels through the API, not the event payload, so unlike skip-changelog no
-    # extra push is needed; labels the script adds itself use GITHUB_TOKEN and
-    # do not trigger a run.
-    types: [opened, reopened, edited, synchronize, labeled]
+    # labeled/unlabeled: adding or withdrawing a maintainer's `skip-issue` takes
+    # effect at once. The script reads labels through the API, not the event
+    # payload, so unlike skip-changelog no extra push is needed; labels the
+    # script adds or removes itself use GITHUB_TOKEN and do not trigger a run.
+    types: [opened, reopened, edited, synchronize, labeled, unlabeled]
     branches: [main]
   issues:
     types: [assigned]

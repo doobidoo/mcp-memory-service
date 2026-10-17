@@ -107,6 +107,9 @@ def label_names(pr: dict) -> set[str]:
 # ponytail: any "#N" or issue URL in the description counts as a link, PR numbers
 # included; telling issues from PRs would cost an API call per number.
 ISSUE_REF = re.compile(r"(?:^|[^\w&])#\d+\b|/issues/\d+")
+# The PR template's hidden hint reads "Fixes #123"; a description that keeps it
+# links nothing, so HTML comments are dropped before the search.
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 def needs_issue(pr: dict) -> bool:
@@ -117,7 +120,7 @@ def needs_issue(pr: dict) -> bool:
     """
     if is_exempt(pr) or pr["closingIssuesReferences"]["nodes"]:
         return False
-    if ISSUE_REF.search(pr.get("body") or ""):
+    if ISSUE_REF.search(HTML_COMMENT.sub("", pr.get("body") or "")):
         return False
     if SKIP_ISSUE_LABEL in label_names(pr):
         return False
