@@ -54,3 +54,12 @@ def test_a_label_can_opt_out():
     source = "(r'.*package.*\\.json$', 'Package.json'),  # path-case: ok"
     assert path_case.case_mismatches(source, tracked) == []
     assert path_case.case_mismatches(source.split("  #")[0], tracked) == [("Package.json", "package.json")]  # path-case: ok
+
+
+def test_relative_and_nested_paths_are_flagged():
+    """Greptile on #1573: a leading ./ or a prefix kept the whole-path match from firing."""
+    source = 'a = "./.github/pull_request_template.md"; b = "../repo/.github/pull_request_template.md"'  # path-case: ok
+    assert findings(source) == [  # path-case: ok
+        ("./.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
+        ("../repo/.github/pull_request_template.md", "PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
+    ]

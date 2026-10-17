@@ -6,8 +6,9 @@ read the PR template under its lower-case name passed on a Mac and died with
 FileNotFoundError on the Linux runner, because the tracked file is
 .github/PULL_REQUEST_TEMPLATE.md (PR #1571). Nothing local caught that.
 
-For every quoted literal in the given files this compares the literal, and its
-last path segment, against `git ls-files`. It reports a literal only when a
+For every quoted literal in the given files this compares the literal (a
+leading ./ stripped), and failing that its last path segment, against
+`git ls-files`. It reports a literal only when a
 tracked path or file name matches it ignoring case but not exactly, so names of
 files that exist only at run time (temp databases, reports) never count.
 Literals without a file extension are skipped: words like "Default" are not
@@ -40,11 +41,17 @@ def case_mismatches(source: str, tracked: list[str]) -> list[tuple[str, str]]:
         lit for line in source.splitlines() if OPT_OUT not in line for lit in LITERAL.findall(line)
     )
     for literal in literals:
-        if "/" in literal:
-            if literal not in exact and literal.lower() in by_lower:
-                found.append((literal, by_lower[literal.lower()]))
-        elif literal not in exact_names and literal.lower() in names_by_lower:
-            found.append((literal, names_by_lower[literal.lower()]))
+        # A leading ./ names the same tracked path; other prefixes (../repo/,
+        # absolute paths) fall back to the file name below.
+        path = literal.removeprefix("./")
+        if path in exact:
+            continue
+        if path.lower() in by_lower:
+            found.append((literal, by_lower[path.lower()]))
+            continue
+        name = path.rsplit("/", 1)[-1]
+        if name not in exact_names and name.lower() in names_by_lower:
+            found.append((literal, names_by_lower[name.lower()]))
     return found
 
 
