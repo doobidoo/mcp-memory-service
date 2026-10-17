@@ -2610,6 +2610,7 @@ class MilvusMemoryStorage(MemoryStorage):
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
+        **kwargs: Any,
     ) -> List["MemoryQueryResult"]:
         """Quality-boosted retrieval using Milvus native hybrid search.
 
