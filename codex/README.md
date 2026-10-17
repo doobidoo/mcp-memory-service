@@ -110,7 +110,10 @@ when both exist, only the response messages are used.
 Summaries contain newly observed substantive outcomes, not another copy of the
 entire conversation. They use the ontology's `session` subtype. Successful writes
 are checkpointed immediately so subsequent `Stop`, compaction, and session-end
-events do not duplicate them. There are no server-side memory deletions.
+events do not duplicate them. An exact-duplicate rejection is checkpointed only
+after reading the existing memory by its normalized content hash and confirming
+the content in the same store. Other storage failures remain retryable. Repeated
+pending outcomes occupy one summary slot. There are no server-side memory deletions.
 
 ## State and failure behavior
 

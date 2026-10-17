@@ -95,10 +95,10 @@ function request(config, route, payload, deadline) {
         const remaining = Math.min(config.timeoutMs, deadline - Date.now());
         if (remaining <= 0) return reject(new Error('Memory request deadline exceeded'));
         const url = new URL(route, config.endpoint);
-        const body = JSON.stringify(payload);
+        const body = payload === undefined ? null : JSON.stringify(payload);
         const req = (url.protocol === 'https:' ? https : http).request(url, {
-            method: 'POST', agent: false, headers: {
-                'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+            method: body === null ? 'GET' : 'POST', agent: false, headers: {
+                ...(body === null ? {} : { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }),
                 ...(config.apiKey ? { 'X-API-Key': config.apiKey } : {})
             }
         }, res => {
@@ -112,7 +112,12 @@ function request(config, route, payload, deadline) {
                 if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`HTTP ${res.statusCode}`));
                 try {
                     const result = JSON.parse(data);
-                    if (result?.success === false) return reject(new Error('Memory service rejected request'));
+                    if (result?.success === false) {
+                        const error = new Error('Memory service rejected request');
+                        error.exactDuplicate = route === '/api/memories' && typeof result.message === 'string'
+                            && /^Duplicate content detected \(exact match\)(?:;|$)/.test(result.message);
+                        return reject(error);
+                    }
                     resolve(result);
                 } catch { reject(new Error('Invalid memory response')); }
             });
@@ -123,6 +128,22 @@ function request(config, route, payload, deadline) {
         req.on('close', () => clearTimeout(timer));
         req.end(body);
     });
+}
+
+async function storeMemory(config, payload, deadline) {
+    try {
+        return await request(config, '/api/memories', payload, deadline);
+    } catch (error) {
+        if (!error.exactDuplicate) throw error;
+        // The backend hashes normalized content, independently of tags and type.
+        const normalized = payload.content.trim().toLowerCase();
+        const contentHash = hash(normalized);
+        const existing = await request(config, `/api/memories/${contentHash}`, undefined, deadline);
+        // Confirm the record in the same (default) store; a rejection alone is not proof.
+        if (existing?.content_hash !== contentHash || typeof existing.content !== 'string'
+            || existing.content.trim().toLowerCase() !== normalized) throw error;
+        return { success: true, content_hash: contentHash };
+    }
 }
 
 async function readState(filename) {
@@ -172,7 +193,7 @@ async function capture(event, config, project, state, deadline, persist) {
     if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('Transcript unavailable or too large');
     const messages = parseTranscript(await fs.readFile(event.transcript_path, 'utf8'));
     const captured = new Set(state.captured || []), summarized = new Set(state.summarized || []);
-    const outcomes = [];
+    const outcomes = new Map();
     let overrides = {}, captures = 0;
     for (const message of messages) {
         if (message.role === 'user') overrides = hasUserOverride(message.content);
@@ -186,7 +207,7 @@ async function capture(event, config, project, state, deadline, persist) {
         if (!valuable) continue;
         const text = truncateContent(content, config.maxCaptureLength);
         if (config.autoCapture && !captured.has(id) && captures < config.maxCapturesPerRun) {
-            await request(config, '/api/memories', {
+            await storeMemory(config, {
                 content: `Project: ${project}\n\n${text}`,
                 memory_type: detection.memoryType || 'note',
                 tags: [project, 'codex', 'auto-captured', detection.matchedPattern || 'explicit'],
@@ -198,13 +219,13 @@ async function capture(event, config, project, state, deadline, persist) {
             captures++;
         }
         if (!summarized.has(id) && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
-            outcomes.push({ id, text });
+            outcomes.set(id, { id, text });
         }
     }
-    if (config.sessionSummary && outcomes.length) {
+    if (config.sessionSummary && outcomes.size) {
         // Incremental checkpoints keep earlier turns out of later summaries.
-        const batch = outcomes.slice(-8);
-        await request(config, '/api/memories', {
+        const batch = [...outcomes.values()].slice(-8);
+        await storeMemory(config, {
             content: `Session outcomes - ${project}\n\n${batch.map(item => `- ${truncateContent(item.text, 1000)}`).join('\n')}`,
             memory_type: 'session', tags: [project, 'codex', 'session-consolidation'],
             metadata: { session_id: event.session_id }, conversation_id: event.session_id

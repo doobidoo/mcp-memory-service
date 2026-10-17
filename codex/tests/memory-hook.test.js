@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { parseTranscript, runHook, request } = require('../memory-hook');
 
@@ -38,6 +39,7 @@ test('event-only transcripts are supported without capturing tool output', () =>
 async function fixture(t) {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-memory-test-'));
     const requests = [];
+    const memories = new Map();
     let rejectStores = false;
     let rejectSearch = false;
     const server = http.createServer(async (req, res) => {
@@ -45,17 +47,31 @@ async function fixture(t) {
         for await (const chunk of req) body += chunk;
         requests.push({ url: req.url, headers: req.headers, body: JSON.parse(body || '{}') });
         res.setHeader('Content-Type', 'application/json');
-        if (req.url === '/api/search') {
+        if (req.method === 'GET' && req.url.startsWith('/api/memories/')) {
+            const memory = memories.get(req.url.split('/').pop());
+            if (!memory) { res.statusCode = 404; res.end('{}'); return; }
+            res.end(JSON.stringify(memory));
+        } else if (req.url === '/api/search') {
             if (rejectSearch) { res.statusCode = 503; res.end('{}'); return; }
             res.end(JSON.stringify({ results: [
                 { memory: { content: 'unrelated project', tags: ['elsewhere'] } },
                 { memory: { content: 'Use transactions for writes.', tags: ['project'] } }
             ] }));
+        } else if (rejectStores && typeof rejectStores === 'object') {
+            res.end(JSON.stringify(rejectStores));
         } else if (rejectStores === true || requests.length === rejectStores) {
             res.statusCode = 503;
             res.end('{"success":false}');
         } else {
-            res.end(JSON.stringify({ success: true, content_hash: 'test-hash' }));
+            const payload = requests.at(-1).body;
+            const contentHash = crypto.createHash('sha256').update(payload.content.trim().toLowerCase()).digest('hex');
+            if (memories.has(contentHash)) {
+                // Match the SQLite-backed HTTP API's exact-duplicate response.
+                res.end(JSON.stringify({ success: false, message: 'Duplicate content detected (exact match)', content_hash: null }));
+            } else {
+                memories.set(contentHash, { ...payload, content_hash: contentHash });
+                res.end(JSON.stringify({ success: true, content_hash: contentHash }));
+            }
         }
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -65,7 +81,7 @@ async function fixture(t) {
     const transcript = path.join(dir, 'rollout.jsonl');
     const event = { session_id: '../../untrusted-session', cwd: dir, transcript_path: transcript, hook_event_name: 'Stop' };
     const write = rows => fs.writeFile(transcript, rows.map(JSON.stringify).join('\n'));
-    return { dir, requests, config, event, write, reject: value => { rejectStores = value; }, failSearch: () => { rejectSearch = true; } };
+    return { dir, requests, memories, config, event, write, reject: value => { rejectStores = value; }, failSearch: () => { rejectSearch = true; } };
 }
 
 test('startup injects bounded project-scoped context and sends the configured API key', async t => {
@@ -126,6 +142,72 @@ test('a failed summary retries without repeating an individual capture that alre
     f.reject(false);
     await runHook(f.event, f.config);
     assert.deepEqual(f.requests.map(r => r.body.memory_type), ['decision', 'session', 'session']);
+});
+
+test('exact duplicates from earlier sessions do not block new captures or checkpoint progress', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await runHook({ ...f.event, session_id: 'previous-session' }, f.config);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer'),
+        message('user', 'What did you find?'), message('assistant', learning, 'final_answer')]);
+    await runHook(f.event, f.config);
+    const freshWrites = f.requests.slice(2);
+    assert.ok(freshWrites.some(r => r.url.startsWith('/api/memories/')));
+    assert.ok(freshWrites.some(r => r.body.memory_type === 'learning'));
+    assert.ok(freshWrites.some(r => r.body.memory_type === 'session'));
+    const count = f.requests.length;
+    await runHook(f.event, f.config);
+    assert.equal(f.requests.length, count);
+});
+
+test('an exact-duplicate session summary is confirmed and checkpointed', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await runHook({ ...f.event, session_id: 'previous-session' }, f.config);
+    await runHook(f.event, f.config);
+    const count = f.requests.length;
+    assert.equal(f.requests.filter(r => r.url.startsWith('/api/memories/')).length, 2);
+    await runHook(f.event, f.config);
+    assert.equal(f.requests.length, count);
+});
+
+test('an unconfirmed exact duplicate remains retryable instead of suppressing an unsaved memory', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    f.reject({ success: false, message: 'Duplicate content detected (exact match); already exists in store \'docs\'' });
+    await assert.rejects(runHook(f.event, f.config), /HTTP 404/);
+    const contentHash = crypto.createHash('sha256').update(`Project: project\n\n${decision}`.toLowerCase()).digest('hex');
+    f.memories.set(contentHash, { content_hash: contentHash, content: 'A different memory' });
+    await assert.rejects(runHook(f.event, f.config), /Memory service rejected request/);
+    f.memories.clear();
+    f.reject(false);
+    await runHook(f.event, f.config);
+    assert.equal(f.requests.filter(r => r.body.memory_type === 'decision').length, 3);
+    assert.ok(f.requests.some(r => r.body.memory_type === 'session'));
+});
+
+test('semantic duplicate and other application rejections remain failures without an exact-match lookup', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    for (const rejection of ['Storage temporarily unavailable', 'Duplicate content detected (semantically similar to abc)']) {
+        f.reject({ success: false, message: rejection });
+        await assert.rejects(runHook(f.event, f.config), /Memory service rejected request/);
+    }
+    assert.equal(f.requests.filter(r => r.url.startsWith('/api/memories/')).length, 0);
+    f.reject(false);
+    await runHook(f.event, f.config);
+    assert.ok(f.requests.some(r => r.body.memory_type === 'session'));
+});
+
+test('repeated pending outcomes occupy one summary slot before the eight-item limit', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'),
+        ...Array.from({ length: 9 }, () => message('assistant', decision, 'final_answer')),
+        message('assistant', learning, 'final_answer')]);
+    await runHook(f.event, f.config);
+    const summary = f.requests.find(r => r.body.memory_type === 'session').body.content;
+    assert.equal(summary.split(decision).length - 1, 1);
+    assert.equal(summary.split(learning).length - 1, 1);
 });
 
 test('parallel Stop and PreCompact hooks serialize writes and cached context survives an outage', async t => {
