@@ -178,17 +178,61 @@ Full list, plus clients without OAuth such as Home Assistant:
 
 ## ✨ Features
 
-🧠 **Persistent Memory** – Context survives across sessions with semantic search
-🔍 **Smart Retrieval** – Finds relevant context automatically using AI embeddings
-⚡ **5ms Speed** – Instant context injection, no latency
-☁️ **Cloud Sync** – Optional Cloudflare backend for team collaboration
-🔒 **Privacy-First** – Local-first, you control your data
-📊 **Web Dashboard** – Visualize and manage memories at `http://localhost:8000`
-🧬 **Knowledge Graph** – Interactive D3.js visualization of memory relationships
-🏠 **Homelab Quality Scoring** – Point scoring at any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM)
-🔗 **Entity Extraction** – Auto-links @mentions, #tags, URLs, and file paths to a queryable entity graph
-💡 **Insight Cards** – Consolidation surfaces patterns, trends, and knowledge gaps as structured insights
-🏷️ **Tag Match Filtering** – `tag_match=AND/OR` on `memory_search` for precise multi-tag queries
+### Store and retrieve context
+
+- 🧠 **Persistent memory** — Keep decisions, notes, and project context across sessions and agents.
+- 🔍 **Semantic and keyword search** — Combine vector search with BM25; use `mode="ranked"`
+  to weigh recency, access frequency, and quality. An optional fallback cascade tries
+  exact and tag matching when semantic results are sparse.
+- 🏷️ **Scoped retrieval** — Filter by tags with AND/OR matching, natural-language time
+  ranges, and store partitions (`default`, `docs`, or `all` for cross-store search).
+- 📝 **Optional search summaries** — Request `summarize=true` for query-aware summaries
+  with validated source references. Requires `MCP_SEARCH_SUMMARIZE_ENABLED=true`
+  and a configured LLM provider; unavailable summaries fall back to raw results.
+  [Search API and examples](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/mastery/api-reference.md)
+- 📄 **Document ingestion** — Import PDF, text, and Markdown with chunking for retrieval.
+  Additional formats such as DOCX and PPTX require optional parsing tools.
+  [Document ingestion guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/document-ingestion.md)
+
+### Capture and maintain knowledge
+
+- ⚡ **Automatic session capture** — Configurable Claude Code hooks retrieve context and
+  save session learnings; the local `memory_harvest` tool extracts decisions, bugs,
+  conventions, and lessons from transcripts.
+  [Hooks setup](https://github.com/doobidoo/mcp-memory-service/blob/main/claude-hooks/README.md) ·
+  [Harvest configuration](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/mastery/configuration-guide.md)
+- 💡 **Autonomous consolidation** — Schedule clustering, compression, association discovery,
+  and controlled forgetting. Insight cards surface patterns, trends, and knowledge gaps.
+  [Consolidation guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/guides/memory-consolidation-guide.md)
+- 💭 **Beliefs and contradiction handling** — Derive confidence-scored beliefs from
+  observations. Heuristic contradiction detection can mark older memories as superseded,
+  hiding them from default retrieval while retaining them for explicit lookup.
+- 🤖 **Agent bootstrap profiles** — `get_bootstrap_profile` assembles behavioral context
+  for a new agent within a token budget, with optional task-aware retrieval.
+  Requires `MCP_BOOTSTRAP_ENABLED=true`; profiles are not isolated by project.
+- 🧬 **Knowledge graph and entities** — Explore typed causal relationships in the interactive
+  graph. 🔗 Entity extraction links @mentions, #tags, URLs, and file paths to a queryable entity graph.
+  [Knowledge graph guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/features/knowledge-graph-dashboard.md)
+- 🏠 **Quality scoring** — Use your own OpenAI-compatible endpoint, including Ollama,
+  LiteLLM, or vLLM.
+  [Configuration guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/mastery/configuration-guide.md)
+
+### Run locally and share across devices
+
+- 🔒 **Local-first storage** — Local ONNX embeddings and SQLite storage keep core memory
+  operations on your infrastructure. Optional LLM features use the providers you configure.
+- ☁️ **Cloud or self-hosted sync** — Use Cloudflare or another MCP Memory Service instance
+  as a Hybrid secondary. Separately enabled delta-sync exchanges changes between hosts;
+  it is off by default.
+  [Self-hosted sync guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/guides/self-hosted-sync-hub.md)
+- 📦 **Import, export, and migration** — Move memories through JSON import/export, including
+  conversion of mem0 exports.
+  [Import/export tools](https://github.com/doobidoo/mcp-memory-service/blob/main/scripts/sync/README.md) ·
+  [mem0 migration guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/guides/mem0-import.md)
+- 💾 **Database backups** — Configure scheduled backups or trigger one manually through
+  the HTTP API. Inspect backup status and available snapshots through the backup endpoints
+  in the live API reference at `/api/docs`.
+- 📊 **Web dashboard** — Search, browse, visualize, and manage memories at `http://localhost:8000`.
 
 The dashboard has eight tabs — Dashboard, Search, Browse, Documents, Manage, Analytics,
 Quality, API Docs. [Two-minute walkthrough on YouTube](https://youtu.be/W34r8VFoSdQ) ·
