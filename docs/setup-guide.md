@@ -130,6 +130,28 @@ Start OpenCode inside a project that already has stored memories, then ask a pro
 
 - Want the dashboard too? → [Path 2](#path-2-mcp--http-dashboard)
 
+## Path 1B: Codex Memory Hooks
+
+**For whom:** Codex users who want automatic project context and session capture.
+
+**Prerequisites:** A current Codex runtime with `/hooks`, Node.js 18+, Python 3.10+,
+and a repository checkout.
+
+Start the HTTP API as in [Path 1A](#path-1a-opencode-plugin), then run from the
+repository root:
+
+```bash
+python3 codex/install_hooks.py --dry-run
+python3 codex/install_hooks.py
+```
+
+Restart Codex and review and trust the new hooks with `/hooks`. Existing hooks
+are preserved. For an authenticated endpoint, set `CODEX_MEMORY_ENDPOINT` and
+`CODEX_MEMORY_API_KEY` in the environment used to launch Codex.
+
+See [Codex hook setup](../codex/README.md) for project-local installation,
+configuration, `#skip` / `#remember`, and verification steps.
+
 ## Path 2: MCP + HTTP Dashboard
 
 **For whom:** Users who want a browser UI to browse, search, and manage memories, or need the REST API for scripting.
