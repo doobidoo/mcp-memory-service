@@ -269,6 +269,10 @@ async def test_old_edit_does_not_restore_recreated_memory_field(store):
     apply_remote_event(store, _update_metadata_event(h, updates={"memory_type": "note"},
                                                      event_id="old-edit", hlc_physical=12))
     apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
+    # c2 is a BARE create (no recreate_of key) → it represents a v1 PEER (absence = revive,
+    # back-compat), NOT a v2 producer (a v2 producer would stamp recreate_of="" here, which
+    # under the 3-state model would make the delete WIN). These hand-built fixtures model a
+    # legitimate v1 re-create, so the recreated memory must come back ALIVE.
     apply_remote_event(store, _create_event(h, content=content, memory_type="reference",
                                             event_id="c2", hlc_physical=30))
     # a later tags-only edit must NOT drag memory_type back to the pre-recreate 'note'
@@ -339,7 +343,10 @@ async def test_old_metadata_key_does_not_return_after_recreation(store):
     c1["payload"]["metadata"] = {"quality_score": 0.2}
     apply_remote_event(store, c1)
     apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
-    # recreate with empty metadata (no score)
+    # recreate with empty metadata (no score). c2 is a BARE create (no recreate_of key) →
+    # a v1 PEER (absence = revive), NOT a v2 producer (which would stamp recreate_of="" and,
+    # under the 3-state model, keep the memory DEAD). Hand-built fixture = legitimate v1
+    # re-create, so the memory revives and drops the dead incarnation's metadata.
     c2 = _create_event(h, content=content, event_id="c2", hlc_physical=30)
     c2["payload"]["metadata"] = {}
     apply_remote_event(store, c2)
