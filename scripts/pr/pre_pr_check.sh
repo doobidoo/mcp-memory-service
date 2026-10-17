@@ -407,6 +407,24 @@ else
     { echo "$LINK_OUTPUT" | grep '^BROKEN' || echo "$LINK_OUTPUT" | tail -15; } | sed 's/^/     /'
 fi
 
+# Check 6.10: path literals in the wrong letter case (#1571). macOS resolves them
+# case-insensitively, so the test passes here and fails on the Linux runner.
+echo -e "\n${YELLOW}[6.10/9]${NC} Checking path literals against tracked file names (case)..."
+CASE_FILES=$(echo "$STAGED_FILES" | grep -E '\.(py|sh|ya?ml)$' | while read -r f; do [ -f "$f" ] && echo "$f"; done || true)
+if [ -z "$CASE_FILES" ]; then
+    check_status "Path literals match tracked case" 0
+else
+    set +e
+    # shellcheck disable=SC2086  # one staged path per word, as the other checks do
+    CASE_OUTPUT=$("$PYTHON_BIN" scripts/ci/check_path_case.py $CASE_FILES 2>&1)
+    CASE_EXIT=$?
+    set -e
+    check_status "Path literals match tracked case" $CASE_EXIT
+    if [ $CASE_EXIT -ne 0 ]; then
+        echo "$CASE_OUTPUT" | sed 's/^/     /'
+    fi
+fi
+
 # Check 7: Docstring coverage
 echo -e "\n${YELLOW}[7/9]${NC} Checking docstring coverage..."
 MISSING_DOCSTRINGS=0
