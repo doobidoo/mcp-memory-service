@@ -16,8 +16,16 @@ class HybridMixin:
     """Mixin providing hybrid BM25 + vector search."""
 
     def _normalize_bm25_score(self, bm25_rank: float) -> float:
-        """Convert BM25's negative ranking to 0-1 scale."""
-        return max(0.0, min(1.0, 1.0 + bm25_rank / 10.0))
+        """Convert an FTS5 bm25() rank to a 0-1 keyword score.
+
+        FTS5 returns bm25() negated: the better the match, the more negative
+        the rank, and 0 means no keyword evidence. x / (1 + x) on x = -rank
+        keeps that order, stays below 1 without a fixed cut-off for the
+        corpus-dependent magnitude, and gives a non-match 0, the same score
+        the fusion uses for rows BM25 did not return.
+        """
+        strength = max(0.0, -bm25_rank)
+        return strength / (1.0 + strength)
 
     async def _search_bm25(
         self,
