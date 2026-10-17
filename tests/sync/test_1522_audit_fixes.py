@@ -871,7 +871,13 @@ def _latest_create_payload(store_obj, content_hash):
 
 
 def _delete_event_id(store_obj, content_hash):
-    """Return the event_id of the (single) delete sync_event for a hash."""
+    """Return the event_id of the (single) delete sync_event for a hash.
+
+    Tests here stage exactly one delete per hash, so a plain HLC-desc ORDER BY
+    is unambiguous. Production elects the dominant delete via the resolver's
+    full _winner_key (HLC -> delete-vs-update -> agent_id -> event_id); with
+    tied deletes this helper would diverge, which never happens in these tests.
+    """
     row = store_obj.conn.execute(
         "SELECT event_id FROM sync_events WHERE content_hash = ? AND op = 'delete' "
         "ORDER BY hlc_physical DESC, hlc_logical DESC LIMIT 1",
@@ -964,6 +970,106 @@ async def test_producer_fresh_create_has_empty_recreate_of(store):
         await store.store_batch([Memory(content=c2, content_hash=h2, memory_type="note")])
         _e2, p2 = _latest_create_payload(store, h2)
         assert p2.get("recreate_of") == "", "fresh store_batch() create must carry the empty sentinel"
+
+
+# ===========================================================================
+# #1564 REGRESSION — purge erases the tombstone row BEFORE the producer stamps.
+# _recreate_of_for (store.py:60) guards on `SELECT 1 FROM memories WHERE
+# content_hash=? AND deleted_at IS NOT NULL` (store.py:89-90 `if tomb is None:
+# return None`). purge_deleted / _purge_tombstone (delete.py:270 / store.py:36)
+# HARD-DELETES that soft-deleted row but NEVER touches sync_events, so the delete
+# event is still the latest for the hash. A subsequent re-store therefore stamps
+# recreate_of="" (EMPTY — "I never saw a delete") instead of the delete's
+# event_id (NAMED). apply.py reads EMPTY as delete-wins → origin LIVE, peer DEAD,
+# permanent divergence. The producer must stamp the delete it CAN STILL SEE in
+# sync_events even after the tombstone row is gone.
+#
+# prove-fix: the assert below is the SAME assertion that turns GREEN once the
+# tombstone guard stops being the sole gate (the delete still lives in
+# sync_events). RED now (vem ""), GREEN after the fix.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_producer_recreate_after_purge_still_stamps_recreate_of(store):
+    """#1564: store() a hash, delete it, PURGE the tombstone row (sync_events intact),
+    then re-store. The re-create MUST stamp recreate_of = the delete's event_id — the
+    delete is still the latest event for the hash in sync_events. Today _recreate_of_for
+    short-circuits on the missing tombstone row and the producer emits "" (EMPTY), which
+    apply treats as delete-wins → divergence. FAILS today (got ""), passes after the fix."""
+    with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+        content = "producer recreate AFTER purge via store()"
+        h = generate_content_hash(content)
+
+        m = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
+        ok, _ = await store.store(m)
+        assert ok, "initial store must succeed"
+
+        ok, _ = await store.delete(h)
+        assert ok, "delete must succeed"
+        del_eid = _delete_event_id(store, h)
+
+        # Purge the tombstone row — sync_events (incl. the delete) is untouched.
+        store._purge_tombstone(h)
+        store.conn.commit()
+        tomb = store.conn.execute(
+            "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL LIMIT 1",
+            (h,),
+        ).fetchone()
+        assert tomb is None, "precondition: the tombstone ROW must be gone after purge"
+        assert _delete_event_id(store, h) == del_eid, \
+            "precondition: the delete sync_event must survive the purge"
+
+        # Re-create the same content after the purge.
+        m2 = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
+        ok, _ = await store.store(m2)
+        assert ok, "re-store must succeed"
+
+        _eid2, recreate_payload = _latest_create_payload(store, h)
+        assert recreate_payload.get("recreate_of") == del_eid, (
+            f"re-create via store() after purge must stamp recreate_of = delete's event_id "
+            f"{del_eid!r} (delete still in sync_events), got {recreate_payload.get('recreate_of')!r} "
+            f"— EMPTY means apply resolves it as delete-wins → divergence (#1564)"
+        )
+
+
+@pytest.mark.asyncio
+async def test_producer_recreate_after_purge_still_stamps_recreate_of_batch(store):
+    """#1564 via store_batch(): same contract — purge the tombstone row, re-create in a
+    batch, and the re-create MUST carry recreate_of = the delete's event_id. The batch path
+    shares _recreate_of_for, so it regresses identically. FAILS today (got ""), GREEN after."""
+    with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+        content = "producer recreate AFTER purge via store_batch()"
+        h = generate_content_hash(content)
+
+        m = Memory(content=content, content_hash=h, tags=["b"], memory_type="note")
+        res = await store.store_batch([m])
+        assert res and res[0][0], "initial store_batch must succeed"
+
+        ok, _ = await store.delete(h)
+        assert ok, "delete must succeed"
+        del_eid = _delete_event_id(store, h)
+
+        store._purge_tombstone(h)
+        store.conn.commit()
+        tomb = store.conn.execute(
+            "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL LIMIT 1",
+            (h,),
+        ).fetchone()
+        assert tomb is None, "precondition: the tombstone ROW must be gone after purge"
+        assert _delete_event_id(store, h) == del_eid, \
+            "precondition: the delete sync_event must survive the purge"
+
+        m2 = Memory(content=content, content_hash=h, tags=["b"], memory_type="note")
+        res2 = await store.store_batch([m2])
+        assert res2 and res2[0][0], "re-store_batch must succeed"
+
+        _eid2, recreate_payload = _latest_create_payload(store, h)
+        assert recreate_payload.get("recreate_of") == del_eid, (
+            f"re-create via store_batch() after purge must stamp recreate_of = delete's event_id "
+            f"{del_eid!r} (delete still in sync_events), got {recreate_payload.get('recreate_of')!r} "
+            f"— EMPTY means apply resolves it as delete-wins → divergence (#1564)"
+        )
 
 
 # ===========================================================================

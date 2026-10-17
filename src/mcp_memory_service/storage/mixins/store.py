@@ -61,8 +61,9 @@ class StoreMixin:
         """#1522 #2 (ADR-0012 v2): the `recreate_of` signal for a re-create of this hash.
 
         Returns `(event_id, [hlc_physical, hlc_logical, agent_id])` of the dominant local
-        delete for `content_hash` ONLY when the hash currently carries a durable tombstone
-        (a soft-deleted row). The producer stamps the `event_id` on the re-create's payload
+        delete for `content_hash` whenever a delete event is recorded in sync_events —
+        INDEPENDENTLY of whether a soft-deleted tombstone row still exists (#1564). The
+        producer stamps the `event_id` on the re-create's payload
         (retrocompat name-match) AND the HLC+agent triple as `recreate_of_hlc` — a STABLE
         identity anchor that survives event_id rewrites (P1-B, 2026-10-16): the bootstrap
         baseline rewrites the delete's event_id to `bl-...` but PRESERVES its HLC
@@ -71,8 +72,8 @@ class StoreMixin:
         which hard-deletes the tombstone row but does NOT touch sync_events, so the delete
         event is still the latest for the hash.
 
-        Returns None when the hash has no tombstone (a fresh create carries no recreate_of),
-        when no delete event is recorded, or when the lookup is unavailable.
+        Returns None when no delete event is recorded for the hash (a fresh create carries no
+        recreate_of) or when the lookup is unavailable.
 
         P2 tied-deletes (Greptile): the dominant delete is selected by the resolver's FULL
         total order (`_winner_key`: HLC -> delete-vs-update -> agent_id -> event_id), NOT by
@@ -84,12 +85,15 @@ class StoreMixin:
         # avoids a module-load cycle (store mixin <-> sync package).
         from ..sync.resolver import EventView, _winner_key
         try:
-            tomb = self.conn.execute(
-                "SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL LIMIT 1",
-                (content_hash,),
-            ).fetchone()
-            if tomb is None:
-                return None
+            # #1564: decide SOLELY from the recorded delete in sync_events, NOT from the
+            # presence of a tombstone row. purge_deleted/_purge_tombstone hard-delete the
+            # soft-deleted memories row but never touch sync_events, so the delete event
+            # survives the purge. The old tombstone guard (`if tomb is None: return None`)
+            # was redundant with `if not rows` below — sync_events only carries op='delete'
+            # when a live row was actually deleted (delete.py emits it on rowcount>0), so a
+            # fresh create (never deleted) has zero delete rows and still returns None here.
+            # Requiring the tombstone row made a re-create AFTER a purge emit recreate_of=""
+            # (EMPTY), which apply treats as delete-wins → origin live, peer dead forever.
             rows = self.conn.execute(
                 "SELECT event_id, hlc_physical, hlc_logical, agent_id FROM sync_events "
                 "WHERE content_hash = ? AND op = 'delete'",
