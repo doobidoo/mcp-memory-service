@@ -1295,3 +1295,120 @@ async def test_producer_omits_recreate_of_hlc_on_empty(store):
             f"a fresh create must NOT carry recreate_of_hlc (anchor is NAMED-only), "
             f"got {fresh_payload.get('recreate_of_hlc')!r}"
         )
+
+
+# ===========================================================================
+# #1522 P1 — DUPLICATE-ANCHOR NON-DETERMINISM (Greptile r4302312738).
+#
+# names_delete's HLC-anchor fallback (apply.py ~732) iterates `deletes` and
+# returns `d is dtop` at the FIRST delete whose (hlc_physical, hlc_logical,
+# agent_id) matches the anchor. When a peer holds TWO deletes of the same hash
+# with the SAME anchor — the ORIGINAL delete and its bootstrap BASELINE copy
+# ('bl-...'; bootstrap.py:132 rewrites the event_id but PRESERVES the HLC+agent)
+# — and `deletes` has NO guaranteed order, the result depends on which one is
+# read first:
+#   dtop is deterministically the 'bl-...' copy (same HLC/agent, but _winner_key
+#   component 6 breaks the tie on event_id, and 'bl-...' < 'orig-del'), yet the
+#   create NAMES the ORIGINAL id with the shared anchor.
+#   - deletes = [original, baseline]: first anchor match is `original`,
+#       `original is dtop` → False → DEAD (WRONG).
+#   - deletes = [baseline,  original]: first anchor match is `baseline` (=dtop),
+#       `baseline is dtop`  → True  → LIVE (right).
+# Two peers with the SAME event set diverge (one revives, one stays dead) purely
+# on list order — non-determinism. The fix must make the fallback answer whether
+# ANY anchor-matching delete IS dtop, so BOTH orders agree (converge to LIVE).
+#
+# prove-fix: these assert CONVERGENCE (same answer in both orders) and the
+# CORRECT answer (LIVE / names dtop). RED today — at least one order gives the
+# wrong/opposite result. GREEN once the fallback stops short-circuiting on the
+# first match and would RED again if the short-circuit regressed.
+# ===========================================================================
+
+from mcp_memory_service.storage.sync.apply import (
+    recompute_liveness as _recompute_liveness,
+    names_delete as _names_delete,
+    _LivenessEvent,
+    _LIVE as _LIVENESS_LIVE,
+    _DEAD as _LIVENESS_DEAD,
+)
+
+
+def _dup_anchor_events(deletes_order):
+    """Build the event SET for the duplicate-anchor case as _LivenessEvent objects, with the
+    two deletes in the requested list order.
+
+    Shared anchor = (100, 0, 'A'). ORIGINAL delete event_id='orig-del'; BASELINE copy
+    event_id='bl-xxxx' (bootstrap rewrite, SAME HLC+agent). The re-create NAMES 'orig-del'
+    and carries recreate_of_hlc=[100,0,'A'] with a POSTERIOR HLC (200,0) so it supersedes
+    (P1-A gate satisfied). `deletes_order` is a list of the two delete keys controlling the
+    order the fallback loop sees them in.
+    """
+    h = "dup-anchor-hash"
+    orig = _LivenessEvent(
+        hlc_physical=100, hlc_logical=0, agent_id="A", event_id="orig-del",
+        op="delete", content_hash=h, payload={"deleted_at": 2000.0},
+    )
+    baseline = _LivenessEvent(
+        hlc_physical=100, hlc_logical=0, agent_id="A", event_id="bl-xxxx",
+        op="delete", content_hash=h, payload={"deleted_at": 2000.0},
+    )
+    create = _LivenessEvent(
+        hlc_physical=200, hlc_logical=0, agent_id="A", event_id="C-recreate",
+        op="create", content_hash=h,
+        payload={"recreate_of": "orig-del", "recreate_of_hlc": [100, 0, "A"]},
+    )
+    by_name = {"orig": orig, "bl": baseline}
+    deletes = [by_name[name] for name in deletes_order]
+    return create, orig, baseline, deletes
+
+
+def test_names_delete_duplicate_anchor_is_order_independent():
+    """names_delete must give the SAME answer regardless of the order of the two
+    same-anchor deletes in `deletes`. The dominant delete `dtop` is the 'bl-...' copy
+    (tie broken on event_id by _winner_key). The anchor names the original id but matches
+    BOTH deletes; the fallback must report whether the DOMINANT delete is among the
+    anchor-matches — True in BOTH orders — not just whether the FIRST match happens to be
+    dtop. RED today: the short-circuit returns `original is dtop` (False) for the
+    [original, baseline] order, diverging from the [baseline, original] order (True)."""
+    # dtop is the same object in both orders: the 'bl-...' baseline (dominant by _winner_key).
+    _c1, _orig1, baseline1, deletes_ob = _dup_anchor_events(["orig", "bl"])
+    _c2, _orig2, baseline2, deletes_bo = _dup_anchor_events(["bl", "orig"])
+    anchor = [100, 0, "A"]
+
+    res_order_ob = _names_delete("orig-del", anchor, baseline1, deletes_ob)  # [original, baseline]
+    res_order_bo = _names_delete("orig-del", anchor, baseline2, deletes_bo)  # [baseline, original]
+
+    assert res_order_ob == res_order_bo, (
+        "names_delete must be order-independent for a duplicate-anchor delete set; "
+        f"[original,baseline]={res_order_ob} vs [baseline,original]={res_order_bo} — "
+        "the first-match short-circuit makes it depend on list order (Greptile r4302312738)"
+    )
+    # And the converged answer must be the CORRECT one: the anchor DOES identify the
+    # dominant delete (dtop IS one of the anchor matches), so it names dtop → True.
+    assert res_order_ob is True, (
+        "the anchor matches the dominant delete (dtop), so names_delete must return True "
+        "(the re-create legitimately names dtop) in every order"
+    )
+
+
+def test_recompute_liveness_duplicate_anchor_converges_live():
+    """End-to-end on the liveness fold: a re-create that supersedes the dominant delete and
+    names it via the shared HLC anchor must REVIVE (LIVE) regardless of the order of the two
+    same-anchor deletes in the event list. recompute_liveness elects dtop deterministically,
+    but passes the whole `deletes` list to names_delete, whose first-match short-circuit then
+    flips the outcome with list order. RED today: the [original, baseline] order yields DEAD
+    while [baseline, original] yields LIVE — divergence on identical event sets."""
+    create_ob, _o, _b, deletes_ob = _dup_anchor_events(["orig", "bl"])
+    create_bo, _o2, _b2, deletes_bo = _dup_anchor_events(["bl", "orig"])
+
+    state_ob, _da_ob = _recompute_liveness([create_ob] + deletes_ob)  # [original, baseline]
+    state_bo, _da_bo = _recompute_liveness([create_bo] + deletes_bo)  # [baseline, original]
+
+    assert state_ob == state_bo, (
+        "recompute_liveness must converge to the SAME state in both delete orders for a "
+        f"duplicate-anchor set; [original,baseline]={state_ob} vs [baseline,original]={state_bo}"
+    )
+    assert state_ob == _LIVENESS_LIVE, (
+        "a re-create that supersedes the dominant delete and names it via the shared anchor "
+        f"must REVIVE (LIVE) in every order; got {state_ob}"
+    )

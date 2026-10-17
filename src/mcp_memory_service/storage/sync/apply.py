@@ -748,9 +748,14 @@ def names_delete(recreate_of_eid, recreate_of_hlc, dtop: "_LivenessEvent", delet
         return True
     if recreate_of_hlc is not None:
         anchor = tuple(recreate_of_hlc)  # list→tuple: json.loads yields a list, never a tuple
-        for d in deletes:
-            if (d.hlc_physical, d.hlc_logical, d.agent_id) == anchor:
-                return d is dtop  # only the DOMINANT delete counts; a stale anchor stays dead
+        # Compare the anchor DIRECTLY against dtop — do NOT scan `deletes` and stop at the
+        # first object whose anchor matches (Greptile r4302312738). A peer can hold the
+        # original delete AND its `bl-...` baseline copy with the SAME (hlc, agent) anchor;
+        # since `deletes` has no defined order, `d is dtop` on the first match returns True
+        # or False depending on which copy is read first — two peers with the same events
+        # would then disagree. The anchor identifies the dominant delete iff it equals dtop's
+        # own anchor; dtop is already the unique resolver winner, so this is order-independent.
+        return (dtop.hlc_physical, dtop.hlc_logical, dtop.agent_id) == anchor
     return False
 
 
