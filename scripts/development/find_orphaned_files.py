@@ -190,7 +190,7 @@ class OrphanDetector:
         config_patterns = [
             (r'.*requirements.*\.txt$', 'Requirements file'),
             (r'.*requirements.*\.lock$', 'Requirements lock'),
-            (r'.*package.*\.json$', 'Package.json'),
+            (r'.*package.*\.json$', 'Package.json'),  # path-case: ok (label)
             (r'.*package.*lock.*\.json$', 'Package lock'),
             (r'.*\.lock$', 'Lock file'),
             (r'.*config.*\.(py|json|yaml|yml)$', 'Config file'),

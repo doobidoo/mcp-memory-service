@@ -46,13 +46,31 @@ class SSEEvent:
     event_id: Optional[str] = None
     retry: Optional[int] = None
     timestamp: Optional[str] = None
-    
+    # The store partition this event belongs to. ``None`` marks a system-wide
+    # event (heartbeat, health, connection lifecycle, sync progress) that is
+    # delivered to every connection regardless of its store subscription. A
+    # concrete store name (e.g. "default") is delivered only to connections
+    # subscribed to that store or to the firehose (no subscription).
+    store: Optional[str] = None
+
     def __post_init__(self):
         """Set default values after initialization."""
         if self.event_id is None:
             self.event_id = str(uuid.uuid4())
         if self.timestamp is None:
             self.timestamp = datetime.now(timezone.utc).isoformat()
+
+
+def _event_in_scope(event: "SSEEvent", stores: Optional[Set[str]]) -> bool:
+    """Whether a connection subscribed to ``stores`` should receive ``event``.
+
+    ``stores`` is ``None`` for a firehose connection (receives everything).
+    A system-wide event (``event.store is None``) always passes. Otherwise the
+    event passes only when its store is in the subscription set.
+    """
+    if stores is None or event.store is None:
+        return True
+    return event.store in stores
 
 
 class SSEManager:
@@ -103,6 +121,7 @@ class SSEManager:
         connection_id: str,
         request: Request,
         last_event_id: Optional[str] = None,
+        stores: Optional[Set[str]] = None,
     ) -> asyncio.Queue:
         """Add a new SSE connection.
 
@@ -112,6 +131,11 @@ class SSEManager:
         HTML Living Standard. Buffer overflow (id is too old or unknown) is
         surfaced in the welcome event so clients can detect it and fall back
         to their own catch-up strategy.
+
+        ``stores`` is the set of store partitions this connection subscribes
+        to. ``None`` (the default) means the firehose — every store, matching
+        the pre-subscription behaviour. A non-empty set limits delivery (and
+        replay) to events in those stores plus system-wide events.
         """
         queue = asyncio.Queue()
 
@@ -121,7 +145,8 @@ class SSEManager:
             'connected_at': time.time(),
             'last_heartbeat': time.time(),
             'user_agent': request.headers.get('User-Agent', 'Unknown'),
-            'client_ip': request.client.host if request.client else 'Unknown'
+            'client_ip': request.client.host if request.client else 'Unknown',
+            'stores': stores,
         }
 
         logger.info(
@@ -132,7 +157,7 @@ class SSEManager:
 
         # Resolve replay (if requested) before sending the welcome so the
         # welcome can describe the outcome to the client.
-        replay_meta, events_to_replay = self._resolve_replay(last_event_id)
+        replay_meta, events_to_replay = self._resolve_replay(last_event_id, stores)
 
         welcome_data = {
             "connection_id": connection_id,
@@ -157,13 +182,22 @@ class SSEManager:
 
         return queue
 
-    def _resolve_replay(self, last_event_id: Optional[str]):
+    def _resolve_replay(
+        self,
+        last_event_id: Optional[str],
+        stores: Optional[Set[str]] = None,
+    ):
         """Walk the replay buffer for last_event_id; return (welcome_meta, events).
 
         welcome_meta is None when no replay was requested OR the buffer is
         disabled. Otherwise it describes the outcome (resumed vs. overflow)
         so the client can decide whether to trust the resume or do its own
         catch-up (e.g. via search-by-tag).
+
+        ``stores`` scopes the replay the same way live delivery is scoped: a
+        subscribed connection is only replayed events in its stores (plus
+        system-wide events), so a reconnecting client cannot receive another
+        store's buffered events via resume.
 
         Single-pass iteration over the deque — no full-buffer copy — so the
         memory cost stays proportional to what actually needs replaying,
@@ -177,7 +211,8 @@ class SSEManager:
         found = False
         for event in self._replay_buffer:
             if found:
-                to_replay.append(event)
+                if _event_in_scope(event, stores):
+                    to_replay.append(event)
             elif event.event_id == last_event_id:
                 found = True
 
@@ -230,24 +265,30 @@ class SSEManager:
             return
         
         target_connections = (
-            connection_filter.intersection(self.connections.keys()) 
-            if connection_filter 
+            connection_filter.intersection(self.connections.keys())
+            if connection_filter
             else self.connections.keys()
         )
-        
+
         if not target_connections:
             return
-        
+
         logger.debug("Broadcasting %s to %d connections", event.event_type, len(target_connections))
-        
-        # Send to all target connections
+
+        # Send to all target connections whose store subscription matches the
+        # event. A store-less event (system-wide) reaches everyone; a
+        # store-tagged event reaches only firehose and matching subscribers.
         for connection_id in list(target_connections):  # Copy to avoid modification during iteration
-            if connection_id in self.connections:
-                try:
-                    await self.connections[connection_id]['queue'].put(event)
-                except Exception as e:
-                    logger.error("Failed to send event to %s: %s", connection_id, _sanitize_log_value(e))
-                    await self._remove_connection(connection_id)
+            connection = self.connections.get(connection_id)
+            if connection is None:
+                continue
+            if not _event_in_scope(event, connection.get('stores')):
+                continue
+            try:
+                await connection['queue'].put(event)
+            except Exception as e:
+                logger.error("Failed to send event to %s: %s", connection_id, _sanitize_log_value(e))
+                await self._remove_connection(connection_id)
     
     async def _heartbeat_loop(self):
         """Send periodic heartbeat events to maintain connections."""
@@ -312,6 +353,33 @@ class SSEManager:
 sse_manager = SSEManager()
 
 
+def parse_store_subscription(query_params) -> Optional[Set[str]]:
+    """Parse the ``?store=`` query into a subscription set.
+
+    Repeat the parameter to subscribe to several stores (``?store=a&store=b``).
+    Each value is an *exact* store name, matching what the write API stores and
+    tags events with — no trimming or splitting — so a store whose name
+    contains spaces or commas is still addressable. Returns ``None`` (the
+    firehose — every store) when no store is given or when any value is the
+    ``all`` sentinel, mirroring the HTTP API's reserved ``store=all``. Empty
+    values are ignored.
+    """
+    try:
+        raw_values = query_params.getlist("store")
+    except AttributeError:  # pragma: no cover - defensive for plain dicts
+        single = query_params.get("store")
+        raw_values = [single] if single is not None else []
+
+    names: Set[str] = set()
+    for raw in raw_values:
+        if raw == "all":
+            return None
+        if raw == "":
+            continue
+        names.add(raw)
+    return names or None
+
+
 async def create_event_stream(request: Request):
     """Create an SSE event stream for a client."""
     connection_id = str(uuid.uuid4())
@@ -320,9 +388,11 @@ async def create_event_stream(request: Request):
     # or stale ids fall through to a fresh stream with overflow surfaced in
     # the welcome event.
     last_event_id = request.headers.get('Last-Event-ID')
+    # Optional store subscription; None = firehose (unchanged default).
+    stores = parse_store_subscription(request.query_params)
 
     async def event_generator():
-        queue = await sse_manager.add_connection(connection_id, request, last_event_id)
+        queue = await sse_manager.add_connection(connection_id, request, last_event_id, stores=stores)
         
         try:
             while True:
@@ -367,27 +437,35 @@ async def create_event_stream(request: Request):
 
 
 # Event creation helpers
-def create_memory_stored_event(memory_data: Dict[str, Any]) -> SSEEvent:
-    """Create a memory_stored event."""
+def create_memory_stored_event(memory_data: Dict[str, Any], store: Optional[str] = None) -> SSEEvent:
+    """Create a memory_stored event scoped to ``store``.
+
+    ``store`` both tags the event for subscription routing and is surfaced in
+    the payload so clients can see which partition the memory landed in.
+    """
     return SSEEvent(
         event_type="memory_stored",
+        store=store,
         data={
             "content_hash": memory_data.get("content_hash"),
             "content_preview": memory_data.get("content", "")[:100] + "..." if len(memory_data.get("content", "")) > 100 else memory_data.get("content", ""),
             "tags": memory_data.get("tags", []),
             "memory_type": memory_data.get("memory_type"),
+            "store": store,
             "message": "New memory stored successfully"
         }
     )
 
 
-def create_memory_deleted_event(content_hash: str, success: bool = True) -> SSEEvent:
-    """Create a memory_deleted event."""
+def create_memory_deleted_event(content_hash: str, success: bool = True, store: Optional[str] = None) -> SSEEvent:
+    """Create a memory_deleted event scoped to ``store``."""
     return SSEEvent(
         event_type="memory_deleted",
+        store=store,
         data={
             "content_hash": content_hash,
             "success": success,
+            "store": store,
             "message": "Memory deleted successfully" if success else "Memory deletion failed"
         }
     )

@@ -2,9 +2,9 @@
 Server-Sent Events endpoints for real-time updates.
 """
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Query
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 # OAuth config no longer needed - auth is always enabled
 from ..sse import create_event_stream, sse_manager
@@ -34,11 +34,22 @@ class SSEStatsResponse(BaseModel):
 @router.get("/events")
 async def events_endpoint(
     request: Request,
+    store: Optional[List[str]] = Query(
+        None,
+        description=(
+            "Restrict the stream to one or more store partitions. Repeat the "
+            "param to select several (e.g. ?store=default or "
+            "?store=a&store=b). Each value is an exact store name. Omit it, or "
+            "pass 'all', for the firehose (every store). System events "
+            "(heartbeat, health, connection lifecycle) are always delivered "
+            "regardless of this filter."
+        ),
+    ),
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Server-Sent Events endpoint for real-time updates.
-    
+
     Provides a continuous stream of events including:
     - memory_stored: When new memories are added
     - memory_deleted: When memories are removed
@@ -46,7 +57,15 @@ async def events_endpoint(
     - health_update: System status changes
     - heartbeat: Periodic keep-alive signals
     - connection_established: Welcome message
+
+    memory_stored / memory_deleted events carry the store partition they
+    belong to and can be filtered with the ``store`` query parameter. This is
+    an opt-in convenience filter, not an access control boundary: any caller
+    with read access may subscribe to any store or to the firehose.
     """
+    # `store` is declared for OpenAPI/validation; create_event_stream reads it
+    # back off request.query_params so repeated and comma-separated forms are
+    # parsed in one place.
     return await create_event_stream(request)
 
 
