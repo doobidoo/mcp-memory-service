@@ -236,25 +236,61 @@ async function capture(event, config, project, state, deadline, persist) {
     }
 }
 
-async function acquireLock(lockname) {
-    // One retry recovers a dead owner's lock without waiting for active callbacks.
-    for (let attempt = 0; attempt < 2; attempt++) {
-        try { return await fs.open(lockname, 'wx', 0o600); }
-        catch (error) {
-            if (error.code !== 'EEXIST') throw error;
-            if (attempt > 0) return null; // Another callback won the retry.
+async function releaseLock(lockname, owner) {
+    // A recovering callback can remove only the owner it actually observed.
+    try { await fs.unlink(path.join(lockname, owner)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    try { await fs.rmdir(lockname); }
+    catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
+}
+
+async function clearStaleLock(lockname) {
+    try {
+        const stat = await fs.lstat(lockname);
+        if (stat.isFile()) {
+            // Recover the regular-file locks used by earlier adapter versions.
+            if (Date.now() - stat.mtimeMs <= 60000) return false;
+            try { await fs.unlink(lockname); }
+            catch (error) { if (error.code === 'EISDIR' || error.code === 'EPERM') return false; throw error; }
+            return true;
         }
-        let stat;
-        try { stat = await fs.stat(lockname); }
-        catch (error) {
-            if (error.code === 'ENOENT') continue; // Its owner just released it.
-            throw error;
-        }
-        if (Date.now() - stat.mtimeMs <= 60000) return null;
-        try { await fs.unlink(lockname); }
-        catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (!stat.isDirectory()) return false;
+        const owners = await fs.readdir(lockname);
+        if (owners.length === 0) return true;
+        if (owners.length !== 1 || !/^owner-[0-9a-f-]+$/.test(owners[0])) return false;
+        // Read the timestamp of this unique owner, never a replacement directory.
+        const ownerStat = await fs.stat(path.join(lockname, owners[0]));
+        if (Date.now() - ownerStat.mtimeMs <= 60000) return false;
+        await releaseLock(lockname, owners[0]);
+        return true;
+    } catch (error) {
+        if (error.code === 'ENOENT') return true;
+        throw error;
     }
-    return null;
+}
+
+async function acquireLock(lockname) {
+    const candidate = await fs.mkdtemp(`${lockname}.claim-`);
+    const owner = `owner-${crypto.randomUUID()}`;
+    let acquired = false;
+    try {
+        await fs.writeFile(path.join(candidate, owner), '', { mode: 0o600 });
+        // Publish a non-empty directory atomically. Rename cannot replace another
+        // non-empty owner directory, including one created during stale recovery.
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                await fs.rename(candidate, lockname);
+                acquired = true;
+                return { close: () => releaseLock(lockname, owner) };
+            } catch (error) {
+                if (!['EEXIST', 'ENOTEMPTY', 'ENOTDIR', 'EISDIR', 'EPERM'].includes(error.code)) throw error;
+            }
+            if (attempt > 0 || !await clearStaleLock(lockname)) return null;
+        }
+        return null;
+    } finally {
+        if (!acquired) await fs.rm(candidate, { recursive: true, force: true });
+    }
 }
 
 async function runHook(event, options = {}) {
@@ -282,7 +318,6 @@ async function runHook(event, options = {}) {
         return null;
     } finally {
         await lock.close();
-        await fs.unlink(lockname).catch(() => {});
     }
 }
 

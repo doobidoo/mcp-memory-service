@@ -221,13 +221,15 @@ test('parallel Stop and PreCompact hooks serialize writes and cached context sur
     assert.equal(f.requests.filter(r => r.url === '/api/memories').length, 2);
 });
 
-async function lockSession(f, ageMs) {
+async function lockSession(f, ageMs, directory = false) {
     await runHook({ ...f.event, hook_event_name: 'SessionStart' }, f.config);
     const stateFile = (await fs.readdir(f.config.stateDir)).find(name => name.endsWith('.json'));
     const lockname = path.join(f.config.stateDir, `${stateFile}.lock`);
-    await fs.writeFile(lockname, 'lock-owner');
+    if (directory) await fs.mkdir(lockname);
+    const ownerPath = directory ? path.join(lockname, 'owner-deadbeef') : lockname;
+    await fs.writeFile(ownerPath, 'lock-owner');
     const modified = new Date(Date.now() - ageMs);
-    await fs.utimes(lockname, modified, modified);
+    await fs.utimes(ownerPath, modified, modified);
     f.requests.length = 0;
     return lockname;
 }
@@ -257,6 +259,67 @@ test('a fresh lock is preserved and its competing callback does no work', async 
     assert.equal(result, null);
     assert.equal(f.requests.length, 0);
     assert.equal(await fs.readFile(lockname, 'utf8'), 'lock-owner');
+});
+
+test('two callbacks observing the same stale owner cannot delete the winner\'s replacement lock', async t => {
+    const f = await fixture(t);
+    const lockname = await lockSession(f, 61000, true);
+    const ownerPath = path.join(lockname, 'owner-deadbeef');
+    const originalStat = fs.stat;
+    let observations = 0, release;
+    const bothObserved = new Promise(resolve => { release = resolve; });
+    t.mock.method(fs, 'stat', async (...args) => {
+        const result = await originalStat(...args);
+        if (args[0] === ownerPath) {
+            if (++observations === 2) release();
+            await bothObserved;
+        }
+        return result;
+    });
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await Promise.all([runHook(f.event, f.config), runHook({ ...f.event, hook_event_name: 'PreCompact' }, f.config)]);
+    assert.equal(observations, 2);
+    assert.deepEqual(f.requests.map(r => r.body.memory_type), ['decision', 'session']);
+    await assert.rejects(originalStat(lockname), { code: 'ENOENT' });
+    assert.ok((await fs.readdir(f.config.stateDir)).every(name => name.endsWith('.json')));
+});
+
+test('legacy stale-lock recovery cannot unlink a replacement acquired by another callback', async t => {
+    const f = await fixture(t);
+    const lockname = await lockSession(f, 61000);
+    const originalStat = fs.stat, originalLstat = fs.lstat;
+    const originalOpen = fs.open, originalRename = fs.rename, originalUnlink = fs.unlink;
+    let observations = 0, removals = 0, releaseSnapshots, acquired;
+    const bothObserved = new Promise(resolve => { releaseSnapshots = resolve; });
+    const winnerAcquired = new Promise(resolve => { acquired = resolve; });
+    const observe = original => async (...args) => {
+        const result = await original(...args);
+        if (args[0] === lockname && result.isFile()) {
+            if (++observations === 2) releaseSnapshots();
+            await bothObserved;
+        }
+        return result;
+    };
+    t.mock.method(fs, 'stat', observe(originalStat));
+    t.mock.method(fs, 'lstat', observe(originalLstat));
+    t.mock.method(fs, 'open', async (...args) => {
+        const result = await originalOpen(...args);
+        if (args[0] === lockname && args[1] === 'wx') acquired();
+        return result;
+    });
+    t.mock.method(fs, 'rename', async (...args) => {
+        const result = await originalRename(...args);
+        if (args[1] === lockname) acquired();
+        return result;
+    });
+    t.mock.method(fs, 'unlink', async (...args) => {
+        if (args[0] === lockname && ++removals === 2) await winnerAcquired;
+        return originalUnlink(...args);
+    });
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await Promise.all([runHook(f.event, f.config), runHook({ ...f.event, hook_event_name: 'PreCompact' }, f.config)]);
+    assert.equal(observations, 2);
+    assert.deepEqual(f.requests.map(r => r.body.memory_type), ['decision', 'session']);
 });
 
 test('absolute request timeout stops a server that trickles response bytes', async t => {

@@ -120,9 +120,12 @@ pending outcomes occupy one summary slot. There are no server-side memory deleti
 State contains deduplication hashes and the last retrieved context, stored in
 private files under `$CODEX_HOME/memory-service/state`. Session IDs are hashed
 before use in filenames. A per-session lock prevents concurrent callbacks from
-duplicating writes. A lock left by a killed process expires after one minute.
-The same callback removes an expired lock, retries exclusive acquisition, and
-continues its work if it acquires the lock. Fresh locks are left in place.
+duplicating writes. The adapter atomically publishes a non-empty lock directory
+with a unique owner file. A lock left by a killed process expires after one minute.
+Recovery removes only the observed stale owner and an empty directory, so it
+cannot remove a competing callback's replacement owner. The same callback retries
+exclusive acquisition and continues its work if it acquires the lock. Fresh locks
+are left in place; expired regular-file locks from earlier versions are also supported.
 
 Requests have an absolute timeout. `SessionEnd` has a 1.8-second internal budget
 inside Codex's three-second limit; the other hooks have a 7.5-second budget.
