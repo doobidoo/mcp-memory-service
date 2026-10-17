@@ -208,7 +208,8 @@ Full list, plus clients without OAuth such as Home Assistant:
   observations. Heuristic contradiction detection can mark older memories as superseded,
   hiding them from default retrieval while retaining them for explicit lookup.
 - 🤖 **Agent bootstrap profiles** — `get_bootstrap_profile` assembles behavioral context
-  for a new agent, scoped by agent and optionally project or task, within a token budget.
+  for a new agent within a token budget, with optional task-aware retrieval.
+  Requires `MCP_BOOTSTRAP_ENABLED=true`; profiles are not isolated by project.
 - 🧬 **Knowledge graph and entities** — Explore typed causal relationships in the interactive
   graph. 🔗 Entity extraction links @mentions, #tags, URLs, and file paths to a queryable entity graph.
   [Knowledge graph guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/features/knowledge-graph-dashboard.md)
