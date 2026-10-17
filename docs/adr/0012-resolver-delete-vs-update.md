@@ -1,6 +1,6 @@
 # ADR-0012: Resolver — delete-vs-update semantics (tombstone precedence by logical order)
 
-- **Date:** 2026-10-07 (**v2: 2026-10-16** — `recreate_of` intentionality signal)
+- **Date:** 2026-10-07 (**v2: 2026-10-16, rev 2026-10-17** — `recreate_of` 3-state signal, event-set liveness (#1564), anchor vs dtop (r4302312738))
 - **Status:** Accepted (v2 supersedes the v1 apply clause "the apply step honors the tombstone")
 - **Deciders:** Claudio (owner/client), Zero (agent). Arch input: seven (Gate 1). v2 sign-off: Henry (#1522, issuecomment-6204519097, 2026-10-16).
 - **Scope:** delta-sync (#1345) Phase 2 resolver + apply. Satisfies RFC §8.2 + consistency with §8.1c. **v2 covers the SYNC path only; the REST/force store path is tracked separately as #1560.**
@@ -38,34 +38,44 @@ For delete-vs-update of the same hash:
 
 ### v2 — the `recreate_of` intentionality signal
 
-- **Producer (`storage/mixins/store.py`):** when `store()` (single and batch paths) purges a
-  durable tombstone for a `content_hash` before writing a re-create, it stamps the create
-  payload with `recreate_of = <event_id of the latest local delete for that hash>`
-  (`_recreate_of_for`, queried from `sync_events` BEFORE `_purge_tombstone`, which does not
-  touch `sync_events`). A create of a fresh hash (no prior tombstone) carries **no**
-  `recreate_of`.
+- **Producer (`storage/mixins/store.py`):** both `store()` paths (single and batch) stamp
+  `recreate_of` on **every** create. When a re-create follows a recorded delete for the
+  `content_hash`, it stamps `recreate_of = <event_id of the dominant local delete>` plus the
+  stable `recreate_of_hlc = [hlc_physical, hlc_logical, agent_id]` anchor (`_recreate_of_for`,
+  which reads the dominant delete from `sync_events` — INDEPENDENTLY of whether the tombstone
+  row still exists, since `purge_deleted`/`_purge_tombstone` hard-delete the row but never
+  touch `sync_events`, #1564). A create of a fresh hash (no recorded delete) stamps the
+  **empty sentinel** `recreate_of = ""` (EMPTY), NOT the absence of the key — only a v1 peer
+  omits the key entirely (ABSENT). The three states are distinguished by PRESENCE (`in`), not
+  `.get()`.
 - **Signal shape:** `recreate_of` references the **delete's `event_id`** — an `event_id`
   names exactly one delete, whereas `deleted_at` is wall-clock and carries the very skew
   this fix fights (Henry). It lives on the **payload**, is **optional**, and there is **NO
   `schema_version` bump** (a bump would fail-stop v1 peers at `apply_remote_event` where
   `event_schema_version > KNOWN_SCHEMA_VERSION`).
-- **Consumer (`storage/sync/apply._materialize_event`), deterministic rule for a resolver-
-  winning `create` over a hash that currently carries a durable tombstone `T`, with
-  `D_cur` = `event_id` of the latest local delete for the hash:**
+- **Consumer (`storage/sync/apply.recompute_liveness`), deterministic rule evaluated over
+  the WHOLE recorded event SET for the hash (NOT the current row state, #1564) — `dtop` =
+  the dominant delete elected by the resolver's `_winner_key`, `cwin` = the winning create:**
 
   ```
-  if T is None:                       materialize (deleted_at = NULL)          # INV-2c, fresh hash
-  r = payload.get("recreate_of")
-  if r is None:                       REVIVE   (deleted_at = NULL)             # absence = revive (Henry; INV-2b, v1 back-compat)
-  elif r == D_cur:                    REVIVE   (deleted_at = NULL)             # valid supersession (INV-2b)
-  else:                               PRESERVE tombstone (row untouched)       # stale/unrelated signal (INV-2a); PROCESSED, cursor advances
+  if no delete in the set:            materialize LIVE                         # fresh hash / no tombstone
+  classify recreate_of (3-state by PRESENCE):
+    ABSENT (v1 peer omitted key):     REVIVE iff no delete dominates cwin       # back-compat (INV-2b), via _liveness_bare
+    EMPTY  (""):                      DEAD — the delete wins whenever one exists # v2 never saw the delete (Henry Ponto 2)
+    NAMED  (event_id [+ recreate_of_hlc]):
+        REVIVE iff names_delete(dtop) AND cwin.key() < dtop.key()               # supersedes the dominant delete (INV-2b + P1-A)
+        else                          DEAD (tombstone preserved)                # stale/unrelated signal (INV-2a)
   ```
 
-  `_recreate_supersedes_tombstone` performs the `r == D_cur` check. Preserving the tombstone
-  is **not** a materialization failure: apply returns processed so the cursor advances and
-  the sender does not retry forever.
-- **Absence = revive** is the single inverted line vs the first (wrong) implementation, which
-  preserved on absence and broke the two legitimate-re-create regressions. The
+  `names_delete` matches the dominant delete by raw `event_id` OR, when the id was rewritten
+  to `bl-...` by the bootstrap baseline (which preserves the HLC), by the stable
+  `recreate_of_hlc` anchor compared **directly against `dtop`** (order-independent even when
+  a peer holds both the original delete and its `bl-...` copy — Greptile r4302312738). A NAMED
+  signal that does not name the dominant delete is stale and stays DEAD. Preserving the
+  tombstone is **not** a materialization failure: apply returns processed so the cursor
+  advances and the sender does not retry forever.
+- **ABSENT = revive** keeps v1 peers (which omit the key) working; the first (wrong)
+  implementation preserved on absence and broke the two legitimate-re-create regressions. The
   anti-resurrection guarantee is honored in the case Henry actually named — the **REST/force
   path (#1560)**, carved out of this change — and, on the sync path, by a **stale** `recreate_of`.
 - **Decision is independent of HLC** (REQ-2.2): the resolver already used HLC to pick this
