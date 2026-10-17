@@ -21,6 +21,11 @@ framework at `http://localhost:8000`. Framework-specific guides live in
 Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · Goose · Aider ·
 GitHub Copilot CLI · Amp · Continue · Zed · Cody
 
+Automatic lifecycle integrations are also available for
+[Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
+[Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
+project context, capture learnings, and checkpoint session outcomes.
+
 ### Desktop and IDE (MCP)
 
 Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code · Raycast · JetBrains · Replit ·
