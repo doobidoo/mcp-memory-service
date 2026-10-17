@@ -6,9 +6,10 @@ read the PR template under its lower-case name passed on a Mac and died with
 FileNotFoundError on the Linux runner, because the tracked file is
 .github/PULL_REQUEST_TEMPLATE.md (PR #1571). Nothing local caught that.
 
-For every quoted literal in the given files this compares the literal (a
-leading ./ stripped), and failing that its last path segment, against
-`git ls-files`. It reports a literal only when a
+For every path-like token inside a quoted string in the given files (so a
+variable prefix such as f"{root}/..." does not hide it) this compares the
+token, with a leading ./ or / stripped, and failing that its last path segment,
+against `git ls-files`. It reports a literal only when a
 tracked path or file name matches it ignoring case but not exactly, so names of
 files that exist only at run time (temp databases, reports) never count.
 Literals without a file extension are skipped: words like "Default" are not
@@ -26,7 +27,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-LITERAL = re.compile(r"""["']([\w./-]+\.\w+)["']""")
+# Path-like tokens inside any quoted string, so f"{root}/x.md" and "${ROOT}/x.md"
+# still yield "/x.md". ponytail: quotes are paired naively, so the text between two
+# literals on one line is scanned too; it only matters if it names a tracked file.
+QUOTED = re.compile(r"""["']([^"'\n]+)["']""")
+TOKEN = re.compile(r"[\w./-]+\.\w+")
 OPT_OUT = "path-case: ok"
 
 
@@ -38,12 +43,15 @@ def case_mismatches(source: str, tracked: list[str]) -> list[tuple[str, str]]:
     names_by_lower = {name.lower(): name for name in exact_names}
     found = []
     literals = (
-        lit for line in source.splitlines() if OPT_OUT not in line for lit in LITERAL.findall(line)
+        token
+        for line in source.splitlines() if OPT_OUT not in line
+        for quoted in QUOTED.findall(line)
+        for token in TOKEN.findall(quoted)
     )
     for literal in literals:
-        # A leading ./ names the same tracked path; other prefixes (../repo/,
-        # absolute paths) fall back to the file name below.
-        path = literal.removeprefix("./")
+        # A leading ./ or / (left by a variable prefix) names the same tracked
+        # path; other prefixes (../repo/) fall back to the file name below.
+        path = literal.removeprefix("./").lstrip("/")
         if path in exact:
             continue
         if path.lower() in by_lower:

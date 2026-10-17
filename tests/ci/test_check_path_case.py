@@ -63,3 +63,15 @@ def test_relative_and_nested_paths_are_flagged():
         ("./.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
         ("../repo/.github/pull_request_template.md", "PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
     ]
+
+
+def test_paths_behind_a_variable_prefix_are_flagged():
+    """Greptile on #1573: f-strings and shell variables put braces in the literal."""
+    source = '\n'.join([
+        'a = f"{root}/.github/pull_request_template.md"',  # path-case: ok
+        'B="${ROOT}/.github/pull_request_template.md"',  # path-case: ok
+    ])
+    assert findings(source) == [  # path-case: ok
+        ("/.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
+        ("/.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
+    ]
