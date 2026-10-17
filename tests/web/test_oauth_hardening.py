@@ -608,3 +608,40 @@ async def test_full_reported_chain_is_broken_end_to_end(gated_dcr):
                 reg.client_id, stored.client_secret or "anything"
             )
     assert exc.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# OAuth state length (issue #1553 — Google Gemini custom apps)
+# ---------------------------------------------------------------------------
+
+def test_max_state_len_default_accommodates_long_clients():
+    """Default MAX_STATE_LEN must accept ~2400-char state values used by Gemini."""
+    from mcp_memory_service.web.oauth import limits
+    # Reload in case of prior import, but the constant is module-level.
+    assert limits.MAX_STATE_LEN >= 4096
+    # A 2500-char state must not be rejected.
+    limits.reject_if_too_long("s" * 2500, limits.MAX_STATE_LEN, "state")
+    # Still reject absurdly long values.
+    with pytest.raises(HTTPException):
+        limits.reject_if_too_long("s" * (limits.MAX_STATE_LEN + 1), limits.MAX_STATE_LEN, "state")
+
+
+def test_max_state_len_is_env_configurable(monkeypatch):
+    """Operators can raise the cap via MCP_OAUTH_MAX_STATE_LEN without code changes."""
+    import importlib
+    from mcp_memory_service.web.oauth import limits
+
+    monkeypatch.setenv("MCP_OAUTH_MAX_STATE_LEN", "8000")
+    importlib.reload(limits)
+    assert limits.MAX_STATE_LEN == 8000
+
+    # Boundary checks: accept at the new limit, reject above it
+    limits.reject_if_too_long("x" * 8000, limits.MAX_STATE_LEN, "state")
+    with pytest.raises(HTTPException) as exc:
+        limits.reject_if_too_long("x" * 8001, limits.MAX_STATE_LEN, "state")
+    assert "exceeds maximum length" in str(exc.value.detail).lower()
+
+    # Restore so later tests see the default
+    monkeypatch.delenv("MCP_OAUTH_MAX_STATE_LEN", raising=False)
+    importlib.reload(limits)
+    assert limits.MAX_STATE_LEN == 4096
