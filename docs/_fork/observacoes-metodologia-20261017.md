@@ -15,6 +15,9 @@
 | A3 | Spec em EARS + prosa força precisão | 8 requisitos, cada um com critério verificável; critérios CA1-CA7 numéricos | Adotar como padrão para todo incremento |
 | A4 | Medir antes de especificar mudou a spec | tool = 89% do volume (17,9 M chars); sem essa medição, a spec ingeriria 18 MB de ruído | Medição entra no G0 como entregável, não como opcional |
 | A5 | O mms respondeu perguntas históricas com filtro temporal | after/before mudou o conjunto retornado (08/out → 02/out) | Usar janela temporal em toda pergunta histórica |
+| A6 | G5 adversário achou o que 12 testes verdes não acharam | reviewer confirmou por execução 3 bloqueadores: delta vazio (perda de edição), falha no lote (duplicata), 200+JSON-RPC error lido como sucesso | Review independente é obrigatório antes de qualquer escrita no acervo; teste verde não substitui auditoria adversarial |
+| A7 | Subagente reportou um teste que passou de cara, investigou e o manteve como guarda | T19 (read-only em WAL): a implementação já satisfazia CA7 naquele cenário; em vez de forçar RED falso, o rok explicou e manteve o teste como regressão | Instruir explicitamente: se um teste novo passar de imediato, investigar e reportar — nunca inflar RED |
+| A8 | O ciclo completo G0→G6 funcionou e se pagou | 1 investigação delegada, 3 ciclos RED/GREEN, 2 passagens de review; 22 testes verdes e volume em 4,86% do lido (era 46,8%) | O gate não é burocracia: cada rodada achou um defeito real (CA3 violado, 3 bloqueadores, 3 ressalvas) |
 
 ## B. O que falhou ou atritou
 
@@ -28,6 +31,8 @@
 | B6 | Store próprio tranca a memória fora das buscas | busca sem `store` retorna apenas o default; store=mir devolve outro conteúdo | Memória do Hermes vai em `default` + tag `source:hermes` + agent_id |
 | B7 | Config com linhas possivelmente mal posicionadas | `provider: lia` / `model:` aparecem fora do bloco `delegation` na leitura por `sed`, mas `hermes config get` lê corretamente | Não editar config.yaml à mão; sempre `hermes config set`; investigar o YAML depois |
 | B8 | Meu comportamento inicial violou o §8.1 | eu mesma rodei greps no código antes de delegar | Autocorreção: a partir do G0, investigação é delegada |
+| B9 | Edição concorrente de artefato compartilhado | ao tentar atualizar `workflow-memoria-checkpoint` (porta 8000 / troca de tema), ela JÁ estava atualizada com o modelo de dois eixos — feita por outra sessão em paralelo | Definir convenção de colisão para skills/config entre instâncias; verificar antes de editar (ler o arquivo, não a versão em cache) |
+| B10 | Testes verdes com critério de aceitação violado | G4 passou 9/9 e ruff limpo; o dry-run REAL mostrou 9,33M de 19,94M chars (46,8%) contra CA3 ≤10% — o mock do transporte escondia o defeito | Rodar o caminho real com dados reais ANTES de declarar G4 cumprido; teste verde não é critério atendido |
 
 ## C. Decisões metodológicas tomadas hoje
 

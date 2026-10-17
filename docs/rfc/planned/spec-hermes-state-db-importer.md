@@ -1,7 +1,7 @@
 # SPEC — Importador do state.db do Hermes Agent (bring your memory)
 
 **Deriva de:** issue #1095 (Hermes state.db data source adapter) + `rfc-memory-portability` §4.2 ("bring")
-**Data:** 2026-10-17 · **Status:** DRAFT G2 (aprovada a direção no G1; esta spec aguarda G3 RED)
+**Data:** 2026-10-17 · **Status:** IMPLEMENTED (fork-only, G6) — 22 testes verdes, G5 aprovado com ressalvas, dry-run real medido
 **Autor:** T'Pol (Hermes) · **Classe:** FEATURE (fila serial)
 **Escopo:** 1 incremento. Leitor read-only do `state.db` do Hermes + envio ao acervo via tool MCP. Sem mudança de contrato no servidor.
 
@@ -139,9 +139,11 @@ state.db (ro) ──► seleção ──► normalização ──► transporte 
 
 ### 4.3 Normalização de turnos
 
-- `user`/`assistant` → `{role, content}` com content truncado em `MAX_TURN_CHARS` (default 4000).
+- `user`/`assistant` → `{role, content}` com content truncado em `MAX_TURN_CHARS` (default **2.000**).
 - `tool` → `{role: 'tool', content: "[tool:<nome>] <ok|erro> — <primeira linha truncada>"}`.
-- Limite de turnos por sessão via head+tail (padrão já usado em harvest): mantém início e fim.
+- **Orçamento por sessão** `MAX_SESSION_CHARS = 15.000`, com head 40% / tail 60%: preserva o
+  começo e o fim de cada sessão e descarta o meio, registrando `truncated` e `turns_dropped`
+  no relatório. Sem esse limite, medidas reais davam 46,8% do volume lido (CA3 exige ≤10%).
 
 ### 4.4 Transporte
 
@@ -221,3 +223,24 @@ Red-on-main: os testes 1, 2, 4, 5 e 6 falham sem a implementação, e falham por
 3. Testes RED→GREEN no CI (pytest, cobertura ≥70% no arquivo novo).
 4. Linha no `LEDGER-feats.md` (estado IMPL-FORK) e esta spec marcada IMPLEMENTED ao final.
 5. Nenhuma alteração em `src/` nesta primeira entrega.
+
+---
+
+## 10. Resultados medidos (G6, 17/out — fork)
+
+| Item | Resultado |
+|---|---|
+| Testes | 22 verdes (13 unitários de contrato + 9 de correção do G5) |
+| Lint | ruff limpo nos dois arquivos |
+| Regressão da área (`-k "hermes or harvest"`) | 474 passed, 21 skipped, 0 failed |
+| Dry-run real (state.db vivo) | 107 sessões · 97 elegíveis · 10 descartadas · 63 truncadas |
+| Volume | 1.009.927 chars = **4,86%** do lido (CA3 ≤10% ✓) |
+| G5 (1ª passagem) | REPROVADO — 3 ALTOs confirmados por execução |
+| G5 (2ª passagem) | APROVADO COM RESSALVAS — 0 bloqueadores |
+
+Ressalvas baixas ainda abertas (não bloqueiam): (a) `--db` inexistente gera traceback em vez
+de erro limpo; (b) em falha de lote, `to_store` do relatório reflete o plano, não o realizado.
+
+**Pendente e deliberadamente não executado:** o `--apply` no acervo vivo. O transporte HTTP/SSE
+é exercitado apenas por testes; a primeira gravação real deve ser feita em degrau único e
+verificada por busca antes do lote completo.
