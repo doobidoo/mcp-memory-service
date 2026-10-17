@@ -2,6 +2,8 @@
 # CONTRIBUTING.md ("Before You Start: Claim the Issue") asks. Informational:
 # it labels the PR `unclaimed`, comments once and fails, but it is not a
 # required check. scripts/ci/check_issue_claim.py has the rules.
+# A PR that changes src/ without linking any issue is labelled `no-issue`
+# and commented once, but passes (#1570).
 #
 # pull_request_target, not pull_request: a fork's pull_request run gets a
 # read-only token and, for a first-time contributor, waits for approval, so it
@@ -22,7 +24,11 @@ name: Claim Check
 on:
   pull_request_target:
     # synchronize: a pushed commit can add a "Fixes #N" link after opening.
-    types: [opened, reopened, edited, synchronize]
+    # labeled/unlabeled: adding or withdrawing a maintainer's `skip-issue` takes
+    # effect at once. The script reads labels through the API, not the event
+    # payload, so unlike skip-changelog no extra push is needed; labels the
+    # script adds or removes itself use GITHUB_TOKEN and do not trigger a run.
+    types: [opened, reopened, edited, synchronize, labeled, unlabeled]
     branches: [main]
   issues:
     types: [assigned]
