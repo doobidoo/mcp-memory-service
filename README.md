@@ -130,6 +130,21 @@ command and the endpoint override:
 </details>
 
 <details>
+<summary><strong>Codex (automatic memory hooks)</strong></summary>
+
+Start the Memory Service HTTP API, then install the hooks from this repository:
+
+```bash
+python3 codex/install_hooks.py
+```
+
+Restart Codex and review the hooks with `/hooks`. They retrieve project context,
+capture new learnings, and checkpoint outcomes before compaction and at session end.
+See [Codex hook setup](codex/README.md) for prerequisites, authentication, and project-local installation.
+
+</details>
+
+<details>
 <summary><strong>claude.ai and ChatGPT (browser — Remote MCP)</strong></summary>
 
 Remote MCP puts persistent memory in the browser on any device, no desktop app required:
