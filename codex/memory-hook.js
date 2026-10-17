@@ -236,6 +236,27 @@ async function capture(event, config, project, state, deadline, persist) {
     }
 }
 
+async function acquireLock(lockname) {
+    // One retry recovers a dead owner's lock without waiting for active callbacks.
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try { return await fs.open(lockname, 'wx', 0o600); }
+        catch (error) {
+            if (error.code !== 'EEXIST') throw error;
+            if (attempt > 0) return null; // Another callback won the retry.
+        }
+        let stat;
+        try { stat = await fs.stat(lockname); }
+        catch (error) {
+            if (error.code === 'ENOENT') continue; // Its owner just released it.
+            throw error;
+        }
+        if (Date.now() - stat.mtimeMs <= 60000) return null;
+        try { await fs.unlink(lockname); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    return null;
+}
+
 async function runHook(event, options = {}) {
     if (!['SessionStart', 'Stop', 'PreCompact', 'SessionEnd'].includes(event?.hook_event_name)) return null;
     if (typeof event.session_id !== 'string' || !event.session_id || typeof event.cwd !== 'string') return null;
@@ -247,14 +268,8 @@ async function runHook(event, options = {}) {
     // Never use caller-provided session ids as paths.
     const filename = path.join(stateDir, `${hash(JSON.stringify([event.session_id, path.resolve(event.cwd), project, config.endpoint]))}.json`);
     const lockname = `${filename}.lock`;
-    let lock;
-    try { lock = await fs.open(lockname, 'wx', 0o600); }
-    catch (error) {
-        if (error.code !== 'EEXIST') throw error;
-        // Recover a lock left by a killed hook. Normal invocations finish within 10s.
-        if (Date.now() - (await fs.stat(lockname)).mtimeMs > 60000) await fs.unlink(lockname).catch(() => {});
-        return null;
-    }
+    const lock = await acquireLock(lockname);
+    if (!lock) return null;
     try {
         const state = await readState(filename);
         const persist = () => saveState(filename, state);

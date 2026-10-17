@@ -121,6 +121,8 @@ State contains deduplication hashes and the last retrieved context, stored in
 private files under `$CODEX_HOME/memory-service/state`. Session IDs are hashed
 before use in filenames. A per-session lock prevents concurrent callbacks from
 duplicating writes. A lock left by a killed process expires after one minute.
+The same callback removes an expired lock, retries exclusive acquisition, and
+continues its work if it acquires the lock. Fresh locks are left in place.
 
 Requests have an absolute timeout. `SessionEnd` has a 1.8-second internal budget
 inside Codex's three-second limit; the other hooks have a 7.5-second budget.

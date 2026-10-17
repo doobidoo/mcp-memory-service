@@ -221,6 +221,44 @@ test('parallel Stop and PreCompact hooks serialize writes and cached context sur
     assert.equal(f.requests.filter(r => r.url === '/api/memories').length, 2);
 });
 
+async function lockSession(f, ageMs) {
+    await runHook({ ...f.event, hook_event_name: 'SessionStart' }, f.config);
+    const stateFile = (await fs.readdir(f.config.stateDir)).find(name => name.endsWith('.json'));
+    const lockname = path.join(f.config.stateDir, `${stateFile}.lock`);
+    await fs.writeFile(lockname, 'lock-owner');
+    const modified = new Date(Date.now() - ageMs);
+    await fs.utimes(lockname, modified, modified);
+    f.requests.length = 0;
+    return lockname;
+}
+
+test('SessionStart recovers a stale lock and loads memories in the same callback', async t => {
+    const f = await fixture(t);
+    const lockname = await lockSession(f, 61000);
+    const result = await runHook({ ...f.event, hook_event_name: 'SessionStart', source: 'resume' }, f.config);
+    assert.match(result?.hookSpecificOutput?.additionalContext || '', /Use transactions/);
+    assert.equal(f.requests.length, 1);
+    await assert.rejects(fs.stat(lockname), { code: 'ENOENT' });
+});
+
+test('the final SessionEnd recovers a stale lock and checkpoints pending outcomes', async t => {
+    const f = await fixture(t);
+    const lockname = await lockSession(f, 61000);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await runHook({ ...f.event, hook_event_name: 'SessionEnd' }, f.config);
+    assert.deepEqual(f.requests.map(r => r.body.memory_type), ['decision', 'session']);
+    await assert.rejects(fs.stat(lockname), { code: 'ENOENT' });
+});
+
+test('a fresh lock is preserved and its competing callback does no work', async t => {
+    const f = await fixture(t);
+    const lockname = await lockSession(f, 0);
+    const result = await runHook({ ...f.event, hook_event_name: 'SessionStart' }, f.config);
+    assert.equal(result, null);
+    assert.equal(f.requests.length, 0);
+    assert.equal(await fs.readFile(lockname, 'utf8'), 'lock-owner');
+});
+
 test('absolute request timeout stops a server that trickles response bytes', async t => {
     const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
