@@ -213,7 +213,7 @@ async def store_memory(
                         "memory_type": first_memory["memory_type"]
                     }
 
-                event = create_memory_stored_event(memory_data)
+                event = create_memory_stored_event(memory_data, store=request.store)
                 await sse_manager.broadcast_event(event)
             except Exception as e:
                 # Don't fail the request if SSE broadcasting fails
@@ -393,7 +393,7 @@ async def delete_memory(
         
         # Broadcast SSE event for memory deletion
         try:
-            event = create_memory_deleted_event(content_hash, success)
+            event = create_memory_deleted_event(content_hash, success, store=store)
             await sse_manager.broadcast_event(event)
         except Exception as e:
             # Don't fail the request if SSE broadcasting fails
