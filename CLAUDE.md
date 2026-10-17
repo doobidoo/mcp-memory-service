@@ -119,7 +119,7 @@ uv pip install --python .venv/bin/python pip pytest pytest-cov pytest-asyncio \
 
 `pytest-timeout` is required, not optional -- the gate passes `--timeout=120`.
 
-The commands below are written as bare `python`/`pytest` for brevity — run them via `.venv/bin/...`. `git commit` needs no `PATH` prefix: the pre-commit hook (`scripts/hooks/pre-commit`) picks `.venv/bin/python` itself, then `$VIRTUAL_ENV`, and only then system Python (since 76c371ba). It still reports "Package not installed" in a checkout that has no `.venv`, such as a fresh worktree; commit from a checkout with a venv or activate one (see Troubleshooting). Do not reintroduce `PATH=".venv/bin:$PATH" git commit`: lean-ctx blocks inline `PATH` overrides. `uv` is also used (`uv.lock` present); `uv pip install -e .` and `uv run memory ...` work too.
+The commands below are written as bare `python`/`pytest` for brevity — run them via `.venv/bin/...`. `git commit` needs no `PATH` prefix: the pre-commit hook (`scripts/hooks/pre-commit`) picks `.venv/bin/python` itself, then `$VIRTUAL_ENV`, and only then system Python (since 76c371ba). If it still reports "Package not installed", either the checkout's `.venv` lacks the package (`uv pip install --python .venv/bin/python -e .`) or there is no `.venv` at all, as in a fresh worktree (activate a venv); see Troubleshooting. Do not reintroduce `PATH=".venv/bin:$PATH" git commit`: lean-ctx blocks inline `PATH` overrides. `uv` is also used (`uv.lock` present); `uv pip install -e .` and `uv run memory ...` work too.
 
 ### Development Server
 
