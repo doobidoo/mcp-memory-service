@@ -24,12 +24,15 @@ def issue(number=1458, assignees=(), comments=()):
     }
 
 
-def pr(issues, author="someone", association="CONTRIBUTOR", typename="User"):
+def pr(issues, author="someone", association="CONTRIBUTOR", typename="User", files=("src/x.py",)):
     return {
         "author": {"login": author, "__typename": typename},
         "authorAssociation": association,
         "createdAt": PR_OPENED,
         "closingIssuesReferences": {"nodes": list(issues)},
+        "files": {"nodes": [{"path": f} for f in files]},
+        "labels": {"nodes": []},
+        "body": "",
     }
 
 
@@ -75,6 +78,48 @@ def test_maintainers_and_collaborators_are_exempt(association):
 def test_bots_are_exempt():
     data = pr([issue()], author="dependabot", typename="Bot")
     assert claim.unclaimed_issues(data) == []
+
+
+def labelled(data, *names):
+    data["labels"] = {"nodes": [{"name": n} for n in names]}
+    return data
+
+
+def test_src_change_without_issue_needs_one():
+    """PR #1569: a new web API parameter, no issue, and the check stayed green."""
+    assert claim.needs_issue(pr([]))
+
+
+def test_docs_only_change_without_issue_does_not_need_one():
+    assert not claim.needs_issue(pr([], files=("docs/guide.md", "tests/test_x.py")))
+
+
+def test_linked_issue_satisfies_the_rule():
+    assert not claim.needs_issue(pr([issue()]))
+
+
+@pytest.mark.parametrize("body", [
+    "Refs #1460 - safety phase.",  # PR #1552
+    "This addresses the store-aware semantic dedup portion of #1517",  # PR #1563
+    "See https://github.com/doobidoo/mcp-memory-service/issues/1517",
+])
+def test_issue_mentioned_in_the_description_counts_as_linked(body):
+    data = pr([])
+    data["body"] = body
+    assert not claim.needs_issue(data)
+
+
+def test_skip_issue_label_exempts_a_small_fix():
+    assert not claim.needs_issue(labelled(pr([]), "skip-issue"))
+
+
+@pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
+def test_maintainers_and_collaborators_need_no_issue(association):
+    assert not claim.needs_issue(pr([], association=association))
+
+
+def test_bots_need_no_issue():
+    assert not claim.needs_issue(pr([], author="dependabot", typename="Bot"))
 
 
 class FakeGh:
@@ -155,3 +200,40 @@ def test_assignment_reruns_only_failed_checks_of_open_prs(monkeypatch):
     monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN"), (8, "MERGED")))
     claim.rerun_for_issue("o/r", 1458, dry_run=False)
     assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
+
+
+def test_pr_without_issue_is_labelled_and_commented_once_but_passes(monkeypatch):
+    code, fake = run_check(monkeypatch, with_state(pr([])))
+    assert code == 0
+    assert fake.writes() == [
+        ("api", "repos/o/r/issues/7/labels", "-f", "labels[]=no-issue"),
+        ("api", "repos/o/r/issues/7/comments", "-F", "body=@-"),
+    ]
+    body = fake.calls[-1][1]
+    assert claim.NO_ISSUE_MARKER in body and "@someone" in body and "skip-issue" in body
+
+
+def test_existing_no_issue_label_and_marker_are_not_repeated(monkeypatch):
+    data = with_state(pr([]), labels=["no-issue"], comments=[f"{claim.NO_ISSUE_MARKER}\nold notice"])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == []
+
+
+def test_skip_issue_drops_the_no_issue_label(monkeypatch):
+    data = with_state(pr([]), labels=["no-issue", "skip-issue"])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == [("api", "-X", "DELETE", "repos/o/r/issues/7/labels/no-issue")]
+
+
+def test_unclaimed_marker_does_not_hide_the_no_issue_notice(monkeypatch):
+    data = with_state(pr([]), comments=[f"{claim.MARKER}\nold unclaimed notice"])
+    code, fake = run_check(monkeypatch, data)
+    assert ("api", "repos/o/r/issues/7/comments", "-F", "body=@-") in fake.writes()
+
+
+def test_docs_only_pr_without_issue_writes_nothing(monkeypatch):
+    code, fake = run_check(monkeypatch, with_state(pr([], files=("docs/a.md",))))
+    assert code == 0
+    assert fake.writes() == []
