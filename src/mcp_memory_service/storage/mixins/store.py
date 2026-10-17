@@ -94,11 +94,11 @@ class StoreMixin:
             # fresh create (never deleted) has zero delete rows and still returns None here.
             # Requiring the tombstone row made a re-create AFTER a purge emit recreate_of=""
             # (EMPTY), which apply treats as delete-wins → origin live, peer dead forever.
-            rows = self.conn.execute(
+            rows = list(self.conn.execute(
                 "SELECT event_id, hlc_physical, hlc_logical, agent_id FROM sync_events "
                 "WHERE content_hash = ? AND op = 'delete'",
                 (content_hash,),
-            ).fetchall()
+            ).fetchall())
         except Exception as e:  # noqa: BLE001 - never break store() on this lookup
             logger.debug(
                 "recreate_of lookup failed for %s: %s",
