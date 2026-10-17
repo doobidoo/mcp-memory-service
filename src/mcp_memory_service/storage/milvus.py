@@ -2610,7 +2610,7 @@ class MilvusMemoryStorage(MemoryStorage):
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
-        **kwargs: Any,
+        store: Optional[str] = "default",
     ) -> List["MemoryQueryResult"]:
         """Quality-boosted retrieval using Milvus native hybrid search.
 
@@ -2630,13 +2630,15 @@ class MilvusMemoryStorage(MemoryStorage):
 
         if not quality_boost:
             return await self.retrieve(
-                query, n_results, tags=tags, include_superseded=include_superseded
+                query, n_results, tags=tags, include_superseded=include_superseded,
+                store=store,
             )
 
         # Over-fetch for reranking pool
         oversample = 3
         candidates = await self.retrieve(
-            query, n_results * oversample, tags=tags, include_superseded=include_superseded
+            query, n_results * oversample, tags=tags,
+            include_superseded=include_superseded, store=store,
         )
         if not candidates:
             return []
