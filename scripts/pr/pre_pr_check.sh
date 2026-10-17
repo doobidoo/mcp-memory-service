@@ -422,8 +422,8 @@ else
     CASE_OUTPUT=$("$PYTHON_BIN" scripts/ci/check_path_case.py "${CASE_FILES[@]}" 2>&1)
     CASE_EXIT=$?
     set -e
-    check_status "Path literals match tracked case" $CASE_EXIT
-    if [ $CASE_EXIT -ne 0 ]; then
+    check_status "Path literals match tracked case" "$CASE_EXIT"
+    if [ "$CASE_EXIT" -ne 0 ]; then
         echo "$CASE_OUTPUT" | sed 's/^/     /'
     fi
 fi

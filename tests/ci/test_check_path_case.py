@@ -75,3 +75,17 @@ def test_paths_behind_a_variable_prefix_are_flagged():
         ("/.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
         ("/.github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
     ]
+
+
+def test_an_empty_string_before_the_path_does_not_hide_it():
+    """Greptile on #1573: quote pairing shifted after an empty literal."""
+    source = 'Path("").joinpath(".github/pull_request_template.md")'  # path-case: ok
+    assert findings(source) == [  # path-case: ok
+        (".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md"),  # path-case: ok
+    ]
+
+
+def test_a_longer_name_is_not_cut_down_to_a_tracked_one():
+    """Greptile on #1573: "readme.md-template" must not be read as readme.md."""
+    assert findings('name = "readme.md-template"') == []  # path-case: ok
+    assert findings('name = "readme.md.bak"') == []  # path-case: ok

@@ -6,13 +6,13 @@ read the PR template under its lower-case name passed on a Mac and died with
 FileNotFoundError on the Linux runner, because the tracked file is
 .github/PULL_REQUEST_TEMPLATE.md (PR #1571). Nothing local caught that.
 
-For every path-like token inside a quoted string in the given files (so a
-variable prefix such as f"{root}/..." does not hide it) this compares the
-token, with a leading ./ or / stripped, and failing that its last path segment,
-against `git ls-files`. It reports a literal only when a
+For every complete file name or path on a line (quoted or not, so a variable
+prefix such as f"{root}/..." does not hide it) this compares the token, with a
+leading ./ or / stripped, and failing that its last path segment, against
+`git ls-files`. It reports a literal only when a
 tracked path or file name matches it ignoring case but not exactly, so names of
 files that exist only at run time (temp databases, reports) never count.
-Literals without a file extension are skipped: words like "Default" are not
+Tokens without a file extension are skipped: words like "Default" are not
 paths. A line that means a literal as a label, not a path, opts out with a
 `path-case: ok` comment.
 
@@ -27,11 +27,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Path-like tokens inside any quoted string, so f"{root}/x.md" and "${ROOT}/x.md"
-# still yield "/x.md". ponytail: quotes are paired naively, so the text between two
-# literals on one line is scanned too; it only matters if it names a tracked file.
-QUOTED = re.compile(r"""["']([^"'\n]+)["']""")
-TOKEN = re.compile(r"[\w./-]+\.\w+")
+# A complete file name or path anywhere on a line. Anchored at both ends, so a
+# longer name such as notes.md-template is not cut down to notes.md. Not tied to
+# quotes, so empty strings, f"{root}/x.md" and "${ROOT}/x.md" cannot hide it.
+TOKEN = re.compile(r"(?<![\w./-])[\w./-]*\.\w+(?![\w.-])")
 OPT_OUT = "path-case: ok"
 
 
@@ -45,8 +44,7 @@ def case_mismatches(source: str, tracked: list[str]) -> list[tuple[str, str]]:
     literals = (
         token
         for line in source.splitlines() if OPT_OUT not in line
-        for quoted in QUOTED.findall(line)
-        for token in TOKEN.findall(quoted)
+        for token in TOKEN.findall(line)
     )
     for literal in literals:
         # A leading ./ or / (left by a variable prefix) names the same tracked
