@@ -165,9 +165,11 @@ Leitura:
    quadruplicam a qualidade do atual, com storage de 640-1024d.
 3. **BGE-M3 e jina-v3 não são os melhores hoje** para retrieval puro, apesar da fama —
    BGE-M3 compensa pelo modo sparse (que o nosso FTS já cobre) e jina-v3 pela LoRA por tarefa.
-4. **Custo do re-embed**: 27.777 memórias × ~550 chars ≈ 15M caracteres ≈ 4M tokens. Em CPU
-   com modelo 0,6B isso é horas, não minutos — daí a importância de medir throughput no lab
-   com um snapshot reduzido antes de decidir.
+4. **Custo do re-embed (medido em 18/out, nesta máquina, CPU):** `paraphrase-multilingual`
+   ONNX processou **156,8 textos/s** (batch 16, seq ≤256, textos de ~336 chars). Para as
+   27.777 memórias do acervo: **~3 minutos**. Modelos de 0,6B devem ficar na casa de 10-30
+   min — a medir. **Não há custo em tokens**: embedding local consome CPU e tempo, não API.
+   Tokens só se aplica a modelo em nuvem (OpenAI/Cohere/Voyage/Gemini).
 5. **Ressalva metodológica**: MTEB mean não é o nosso caso. Só o harness I2, medindo PT e EN
    no nosso acervo, responde. MIRACL PT↔EN é o número que mais deveria pesar.
 
