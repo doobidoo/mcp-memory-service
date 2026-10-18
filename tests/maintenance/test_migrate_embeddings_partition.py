@@ -147,7 +147,7 @@ def _rodar_migracao(db: Path) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
             [sys.executable, str(SCRIPT), "--url", url, "--model", "stub-model",
-             "--db-path", str(db), "--batch-size", "2"],
+             "--db-path", str(db), "--batch-size", "2", "--yes"],
             capture_output=True, text=True, timeout=180,
         )
     finally:
@@ -215,3 +215,16 @@ def test_migracao_funciona_em_banco_antigo_sem_store(tmp_path):
         f"{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
     )
     assert "store" not in _ddl(db).lower(), "banco antigo não deve ganhar partition key"
+
+
+def test_confirm_continue_exige_yes_fora_de_tty():
+    """Sem TTY (CI), a checagem de serviço não pode pedir input(): exige --yes."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("migrate_embeddings", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert mod._confirm_continue(True, False, False) is True      # serviço parado: segue
+    assert mod._confirm_continue(False, True, False) is True      # --yes explícito: segue
+    assert mod._confirm_continue(False, False, False) is False    # sem TTY e sem --yes: aborta

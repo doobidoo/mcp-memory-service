@@ -324,6 +324,12 @@ Examples:
         help="Preserve graph edges (by default they are wiped since similarity scores change)",
     )
     parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Run without asking for confirmation when the memory service appears to be running "
+             "(required in non-interactive contexts such as CI)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Report current state without making any changes",
@@ -375,11 +381,12 @@ Examples:
     print()
     service_stopped = check_service_not_running()
     if not service_stopped:
-        response = input("\n  Continue anyway? (y/N): ").strip().lower()
-        if response != "y":
-            print("  Migration cancelled.")
+        if not _confirm_continue(service_stopped, getattr(args, "yes", False),
+                                 sys.stdin.isatty()):
+            print("  Migration cancelled. Pass --yes to run without prompting.")
             conn.close()
-            sys.exit(0)
+            sys.exit(0 if sys.stdin.isatty() else 2)
+        print("  Service check bypassed.")
     else:
         print("  Service check OK.")
 
@@ -395,6 +402,22 @@ Examples:
         sys.exit(1)
     finally:
         conn.close()
+
+
+def _confirm_continue(service_stopped: bool, assume_yes: bool, is_tty: bool) -> bool:
+    """Decide se a migração segue quando o serviço parece estar rodando.
+
+    A checagem de serviço é heurística e não distingue "o serviço desta base" de
+    "outro serviço da máquina". Em contexto não interativo (CI, testes) pedir
+    confirmação trava ou estoura EOF, então exige ``--yes`` explícito.
+    """
+    if service_stopped:
+        return True
+    if assume_yes:
+        return True
+    if not is_tty:
+        return False
+    return input("\n  Continue anyway? (y/N): ").strip().lower() == "y"
 
 
 def _run_migration(args, conn, db_path, stats, target_dims, api_key):
