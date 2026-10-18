@@ -244,3 +244,45 @@ de erro limpo; (b) em falha de lote, `to_store` do relatório reflete o plano, n
 **Pendente e deliberadamente não executado:** o `--apply` no acervo vivo. O transporte HTTP/SSE
 é exercitado apenas por testes; a primeira gravação real deve ser feita em degrau único e
 verificada por busca antes do lote completo.
+
+---
+
+## 11. Diário de gate (estado do ciclo — ler antes de cada delegação)
+
+> Regra: o subagente não vê a conversa. Para não reescrever contexto a cada ciclo,
+> o estado vive aqui. O briefing deve ser curto: "leia §11 (estado) + §7 (testes) e
+> execute <passo>".
+
+**Decisões fixadas (não reabrir):** D1 tool = metadados apenas · D2 sessão que cresce
+→ memória nova com tag `session-delta`; edição com mesma contagem → ação `updated` ·
+D3 `MEMORY.md`/`USER.md` fora de escopo · D4 Web API fora (transporte é MCP) ·
+`MAX_SESSION_CHARS=15000` (head 40/tail 60) · `MAX_TURN_CHARS=2000` ·
+`MAX_TOOL_SUMMARY_CHARS=200` · incremento trivial = TDD interno (1 worker).
+
+**Comandos canônicos:**
+```
+.venv/bin/python -m pytest tests/test_hermes_state_db_importer.py -q
+/home/claudio/.local/bin/ruff check scripts/harvest/hermes_source.py tests/test_hermes_state_db_importer.py
+.venv/bin/python scripts/harvest/hermes_source.py --dry-run
+.venv/bin/python scripts/harvest/hermes_source.py --apply --only-session <ID>
+```
+
+**Histórico:**
+
+| ciclo | entrega | resultado |
+|---|---|---|
+| G0 | investigação delegada (arquiteto) | plugins são reativos; `POST /api/sessions` existe no código mas 404 em runtime; harvest é JSONL-only; `agent_id` vive em metadata |
+| G1 | plano aprovado | escopo, filtros e D1-D4 fixados |
+| G2 | spec EARS | 8 requisitos, CA1-CA7 |
+| G3 → G4 | 9 testes RED → GREEN | verde com **CA3 violado**: 46,8% do lido (limite 10%) |
+| G3.1 → G4.1 | 3 testes de orçamento → GREEN | `MAX_SESSION_CHARS=15000` + `MAX_TURN_CHARS=2000` → 4,84% |
+| G5.1 | review adversarial | **REPROVADO**: delta vazio, falha parcial do lote, 200+erro JSON-RPC |
+| G3.2 → G4.2 | 9 testes RED → GREEN | 22 verdes; `--only-session`, state atômico, validação de resposta |
+| G5.2 | 2ª passagem | **APROVADO COM RESSALVAS** (0 bloqueadores) |
+| E2E | degraus 1 / 2 / 2.5 | transporte real, busca por tag, idempotência (`skip`) confirmados |
+| E2E lote (out) | 28 sessões | **B11**: payload de tool vazou (corte por "primeira linha") → fix de 200 chars, limpeza por tag e reimport |
+
+**Pendências abertas:** purgar 74 memórias em soft delete do lote antigo · traceback em
+`--db` inexistente · `to_store` do relatório de falha reflete plano, não realizado ·
+importar junho–agosto (decisão adiada por evidência de uso) · review por modelo de
+família diferente (claude-sonnet-5).
