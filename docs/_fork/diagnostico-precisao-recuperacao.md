@@ -17,7 +17,30 @@
 
 ## 2. O que É o problema (medido)
 
-Busca por **termo exato**: todos os modos acham. Busca por **pergunta natural**: falha.
+### 2.1 Harness de Recall@k com gabarito verificado (o que faltava no projeto)
+
+Dez fatos cuja existência foi confirmada por SQL no acervo vivo, cada um pareado com uma
+**pergunta natural** (sem o termo técnico). Mede-se a posição do fato no top-10.
+
+| variante | Recall@10 | leitura |
+|---|---|---|
+| baseline (`semantic`) | **20%** (2/10) | 8 de 10 fatos conhecidos não aparecem no top-10 |
+| `hybrid` | 20% | ganho só quando há sobreposição lexical |
+| `ranked` | 20% | idem |
+| `exact` | 0% | não é busca por substring — esperado |
+| **removendo memórias-lixo** (teste/auto-generated) | **20%** | filtro de qualidade NÃO muda o recall |
+| **com expansão de query** (pergunta + termo técnico) | **50%** | dobra o recall |
+
+Conclusões que os números sustentam:
+
+1. **Poluição não é a causa.** 3.431 memórias (12% do acervo, média 182 chars contra 553)
+   ocupam o topo, mas filtrá-las não recupera um único fato adicional.
+2. **Vocabulário vale ~30 pontos.** Quando a consulta inclui o token técnico, o recall vai
+   de 20% para 50%.
+3. **Representação vale ~50 pontos.** Mesmo com o termo exato na consulta, metade dos fatos
+   continua fora do top-10 — o chunk heterogêneo não responde nem quando provocado.
+
+### 2.2 Busca por termo exato vs pergunta natural (medição anterior)
 
 | Pergunta natural | Gabarito | semantic | exact | hybrid | ranked |
 |---|---|---|---|---|---|
@@ -51,16 +74,19 @@ avaliação de Recall@k com perguntas naturais e gabarito verificado.** Sem ela,
 de peso é otimização sem termômetro: explica por que o arco de ranking avançou
 (MRR 0,658 → 0,683 → 0,750) enquanto a sensação de "não acha" permaneceu.
 
-## 5. Proposta (ordem por custo/benefício)
+## 5. Proposta (ordem por custo/benefício — REVISADA pelas medições)
 
-| # | Item | Classe | Custo | Ganho esperado |
+| # | Item | Classe | Custo | Ganho medido/esperado |
 |---|---|---|---|---|
-| I1 | Default de busca = `hybrid` (cliente e/ou servidor) | config | trivial | imediato no único caso medido (15º → 2º) |
-| I2 | Harness de Recall@k com perguntas naturais + gabarito | FEAT | baixo | cria o termômetro que falta; mede I1/I3 |
-| I3 | Chunking semântico (por turno/tema em vez de 1.500 chars) | FEAT | médio | ataca a causa nº 1, a de maior alcance |
-| I4 | Expansão de query (sinônimos + termos técnicos, LLM barato) | FEAT | médio | ataca paráfrase, que hoje é 0% |
+| I4 | Expansão de query (sinônimos + termos técnicos) | FEAT | médio | **+30 pp de Recall@10** (20% → 50%, medido) |
+| I2 | Harness de Recall@k com perguntas naturais + gabarito | FEAT | baixo | já prototipado abaixo; é o termômetro para tudo |
+| I3 | Chunking semântico (por turno/tema, não 1.500 chars) | FEAT | médio | ataca os ~50 pp restantes |
+| I1 | Default de busca = `hybrid` | config | trivial | 0 pp no agregado; só em query com sobreposição lexical |
+| — | Filtro de memórias-lixo na busca | config/FEAT | trivial | **0 pp medido** — não priorizar pelo recall (vale por hygiene) |
 
-Recomendação: **I2 primeiro** (mede), **I1 na mesma janela** (config, reversível), depois I3.
+Recomendação revista: **I2** (formalizar o harness), **I4** (maior ganho comprovado) e só
+depois **I3**. I1 deixa de ser prioridade — a medição derrubou a hipótese de que o default
+semântico fosse a causa principal.
 
 ## 6. Reprodução
 
