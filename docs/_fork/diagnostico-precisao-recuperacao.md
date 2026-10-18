@@ -134,7 +134,44 @@ Implicações para a proposta:
    relevância (corrigido para Unicode `\w+` nos commits 7c3307be/f0d8d90a/41224fcd) e o
    FTS5 trigram, que não indexa termos com menos de 3 caracteres.
 
-## 7. Reprodução
+## 7. Candidatos a modelo de embedding (verificado no MTEB Multilingual, captura 2026-10-17)
+
+Todos são modelos de embedding para retrieval — mesma função do
+`paraphrase-multilingual-MiniLM-L12-v2` que usamos hoje (384d, ~118M parâmetros, arquitetura
+de 2021). O ranking abaixo é MTEB Multilingual v2; **retrieval** é a coluna que importa para
+nós (nDCG@10), e MIRACL seria a mais próxima do nosso caso cross-lingual PT↔EN.
+
+| modelo | params | dim | retrieval (nDCG@10) | observação |
+|---|---|---|---|---|
+| Qwen/Qwen3-Embedding-8B | 8B | 4096 (MRL) | **70,9** | topo absoluto; inviável em CPU |
+| Qwen/Qwen3-Embedding-4B | 4B | 2560 (MRL) | 69,6 | precisa GPU |
+| google/gemini-embedding-001 | — | 3072 | 67,7 | API (não local) |
+| jina-embeddings-v4 | 3,8B | 2048 | 66,4 | GPU |
+| **microsoft/harrier-oss-v1-270m** | 270M | 640 | **66,4** | melhor relação qualidade/tamanho |
+| granite-embedding-311m-multilingual-r2 | 311M | 768 | 65,2 | IBM, forte em multilíngue |
+| **Qwen/Qwen3-Embedding-0.6B** | 0,6B | 1024 (MRL) | **64,65** | melhor custo/benefício geral |
+| **granite-embedding-97m-multilingual-r2** | 97M | **384** | **60,3** | **mesma dimensão do nosso** → storage idêntico |
+| multilingual-e5-large-instruct | 0,6B | 1024 | 57,1 | exige prefixos `query:`/`passage:` |
+| BGE-M3 | 0,6B | 1024 | ~62 (mean) | dense+sparse+ColBERT; 8192 tokens |
+| jina-embeddings-v3 | 0,57B | 1024 (MRL) | 55,8 | LoRA por tarefa; 8192 tokens |
+| multilingual-e5-small | 96M | 384 | 50,9 | comparação direta com o nosso |
+| **paraphrase-multilingual-MiniLM-L12-v2 (atual)** | 118M | 384 | não listado (~50) | arquitetura de 2021 |
+
+Leitura:
+
+1. **Trocar mantendo 384 dimensões custa zero de storage**: `granite-embedding-97m-r2`
+   entrega ~60 de retrieval contra ~50 do atual, com o mesmo tamanho de vetor.
+2. **O sweet spot local é 0,6B**: Qwen3-0.6B (64,65) e harrier-270m (66,4) triplicam ou
+   quadruplicam a qualidade do atual, com storage de 640-1024d.
+3. **BGE-M3 e jina-v3 não são os melhores hoje** para retrieval puro, apesar da fama —
+   BGE-M3 compensa pelo modo sparse (que o nosso FTS já cobre) e jina-v3 pela LoRA por tarefa.
+4. **Custo do re-embed**: 27.777 memórias × ~550 chars ≈ 15M caracteres ≈ 4M tokens. Em CPU
+   com modelo 0,6B isso é horas, não minutos — daí a importância de medir throughput no lab
+   com um snapshot reduzido antes de decidir.
+5. **Ressalva metodológica**: MTEB mean não é o nosso caso. Só o harness I2, medindo PT e EN
+   no nosso acervo, responde. MIRACL PT↔EN é o número que mais deveria pesar.
+
+## 8. Reprodução
 
 ```bash
 # gabarito existe?
