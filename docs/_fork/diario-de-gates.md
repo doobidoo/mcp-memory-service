@@ -79,3 +79,49 @@ era ruído amostral — confirma que a régua curta enganava.
 O `exact` em zero é resultado, não falha: as perguntas foram escritas sem conter o
 termo-chave, então busca léxica pura não as resolve. Serve como controle negativo.
 
+## E6 — baseline v2 reproduzido e o teto do reranking (18/out)
+
+Repetição independente do E5 sobre o mesmo snapshot, com os relatórios gravados no
+repo do lab (`eval/lab_recall_v2_k10_20261018.json`, `eval/lab_recall_v2_k100_20261018.json`,
+commit `695db04e`, repo local sem remote):
+
+| modo | recall@10 | mrr@10 |
+|---|---|---|
+| semantic | **0,2917** | 0,1626 |
+| hybrid | **0,2917** | 0,1626 |
+| ranked | 0,2750 | 0,1693 |
+| exact | 0,0000 | 0,0000 |
+
+O 29,2% do E5 se confirma. O E5 não deixou o JSON da execução versionado; esta
+repetição fecha essa lacuna.
+
+Medição nova, `--k 100` (mesmo dataset, mesmo snapshot):
+
+| modo | recall@100 | mrr@100 |
+|---|---|---|
+| semantic | 0,4750 | 0,1703 |
+| hybrid | 0,4750 | 0,1702 |
+| ranked | 0,4833 | 0,1775 |
+| exact | 0,0000 | 0,0000 |
+
+Distribuição dos 120 casos em `semantic`: 35 no top-10, 22 entre 11 e 100,
+**63 fora do top-100**.
+
+Consequência para o plano, e ela corrige a leitura do §8 do relatório da noite:
+
+1. **Teto de qualquer reranker sobre o índice atual é 47,5%.** Nenhum ganho de
+   ordenação pode passar disso — 63 casos não são candidatos.
+2. **Reranking só pode resolver 22 casos** (11–100). Ganho máximo teórico: +18,3 p.p.
+3. **A maior parte da falha é representação, não ordenação** — 52,5% dos casos
+   nunca entram no top-100. Isso reabilita o truncamento (A2) e o modelo do índice
+   (A1) como gargalo principal, e rebaixa "a qualidade do ranking" a segundo
+   problema. A conclusão do §8 de que o chunking "não é a intervenção principal"
+   foi medida antes de existir régua com poder; agora ela tem um critério de
+   decisão: só vale intervenção que mova o recall@100.
+4. Idioma não é fator: recall@100 é 48% em PT e 48% em EN.
+5. Ordem revisada: (a) medir recall@100 como métrica-alvo do próximo experimento;
+   (b) atacar representação — chunking/truncamento com o índice completo, agora
+   medido por recall@100 e não por recall@10; (c) reranker só depois, para colher
+   os 22 casos resgatáveis.
+
+
