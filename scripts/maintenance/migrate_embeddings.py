@@ -410,12 +410,25 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     shutil.copy2(str(db_path), str(backup_path))
 
     print("  Reading active memories...")
-    rows = conn.execute(
-        "SELECT rowid, content, store FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
-    ).fetchall()
+    # Bancos antigos podem não ter a coluna ``store`` em ``memories``. Ler a coluna
+    # incondicionalmente quebraria a migração deles com "no such column: store".
+    memory_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()
+    }
+    has_store_column = "store" in memory_columns
+    if has_store_column:
+        rows = conn.execute(
+            "SELECT rowid, content, store FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [r[2] for r in rows]
+    else:
+        rows = conn.execute(
+            "SELECT rowid, content FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [None] * len(rows)
     rowids = [r[0] for r in rows]
-    contents = [r[1] for r in rows]
-    stores = [r[2] for r in rows]
     print(f"  Read {len(rows)} memories")
 
     # --- Phase 3: Generate new embeddings ---
@@ -489,7 +502,7 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     print(f"  Inserting {len(embeddings)} embeddings...")
     t0 = time.time()
     conn.execute("BEGIN")
-    if partition_cols:
+    if partition_cols and has_store_column:
         cols = ", ".join(["rowid", "content_embedding"] + partition_cols)
         marks = ", ".join("?" for _ in range(2 + len(partition_cols)))
         store_of = dict(zip(rowids, stores))
