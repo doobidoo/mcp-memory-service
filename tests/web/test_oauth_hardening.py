@@ -615,33 +615,74 @@ async def test_full_reported_chain_is_broken_end_to_end(gated_dcr):
 # ---------------------------------------------------------------------------
 
 def test_max_state_len_default_accommodates_long_clients():
-    """Default MAX_STATE_LEN must accept ~2400-char state values used by Gemini."""
-    from mcp_memory_service.web.oauth import limits
-    # Reload in case of prior import, but the constant is module-level.
-    assert limits.MAX_STATE_LEN >= 4096
-    # A 2500-char state must not be rejected.
-    limits.reject_if_too_long("s" * 2500, limits.MAX_STATE_LEN, "state")
-    # Still reject absurdly long values.
-    with pytest.raises(HTTPException):
-        limits.reject_if_too_long("s" * (limits.MAX_STATE_LEN + 1), limits.MAX_STATE_LEN, "state")
+    """Default MAX_STATE_LEN must accept ~2400-char state values used by Gemini.
+
+    Runs in a fresh process with MCP_OAUTH_MAX_STATE_LEN unset so local
+    developer settings cannot cause false failures.
+    """
+    import os
+    import subprocess
+    import sys
+
+    code = """
+import os
+os.environ.pop("MCP_OAUTH_MAX_STATE_LEN", None)
+from mcp_memory_service.web.oauth import limits
+assert limits.MAX_STATE_LEN >= 4096, f"got {limits.MAX_STATE_LEN}"
+limits.reject_if_too_long("s" * 2500, limits.MAX_STATE_LEN, "state")
+try:
+    limits.reject_if_too_long("s" * (limits.MAX_STATE_LEN + 1), limits.MAX_STATE_LEN, "state")
+    raise SystemExit("should have raised")
+except Exception as e:
+    if "exceeds maximum length" not in str(e).lower() and "HTTPException" not in type(e).__name__:
+        raise
+print("ok")
+"""
+    env = os.environ.copy()
+    env.pop("MCP_OAUTH_MAX_STATE_LEN", None)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
+    assert "ok" in result.stdout
 
 
-def test_max_state_len_is_env_configurable(monkeypatch):
-    """Operators can raise the cap via MCP_OAUTH_MAX_STATE_LEN without code changes."""
-    import importlib
-    from mcp_memory_service.web.oauth import limits
+def test_max_state_len_is_env_configurable():
+    """Operators can raise the cap via MCP_OAUTH_MAX_STATE_LEN without code changes.
 
-    monkeypatch.setenv("MCP_OAUTH_MAX_STATE_LEN", "8000")
-    importlib.reload(limits)
-    assert limits.MAX_STATE_LEN == 8000
+    Uses an isolated subprocess so the module is imported with the env var
+    already set (avoids relying on reload of an already-imported module).
+    """
+    import os
+    import subprocess
+    import sys
 
-    # Boundary checks: accept at the new limit, reject above it
-    limits.reject_if_too_long("x" * 8000, limits.MAX_STATE_LEN, "state")
-    with pytest.raises(HTTPException) as exc:
-        limits.reject_if_too_long("x" * 8001, limits.MAX_STATE_LEN, "state")
-    assert "exceeds maximum length" in str(exc.value.detail).lower()
-
-    # Restore so later tests see the default
-    monkeypatch.delenv("MCP_OAUTH_MAX_STATE_LEN", raising=False)
-    importlib.reload(limits)
-    assert limits.MAX_STATE_LEN == 4096
+    code = """
+import os
+os.environ["MCP_OAUTH_MAX_STATE_LEN"] = "8000"
+from mcp_memory_service.web.oauth import limits
+assert limits.MAX_STATE_LEN == 8000, f"got {limits.MAX_STATE_LEN}"
+limits.reject_if_too_long("x" * 8000, limits.MAX_STATE_LEN, "state")
+try:
+    limits.reject_if_too_long("x" * 8001, limits.MAX_STATE_LEN, "state")
+    raise SystemExit("should have raised")
+except Exception as e:
+    if "exceeds maximum length" not in str(e).lower() and "HTTPException" not in type(e).__name__:
+        raise
+print("ok")
+"""
+    env = os.environ.copy()
+    env["MCP_OAUTH_MAX_STATE_LEN"] = "8000"
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stdout={result.stdout}\nstderr={result.stderr}"
+    assert "ok" in result.stdout
