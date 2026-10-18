@@ -132,6 +132,44 @@ asyncio.run(check_stats())
 "
 ```
 
+## Multi-Store Partitioning
+
+Current schemas partition vector rows by store, so several tenants or workspaces can
+share one database file without competing for the same top-k slots:
+
+```sql
+CREATE VIRTUAL TABLE memory_embeddings USING vec0(
+    content_embedding FLOAT[384] distance_metric=cosine,
+    store TEXT partition key
+);
+```
+
+### Which entry points honour `store`
+
+| Entry point | Honours `store` | When `store` is omitted |
+|---|---|---|
+| `storage.search_memories(..., store=...)` | yes — `semantic`, `hybrid`, `ranked` and `exact` each add `AND store = ?` (semantic through the vec0 partition) | searches every store in the file |
+| tag-only and time-only queries | yes | every store in the file |
+| `memory_store(..., store=...)` | yes — written to `memories.store` and to the vec0 partition column | `default` |
+| MCP `memory_search` tool | not applicable — the tool schema has no `store` argument | searches every store in the file |
+
+Because the MCP search tool does not expose `store`, an agent calling the tools sees a
+single merged ranking across stores; scope separation is a storage/API-level feature.
+Calling `search_memories` with `store=` is what restricts a query to one partition —
+filtering afterwards is not equivalent, because the top-k has already been chosen
+across all partitions.
+
+### Migrating embeddings without losing the partition key
+
+`scripts/maintenance/migrate_embeddings.py` re-creates `memory_embeddings` when the
+embedding model changes. Older revisions rebuilt the table from a fixed DDL that
+omitted `store`; afterwards every store-scoped query failed with
+`no such column: store` — `semantic`, `ranked` and `exact` returned nothing while
+`hybrid` kept working, and the script still reported success. The current script
+re-reads the existing DDL from `sqlite_master`, substitutes only the vector
+dimension, and repopulates the partition column from `memories.store`; databases that
+predate the `store` column keep the previous read path.
+
 ## Performance Characteristics
 
 ### Memory Usage
