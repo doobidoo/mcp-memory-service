@@ -88,9 +88,10 @@ memory server --help
 
 **For whom:** OpenCode users who want memory-aware sessions via a local plugin.
 
-**Prerequisites:** Python 3.10–3.13, pip
+**Prerequisites:** Python 3.10–3.13, pip, Git, and an installed OpenCode version with plugin support.
+The commands below use a Bash-compatible shell (macOS, Linux, or WSL).
 
-**Duration:** ~5 min
+**Duration:** ~5 min for the memory plugin; the sidebar is optional.
 
 ### 1. Install
 
@@ -104,6 +105,15 @@ pip install mcp-memory-service
 MCP_ALLOW_ANONYMOUS_ACCESS=true memory server --http
 ```
 
+Keep this server running in a separate terminal, or use an existing HTTP deployment.
+Check that it is reachable before starting OpenCode:
+
+```bash
+curl --fail http://127.0.0.1:8000/api/health
+```
+
+The response must report `"status": "healthy"`.
+
 > The current OpenCode integration uses the documented HTTP API, not direct MCP transport.
 > `http://127.0.0.1:8000` is only the default. Set `memoryService.endpoint` or `OPENCODE_MEMORY_ENDPOINT` to use a remote/shared deployment.
 
@@ -114,17 +124,53 @@ git clone https://github.com/doobidoo/mcp-memory-service.git
 cd mcp-memory-service
 mkdir -p ~/.config/opencode/plugins
 cp opencode/memory-plugin.js ~/.config/opencode/plugins/
-cp opencode/memory-plugin.config.example.json ~/.config/opencode/memory-plugin.json
 ```
 
 OpenCode loads local plugins automatically from `~/.config/opencode/plugins/` and `.opencode/plugins/`.
-See [opencode/README.md](../opencode/README.md) for configuration and current limitations.
+Install the plugin in one location to avoid loading it twice. No `plugin` entry
+in `opencode.json` is needed for this local JavaScript file.
+
+For a local anonymous service, no memory configuration file is required: the
+default endpoint is `http://127.0.0.1:8000`. To customize settings, copy the
+[example configuration](../opencode/memory-plugin.config.example.json) to
+`~/.config/opencode/memory-plugin.json` only if that file does not already exist.
+The example now uses the same local endpoint; older copies may contain the
+placeholder `https://memory.example.com`, which must be replaced.
+
+For an authenticated or remote service, set the client values in the shell that
+will launch OpenCode:
+
+```bash
+export OPENCODE_MEMORY_ENDPOINT="https://memory.example.com"
+export OPENCODE_MEMORY_API_KEY="your-api-key"
+```
+
+Replace both example values with your deployment's values. The plugin sends
+`X-API-Key`; it does not automatically read the server's `MCP_API_KEY`.
 
 > If you installed only the PyPI package, clone the repository once to copy the plugin files into your OpenCode config directory.
 
 ### 4. Verify
 
-Start OpenCode inside a project that already has stored memories, then ask a project-specific question and confirm prior context is available.
+Fully restart OpenCode after installation or configuration changes. Start it in
+your project directory, not in the cloned service repository unless that is the
+project you want to work on.
+
+Register the optional [`/memory` command](../opencode/README.md#slash-command-memory)
+by merging its `command.memory` entry into your existing `opencode.json`. Then:
+
+1. Run `/memory health` and confirm the endpoint and service status.
+2. Start a session with relevant existing memories and run `/memory` after the
+   first response to check the loaded count. An empty database can legitimately
+   show zero.
+3. Make a substantive decision, wait for the response to finish, and check the
+   dashboard for an auto-capture or session summary. `/memory` also shows capture
+   activity and the last summary time.
+
+The [full OpenCode guide](../opencode/README.md) includes project-local setup,
+configuration precedence, troubleshooting, optional MCP tools, and the separate
+TUI sidebar build. The sidebar and `/memory` command are not required for the
+automatic memory hooks.
 
 ### 5. Next Steps
 

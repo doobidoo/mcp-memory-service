@@ -4,9 +4,9 @@
  * opencode's plugin loader uses Bun's default JSX transform which is incompatible
  * with solid-js (which needs dom-expressions via babel-preset-solid).
  *
- * Babel itself isn't a project dep — we reuse the copies pulled into
- * ~/.config/opencode/node_modules by `bun add @opentui/solid` (which transitively
- * installs @babel/core, @babel/preset-typescript and babel-preset-solid).
+ * Install the explicit Babel 7 build dependencies documented in README.md.
+ * They are resolved from ~/.config/opencode/node_modules, independently of the
+ * repository checkout. Babel 8 removed the TypeScript options used below.
  * Override with OPENCODE_CONFIG_DIR if your opencode config lives elsewhere.
  */
 import { readFile, writeFile } from "node:fs/promises"
