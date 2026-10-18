@@ -9,6 +9,32 @@ This integration provides:
 - **Harvest**: optional pattern-harvesting via `/api/harvest` at session end
 - **Compact Injection**: inject condensed memory context into `experimental.session.compacting`
 
+## OpenCode V1 and V2
+
+OpenCode V2 loads a plugin through `id` + `setup(context)`; V1 used `server(client)`
+and `tui(api)`. V2 also renamed every hook and event this integration uses, so the
+plugin maps them onto one implementation instead of forking it. Both fields are
+exported, and the same file works in either host:
+
+| V1 | V2 |
+| --- | --- |
+| `server(client)` | `setup(context)`, events arrive from `ctx.event.subscribe()` |
+| `session.created` | `session.created` |
+| `session.idle` | `session.step.ended` with `finish !== "tool-calls"` |
+| `message.part.updated` | no equivalent; the adapter reads the `context` hook transcript |
+| `command.execute.before` | registered in `setup` via `ctx.command.transform` |
+| `client.app.log()` | no server-side equivalent (verbose logs become no-ops) |
+| `client.tui.showToast()` | no server-side equivalent (toasts become no-ops) |
+| `tui.json` + `{id, tui}` export | plugin package with a `"./tui"` export |
+
+What that means in practice:
+
+- The status file is the shared channel on V2; without toast and log support, the
+  verbose/notification sections below only apply to V1.
+- `/memory` needs no `opencode.json` entry on V2, because `setup` registers it.
+- The sidebar widget is installed as a plugin package on V2 and needs no
+  `tui.json` entry.
+
 ## Prerequisites
 
 - An installed OpenCode version with plugin support; check with `opencode --version`.
@@ -146,6 +172,10 @@ environment block. With these client values configured, restart OpenCode.
 
 ## How It Works
 
+The event names below are V1's. On V2 the adapter translates the equivalent V2
+events into these before they reach the same handlers (see the table above), so
+the behavior is identical.
+
 On `session.created`, the plugin:
 - derives the project name from the working directory
 - runs a few semantic searches against the memory service
@@ -182,8 +212,10 @@ If `verbose` is enabled, the plugin writes structured logs through `client.app.l
 
 ## Slash Command: `/memory`
 
-This command is optional and is not installed by copying `memory-plugin.js`.
-Merge the following entry into `~/.config/opencode/opencode.json`, preserving
+This command is optional. On OpenCode V2 the plugin registers it in `setup`, so
+copying `memory-plugin.js` is enough and no configuration entry is needed. On V1,
+where `command.execute.before` is the only hook, the command has to be declared:
+merge the following entry into `~/.config/opencode/opencode.json`, preserving
 your other commands and settings:
 
 ```json
@@ -202,7 +234,7 @@ Then in OpenCode:
 - `/memory search <query>` — top 5 semantic matches for the query
 - `/memory health` — backend type, status, total memory count, endpoint
 
-The plugin intercepts the command via `command.execute.before`, fetches data from the memory service, and replaces the user message with a formatted block plus a "reply verbatim" instruction. One small LLM round-trip per call. If your default model adds commentary anyway, set `command.memory.model` to a smaller/cheaper model.
+The plugin intercepts the command via `command.execute.before`, fetches data from the memory service, and replaces the user message with a formatted block plus a "reply verbatim" instruction. One small LLM round-trip per call. If your default model adds commentary anyway, set `command.memory.model` to a smaller/cheaper model. On V2 the plugin registers the command itself, so there is no `command.memory` block to set that field on.
 
 ## Optional MCP Tools
 
@@ -228,6 +260,9 @@ The HTTP API still needs to run for the plugin. See OpenCode's
 [MCP server configuration](https://opencode.ai/docs/mcp-servers/) for remote connections.
 
 ## TUI Toasts
+
+V1 only. OpenCode V2 has no server-side toast API, so the calls below are skipped
+on V2 and the status file carries the same information.
 
 The plugin shows transient toasts via `client.tui.showToast` in three situations (rate-limited to once per session):
 
@@ -256,7 +291,44 @@ This file is consumed by the TUI sidebar widget (next section) but is also usefu
 
 ## TUI Sidebar Widget
 
-The repo ships a Solid TUI plugin (`opencode/memory-status-tui.tsx`) that renders a live "Memory" panel in the OpenCode sidebar showing project, loaded count, captured count, and the last action. It polls the status file every 1.5 seconds.
+The repo ships the same panel for both generations:
+
+- `opencode/memory-status-tui.v2.tsx` — V2: `Plugin.define` and the `sidebar.content` slot
+- `opencode/memory-status-tui.tsx` — V1: `{id, tui}` and `sidebar_content`
+
+It shows project, loaded count, captured count, and the last action, and polls the
+status file every 1.5 seconds. The widget is optional; retrieval and capture work
+without it.
+
+### OpenCode V2
+
+V2 needs no TUI config file: a directory under `plugins/` whose `package.json`
+exports `"./tui"` is a plugin package, and the widget ships as the second export of
+the HTTP plugin's directory.
+
+```bash
+cd ~/.config/opencode
+bun add @babel/core@7 @babel/preset-typescript@7 babel-preset-solid
+node /absolute/path/to/mcp-memory-service/opencode/build-tui-plugin.mjs
+```
+
+The build writes `~/.config/opencode/plugins/opencode-memory/`:
+
+| File | Content |
+| --- | --- |
+| `index.js` | copy of `memory-plugin.js` |
+| `tui.js` | compiled V2 widget |
+| `package.json` | `exports: {".": "./index.js", "./tui": "./tui.js"}` |
+
+That directory is the whole V2 installation; no `opencode.json` or `tui.json` entry
+is needed. A `Could not deploy` warning means the Babel modules were not found.
+
+### OpenCode V1
+
+V1 registers the widget through `tui.json`, from a directory that resolves through
+its `package.json` "main". The build script compiles the V1 widget too, but leaves
+that directory and its `package.json` to you: a stray plugin package under
+`plugins/` is picked up by V2 plugin discovery and fails to load there.
 
 This is optional; automatic memory retrieval and capture work without the widget.
 It uses the TUI plugin API shown below, which is separate from the HTTP plugin's
@@ -294,11 +366,12 @@ Compile and deploy from the repository checkout:
 node /absolute/path/to/mcp-memory-service/opencode/build-tui-plugin.mjs
 ```
 
-The build script writes the compiled file to `opencode/memory-status-tui.js` and
-copies it to the deployment directory's `index.js`. It does not create that
-directory or its `package.json`. A `Could not deploy` warning means the widget
-has not been installed, even if compilation succeeded. For a custom build/config
-directory, set `OPENCODE_CONFIG_DIR` and install the dependencies and widget there.
+The build script writes the compiled file to `opencode/memory-status-tui.js`, then
+copies it to the deployment directory's `index.js` and writes that directory's
+`package.json`. It does not create the directory itself, so a `Could not deploy`
+warning means the directory is missing, even if compilation succeeded. For a custom
+build/config directory, set `OPENCODE_CONFIG_DIR` and install the dependencies and
+widget there.
 
 **Merge into `~/.config/opencode/tui.json`**, preserving existing settings
 (TUI plugins use a separate config file from server plugins):
@@ -321,7 +394,14 @@ status block in chat:
 
 ![Memory sidebar widget and /memory slash command in OpenCode](screenshots/sidebar.png)
 
-**Key takeaway for plugin authors:** OpenCode splits config across two files. Server plugins (`{id, server}` exports) go in `opencode.json["plugin"]`. TUI plugins (`{id, tui}` exports) go in `tui.json["plugin"]`. Putting a TUI plugin in `opencode.json` triggers the loader error `must default export an object with server()`.
+**Key takeaway for plugin authors:** the two OpenCode generations disagree about how
+a plugin is found. V2 loads `id` + `setup(context)` from any package under `plugins/`,
+which is why one directory there carries both the server plugin and the `"./tui"`
+widget. V1 splits config across two files: server plugins (`{id, server}` exports) go
+in `opencode.json["plugin"]`, TUI plugins (`{id, tui}` exports) go in
+`tui.json["plugin"]`. Putting a TUI plugin in `opencode.json` triggers the loader
+error `must default export an object with server()`, and a TUI-only module under
+`plugins/` fails V2 discovery for the same reason.
 
 ## Limitations
 
@@ -339,11 +419,11 @@ status block in chat:
 | Requests go to `memory.example.com` | Edit an older copied configuration or override `OPENCODE_MEMORY_ENDPOINT`. |
 | HTTP 401 or 403 | Set `OPENCODE_MEMORY_API_KEY` in OpenCode's launch environment; configuring MCP OAuth does not authenticate this HTTP plugin. |
 | Project configuration is ignored | A global file wins; use `OPENCODE_MEMORY_PLUGIN_CONFIG` to select the project file explicitly. |
-| `/memory` is missing | Merge `command.memory` into `opencode.json` and restart. |
+| `/memory` is missing | On V2 look for a plugin setup error in the log; on V1 merge `command.memory` into `opencode.json` and restart. |
 | `Loaded 0` | The database may be empty, the query may not match, or configured tags may exclude the project. Check `/memory search <query>`. |
 | Widget build reports a missing Babel module | Install all explicit build dependencies in the build's config directory. |
-| Widget compiles but does not deploy | Create the deployment directory and `package.json` first; check for `Could not deploy`. |
-| Status JSON updates but sidebar is absent | Check the TUI plugin API, `tui.json` registration, absolute file URL, and shared status-file path. |
+| V1 widget compiles but does not deploy | Create the deployment directory and `package.json` first; check for `Could not deploy`. |
+| Status JSON updates but sidebar is absent | Check the TUI plugin API, the `tui.json` registration on V1 or the package `exports["./tui"]` on V2, and a shared status-file path. |
 
 OpenCode's [local plugin loading documentation](https://opencode.ai/docs/plugins/)
 describes the automatic plugin directories and dependency lookup.
