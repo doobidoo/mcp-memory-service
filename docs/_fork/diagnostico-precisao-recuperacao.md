@@ -88,7 +88,53 @@ Recomendação revista: **I2** (formalizar o harness), **I4** (maior ganho compr
 depois **I3**. I1 deixa de ser prioridade — a medição derrubou a hipótese de que o default
 semântico fosse a causa principal.
 
-## 6. Reprodução
+## 6. Multilíngue: o drift EN/PT-BR também é um viés de recuperação
+
+Contexto: o upstream (Henry) escreve em inglês; nós escrevemos em português. O acervo é
+misto — heurística no banco vivo: ~7.900 memórias em PT, ~3.200 em EN, ~16.700
+indeterminadas; 14.071 contêm acentuação (ç/ã), portanto o armazenamento é UTF-8 e não há
+problema de codificação. Modelo em uso: `paraphrase-multilingual-MiniLM-L12-v2` (384 dim,
+ONNX), com `MCP_LOCALE=en,pt_BR` e `HARVEST_LOCALE=en,pt_BR`.
+
+Medição 1 — mesmas perguntas, mesmos fatos, dois idiomas:
+
+| métrica | pergunta em PT | pergunta em EN |
+|---|---|---|
+| Recall@10 | 16% (1/6) | **50% (3/6)** |
+| MRR@10 | 0,042 | 0,111 |
+
+Medição 2 — controle com memórias escritas em **português puro** (para excluir a hipótese
+"o acervo é que fala inglês"): mesmo assim o inglês ranqueia melhor.
+
+| fato (memória em PT) | posição com query PT | posição com query EN |
+|---|---|---|
+| Botão "Baixar CCIR" | 4º | **1º** |
+| Autenticação Gov.br | 5º | **1º** |
+| Consulta de Imóvel Rural | 10º | 10º |
+| Compartilhamento de Imóveis | ausente | ausente |
+
+Conclusão: **não é o acervo, é o modelo.** O MiniLM multilíngue é assimétrico — foi treinado
+predominantemente em inglês e recupera melhor quando a consulta está em inglês, mesmo que o
+documento esteja em português. Consequência prática grave para nós: escrever em PT-BR (a
+preferência declarada do Claudio) piora a recuperação em relação a escrever em inglês.
+
+Implicações para a proposta:
+
+1. **A expansão de query (I4) deve ser bilíngue.** Traduzir/expandir a consulta para inglês
+   ataca duas causas de uma vez: o gap de vocabulário técnico *e* o viés do modelo. É a
+   intervenção mais barata — não exige re-embedar 27 mil memórias.
+2. **Bancos por idioma (ideia do Zero) são laboratório, não correção.** Servem para isolar
+   variáveis (medir recall monolíngue, testar modelo novo sem tocar produção, validar
+   re-embed). Não corrigem o viés, porque o viés está na consulta, não na partição.
+3. **Trocar o modelo é o caminho caro** e deve ser medido antes: `multilingual-e5`,
+   `BGE-M3` e `jina-embeddings-v3` são candidatos com melhor cross-lingual, mas exigem
+   re-embed de todo o acervo (mecanismo `embedding_version`/`pending` já existe — ADR-0014/0015).
+   O harness I2 é o que permite decidir com número.
+4. **UTF-8 já está resolvido.** O risco real nunca foi a codificação, e sim o tokenizer de
+   relevância (corrigido para Unicode `\w+` nos commits 7c3307be/f0d8d90a/41224fcd) e o
+   FTS5 trigram, que não indexa termos com menos de 3 caracteres.
+
+## 7. Reprodução
 
 ```bash
 # gabarito existe?
