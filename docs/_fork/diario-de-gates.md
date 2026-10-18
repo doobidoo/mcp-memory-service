@@ -362,6 +362,38 @@ maior e custo zero (E10): visibilidade de store e legibilidade do que volta.
 | F5 sinal de ausência | refutado por limiar de similaridade |
 | F6 ruído/latência | medido, não é problema |
 
+## E10 — régua cross-store: a busca padrão acha 0% dos outros stores (18/out)
+
+A régua de 120 casos só tem ouro no store `default`, então não podia julgar a busca
+restrita. Construída uma segunda régua com 60 casos cujo documento está em `mir`,
+`docs-shared` e `hackathon` (20 cada), gerada por 3 subagentes em faixas disjuntas e
+**revalidada por código** (hash existe no store certo, `gold_terms` literais no
+conteúdo, nenhum termo na pergunta, hashes e perguntas únicos): 60/60 válidos.
+Arquivo: `eval/recall_cases_xstore.json`.
+
+Mesma pergunta, dois escopos de busca (índice migrado, régua por documento):
+
+| escopo | documento @10 | @30 | @100 |
+|---|---|---|---|
+| só `default` | **0,000** | 0,000 | 0,000 |
+| todos os stores | **0,350** | 0,433 | 0,600 |
+
+Zero. Não é degradação: é ausência total. As 60 respostas existem no acervo e nenhuma
+delas é alcançável numa busca normal, porque o handler usa
+`arguments.get("store", "default")` e o acervo fora do `default` são 7.466 memórias
+(26,9% do total).
+
+Custo no lado oposto, medido na régua de 120 casos: abrir os stores derruba o @10 de
+0,592 para 0,567 (−2,5 p.p.), e 21,2% dos slots do top-10 passam a vir de fora.
+**O trade é claro: −2,5 p.p. em precisão compram 35% de cobertura sobre um quarto do
+acervo.** Para um sistema de memória, esquecer em silêncio é o pior modo de falha.
+
+Decisão proposta (Plano B): busca padrão passa a varrer todos os stores, com o store
+de origem devolvido em cada resultado para o cliente filtrar; `store` explícito
+continua disponível para isolamento por projeto.
+Artefatos: `eval/lab_store_visibility.json`, `eval/lab_store_visibility_xstore.json`.
+
+
 
 
 
