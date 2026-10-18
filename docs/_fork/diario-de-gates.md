@@ -178,8 +178,10 @@ O paraphrase-multilingual (o modelo configurado) vence por 15,9 p.p. em @10 e 16
 Artefato: `eval/lab_reembed_models.json`.
 
 Diferença entre caminho do serviço (0,333) e cosine puro (0,433) com o mesmo modelo:
-~10 p.p. de pedágio dentro do storage (fusão híbrida / limiares / pós-processamento).
-Frente própria, não é o gargalo principal.
+a hipótese inicial foi "~10 p.p. de pedágio dentro do storage". **Refutada no E8**: com
+índice uniforme, o caminho do serviço entrega exatamente o mesmo que a força bruta
+(0,592). A diferença anterior era artefato do índice misto (KNN particionado sobre
+coortes incompatíveis), não um custo fixo do storage.
 
 ### E7.4 Chunking: resultado negativo, hipótese da noite encerrada
 
@@ -234,6 +236,61 @@ só nele.
 3. Reranker: teto 0,767 @100, atual 0,592 @10 → 17,5 p.p. disponíveis.
 4. Sinal de ausência (nunca medido).
 5. Visibilidade de store (E7.6).
+
+## E8 — migração executada em cópia e validada (18/out)
+
+Cópia do snapshot (`~/local-data/mcp/lab/migracao/migrado2.db`), migrador oficial do
+produto (`scripts/maintenance/migrate_embeddings.py`) apontado para uma ponte local
+OpenAI-compatible sobre o ONNX do serviço (`scripts/lab/onnx_embeddings_api.py`).
+
+### E8.1 O migrador oficial quebrava a busca (bug corrigido)
+
+Primeira execução: 27.777 memórias re-embedadas, integridade e KNN "ok" no relatório
+do script — e **semantic/ranked/exact retornando zero resultado**, com
+`sqlite3.OperationalError: no such column: store`.
+
+Causa: o script recria `memory_embeddings` com DDL fixa
+(`vec0(content_embedding FLOAT[384] distance_metric=cosine)`) e descarta a coluna de
+partição que a versão atual do serviço usa:
+
+```sql
+CREATE VIRTUAL TABLE memory_embeddings USING vec0(
+    content_embedding FLOAT[384] distance_metric=cosine,
+    store TEXT partition key
+)
+```
+
+Toda busca que filtra por store passa a falhar. Corrigido em `13c0b967`: a DDL
+original é lida antes do drop, recriada com apenas a dimensão substituída, e o insert
+inclui a coluna de partição. Correção no repo principal, ainda não enviada ao upstream.
+
+### E8.2 Resultado da migração validada (caminho do serviço, régua por documento)
+
+| métrica | antes (config viva) | índice uniforme | migrado pelo serviço |
+|---|---|---|---|
+| documento @10 | 0,008 | 0,592 | **0,592** |
+| documento @30 | 0,017 | 0,708 | **0,708** |
+| documento @100 | 0,017 | 0,767 | **0,775** |
+| termo-any @10 (harness) | 0,292 | 0,500 | 0,825 |
+| termo-any @100 | 0,475 | 0,758 | 0,942 |
+
+- 120 casos válidos, 0 inválidos, sem warning de corpus misto.
+- Tamanho: 1.110 MB → 825 MB.
+- 27.777 vetores uniformes; 573.559 arestas de grafo preservadas (`--keep-graph`).
+- Critério de aceitação do plano ("divergência entre bancada e serviço = defeito de
+  migração"): **não houve divergência** — 0,592 nas duas medições.
+- Artefatos: `eval/lab_migrado2_k10.json`, `eval/lab_migrado2_k100.json`,
+  `eval/lab_metric_definitions_migrado.json`.
+
+### E8.3 O que a migração não resolve
+
+- 40,8% dos casos ainda não têm o documento no top-10; 22,5% continuam fora do top-100.
+  Teto de reranking passa a ser 0,775.
+- Duplicatas (2.468) e os três stores com nome corrompido continuam intactos: o
+  migrador re-embeda, não higieniza. Higienização vale 1 caso em 120 (E7.5).
+- 26,9% do acervo segue invisível por padrão (E7.6).
+- Sinal de ausência (F5) segue sem medição.
+
 
 
 
