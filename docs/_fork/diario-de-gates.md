@@ -291,6 +291,78 @@ inclui a coluna de partição. Correção no repo principal, ainda não enviada 
 - 26,9% do acervo segue invisível por padrão (E7.6).
 - Sinal de ausência (F5) segue sem medição.
 
+## E9 — F5 refutada e o modo `ranked` é pior do que o `semantic` (18/out)
+
+Medições sobre o índice migrado (`migrado2.db`), régua por documento.
+
+### E9.1 O score de similaridade não denuncia ausência
+
+71 acertos (documento no top-10) contra 49 erros, score do top-1:
+
+| grupo | n | média | cauda |
+|---|---|---|---|
+| acertos | 71 | 0,841 | p10 = 0,791 |
+| erros | 49 | 0,822 | p90 = 0,867 |
+
+As distribuições se sobrepõem quase por inteiro. Varredura de limiares:
+
+| limiar | erros detectados | acertos perdidos | precisão da abstenção |
+|---|---|---|---|
+| 0,75 | 1/49 | 0/71 | 1,00 (cobre 2% dos erros) |
+| 0,80 | 17/49 | 13/71 | 0,57 |
+| 0,85 | 34/49 | 42/71 | **0,45** |
+| 0,90 | 49/49 | 65/71 | 0,43 |
+
+Em 0,85 detecta 69% dos erros e descarta 59% dos acertos: pior que decidir por sorteio.
+**Abstenção por limiar de cosseno está refutada** — a ideia que estava no plano (F5)
+não se sustenta. Se o sinal for perseguido, tem de vir de outro mecanismo (score de
+cross-encoder, entailment, cobertura lexical), não da similaridade.
+Artefato: `eval/lab_abstain.json`.
+
+### E9.2 `ranked` perde 26,7 p.p. — e a régua frouxa escondia isso
+
+Mesmo índice, mesmos 120 casos:
+
+| modo | documento @10 | documento @100 | termo-any @10 |
+|---|---|---|---|
+| semantic | **0,592** | **0,775** | 0,825 |
+| ranked | 0,325 | 0,475 | 0,833 |
+
+Na régua antiga (termo-any) o `ranked` parecia **melhor** (+0,8 p.p.). Na régua por
+documento ele perde 26,7 p.p.: o `relevance_score` (similaridade + decaimento +
+boost de acesso) promove memórias muito acessadas — uma memória com `access_count`
+406 apareceu no topo de uma consulta sem relação. É a demonstração mais clara de
+por que a métrica de decisão passou a ser a de documento.
+
+O serviço usa `semantic` por padrão (`arguments.get("mode", "semantic")`), então o
+dano está limitado a quem pede `ranked` explicitamente. Ainda assim: não usar `ranked`
+para busca de conhecimento, e não vendê-lo como melhoria.
+Artefato: `eval/lab_metric_definitions_migrado_ranked.json`.
+
+### E9.3 Reranker: bloqueado por dependência, decisão adiada
+
+O cross-encoder do produto (`quality/onnx_ranker.py`, `ms-marco-MiniLM-L-6-v2`) não
+tem grafo ONNX exportado nesta máquina (`ImportError: ONNX model not found ... Either
+download pre-exported model or install transformers+torch`), e não há `torch` no venv.
+Custo para destravar: instalar `transformers`+`torch` (~2 GB) e exportar, ou baixar um
+reranker multilíngue (~2,3 GB) — o `ms-marco` é treinado em inglês e o acervo é PT.
+
+Decisão de gestão: **não gastar 2 GB agora**. O teto do reranking é 0,775 e o ganho
+realista num corpus PT com modelo inglês é incerto. Antes disso, há itens de valor
+maior e custo zero (E10): visibilidade de store e legibilidade do que volta.
+
+### E9.4 Estado do lote após E9
+
+| frente | estado |
+|---|---|
+| F1 régua por documento | feito |
+| F2 índice uniforme + migração validada | feito (aguarda autorização para produção) |
+| F3 chunking | refutado |
+| F4 reranking | bloqueado por dependência, adiado |
+| F5 sinal de ausência | refutado por limiar de similaridade |
+| F6 ruído/latência | medido, não é problema |
+
+
 
 
 
