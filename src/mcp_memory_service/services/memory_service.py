@@ -774,12 +774,18 @@ class MemoryService:
             Dictionary with search results
         """
         try:
-            # Retrieve memories using semantic search
-            # Note: storage.retrieve() only supports query and n_results
-            # We'll filter by tags/type after retrieval if needed
+            # Retrieve memories using semantic search.
+            # Note: storage.retrieve() only supports query and n_results, so the
+            # tags/type filters below are applied AFTER retrieval. Fetching only
+            # ``n_results`` and then filtering throws away the whole result set
+            # whenever the matching rows are not in that first window — that is
+            # why ``mistake_note_search`` returned empty over a populated table.
+            fetch_n = n_results
+            if tags or memory_type:
+                fetch_n = max(n_results * 10, n_results + 50)
             memories = await self.storage.retrieve(
                 query=query,
-                n_results=n_results
+                n_results=fetch_n
             )
 
             # Apply optional post-filtering
@@ -800,6 +806,9 @@ class MemoryService:
                             continue
 
                     filtered_memories.append(query_result)
+
+            # The extra rows fetched for filtering are not part of the answer.
+            filtered_memories = filtered_memories[:n_results]
 
             results = []
             for result in filtered_memories:
