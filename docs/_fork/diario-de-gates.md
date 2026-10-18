@@ -58,3 +58,24 @@ dados (a escrita falha), mas:
 
 Pendência: suprimir telemetria quando o backend é read-only (flag de sessão ou
 `MCP_MEMORY_DISABLE_ACCESS_TELEMETRY=1`). Não bloqueia o harness.
+
+## E5 — gabarito de 120 casos e baseline definitivo (18/out)
+
+O gabarito anterior tinha 10 casos: um acerto valia 10 pontos percentuais. Substituído
+por 120 casos verificados (`eval/recall_cases_v2.json`), gerados por 4 subagentes em
+faixas disjuntas de memória e validados por código (gold_term presente no conteúdo,
+ausente na pergunta, hash único, sem perguntas repetidas). 80 em PT, 40 em EN.
+
+| modo | recall@10 | mrr@10 |
+|---|---|---|
+| semantic | 0,292 | 0,163 |
+| hybrid | 0,292 | 0,163 |
+| ranked | 0,275 | 0,169 |
+| exact | 0,000 | 0,000 |
+
+**Baseline definitivo: Recall@10 = 29,2% (35/120).** O valor anterior (20%, com 2/10)
+era ruído amostral — confirma que a régua curta enganava.
+
+O `exact` em zero é resultado, não falha: as perguntas foram escritas sem conter o
+termo-chave, então busca léxica pura não as resolve. Serve como controle negativo.
+
