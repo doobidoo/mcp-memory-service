@@ -672,9 +672,12 @@ const createPlugin = async ({ directory, client }) => {
       healthState,
     })
       .then((result) => {
+        // A replayed transcript or an auto-capture can write into the session
+        // while the load is in flight; keep those buffers, they feed the
+        // summary and the capture dedupe.
         sessionState.set(sessionID, {
+          ...sessionState.get(sessionID),
           ...result,
-          messages: [],
           promise: null,
         })
       })
@@ -701,7 +704,11 @@ const createPlugin = async ({ directory, client }) => {
   const waitForSession = async (sessionID, fallbackDirectory) => {
     let state = sessionState.get(sessionID)
 
-    if (!state) {
+    // "The session exists" is not "its memories were requested". A bare entry
+    // comes from a replayed transcript (handleMessagePart) or a session end,
+    // and a resumed session never receives session.created at all. Only
+    // refreshSession sets `promise`, so its absence marks an unloaded entry.
+    if (!state || state.promise === undefined) {
       refreshSession(sessionID, fallbackDirectory)
       state = sessionState.get(sessionID)
     }
@@ -1000,14 +1007,10 @@ const createPlugin = async ({ directory, client }) => {
     "experimental.chat.system.transform": async (input, output) => {
       if (!input.sessionID) return
 
-      // session.created fires before bus subscription starts — refreshSession
-      // might never have been called. Load memories on first system prompt request.
-      let state = sessionState.get(input.sessionID)
-      if (!state) {
-        refreshSession(input.sessionID, directory)
-        state = sessionState.get(input.sessionID)
-      }
-      state = await waitForSession(input.sessionID, directory)
+      // session.created fires before the bus subscription exists, and V2 does
+      // not emit it for a resumed session, so the first system prompt request is
+      // where the load is requested (see waitForSession).
+      const state = await waitForSession(input.sessionID, directory)
       if (!state?.memories?.length) return
 
       const formatted = formatMemories(state.projectName, state.memories, config)
