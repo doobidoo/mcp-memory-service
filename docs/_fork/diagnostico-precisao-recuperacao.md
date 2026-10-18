@@ -55,6 +55,38 @@ encontra**, embora a memória exista.
 
 ## 3. Causas, em ordem de impacto
 
+### 3.0 Achado raiz (medido em 18/out): o índice foi construído com outro modelo
+
+O serviço está configurado com `MCP_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2`,
+mas **os vetores armazenados no acervo não foram gerados por ele**.
+
+Medição: 60 memórias amostradas; cosseno entre o vetor gravado e o vetor recalculado
+do mesmo texto:
+
+| modelo comparado | cosseno médio | p50 | > 0,99 |
+|---|---|---|---|
+| `all-MiniLM-L6-v2` | **0,9997** | 1,0000 | **100%** |
+| `paraphrase-multilingual-MiniLM-L12-v2` | 0,3160 | 0,3089 | 0% |
+
+Conclusão: o índice é de `all-MiniLM-L6-v2` (modelo **só-inglês**, 384d). O serviço
+embute a **consulta** com `paraphrase-multilingual` e a compara com documentos que
+vivem em outro espaço vetorial. A busca não está medindo similaridade semântica;
+está medindo coincidência geométrica entre dois espaços diferentes.
+
+Implicações:
+
+- O Recall@10 de 20% **não** é o teto do acervo nem do modelo: é o resultado de uma
+  comparação inválida. Qualquer ajuste de ranking, chunking ou expansão de query
+  atua sobre uma base quebrada.
+- O viés EN>PT ganha explicação física: os documentos foram vetorizados por um modelo
+  treinado em inglês (§6.1).
+- Isto é exatamente o risco que o ADR-0014 (`embedding_version`) existe para cobrir —
+  o mecanismo de versão não foi aplicado aos 27.777 registros existentes.
+- Correção: re-embedar o acervo com **um** modelo, gravar a versão em cada linha e
+  passar a recusar busca quando a versão do índice não casar com a do modelo. Custo
+  medido: ~3 a 10 minutos de CPU, zero tokens.
+
+
 1. **Representação — chunk heterogêneo.** O serviço fatia sessões em blocos de ~1.500
    caracteres por TAMANHO. Um bloco típico mistura pergunta do usuário, saída de
    ferramenta, raciocínio e resposta. O embedding resultante é a média de vários temas e
