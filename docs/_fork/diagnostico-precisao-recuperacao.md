@@ -175,6 +175,28 @@ Implicações para a proposta:
    relevância (corrigido para Unicode `\w+` nos commits 7c3307be/f0d8d90a/41224fcd) e o
    FTS5 trigram, que não indexa termos com menos de 3 caracteres.
 
+### 6.1 O viés também é de tamanho, não só de modelo (medido em 18/out)
+
+O achado da truncagem em 128 tokens (§3.1) tem efeito assimétrico por idioma. Medido no
+mesmo snapshot, classificando por heurística de stopwords:
+
+| idioma | n | tokens médios | p90 | >128 tokens | cobertura do embedding |
+|---|---|---|---|---|---|
+| PT | 11.612 | 231,1 | 574 | 43,6% | **38,4%** |
+| EN | 4.435 | 181,6 | 400 | 39,6% | **48,6%** |
+| indeterminado | 11.729 | 84,0 | 118 | 8,7% | 66,5% |
+
+Memórias em português são 27% mais longas em tokens e perdem 10 pontos percentuais a mais
+de conteúdo no corte. Ou seja: **parte do viés EN>PT é artefato de configuração**, não
+apenas limitação do modelo — escrever em português produz textos mais longos, que o
+truncamento de 128 tokens pune mais.
+
+Isso reforça a ordem das intervenções: aumentar o limite ou fragmentar (§3.1) corrige
+simultaneamente a cobertura geral e o viés de idioma, sem tocar no modelo. E dá uma
+previsão testável: se o ganho em PT for maior que o ganho em EN após elevar o limite, a
+hipótese está confirmada.
+
+
 ## 7. Candidatos a modelo de embedding (verificado no MTEB Multilingual, captura 2026-10-17)
 
 Todos são modelos de embedding para retrieval — mesma função do
