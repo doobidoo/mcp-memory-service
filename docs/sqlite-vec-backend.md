@@ -166,10 +166,12 @@ across partitions.
 embedding model changes. **Known limitation:** the script rebuilds the table from a
 fixed DDL that omits `store`. Run it on a database whose `memory_embeddings` carries
 the partition key and the column disappears: every store-scoped vector query then
-fails with `no such column: store` — `semantic`, `hybrid` and `ranked` return nothing,
-while `exact` keeps working because it reads `memories`, not the vector table. The
-script still reports success. Until the fix lands (tracked upstream), copy the
-database and verify the resulting DDL before trusting a migrated file.
+fails with `no such column: store`. Measured on a copy of a real database after such
+a migration: `semantic` and `ranked` return zero results, while `hybrid` (its FTS
+branch filters `memories`) and `exact` (it reads `memories`, not the vector table)
+keep working — which makes the breakage easy to miss. The script still reports
+success. Until the fix lands (tracked upstream), copy the database and verify the
+resulting DDL before trusting a migrated file.
 
 A database that predates the `store` column is unaffected: there is no partition key
 to lose.
