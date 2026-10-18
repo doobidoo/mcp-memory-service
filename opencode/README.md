@@ -330,53 +330,6 @@ its `package.json` "main". The build script compiles the V1 widget too, but leav
 that directory and its `package.json` to you: a stray plugin package under
 `plugins/` is picked up by V2 plugin discovery and fails to load there.
 
-**Install (one-time):**
-```
-
-Good. Let me verify what I wrote stays inside the fence... Let me just do the edit.</think>
-
-<｜DSML｜ calls>
-<｜DSML｜ invoke name="edit">
-<｜DSML｜ parameter name="newString" string="true">The repo ships the same panel for both generations:
-
-- `opencode/memory-status-tui.v2.tsx` — V2, `Plugin.define` and the `sidebar.content` slot
-- `opencode/memory-status-tui.tsx` — V1, `{id, tui}` and `sidebar_content`
-
-It shows the project, loaded count, captured count, and the last action, and polls
-the status file every 1.5 seconds. The panel is optional: retrieval and capture
-work without it.
-
-### OpenCode V2
-
-V2 needs no TUI config file. A directory under `plugins/` whose `package.json`
-exports `"./tui"` is a plugin package, and the widget ships as the second export of
-the HTTP plugin's directory:
-
-```bash
-cd ~/.config/opencode
-bun add @babel/core@7 @babel/preset-typescript@7 babel-preset-solid
-node /absolute/path/to/mcp-memory-service/opencode/build-tui-plugin.mjs
-```
-
-The build writes `~/.config/opencode/plugins/opencode-memory/`:
-
-| File | Content |
-| --- | --- |
-| `index.js` | copy of `memory-plugin.js` |
-| `tui.js` | compiled V2 widget |
-| `package.json` | `exports: {".": "./index.js", "./tui": "./tui.js"}` |
-
-That directory is the whole V2 installation; no `opencode.json` and no `tui.json`
-entry is needed. A `Could not deploy` warning means the Babel modules were not
-found.
-
-### OpenCode V1
-
-V1 registers the widget through `tui.json`, from a directory that resolves through
-its `package.json` "main". The build compiles the V1 widget too, but leaves that
-directory to you: a stray plugin package under `plugins/` is picked up by V2 plugin
-discovery and fails to load there.
-
 This is optional; automatic memory retrieval and capture work without the widget.
 It uses the TUI plugin API shown below, which is separate from the HTTP plugin's
 server hooks. Do not assume these instructions apply unchanged to a different
