@@ -66,6 +66,47 @@ encontra**, embora a memória exista.
 3. **Modo padrão — semantic puro.** `hybrid` existe e ganhou por 13 posições no único caso
    com sobreposição lexical, mas não é o default.
 
+### 3.1 Achado físico (medido em 18/out): 53,6% do texto nunca vira vetor
+
+O `tokenizer.json` do modelo em uso (`paraphrase-multilingual-MiniLM-L12-v2`)
+traz a truncagem **gravada dentro do arquivo**:
+
+```
+enable_truncation -> {'max_length': 128, 'stride': 0,
+                      'strategy': 'longest_first', 'direction': 'right'}
+```
+
+Qualquer texto acima de 128 tokens é cortado antes de virar embedding — e o corte
+é silencioso. Medido sobre o snapshot (27.777 memórias vivas, 4.473.710 tokens
+reais):
+
+| métrica | valor |
+|---|---|
+| p50 / p75 / p90 / p95 / p99 (tokens) | 58 / 150 / 374 / 577 / 970 |
+| média | 161,1 tokens |
+| memórias > 128 tokens | 7.834 (28,2%) |
+| memórias > 256 tokens | 4.419 (15,9%) |
+| **cobertura do embedding atual** | **46,4% dos tokens** |
+
+Consequência direta: **mais da metade do acervo é invisível para a busca**. Uma
+memória de sessão importada (chunk de 1.500 caracteres ≈ 400 tokens) tem ~70% do
+conteúdo descartado no momento do embedding.
+
+Isso reordena as causas: o item 1 (chunk heterogêneo) e este achado são o mesmo
+problema visto por dois ângulos — a representação perde conteúdo por **tamanho**
+antes de perder por **heterogeneidade**.
+
+Correções candidatas, em ordem de custo:
+
+1. **Aumentar o limite** (`--max-len` 256/512). Barato, mas o MiniLM foi treinado
+   com 128: acima disso a qualidade pode cair. Precisa de medição — é o que o A/B
+   em curso faz.
+2. **Chunking por sentença/tema** com limite de ~128 tokens e ponteiro para o pai.
+   Resolve por completo, ao custo de multiplicar linhas de embedding (×2 a ×4).
+3. **Modelo com contexto nativo maior** (granite/e5/BGE-M3: 512 tokens), que resolve
+   o limite sem inventar chunking — mas não dispensa o chunking para as memórias
+   acima de 512.
+
 ## 4. A lacuna que explica por que isso não foi visto antes
 
 O projeto mede **MRR em benchmark sintético** (`eval/rerank_bench.py`) — ótimo para
