@@ -676,6 +676,7 @@ const createPlugin = async ({ directory, client }) => {
         // while the load is in flight; keep those buffers, they feed the
         // summary and the capture dedupe.
         sessionState.set(sessionID, {
+          messages: [],
           ...sessionState.get(sessionID),
           ...result,
           promise: null,
@@ -683,6 +684,7 @@ const createPlugin = async ({ directory, client }) => {
       })
       .catch(async (error) => {
         sessionState.set(sessionID, {
+          messages: [],
           ...sessionState.get(sessionID),
           projectName: projectNameFromDirectory(sessionDirectory),
           memories: [],
@@ -691,10 +693,12 @@ const createPlugin = async ({ directory, client }) => {
         await logWarn(`Memory load failed: ${error.message}`)
       })
 
-    // The load only owns `memories`. Keep the messages, the capture count and
-    // the dedupe set a transcript replay already collected — this also runs for
-    // a bare entry, on the first request from waitForSession.
+    // A fresh session has no previous entry at all, and handleMessagePart
+    // pushes into `messages`: seed it. A resumed session keeps its replayed
+    // history, its capture count and its dedupe set; the load owns only
+    // `memories`.
     sessionState.set(sessionID, {
+      messages: [],
       ...sessionState.get(sessionID),
       projectName: projectNameFromDirectory(sessionDirectory),
       memories: [],
