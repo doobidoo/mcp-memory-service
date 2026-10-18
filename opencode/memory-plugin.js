@@ -683,18 +683,21 @@ const createPlugin = async ({ directory, client }) => {
       })
       .catch(async (error) => {
         sessionState.set(sessionID, {
+          ...sessionState.get(sessionID),
           projectName: projectNameFromDirectory(sessionDirectory),
           memories: [],
-          messages: [],
           promise: null,
         })
         await logWarn(`Memory load failed: ${error.message}`)
       })
 
+    // The load only owns `memories`. Keep the messages, the capture count and
+    // the dedupe set a transcript replay already collected — this also runs for
+    // a bare entry, on the first request from waitForSession.
     sessionState.set(sessionID, {
+      ...sessionState.get(sessionID),
       projectName: projectNameFromDirectory(sessionDirectory),
       memories: [],
-      messages: [],
       promise: loadPromise,
     })
 
