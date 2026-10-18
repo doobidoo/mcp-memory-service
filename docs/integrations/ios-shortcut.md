@@ -40,7 +40,7 @@ their CA is installed and trusted on the device. Pick one of these:
 1. Create a certificate that lists the address the phone will use:
 
    ```bash
-   mkcert -cert-file certs/lan.pem -key-file certs/lan-key.pem <lan-ip> <hostname>.local
+   mkdir -p certs && mkcert -cert-file certs/lan.pem -key-file certs/lan-key.pem <lan-ip> <hostname>.local
    ```
 
 2. Point the server at it and open it to the network, then restart:
