@@ -56,3 +56,53 @@ def test_filtro_por_tipo_encontra_memoria_fora_da_janela_inicial():
         f"resultado veio com {resultado['count']} itens"
     )
     assert resultado["memories"][0]["content"].startswith("memoria 9")
+
+
+def test_resposta_respeita_n_results_mesmo_com_muitos_casando():
+    """Over-fetch não pode devolver resposta maior que o pedido."""
+    itens = []
+    for i in range(10):
+        mem = Memory(
+            content=f"nota de erro {i}",
+            content_hash=f"m-{i}",
+            memory_type="mistake",
+        )
+        itens.append(MemoryQueryResult(memory=mem, relevance_score=1.0 - i * 0.05))
+
+    storage = _StubStorage(itens)
+    service = MemoryService(storage)
+
+    resultado = asyncio.run(
+        service.retrieve_memories("erro recorrente", n_results=5, memory_type="mistake")
+    )
+
+    assert resultado["count"] == 5, (
+        "a resposta deve ser truncada em n_results depois do filtro; veio "
+        f"{resultado['count']} itens (storage recebeu n_results={storage.chamadas})"
+    )
+
+
+def test_filtro_por_tag_sozinho_tambem_amplia_a_busca():
+    """Filtro só por tag sofre do mesmo problema e precisa do mesmo over-fetch."""
+    itens = []
+    para_marcar = {3, 8}
+    for i in range(10):
+        mem = Memory(
+            content=f"memoria {i}",
+            content_hash=f"t-{i}",
+            tags=["lancamento"] if i in para_marcar else ["outra"],
+            memory_type="note",
+        )
+        itens.append(MemoryQueryResult(memory=mem, relevance_score=1.0 - i * 0.05))
+
+    storage = _StubStorage(itens)
+    service = MemoryService(storage)
+
+    resultado = asyncio.run(
+        service.retrieve_memories("planejamento", n_results=5, tags=["lancamento"])
+    )
+
+    assert resultado["count"] == 2, (
+        "filtro por tag perdeu as memorias marcadas fora da janela inicial; veio "
+        f"{resultado['count']} itens (storage recebeu n_results={storage.chamadas})"
+    )
