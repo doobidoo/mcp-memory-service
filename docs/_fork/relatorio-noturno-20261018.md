@@ -81,7 +81,6 @@ trabalho: vantagem acidental da mistura de espaços (hubness). Não foi provada.
 - qualquer ação em produção, main ou upstream.
 
 ## 7. Próximo passo, em ordem
-
 1. **Experimento de chunking** no lab: dividir memórias longas em blocos de ≤128
    tokens, embedar cada bloco e considerar acerto se qualquer bloco do gold entrar
    no top-k. É o único caminho para saber se A2 é o teto real.
@@ -90,3 +89,35 @@ trabalho: vantagem acidental da mistura de espaços (hubness). Não foi provada.
 
 Ordem justificada: medir modelo antes de resolver o truncamento é medir a mesma
 cegueira quatro vezes — foi o que esta noite demonstrou.
+
+## 8. Experimento de chunking (madrugada de 18/out) — resultado NEGATIVO em escala
+
+Hipótese: o chunking recupera o recall perdido pelo corte de 128 tokens.
+
+| cenário | memórias | chunks | recall@10 | mrr@10 | embed |
+|---|---|---|---|---|---|
+| sem chunking (amostra 2.000) | 2.000 | 2.000 | 0,000 | 0,000 | 40 s |
+| com chunking (amostra 2.000) | 2.000 | 4.657 | **0,100** | 0,025 | 92 s |
+| sem chunking (completo) | 20.310 | 20.310 | 0,000 | 0,000 | 348 s |
+| com chunking (completo) | 20.310 | 36.733 | **0,000** | 0,000 | 669 s |
+
+Na amostra, apenas **1 dos 10 golds** estava presente no corpus recortado — e o
+chunking o recuperou (rank 4). Isso é 1/1 dos disponíveis, e provou o mecanismo.
+Em escala, com os 10 golds presentes e 36.733 chunks, o recall caiu a zero: o
+número de distratores cresceu ~8× e o top-10 exige precisão que o cosseno puro
+não entrega.
+
+Leitura correta: **chunking não é a intervenção principal**; ele melhora a
+representação, mas não sobrevive ao aumento de distratores. O gargalo continua
+sendo a qualidade do ranking.
+
+### Limitação estatística descoberta ao final
+
+O dataset tem **10 casos**. Um acerto = 10 pontos percentuais; a diferença entre
+0,000 e 0,200 são dois casos. Com esse tamanho, nenhum A/B tem poder para
+distinguir modelos ou intervenções — todo resultado é compatível com ruído.
+
+Antes de qualquer novo experimento é preciso um gabarito maior e verificado
+(50–100 casos, com o documento que realmente responde a cada pergunta). Sem isso,
+estaremos medindo variação amostral e chamando de descoberta.
+
