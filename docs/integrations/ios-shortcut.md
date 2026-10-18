@@ -37,12 +37,26 @@ their CA is installed and trusted on the device. Pick one of these:
 
 ### LAN with the mkcert CA
 
-1. Set `MCP_HTTP_HOST=0.0.0.0` and restart the server. It is now reachable by anyone on
-   the network, so the API key is the only thing protecting it.
-2. Copy `$(mkcert -CAROOT)/rootCA.pem` to the phone, install it as a profile
+1. Create a certificate that lists the address the phone will use:
+
+   ```bash
+   mkcert -cert-file certs/lan.pem -key-file certs/lan-key.pem <lan-ip> <hostname>.local
+   ```
+
+2. Point the server at it and open it to the network, then restart:
+
+   ```bash
+   MCP_HTTP_HOST=0.0.0.0
+   MCP_HTTPS_ENABLED=true
+   MCP_SSL_CERT_FILE=/path/to/certs/lan.pem
+   MCP_SSL_KEY_FILE=/path/to/certs/lan-key.pem
+   ```
+
+   The server is now reachable by anyone on the network, so the API key is the only
+   thing protecting it.
+3. Copy `$(mkcert -CAROOT)/rootCA.pem` to the phone, install it as a profile
    (Settings > General > VPN & Device Management), then enable it under
    Settings > General > About > Certificate Trust Settings.
-3. The certificate must list the address you use (`mkcert <lan-ip> <hostname>.local`).
 4. The base URL is `https://<lan-ip>:8000`.
 
 ## Test the endpoint first
@@ -50,7 +64,7 @@ their CA is installed and trusted on the device. Pick one of these:
 From a machine that can reach the same URL:
 
 ```bash
-curl -X POST "https://<base-url>/api/memories" \
+curl -X POST "<base-url>/api/memories" \
   -H "Authorization: Bearer $MCP_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Shortcut test", "tags": ["ios-shortcut"], "metadata": {"source": "ios-shortcut"}}'
@@ -68,7 +82,7 @@ actions. Names follow the English iOS 18 UI.
    Set **If there's no input** to **Ask For** `Text`, so the shortcut also works when
    started on its own (home screen, Siri, Action button).
 2. **Get Contents of URL**
-   - URL: `https://<base-url>/api/memories`
+   - URL: `<base-url>/api/memories`
    - Method: `POST`
    - Headers:
      - `Authorization`: `Bearer <your MCP_API_KEY>`
