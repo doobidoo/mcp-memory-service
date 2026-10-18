@@ -41,6 +41,7 @@ from ...config import (
     get_jwt_signing_key,
 )
 from .models import TokenResponse
+from .middleware import scope_within_ceiling
 from .storage import get_oauth_storage
 from .rate_limit import auth_rate_limit
 from .redirect import (
@@ -430,6 +431,27 @@ async def authorize_post(
         # validated value for both success and error redirects.
         validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
 
+        # Enforce the client's registered scope ceiling. offline_access is a
+        # protocol scope (refresh-token request), not a data-access grant, so it
+        # is exempt from the data-scope ceiling. A client with no ceiling
+        # (allowed_scope is None) is unaffected.
+        client = await get_oauth_storage().get_client(client_id)
+        if client and client.allowed_scope is not None:
+            data_scope = " ".join(
+                t for t in (scope or "").split() if t != OFFLINE_ACCESS_SCOPE
+            )
+            if not scope_within_ceiling(data_scope, client.allowed_scope):
+                logger.warning("Authorization denied: requested scope exceeds client ceiling")
+                error_params = {
+                    "error": "invalid_scope",
+                    "error_description": "Requested scope exceeds the scope this client is registered for",
+                }
+                if state:
+                    error_params["state"] = state
+                return RedirectResponse(
+                    url=_build_redirect_url(validated_redirect_uri, error_params)
+                )
+
         # Generate and store authorization code
         auth_code = get_oauth_storage().generate_authorization_code()
         await get_oauth_storage().store_authorization_code(
@@ -813,16 +835,22 @@ async def _handle_refresh_token_grant(
     )
 
 
-def _client_credentials_scope(requested_scope: Optional[str]) -> str:
+def _client_credentials_scope(
+    requested_scope: Optional[str], ceiling: Optional[str] = None
+) -> str:
     """Resolve the scope granted to a client_credentials token.
 
-    No request -> the historical default "read write". A requested scope is
-    honored verbatim (so a client can self-restrict to a store-scoped grant
-    such as "read:projectA"), except that "admin" may never be obtained this
-    way -> HTTP 400 invalid_scope.
+    ``ceiling`` is the client's registered ``allowed_scope`` (``None`` = no
+    ceiling, the historical behaviour). A requested scope is honored verbatim
+    (so a client can self-restrict to a store-scoped grant such as
+    ``read:projectA``), except that ``admin`` may never be obtained this way,
+    and a request that exceeds the client's ceiling is refused — both as HTTP
+    400 invalid_scope. With no requested scope the grant defaults to the
+    client's ceiling when it has one, else the historical ``read write``.
     """
     if requested_scope and requested_scope.strip():
-        if "admin" in requested_scope.split():
+        requested = requested_scope.strip()
+        if "admin" in requested.split():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -830,8 +858,19 @@ def _client_credentials_scope(requested_scope: Optional[str]) -> str:
                     "error_description": "The client_credentials grant cannot issue 'admin' scope",
                 },
             )
-        return requested_scope.strip()
-    return "read write"
+        if not scope_within_ceiling(requested, ceiling):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_scope",
+                    "error_description": (
+                        "Requested scope exceeds the scope this client is "
+                        f"registered for ('{ceiling}')"
+                    ),
+                },
+            )
+        return requested
+    return ceiling if ceiling else "read write"
 
 
 async def _handle_client_credentials_grant(
@@ -925,9 +964,10 @@ async def _handle_client_credentials_grant(
             },
         )
 
-    # Resolve the granted scope (default "read write"; a request may narrow it,
-    # including to store-scoped grants, but never escalate to "admin").
-    granted_scope = _client_credentials_scope(requested_scope)
+    # Resolve the granted scope (default "read write" or the client's ceiling; a
+    # request may narrow it, including to store-scoped grants, but never escalate
+    # to "admin" nor beyond the client's registered ceiling).
+    granted_scope = _client_credentials_scope(requested_scope, client.allowed_scope)
 
     # Create access token
     access_token, expires_in = create_access_token(final_client_id, granted_scope)

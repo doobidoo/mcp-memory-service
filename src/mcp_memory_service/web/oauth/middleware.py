@@ -124,6 +124,32 @@ class AuthenticationResult:
             )
 
 
+def scope_within_ceiling(requested: Optional[str], ceiling: Optional[str]) -> bool:
+    """Return True if every token in ``requested`` is permitted by ``ceiling``.
+
+    ``ceiling`` is a client's declared ``allowed_scope``. ``None`` means no
+    ceiling (unlimited — the pre-ceiling behaviour, and any client registered
+    before ceilings existed), so anything is permitted. An empty ``requested``
+    is trivially within any ceiling.
+
+    Coverage follows the same store grant hierarchy as ``has_store_scope``: a
+    global ``read``/``write`` in the ceiling covers the matching
+    ``read:<store>``/``write:<store>`` request, but a bare ``read``/``write``
+    request requires the bare scope in the ceiling (a store-scoped ceiling does
+    not grant global).
+    """
+    if ceiling is None:
+        return True
+    allowed = set(ceiling.split())
+    for token in (requested or "").split():
+        if token in allowed:
+            continue
+        if ":" in token and token.split(":", 1)[0] in allowed:
+            continue
+        return False
+    return True
+
+
 def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Validate a JWT access token with comprehensive error handling.

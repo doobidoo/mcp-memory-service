@@ -165,6 +165,20 @@ check "E3 client_credentials admin blocked (400)" "400" "$(code -X POST "$B/oaut
 ATH=$(mint 'read:homelab%20write:homelab')
 check "G4 homelab token GET ?store=ml-app (403)" "403" "$(code -H "Authorization: Bearer $ATH" "$B/api/memories?store=ml-app")"
 
+# --- J: per-client scope ceiling (PR#3) — client declares scope at registration ---
+REGC=$(curl -s -X POST "$B/oauth/register" -H "Authorization: Bearer $DCR" -H 'Content-Type: application/json' \
+  -d '{"client_name":"ceil","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic","redirect_uris":[],"scope":"read:projectA write:projectA"}')
+CCID=$(echo "$REGC" | jget client_id); CCSEC=$(echo "$REGC" | jget client_secret)
+check "J1 register echoes declared scope ceiling" "read:projectA write:projectA" "$(echo "$REGC" | jget scope)"
+TOKW=$(curl -s -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$CCID&client_secret=$CCSEC&scope=read:projectA")
+check "J2 token within ceiling granted" "read:projectA" "$(echo "$TOKW" | jget scope)"
+check "J3 token exceeding ceiling (400)" "400" "$(code -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$CCID&client_secret=$CCSEC&scope=read:projectB")"
+check "J4 no-scope request defaults to ceiling" "read:projectA write:projectA" "$(curl -s -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$CCID&client_secret=$CCSEC" | jget scope)"
+ATC=$(echo "$TOKW" | jget access_token)
+check "J5 ceiling token enforced at resource: GET projectB (403)" "403" "$(code -H "Authorization: Bearer $ATC" "$B/api/memories?store=projectB")"
+UNL=$(mint 'read:projectZ')
+check "J6 unlimited client (no declared scope) back-compat" "present" "$([ -n "$UNL" ] && echo present || echo empty)"
+
 # ---------------------------------------------------------------------------
 echo; echo "### Scenario oauth-strict — anon off => no-token lockout (F12, H) ###"
 start_instance -e MCP_ALLOW_ANONYMOUS_ACCESS=false -e MCP_OAUTH_ENABLED=true -e MCP_DCR_REGISTRATION_KEY="$DCR" || exit 1

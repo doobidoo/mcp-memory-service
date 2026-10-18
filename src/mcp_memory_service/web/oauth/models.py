@@ -217,6 +217,12 @@ class RegisteredClient(BaseModel):
     token_endpoint_auth_method: str = "client_secret_basic"
     client_name: Optional[str] = None
     created_at: float  # Unix timestamp
+    allowed_scope: Optional[str] = None
+    """Space-delimited ceiling of scopes this client may ever be granted,
+    captured from the registration request. ``None`` means no ceiling (the
+    client may request any non-admin scope, preserving pre-ceiling behavior and
+    covering clients registered before this field existed). When set, a token
+    or authorization request for a scope outside this ceiling is rejected."""
 
     class Config:
         arbitrary_types_allowed = True

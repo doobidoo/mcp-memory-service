@@ -34,6 +34,7 @@ that keep existing deployments working untouched.
 | **PR #1** — store-scoped SSE (`?store=`, scoped replay, `store` on events) | A, B, H |
 | **PR #2** — per-store OAuth enforcement (HTTP / SSE / MCP) + narrow issuance | C, D, E, H, I |
 | **Anonymous tier** — `MCP_ANONYMOUS_SCOPE` + 3-tier coexistence policy | F, G, H |
+| **PR #3** — per-client scope ceiling (DCR allowed-scope persistence) | J, H |
 
 ---
 
@@ -187,6 +188,25 @@ Token = **narrow** `read:projectA write:projectA` unless noted.
 | G2 | un-migrated bridge (no token) under `commons-ro` | can read commons, **cannot** write (mirrors the migration path — no reader lockout, writers must tokenize) | E |
 | G3 | Tier-2 (API key) alongside confined Tier-1 | API key sees firehose + all stores; Tier-1 stays confined | E |
 | G4 | homelab-cluster token vs ml-app store | homelab token `GET ?store=ml-app` | 403 (cross-cluster isolation) | E |
+
+### J. Per-client scope ceiling — DCR allowed-scope persistence (PR #3)
+
+A client's `scope` declared at registration becomes a permanent ceiling, persisted on the client
+record (`allowed_scope`). A client that declares no scope (`allowed_scope` NULL/None) is unbounded —
+preserving pre-ceiling behavior and covering clients registered before the field existed. Over-requests
+are rejected `400 invalid_scope` (not downscoped). Unit coverage: `tests/web/test_oauth_client_scope_ceiling.py`.
+
+| ID | Precondition | Action | Exp | Type |
+| --- | --- | --- | --- | --- |
+| J-u1 | — | `scope_within_ceiling` matrix (None=unlimited, exact/subset, global-covers-store, store≠global, outside→false) | per matrix | U |
+| J-u2 | — | `_client_credentials_scope(req, ceiling)`: within→grant, exceed→400, none→defaults to ceiling, admin→400, no-ceiling→honor | per matrix | U |
+| J-u3 | — | SQLite + in-memory store round-trip `allowed_scope`; NULL/legacy row → None (unlimited) | persists / None | U |
+| J1 | register with `scope:"read:projectA write:projectA"` | registration response | echoes that `scope` | E |
+| J2 | that client | token request `scope=read:projectA` | granted, scope `read:projectA` | E |
+| J3 | that client | token request `scope=read:projectB` | **400 `invalid_scope`** | E |
+| J4 | that client | token request with no scope | defaults to the ceiling | E |
+| J5 | that client's token | `GET /api/memories?store=projectB` | 403 (ceiling enforced at the resource too) | E |
+| J6 | client registered with NO declared scope | token request for an arbitrary store scope | granted (unlimited, back-compat) | E |
 
 ### H. Backward compatibility (must not break existing API)
 

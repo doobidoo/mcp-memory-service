@@ -162,6 +162,17 @@ class SQLiteOAuthStorage(OAuthStorage):
             )
         """)
 
+        # Migration: ensure the per-client scope ceiling column exists. It has
+        # long been part of the base schema (previously unused); the guarded
+        # ALTER is a harmless no-op there and backfills any older DB that lacks
+        # it. Existing rows keep scope = NULL, i.e. no ceiling (unlimited).
+        try:
+            await self._execute(
+                "ALTER TABLE oauth_clients ADD COLUMN scope TEXT"
+            )
+        except Exception:
+            pass  # Column already exists
+
         # Create oauth_authorization_codes table
         await self._execute("""
             CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
@@ -291,7 +302,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                     redirect_uris_json,
                     response_types_json,
                     grant_types_json,
-                    None,  # scope field (currently unused)
+                    client.allowed_scope,  # per-client scope ceiling (None = unlimited)
                     client.token_endpoint_auth_method,
                     client.created_at,
                     None  # metadata (currently unused)
@@ -336,7 +347,8 @@ class SQLiteOAuthStorage(OAuthStorage):
                 response_types=response_types,
                 grant_types=grant_types,
                 token_endpoint_auth_method=row["token_endpoint_auth_method"],
-                created_at=row["created_at"]
+                created_at=row["created_at"],
+                allowed_scope=row["scope"]
             )
 
     async def authenticate_client(self, client_id: str, client_secret: str) -> bool:
