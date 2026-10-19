@@ -552,3 +552,29 @@ absorvida por dedup e o endpoint disse "ok".
 - CI parcial no momento do registro: `Changed tests fail without the change` **pass** (56 s),
   CodeQL pass, Analyze Python pass, changelog pass, claim pass. Pendentes: suites completas e
   Greptile.
+
+### E13.5 Cerco com codebase-memory (Greptile P1-A e generalizacao)
+
+O indice estava defasado (16/out), entao foi reindexado (`home-claudio-git-mms-mms`, 15.423 nos,
+68.321 arestas). `trace_path(inbound)` em `MemoryService.store_memory` devolveu **11 call sites**:
+`handle_commit_session_legacy`, `handle_memory_harvest`, `handle_memory_distill`,
+`handle_memory_distill`/_scheduled_distill_check, `MemoryServer.store_memory`,
+`_post_commit_learning`, `_increment_session_counter`, `mistake_note_add`,
+`mistake_note_update`, `web.api.memories.store_memory` e `store_session`.
+
+Cruzando com `grep '"agent_id"'`, **quatro** chamadas de `store_memory` declaram o autor por
+`metadata` — e portanto ficam subordinadas ao header na nova precedencia:
+
+| linha | funcao | observacao |
+|---|---|---|
+| 2258 | `handle_commit_session_legacy` (observacao de sessao) | apontado pelo Greptile |
+| 2285 | `handle_commit_session_legacy` (user_corrections) | nao apontado |
+| 2301 | `handle_commit_session_legacy` (erros/correcoes) | nao apontado |
+| 2450 | `_increment_session_counter` | nao apontado; contador interno de sessao |
+
+A linha 1991 e `commit_args` (dicionario para o proprio `commit_session_legacy`), nao chamada
+direta de `store_memory` — fica correta quando o handler passar o argumento.
+
+**Licao de metodo:** o achado do revisor automatico nomeia UM sintoma; o grafo mostra a classe.
+Corrigir so o ponto apontado deixaria tres caminhos com o mesmo defeito — e o teste novo cobre
+apenas o caminho que o revisor viu.
