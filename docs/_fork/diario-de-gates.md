@@ -593,3 +593,57 @@ provas. Nada de colar o teste existente inteiro — basta mandar nao altera-lo.
 
 Resultado desta rodada: `pr-fix-a` (server_impl: 4 chamadas de `store_memory`) e `pr-fix-b`
 (agent_context: normalizacao de tipo + sanitizacao de log), dois worktrees, dois subagentes.
+
+## E14 — F2 store visibility, fatia 1 (19/out)
+
+Worktree `~/git/mms/fix-store-visibility`, branch `fix/store-visibility`, commit `1e15dbe9`.
+
+- `store` omitido em `memory_search` consulta todos os stores; `store` explicito continua
+  isolando; `Memory` ganhou campo de primeira classe `store` (origem do hit, lido de
+  `memories.store`); a resposta declara `stores_searched` (R5).
+- Testes: `tests/test_store_visibility.py` com 5 casos (4 do escopo + 1 guarda de contrato).
+  `tests/ -k store` = **418 passed, 22 skipped, 1 xfailed**. Load-bearing provado: sem o codigo,
+  os 4 casos de escopo falham.
+
+### E14.1 Risco achado na revisao da manager (nao apanhado pelo subagente)
+
+O subagente mudou o default de `RetrieveMixin.retrieve()` de `store='default'` para `None`.
+Isso fazia DUAS chamadas internas de dedup, que omitem o argumento, passarem a comparar entre
+stores: `server_impl.exact_match_retrieve` (L2979) e `belief_service._group_observations`
+(L1367). Efeito: gravar em `default` poderia "colidir" com conteudo identico em `mir` — mudanca
+silenciosa no caminho de ESCRITA (territorio do #1517).
+
+Correcao: default do storage volta a `'default'`; escopo amplo passa a ser **opt-in explicito**
+(`store=None`), que e o que o service faz quando o usuario omitiu. Guarda de regressao adicionada
+(`test_storage_retrieve_omitted_store_keeps_default_scope`); com o default em `None` ela falha.
+
+**Licao:** mudar default de funcao compartilhada e mudanca de contrato; o blast radius tem de ser
+enumerado (call sites que OMITEM o argumento) antes de aceitar o diff — CI verde nao cobre isso.
+
+## E15 — Reranker ONNX medido com a regua de decisao (19/out)
+
+`bge-reranker-base` int8 (Xenova, 278.825.308 bytes), 120 casos x 100 candidatos, CPU 16 threads:
+
+| regua por documento | base | com reranker | delta |
+|---|---|---|---|
+| @5 | 0,4917 | 0,7083 | +21,7 p.p. |
+| @10 | 0,5667 | **0,7333** | **+16,66 p.p.** |
+| @30 | 0,675 | 0,7417 | +6,7 p.p. |
+
+Latencia: **p50 = 5.314 ms** por consulta (53,1 ms por par). Com 40 candidatos, ~2,1 s estimado
+(declarado como estimativa, nao medido).
+
+Leitura: o ganho e ~2x a estimativa anterior (+7,5 p.p.) e ataca justamente os 22 casos entre 11
+e 100. Mas 5,3 s contra os 0,19-0,28 s atuais e troca inaceitavel no caminho padrao.
+
+Recomendacao: reranker apenas onde latencia nao importa — injecao proativa em background e busca
+profunda sob demanda. NAO ligar em `memory_search` comum sem decisao explicita.
+
+### E15.1 Instrumento: hf_hub_download travou; curl funcionou
+
+`hf_hub_download` ficou 10 min com **0% de CPU** e 44 KB baixados; o mesmo arquivo baixou por
+`curl` a ~4,7 MB/s. Causa do primeiro resultado invalido: `curl -m 45` **truncou** o download em
+202 MB (o arquivo tem 266 MB) e o ONNX falhou com `INVALID_PROTOBUF`.
+Regra: download de modelo se valida por `content-length` vs tamanho no disco antes de culpar o
+runtime. Wrapper local: `eval/run_f5_local.py` (monkeypatch de `hf_hub_download`, sem tocar a
+logica de medicao).
