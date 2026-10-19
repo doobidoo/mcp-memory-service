@@ -37,6 +37,7 @@ from ..models.memory import Memory
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
+from ..utils.agent_context import get_current_agent_id
 from ..quality.async_scorer import async_scorer
 
 logger = logging.getLogger(__name__)
@@ -435,11 +436,17 @@ class MemoryService:
             if conversation_id:
                 final_metadata["conversation_id"] = conversation_id
 
-            # RFC #1100: author identity. Precedence: explicit arg > MCP_AGENT_ID
-            # env > agent_id already present in the caller's metadata (the path
-            # harvest/bootstrap/commit_session use) > unset (null = unknown).
+            # RFC #1100 + spec-agent-id-streamable: author identity. This is the
+            # SINGLE resolution point; no tool duplicates this logic. The header
+            # ATTRIBUTES authorship — it is not authentication (the ContextVar is
+            # populated by the streamable-http ASGI middleware from X-Agent-ID and
+            # grants no permission). Precedence:
+            #   explicit arg > request header (ContextVar) > MCP_AGENT_ID env >
+            #   agent_id already present in the caller's metadata
+            #   (harvest/bootstrap/commit_session path) > unset (null = unknown).
             resolved_agent_id = (
                 agent_id
+                or get_current_agent_id()
                 or os.environ.get("MCP_AGENT_ID")
                 or final_metadata.get("agent_id")
             )
