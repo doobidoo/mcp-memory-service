@@ -37,7 +37,7 @@ from ..config import (
     CONSOLIDATION_STORE_ASSOCIATIONS,
     TYPED_EDGES_ENABLED,
 )
-from .relationship_inference import RelationshipInferenceEngine
+from .relationship_inference import RelationshipInferenceEngine, apply_review_band
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
 
@@ -1109,6 +1109,7 @@ class DreamInspiredConsolidator:
                             target_timestamp=target_memory.created_at,
                             source_tags=source_memory.tags,
                             target_tags=target_memory.tags,
+                            similarity=association.similarity_score,
                         )
                         if inferred_rel != "related":
                             relationship_type = inferred_rel
@@ -1121,11 +1122,18 @@ class DreamInspiredConsolidator:
                             f"Failed to infer relationship type for {source_hash[:8]} <-> {target_hash[:8]}: {e}"
                         )
 
-                # Prepare metadata
+                relationship_type, needs_review = apply_review_band(
+                    relationship_type, confidence
+                )
+
+                # Inference owns these fields, even when discovery metadata
+                # contains stale confidence or review values.
                 metadata = {
                     "discovery_method": association.discovery_method,
                     "discovery_date": association.discovery_date.isoformat(),
                     **association.metadata,
+                    "relationship_confidence": round(confidence, 3),
+                    "needs_review": needs_review,
                 }
 
                 # Store in graph table with inferred relationship type
@@ -1141,10 +1149,11 @@ class DreamInspiredConsolidator:
                 if success:
                     stored_count += 1
 
-                    # Collect contradiction pairs for batch superseding (#732)
+                    # Only the top band is eligible for opt-in superseding.
+                    # Keyword-only contradictions remain review candidates.
                     if (
                         relationship_type == "contradicts"
-                        and confidence >= 0.75
+                        and not needs_review
                         and source_memory
                         and target_memory
                     ):
@@ -1170,9 +1179,9 @@ class DreamInspiredConsolidator:
         )
 
     async def _auto_supersede(self, supersede_pairs) -> None:
-        """Batch-mark the older memory of each contradicts pair as superseded (#732).
+        """Batch-mark older memories from eligible top-band contradictions.
 
-        Skipped when MCP_CONSOLIDATION_AUTO_SUPERSEDE=false; the contradicts
+        Disabled by default (MCP_CONSOLIDATION_AUTO_SUPERSEDE=false); the contradicts
         edges are already stored at this point either way.
         """
         if not supersede_pairs:

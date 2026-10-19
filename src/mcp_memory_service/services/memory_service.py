@@ -801,11 +801,15 @@ class MemoryService:
             if store is None:
                 stores_searched = await self.storage.get_stores()
 
-            # Retrieve memories using semantic search.
-            # storage.retrieve() supports store-scoping on the vec0 partition key.
+            # Retrieve memories using semantic search. The tag/type filters below
+            # are applied AFTER retrieval, so widen the fetch window when they are
+            # present — otherwise matches outside the first window are lost.
+            fetch_n = n_results
+            if tags or memory_type:
+                fetch_n = max(n_results * 10, n_results + 50)
             memories = await self.storage.retrieve(
                 query=query,
-                n_results=n_results,
+                n_results=fetch_n,
                 store=store
             )
 
@@ -827,6 +831,9 @@ class MemoryService:
                             continue
 
                     filtered_memories.append(query_result)
+
+            # The extra rows fetched for filtering are not part of the answer.
+            filtered_memories = filtered_memories[:n_results]
 
             results = []
             for result in filtered_memories:

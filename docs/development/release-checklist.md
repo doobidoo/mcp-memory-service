@@ -290,7 +290,7 @@ This checklist ensures that critical bugs like the HTTP-MCP bridge issues are ca
    ```bash
    # Tag previous version as latest
    git checkout vPREVIOUS_VERSION
-   docker build -t mcp-memory-service:latest .
+   docker build -f tools/docker/Dockerfile -t mcp-memory-service:latest .
    docker push mcp-memory-service:latest
    ```
    - [ ] Verify previous Docker image works

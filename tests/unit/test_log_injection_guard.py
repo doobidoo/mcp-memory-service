@@ -53,8 +53,10 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/graph.py",
     "mcp_memory_service/storage/mixins/migrations.py",
     "mcp_memory_service/storage/mixins/embeddings.py",
+    "mcp_memory_service/discovery/client.py",
     "mcp_memory_service/discovery/mdns_service.py",
     "mcp_memory_service/sync/importer.py",
+    "mcp_memory_service/sync/exporter.py",
     "mcp_memory_service/backup/scheduler.py",
     "mcp_memory_service/web/api/analytics.py",
     "mcp_memory_service/storage/mixins/base.py",
@@ -78,6 +80,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
     "mcp_memory_service/mcp_server.py",
+    "mcp_memory_service/embeddings/onnx_embeddings.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -158,6 +161,13 @@ EXTERNAL_NAMES = frozenset({
     # Output of the git and pip commands web/api/server.py runs during an update.
     "git_output",
     "pip_output",
+    # What embeddings/onnx_embeddings.py logs about a custom model, read from
+    # the environment: the Hub repo id (`MCP_ONNX_MODEL_REPO`, or built from the
+    # model name) and the cache directory derived from that name. `model_name`
+    # itself stays unlisted: quality/onnx_ranker.py logs it bare in `%`-style
+    # calls and is not guarded yet, so listing the name would decide for it.
+    "_hf_repo",
+    "_model_dir",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status

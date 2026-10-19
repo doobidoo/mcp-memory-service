@@ -1,5 +1,13 @@
 /* MCP Memory Service Dashboard Styles */
 
+/* Self-hosted Bricolage Grotesque and JetBrains Mono (SIL OFL 1.1, see fonts/OFL-*.txt). Paths are relative to this file. */
+@font-face{font-family:'Bricolage Grotesque';font-style:normal;font-weight:400 800;font-stretch:75% 100%;font-display:swap;src:url(fonts/bricolage-grotesque-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Bricolage Grotesque';font-style:normal;font-weight:400 800;font-stretch:75% 100%;font-display:swap;src:url(fonts/bricolage-grotesque-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400;font-display:swap;src:url(fonts/jetbrains-mono-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:400;font-display:swap;src:url(fonts/jetbrains-mono-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:600;font-display:swap;src:url(fonts/jetbrains-mono-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:600;font-display:swap;src:url(fonts/jetbrains-mono-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+
 /* CSS Reset and Base Styles */
 * {
     margin: 0;
@@ -10,27 +18,30 @@
 /* CSS Custom Properties */
 :root {
     /* Color Palette */
-    --primary: #3b82f6;
-    --primary-dark: #2563eb;
-    --secondary: #8b5cf6;
-    --accent: #06d6a0;
+    --primary: #19c2da;
+    --primary-dark: #12a3ba;
+    --primary-text: #0a86b8;
+    --primary-text-hover: #086a93;
+    --on-primary: #06121f;
+    --secondary: #0a86b8;
+    --accent: #19c2da;
     --success: #10b981;
     --warning: #f59e0b;
     --error: #ef4444;
-    --neutral-50: #f9fafb;
-    --neutral-100: #f3f4f6;
-    --neutral-200: #e5e7eb;
-    --neutral-300: #d1d5db;
-    --neutral-400: #9ca3af;
-    --neutral-500: #6b7280;
-    --neutral-600: #4b5563;
-    --neutral-700: #374151;
-    --neutral-800: #1f2937;
-    --neutral-900: #111827;
+    --neutral-50: #eef3f6;
+    --neutral-100: #e4ebf0;
+    --neutral-200: #d3dde5;
+    --neutral-300: #b9c7d2;
+    --neutral-400: #8a9bad;
+    --neutral-500: #4f5f72;
+    --neutral-600: #3a4a5d;
+    --neutral-700: #2a3a4d;
+    --neutral-800: #162236;
+    --neutral-900: #0c1626;
 
     /* Typography */
-    --font-primary: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    --font-primary: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
 
     /* Font Sizes */
     --text-xs: 0.75rem;
@@ -89,6 +100,7 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
+    letter-spacing: -0.02em;
     line-height: 1.25;
     margin-bottom: var(--space-4);
 }
@@ -137,10 +149,17 @@ h3 { font-size: var(--text-xl); }
     gap: var(--space-3);
 }
 
+.app-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    flex-shrink: 0;
+}
+
 .app-title {
     font-size: var(--text-xl);
     font-weight: 700;
-    color: var(--primary);
+    color: var(--primary-text);
     margin: 0;
 }
 
@@ -196,7 +215,7 @@ h3 { font-size: var(--text-xl); }
 }
 
 .search-btn:hover {
-    color: var(--primary);
+    color: var(--primary-text);
     background: var(--neutral-100);
 }
 
@@ -224,7 +243,7 @@ h3 { font-size: var(--text-xl); }
 
 .btn-primary {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 .btn-primary:hover {
@@ -347,7 +366,7 @@ h3 { font-size: var(--text-xl); }
 
 .lang-option.active {
     background: rgba(59, 130, 246, 0.1);
-    color: var(--primary);
+    color: var(--primary-text);
     font-weight: 500;
 }
 
@@ -428,12 +447,12 @@ h3 { font-size: var(--text-xl); }
 }
 
 .nav-item:hover {
-    color: var(--primary);
+    color: var(--primary-text);
     background: var(--neutral-50);
 }
 
 .nav-item.active {
-    color: var(--primary);
+    color: var(--primary-text);
     border-bottom-color: var(--primary);
 }
 
@@ -511,7 +530,7 @@ h3 { font-size: var(--text-xl); }
     gap: var(--space-2);
     padding: var(--space-2) var(--space-4);
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
     border: none;
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
@@ -619,7 +638,7 @@ h3 { font-size: var(--text-xl); }
     display: block;
     font-size: var(--text-2xl);
     font-weight: 700;
-    color: var(--primary);
+    color: var(--primary-text);
     margin-bottom: var(--space-1);
 }
 
@@ -746,12 +765,12 @@ h3 { font-size: var(--text-xl); }
 }
 
 .btn-icon-sm.btn-icon-primary {
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 .btn-icon-sm.btn-icon-primary:hover {
     background: rgba(59, 130, 246, 0.15);
-    color: var(--primary-dark);
+    color: var(--primary-text-hover);
 }
 
 .btn-icon-sm:disabled {
@@ -1209,7 +1228,7 @@ body.dark-mode .lang-option.active {
 
 .view-btn.active {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
     border-color: var(--primary);
 }
 
@@ -1653,7 +1672,7 @@ body.dark-mode .form-group label {
 }
 
 #selectedTagName {
-    color: var(--primary);
+    color: var(--primary-text);
     font-weight: 600;
 }
 
@@ -1736,7 +1755,7 @@ body.dark-mode .form-group label {
 }
 
 .metadata-number {
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 .metadata-boolean {
@@ -1835,7 +1854,7 @@ body.dark-mode .form-group label {
 
 .endpoint-section h3 {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    color: white;
+    color: var(--on-primary);
     padding: var(--space-4);
     margin: 0;
     font-size: var(--text-lg);
@@ -1882,7 +1901,7 @@ body.dark-mode .form-group label {
 
 .endpoint-item .method.post {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 .endpoint-item .method.delete {
@@ -1947,7 +1966,7 @@ body.dark-mode .form-group label {
 }
 
 .tooltip:hover {
-    color: var(--primary);
+    color: var(--primary-text);
     transform: scale(1.1);
 }
 
@@ -2018,7 +2037,7 @@ body.dark-mode .form-group label {
 
 .filter-actions .btn-primary {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 .filter-actions .btn-primary:hover {
@@ -2064,7 +2083,7 @@ body.dark-mode .form-group label {
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
     font-size: var(--text-xs);
     border-radius: 9999px;
     border: none;
@@ -2079,7 +2098,7 @@ body.dark-mode .form-group label {
 .filter-pill .remove-filter {
     background: none;
     border: none;
-    color: white;
+    color: var(--on-primary);
     cursor: pointer;
     padding: 0;
     width: 16px;
@@ -2235,7 +2254,7 @@ body.dark-mode .form-group label {
 }
 
 .mode-status #searchModeText {
-    color: var(--primary);
+    color: var(--primary-text);
     font-weight: 600;
 }
 
@@ -2323,16 +2342,20 @@ input:checked + .slider:before {
 /* Dark Mode Theme - Redefine Color Variables */
 body.dark-mode {
     /* Invert neutral color scale for dark mode */
-    --neutral-50: #111827;   /* Darkest background (was lightest) */
-    --neutral-100: #1f2937;  /* Surface/card background */
-    --neutral-200: #374151;  /* Borders/dividers */
-    --neutral-300: #4b5563;  /* Subtle borders */
-    --neutral-400: #6b7280;  /* Disabled text */
-    --neutral-500: #9ca3af;  /* Muted text */
-    --neutral-600: #d1d5db;  /* Body text (was dark, now light) */
-    --neutral-700: #e5e7eb;  /* Strong text */
-    --neutral-800: #f3f4f6;  /* Stronger text */
-    --neutral-900: #f9fafb;  /* Headings/emphasis (was dark, now lightest) */
+    --neutral-50: #0a111b;   /* Page background (site --paper, dark) */
+    --neutral-100: #111b29;  /* Surface/card background (site --panel, dark) */
+    --neutral-200: #1d2a3a;  /* Borders/dividers (site --line, dark) */
+    --neutral-300: #2a3b50;  /* Subtle borders */
+    --neutral-400: #56687c;  /* Disabled text */
+    --neutral-500: #92a6b8;  /* Muted text (site --muted, dark) */
+    --neutral-600: #c4d3de;  /* Body text */
+    --neutral-700: #d8e5ee;  /* Strong text */
+    --neutral-800: #e3eef5;  /* Stronger text */
+    --neutral-900: #e9f2f7;  /* Headings/emphasis (site --ink, dark) */
+
+    /* Cyan is readable as text on the dark surfaces */
+    --primary-text: #19c2da;
+    --primary-text-hover: #5fdcec;
 
     /* Apply inverted variables to body */
     background-color: var(--neutral-50);
@@ -2390,11 +2413,11 @@ body.dark-mode .action-card:hover {
 
 body.dark-mode .nav-item:hover {
     background: var(--neutral-200);
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 body.dark-mode .nav-item.active {
-    color: var(--primary);
+    color: var(--primary-text);
     border-bottom-color: var(--primary);
 }
 
@@ -2436,7 +2459,7 @@ body.dark-mode .connection-status {
 }
 
 body.dark-mode .action-card svg {
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 body.dark-mode h4 {
@@ -2445,7 +2468,7 @@ body.dark-mode h4 {
 
 body.dark-mode .filter-chip.active {
     background: var(--primary);
-    color: #ffffff;
+    color: var(--on-primary);
     border-color: var(--primary);
 }
 
@@ -2682,7 +2705,7 @@ body.dark-mode .footer-copyright {
 .link-button {
     background: none;
     border: none;
-    color: var(--primary);
+    color: var(--primary-text);
     text-decoration: underline;
     cursor: pointer;
     font-size: inherit;
@@ -2690,7 +2713,7 @@ body.dark-mode .footer-copyright {
 }
 
 .link-button:hover {
-    color: var(--primary-dark);
+    color: var(--primary-text-hover);
 }
 
 /* Upload Configuration */
@@ -2768,7 +2791,7 @@ cursor: pointer;
 .mode-btn.active {
     background: var(--primary);
     border-color: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 .mode-btn.active:hover {
@@ -2989,7 +3012,7 @@ body.dark-mode .help-tips li {
 }
 
 body.dark-mode .help-tips li strong {
-    color: var(--primary) !important;
+    color: var(--primary-text) !important;
 }
 
 body.dark-mode .close-help {
@@ -3191,7 +3214,7 @@ margin-top: 3rem;
 
 .metric-card {
     background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    color: white;
+    color: var(--on-primary);
     border-radius: var(--radius-lg);
     padding: var(--space-5);
     text-align: center;
@@ -3302,7 +3325,7 @@ margin-top: 3rem;
 
 .tag-stats-table .tag-name {
     font-weight: 500;
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 .tag-stats-table .tag-count {
@@ -3488,7 +3511,7 @@ body.dark-mode .report-card p {
 
 .enhanced-tags-report .tag-count {
     font-weight: 600;
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 .enhanced-tags-report .tag-cooccurrence {
@@ -3550,7 +3573,7 @@ body.dark-mode .report-card p {
     text-align: right;
     font-size: var(--text-sm);
     font-weight: 600;
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 /* Storage Report */
@@ -3588,7 +3611,7 @@ body.dark-mode .report-card p {
 
 .storage-report .memory-size {
     font-weight: 600;
-    color: var(--primary);
+    color: var(--primary-text);
     margin-bottom: var(--space-1);
 }
 
@@ -3735,12 +3758,12 @@ body.dark-mode .quality-chart {
 
 body.dark-mode .metric-card {
     background: linear-gradient(135deg, var(--primary-dark), var(--primary)) !important;
-    color: white !important;
+    color: var(--on-primary) !important;
 }
 
-body.dark-mode .metric-value,
-body.dark-mode .metric-label {
-    color: white !important;
+body.dark-mode .metric-card .metric-value,
+body.dark-mode .metric-card .metric-label {
+    color: var(--on-primary) !important;
 }
 
 /* Tag management table dark mode */
@@ -3759,7 +3782,7 @@ body.dark-mode .tag-stats-table td {
 }
 
 body.dark-mode .tag-stats-table .tag-name {
-    color: var(--primary) !important;
+    color: var(--primary-text) !important;
 }
 
 body.dark-mode .tag-stats-table .tag-count {
@@ -3872,7 +3895,7 @@ body.dark-mode .tag-action-btn.danger:hover {
 }
 
 .tags-list li strong {
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 /* Dark mode for charts - Fixed v8.5.5 contrast */
@@ -3905,7 +3928,7 @@ body.dark-mode .activity-list li {
 }
 
 body.dark-mode .tags-list li strong {
-    color: var(--primary) !important;
+    color: var(--primary-text) !important;
 }
 
 body.dark-mode .activity-list li {
@@ -3971,7 +3994,7 @@ body.dark-mode .modal-content .chunk-number {
 }
 
 .btn-view-memory {
-    color: var(--primary);
+    color: var(--primary-text);
     border-color: var(--primary-light);
 }
 
@@ -4057,7 +4080,7 @@ body.dark-mode .modal-content .chunk-number {
 
 .similarity-score {
     font-size: var(--text-sm);
-    color: var(--primary);
+    color: var(--primary-text);
     font-weight: 600;
 }
 
@@ -4182,7 +4205,7 @@ body.dark-mode .modal-content .chunk-number {
 
 .chunk-number {
     font-weight: 600;
-    color: var(--primary);
+    color: var(--primary-text);
     font-size: var(--text-sm);
 }
 
@@ -4411,7 +4434,7 @@ body.dark-mode .result-content {
 
 .help-tips li strong {
     display: inline;
-    color: var(--primary-dark);
+    color: var(--primary-text);
     font-weight: 600;
 }
 
@@ -4456,7 +4479,7 @@ body.dark-mode .result-content {
 
 .chunk-part.unique {
     background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-    color: var(--primary-dark);
+    color: var(--primary-text-hover);
     flex: 1;
     border: 2px solid var(--primary);
 }
@@ -4921,7 +4944,7 @@ body.dark-mode .quality-tier-low,
 
 .nav-item[data-view="quality-analytics"].active {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 /* ============================================================
@@ -5032,7 +5055,7 @@ body.dark-mode .quality-tier-low,
 
 .graph-layout-toggle button.active {
     background: var(--primary);
-    color: white;
+    color: var(--on-primary);
 }
 
 .graph-layout-toggle button:focus-visible {
@@ -5654,7 +5677,7 @@ body.dark-mode .graph-ring-guide {
     border-radius: var(--radius-sm);
     font-family: 'Courier New', monospace;
     font-size: 0.875rem;
-    color: var(--primary);
+    color: var(--primary-text);
 }
 
 /* Dark mode authentication modal */
@@ -5692,7 +5715,7 @@ body.dark-mode .auth-footer {
 
 body.dark-mode .auth-footer code {
     background: var(--neutral-700);
-    color: var(--primary);
+    color: var(--on-primary);
 }
 
 /* Server Management */
@@ -5912,7 +5935,7 @@ body.dark-mode .settings-tab {
 }
 
 .settings-tab:hover {
-    color: var(--primary);
+    color: var(--primary-text);
     background: var(--neutral-100);
 }
 
@@ -5921,7 +5944,7 @@ body.dark-mode .settings-tab:hover {
 }
 
 .settings-tab.active {
-    color: var(--primary);
+    color: var(--primary-text);
     border-bottom-color: var(--primary);
 }
 
@@ -6278,7 +6301,7 @@ body.dark-mode .env-param-description {
     display: inline-block;
     background: none;
     border: 1px solid var(--neutral-300);
-    color: var(--primary);
+    color: var(--primary-text);
     cursor: pointer;
     padding: 4px 12px;
     border-radius: 4px;
@@ -6295,7 +6318,7 @@ body.dark-mode .memory-detail-section .detail-content-text {
 }
 body.dark-mode .content-toggle-btn {
     border-color: var(--neutral-600);
-    color: var(--primary);
+    color: var(--primary-text);
 }
 body.dark-mode .content-toggle-btn:hover {
     background: var(--neutral-200);

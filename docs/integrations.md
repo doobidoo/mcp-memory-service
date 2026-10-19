@@ -21,6 +21,11 @@ framework at `http://localhost:8000`. Framework-specific guides live in
 Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · Goose · Aider ·
 GitHub Copilot CLI · Amp · Continue · Zed · Cody
 
+Automatic lifecycle integrations are also available for
+[Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
+[Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
+project context, capture learnings, and checkpoint session outcomes.
+
 ### Desktop and IDE (MCP)
 
 Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code · Raycast · JetBrains · Replit ·
@@ -33,6 +38,11 @@ HTTPS endpoint — see [Remote MCP Setup](remote-mcp-setup.md).
 
 Clients without OAuth support, Home Assistant among them, can use anonymous access on the
 LAN without patching anything: [Home Assistant setup](integration/home-assistant.md).
+
+### Mobile (REST API)
+
+iPhone and iPad can save text and links from the share sheet with a four-action Apple
+Shortcut: [iOS Shortcut setup](integrations/ios-shortcut.md).
 
 ## Official Integrations
 

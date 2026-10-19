@@ -144,7 +144,9 @@ PR, will usually be closed.
 CI checks the claim. When a pull request closes an issue (`Fixes #N`) that its author
 neither commented on before opening the PR nor is assigned to, the `Claim Check`
 workflow labels it `unclaimed` and links back here. Comment on the issue; once a
-maintainer assigns you, the check runs again on its own and passes.
+maintainer assigns you, the check runs again on its own and passes. A pull request that
+changes `src/` without linking any issue is labelled `no-issue` the same way; link
+the issue, or open one, and a maintainer can mark a small fix `skip-issue`.
 
 ### 1. Create a Feature Branch
 
@@ -423,6 +425,13 @@ When adding features or making significant changes:
   either push a fix or reply explaining why no change is needed, then resolve it.
   Do not resolve a thread silently without a fix or a reply. Replies to false
   positives also help Greptile learn the repository's conventions.
+- If you work with a coding agent, Greptile's
+  [greploop skill](https://github.com/greptileai/skills/blob/main/greploop/SKILL.md)
+  automates the review-fix-resolve cycle. Two deviations apply here: reply to every
+  thread before resolving it, false positives included (the skill resolves those
+  silently), and stop once all threads are resolved and the checks are green. A 5/5
+  confidence score is not required. Commits still follow the conventional format
+  above; do not stage with `git add -A`.
 - Address review feedback promptly
 - Keep discussions focused and constructive
 - Be patient - reviews may take a few days

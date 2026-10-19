@@ -74,6 +74,23 @@ from .sse import sse_manager
 
 logger = logging.getLogger(__name__)
 
+_DASHBOARD_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://cdn.jsdelivr.net https://esm.sh "
+    "'sha256-rj3g3b9Kizq/pPLcsAR/BhFPUOl+9Wd0O8u2HGzfgnY='; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self'; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
+_SAME_ORIGIN_DASHBOARD_CSP = (
+    "default-src 'self'; script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self'; font-src 'self'; "
+    "connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
+
 
 class RootPathStaticFiles(StaticFiles):
     """Serve a mounted directory when the proxy strips the external root path."""
@@ -89,6 +106,15 @@ class RootPathStaticFiles(StaticFiles):
             scope = dict(scope)
             scope["root_path"] = root_path[len(self.external_root_path):]
         await super().__call__(scope, receive, send)
+
+    async def get_response(self, path: str, scope: Scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            if path == "index.html":
+                response.headers["Content-Security-Policy"] = _DASHBOARD_CSP
+            elif path == "sse_test.html":
+                response.headers["Content-Security-Policy"] = _SAME_ORIGIN_DASHBOARD_CSP
+        return response
 
 # Global storage instance
 storage: Optional["MemoryStorage"] = None
@@ -158,9 +184,8 @@ async def lifespan(app: FastAPI):
         # instance to attach jobs to, so a host that only enables e.g. MCP_SYNC_SCHEDULE
         # (with consolidation disabled) must still reach this block, build the consolidator,
         # and start the scheduler — otherwise the opt-in job silently never runs (Greptile P1).
-        import os as _os
         _optin_jobs_on = any(
-            (_os.getenv(v, '').strip().lower() not in ('', 'disabled'))
+            (os.getenv(v, '').strip().lower() not in ('', 'disabled'))
             for v in _OPTIN_SCHEDULE_ENV_VARS
         )
         if CONSOLIDATION_ENABLED or _optin_jobs_on:
@@ -635,16 +660,24 @@ def create_app() -> FastAPI:
                 }
                 
                 .endpoint-item {
+                    display: block;
                     padding: 0.75rem;
                     border-radius: 0.5rem;
                     margin-bottom: 0.5rem;
                     background: var(--light);
                     transition: background-color 0.2s ease;
                     cursor: pointer;
+                    color: inherit;
+                    text-decoration: none;
                 }
                 
                 .endpoint-item:hover {
                     background: #e2e8f0;
+                }
+
+                .endpoint-item:focus-visible {
+                    outline: 3px solid var(--primary-dark);
+                    outline-offset: 2px;
                 }
                 
                 .method {
@@ -877,26 +910,26 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Store, retrieve, and manage semantic memories</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/store_memory_api_memories_post'">
+                            <a class="endpoint-item" href="api/docs#/memories/store_memory_api_memories_post">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/memories</span>
                                 <div class="endpoint-desc">Store a new memory with automatic embedding generation</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/list_memories_api_memories_get'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/memories/list_memories_api_memories_get">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/memories</span>
                                 <div class="endpoint-desc">List all memories with pagination support</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/get_memory_api_memories__content_hash__get'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/memories/get_memory_api_memories__content_hash__get">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/memories/{hash}</span>
                                 <div class="endpoint-desc">Retrieve a specific memory by content hash</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/memories/delete_memory_api_memories__content_hash__delete'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/memories/delete_memory_api_memories__content_hash__delete">
                                 <span class="method method-delete">DELETE</span>
                                 <span class="endpoint-path">/api/memories/{hash}</span>
                                 <div class="endpoint-desc">Delete a memory and its embeddings</div>
-                            </div>
+                            </a>
                         </div>
                     </div>
                     
@@ -906,26 +939,26 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Powerful semantic and tag-based search</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/semantic_search_api_search_post'">
+                            <a class="endpoint-item" href="api/docs#/search/semantic_search_api_search_post">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search</span>
                                 <div class="endpoint-desc">Semantic similarity search using embeddings</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/tag_search_api_search_by_tag_post'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/search/tag_search_api_search_by_tag_post">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search/by-tag</span>
                                 <div class="endpoint-desc">Search memories by tags (AND/OR logic)</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/time_search_api_search_by_time_post'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/search/time_search_api_search_by_time_post">
                                 <span class="method method-post">POST</span>
                                 <span class="endpoint-path">/api/search/by-time</span>
                                 <div class="endpoint-desc">Natural language time-based queries</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs#/search/find_similar_api_search_similar__content_hash__get'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs#/search/find_similar_api_search_similar__content_hash__get">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/search/similar/{hash}</span>
                                 <div class="endpoint-desc">Find memories similar to a specific one</div>
-                            </div>
+                            </a>
                         </div>
                     </div>
                     
@@ -935,21 +968,21 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Server-Sent Events for live updates</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='api/events'">
+                            <a class="endpoint-item" href="api/events">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/events</span>
                                 <div class="endpoint-desc">Subscribe to real-time memory events stream</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/events/stats'">
+                            </a>
+                            <a class="endpoint-item" href="api/events/stats">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/events/stats</span>
                                 <div class="endpoint-desc">View SSE connection statistics</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='static/sse_test.html'">
+                            </a>
+                            <a class="endpoint-item" href="static/sse_test.html">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/static/sse_test.html</span>
                                 <div class="endpoint-desc">Interactive SSE testing interface</div>
-                            </div>
+                            </a>
                         </div>
                     </div>
                     
@@ -959,26 +992,26 @@ def create_app() -> FastAPI:
                             <p class="endpoint-description">Monitor service health and performance</p>
                         </div>
                         <div class="endpoint-list">
-                            <div class="endpoint-item" onclick="window.location.href='api/health'">
+                            <a class="endpoint-item" href="api/health">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/health</span>
                                 <div class="endpoint-desc">Quick health check endpoint</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/health/detailed'">
+                            </a>
+                            <a class="endpoint-item" href="api/health/detailed">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/health/detailed</span>
                                 <div class="endpoint-desc">Detailed health with database statistics</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/docs'">
+                            </a>
+                            <a class="endpoint-item" href="api/docs">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/docs</span>
                                 <div class="endpoint-desc">Interactive Swagger UI documentation</div>
-                            </div>
-                            <div class="endpoint-item" onclick="window.location.href='api/redoc'">
+                            </a>
+                            <a class="endpoint-item" href="api/redoc">
                                 <span class="method method-get">GET</span>
                                 <span class="endpoint-path">/api/redoc</span>
                                 <div class="endpoint-desc">Alternative ReDoc documentation</div>
-                            </div>
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -1008,132 +1041,7 @@ def create_app() -> FastAPI:
                 </footer>
             </div>
             
-            <script>
-                // Auth helper - reads API key from localStorage (shared with dashboard)
-                function getAuthHeaders() {
-                    const headers = { 'Content-Type': 'application/json' };
-                    const apiKey = localStorage.getItem('mcp_api_key');
-                    const oauthToken = localStorage.getItem('mcp_oauth_token');
-                    if (apiKey) headers['X-API-Key'] = apiKey;
-                    else if (oauthToken) headers['Authorization'] = 'Bearer ' + oauthToken;
-                    return headers;
-                }
-
-                // Fetch and display live stats
-                async function updateStats() {
-                    try {
-                        const healthResponse = await fetch('api/health');
-                        const health = await healthResponse.json();
-
-                        const detailedResponse = await fetch('api/health/detailed', { headers: getAuthHeaders() });
-                        const detailed = await detailedResponse.json();
-                        
-                        const stats = document.getElementById('stats');
-                        stats.innerHTML = `
-                            <div class="stat-card">
-                                <div class="stat-value">${detailed.statistics?.total_memories || 0}</div>
-                                <div class="stat-label">Total Memories</div>
-                            </div>
-                            <div class="stat-card">
-                                <!-- Two paths, same order as static/app.js's
-                                     settingsEmbeddingModel sources: the hybrid
-                                     backend reports the name under
-                                     primary_stats, everything else at the top
-                                     level. Reading only one of them shows
-                                     "unknown" on whichever backend is not
-                                     covered. -->
-                                <div class="stat-value">${detailed.storage?.primary_stats?.embedding_model || detailed.storage?.embedding_model || 'unknown'}</div>
-                                <div class="stat-label">Embedding Model</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" style="color: var(--success);">● Healthy</div>
-                                <div class="stat-label">Server Status</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value">&lt;1ms</div>
-                                <div class="stat-label">Response Time</div>
-                            </div>
-                        `;
-                    } catch (error) {
-                        console.error('Failed to fetch stats:', error);
-                    }
-                }
-                
-                // Update stats on page load
-                updateStats();
-                
-                // Update stats every 30 seconds
-                setInterval(updateStats, 30000);
-            </script>
-
-            <script>
-                // Dynamic content loading for API overview
-                function getBackendDisplayName(backend) {
-                    const backendMap = {
-                        'sqlite-vec': 'SQLite-vec',
-                        'sqlite_vec': 'SQLite-vec',
-                        'cloudflare': 'Cloudflare D1 + Vectorize',
-                        'hybrid': 'Hybrid (SQLite-vec + Cloudflare)'
-                    };
-                    return backendMap[backend] || backend || 'Unknown Backend';
-                }
-
-                async function loadDynamicInfo() {
-                    try {
-                        // Load detailed health information
-                        const response = await fetch('api/health/detailed', { headers: getAuthHeaders() });
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-                        const healthData = await response.json();
-
-                        // Update version display
-                        const versionEl = document.getElementById('version-display');
-                        if (versionEl && healthData.version) {
-                            versionEl.textContent = `v${healthData.version}`;
-                        }
-
-                        // Update backend name and subtitle
-                        const backendNameEl = document.getElementById('backend-name');
-                        const subtitleEl = document.getElementById('subtitle');
-
-                        if (healthData.storage && healthData.storage.backend) {
-                            const backendDisplay = getBackendDisplayName(healthData.storage.backend);
-
-                            if (backendNameEl) {
-                                backendNameEl.textContent = backendDisplay;
-                            }
-
-                            if (subtitleEl) {
-                                subtitleEl.innerHTML = `Intelligent Semantic Memory with <span id="backend-name">${backendDisplay}</span>`;
-                            }
-                        }
-
-                    } catch (error) {
-                        console.error('Error loading dynamic info:', error);
-
-                        // Fallback values on error
-                        const versionEl = document.getElementById('version-display');
-                        const backendNameEl = document.getElementById('backend-name');
-                        const subtitleEl = document.getElementById('subtitle');
-
-                        if (versionEl) {
-                            versionEl.textContent = 'v?.?.?';
-                        }
-
-                        if (backendNameEl) {
-                            backendNameEl.textContent = 'Unknown Backend';
-                        }
-
-                        if (subtitleEl) {
-                            subtitleEl.innerHTML = 'Intelligent Semantic Memory with <span id="backend-name">Unknown Backend</span>';
-                        }
-                    }
-                }
-
-                // Load dynamic content when page loads
-                document.addEventListener('DOMContentLoaded', loadDynamicInfo);
-            </script>
+            <script src="static/api-overview.js" defer></script>
         </body>
         </html>
         """
@@ -1141,7 +1049,10 @@ def create_app() -> FastAPI:
     @app.get("/api-overview", response_class=HTMLResponse)
     async def api_overview():
         """Serve the API documentation overview page."""
-        return get_api_overview_html()
+        return HTMLResponse(
+            content=get_api_overview_html(),
+            headers={"Content-Security-Policy": _SAME_ORIGIN_DASHBOARD_CSP},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard():
@@ -1156,10 +1067,12 @@ def create_app() -> FastAPI:
                 with open(dashboard_path, 'r', encoding='utf-8') as f:
                     dashboard_html = f.read()
                 base_href = escape(f"{HTTP_ROOT_PATH}/" if HTTP_ROOT_PATH else "/", quote=True)
-                return dashboard_html.replace(
-                    "<head>",
-                    f'<head>\n    <base href="{base_href}">',
-                    1,
+                dashboard_html = dashboard_html.replace(
+                    '<base href="../">', f'<base href="{base_href}">', 1
+                )
+                return HTMLResponse(
+                    content=dashboard_html,
+                    headers={"Content-Security-Policy": _DASHBOARD_CSP},
                 )
             else:
                 # Fallback to original template if dashboard not found

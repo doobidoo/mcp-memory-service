@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <base href="../">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
     <title data-i18n="meta.title">MCP Memory Service - Dashboard</title>
     <link rel="stylesheet" href="static/style.css">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+    <link rel="icon" type="image/png" href="static/brain-icon.png">
     <!-- Chart.js for quality analytics visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <!-- D3.js v7 for force-directed graph visualization (v9.2.0+) -->
@@ -26,15 +27,7 @@
       }
     }
     </script>
-    <script type="module">
-      import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.80.0?external=three';
-      import * as THREE from 'three';
-      import { UnrealBloomPass } from 'https://esm.sh/three@0.184.0/examples/jsm/postprocessing/UnrealBloomPass.js?external=three';
-      window.ForceGraph3D = ForceGraph3D;
-      window.THREE = THREE;
-      window.__UnrealBloomPass = UnrealBloomPass;
-      window.dispatchEvent(new CustomEvent('forcegraph3d-ready'));
-    </script>
+    <script type="module" src="static/dashboard-bootstrap.js"></script>
 </head>
 <body>
     <!-- Main Application Container -->
@@ -44,7 +37,8 @@
         <header class="app-header">
             <div class="header-content">
                 <div class="logo-section">
-                    <h1 class="app-title" data-i18n="header.title">🧠 MCP Memory</h1>
+                    <img class="app-logo" src="static/brain-icon.png" alt="" width="28" height="28">
+                    <h1 class="app-title" data-i18n="header.title">MCP Memory</h1>
                     <span id="versionBadge" class="version-badge" data-i18n="header.versionLoading">Loading...</span>
                 </div>
 
@@ -1552,8 +1546,8 @@
                                 <span class="info-value" id="settingsNextBackup">-</span>
                             </div>
                             <div class="backup-actions">
-                                <button type="button" id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow" onclick="if(window.app) window.app.createBackup()">Create Backup Now</button>
-                                <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups" onclick="if(window.app) window.app.openViewBackupsModal()">View Backups</button>
+                                <button type="button" id="backupNowButton" class="btn btn-sm btn-primary" data-i18n="modal.settings.backupNow">Create Backup Now</button>
+                                <button type="button" id="viewBackupsButton" class="btn btn-sm btn-secondary" data-i18n="modal.settings.viewBackups">View Backups</button>
                             </div>
                         </div>
                     </div>
@@ -1607,7 +1601,7 @@
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" onclick="if(window.app) window.app.closeModal(document.getElementById('viewBackupsModal'))">Close</button>
+                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary">Close</button>
                 </div>
             </div>
         </div>

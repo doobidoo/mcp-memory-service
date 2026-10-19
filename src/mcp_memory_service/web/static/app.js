@@ -488,6 +488,23 @@ class MemoryDashboard {
             }
         });
 
+        // The memory detail content is rendered dynamically, so delegate metadata toggles.
+        document.getElementById('modalContent')?.addEventListener('click', (e) => {
+            const toggle = e.target.closest('.metadata-toggle');
+            if (toggle) {
+                toggle.parentElement.classList.toggle('expanded');
+            }
+        });
+
+        // The recent-memory empty state is rendered dynamically after startup.
+        document.getElementById('recentMemoriesList')?.addEventListener('click', (e) => {
+            const addMemoryLink = e.target.closest('[data-action="add-memory"]');
+            if (addMemoryLink) {
+                e.preventDefault();
+                this.handleAddMemory();
+            }
+        });
+
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
@@ -635,6 +652,18 @@ class MemoryDashboard {
             this.closeModal(document.getElementById('settingsModal'));
         });
 
+        document.getElementById('backupNowButton')?.addEventListener('click', () => {
+            this.createBackup();
+        });
+
+        document.getElementById('viewBackupsButton')?.addEventListener('click', () => {
+            this.openViewBackupsModal();
+        });
+
+        document.getElementById('viewBackupsCloseButton')?.addEventListener('click', () => {
+            this.closeModal(document.getElementById('viewBackupsModal'));
+        });
+
         // Initialize settings tabs
         this.initializeSettingsTabs();
         this.initCredentialsTab();
@@ -697,6 +726,9 @@ class MemoryDashboard {
      * Set up Server-Sent Events for real-time updates
      */
     setupSSE() {
+        // Bump first: any in-flight ticket exchange from a previous call is now
+        // stale and will refuse to open a stream (see _openSSEWithTicket).
+        this._sseSetupGeneration = (this._sseSetupGeneration || 0) + 1;
         // Close any existing connection to prevent connection multiplication.
         // Without this, each failed reconnect spawns a new EventSource while
         // the old one may still be retrying, leading to exponential 401 spam.
@@ -712,75 +744,144 @@ class MemoryDashboard {
         }
 
         try {
-            // Build SSE URL with query parameter auth (EventSource API doesn't support custom headers)
+            // EventSource cannot set an Authorization header. It used to carry
+            // `?api_key=<long-lived key>`, which uvicorn wrote verbatim into the
+            // access log on every reconnect (issue #1117) — TLS protects the wire,
+            // not the log. Now we ask for a single-use ticket over POST: the real
+            // credential travels in a body no access-log line contains, and the
+            // ticket is dead within a minute and cannot be replayed.
             const sseUrl = new URL(`${this.apiBase}/events`, document.baseURI);
             if (this.authState.apiKey) {
-                sseUrl.searchParams.set('api_key', this.authState.apiKey);
-            } else if (this.authState.oauthToken) {
+                this._openSSEWithTicket(sseUrl);
+                return;
+            }
+            if (this.authState.oauthToken) {
+                // OAuth tokens are short-lived and revocable, so a URL carries far
+                // less risk here. Unchanged by this fix.
                 sseUrl.searchParams.set('token', this.authState.oauthToken);
             }
-            this.eventSource = new EventSource(sseUrl.toString());
-
-            this.eventSource.onopen = () => {
-                // Reset backoff on successful connection
-                this._sseReconnectAttempts = 0;
-                this.updateConnectionStatus('connected');
-            };
-
-            this.eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleRealtimeUpdate(data);
-                } catch (error) {
-                    console.error('Error parsing SSE data:', error);
-                }
-            };
-
-            // Add specific event listeners for sync progress
-            this.eventSource.addEventListener('sync_progress', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleSyncProgress(data);
-                } catch (error) {
-                    console.error('Error parsing sync_progress event:', error);
-                }
-            });
-
-            this.eventSource.addEventListener('sync_completed', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleSyncCompleted(data);
-                } catch (error) {
-                    console.error('Error parsing sync_completed event:', error);
-                }
-            });
-
-            this.eventSource.onerror = (error) => {
-                console.error('SSE connection error:', error);
-                this.updateConnectionStatus('disconnected');
-
-                // Don't reconnect if we're not authenticated — avoids infinite
-                // 401 loop when EventSource can't send auth headers and the
-                // query-param fallback isn't accepted.
-                if (!this.authState.isAuthenticated) {
-                    return;
-                }
-
-                // Exponential backoff: 5s → 10s → 20s → 40s → 60s max
-                const attempts = this._sseReconnectAttempts || 0;
-                const delay = Math.min(5000 * Math.pow(2, attempts), 60000);
-                this._sseReconnectAttempts = attempts + 1;
-
-                setTimeout(() => {
-                    if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
-                        this.setupSSE();
-                    }
-                }, delay);
-            };
-
+            this._connectSSE(sseUrl);
         } catch (error) {
             console.error('Failed to establish SSE connection:', error);
             this.updateConnectionStatus('disconnected');
+        }
+    }
+
+    /**
+     * Open the EventSource and bind handlers. One connection path so a retry
+     * cannot leave a second socket behind (see the close() at the top of setupSSE).
+     */
+    _connectSSE(sseUrl) {
+        this.eventSource = new EventSource(sseUrl.toString());
+
+        this.eventSource.onopen = () => {
+            // Reset backoff on successful connection
+            this._sseReconnectAttempts = 0;
+            this.updateConnectionStatus('connected');
+        };
+
+        this.eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleRealtimeUpdate(data);
+            } catch (error) {
+                console.error('Error parsing SSE data:', error);
+            }
+        };
+
+        // Add specific event listeners for sync progress
+        this.eventSource.addEventListener('sync_progress', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleSyncProgress(data);
+            } catch (error) {
+                console.error('Error parsing sync_progress event:', error);
+            }
+        });
+
+        this.eventSource.addEventListener('sync_completed', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleSyncCompleted(data);
+            } catch (error) {
+                console.error('Error parsing sync_completed event:', error);
+            }
+        });
+
+        this.eventSource.onerror = (error) => {
+            console.error('SSE connection error:', error);
+            this.updateConnectionStatus('disconnected');
+
+            // Don't reconnect if we're not authenticated — avoids infinite
+            // 401 loop when EventSource can't send auth headers and the
+            // query-param fallback isn't accepted.
+            if (!this.authState.isAuthenticated) {
+                return;
+            }
+
+            // Exponential backoff: 5s → 10s → 20s → 40s → 60s max
+            const attempts = this._sseReconnectAttempts || 0;
+            const delay = Math.min(5000 * Math.pow(2, attempts), 60000);
+            this._sseReconnectAttempts = attempts + 1;
+
+            setTimeout(() => {
+                if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
+                    this.setupSSE();
+                }
+            }, delay);
+        };
+
+    }
+
+    /**
+     * Exchange the long-lived API key for a single-use SSE ticket, then connect.
+     * The key travels in a POST body; only the ticket goes on the URL.
+     */
+    async _openSSEWithTicket(sseUrl) {
+        // Greptile: a failed exchange used to leave the page disconnected with
+        // no EventSource and therefore no onerror retry — a transient 429 or
+        // blip killed live updates until a reload. Retry with backoff, and bail
+        // out if the user signed out meanwhile.
+        // The generation counter also stops a slow response from an earlier
+        // setupSSE opening a second stream after a newer one is already live.
+        const attempt = ++this._sseSetupGeneration;
+        const maxAttempts = 4;
+        for (let i = 0; i < maxAttempts; i++) {
+            if (attempt !== this._sseSetupGeneration) return; // superseded
+            if (this.authState.requiresAuth && !this.authState.isAuthenticated) return;
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.authState.apiKey) headers['X-API-Key'] = this.authState.apiKey;
+                const resp = await fetch(`${this.apiBase}/events/ticket`, {
+                    method: 'POST',
+                    headers,
+                    body: '{}',
+                    credentials: 'same-origin',
+                });
+                // 401 is not transient: the credential is wrong. Retry only
+                // what a retry can fix.
+                if (resp.status === 401 || resp.status === 403) {
+                    console.error(`SSE ticket refused (${resp.status}); not retrying`);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                if (!resp.ok) throw new Error(`ticket request failed: ${resp.status}`);
+                const data = await resp.json();
+                if (attempt !== this._sseSetupGeneration) return;
+                sseUrl.searchParams.set(data.param_name || 'ticket', data.ticket);
+                this._connectSSE(sseUrl);
+                return;
+            } catch (err) {
+                if (attempt !== this._sseSetupGeneration) return;
+                if (i === maxAttempts - 1) {
+                    console.error('SSE ticket exchange failed:', err);
+                    this.updateConnectionStatus('error');
+                    return;
+                }
+                // 250ms, 500ms, 1000ms — short, because the user is waiting
+                // for live updates, not for a background sync.
+                await new Promise((r) => setTimeout(r, 250 * Math.pow(2, i)));
+            }
         }
     }
 
@@ -1215,9 +1316,6 @@ class MemoryDashboard {
 
         // Sync buttons event listeners are attached in checkSyncStatus()
         // after buttons are confirmed to be accessible in the DOM
-
-        // Backup buttons use inline onclick handlers in HTML
-        // (setupEventListeners runs before settings modal DOM is interactive)
 
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
@@ -2082,12 +2180,17 @@ class MemoryDashboard {
     }
 
     /**
-     * Escape HTML to prevent XSS
+     * Escape HTML to prevent XSS. Safe in element text and in quoted attribute
+     * values: quotes are encoded too, since callers interpolate the result into
+     * data-tag="..." and similar attributes (GHSA-j664-v823-6p9f).
      */
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return String(text ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     /**
@@ -2695,7 +2798,7 @@ class MemoryDashboard {
 
                 ${memory.metadata ? `
                     <div class="memory-metadata">
-                        <h4 class="metadata-toggle" onclick="this.parentElement.classList.toggle('expanded')" style="cursor: pointer; user-select: none;">
+                        <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
                             <span class="toggle-icon">▶</span> Metadata
                         </h4>
                         <div class="metadata-content">
@@ -2932,7 +3035,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" onclick="app.handleAddMemory()">Add your first memory</a></p>';
+    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
     return;
     }
 
@@ -4943,7 +5046,7 @@ class MemoryDashboard {
 
         data.tags.forEach(tagStat => {
         html += '<tr>';
-        html += `<td class="tag-name">${tagStat.tag}</td>`;
+        html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;
         html += '<td class="tag-actions">';
         html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
@@ -5280,7 +5383,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
-                <span class="chart-label">${tag.tag}</span>
+                <span class="chart-label">${this.escapeHtml(tag.tag)}</span>
             </div>`;
         });
 
@@ -5334,7 +5437,7 @@ class MemoryDashboard {
         // Render significant types
         significantTypes.forEach(type => {
             const barWidthPx = (type.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
-            const typeName = type.memory_type || 'untyped';
+            const typeName = this.escapeHtml(type.memory_type || 'untyped');
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${type.count} (${type.percentage.toFixed(1)}%)</span>
@@ -5392,12 +5495,12 @@ class MemoryDashboard {
             const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
         html += `<li>
                 <div class="tag-header">
-                    <strong>${tag.tag}</strong>${trendIcon}
+                    <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
                     <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
                 html += '<div class="tag-cooccurrence">Often with: ';
-                html += tag.co_occurring_tags.slice(0, 3).map(co => `${co.tag} (${co.strength.toFixed(2)})`).join(', ');
+                html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
             html += '</li>';

@@ -368,11 +368,12 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         memory_type="note"
     )
 
-    # spec-store-visibility: scope is forwarded (None = all stores); tag/type
-    # filtering still happens in MemoryService after retrieval.
+    # spec-store-visibility: the scope is forwarded (None = all stores).
+    # Upstream widened the fetch window (max(n*10, n+50)) when a post-filter is
+    # present, so matches outside the first `n_results` are not lost.
     mock_storage.retrieve.assert_called_once_with(
         query="test",
-        n_results=5,
+        n_results=55,
         store=None
     )
 

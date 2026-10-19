@@ -1,0 +1,13 @@
+{
+  "endpoint": "http://127.0.0.1:8000",
+  "apiKey": "",
+  "timeoutMs": 1500,
+  "projectName": "",
+  "maxMemories": 8,
+  "contextChars": 6000,
+  "autoCapture": true,
+  "minCaptureLength": 300,
+  "maxCaptureLength": 4000,
+  "maxCapturesPerRun": 3,
+  "sessionSummary": true
+}

@@ -324,6 +324,12 @@ Examples:
         help="Preserve graph edges (by default they are wiped since similarity scores change)",
     )
     parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Run without asking for confirmation when the memory service appears to be running "
+             "(required in non-interactive contexts such as CI)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Report current state without making any changes",
@@ -375,11 +381,12 @@ Examples:
     print()
     service_stopped = check_service_not_running()
     if not service_stopped:
-        response = input("\n  Continue anyway? (y/N): ").strip().lower()
-        if response != "y":
-            print("  Migration cancelled.")
+        if not _confirm_continue(service_stopped, getattr(args, "yes", False),
+                                 sys.stdin.isatty()):
+            print("  Migration cancelled. Pass --yes to run without prompting.")
             conn.close()
-            sys.exit(0)
+            sys.exit(0 if sys.stdin.isatty() else 2)
+        print("  Service check bypassed.")
     else:
         print("  Service check OK.")
 
@@ -397,6 +404,22 @@ Examples:
         conn.close()
 
 
+def _confirm_continue(service_stopped: bool, assume_yes: bool, is_tty: bool) -> bool:
+    """Decide se a migração segue quando o serviço parece estar rodando.
+
+    A checagem de serviço é heurística e não distingue "o serviço desta base" de
+    "outro serviço da máquina". Em contexto não interativo (CI, testes) pedir
+    confirmação trava ou estoura EOF, então exige ``--yes`` explícito.
+    """
+    if service_stopped:
+        return True
+    if assume_yes:
+        return True
+    if not is_tty:
+        return False
+    return input("\n  Continue anyway? (y/N): ").strip().lower() == "y"
+
+
 def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     """Execute the destructive migration phases (2-5)."""
     # --- Phase 2: Prepare ---
@@ -410,12 +433,25 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     shutil.copy2(str(db_path), str(backup_path))
 
     print("  Reading active memories...")
-    rows = conn.execute(
-        "SELECT rowid, content, store FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
-    ).fetchall()
+    # Bancos antigos podem não ter a coluna ``store`` em ``memories``. Ler a coluna
+    # incondicionalmente quebraria a migração deles com "no such column: store".
+    memory_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()
+    }
+    has_store_column = "store" in memory_columns
+    if has_store_column:
+        rows = conn.execute(
+            "SELECT rowid, content, store FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [r[2] for r in rows]
+    else:
+        rows = conn.execute(
+            "SELECT rowid, content FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [None] * len(rows)
     rowids = [r[0] for r in rows]
-    contents = [r[1] for r in rows]
-    stores = [r[2] for r in rows]
     print(f"  Read {len(rows)} memories")
 
     # --- Phase 3: Generate new embeddings ---
@@ -489,7 +525,7 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     print(f"  Inserting {len(embeddings)} embeddings...")
     t0 = time.time()
     conn.execute("BEGIN")
-    if partition_cols:
+    if partition_cols and has_store_column:
         cols = ", ".join(["rowid", "content_embedding"] + partition_cols)
         marks = ", ".join("?" for _ in range(2 + len(partition_cols)))
         store_of = dict(zip(rowids, stores))

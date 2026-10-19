@@ -1426,6 +1426,13 @@ class MemoryServer:
                     )
                 ]
 
+            # Storing is a write that bypasses call_tool, so it needs its own
+            # scope check (GHSA-9x7v-2vjj-xghg). The preview path above stays
+            # open to read-only callers.
+            if not self._caller_has_write_scope():
+                logger.warning("Refused prompt learning_session for a read-only caller")
+                raise PermissionError("insufficient_scope: prompt 'learning_session' requires 'write' access")
+
             # Store the learning note
             content_hash = generate_content_hash(learning_note)
             memory = Memory(
@@ -1487,6 +1494,66 @@ class MemoryServer:
         """True when `name` must not be served to the current caller."""
         return self.remote_transport and name in self.local_only_tools()
 
+    def _caller_has_write_scope(self) -> bool:
+        """False when the credential behind THIS request lacks the 'write' scope.
+
+        SSE and Streamable HTTP record the authenticated scope on the ASGI
+        scope of each POST (`_credentials_authenticate` in
+        utils/startup_orchestrator), and the SDK hands that request to the
+        handler as `request_context.request`. Reading it per message, not per
+        connection, keeps an SSE stream from lending one token's scope to a
+        later message (GHSA-9x7v-2vjj-xghg).
+
+        No request context (stdio, the FastAPI shim, which gates on its own)
+        or no recorded scope (a loopback server with no auth configured)
+        keeps full access, as before.
+        """
+        try:
+            request = self.server.request_context.request
+        except LookupError:
+            return True
+        if request is None:
+            return True
+        scope = request.scope.get("mcp_auth_scope")
+        return scope is None or "write" in scope.split()
+
+    async def tool_requires_write(self, name: Optional[str], arguments: Optional[dict] = None) -> bool:
+        """Return True if calling this tool requires the 'write' scope.
+
+        Mixed graph operations are classified by action, not just the tool
+        annotation (GHSA-2mw6-h564-86wv). Only known read actions are exempt;
+        entity extraction and unknown actions require write scope.
+
+        Otherwise derived per-call from `list_tools()`: a tool counts as write unless
+        its annotations explicitly set `readOnlyHint=True`. This matches the
+        MCP spec's default ("destructive=True, readOnly=False" unless declared
+        otherwise) and keeps the set in lockstep with the canonical tool list.
+
+        Conditional tools like `memory_consolidate` only appear in the list
+        once their gating state is satisfied, so this derives on each call
+        rather than caching a set locked in before the consolidator finished
+        initializing.
+
+        Fails closed: an unknown tool name, or a `list_tools()` that raises,
+        counts as requiring write scope.
+        """
+        if not name:
+            return False
+        if name == "memory_graph":
+            return not (arguments and arguments.get("action") in (
+                "connected", "path", "subgraph", "infer", "suggest", "abduct",
+                "list_entities", "entity_profile",
+            ))
+        try:
+            tools = await self.list_tools()
+        except Exception:
+            logger.exception("list_tools() raised during write-scope classification — failing closed")
+            return True
+        for tool in tools:
+            if tool.name == name:
+                return not (tool.annotations and getattr(tool.annotations, "readOnlyHint", False))
+        return True
+
     async def list_tools(self) -> List[types.Tool]:
         """Return the canonical MCP tool list from declarative registry."""
         logger.info("=== HANDLING LIST_TOOLS REQUEST ===")
@@ -1531,6 +1598,13 @@ class MemoryServer:
             return [types.TextContent(type="text", text=json.dumps(
                 {"error": f"Tool not available over this transport: {name}"}
             ))]
+
+        # The FastAPI shim checked write scope on its own since GHSA-2r68-g678-7qr3,
+        # but SSE and Streamable HTTP dispatch straight here (GHSA-9x7v-2vjj-xghg).
+        # Raise rather than return content, so the SDK answers isError=True.
+        if not self._caller_has_write_scope() and await self.tool_requires_write(name, arguments):
+            logger.warning("Refused write tool for a read-only caller: %s", _sanitize_log_value(name))
+            raise PermissionError(f"insufficient_scope: tool '{name}' requires 'write' access")
 
         # Resolve handler from routing table
         from mcp_memory_service.tools.routing import resolve_handler
@@ -2171,6 +2245,7 @@ class MemoryServer:
                     "source": "observation",
                     "outcome": outcome,
                 },
+                agent_id=agent_id,
             )
             observations_created += 1
 
@@ -2197,6 +2272,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2213,6 +2289,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2363,6 +2440,7 @@ class MemoryServer:
                     "observation_type": "session_legacy",
                     "source": "observation",
                 },
+                agent_id=agent_id,
             )
         except Exception as e:
             logger.debug("Failed to increment session counter: %s", _sanitize_log_value(e))

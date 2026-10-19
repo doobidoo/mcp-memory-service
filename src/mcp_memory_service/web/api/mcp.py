@@ -37,41 +37,13 @@ def _is_local_only(server, tool_name: Optional[str]) -> bool:
     return tool_name in server.local_only_tools()
 
 
-async def _requires_write(server, tool_name: Optional[str]) -> bool:
+async def _requires_write(server, tool_name: Optional[str], arguments: Optional[dict] = None) -> bool:
     """Return True if calling this tool requires the 'write' scope.
 
-    Derived per-call from `server.list_tools()`: a tool counts as write
-    unless its annotations explicitly set `readOnlyHint=True`. This matches
-    the MCP spec's default ("destructive=True, readOnly=False" unless
-    declared otherwise) and keeps the set in lockstep with the canonical
-    tool list — adding a new tool to `MemoryServer.list_tools` automatically
-    applies the right scope check.
-
-    Conditional tools like `memory_consolidate` only appear in the list once
-    their gating state is satisfied, so we derive on each call rather than
-    caching (the alternative would risk a stale cache locked in before the
-    consolidator finished initializing).
-
-    Conservative default: a tool name we don't recognise is treated as
-    requiring write scope.
+    The classification lives on `MemoryServer.tool_requires_write`, which
+    the SSE and Streamable HTTP transports use too (GHSA-9x7v-2vjj-xghg).
     """
-    if not tool_name:
-        return False
-    target = tool_name
-    # Fail closed if list_tools() raises during classification: the request
-    # MUST NOT be allowed through the scope gate just because we couldn't
-    # introspect the surface. A read-only token gets a clean -32003/403;
-    # call_tool would also fail, but the wrong response code there masks
-    # the scope decision.
-    try:
-        tools = await server.list_tools()
-    except Exception:
-        logger.exception("list_tools() raised during write-scope classification — failing closed")
-        return True
-    for tool in tools:
-        if tool.name == target:
-            return not (tool.annotations and getattr(tool.annotations, "readOnlyHint", False))
-    return True
+    return await server.tool_requires_write(tool_name, arguments)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -242,7 +214,7 @@ async def mcp_endpoint(
 
             # Mutating tools require 'write' scope even through MCP. Read-only
             # tools remain accessible with 'read' scope (GHSA-2r68-g678-7qr3).
-            if await _requires_write(server, tool_name) and not user.has_scope("write"):
+            if await _requires_write(server, tool_name, arguments) and not user.has_scope("write"):
                 response = MCPResponse(
                     id=request.id,
                     error={

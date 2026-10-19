@@ -20,6 +20,8 @@ try:
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
 
+from mcp_memory_service.consolidation.base import ConsolidationConfig
+from mcp_memory_service.consolidation.decay import ExponentialDecayCalculator
 from mcp_memory_service.models.memory import Memory, MemoryQueryResult
 from mcp_memory_service.utils.hashing import generate_content_hash
 
@@ -1382,33 +1384,88 @@ class TestSqliteVecTimeBasedDeletion:
         assert len(results) == 0
 
 
+    async def _store_connected(self, storage, *texts):
+        """Store tagged memories and return their hashes."""
+        hashes = []
+        for text in texts:
+            memory = Memory(content=text, content_hash=generate_content_hash(text), tags=["conn-tag"])
+            ok, msg = await storage.store(memory)
+            assert ok, msg
+            hashes.append(memory.content_hash)
+        return hashes
+
+    def _insert_edge(self, storage, source, target, relationship_type):
+        storage.conn.execute(
+            'INSERT INTO memory_graph (source_hash, target_hash, similarity, connection_types, relationship_type, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            (source, target, 0.8, '["semantic"]', relationship_type, time.time())
+        )
+        storage.conn.commit()
+
+    @pytest.mark.asyncio
+    async def test_get_memory_connections_counts_graph_neighbours_by_hash(self, storage):
+        """Decay looks connections up by content hash (#1592), so the keys
+        must be hashes, not tag groups."""
+        a, b, c, lone = await self._store_connected(
+            storage,
+            "Replica lag spikes during the nightly vacuum.",
+            "Moving the vacuum to 04:00 fixed the replica lag.",
+            "Replica lag alerts page the on-call channel.",
+            "The coffee machine is descaled on Fridays.",
+        )
+        # `related` is symmetric and stored as two rows; it is still one neighbour.
+        self._insert_edge(storage, a, b, "related")
+        self._insert_edge(storage, b, a, "related")
+        self._insert_edge(storage, b, c, "fixes")
+        # Entity links point at entity keys, not memories.
+        self._insert_edge(storage, a, "entity:postgres", "has_entity")
+
+        connections = await storage.get_memory_connections()
+
+        assert connections == {a: 1, b: 2, c: 1}
+        assert lone not in connections
+
     @pytest.mark.asyncio
     async def test_get_memory_connections_excludes_deleted(self, storage):
-        """get_memory_connections should not count soft-deleted memories in tag groups."""
-        mem1 = Memory(
-            content="Connection test memory 1",
-            content_hash=generate_content_hash("Connection test memory 1"),
-            tags=["conn-tag"],
+        """A soft-deleted memory is neither counted nor counts as a neighbour,
+        even if an edge to it is still in memory_graph."""
+        a, b, c = await self._store_connected(
+            storage,
+            "Connection test memory 1",
+            "Connection test memory 2",
+            "Connection test memory 3",
         )
-        mem2 = Memory(
-            content="Connection test memory 2",
-            content_hash=generate_content_hash("Connection test memory 2"),
-            tags=["conn-tag"],
+        self._insert_edge(storage, a, b, "follows")
+        self._insert_edge(storage, a, c, "follows")
+        storage.conn.execute('UPDATE memories SET deleted_at = ? WHERE content_hash = ?', (time.time(), c))
+        storage.conn.commit()
+
+        connections = await storage.get_memory_connections()
+
+        assert connections == {a: 1, b: 1}
+
+    @pytest.mark.asyncio
+    async def test_connected_memory_gets_decay_connection_boost(self, storage):
+        """End to end: storage connections feed the decay boost (#1592)."""
+        a, b, lone = await self._store_connected(
+            storage,
+            "Replica lag spikes during the nightly vacuum.",
+            "Moving the vacuum to 04:00 fixed the replica lag.",
+            "The coffee machine is descaled on Fridays.",
         )
-        await storage.store(mem1)
-        await storage.store(mem2)
+        self._insert_edge(storage, b, a, "fixes")
+        memories = [await storage.get_by_hash(h) for h in (a, b, lone)]
 
-        connections_before = await storage.get_memory_connections()
-        assert any(count >= 2 for count in connections_before.values())
+        scores = await ExponentialDecayCalculator(ConsolidationConfig()).process(
+            memories,
+            connections=await storage.get_memory_connections(),
+            access_patterns={},
+        )
+        boost = {s.memory_hash: s.connection_boost for s in scores}
 
-        # Soft-delete one
-        await storage.delete(mem1.content_hash)
-
-        connections_after = await storage.get_memory_connections()
-        # The deleted memory's tag group should have one fewer count
-        total_before = sum(connections_before.values())
-        total_after = sum(connections_after.values())
-        assert total_after < total_before
+        assert boost[a] > 1.0
+        assert boost[b] > 1.0
+        assert boost[lone] == 1.0
 
     @pytest.mark.asyncio
     async def test_get_access_patterns_excludes_deleted(self, storage):

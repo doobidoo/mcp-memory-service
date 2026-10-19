@@ -2,6 +2,7 @@
 
 import sqlite3
 import logging
+import math
 import time
 from datetime import datetime, date
 from typing import List, Tuple, Optional
@@ -20,6 +21,153 @@ def _escape_like(value: str) -> str:
 
 class DeleteMixin:
     """Mixin providing memory deletion operations."""
+
+    async def get_sync_state_for_hash(
+        self, content_hash: str
+    ) -> tuple[float | None, float | None] | None:
+        """Read the current local update/deletion timestamps for queued sync guards.
+
+        Unlike ``get_by_hash``, this includes tombstoned rows. Database errors are
+        deliberately propagated so a caller can fail closed instead of uploading
+        a queued snapshot without knowing whether it was deleted locally.
+        """
+        if not self.conn:
+            raise RuntimeError("Database not initialized")
+
+        def _get_sync_state():
+            row = self.conn.execute(
+                'SELECT updated_at, deleted_at FROM memories WHERE content_hash = ?',
+                (content_hash,),
+            ).fetchone()
+            return tuple(row) if row is not None else None
+
+        return await self._execute_with_retry(_get_sync_state)
+
+    async def delete_if_not_updated_after(
+        self, content_hash: str, deleted_at: float
+    ) -> str:
+        """Apply a remote tombstone unless the local memory has a newer edit.
+
+        Returns ``applied``, ``already_deleted``, ``missing``, ``conflict``, or
+        ``failed``. The timestamp predicate is repeated in the UPDATE so a write
+        racing this reconciliation cannot be deleted based on a stale read.
+        """
+        try:
+            remote_deleted_at = float(deleted_at)
+            if not math.isfinite(remote_deleted_at):
+                return "failed"
+            if not self.conn:
+                return "failed"
+
+            def _apply_remote_tombstone():
+                savepoint = "remote_tombstone_reconcile"
+                savepoint_open = False
+                self.conn.execute(f'SAVEPOINT {savepoint}')
+                savepoint_open = True
+                try:
+                    row = self.conn.execute(
+                        'SELECT id, updated_at, deleted_at FROM memories '
+                        'WHERE content_hash = ?',
+                        (content_hash,),
+                    ).fetchone()
+                    commit_after = False
+                    if row is None:
+                        outcome = "missing"
+                    else:
+                        memory_id, updated_at, existing_deleted_at = row
+                        if existing_deleted_at is not None:
+                            outcome = "already_deleted"
+                        elif updated_at is not None and float(updated_at) > remote_deleted_at:
+                            outcome = "conflict"
+                        else:
+                            cursor = self.conn.execute(
+                                'UPDATE memories SET deleted_at = ? '
+                                'WHERE id = ? AND deleted_at IS NULL '
+                                'AND (updated_at IS NULL OR updated_at <= ?)',
+                                (remote_deleted_at, memory_id, remote_deleted_at),
+                            )
+                            if cursor.rowcount == 0:
+                                # Re-read to distinguish a racing edit from a disappeared row.
+                                current = self.conn.execute(
+                                    'SELECT updated_at, deleted_at FROM memories WHERE id = ?',
+                                    (memory_id,),
+                                ).fetchone()
+                                if current is None:
+                                    outcome = "missing"
+                                elif current[1] is not None:
+                                    outcome = "already_deleted"
+                                else:
+                                    outcome = "conflict"
+                                commit_after = True
+                            else:
+                                try:
+                                    self.conn.execute(
+                                        'DELETE FROM memory_embeddings WHERE rowid = ?',
+                                        (memory_id,),
+                                    )
+                                except Exception as vec_err:
+                                    logger.warning(
+                                        "Could not delete embedding for remotely deleted memory %s: %s",
+                                        _sanitize_log_value(content_hash),
+                                        _sanitize_log_value(vec_err),
+                                    )
+                                self.conn.execute(
+                                    'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                                    (content_hash, content_hash),
+                                )
+                                if hasattr(self, '_append_sync_event'):
+                                    self._append_sync_event(
+                                        self.conn,
+                                        "delete",
+                                        content_hash,
+                                        {
+                                            "content_hash": content_hash,
+                                            "deleted_at": remote_deleted_at,
+                                        },
+                                        hlc_override=(int(remote_deleted_at * 1000), 0),
+                                    )
+                                outcome = "applied"
+                                commit_after = True
+
+                    if commit_after:
+                        # Keep commit under the same connection lock as the update and
+                        # cleanups. A concurrent store can no longer be folded into a
+                        # transaction that a later error handler rolls back.
+                        self.conn.commit()
+                    else:
+                        self.conn.execute(f'RELEASE SAVEPOINT {savepoint}')
+                    return outcome
+                except Exception:
+                    if savepoint_open:
+                        try:
+                            self.conn.execute(f'ROLLBACK TO SAVEPOINT {savepoint}')
+                            self.conn.execute(f'RELEASE SAVEPOINT {savepoint}')
+                        except sqlite3.Error as cleanup_error:
+                            logger.error(
+                                "Could not roll back remote tombstone transaction for %s: %s",
+                                _sanitize_log_value(content_hash),
+                                _sanitize_log_value(cleanup_error),
+                            )
+                            try:
+                                # Still under _conn_lock: reset a broken transaction
+                                # before another SQLite operation can enter it.
+                                self.conn.rollback()
+                            except sqlite3.Error as fallback_error:
+                                logger.error(
+                                    "Could not reset SQLite after tombstone rollback failure for %s: %s",
+                                    _sanitize_log_value(content_hash),
+                                    _sanitize_log_value(fallback_error),
+                                )
+                    raise
+
+            # StoreMixin spans its INSERT/commit sequence with this same lock. Keep
+            # the savepoint rollback and commit ordered with stores on the shared
+            # SQLite connection as well as holding _conn_lock for each SQL closure.
+            async with self._savepoint_lock:
+                return await self._execute_with_retry(_apply_remote_tombstone)
+        except Exception as e:  # noqa: BLE001 - return a fail-closed reconciliation result
+            logger.error("Failed to apply remote tombstone: %s", _sanitize_log_value(e))
+            return "failed"
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Soft-delete a memory by setting deleted_at timestamp. Scoped to store partition when given (#1465)."""

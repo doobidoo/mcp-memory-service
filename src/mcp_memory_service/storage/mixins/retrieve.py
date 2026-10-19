@@ -1402,28 +1402,38 @@ class RetrieveMixin:
             return []
 
     async def get_memory_connections(self) -> Dict[str, int]:
-        """Get memory connection statistics."""
+        """Count graph neighbours per memory, keyed by content hash.
+
+        Decay looks connections up by ``memory.content_hash``, so the keys
+        must be hashes. Each neighbour counts once: symmetric relationships
+        (``related``, ``contradicts``) are stored as two rows and would
+        otherwise count twice. ``has_entity`` rows point at entity keys, not
+        memories, and both ends must be live (not soft-deleted) memories.
+        """
         try:
             await self.initialize()
 
             def _get_connections():
                 cursor = self.conn.execute("""
-                    SELECT tags, COUNT(*) as count
-                    FROM memories
-                    WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
-                    GROUP BY tags
+                    WITH edges AS (
+                        SELECT source_hash AS node, target_hash AS neighbour
+                        FROM memory_graph
+                        WHERE relationship_type IS NULL OR relationship_type != 'has_entity'
+                        UNION
+                        SELECT target_hash, source_hash
+                        FROM memory_graph
+                        WHERE relationship_type IS NULL OR relationship_type != 'has_entity'
+                    )
+                    SELECT e.node, COUNT(DISTINCT e.neighbour)
+                    FROM edges e
+                    JOIN memories a ON a.content_hash = e.node AND a.deleted_at IS NULL
+                    JOIN memories b ON b.content_hash = e.neighbour AND b.deleted_at IS NULL
+                    WHERE e.node != e.neighbour
+                    GROUP BY e.node
                 """)
                 return cursor.fetchall()
 
-            connections = {}
-            for row in await self._execute_with_retry(_get_connections):
-                tags_str, count = row
-                if tags_str:
-                    tags_list = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
-                    for tag in tags_list:
-                        connections[f"tag:{tag}"] = connections.get(f"tag:{tag}", 0) + count
-
-            return connections
+            return dict(await self._execute_with_retry(_get_connections))
 
         except Exception as e:
             logger.error("Error getting memory connections: %s", _sanitize_log_value(e))

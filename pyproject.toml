@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "12.0.0"
+version = "12.1.1"
 description = "Semantic memory layer for AI applications. REST API + MCP transport + knowledge graph + autonomous consolidation. Works with 14+ AI clients. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -47,7 +47,7 @@ dependencies = [
     "cryptography>=46.0.6",
     "fastapi>=0.115.5",
     "httpx>=0.24.0",
-    "mcp>=1.8.0,<2.0.0",
+    "mcp>=1.9.2,<2.0.0",
     "numpy>=1.24.0",
     "psutil>=5.9.0",
     "PyJWT[crypto]>=2.12.0",

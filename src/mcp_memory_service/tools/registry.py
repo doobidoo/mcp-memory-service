@@ -167,6 +167,10 @@ Example:
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
                 },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Optional authoring agent id. Falls back to the X-Agent-ID header, then MCP_AGENT_ID. Passing it here makes the caller's author win over the server default.",
+                },
             },
             "required": ["turns"],
         },
