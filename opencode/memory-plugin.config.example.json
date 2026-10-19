@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "memoryService": {
-    "endpoint": "https://memory.example.com",
+    "endpoint": "http://127.0.0.1:8000",
     "timeoutMs": 5000,
     "loadTimeoutMs": 2500,
     "maxMemoriesPerSession": 8,

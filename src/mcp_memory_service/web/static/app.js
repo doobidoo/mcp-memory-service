@@ -488,6 +488,23 @@ class MemoryDashboard {
             }
         });
 
+        // The memory detail content is rendered dynamically, so delegate metadata toggles.
+        document.getElementById('modalContent')?.addEventListener('click', (e) => {
+            const toggle = e.target.closest('.metadata-toggle');
+            if (toggle) {
+                toggle.parentElement.classList.toggle('expanded');
+            }
+        });
+
+        // The recent-memory empty state is rendered dynamically after startup.
+        document.getElementById('recentMemoriesList')?.addEventListener('click', (e) => {
+            const addMemoryLink = e.target.closest('[data-action="add-memory"]');
+            if (addMemoryLink) {
+                e.preventDefault();
+                this.handleAddMemory();
+            }
+        });
+
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
@@ -633,6 +650,18 @@ class MemoryDashboard {
 
         document.getElementById('cancelSettingsBtn')?.addEventListener('click', () => {
             this.closeModal(document.getElementById('settingsModal'));
+        });
+
+        document.getElementById('backupNowButton')?.addEventListener('click', () => {
+            this.createBackup();
+        });
+
+        document.getElementById('viewBackupsButton')?.addEventListener('click', () => {
+            this.openViewBackupsModal();
+        });
+
+        document.getElementById('viewBackupsCloseButton')?.addEventListener('click', () => {
+            this.closeModal(document.getElementById('viewBackupsModal'));
         });
 
         // Initialize settings tabs
@@ -1215,9 +1244,6 @@ class MemoryDashboard {
 
         // Sync buttons event listeners are attached in checkSyncStatus()
         // after buttons are confirmed to be accessible in the DOM
-
-        // Backup buttons use inline onclick handlers in HTML
-        // (setupEventListeners runs before settings modal DOM is interactive)
 
         // Document search button
         const docSearchBtn = document.getElementById('docSearchBtn');
@@ -2700,7 +2726,7 @@ class MemoryDashboard {
 
                 ${memory.metadata ? `
                     <div class="memory-metadata">
-                        <h4 class="metadata-toggle" onclick="this.parentElement.classList.toggle('expanded')" style="cursor: pointer; user-select: none;">
+                        <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
                             <span class="toggle-icon">▶</span> Metadata
                         </h4>
                         <div class="metadata-content">
@@ -2937,7 +2963,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" onclick="app.handleAddMemory()">Add your first memory</a></p>';
+    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
     return;
     }
 
@@ -4948,7 +4974,7 @@ class MemoryDashboard {
 
         data.tags.forEach(tagStat => {
         html += '<tr>';
-        html += `<td class="tag-name">${tagStat.tag}</td>`;
+        html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;
         html += '<td class="tag-actions">';
         html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
@@ -5285,7 +5311,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
-                <span class="chart-label">${tag.tag}</span>
+                <span class="chart-label">${this.escapeHtml(tag.tag)}</span>
             </div>`;
         });
 
@@ -5339,7 +5365,7 @@ class MemoryDashboard {
         // Render significant types
         significantTypes.forEach(type => {
             const barWidthPx = (type.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
-            const typeName = type.memory_type || 'untyped';
+            const typeName = this.escapeHtml(type.memory_type || 'untyped');
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${type.count} (${type.percentage.toFixed(1)}%)</span>
@@ -5397,12 +5423,12 @@ class MemoryDashboard {
             const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
         html += `<li>
                 <div class="tag-header">
-                    <strong>${tag.tag}</strong>${trendIcon}
+                    <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
                     <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
                 html += '<div class="tag-cooccurrence">Often with: ';
-                html += tag.co_occurring_tags.slice(0, 3).map(co => `${co.tag} (${co.strength.toFixed(2)})`).join(', ');
+                html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
             html += '</li>';

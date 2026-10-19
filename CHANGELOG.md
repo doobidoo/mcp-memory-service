@@ -17,6 +17,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.1.1] - 2026-10-16
+
+### Security
+
+- Escape stored tag, co-occurring tag and memory-type labels in dashboard management and analytics views to prevent stored HTML from executing in a viewer's session. (GHSA-6q59-m6vq-x65x)
+- Require OAuth write scope for graph entity extraction through the MCP dispatcher and HTTP shim, while keeping existing graph read operations available to read-only clients. (GHSA-2mw6-h564-86wv)
+
+### Added
+
+- **Label `claim-pending` on an unassigned claim comment (#1518).** When a comment on an unassigned issue reads as a claim (`/claim` or an anchored phrase such as "I'd like to work on this"), a new `issue_comment` workflow adds the `claim-pending` label, so a claim is visible at once instead of only in the next daily digest. Assignment stays manual — the label is the only automated signal, with no auto-assign and no bot comment — and the `issues: assigned` path drops the label once a maintainer assigns. Phrase matching is deliberately tight: it prefers missing a claim to mislabelling a question, so "can I take this approach?" does not match.
+
+### Fixed
+
+- **Consolidation keeps keyword-only contradictions visible and marks uncertain edges for review (#1460).**
+  Sharing words such as "never" could previously hide the older memory from
+  default retrieval. `MCP_CONSOLIDATION_AUTO_SUPERSEDE` now defaults to `false`.
+  Inferred graph edges retain their confidence: scores at or below 0.60 become
+  `related`, scores between 0.60 and 0.85 keep their label with `needs_review: true`,
+  and scores at or above 0.85 keep their label without the review flag. Only the
+  top band is eligible for explicitly enabled supersession; keyword contradictions
+  score at most 0.75. Consolidation also forwards similarity to the existing
+  inference guard (#1459). Existing supersessions are unchanged. Selection and
+  calibration of a local contradiction judgment model remain follow-up work.
+- **Remove the dashboard's five inline click handlers (#1549).** Dashboard interactions now use registered event listeners so they remain compatible with the planned Content-Security-Policy.
+
 ## [12.1.0] - 2026-10-15
 
 ### Added

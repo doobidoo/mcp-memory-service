@@ -870,26 +870,36 @@ const createPlugin = async ({ directory, client }) => {
       healthState,
     })
       .then((result) => {
+        // A replayed transcript or an auto-capture can write into the session
+        // while the load is in flight; keep those buffers, they feed the
+        // summary and the capture dedupe.
         sessionState.set(sessionID, {
-          ...result,
           messages: [],
+          ...sessionState.get(sessionID),
+          ...result,
           promise: null,
         })
       })
       .catch(async (error) => {
         sessionState.set(sessionID, {
+          messages: [],
+          ...sessionState.get(sessionID),
           projectName: projectNameFromDirectory(sessionDirectory),
           memories: [],
-          messages: [],
           promise: null,
         })
         await logWarn(`Memory load failed: ${error.message}`)
       })
 
+    // A fresh session has no previous entry at all, and handleMessagePart
+    // pushes into `messages`: seed it. A resumed session keeps its replayed
+    // history, its capture count and its dedupe set; the load owns only
+    // `memories`.
     sessionState.set(sessionID, {
+      messages: [],
+      ...sessionState.get(sessionID),
       projectName: projectNameFromDirectory(sessionDirectory),
       memories: [],
-      messages: [],
       promise: loadPromise,
     })
 
@@ -899,7 +909,11 @@ const createPlugin = async ({ directory, client }) => {
   const waitForSession = async (sessionID, fallbackDirectory) => {
     let state = sessionState.get(sessionID)
 
-    if (!state) {
+    // "The session exists" is not "its memories were requested". A bare entry
+    // comes from a replayed transcript (handleMessagePart) or a session end,
+    // and a resumed session never receives session.created at all. Only
+    // refreshSession sets `promise`, so its absence marks an unloaded entry.
+    if (!state || state.promise === undefined) {
       refreshSession(sessionID, fallbackDirectory)
       state = sessionState.get(sessionID)
     }
@@ -1198,14 +1212,10 @@ const createPlugin = async ({ directory, client }) => {
     "experimental.chat.system.transform": async (input, output) => {
       if (!input.sessionID) return
 
-      // session.created fires before bus subscription starts — refreshSession
-      // might never have been called. Load memories on first system prompt request.
-      let state = sessionState.get(input.sessionID)
-      if (!state) {
-        refreshSession(input.sessionID, directory)
-        state = sessionState.get(input.sessionID)
-      }
-      state = await waitForSession(input.sessionID, directory)
+      // session.created fires before the bus subscription exists, and V2 does
+      // not emit it for a resumed session, so the first system prompt request is
+      // where the load is requested (see waitForSession).
+      const state = await waitForSession(input.sessionID, directory)
 
       if (state?.memories?.length) {
         const formatted = formatMemories(state.projectName, state.memories, config)
@@ -1283,7 +1293,140 @@ const createPlugin = async ({ directory, client }) => {
 }
 
 export const OpenCodeMemoryPlugin = createPlugin
-export default { id: "opencode-memory", server: createPlugin }
+
+// ---------------------------------------------------------------------------
+// OpenCode V2 adapter
+//
+// V2 loads a plugin through `default.id` + `default.setup()`; V1 used
+// `default.server`. V2 also renamed every hook and every event this file
+// registers, so the adapter maps them onto the implementation above instead of
+// forking it. Both fields are exported, so one file serves both hosts.
+//
+// `client` is deliberately not passed: V2 has no server-side toast or log
+// equivalent to V1's `client.app.log` / `client.tui.showToast`, and every use in
+// this file is optional-chained, so both degrade to no-ops. The status file
+// carries the same information to the sidebar widget.
+// ---------------------------------------------------------------------------
+
+// V2 events nest their payload under `data` (V1 used `properties`) and carry the
+// project directory on the envelope.
+function sessionIdentity(event, fallbackDirectory) {
+  return {
+    id: event?.data?.info?.id || event?.data?.sessionID,
+    directory: event?.data?.info?.directory || event?.location?.directory || fallbackDirectory,
+  }
+}
+
+// Maps a V2 event onto the V1 event the implementation above listens for.
+// Returns null when the V2 event has no V1 counterpart that should act on it.
+function translateEvent(event, fallbackDirectory) {
+  const info = sessionIdentity(event, fallbackDirectory)
+
+  switch (event?.type) {
+    case "session.created":
+      // The V1 branch dereferences info.id unguarded, so an event without an id
+      // must not reach it.
+      return info.id ? { type: "session.created", properties: { info } } : null
+    case "session.idle":
+      return { type: "session.idle", properties: { info } }
+    case "session.deleted":
+    case "session.removed":
+      return { type: "session.deleted", properties: { info } }
+    case "session.step.ended":
+      // V2 has no `session.idle`. One step is one assistant message, and the
+      // last step of a turn is where V1 consolidated and wrote the status file.
+      return event?.data?.finish === "tool-calls"
+        ? null
+        : { type: "session.idle", properties: { info } }
+    default:
+      return event
+  }
+}
+
+// V2 has no `message.part.updated`. The assistant text this file auto-captures
+// has to come from the `context` hook transcript instead. The synthesized part
+// ids stay stable across calls, so the dedupe in handleMessagePart skips
+// messages that were already seen.
+function transcriptCaptureEvents(event) {
+  const events = []
+  for (const message of Array.isArray(event?.messages) ? event.messages : []) {
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue
+    for (const [index, part] of message.content.entries()) {
+      if (part?.type !== "text" || !part.text) continue
+      events.push({
+        type: "message.part.updated",
+        properties: {
+          sessionID: event.sessionID,
+          part: { id: `${message.id}:${index}`, type: "text", text: part.text },
+        },
+      })
+    }
+  }
+  return events
+}
+
+const v2Setup = async (ctx) => {
+  const directory = ctx.location?.directory || process.cwd()
+  const hooks = await createPlugin({ directory })
+
+  // V1 pushed bare strings into output.system / output.context; V2 takes parts.
+  const collect = (target) => (value) => target.push({ type: "text", text: value })
+
+  const controller = new AbortController()
+  void (async () => {
+    try {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        const mapped = translateEvent(event, directory)
+        if (!mapped) continue
+        try { await hooks.event?.({ event: mapped }) } catch (_) {}
+      }
+    } catch (_) {}
+  })()
+
+  await ctx.session.hook("context", async (event) => {
+    for (const captureEvent of transcriptCaptureEvents(event)) {
+      try { await hooks.event?.({ event: captureEvent }) } catch (_) {}
+    }
+    await hooks["experimental.chat.system.transform"]?.(
+      { sessionID: event.sessionID },
+      { system: { push: collect(event.system) } },
+    )
+  })
+
+  await ctx.session.hook("compaction", async (event) => {
+    await hooks["experimental.session.compacting"]?.(
+      { sessionID: event.sessionID },
+      { context: { push: collect(event.system) } },
+    )
+  })
+
+  // V1 hooked the command through `command.execute.before`, which V2 dropped.
+  // The command is registered here, and the block the V1 handler renders is sent
+  // as the prompt, mirroring what the V1 part injection produced.
+  await ctx.command.transform((editor) => {
+    editor.add({
+      name: "memory",
+      description: "Show MCP Memory Service status. Usage: /memory, /memory search <query>, /memory health",
+      execute: async ({ sessionID, prompt, delivery }) => {
+        const parts = []
+        await hooks["command.execute.before"](
+          { command: "memory", arguments: (prompt?.text || "").trim(), sessionID },
+          { parts },
+        )
+        await ctx.session.prompt({
+          ...prompt,
+          sessionID,
+          text: parts.map((part) => part.text).join("\n"),
+          delivery,
+        })
+      },
+    })
+  })
+
+  return () => controller.abort()
+}
+
+export default { id: "opencode-memory", setup: v2Setup, server: createPlugin }
 
 // Test-only surface, mirroring claude-hooks' `_internal` convention. The TLS gate
 // is a security control, so it gets tested directly rather than only through a
@@ -1294,4 +1437,7 @@ export const _internal = {
   createInboxChecker,
   formatInboxBlock,
   searchInboxMemories,
+  sessionIdentity,
+  translateEvent,
+  transcriptCaptureEvents,
 }

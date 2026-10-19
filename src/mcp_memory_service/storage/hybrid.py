@@ -2189,6 +2189,30 @@ class HybridMemoryStorage(MemoryStorage):
             store=store,
         )
 
+    async def retrieve_hybrid(
+        self,
+        query: str,
+        n_results: int = 5,
+        keyword_weight: Optional[float] = None,
+        semantic_weight: Optional[float] = None,
+        include_superseded: bool = False,
+        store: Optional[str] = "default",
+    ) -> List[MemoryQueryResult]:
+        """BM25 + vector search on primary storage (#1576).
+
+        search_memories() only takes mode="hybrid" when the backend has this
+        method; without it the hybrid backend fell through to plain vector
+        search.
+        """
+        return await self.primary.retrieve_hybrid(
+            query,
+            n_results,
+            keyword_weight=keyword_weight,
+            semantic_weight=semantic_weight,
+            include_superseded=include_superseded,
+            store=store,
+        )
+
     async def search(self, query: str, n_results: int = 5, min_similarity: float = 0.0) -> List[MemoryQueryResult]:
         """Search memories in primary storage."""
         return await self.primary.search(query, n_results)
