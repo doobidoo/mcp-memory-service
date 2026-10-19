@@ -132,6 +132,50 @@ asyncio.run(check_stats())
 "
 ```
 
+## Multi-Store Partitioning
+
+Current schemas partition vector rows by store, so several tenants or workspaces can
+share one database file without competing for the same top-k slots:
+
+```sql
+CREATE VIRTUAL TABLE memory_embeddings USING vec0(
+    content_embedding FLOAT[384] distance_metric=cosine,
+    store TEXT partition key
+);
+```
+
+### Which entry points honour `store`
+
+| Entry point | Honours `store` | Default when `store` is omitted |
+|---|---|---|
+| `storage.search_memories(..., store=...)` | yes — `semantic`, `hybrid` and `ranked` add `AND store = ?` on the vec0 partition; `exact` adds it to its `LIKE` query over `memories` | `"default"` — pass `store=None` to search every store |
+| tag-only and time-only queries | yes | `"default"` |
+| `memory_store(..., store=...)` | yes — written to `memories.store` and to the vec0 partition column | `"default"` |
+| MCP `memory_search` (`store`) | yes — the argument is part of the tool schema | `"default"`; `store="all"` is mapped to `None`, i.e. cross-store search |
+
+The default is the single `default` partition, not the whole file: a caller that never
+passes `store` sees only memories written to `default`, and memories in other
+partitions are invisible. Pass `store=None` (storage) or `store="all"` (MCP tool) for
+a merged ranking across partitions. Scoping the query is also not interchangeable
+with filtering the results afterwards, because the top-k has already been chosen
+across partitions.
+
+### Migrating embeddings without losing the partition key
+
+`scripts/maintenance/migrate_embeddings.py` re-creates `memory_embeddings` when the
+embedding model changes. **Known limitation:** the script rebuilds the table from a
+fixed DDL that omits `store`. Run it on a database whose `memory_embeddings` carries
+the partition key and the column disappears: every store-scoped vector query then
+fails with `no such column: store`. Measured on a copy of a real database after such
+a migration: `semantic` and `ranked` return zero results, while `hybrid` (its FTS
+branch filters `memories`) and `exact` (it reads `memories`, not the vector table)
+keep working — which makes the breakage easy to miss. The script still reports
+success. Until the fix lands (tracked upstream), copy the database and verify the
+resulting DDL before trusting a migrated file.
+
+A database that predates the `store` column is unaffected: there is no partition key
+to lose.
+
 ## Performance Characteristics
 
 ### Memory Usage
