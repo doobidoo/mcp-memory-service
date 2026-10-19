@@ -627,15 +627,20 @@ def test_max_state_len_default_accommodates_long_clients():
     code = """
 import os
 os.environ.pop("MCP_OAUTH_MAX_STATE_LEN", None)
+from fastapi import HTTPException
 from mcp_memory_service.web.oauth import limits
-assert limits.MAX_STATE_LEN >= 4096, f"got {limits.MAX_STATE_LEN}"
+assert limits.MAX_STATE_LEN == 4096, f"got {limits.MAX_STATE_LEN}"
 limits.reject_if_too_long("s" * 2500, limits.MAX_STATE_LEN, "state")
 try:
     limits.reject_if_too_long("s" * (limits.MAX_STATE_LEN + 1), limits.MAX_STATE_LEN, "state")
+except HTTPException as e:
+    assert e.status_code == 400, e.status_code
+    assert e.detail["error"] == "invalid_request", e.detail
+    assert e.detail["error_description"] == (
+        f"state exceeds maximum length of {limits.MAX_STATE_LEN} characters"
+    ), e.detail
+else:
     raise SystemExit("should have raised")
-except Exception as e:
-    if "exceeds maximum length" not in str(e).lower() and "HTTPException" not in type(e).__name__:
-        raise
 print("ok")
 """
     env = os.environ.copy()
@@ -664,15 +669,20 @@ def test_max_state_len_is_env_configurable():
     code = """
 import os
 os.environ["MCP_OAUTH_MAX_STATE_LEN"] = "8000"
+from fastapi import HTTPException
 from mcp_memory_service.web.oauth import limits
 assert limits.MAX_STATE_LEN == 8000, f"got {limits.MAX_STATE_LEN}"
 limits.reject_if_too_long("x" * 8000, limits.MAX_STATE_LEN, "state")
 try:
     limits.reject_if_too_long("x" * 8001, limits.MAX_STATE_LEN, "state")
+except HTTPException as e:
+    assert e.status_code == 400, e.status_code
+    assert e.detail["error"] == "invalid_request", e.detail
+    assert e.detail["error_description"] == (
+        "state exceeds maximum length of 8000 characters"
+    ), e.detail
+else:
     raise SystemExit("should have raised")
-except Exception as e:
-    if "exceeds maximum length" not in str(e).lower() and "HTTPException" not in type(e).__name__:
-        raise
 print("ok")
 """
     env = os.environ.copy()
