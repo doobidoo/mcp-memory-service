@@ -98,6 +98,19 @@ class TestRetrieveWithQualityBoost:
         storage.retrieve.assert_called_once()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality_boost", [False, True])
+    async def test_store_accepted_positionally_and_passed_to_retrieve(self, quality_boost):
+        """The override takes the base class's eighth argument, store, and forwards it."""
+        storage = _make_storage()
+        storage.retrieve = AsyncMock(return_value=[])
+
+        await storage.retrieve_with_quality_boost(
+            "test query", 5, None, quality_boost, 0.5, False, "work"
+        )
+
+        assert storage.retrieve.call_args.kwargs["store"] == "work"
+
+    @pytest.mark.asyncio
     async def test_quality_boost_reranks_by_composite_score(self):
         """Results are reranked by composite (semantic + quality) score."""
         storage = _make_storage()

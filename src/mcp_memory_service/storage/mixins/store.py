@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 class StoreMixin:
     """Mixin providing memory storage operations."""
 
+    @staticmethod
+    def _exact_duplicate_message(
+        existing_store: str | None, requested_store: str
+    ) -> str:
+        """Describe a global exact-hash conflict and name its other store."""
+        message = "Duplicate content detected (exact match)"
+        if existing_store is not None and existing_store != requested_store:
+            return f"{message}; already exists in store {existing_store!r}"
+        return message
+
     def _purge_tombstone(self, content_hash: str) -> None:
         """Remove a soft-deleted tombstone so the UNIQUE constraint allows re-insert.
 
@@ -47,13 +57,79 @@ class StoreMixin:
             (content_hash,)
         )
 
+    def _recreate_of_for(self, content_hash: str) -> Optional[Tuple[str, list]]:
+        """#1522 #2 (ADR-0012 v2): the `recreate_of` signal for a re-create of this hash.
+
+        Returns `(event_id, [hlc_physical, hlc_logical, agent_id])` of the dominant local
+        delete for `content_hash` whenever a delete event is recorded in sync_events —
+        INDEPENDENTLY of whether a soft-deleted tombstone row still exists (#1564). The
+        producer stamps the `event_id` on the re-create's payload
+        (retrocompat name-match) AND the HLC+agent triple as `recreate_of_hlc` — a STABLE
+        identity anchor that survives event_id rewrites (P1-B, 2026-10-16): the bootstrap
+        baseline rewrites the delete's event_id to `bl-...` but PRESERVES its HLC
+        (bootstrap.py:132 `hlc_by_hash`), so apply can still match the named delete by the
+        anchor when the raw event_id no longer matches. Call BEFORE `_purge_tombstone`,
+        which hard-deletes the tombstone row but does NOT touch sync_events, so the delete
+        event is still the latest for the hash.
+
+        Returns None when no delete event is recorded for the hash (a fresh create carries no
+        recreate_of) or when the lookup is unavailable.
+
+        P2 tied-deletes (Greptile): the dominant delete is selected by the resolver's FULL
+        total order (`_winner_key`: HLC -> delete-vs-update -> agent_id -> event_id), NOT by
+        `(hlc_physical, hlc_logical)` alone. With two deletes at the SAME HLC, a raw
+        `ORDER BY hlc DESC LIMIT 1` is non-deterministic across peers; `_winner_key` breaks the
+        tie the same way apply's `recompute_liveness` elects Dtop, so producer and consumer agree.
+        """
+        # Local import keeps the resolver's canonical order the single source of truth and
+        # avoids a module-load cycle (store mixin <-> sync package).
+        from ..sync.resolver import EventView, _winner_key
+        try:
+            # #1564: decide SOLELY from the recorded delete in sync_events, NOT from the
+            # presence of a tombstone row. purge_deleted/_purge_tombstone hard-delete the
+            # soft-deleted memories row but never touch sync_events, so the delete event
+            # survives the purge. The old tombstone guard (`if tomb is None: return None`)
+            # was redundant with `if not rows` below — sync_events only carries op='delete'
+            # when a live row was actually deleted (delete.py emits it on rowcount>0), so a
+            # fresh create (never deleted) has zero delete rows and still returns None here.
+            # Requiring the tombstone row made a re-create AFTER a purge emit recreate_of=""
+            # (EMPTY), which apply treats as delete-wins → origin live, peer dead forever.
+            rows = list(self.conn.execute(
+                "SELECT event_id, hlc_physical, hlc_logical, agent_id FROM sync_events "
+                "WHERE content_hash = ? AND op = 'delete'",
+                (content_hash,),
+            ).fetchall())
+        except Exception as e:  # noqa: BLE001 - never break store() on this lookup
+            logger.debug(
+                "recreate_of lookup failed for %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(e),
+            )
+            return None
+        if not rows:
+            return None
+        # Elect the dominant delete (smallest _winner_key == resolver winner among deletes).
+        dtop = min(
+            rows,
+            key=lambda r: _winner_key(EventView(
+                hlc_physical=r[1] or 0, hlc_logical=r[2] or 0, agent_id=r[3],
+                event_id=r[0] or "", op="delete", content_hash=content_hash,
+            )),
+        )
+        # event_id (name-match, retrocompat) + the STABLE HLC+agent anchor (P1-B): the anchor
+        # survives the bootstrap's `bl-...` event_id rewrite, so apply can still match this
+        # delete when the raw event_id has been rewritten. Delete events always carry a
+        # stamped HLC, so the physical/logical are never NULL here; apply's _load_hash_events
+        # coerces NULL→0 on the read side symmetrically.
+        return dtop[0], [dtop[1], dtop[2], dtop[3]]
+
     async def _check_semantic_duplicate(
         self,
         content: str,
         time_window_hours: int = 24,
-        similarity_threshold: float = 0.85
+        similarity_threshold: float = 0.85,
+        store: str = 'default',
     ) -> Tuple[bool, Optional[str]]:
-        """Check if a semantically similar memory was stored within time window."""
+        """Check for a similar memory in ``store`` within the configured time window."""
         if not self.conn:
             return False, None
 
@@ -70,9 +146,10 @@ class StoreMixin:
                 JOIN memory_embeddings me ON m.rowid = me.rowid
                 WHERE m.created_at > ?
                   AND m.deleted_at IS NULL
+                  AND m.store = ?
                 ORDER BY similarity ASC
                 LIMIT 1
-            ''', (embedding_blob, cutoff_timestamp))
+            ''', (embedding_blob, cutoff_timestamp, store))
             return cursor.fetchone()
 
         result = await self._execute_with_retry(_search_semantic_dup)
@@ -89,18 +166,21 @@ class StoreMixin:
 
             def _check_exact_dup():
                 cursor = self.conn.execute(
-                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    'SELECT store FROM memories '
+                    'WHERE content_hash = ? AND deleted_at IS NULL',
                     (memory.content_hash,)
                 )
                 return cursor.fetchone()
-            if await self._execute_with_retry(_check_exact_dup):
-                return False, "Duplicate content detected (exact match)"
+            existing = await self._execute_with_retry(_check_exact_dup)
+            if existing:
+                return False, self._exact_duplicate_message(existing[0], store)
 
             if self.semantic_dedup_enabled and not skip_semantic_dedup:
                 is_duplicate, existing_hash = await self._check_semantic_duplicate(
                     memory.content,
                     time_window_hours=self.semantic_dedup_time_window,
-                    similarity_threshold=self.semantic_dedup_threshold
+                    similarity_threshold=self.semantic_dedup_threshold,
+                    store=store,
                 )
                 if is_duplicate:
                     return False, f"Duplicate content detected (semantically similar to {existing_hash})"
@@ -122,6 +202,10 @@ class StoreMixin:
             def insert_memory_and_embedding():
                 self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
+                    # #1522 #2: capture the delete this create supersedes BEFORE purging the
+                    # tombstone (purge does not touch sync_events). Only set when a tombstone
+                    # actually exists for this hash; a fresh create carries no recreate_of.
+                    _recreate_info = self._recreate_of_for(memory.content_hash)
                     self._purge_tombstone(memory.content_hash)
                     cursor = self.conn.execute('''
                         INSERT INTO memories (
@@ -170,6 +254,22 @@ class StoreMixin:
                             'metadata': memory.metadata or {},
                             'store': store,
                         }
+                        # #1522 #2 (Henry, 3-state): v2 stamps recreate_of on EVERY create —
+                        # the delete's event_id when re-creating over a tombstone, else the
+                        # explicit empty sentinel "". Absence of the key now means "v1 peer"
+                        # only; a v2 producer that never saw the delete emits "" (not absent),
+                        # which apply treats as "delete wins". Sentinel is "" (not null): null
+                        # round-trips through json as None and collapses with absence via
+                        # .get(); "" survives distinct (seven G0, 2026-10-16).
+                        # P1-B (2026-10-16): when NAMED, also stamp recreate_of_hlc = the
+                        # delete's [hlc_physical, hlc_logical, agent_id] — a STABLE anchor that
+                        # survives the bootstrap's `bl-...` event_id rewrite so apply can match
+                        # the delete by HLC when the raw event_id no longer matches.
+                        if _recreate_info is not None:
+                            payload['recreate_of'] = _recreate_info[0]
+                            payload['recreate_of_hlc'] = _recreate_info[1]
+                        else:
+                            payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
                     
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
@@ -199,6 +299,20 @@ class StoreMixin:
             logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
             return True, f"Memory stored successfully{conflict_msg}"
 
+        except sqlite3.IntegrityError as e:
+            # A second writer can insert the same globally unique hash after the
+            # pre-check. Report the same store-aware conflict as the non-racing path.
+            try:
+                existing = await self._execute_with_retry(_check_exact_dup)
+            except sqlite3.Error:
+                existing = None
+            if existing:
+                return False, self._exact_duplicate_message(existing[0], store)
+
+            error_msg = f"Failed to store memory: {e!s}"
+            logger.error("%s", _sanitize_log_value(error_msg))
+            logger.error("%s", _sanitize_log_value(traceback.format_exc()))
+            return False, error_msg
         except Exception as e:
             error_msg = f"Failed to store memory: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
@@ -235,11 +349,16 @@ class StoreMixin:
             self.conn.execute('BEGIN')
             for j, memory in enumerate(memories):
                 cursor = self.conn.execute(
-                    'SELECT content_hash FROM memories WHERE content_hash = ? AND deleted_at IS NULL',
+                    'SELECT store FROM memories '
+                    'WHERE content_hash = ? AND deleted_at IS NULL',
                     (memory.content_hash,)
                 )
-                if cursor.fetchone():
-                    local_results[j] = (False, "Duplicate content detected (exact match)")
+                existing = cursor.fetchone()
+                if existing:
+                    local_results[j] = (
+                        False,
+                        self._exact_duplicate_message(existing[0], store),
+                    )
                     continue
 
                 embedding = raw_embeddings[j]
@@ -255,6 +374,8 @@ class StoreMixin:
                 try:
                     self.conn.execute(f'SAVEPOINT {sp}')
 
+                    # #1522 #2: capture the superseded delete BEFORE purge (same as store()).
+                    _recreate_info = self._recreate_of_for(memory.content_hash)
                     self._purge_tombstone(memory.content_hash)
 
                     cur = self.conn.execute('''
@@ -291,6 +412,17 @@ class StoreMixin:
                             'metadata': memory.metadata or {},
                             'store': store,
                         }
+                        # #1522 #2 (Henry, 3-state): stamp recreate_of on EVERY create —
+                        # delete's event_id over a tombstone, else "" (explicit empty
+                        # sentinel). Same contract as store(); "" (not null) so absence vs
+                        # empty survive the json round-trip distinctly. P1-B: when NAMED, also
+                        # stamp recreate_of_hlc (the delete's [hlc_physical, hlc_logical,
+                        # agent_id]) — a stable anchor robust to the bootstrap `bl-...` rewrite.
+                        if _recreate_info is not None:
+                            payload['recreate_of'] = _recreate_info[0]
+                            payload['recreate_of_hlc'] = _recreate_info[1]
+                        else:
+                            payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
 
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
@@ -298,7 +430,16 @@ class StoreMixin:
                 except sqlite3.IntegrityError:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {sp}')
                     self.conn.execute(f'RELEASE SAVEPOINT {sp}')
-                    local_results[j] = (False, "Duplicate content detected (race condition)")
+                    existing = self.conn.execute(
+                        'SELECT store FROM memories '
+                        'WHERE content_hash = ? AND deleted_at IS NULL',
+                        (memory.content_hash,),
+                    ).fetchone()
+                    if existing:
+                        message = self._exact_duplicate_message(existing[0], store)
+                    else:
+                        message = "Duplicate content detected (race condition)"
+                    local_results[j] = (False, message)
                 except sqlite3.OperationalError as op_err:
                     # A transient 'database is locked'/'busy' is NOT a permanent item failure:
                     # on this deployment several agents write the same sqlite_vec.db (single

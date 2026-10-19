@@ -365,11 +365,12 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         memory_type="note"
     )
 
-    # After fix: storage.retrieve() only accepts query and n_results
-    # Filtering is done by MemoryService after retrieval
+    # storage.retrieve() only accepts query and n_results, so filtering happens in
+    # MemoryService after retrieval. When a filter is present the fetch is widened
+    # (max(n*10, n+50)) so matches outside the first `n_results` window are not lost.
     mock_storage.retrieve.assert_called_once_with(
         query="test",
-        n_results=5
+        n_results=55
     )
 
 

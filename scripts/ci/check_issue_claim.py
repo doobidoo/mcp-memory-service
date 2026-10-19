@@ -10,8 +10,15 @@ comments came too late. This check runs on every pull request
 An issue the PR closes (closingIssuesReferences: "Fixes #N" or a manual link)
 counts as claimed when the PR author is assigned to it, or commented on it
 before the PR was opened. Owners, members, collaborators and bots are exempt.
-A PR that closes no issue is not flagged: the check cannot tell a trivial fix
-from a change that needed an issue first.
+
+A PR that links no issue but changes src/ is labelled `no-issue` and gets one
+comment pointing at the same section (#1570). CONTRIBUTING.md asks for an issue
+first for any non-trivial change, and PR #1569 skipped that rule with a green
+check because it linked nothing. Linking means a closing reference or any "#N"
+or issue URL in the description, since a partial fix says "Refs #N". The check
+cannot tell a trivial fix from a change that needed an issue, so this one
+passes; a maintainer applies `skip-issue` to a small fix and the next run drops
+`no-issue`.
 
 Unclaimed: adds the `unclaimed` label, posts one comment (found again by a
 hidden marker, so re-runs do not repeat it) and exits 1. Claimed: removes the
@@ -32,12 +39,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
 LABEL = "unclaimed"
+NO_ISSUE_LABEL = "no-issue"
+SKIP_ISSUE_LABEL = "skip-issue"
 WORKFLOW = ".github/workflows/claim-check.yml"
 MARKER = "<!-- claim-check -->"
+NO_ISSUE_MARKER = "<!-- claim-check:no-issue -->"
 EXEMPT_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 # ponytail: first 100 comments per issue; an issue with more would need pagination.
@@ -48,8 +59,11 @@ query($owner: String!, $name: String!, $number: Int!) {
       author { login __typename }
       authorAssociation
       createdAt
+      body
       labels(first: 50) { nodes { name } }
       comments(first: 100) { nodes { body } }
+      # ponytail: first 100 files; a src/ change past the 100th file goes unseen.
+      files(first: 100) { nodes { path } }
       closingIssuesReferences(first: 10) {
         nodes {
           number
@@ -71,12 +85,53 @@ Please comment on the issue now. Once a maintainer has confirmed and assigned yo
 """
 
 
+NO_ISSUE_COMMENT = f"""{NO_ISSUE_MARKER}
+This pull request changes code under `src/` but does not link an issue (`Fixes #N`).
+
+CONTRIBUTING.md asks for an issue first for any non-trivial change, so that the approach can be agreed before the code is written: https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md#before-you-start-claim-the-issue
+
+@{{author}}, if there is an issue for this, link it in the description. If not, please open one describing the problem and the approach. For a small fix a maintainer may mark this PR `skip-issue` instead.
+"""
+
+
+def is_exempt(pr: dict) -> bool:
+    """Bots, owners, members and collaborators are not checked."""
+    author = pr["author"] or {}
+    return author.get("__typename") == "Bot" or pr["authorAssociation"] in EXEMPT_ASSOCIATIONS
+
+
+def label_names(pr: dict) -> set[str]:
+    return {label["name"] for label in pr["labels"]["nodes"]}
+
+
+# ponytail: any "#N" or issue URL in the description counts as a link, PR numbers
+# included; telling issues from PRs would cost an API call per number.
+ISSUE_REF = re.compile(r"(?:^|[^\w&])#\d+\b|/issues/\d+")
+# The PR template's hidden hint reads "Fixes #123"; a description that keeps it
+# links nothing, so HTML comments are dropped before the search.
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def needs_issue(pr: dict) -> bool:
+    """A non-exempt PR that changes src/ and links no issue, unless marked skip-issue.
+
+    "Refs #N" or "part of #N" counts as a link: a PR that fixes only part of an
+    issue deliberately leaves out "Fixes #N" so the issue stays open.
+    """
+    if is_exempt(pr) or pr["closingIssuesReferences"]["nodes"]:
+        return False
+    if ISSUE_REF.search(HTML_COMMENT.sub("", pr.get("body") or "")):
+        return False
+    if SKIP_ISSUE_LABEL in label_names(pr):
+        return False
+    return any(f["path"].startswith("src/") for f in pr["files"]["nodes"])
+
+
 def unclaimed_issues(pr: dict) -> list[int]:
     """Numbers of the issues this PR closes that its author did not claim."""
-    author = pr["author"] or {}
-    if author.get("__typename") == "Bot" or pr["authorAssociation"] in EXEMPT_ASSOCIATIONS:
+    if is_exempt(pr):
         return []
-    login = author.get("login")
+    login = (pr["author"] or {}).get("login")
     unclaimed = []
     for issue in pr["closingIssuesReferences"]["nodes"]:
         assigned = any(a["login"] == login for a in issue["assignees"]["nodes"])
@@ -119,13 +174,36 @@ def fetch_pr(repo: str, number: int) -> dict:
     return graphql(QUERY, repo, number)["pullRequest"]
 
 
+def has_marker(pr: dict, marker: str) -> bool:
+    # The first run comes when the PR opens, so the marker is among its first comments.
+    return any(marker in c["body"] for c in pr["comments"]["nodes"])
+
+
+def sync_no_issue(pr: dict, issue_api: str, number: int, dry_run: bool) -> None:
+    """Label and comment a PR that needs an issue; drop the label once it does not."""
+    labelled = NO_ISSUE_LABEL in label_names(pr)
+    if not needs_issue(pr):
+        if labelled and not dry_run:
+            gh("api", "-X", "DELETE", f"{issue_api}/labels/{NO_ISSUE_LABEL}")
+        return
+    print(f"PR #{number}: changes src/ without a linked issue")
+    if dry_run:
+        return
+    if not labelled:
+        gh("api", f"{issue_api}/labels", "-f", f"labels[]={NO_ISSUE_LABEL}")
+    if not has_marker(pr, NO_ISSUE_MARKER):
+        body = NO_ISSUE_COMMENT.format(author=pr["author"]["login"])
+        gh("api", f"{issue_api}/comments", "-F", "body=@-", stdin=body)
+
+
 def check_pr(repo: str, number: int, dry_run: bool) -> int:
     pr = fetch_pr(repo, number)
-    issues = unclaimed_issues(pr)
-    labelled = any(label["name"] == LABEL for label in pr["labels"]["nodes"])
     # REST, not `gh pr edit`/`gh pr comment`: those also query classic projects,
     # which fails under a GITHUB_TOKEN on some gh versions.
     issue_api = f"repos/{repo}/issues/{number}"
+    sync_no_issue(pr, issue_api, number, dry_run)
+    issues = unclaimed_issues(pr)
+    labelled = LABEL in label_names(pr)
 
     if not issues:
         print(f"PR #{number}: claimed, exempt, or closes no issue")
@@ -139,8 +217,7 @@ def check_pr(repo: str, number: int, dry_run: bool) -> int:
         return 1
     if not labelled:
         gh("api", f"{issue_api}/labels", "-f", f"labels[]={LABEL}")
-    # The first run comes when the PR opens, so the marker is among its first comments.
-    if not any(MARKER in c["body"] for c in pr["comments"]["nodes"]):
+    if not has_marker(pr, MARKER):
         body = COMMENT.format(issues=refs, author=pr["author"]["login"])
         gh("api", f"{issue_api}/comments", "-F", "body=@-", stdin=body)
     return 1

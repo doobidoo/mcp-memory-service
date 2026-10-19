@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
+    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore', 'site/**']
   # No paths-ignore on pull_request: the test jobs are required checks, and a
   # workflow that never starts never reports them, so a docs-only PR would wait
   # forever. The `changes` job below skips the test matrix instead; a job skipped
@@ -93,7 +93,7 @@ jobs:
 
   hooks-tests:
     runs-on: ubuntu-latest
-    name: JS Tests (claude-hooks/, opencode/)
+    name: JS Tests (claude-hooks/, opencode/, codex/)
     timeout-minutes: 10
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

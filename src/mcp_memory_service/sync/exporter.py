@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 from ..storage.base import MemoryStorage
 
@@ -76,7 +77,7 @@ class MemoryExporter:
         Returns:
             Export metadata dictionary with statistics
         """
-        logger.info(f"Starting memory export to {output_file}")
+        logger.info("Starting memory export to %s", _sanitize_log_value(output_file))
         
         # Get all memories from storage
         all_memories = await self._get_filtered_memories(filter_tags)
@@ -114,8 +115,10 @@ class MemoryExporter:
         
         # Log success
         file_size = output_file.stat().st_size
-        logger.info(f"Export completed: {len(all_memories)} memories written to {output_file}")
-        logger.info(f"File size: {file_size / 1024 / 1024:.2f} MB")
+        logger.info(
+            "Export completed: %d memories written to %s", len(all_memories), _sanitize_log_value(output_file)
+        )
+        logger.info("File size: %.2f MB", file_size / 1024 / 1024)
         
         # Return summary statistics
         return {

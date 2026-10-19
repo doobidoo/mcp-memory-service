@@ -37,13 +37,13 @@ def _is_local_only(server, tool_name: Optional[str]) -> bool:
     return tool_name in server.local_only_tools()
 
 
-async def _requires_write(server, tool_name: Optional[str]) -> bool:
+async def _requires_write(server, tool_name: Optional[str], arguments: Optional[dict] = None) -> bool:
     """Return True if calling this tool requires the 'write' scope.
 
     The classification lives on `MemoryServer.tool_requires_write`, which
     the SSE and Streamable HTTP transports use too (GHSA-9x7v-2vjj-xghg).
     """
-    return await server.tool_requires_write(tool_name)
+    return await server.tool_requires_write(tool_name, arguments)
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
@@ -214,7 +214,7 @@ async def mcp_endpoint(
 
             # Mutating tools require 'write' scope even through MCP. Read-only
             # tools remain accessible with 'read' scope (GHSA-2r68-g678-7qr3).
-            if await _requires_write(server, tool_name) and not user.has_scope("write"):
+            if await _requires_write(server, tool_name, arguments) and not user.has_scope("write"):
                 response = MCPResponse(
                     id=request.id,
                     error={

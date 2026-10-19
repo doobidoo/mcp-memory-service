@@ -12,6 +12,8 @@ correctly rejected with 403.
 import pytest
 import tempfile
 import os
+import json
+import sqlite3
 from fastapi.testclient import TestClient
 
 from mcp_memory_service.web.dependencies import set_storage
@@ -49,6 +51,9 @@ def _make_client(initialized_storage, monkeypatch, *, scope: str) -> TestClient:
     )
 
     set_storage(initialized_storage)
+    # Bind the singleton dispatcher to this test's temporary storage.
+    from mcp_memory_service.web.api import mcp
+    monkeypatch.setattr(mcp, "_memory_server", None)
 
     async def mock_user():
         return AuthenticationResult(
@@ -177,6 +182,7 @@ def test_read_tools_allowed_with_read_only_scope(read_only_client):
 # ---------------------------------------------------------------------------
 
 V10_WRITE_TOOLS = [
+    ("memory_graph", {"action": "extract_entities", "hash": "deadbeef" * 8}),
     ("memory_store", {"content": "should not be stored", "metadata": {"tags": ["poc"]}}),
     ("memory_observe", {"content": "should not be observed", "dry_run": True}),
     ("memory_store_session", {"turns": [{"role": "user", "content": "x"}]}),
@@ -274,3 +280,58 @@ def test_tools_call_without_name_returns_invalid_params(read_only_client):
     assert response.status_code == 400
     body = response.json()
     assert body["error"]["code"] == -32602, f"unexpected error: {body}"
+
+
+@pytest_asyncio.fixture
+async def graph_target(initialized_storage, temp_db, monkeypatch):
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.storage.graph import GraphStorage
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    content = "Synthetic graph authorization regression fixture"
+    memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["scope-test"])
+    ok, message = await initialized_storage.store(memory)
+    assert ok, message
+    graph = GraphStorage(temp_db)
+
+    async def local_graph():
+        return graph
+
+    monkeypatch.setattr("mcp_memory_service.server.handlers.graph.get_graph_storage", local_graph)
+    yield memory.content_hash
+    await graph.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("scope,expected_status", [("read", 403), ("read write", 200)])
+def test_graph_extraction_checks_scope_before_persisting(
+    initialized_storage, temp_db, graph_target, monkeypatch, scope, expected_status
+):
+    """Read credentials leave the real graph unchanged; write credentials persist entities."""
+    from mcp_memory_service.web.app import app
+
+    def entity_rows():
+        with sqlite3.connect(temp_db) as connection:
+            return connection.execute(
+                "SELECT COUNT(*) FROM memory_graph WHERE relationship_type = 'has_entity'"
+            ).fetchone()[0]
+
+    client = _make_client(initialized_storage, monkeypatch, scope=scope)
+    try:
+        before = entity_rows()
+        response = client.post("/mcp", json={
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": {"name": "memory_graph", "arguments": {
+                "action": "extract_entities", "hash": graph_target,
+            }},
+        })
+        assert response.status_code == expected_status, response.text
+        if scope == "read":
+            assert response.json()["error"]["code"] == -32003
+            assert entity_rows() == before
+        else:
+            result = json.loads(response.json()["result"]["content"][0]["text"])
+            assert result["entities_stored"] > 0
+            assert entity_rows() > before
+    finally:
+        app.dependency_overrides.clear()

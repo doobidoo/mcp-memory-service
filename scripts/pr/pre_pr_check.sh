@@ -116,7 +116,7 @@ is_docs_only() {
     local f
     while IFS= read -r f; do
         case "$f" in
-            docs/*|changelog.d/*|.github/*.md|LICENSE|NOTICE|.gitignore) ;;
+            docs/*|changelog.d/*|.github/*.md|LICENSE|NOTICE|.gitignore|site/*) ;;
             */*) return 1 ;;
             *.md) ;;
             *) return 1 ;;
@@ -405,6 +405,27 @@ else
     check_status "Internal Markdown links resolve" 1
     # No BROKEN lines means the script itself failed; show its traceback instead.
     { echo "$LINK_OUTPUT" | grep '^BROKEN' || echo "$LINK_OUTPUT" | tail -15; } | sed 's/^/     /'
+fi
+
+# Check 6.10: path literals in the wrong letter case (#1571). macOS resolves them
+# case-insensitively, so the test passes here and fails on the Linux runner.
+echo -e "\n${YELLOW}[6.10/9]${NC} Checking path literals against tracked file names (case)..."
+# An array, so a file name with spaces stays one argument (bash 3.2 has no mapfile).
+CASE_FILES=()
+while IFS= read -r f; do
+    if [ -f "$f" ]; then CASE_FILES+=("$f"); fi
+done < <(echo "$STAGED_FILES" | grep -E '\.(py|sh|ya?ml)$' || true)
+if [ "${#CASE_FILES[@]}" -eq 0 ]; then
+    check_status "Path literals match tracked case" 0
+else
+    set +e
+    CASE_OUTPUT=$("$PYTHON_BIN" scripts/ci/check_path_case.py "${CASE_FILES[@]}" 2>&1)
+    CASE_EXIT=$?
+    set -e
+    check_status "Path literals match tracked case" "$CASE_EXIT"
+    if [ "$CASE_EXIT" -ne 0 ]; then
+        echo "$CASE_OUTPUT" | sed 's/^/     /'
+    fi
 fi
 
 # Check 7: Docstring coverage
