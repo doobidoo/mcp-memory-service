@@ -38,6 +38,7 @@
 |-----|------|------|
 | **rfc-learning-loop** | **Aprendizado (guarda-chuva do PORQUÊ)** 🟡 parcial | **L3 injeção (memory_context) + L4 telemetria (usage_events) NO CÓDIGO; L2 belief store destila. Linhagem: self-service→autolearn→mm-01/02/03→learning-loop. ADR-0003/0004/0005.** |
 | rfc-ingestao-multi-agente v0.3 | Ingestão multi-agente | guarda-chuva das 3 camadas |
+| **rfc-hermes-first-class v0.1** | **Harness (Use in any agent)** 🟡 draft | **Filha da rfc-memory-portability, que deixa o Hermes fora de escopo ("já usa"). Cobre os 8 pontos que separam "conectado" de "de primeira classe": modo híbrido (D1), provider opcional (D2), doctor (D3), autoria #1598 (D4), importador do state.db (D5), hooks TUI/CLI (D6), instalador (D7), porta (D8).** |
 | spec-fase0-kiro-yaml-triagem | Ingestão multi-agente | filha executável (Kiro→YAML + triagem) |
 | rfc-hub-memoria-centralizada | Hub/Sync | transporte HISTÓRICO — ADR-0002 escolheu delta-sync |
 | rfc-delta-sync | Hub/Sync | **transporte ESCOLHIDO (ADR-0002)** · §8 invariantes #1345 portados |
