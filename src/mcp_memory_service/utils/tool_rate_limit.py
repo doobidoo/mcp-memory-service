@@ -23,23 +23,17 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from threading import Lock
 
+# Reuse the canonical log-injection guard (compat imports nothing, so there
+# is no import cycle; db_utils.py, health_check.py and others already import
+# from it): the tool name reaching the warnings below is client-controlled,
+# so newlines/CR/ESC must not reach the log stream (CodeQL py/log-injection).
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_KEYS = 4096
 _WINDOW_SECONDS = 60.0
 _UNSET = object()
-
-
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a value for safe inclusion in log messages.
-
-    Mirrors ``_sanitize_log_value`` in ``server_impl.py`` (kept local to
-    avoid an import cycle): the tool name reaching the warnings below is
-    client-controlled, so newlines/CR/ESC must not reach the log stream
-    (CodeQL py/log-injection).
-    """
-
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
 @dataclass(frozen=True)

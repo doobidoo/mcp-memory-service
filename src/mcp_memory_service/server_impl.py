@@ -1463,7 +1463,9 @@ class MemoryServer:
             return await self.list_tools()
         
         @self.server.call_tool()
-        async def handle_call_tool(name: str, arguments: dict | None) -> List[types.TextContent]:
+        async def handle_call_tool(
+            name: str, arguments: dict | None
+        ) -> List[types.TextContent] | types.CallToolResult:
             return await self.call_tool(name, arguments)
 
 
@@ -1715,7 +1717,9 @@ class MemoryServer:
             error_response = json.dumps({"error": str(e)})
             return [types.TextContent(type="text", text=error_response)]
 
-    async def handle_call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
+    async def handle_call_tool(
+        self, name: str, arguments: dict | None
+    ) -> List[types.TextContent] | types.CallToolResult:
         """Public alias for call_tool (used by tests)."""
         return await self.call_tool(name, arguments)
 
