@@ -689,3 +689,27 @@ Correcao (commit `4bbb5eb3`):
 **Licao (a terceira desta sessao):** antes de implementar, identificar QUAL funcao o transporte
 real chama. `grep` do nome da tool no `server_impl` -> `handlers` -> funcao concreta. Implementar
 na camada "certa" por arquitetura (servico) sem confirmar o call graph gasta uma fatia inteira.
+
+## E17 — F2 aplicado no vivo (19/out)
+
+Merge de `fix/store-visibility` na `main` (`394b4a49`), restart do servico, R2/R5 acrescentados ao
+caminho MCP (`018a7265`).
+
+**Distribuicao real deste banco** (corrige o pressuposto que veio de outro host): `default` 28.964,
+`mms` 7, `inbox` 7. Nao ha `mir`/`docs-shared`/`hackathon` aqui — os 7.466 (26,9%) eram de outra
+maquina. A prova foi feita com `mms`.
+
+**E2E no servico vivo** (hash alvo `76e55dfb…`, store `mms`):
+
+| request | resultado |
+|---|---|
+| `store` omitido | achou=True · `scope: default, inbox, mms` |
+| `store="default"` | achou=False (isolamento preservado) |
+| `store="mms"` | achou=True · `scope: mms` |
+
+Item formatado no vivo: `Created: 2026-10-18T13:48:30Z [source:sirdata] [store: mms]`.
+
+Testes: `tests/ -k store` = **429 passed, 22 skipped, 1 xfailed**.
+
+**Armadilha registrada:** o primeiro teste de E2E deu falso positivo porque procurava a string
+"Inbox mms" no texto — palavras comuns no corpus. A prova valida e por HASH da memoria alvo.
