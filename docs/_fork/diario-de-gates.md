@@ -663,3 +663,29 @@ candidatos (o ouro fora dos 40 continua fora) — o reranker reordena, nao inven
 Duas configuracoes defensaveis: 40 cands/2,1 s para busca profunda sob demanda; 100 cands/5,3 s
 para batch e avaliacao offline. Nenhuma delas justifica ligar o reranker no `memory_search`
 padrao, que responde em 0,2 s.
+
+## E16 — F2 fatia 2: o gap nao estava onde eu supus (19/out)
+
+A fatia 1 (commit `c08c39ef`, `MemoryService.retrieve_memories`) foi implementada no **caminho
+errado**: `handle_memory_search` do MCP nao passa pelo `MemoryService` — chama
+`_retrieve_search_results(storage, arguments, normalize_tags)` direto. Naquele helper,
+`store = arguments.get("store", "default")` mantinha a busca presa no default mesmo com o
+argumento omitido, e os fallbacks (`_search_exact_fallback`, `_search_tag_fallback`) nem sequer
+recebiam o escopo.
+
+Consequencia: a fatia 1 melhora a camada de servico (usada pela Web API), mas nao alterava o
+comportamento do MCP. Descoberto ao medir o caminho real, nao ao ler o diff.
+
+Correcao (commit `4bbb5eb3`):
+- `_resolve_store_scope(arguments)`: omitido/vazio/`"all"` -> None (todos); qualquer outro ->
+  particao exata.
+- fallbacks exact e tag propagam o escopo resolvido.
+- 11 testes novos (`tests/test_store_handler_scope.py`): 4 modos x escopo, fallback e regra do
+  helper. `tests/ -k store` = **429 passed, 22 skipped, 1 xfailed**.
+- Load-bearing provado revertendo SO o comportamento (`store = arguments.get("store","default")`)
+  com o helper mantido: 5 falhas nomeadas, sem erro de colecao. Reverter o arquivo inteiro dava
+  `ImportError` — RED invalido por preparacao, nao por defeito.
+
+**Licao (a terceira desta sessao):** antes de implementar, identificar QUAL funcao o transporte
+real chama. `grep` do nome da tool no `server_impl` -> `handlers` -> funcao concreta. Implementar
+na camada "certa" por arquitetura (servico) sem confirmar o call graph gasta uma fatia inteira.
