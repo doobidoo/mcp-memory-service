@@ -398,3 +398,54 @@ Artefatos: `eval/lab_store_visibility.json`, `eval/lab_store_visibility_xstore.j
 
 
 
+
+## E11 — migração aplicada em PRODUÇÃO (19/out)
+
+Execução autorizada pelo Claudio. Serviço parado às 13:51, religado às 14:09.
+Backup verificado antes: `~/local-data/mcp/lab/pre-migracao-posstop.db`
+(`sqlite3 .backup`, 1,2 GB, `integrity_check ok`, 29.423 memórias).
+
+### E11.1 Incidente: rodei o migrador errado (detectado antes de subir o serviço)
+
+Primeira execução usou `scripts/maintenance/migrate_embeddings.py` da **branch de bancada
+`lab/precisao-recall`**, que não tem a correção `13c0b967` (ela vive na `main`). Resultado:
+`memory_embeddings` recriada **sem** `store TEXT partition key`, 28.738 vetores inseridos.
+
+Detecção: o harness rodou com o serviço ainda parado e devolveu `semantic = 0,000` e
+`ranked = 0,000` com `hybrid = 0,733`. O zero no ramo semântico com híbrido funcionando é a
+assinatura de partição perdida (o filtro `store` estoura em `no such column: store`; o
+híbrido chega ao resultado pela via FTS).
+
+Contenção: banco defeituoso preservado como `sqlite_vec.db.migrado-sem-particao-20261019`;
+restauração a partir do backup `.backup` (não do `copy2` do migrador); nova migração com o
+script da **main**.
+
+**Lição (vira regra):** antes de rodar script de manutenção, verificar que a correção
+conhecida está no arquivo que se vai executar — `grep -c "partition key" <script>` tem de
+ser ≥1 neste caso. Branch de bancada não herda correção da `main` sozinha; nesta data a
+branch recebeu o cherry-pick `90cf1e8f` e foi pushada.
+
+Segunda lição, de método: **medir antes de religar o serviço** foi o que conteve o dano.
+Se o serviço tivesse subido antes da medição, o defeito apareceria como "busca quebrada"
+sem causa identificada.
+
+### E11.2 Resultado (banco vivo, régua por documento)
+
+| métrica | antes (config viva, índice misto) | depois (uniforme paraphrase) |
+|---|---|---|
+| documento @10 | 0,008 | **0,567** |
+| documento @30 | 0,017 | **0,675** |
+| documento @100 | 0,017 | **0,750** |
+| termo-any @10 (harness) | 0,292 | **0,775** |
+
+- 120 casos válidos, 0 inválidos, sem warning de corpus misto.
+- 28.738 vetores uniformes · 623.322 arestas preservadas · 476,8 s de geração.
+- Banco: 1.195,1 MB → **910,5 MB** · `PRAGMA integrity_check` ok · KNN ok.
+- Serviço: `/health` ok; busca real por MCP devolveu como top-1 a decisão da Fase 5 do
+  delta-sync, **criada em 10/out** (coorte que antes era inalcançável).
+- Latência medida (5 resultados): 0,19 / 0,28 / 0,21 s · payload 7,7–11,4 KB.
+
+**Comparação com o E8 (0,592 em cópia):** a régua agora dá 0,567 (−2,5 p.p.). Não é
+regressão da migração: o acervo cresceu ~961 memórias entre 18 e 19/out, o que aumenta o
+número de distratores para o mesmo gabarito. O número correto a citar é este, medido no
+acervo vivo; o 0,592 foi medido em cópia do snapshot de 18/out.
