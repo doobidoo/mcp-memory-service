@@ -713,3 +713,25 @@ Testes: `tests/ -k store` = **429 passed, 22 skipped, 1 xfailed**.
 
 **Armadilha registrada:** o primeiro teste de E2E deu falso positivo porque procurava a string
 "Inbox mms" no texto — palavras comuns no corpus. A prova valida e por HASH da memoria alvo.
+
+## E18 — #1601: causa raiz era o dispatcher, nao o handler (19/out)
+
+O defeito `isError:false` nao estava so em `handle_store_memory`: o dispatcher
+(`server_impl.call_tool`, ~L1633) capturava **qualquer** excecao de tool e devolvia
+`{"error": ...}` como `TextContent` dentro de um resultado bem-sucedido. Por isso nenhum
+handler podia sinalizar falha — o envelope sempre dizia sucesso.
+
+Correcao (`866bbff4`):
+- dispatcher: loga e **re-levanta** (o SDK mapeia excecao para `isError=True`);
+- `handle_store_memory` e `handle_store_session`: recusa de escrita levanta, nao retorna;
+- `except` de ambos re-levanta (antes reembalava o erro em texto).
+- Teste de integracao no transporte real (`tests/integration/test_store_error_envelope.py`):
+  recusa -> `isError=True`; aceite -> `False`. Load-bearing provado revertendo o dispatcher.
+
+**Pre-existentes do merge upstream** (nao regressao nossa, comprovado por `git stash`):
+9 falhas em `tests/unit/test_entity_filter_log_forgery.py` e
+`tests/unit/test_vector_search_eligible_rows.py`.
+
+**Armadilha de E2E:** `curl` no streamable-http recebe apenas o evento `: ping` em
+`memory_store` — o resultado vem por outro evento e o curl nao o entrega. Prova confiavel no
+vivo: consulta ao banco + cliente MCP real (o mesmo dos testes). Busca via curl funciona.
