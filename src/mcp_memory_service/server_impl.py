@@ -2259,6 +2259,7 @@ class MemoryServer:
                     "source": "observation",
                     "outcome": outcome,
                 },
+                agent_id=agent_id,
             )
             observations_created += 1
 
@@ -2285,6 +2286,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2301,6 +2303,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2451,6 +2454,7 @@ class MemoryServer:
                     "observation_type": "session_legacy",
                     "source": "observation",
                 },
+                agent_id=agent_id,
             )
         except Exception as e:
             logger.debug("Failed to increment session counter: %s", _sanitize_log_value(e))
