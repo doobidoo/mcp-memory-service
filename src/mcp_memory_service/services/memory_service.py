@@ -159,6 +159,7 @@ class MemoryResult(TypedDict):
     updated_at: str
     created_at_iso: str
     updated_at_iso: str
+    store: Optional[str]
 
 
 # Store Memory Return Types
@@ -208,6 +209,7 @@ class RetrieveMemoriesSuccess(TypedDict):
     memories: List[MemoryResult]
     query: str
     count: int
+    stores_searched: List[str]
 
 
 class RetrieveMemoriesError(TypedDict):
@@ -215,6 +217,7 @@ class RetrieveMemoriesError(TypedDict):
     memories: List[MemoryResult]
     query: str
     error: str
+    stores_searched: List[str]
 
 
 # Search by Tag Return Types
@@ -769,7 +772,8 @@ class MemoryService:
         query: str,
         n_results: int = 10,
         tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
+        store: Optional[str] = None
     ) -> Union[RetrieveMemoriesSuccess, RetrieveMemoriesError]:
         """
         Retrieve memories by semantic search with optional filtering.
@@ -779,17 +783,30 @@ class MemoryService:
             n_results: Maximum number of results
             tags: Optional tag filtering
             memory_type: Optional memory type filtering
+            store: Store scope. None (default) searches EVERY store; an explicit
+                store name (e.g. "default") restricts the search to that store.
+                See spec-store-visibility R1/R3.
 
         Returns:
-            Dictionary with search results
+            Dictionary with search results and the effective scope
+            (``stores_searched``, R5).
         """
+        # Effective scope, declared in the response (R5). Bound before the try so
+        # the error path can report it too. An explicit store is its own scope;
+        # None means "every store", resolved from memories.store below.
+        stores_searched: List[str] = [store] if store else []
         try:
-            # Retrieve memories using semantic search
-            # Note: storage.retrieve() only supports query and n_results
-            # We'll filter by tags/type after retrieval if needed
+            # Resolve the effective scope once, from memories.store (canonical).
+            # None -> every store with at least one live memory.
+            if store is None:
+                stores_searched = await self.storage.get_stores()
+
+            # Retrieve memories using semantic search.
+            # storage.retrieve() supports store-scoping on the vec0 partition key.
             memories = await self.storage.retrieve(
                 query=query,
-                n_results=n_results
+                n_results=n_results,
+                store=store
             )
 
             # Apply optional post-filtering
@@ -830,7 +847,8 @@ class MemoryService:
             return {
                 "memories": results,
                 "query": query,
-                "count": len(results)
+                "count": len(results),
+                "stores_searched": stores_searched,
             }
 
         except Exception as e:
@@ -838,7 +856,8 @@ class MemoryService:
             return {
                 "memories": [],
                 "query": query,
-                "error": f"Failed to retrieve memories: {str(e)}"
+                "error": f"Failed to retrieve memories: {str(e)}",
+                "stores_searched": stores_searched,
             }
 
     async def search_by_tag(
@@ -1044,6 +1063,7 @@ class MemoryService:
             "created_at_iso": memory.created_at_iso,
             "updated_at_iso": memory.updated_at_iso,
             "agent_id": memory.agent_id,  # Include agent_id as top-level field
+            "store": memory.store,  # Origin store, first-class (spec-store-visibility R2)
         }
 
     # ─── Mistake Notes ────────────────────────────────────────────────

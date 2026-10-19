@@ -395,8 +395,14 @@ SOLUTIONS:
             f"This appears to be a network connectivity issue common in Docker containers.\n"
         )
 
-    def _row_to_memory(self, row) -> Optional[Memory]:
-        """Convert database row to Memory object."""
+    def _row_to_memory(self, row, store: Optional[str] = None) -> Optional[Memory]:
+        """Convert database row to Memory object.
+
+        ``store`` is the origin store of the row (``memories.store``), passed by
+        callers whose SELECT projects the column. Kept as an explicit argument
+        instead of a positional row slot so the many callers with different
+        SELECT shapes stay untouched.
+        """
         try:
             content_hash, content, tags_str, memory_type, metadata_str, created_at, updated_at, created_at_iso, updated_at_iso = row[:9]
             embedding_blob = row[9] if len(row) > 9 else None
@@ -418,7 +424,8 @@ SOLUTIONS:
                 created_at=created_at,
                 updated_at=updated_at,
                 created_at_iso=created_at_iso,
-                updated_at_iso=updated_at_iso
+                updated_at_iso=updated_at_iso,
+                store=store
             )
 
         except Exception as e:

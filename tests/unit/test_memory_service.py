@@ -331,10 +331,13 @@ async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memo
     assert result["count"] == 3
     assert len(result["memories"]) == 3
 
-    # After fix: storage.retrieve() only accepts query and n_results
+    # spec-store-visibility: the service forwards the (unset) scope explicitly.
+    # store=None means "every store" — the omitted argument must NOT be turned
+    # into "default" on the way down.
     mock_storage.retrieve.assert_called_once_with(
         query="test query",
-        n_results=3
+        n_results=3,
+        store=None,
     )
 
 
@@ -365,11 +368,12 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         memory_type="note"
     )
 
-    # After fix: storage.retrieve() only accepts query and n_results
-    # Filtering is done by MemoryService after retrieval
+    # spec-store-visibility: scope is forwarded (None = all stores); tag/type
+    # filtering still happens in MemoryService after retrieval.
     mock_storage.retrieve.assert_called_once_with(
         query="test",
-        n_results=5
+        n_results=5,
+        store=None
     )
 
 
