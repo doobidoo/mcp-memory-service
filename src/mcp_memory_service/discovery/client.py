@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 from .mdns_service import ServiceDiscovery, ServiceDetails
 from ..config import MDNS_DISCOVERY_TIMEOUT, PEER_VERIFY_SSL, PEER_SSL_CA_FILE
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -113,17 +114,17 @@ class DiscoveryClient:
             for service in filtered_services:
                 health = await self.check_service_health(service)
                 if health and health.healthy:
-                    logger.info(f"Selected healthy service: {service.name} at {service.url}")
+                    logger.info("Selected healthy service: %s at %s", _sanitize_log_value(service.name), _sanitize_log_value(service.url))
                     return service
                 else:
-                    logger.warning(f"Service {service.name} failed health check: {health.error if health else 'Unknown error'}")
+                    logger.warning("Service %s failed health check: %s", _sanitize_log_value(service.name), _sanitize_log_value(health.error if health else "Unknown error"))
             
             logger.warning("No healthy services found")
             return None
         else:
             # Return first service without health validation
             best_service = filtered_services[0]
-            logger.info(f"Selected service: {best_service.name} at {best_service.url}")
+            logger.info("Selected service: %s at %s", _sanitize_log_value(best_service.name), _sanitize_log_value(best_service.url))
             return best_service
     
     async def discover_services(self) -> List[ServiceDetails]:
@@ -132,9 +133,9 @@ class DiscoveryClient:
         services = await self._discovery.discover_services()
         
         if services:
-            logger.info(f"Found {len(services)} MCP Memory Services:")
+            logger.info("Found %d MCP Memory Services:", len(services))
             for service in services:
-                logger.info(f"  - {service.name} at {service.url} (Auth: {service.requires_auth})")
+                logger.info("  - %s at %s (Auth: %s)", _sanitize_log_value(service.name), _sanitize_log_value(service.url), service.requires_auth)
         else:
             logger.info("No MCP Memory Services found")
         
@@ -245,7 +246,7 @@ class DiscoveryClient:
                         return await response.json()
                     
         except Exception as e:
-            logger.error(f"Failed to get service capabilities: {e}")
+            logger.error("Failed to get service capabilities: %s", _sanitize_log_value(e))
         
         return None
     

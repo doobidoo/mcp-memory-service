@@ -116,7 +116,7 @@ is_docs_only() {
     local f
     while IFS= read -r f; do
         case "$f" in
-            docs/*|changelog.d/*|.github/*.md|LICENSE|NOTICE|.gitignore) ;;
+            docs/*|changelog.d/*|.github/*.md|LICENSE|NOTICE|.gitignore|site/*) ;;
             */*) return 1 ;;
             *.md) ;;
             *) return 1 ;;

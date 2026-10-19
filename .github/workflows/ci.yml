@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore']
+    paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore', 'site/**']
   # No paths-ignore on pull_request: the test jobs are required checks, and a
   # workflow that never starts never reports them, so a docs-only PR would wait
   # forever. The `changes` job below skips the test matrix instead; a job skipped

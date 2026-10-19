@@ -39,6 +39,11 @@ HTTPS endpoint — see [Remote MCP Setup](remote-mcp-setup.md).
 Clients without OAuth support, Home Assistant among them, can use anonymous access on the
 LAN without patching anything: [Home Assistant setup](integration/home-assistant.md).
 
+### Mobile (REST API)
+
+iPhone and iPad can save text and links from the share sheet with a four-action Apple
+Shortcut: [iOS Shortcut setup](integrations/ios-shortcut.md).
+
 ## Official Integrations
 
 ### [MCP Memory Dashboard](https://github.com/doobidoo/mcp-memory-dashboard)(This is still wip!)
