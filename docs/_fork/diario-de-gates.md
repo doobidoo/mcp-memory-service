@@ -449,3 +449,49 @@ sem causa identificada.
 regressão da migração: o acervo cresceu ~961 memórias entre 18 e 19/out, o que aumenta o
 número de distratores para o mesmo gabarito. O número correto a citar é este, medido no
 acervo vivo; o 0,592 foi medido em cópia do snapshot de 18/out.
+
+## E12 — importador do `state.db`: bug de schema e orçamento medido (19/out)
+
+### E12.1 O importador consultava uma coluna que nunca existiu
+
+`scripts/harvest/hermes_source.py` consultava `profile_name` em `sessions`. O schema real
+do `state.db` do Hermes nao tem essa coluna (tem `source`, `user_id`, `display_name`,
+`title`, …). Resultado, no caminho real:
+
+```
+sqlite3.OperationalError: no such column: s.profile_name
+```
+
+Os 22 testes passavam porque a **fixture inventava a coluna**. E' a reincidencia exata do
+pitfall "fixture tem que reproduzir o formato REAL da fonte" — o teste protegia o
+codigo e escondia o produto.
+
+Correcao (`c9721ab4`, branch do lab): fixture reconstruida a partir de
+`sqlite3 ~/.hermes/state.db '.schema sessions'`; identidade do agente passa a vir de
+`source` (fallback `hermes`); teste novo reproduz o erro de coluna e falha antes do fix.
+Depois: **29 testes verdes** e dry-run real funcionando.
+
+### E12.2 O acervo de sessoes do Hermes neste host e pequeno
+
+`select count(*) from sessions` = **7** (3 `cli`, 2 `tui` na primeira medicao; cresce a cada
+sessao nova). O dry-run de 18/out que reportava 107 sessoes **nao e reproduzivel neste
+estado** — o numero precisa ser re-medido sempre, nunca citado de relatorio antigo.
+
+### E12.3 Orcamento: o criterio de 10% nao se aplica a este acervo, e o desperdicio e real
+
+`MAX_SESSION_CHARS = 15_000` por sessao (head 70% / tail 30%). Medido no acervo atual
+(7 sessoes, 6 elegiveis), com o script em copia temporaria (constante e default de
+argumento — monkeypatch depois do import NAO tem efeito):
+
+| teto por sessao | chars enviados | sessoes truncadas | turnos perdidos |
+|---|---|---|---|
+| 15k (atual) | 71.396 | 4 de 6 | **711** |
+| 30k | 124.736 | 3 de 6 | 375 |
+| 60k | 186.059 | 1 de 6 | 77 |
+
+Leitura correta: o criterio CA3 (≤10% do lido) foi calibrado para um acervo de 107
+sessoes; com 6 elegiveis ele mede proporcao de conjunto pequeno, nao desperdicio. O numero
+que importa e **turno perdido** — 711 turnos e perda de conhecimento, nao economia.
+
+**`--apply` NAO foi executado.** A escrita e irreversivel (o importador marca a sessao como
+importada) e a escolha do teto e decisao de produto — pendente com o Claudio.
