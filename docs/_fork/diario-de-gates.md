@@ -735,3 +735,43 @@ Correcao (`866bbff4`):
 **Armadilha de E2E:** `curl` no streamable-http recebe apenas o evento `: ping` em
 `memory_store` — o resultado vem por outro evento e o curl nao o entrega. Prova confiavel no
 vivo: consulta ao banco + cliente MCP real (o mesmo dos testes). Busca via curl funciona.
+
+## E19 — #1603 mergeado: o que o revisor viu e o CI nao (19/out)
+
+PR #1603 mergeado por doobidoo (20:21), issue #1601 fechada. Greptile: APPROVED. CI 17/17 verde.
+
+### Os 3 P1 do Greptile (todos procedentes)
+
+1. **Payload vazio ainda "sucedia"**: `memory_store` com `content:""` retornava antes do caminho de erro;
+   `memory_store_session` idem quando todo turno era espaco. Corrigido: ambos levantam.
+2. **Chunks parciais**: `store_memory` devolve `success:True` com `failed_chunks>0`; o handler
+   reportava sucesso. Corrigido: `failed_chunks` conta como falha.
+3. **Endpoint HTTP**: o FastAPI `/mcp` chama `call_tool` sem o wrapper do SDK, entao a excecao
+   virava JSON-RPC `-32603` em vez de tool result com `isError`. Corrigido com try/except local e
+   `_wrap_tool_result(..., is_error=True)`.
+
+O achado 3 e uma consequencia DIRETA do fix original: eu tratei o caminho MCP (SDK) e esqueci o
+caminho HTTP, que e outro dispatcher. **Licao de blast radius:** "propagar excecao" tem um
+consumidor por transporte; enumere-os antes.
+
+### O que o CI pegou e o Greptile nao
+
+`tests/web/api/test_jsonrpc_endpoint.py` falhou com `-32603` — o mesmo achado 3, visto pelo teste
+antes do revisor. Confirmou o fix.
+
+### Testes que congelavam o contrato antigo
+
+6 testes esperavam `TextContent` de erro em vez de excecao:
+- `test_server_handlers.py` (3): atualizados para `pytest.raises`.
+- `test_unified_handlers.py` (3): o **setup** gravava fixture e morria na dedup semantica, porque
+  textos com mesmo prefixo e UUID diferente sao considerados similares. Criado `_store_fixture()`
+  que tolera recusa por dedup e propaga qualquer outro erro — o teste e sobre delete/list.
+
+**Licao:** quando o contrato de erro muda, o que quebra nao sao so as assercoes — e o **setup**
+que dependia do caminho silencioso.
+
+### Numeros
+
+- Suite integracao+web: **507 passed** (base limpa `476db1c8`: 501, +6 testes novos).
+- CI do PR: 17 pass, 1 skipping, 0 fail.
+- Fork sincronizado: `be9a1636`.
