@@ -578,3 +578,18 @@ direta de `store_memory` — fica correta quando o handler passar o argumento.
 **Licao de metodo:** o achado do revisor automatico nomeia UM sintoma; o grafo mostra a classe.
 Corrigir so o ponto apontado deixaria tres caminhos com o mesmo defeito — e o teste novo cobre
 apenas o caminho que o revisor viu.
+
+### E13.6 Delegacao: briefing grande estoura o contexto do subagente
+
+O primeiro subagente que atacou os 3 achados do Greptile terminou com
+`Context length exceeded: max compression attempts (3) reached` — 13 chamadas de API, nenhum
+commit, nenhum relatorio. Causa: um unico briefing com os TRES achados + o teste de integracao
+de ~400 linhas como referencia + contratos de prova.
+
+**Regra adotada:** fatiar por ARQUIVO, nao por achado. Achados no mesmo arquivo vao juntos
+(compartilham contexto); achados em arquivos diferentes vao em worktrees diferentes, para nao
+colidir na escrita. Briefing minimo: caminho, sintoma em 2 linhas, correcao exigida, testes,
+provas. Nada de colar o teste existente inteiro — basta mandar nao altera-lo.
+
+Resultado desta rodada: `pr-fix-a` (server_impl: 4 chamadas de `store_memory`) e `pr-fix-b`
+(agent_context: normalizacao de tipo + sanitizacao de log), dois worktrees, dois subagentes.
