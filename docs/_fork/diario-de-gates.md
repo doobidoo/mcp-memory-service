@@ -647,3 +647,19 @@ profunda sob demanda. NAO ligar em `memory_search` comum sem decisao explicita.
 Regra: download de modelo se valida por `content-length` vs tamanho no disco antes de culpar o
 runtime. Wrapper local: `eval/run_f5_local.py` (monkeypatch de `hf_hub_download`, sem tocar a
 logica de medicao).
+
+### E15.2 Curva de candidatos (medida, nao estimada)
+
+Mesmo dump/regua, variando quantos candidatos o reranker reprocessa:
+
+| candidatos | @5 | @10 | @30 | ganho @10 | p50 |
+|---|---|---|---|---|---|
+| base (sem reranker) | 0,4917 | 0,5667 | 0,675 | — | 0,19-0,28 s |
+| **40** | 0,6417 | **0,6667** | 0,675 | **+10,0 p.p.** | **2.098 ms** |
+| 100 | 0,7083 | **0,7333** | 0,7417 | **+16,66 p.p.** | 5.314 ms |
+
+Leitura: 40 candidatos entregam 60% do ganho com 40% da latencia. O @30 nao muda com 40
+candidatos (o ouro fora dos 40 continua fora) — o reranker reordena, nao inventa candidato.
+Duas configuracoes defensaveis: 40 cands/2,1 s para busca profunda sob demanda; 100 cands/5,3 s
+para batch e avaliacao offline. Nenhuma delas justifica ligar o reranker no `memory_search`
+padrao, que responde em 0,2 s.
