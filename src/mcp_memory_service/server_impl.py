@@ -1629,8 +1629,11 @@ class MemoryServer:
             return [types.TextContent(type="text", text=str(result))]
         except Exception as e:
             logger.error("Error in tool %s: %s", _sanitize_log_value(name), _sanitize_log_value(e), exc_info=True)
-            error_response = json.dumps({"error": str(e)})
-            return [types.TextContent(type="text", text=error_response)]
+            # Propagate instead of returning the error as text: the SDK maps an
+            # exception to isError=True, which is the only signal automation can
+            # trust. Returning TextContent made every failed tool look successful
+            # (#1601), so harvesters advanced their cursors over lost payloads.
+            raise
 
     async def handle_call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
         """Public alias for call_tool (used by tests)."""
