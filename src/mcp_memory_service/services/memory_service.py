@@ -37,7 +37,10 @@ from ..models.memory import Memory
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
-from ..utils.agent_context import get_current_agent_id
+from ..utils.agent_context import (
+    log_agent_id_resolution,
+    resolve_agent_id,
+)
 from ..quality.async_scorer import async_scorer
 
 logger = logging.getLogger(__name__)
@@ -440,18 +443,14 @@ class MemoryService:
             # SINGLE resolution point; no tool duplicates this logic. The header
             # ATTRIBUTES authorship — it is not authentication (the ContextVar is
             # populated by the streamable-http ASGI middleware from X-Agent-ID and
-            # grants no permission). Precedence:
+            # grants no permission). Precedence lives in resolve_agent_id():
             #   explicit arg > request header (ContextVar) > MCP_AGENT_ID env >
             #   agent_id already present in the caller's metadata
             #   (harvest/bootstrap/commit_session path) > unset (null = unknown).
-            resolved_agent_id = (
-                agent_id
-                or get_current_agent_id()
-                or os.environ.get("MCP_AGENT_ID")
-                or final_metadata.get("agent_id")
-            )
-            if resolved_agent_id:
-                final_metadata["agent_id"] = resolved_agent_id
+            resolution = resolve_agent_id(explicit=agent_id, metadata=final_metadata)
+            log_agent_id_resolution(resolution, context="store_memory")
+            if resolution.agent_id:
+                final_metadata["agent_id"] = resolution.agent_id
 
             # Generate content hash for deduplication
             content_hash = generate_content_hash(content)
@@ -638,10 +637,14 @@ class MemoryService:
         final_metadata = dict(metadata) if metadata else {}
         for key in ("tags", "type"):
             final_metadata.pop(key, None)
-        # Same RFC #1100 precedence as store_memory(), minus the explicit arg.
-        resolved_agent_id = os.environ.get("MCP_AGENT_ID") or final_metadata.get("agent_id")
-        if resolved_agent_id:
-            final_metadata["agent_id"] = resolved_agent_id
+        # Same RFC #1100 + spec-agent-id-streamable precedence as store_memory(),
+        # via the shared resolve_agent_id() helper. evolve_memory() has no explicit
+        # agent_id argument, so the chain is: request header (ContextVar) >
+        # MCP_AGENT_ID env > agent_id already in the caller's metadata.
+        resolution = resolve_agent_id(metadata=final_metadata)
+        log_agent_id_resolution(resolution, context="evolve_memory")
+        if resolution.agent_id:
+            final_metadata["agent_id"] = resolution.agent_id
         # The new version is already committed from here on, so a failure below
         # is reported and worked around rather than turned into a failed evolve.
         if final_metadata:
