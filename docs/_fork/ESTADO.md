@@ -2,23 +2,20 @@
 
 ## ⚡ ATUALIZAÇÃO 19/out/2026 (leia antes da árvore)
 
-- **ÍNDICE MIGRADO EM PRODUÇÃO (F1)** — o acervo estava partido em 3 espaços vetoriais
-  (35,8% `all-MiniLM`, 64,2% `paraphrase`, ~2.100 órfãos) e a busca real media **0,008**
-  de recall@10 (régua por documento). Re-embeddado uniforme com `paraphrase-multilingual`:
-  **@10 0,567 · @30 0,675 · @100 0,750**. Banco 1.195 → 910,5 MB. Detalhe e incidente em
-  `diario-de-gates.md` §E11.
-- **AUTORIA (F3)** — `X-Agent-ID` ignorado no transporte streamable-http. Spec
-  `rfc/planned/spec-agent-id-streamable.md`; RED+GREEN no worktree `~/git/mms/fix-agent-id`;
-  G5 pediu mudanças (log de origem + precedência nos 3 caminhos de escrita). Pendente G6.
-- **IMPORTER DO `state.db` (F4)** — consultava `profile_name`, coluna inexistente no schema
-  real (fixture inventava). Corrigido (`c9721ab4`) e medido: 6 elegíveis, teto de 15k
-  descarta **711 turnos**. `--apply` NÃO executado (decisão de teto pendente). Ver §E12.
-- **CROSS-STORE (F2)** — spec `rfc/planned/spec-store-visibility.md` pronta; 26,9% do acervo
-  é inalcançável na busca padrão (0,000 na régua xstore). Aguarda G1.
-- **Worktrees:** registro canônico em `docs/_fork/worktrees.md` (novo `lab-recall`).
+- **ACERVO — índice uniforme em produção.** Os vetores estavam partidos em três espaços
+  (35,8% `all-MiniLM`, 64,2% `paraphrase`, ~2.100 órfãos) e isso inviabilizava qualquer
+  medição de recuperação. Re-embeddado uniforme com `paraphrase-multilingual`: régua por
+  documento **@10 0,567 · @30 0,675 · @100 0,750** (antes 0,008 / 0,017 / 0,017). Banco
+  1.195 → 910,5 MB. **Toda medição de recall passa a ser lida contra esta régua.**
+  Detalhe operacional em `diario-de-gates.md` §E11.
+- **Worktrees:** `docs/_fork/worktrees.md` é o registro canônico (inclui `lab-recall`,
+  `pr-agent-id`, `pr-fix-a`, `pr-fix-b`).
+- **Bugs e apoio pontual NÃO entram neste mapa** (regra de curadoria mantida): autoria
+  `X-Agent-ID`, importer do `state.db`, visibilidade cross-store e migrador `vec0` vivem em
+  `diario-de-gates.md` §E11–§E13 e na memória. O migrador já subiu como PR #1589.
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-14 (fork sincronizado v12.0.0; arco novo INBOX INTER-AGENTE = RFC + discussion #1529; delta-sync reabriu 1 ponto de design = ADR-0012 v2 tombstone via auditoria #1522 do Henry. NOTA DE CURADORIA: bugs/apoio pontual ao Henry — #1522 #3/#4, #1521, #1518, PRs #1530/#1531 — NÃO entram aqui; vivem no task-orch + memória. Este mapa é só dos NOSSOS ARCOS). Antes (13/out): venv-ONNX blindado; INC2+INC6 done; INC4 reposicionado (arco 40e6ecfb). F4 upstream TRAVADA (CLIENT não 100% feliz — loop-lento+ranking+fragmentos-lixo).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-19 (bloco acima); a árvore dos arcos foi medida em 2026-10-14 (fork sincronizado v12.0.0; arco novo INBOX INTER-AGENTE = RFC + discussion #1529; delta-sync reabriu 1 ponto de design = ADR-0012 v2 tombstone via auditoria #1522 do Henry. NOTA DE CURADORIA: bugs/apoio pontual ao Henry — #1522 #3/#4, #1521, #1518, PRs #1530/#1531 — NÃO entram aqui; vivem no task-orch + memória. Este mapa é só dos NOSSOS ARCOS). Antes (13/out): venv-ONNX blindado; INC2+INC6 done; INC4 reposicionado (arco 40e6ecfb). F4 upstream TRAVADA (CLIENT não 100% feliz — loop-lento+ranking+fragmentos-lixo).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente · 09/out)
