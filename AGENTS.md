@@ -91,6 +91,7 @@ RETURN caller.name, caller.filePath
 - **`~/git/mcp-memory-service`** (ESTE) → branch **`main`** = LINHA VIVA = `upstream/main` (v11.12.0) + camada nossa (docs/rfc, feats fork-only: Store-NER, harvest provenance/re-harvest, NLI wire, **harvest on-demand action com path+guard (0ccaf01e)**, AGENTS). **O SERVIÇO systemd roda daqui** (venv editable uv, `--user memory-service`). Banco: `~/local-data/mcp/sqlite_vec.db`.
 - **`~/git/mcp-memory-service-dev`** → worktree da pilha de PRs (branches `pr/NNNN`, saem de `upstream/main`).
 - **`upstream`** = GitHub doobidoo (fetch-only). Push só no fork (`github`).
+- **Worktrees** (um por sessão — trabalhar no de outra sessão causa colisão): `~/git/mms/mms-dev` (PRs), `~/git/mms/mms-pr-recreate-of`, `~/git/mms/_wt-fsspec-214`, **`~/git/mms/lab-recall`** (bancada de recall, branch `lab/precisao-recall-tpol`), e dois fora do `~/git` em `~/lab-learning-loop/code/{fork,upstream}`. Registro com propósito e regra: **`docs/_fork/worktrees.md`**. Worktree novo entra nessa tabela no MESMO commit.
 
 **Modelo de branches (em vigor desde 15/set):**
 ```
