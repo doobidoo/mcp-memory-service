@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import http from "node:http"
 import https from "node:https"
@@ -607,9 +607,13 @@ async function searchMemories(config, query, tags, limit) {
   return normalized
 }
 
-function inboxStateKey(inboxConfig) {
+function inboxStateKey(config) {
+  const inboxConfig = config.inbox || {}
   const tags = [...(inboxConfig.tags || [])].map(String).sort()
-  return JSON.stringify({ tags, agentId: inboxConfig.agentId || null })
+  const endpoint = String(
+    config.memoryService?.endpoint || DEFAULT_CONFIG.memoryService.endpoint,
+  ).replace(/\/+$/, "")
+  return JSON.stringify({ endpoint, tags, agentId: inboxConfig.agentId || null })
 }
 
 async function readInboxState(stateFile) {
@@ -628,10 +632,33 @@ async function readInboxMarker(key, stateFile = INBOX_STATE_FILE) {
 }
 
 async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
-  const state = await readInboxState(stateFile)
-  state.markers = { ...(state.markers || {}), [key]: marker }
   await mkdir(path.dirname(stateFile), { recursive: true })
-  await writeFile(stateFile, JSON.stringify(state, null, 2))
+  const lockDirectory = `${stateFile}.lock`
+  const lockDeadline = Date.now() + 5000
+
+  while (true) {
+    try {
+      await mkdir(lockDirectory)
+      break
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error
+      if (Date.now() >= lockDeadline) {
+        throw new Error(`Timed out waiting for inbox state lock: ${lockDirectory}`)
+      }
+      await sleep(25)
+    }
+  }
+
+  const temporaryFile = `${stateFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+  try {
+    const state = await readInboxState(stateFile)
+    state.markers = { ...(state.markers || {}), [key]: marker }
+    await writeFile(temporaryFile, JSON.stringify(state, null, 2))
+    await rename(temporaryFile, stateFile)
+  } finally {
+    await rm(temporaryFile, { force: true }).catch(() => {})
+    await rm(lockDirectory, { recursive: true, force: true })
+  }
 }
 
 function inboxLookbackDays(since, now) {
@@ -640,7 +667,16 @@ function inboxLookbackDays(since, now) {
 }
 
 async function searchInboxMemories(config, since, now, request = requestJson) {
-  const maxItems = Math.max(1, config.inbox.maxItems || DEFAULT_CONFIG.inbox.maxItems)
+  const configuredMaxItems = Number(config.inbox.maxItems)
+  const maxItems = Math.min(
+    100,
+    Math.max(
+      1,
+      Number.isFinite(configuredMaxItems)
+        ? Math.trunc(configuredMaxItems)
+        : DEFAULT_CONFIG.inbox.maxItems,
+    ),
+  )
   const result = await request(config, "/api/search/by-tag", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -648,7 +684,6 @@ async function searchInboxMemories(config, since, now, request = requestJson) {
       tags: config.inbox.tags,
       match_all: false,
       time_filter: `last ${inboxLookbackDays(since, now)} days`,
-      limit: maxItems,
     }),
   })
 
@@ -693,7 +728,7 @@ function createInboxChecker({
   now = () => new Date(),
 }) {
   const checkedSessions = new Set()
-  const key = inboxStateKey(config.inbox || {})
+  const key = inboxStateKey(config)
   let markerLoaded = false
   let marker = null
 
@@ -1436,7 +1471,9 @@ export const _internal = {
   applySelfSignedCertsOption,
   createInboxChecker,
   formatInboxBlock,
+  inboxStateKey,
   searchInboxMemories,
+  writeInboxMarker,
   sessionIdentity,
   translateEvent,
   transcriptCaptureEvents,

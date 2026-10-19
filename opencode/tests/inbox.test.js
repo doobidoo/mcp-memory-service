@@ -6,6 +6,9 @@
 
 import { test } from "node:test"
 import assert from "node:assert"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import path from "node:path"
 
 import { _internal } from "../memory-plugin.js"
 
@@ -13,7 +16,9 @@ const {
   DEFAULT_CONFIG,
   createInboxChecker,
   formatInboxBlock,
+  inboxStateKey,
   searchInboxMemories,
+  writeInboxMarker,
 } = _internal
 
 function inboxConfig(overrides = {}) {
@@ -122,8 +127,82 @@ test("tag search excludes the configured agent and exact-old results", async () 
     tags: ["msg:cluster"],
     match_all: false,
     time_filter: "last 2 days",
-    limit: 10,
   })
+})
+
+test("own messages cannot hide an older unread peer message", async () => {
+  const config = inboxConfig({ agentId: "local-agent", maxItems: 10 })
+  const since = new Date("2026-10-14T08:00:00.000Z")
+  const now = new Date("2026-10-15T10:00:00.000Z")
+  const rows = Array.from({ length: 10 }, (_, index) => ({
+    memory: {
+      content_hash: `own-${index}`,
+      content: `own message ${index}`,
+      tags: ["msg:cluster", "agent:local-agent"],
+      created_at_iso: `2026-10-15T09:${String(59 - index).padStart(2, "0")}:00.000Z`,
+    },
+  }))
+  rows.push({
+    memory: {
+      content_hash: "peer",
+      content: "unread peer message",
+      tags: ["msg:cluster", "agent:peer"],
+      created_at_iso: "2026-10-15T09:40:00.000Z",
+    },
+  })
+
+  const memories = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
+    const { limit } = JSON.parse(init.body)
+    return { results: limit ? rows.slice(0, limit) : rows }
+  })
+
+  assert.deepStrictEqual(memories.map((memory) => memory.id), ["peer"])
+})
+
+test("maxItems is clamped to the documented range", async () => {
+  const config = inboxConfig({ maxItems: 250 })
+  const since = new Date("2026-10-14T08:00:00.000Z")
+  const now = new Date("2026-10-15T10:00:00.000Z")
+  const rows = Array.from({ length: 150 }, (_, index) => ({
+    memory: {
+      content_hash: `peer-${index}`,
+      content: `peer message ${index}`,
+      tags: ["msg:cluster", "agent:peer"],
+      created_at_iso: new Date(now.getTime() - (index + 1) * 1000).toISOString(),
+    },
+  }))
+
+  const memories = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
+    assert.strictEqual(JSON.parse(init.body).limit, undefined)
+    return { results: rows }
+  })
+
+  assert.strictEqual(memories.length, 100)
+})
+
+test("inbox markers are isolated by memory service endpoint", () => {
+  const first = inboxConfig()
+  const second = inboxConfig()
+  first.memoryService.endpoint = "http://memory-a.example"
+  second.memoryService.endpoint = "http://memory-b.example"
+
+  assert.notStrictEqual(inboxStateKey(first), inboxStateKey(second))
+})
+
+test("concurrent marker writes preserve every inbox", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "opencode-inbox-state-"))
+  const stateFile = path.join(directory, "state.json")
+
+  try {
+    await Promise.all(Array.from({ length: 20 }, (_, index) => (
+      writeInboxMarker(`inbox-${index}`, `2026-10-15T09:${String(index).padStart(2, "0")}:00.000Z`, stateFile)
+    )))
+
+    const state = JSON.parse(await readFile(stateFile, "utf8"))
+    assert.strictEqual(Object.keys(state.markers).length, 20)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test("checks the first prompt per session and throttles later prompts", async () => {

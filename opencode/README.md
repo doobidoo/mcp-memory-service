@@ -124,7 +124,7 @@ Then it applies environment overrides:
 - `OPENCODE_MEMORY_ALLOW_SELF_SIGNED_CERTS` — set to `true` or `1` to disable TLS certificate verification (self-signed certs only, off by default)
 - `OPENCODE_MEMORY_INBOX_ENABLED` — set to `true` or `1` to enable the inter-agent inbox
 - `OPENCODE_MEMORY_INBOX_TAGS` — comma-separated sentinel tags (default: `msg:cluster`)
-- `OPENCODE_MEMORY_INBOX_MAX_ITEMS`
+- `OPENCODE_MEMORY_INBOX_MAX_ITEMS` — messages shown per check, clamped to `1`–`100` (default: `10`)
 - `OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES`
 - `OPENCODE_MEMORY_INBOX_AGENT_ID` — excludes messages tagged `agent:<id>` for this agent
 - `OPENCODE_MEMORY_INBOX_STATE_FILE` — overrides the persisted last-check marker path
@@ -219,9 +219,9 @@ The optional inbox surfaces messages written by other agents through sentinel ta
 }
 ```
 
-On the first system prompt of each session, and then at the configured interval, the plugin queries `/api/search/by-tag` for messages stored since its last successful check. Messages carrying `agent:<agentId>` are excluded so an agent does not read its own posts. New messages are injected into the system prompt, announced with one toast, and reflected in the sidebar's last-action status.
+On the first system prompt of each session, and then at the configured interval, the plugin queries `/api/search/by-tag` for all messages stored since its last successful check. It excludes messages carrying `agent:<agentId>` before applying the `maxItems` display cap, so a burst of the agent's own posts cannot hide an unread peer message. `maxItems` is clamped to `1`–`100`. New messages are injected into the system prompt, announced with one toast, and reflected in the sidebar's last-action status.
 
-The successful-check marker is stored in `~/.local/state/opencode/.memory-inbox-state.json`; the first run looks back 24 hours. Failed queries do not advance the marker. See [Tags as inter-agent signals](../docs/agents/README.md#tags-as-inter-agent-signals) for the shared message-bus convention and a storage example.
+The successful-check marker is stored in `~/.local/state/opencode/.memory-inbox-state.json`; the first run looks back 24 hours. Markers are isolated by Memory Service endpoint, tag set, and agent ID. Updates use a cross-process lock and an atomic file replacement so simultaneous OpenCode instances cannot overwrite one another's markers. Failed queries do not advance the marker. See [Tags as inter-agent signals](../docs/agents/README.md#tags-as-inter-agent-signals) for the shared message-bus convention and a storage example.
 
 ## Verification
 

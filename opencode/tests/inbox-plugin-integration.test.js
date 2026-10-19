@@ -116,7 +116,6 @@ test("injects inbox messages and updates toast and sidebar status", async () => 
         tags: ["msg:cluster", "msg:handoff"],
         match_all: false,
         time_filter: "last 1 days",
-        limit: 7,
       },
     )
     const inboxState = JSON.parse(await readFile(inboxStatePath, "utf8"))
