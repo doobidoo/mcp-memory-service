@@ -495,3 +495,48 @@ que importa e **turno perdido** — 711 turnos e perda de conhecimento, nao econ
 
 **`--apply` NAO foi executado.** A escrita e irreversivel (o importador marca a sessao como
 importada) e a escolha do teto e decisao de produto — pendente com o Claudio.
+
+## E13 — autoria por `X-Agent-ID` no streamable-http: G5 e G6 (19/out)
+
+Classe: **BUG** (corrupção silenciosa de autoria). Spec: `rfc/planned/spec-agent-id-streamable.md`.
+
+### E13.1 Gate
+
+| gate | resultado |
+|---|---|
+| G3 RED | `b666de14` — CA1/CA2 falham nomeando o defeito (`agent_id` = `zero`); CA3/CA4 verdes como guardas |
+| G4 GREEN | `66c39700` — ContextVar + middleware ASGI + precedência em `store_memory` |
+| G5 1a | **NEEDS_CHANGES**: B1 (falta log de origem, R5); P2-1 (comentário mentiroso em evolve) |
+| G5 2a | **APPROVED** (B1 sanado; B2 sanado; nenhum defeito novo) |
+| G6 vivo | merge `ef7df187` na main, restart, 3 gravações reais |
+
+**Achado da manager no G5:** o revisor classificou como P2 o comentário de `evolve_memory`, mas o
+defeito real era maior — a precedência **não existia** em `evolve_memory` (L642) nem no
+`auto_commit` do harvest (`server_impl.py:1870`). R2 exige todos os caminhos de escrita. Virou
+bloqueador B2 e a correção consolidou os três num helper único `resolve_agent_id()`.
+
+Lição para o perfil do revisor: **quebra de requisito explícito da spec é bloqueador**, nunca P2 —
+mesmo quando o sintoma parece cosmético (um comentário desatualizado era o sintoma de código que
+não fazia o que o comentário dizia).
+
+### E13.2 Prova no serviço vivo (três gravações, conferidas no banco)
+
+| caso | header | argumento | `metadata.agent_id` |
+|---|---|---|---|
+| R1 | `X-Agent-ID: g6-header` | — | **`g6-header`** |
+| R4 | — | — | **`zero`** (fallback `MCP_AGENT_ID`) |
+| R2 | `X-Agent-ID: g6-header-deve-perder` | `g6-argument` | **`g6-argument`** |
+
+Sondas removidas do acervo ao final (soft-delete confirmado por `deleted_at`).
+
+### E13.3 Achado lateral (item separado, fora deste PR)
+
+O `memory_store` devolve **erro de negócio com `isError: false`**:
+
+```
+"text": "Error storing memory: Duplicate content detected (semantically similar to a5d7…)"
+```
+
+Cliente que confia em `isError` reporta gravação bem-sucedida que não aconteceu. É contrato de
+API, não autoria — precisa de issue própria. Descoberto porque a primeira sonda de `CA3` foi
+absorvida por dedup e o endpoint disse "ok".
