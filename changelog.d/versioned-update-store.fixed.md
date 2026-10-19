@@ -1,0 +1,1 @@
+- **Keep a versioned memory in its store.** `update_memory_versioned()` wrote the new version into the `default` store whatever store the old one was in, so after `memory_update(versioned=true)` or a harvest evolve the memory dropped out of searches scoped to its own store. The new version now inherits the old row's store.
