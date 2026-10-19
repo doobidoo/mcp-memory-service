@@ -1,0 +1,636 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic:
+      - link "Skip to main content" [ref=e3] [cursor=pointer]:
+        - /url: "#main-content"
+      - link "Skip to footer" [ref=e4] [cursor=pointer]:
+        - /url: "#footer"
+    - generic [ref=e5]:
+      - link "Home" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - generic [ref=e53]:
+        - navigation [ref=e54]:
+          - list [ref=e55]:
+            - listitem [ref=e56] [cursor=pointer]:
+              - button "Research" [ref=e57]:
+                - generic [ref=e58]: Research
+                - img [ref=e59]
+            - listitem [ref=e61] [cursor=pointer]:
+              - link "Policy" [ref=e62]:
+                - /url: /policy
+            - listitem [ref=e63] [cursor=pointer]:
+              - button "Commitments" [ref=e64]:
+                - generic [ref=e65]: Commitments
+                - img [ref=e66]
+            - listitem [ref=e68] [cursor=pointer]:
+              - button "Learn" [ref=e69]:
+                - generic [ref=e70]: Learn
+                - img [ref=e71]
+            - listitem [ref=e73] [cursor=pointer]:
+              - link "News" [ref=e74]:
+                - /url: /news
+        - generic [ref=e75]:
+          - link "Try Claude" [ref=e76] [cursor=pointer]:
+            - /url: https://claude.ai/
+          - img [ref=e78] [cursor=pointer]
+  - main [ref=e80]:
+    - generic [ref=e81]:
+      - generic [ref=e83]:
+        - generic:
+          - heading "Measurements for understanding the pace of AI development inside frontier labs" [level=1] [ref=e84]:
+            - generic [ref=e85]:
+              - generic [ref=e86]: Measurements
+              - generic [ref=e87]: for
+              - generic [ref=e88]: understanding
+              - generic [ref=e89]: the
+              - generic [ref=e90]: pace
+              - generic [ref=e91]: of
+              - generic [ref=e92]: AI
+              - generic [ref=e93]: development
+              - generic [ref=e94]: inside
+              - generic [ref=e95]: frontier labs
+          - generic:
+            - paragraph: AI systems are getting more powerful, and they’re increasingly being used to build the next version of themselves.
+          - generic:
+            - paragraph: We want to illuminate the pace of progress for the public.
+          - generic:
+            - paragraph:
+              - text: "To do that, we’re sharing three measurements that will help the public track AI development inside frontier AI labs:"
+              - emphasis: how much of AI R&D is performed by AI itself
+              - text: ","
+              - emphasis: how well the actions of AI agents are overseen
+              - text: ", and"
+              - emphasis: how compute is allocated
+              - text: .
+        - generic: Scroll down
+      - article [ref=e96]:
+        - paragraph [ref=e97]: Measurements for understanding the pace of AI development inside frontier labs
+        - generic [ref=e98]:
+          - paragraph [ref=e99]:
+            - text: AI systems are becoming exponentially more powerful and have begun to
+            - link "automate more" [ref=e100] [cursor=pointer]:
+              - /url: https://www.anthropic.com/institute/recursive-self-improvement
+            - text: of the process of building themselves. As the world considers
+            - link "slowing the pace of frontier AI development" [ref=e101] [cursor=pointer]:
+              - /url: https://darioamodei.com/post/we-must-pace-the-frontier
+            - text: ", the public needs more information."
+          - paragraph [ref=e102]: "In this post, we lay out measurement tools that can illuminate three critical aspects of AI development:"
+          - list [ref=e103]:
+            - listitem [ref=e104]:
+              - link "The extent to which AI is building the next version of itself, as opposed to being built by humans" [ref=e105] [cursor=pointer]:
+                - /url: "#1-measuring-ai-led-ai-rd"
+            - listitem [ref=e106]:
+              - link "Our ability to oversee and intervene in actions that AI agents take on Anthropic’s systems" [ref=e107] [cursor=pointer]:
+                - /url: "#2-measuring-oversight-of-ai-agents"
+            - listitem [ref=e108]:
+              - link "The resources that power the development of more capable models" [ref=e109] [cursor=pointer]:
+                - /url: "#3-measuring-compute-allocation"
+          - paragraph [ref=e110]: We also provide a snapshot of these metrics from inside Anthropic. It’s important to note that we would expect these numbers to shift if there were coordination on pacing the frontier, as called for by Anthropic CEO Dario Amodei. We plan to embed independent third-party evaluators from multiple organizations at Anthropic, and give them access to internal processes, systems, and data comparable to what internal risk assessment teams have. These third parties will verify safety practices, report incidents, and monitor key metrics such as the ones in this piece.
+          - paragraph [ref=e111]: We are reporting these measurements because they give the public, third parties, and governments better visibility into the pace of AI development inside frontier labs. For each measurement, we describe what we measured, what the measurement showed, and what it would take to publish these measurements regularly in a form others can verify. We share methodological details in the Appendix.
+          - heading "Reasons to track these measurements" [level=2] [ref=e112]
+          - paragraph [ref=e113]:
+            - text: The measurements in this piece are focused on
+            - emphasis [ref=e114]: how models are built.
+            - text: By better understanding the production process of models, we have a better chance of correlating model inputs, like compute, with model outputs, like capabilities. They complement capability evaluations, which measure
+            - emphasis [ref=e115]: what models can do
+            - text: . We publish those separately through our
+            - link "Responsible Scaling Policy" [ref=e116] [cursor=pointer]:
+              - /url: https://www.anthropic.com/responsible-scaling-policy
+            - text: (RSP) risk reports, which include evidence on how much our models are accelerating AI R&D. In our policy proposal on advanced AI, the
+            - link "Advanced AI Framework (AAIF)" [ref=e117] [cursor=pointer]:
+              - /url: https://www-cdn.anthropic.com/files/4zrzovbb/website/0a58d567024a8b448ff15158ebc3625328dfcc1f.pdf
+            - text: ", we propose rules of the road for how any lab releases safe models, including transparency obligations that governments could require, such as risk reports. Together, these proposed measurements and policies are a starting point for monitoring the pace of AI development from outside the labs."
+          - heading "(1) Measuring AI-led AI R&D" [level=2] [ref=e118]
+          - paragraph [ref=e119]:
+            - strong [ref=e120]: Why measure AI-led R&D?
+            - text: Frontier AI labs increasingly use AI to build future AI models. This process allows labs in democratic countries to develop more capable models more quickly and conduct more safety and testing on models before they are released to secure AI’s benefits while staying on the frontier. However, models accelerating their own development could make it more challenging for humans to understand or control these systems. It is therefore important to share these metrics to understand how close the world is to reaching
+            - link "recursive self improvement" [ref=e121] [cursor=pointer]:
+              - /url: https://www.anthropic.com/institute/recursive-self-improvement
+            - text: (a model fully autonomously building its successor).
+          - paragraph [ref=e122]:
+            - strong [ref=e123]: What we measured.
+            - text: We built a prototype index of how much of Anthropic’s AI research and development (R&D) is performed by Claude, called the Anthropic R&D Automation Index. It’s built by cataloguing every kind of AI R&D work done at the company, rating how automated each task currently is, and aggregating those ratings.
+          - paragraph [ref=e124]:
+            - strong [ref=e125]: What we found.
+            - text: To measure the extent to which AI is doing AI R&D at Anthropic, we use an
+            - link "automation rating scale" [ref=e126] [cursor=pointer]:
+              - /url: https://epochai.substack.com/p/toward-an-onet-for-ai-r-and-d
+            - text: "developed by Epoch AI that measures “Automation Level,” or AL. It runs from AL0 (no AI involvement) to AL5 (AI operates fully autonomously, with no human in the loop). In AL3, AI “collaborates”: it can do large chunks of work under close human direction. In AL4, AI “leads”: it can complete most of the task end-to-end from a high-level prompt, while the human supervises."
+            - superscript [ref=e127]:
+              - link "Footnote 1" [ref=e128] [cursor=pointer]:
+                - /url: "#footnote-1"
+                - text: "1"
+          - paragraph [ref=e129]: As of August 2026,
+          - list [ref=e130]:
+            - listitem [ref=e131]: Claude is not operating fully autonomously for any measured subset of AI R&D work.
+            - listitem [ref=e132]: Claude “leads” 26% of Anthropic’s AI R&D work.
+            - listitem [ref=e133]: The share of work at or above “AI collaborates” is above 90%.
+          - figure [ref=e135]:
+            - img "Chart showing Claude now leads 26% of Anthropic's model R&D tasks, up from under 1% in February 2026." [ref=e136]
+          - paragraph [ref=e137]:
+            - strong [ref=e138]: What any AI developer could report today.
+            - text: Any frontier developer could publish these measures regularly, using a public methodology. This would enable the numbers to be compared over time, and potentially across labs.
+          - paragraph [ref=e139]: Two obstacles stand in the way of cross-lab comparison on this type of reporting. First is the lack of a common methodology. Second, we’re using our own models to evaluate our systems, which could mean that the “judge” model could make the same kinds of errors as the model it is checking. To address these challenges, a developer’s measurements could be verified by a third party, or by other developers’ models, with guardrails in place to limit the exchange of competitively sensitive data. These measures could also become the trigger for stronger requirements, like a fixed testing window before a new model is used for further AI R&D.
+          - heading "(2) Measuring oversight of AI agents" [level=2] [ref=e140]
+          - paragraph [ref=e141]:
+            - strong [ref=e142]: Why measure oversight of agents?
+            - text: Like other frontier developers, Anthropic employees increasingly delegate tasks to agents that work semi-autonomously for long stretches, and that delegate work to one another. As work becomes increasingly automated, from “AI collaborates” toward “AI leads,” agents could make more consequential decisions, such as which research direction to pursue next.
+          - paragraph [ref=e143]: These decisions need safeguards to block harmful behavior from an individual agent, as well as an oversight regime to detect problems that might only arise across many agents. In our monitoring data to date, individual agents rarely misbehave. But when there are millions or billions of agents operating in the economy, even rare events can happen regularly.
+          - paragraph [ref=e144]:
+            - strong [ref=e145]: What we measured.
+            - text: "We’ve built a system that lets us oversee and intervene in actions AI agents take on Anthropic’s systems. Here, we consider three different metrics:"
+            - emphasis [ref=e146]: coverage,
+            - text: which describes the share of an agent’s actions that pass through a monitor before or after execution;
+            - emphasis [ref=e147]: review
+            - emphasis [ref=e148]: latency
+            - text: ", which is the time between an action and its review, first by an automated monitor and then by a human; and"
+            - emphasis [ref=e149]: escalation rate,
+            - text: which
+            - emphasis [ref=e150]
+            - text: is the share of agent activities that are either blocked/redirected (in the case of online monitors) or flagged for further review (in the case of offline monitors).
+          - paragraph [ref=e151]:
+            - strong [ref=e152]: What we found.
+            - text: "As of August 2026, there were approximately 30,000 agents doing research and engineering work at Anthropic at any one time in our most-used internal platform. These measurements cover this platform only. The actions of these agents are constrained by two kinds of monitors, summarized below:"
+          - region [ref=e155]:
+            - table [ref=e156]:
+              - rowgroup [ref=e157]:
+                - row "Online monitors Offline monitors" [ref=e158]:
+                  - cell [ref=e159]
+                  - cell "Online monitors" [ref=e160]:
+                    - strong [ref=e161]: Online monitors
+                  - cell "Offline monitors" [ref=e162]:
+                    - strong [ref=e163]: Offline monitors
+                - row "Description Online monitors check the actions of agents in real-time and either block dangerous actions or steer agent misbehavior automatically. They’re built to address harms that would happen quickly and could not be undone, such as an agent copying model weights out of our systems. Offline monitors read agent activities after the fact. They are built to help address dangerous behaviors that develop slowly and can be reversed, like signs of model misalignment. We use flagged activities to improve our mitigations, like classifiers and deterministic controls. If the situation caused a large imminent danger, we would shut down the dangerous parts of the agent’s deployment." [ref=e164]:
+                  - cell "Description" [ref=e165]:
+                    - strong [ref=e166]: Description
+                  - cell "Online monitors check the actions of agents in real-time and either block dangerous actions or steer agent misbehavior automatically. They’re built to address harms that would happen quickly and could not be undone, such as an agent copying model weights out of our systems." [ref=e167]:
+                    - text: Online monitors check the actions of agents
+                    - emphasis [ref=e168]: in real-time
+                    - text: and either block dangerous actions or steer agent misbehavior automatically. They’re built to address harms that would happen quickly and could not be undone, such as an agent copying model weights out of our systems.
+                  - cell "Offline monitors read agent activities after the fact. They are built to help address dangerous behaviors that develop slowly and can be reversed, like signs of model misalignment. We use flagged activities to improve our mitigations, like classifiers and deterministic controls. If the situation caused a large imminent danger, we would shut down the dangerous parts of the agent’s deployment." [ref=e169]:
+                    - text: Offline monitors read agent activities
+                    - emphasis [ref=e170]: after the fact
+                    - text: . They are built to help address dangerous behaviors that develop slowly and can be reversed, like signs of model misalignment. We use flagged activities to improve our mitigations, like classifiers and deterministic controls. If the situation caused a large imminent danger, we would shut down the dangerous parts of the agent’s deployment.
+                - row "Coverage 100% of these agents’ actions pass through the online monitor before they are executed, usually within seconds. 100% of these agents’ actions are ingested by the monitor after they are taken." [ref=e171]:
+                  - cell "Coverage" [ref=e172]:
+                    - strong [ref=e173]: Coverage
+                  - cell "100% of these agents’ actions pass through the online monitor before they are executed, usually within seconds." [ref=e174]
+                  - cell "100% of these agents’ actions are ingested by the monitor after they are taken." [ref=e175]
+                - row "Review latency Automated review happens before an agent takes action; humans review any blocked actions within one week. The monitor flags roughly 100,000 transcripts per week that are then reviewed by multiple classifiers for false-positives and initial oversight review. Most of the flags are resolved by this process, and the highest priority flags (approximately ~50 per week) are escalated to human review." [ref=e176]:
+                  - cell "Review latency" [ref=e177]:
+                    - strong [ref=e178]: Review latency
+                  - cell "Automated review happens before an agent takes action; humans review any blocked actions within one week." [ref=e179]
+                  - cell "The monitor flags roughly 100,000 transcripts per week that are then reviewed by multiple classifiers for false-positives and initial oversight review. Most of the flags are resolved by this process, and the highest priority flags (approximately ~50 per week) are escalated to human review." [ref=e180]
+                - row "Blocking / escalation rate We analyzed over a billion decisions from our research & engineering agents over August 2026 and found that 0.002% of them (about 1 in 47,000) were blocked by this monitor. The monitor flags roughly one to two transcripts in every thousand for further review." [ref=e181]:
+                  - cell "Blocking / escalation rate" [ref=e182]:
+                    - strong [ref=e183]: Blocking / escalation rate
+                  - cell "We analyzed over a billion decisions from our research & engineering agents over August 2026 and found that 0.002% of them (about 1 in 47,000) were blocked by this monitor." [ref=e184]
+                  - cell "The monitor flags roughly one to two transcripts in every thousand for further review." [ref=e185]
+          - paragraph [ref=e186]:
+            - strong [ref=e187]: What an AI developer could report today.
+            - text: "Any developer running agents on its own research and engineering workloads could publish the same measures:"
+            - emphasis [ref=e188]: coverage
+            - text: (the share of agent activity that is monitored),
+            - emphasis [ref=e189]: review latency
+            - text: (how soon flagged activities are reviewed), and
+            - emphasis [ref=e190]: escalation rate
+            - text: (what share of agent activities the monitors block or flag). Together, these measures would allow society to see whether oversight is keeping pace with the growing role of AI in AI R&D. We published all of these measurements in our recent
+            - link "risk report" [ref=e191] [cursor=pointer]:
+              - /url: https://www.anthropic.com/aug-2026-risk-report
+            - text: .
+          - paragraph [ref=e192]:
+            - text: Developers should share how often known agent misbehavior is caught by monitors, and should have third parties do this kind of testing independently. In the past, METR has
+            - link "independently red-teamed our offline monitoring platform" [ref=e193] [cursor=pointer]:
+              - /url: https://www-cdn.anthropic.com/f61d49fa5596956a5dec75fea0e973bf6a6a8378/Redacted%20Risk%20Report%20August%202026%20.pdf
+            - text: . As described above, we are now
+            - link "setting up" [ref=e194] [cursor=pointer]:
+              - /url: https://darioamodei.com/post/we-must-pace-the-frontier
+            - text: external third party evaluators at Anthropic.
+          - heading "(3) Measuring compute allocation" [level=2] [ref=e195]
+          - paragraph [ref=e196]:
+            - strong [ref=e197]: Why measure compute allocation?
+            - text: Broadly speaking, AI developers use compute for building more powerful models, serving customers, and safety-focused work like
+            - link "auditing a model’s “thoughts”" [ref=e198] [cursor=pointer]:
+              - /url: https://www.anthropic.com/research/natural-language-autoencoders
+            - text: ","
+            - link "training model organisms to study misalignment" [ref=e199] [cursor=pointer]:
+              - /url: https://www.anthropic.com/research/emergent-misalignment-reward-hacking
+            - text: ", and"
+            - link "evaluating whether a model can be safely deployed" [ref=e200] [cursor=pointer]:
+              - /url: https://www-cdn.anthropic.com/f61d49fa5596956a5dec75fea0e973bf6a6a8378/Redacted%20Risk%20Report%20August%202026%20.pdf
+            - text: . Understanding how AI developers allocate their compute can tell you where a developer is focusing its resources and how that focus changes over time.
+          - paragraph [ref=e201]: Additionally, compute is among the most verifiable inputs to the AI R&D process, meaning that it could be a critical lever in a future pacing effort. A coordinated pacing effort could encourage companies to increase the compute allocated to safety across the industry and devote more resources to alignment, interpretability, safety testing, and evaluation.
+          - paragraph [ref=e202]:
+            - strong [ref=e203]: What we measured.
+            - text: We examined a snapshot of how Anthropic used all of its compute from July 13 to July 20.
+            - superscript [ref=e204]:
+              - link "Footnote 2" [ref=e205] [cursor=pointer]:
+                - /url: "#footnote-2"
+                - text: "2"
+            - text: To do that, we sorted every workload into a small number of categories, then asked how much of the compute going to AI R&D was safety work.
+          - paragraph [ref=e206]: Safety research tends to use less compute than frontier training runs by its nature, so compute is an imperfect proxy for how much a company focuses on safety. This is because safety research consists of individual researchers designing experiments, which is time-consuming even though running the experiments is not particularly compute-intensive. The value of this metric, therefore, is less the absolute numbers and more that it provides a straightforward mechanism to compare like with like, across developers and over time.
+          - paragraph [ref=e207]:
+            - strong [ref=e208]: What we found.
+            - text: Over the examined week, about 6% of compute that went to AI R&D was allocated toward safety, and about 12% of compute that went to AI-driven AI R&D was allocated toward safety.
+          - paragraph [ref=e209]: These are deliberately conservative estimates. For example, if a token was used to advance capabilities as much as it was to advance safety, it was not counted in these metrics. Additionally, these metrics do not account for safeguards classifiers, which are a separate, comparable amount of compute that make our models much safer for the world.
+          - paragraph [ref=e210]:
+            - strong [ref=e211]: What an AI developer could report today.
+            - text: Any frontier developer could publish what share of its AI R&D compute goes to safety work, with the category definitions published alongside and the classification checked by an independent third party.
+          - paragraph [ref=e212]: Safety research is hard to distinguish from capabilities research, and each developer will be tempted to draw the line generously. The burden of proof should sit with the developer to show that work is safety-related. Developers, governments, and the wider research community would benefit from converging on a shared definition ahead of time. A measurement like this could inform future actions, such as a lab’s commitments about the share of compute going to safety research, or limits on the share of compute going towards AI research agents.
+          - heading "Conclusion" [level=2] [ref=e213]
+          - paragraph [ref=e214]: As the world considers pacing the frontier, we should do everything possible to minimize the gap between what frontier labs know and what the public knows. This means better measuring the development of AI, reporting on it publicly, and giving society an opportunity to decide how to use this information. We hope to model that transparency by releasing these measurements, and we’ll continue to do so.
+          - heading "Appendix" [level=2] [ref=e215]
+          - paragraph [ref=e216]: Here are methodological details on all of the measurements we’ve prototyped.
+          - heading "Measuring AI-led R&D" [level=3] [ref=e217]
+          - paragraph [ref=e218]:
+            - strong [ref=e219]: How we did it.
+            - text: "The Automation Index requires three things: a complete map of all the AI R&D tasks being done at Anthropic, a way to rate the level of automation, and a way to weight the tasks, so that important areas of work count for more than less important ones. No one person can list every AI R&D task at a frontier AI company by hand, at least not at the granularity we want. Instead we constructed this list of tasks in a bottom-up manner from work records including Slack and various sources of internal documentation."
+          - paragraph [ref=e220]: For each week in July 2026, we randomly sampled 20% of staff from each department that make up the model R&D loop. A Claude research agent reviewed each sampled person’s week using Slack and internal documentation, and listed the tasks they worked on. Repeating this for each week in July 2026 gives us a flat list of ~15,000 granular model R&D tasks. We then used Claude to organize these tasks into a hierarchical tree, starting from all model R&D at the root and branching into areas such as training and product, then pretraining and reinforcement learning, and so on down to increasingly specific kinds of work. The resulting tree has 542 nodes at different depths, of which 378 are leaves like “eval platform defect diagnosis and fixes,” “RL sandbox egress and network policy,” and “serving incident postmortems.” We freeze this tree so that every measurement we make happens against the same basket of work.
+          - paragraph [ref=e221]:
+            - text: "For each node in the tree (a task category describing all the work beneath it), a Claude agent deeply researches how that kind of work is done across the company: who does it, with what tools, and how much of it AI performs. An independent Claude judge then read the resulting evidence and assigned one of six automation levels, adopting a"
+            - link "scale" [ref=e222] [cursor=pointer]:
+              - /url: https://epochai.substack.com/p/toward-an-onet-for-ai-r-and-d
+            - text: "proposed by Epoch AI to differentiate the degree to which AI is used: no AI involvement, minimal AI involvement, AI assists, collaborates, leads, or is autonomous. When we rate a given month’s automation, we only allow the research agents that do the ratings to see evidence from that month or earlier."
+          - paragraph [ref=e223]: "To aggregate all the automation level ratings into one number, we want to give each node in the tree a weight corresponding to how important that work is to the overall model R&D effort. Rather than deciding ourselves what kinds of work are more important than others, we used the amount of person-time dedicated to that task as a proxy. Using our sample, we had Claude research what each person worked on during each week of July 2026. Each person gets one unit of weight per week, split evenly across the tasks they worked on that week. If person A worked on four tasks, each gets 0.25; if person B worked on ten, each gets 0.10. A category’s weight is the sum of all the person-time weights given to it. This is a crude approximation, but on average the scheme behaves sensibly: it assigns more weight to categories that many people are assigned to."
+          - paragraph [ref=e224]:
+            - strong [ref=e225]: What this does and doesn’t capture.
+            - text: First, the automation ratings depend on the judge model. To check them, we asked Anthropic staff who own the relevant work areas to rate the relative automation of their areas. To ensure an unbiased read, staff made their ratings without knowing what evidence the models had gathered or how they had judged that evidence. Our judge model agreed with humans about as often as humans agreed with each other (model-versus-human exact agreement was 59%, human-versus-human was 35%), and model and human ratings were within one level of each other 97% of the time. There remains real room for disagreement on borderline cases, such as where exactly “AI collaborates” ends and “AI leads” begins.
+          - paragraph [ref=e226]:
+            - text: Second, the basket is frozen. A growing index number on a July 2026 baseline tells us that the work humans were doing
+            - emphasis [ref=e227]: at that time
+            - text: is being automated; it does not, on its own, tell us whether new kinds of work are appearing that humans have shifted onto. To investigate this, we constructed an alternate version of the frozen tree from January 2026 data, and compared new tasks arriving every month from February to July 2026 against that January 2026 basket. We found no rise in the number of “novel” tasks between the January and July baskets of tasks, suggesting that the structure of model R&D work is stable at our level of analysis. Nevertheless, we plan to rebuild the basket of tasks periodically and re-version our published automation numbers as appropriate.
+          - heading "Oversight of agents" [level=3] [ref=e228]
+          - paragraph [ref=e229]:
+            - strong [ref=e230]: How we did it.
+            - text: "In our most commonly used internal agent scaffold, two design choices allow us to more easily detect unknown unknowns and let agents monitor each other:"
+          - list [ref=e231]:
+            - listitem [ref=e232]:
+              - strong [ref=e233]: Identity.
+              - text: Most AI users are accustomed to talking to a single “Claude” across many different chats. With many agents working together, we have found it important to give agents an individual identity, and tie all of the data that agent creates to its identity. This lets an agent distinguish itself from others, and treat what comes from another agent as a claim to check rather than a thought of its own. It reduces the risk of correlated actions, by allowing agents to make judgments based on their individual experience. And because the identity is not tied to a model, it persists through model upgrades, so an agent’s record is continuous even if the underlying model powering it changes. From an oversight perspective, this design ensures that every action can be audited per agent across time, and that every data record can be linked back to a specific agent.
+            - listitem [ref=e234]:
+              - strong [ref=e235]: Open communication.
+              - text: Agents communicate
+              - strong [ref=e236]
+              - text: through a shared, open messaging system, rather than privately. Every message is tied to the identity of the agent that posted it and can link to other content, so that the agents are sharing original references. This allows agents to avoid “playing telephone” as they communicate. Because agents can see each others’ messages, they can correct each others’ errors, and coordinate about shared work. All messages are cross-referenced with agent transcripts, allowing behavioral monitoring to traverse communication between agents.
+          - paragraph [ref=e237]:
+            - strong [ref=e238]: What this does and doesn’t capture.
+            - text: At this scale of agent activity, it is hard to be certain we have a complete picture of all possible kinds of behaviors, or that we are making these patterns adequately legible to human oversight. We have been doing this kind of monitoring for months, not years, and expect the science of agent monitoring to change considerably going forward.
+          - heading "Measuring compute allocation" [level=3] [ref=e239]
+          - paragraph [ref=e240]:
+            - strong [ref=e241]: How we did it.
+            - text: We started with our existing compute monitoring tools; Anthropic, like presumably every frontier developer, has several monitoring tools built for capacity planning that periodically sample accelerator usage and tag workloads with best-efforts labels (i.e., research and model development, internal usage, first-party inference, and so on) based on its metadata. Usage on third-party cloud compute is reported to us by the providers and folded in. Most of the work of this exercise was stitching these existing sources together.
+          - paragraph [ref=e242]: We then used Claude to classify each workload as either safety work or AI R&D via a prompted classifier. Safety work was defined as work whose dominant purpose is making AI systems safer, more understandable, or more secure. Everything else, including capability research, training production models, product development, and developer tooling, was counted as AI R&D. Work that helps capability as much as it helps safety was also counted as AI R&D, so the safety share is conservative.
+          - paragraph [ref=e243]: For research training and evaluation runs, we built a classifier that reads the run’s metadata and the code it used, and returns a classification, a justification, and a confidence level. Rather than classify all of the week’s almost 10,000 runs, we sampled about 14% of them, weighting the sample toward the runs that used the most compute, so that the result reflects where the compute actually went, rather than how many runs there were. For inference for AI research agents, a variant of the same classifier read the agent’s session transcript. Where transcripts were inaccessible (usually due to the work being compartmentalized), we classified them by the user’s team or conservatively defaulted to classifying them as AI R&D. We plan to refine this pipeline so that an independent third-party could re-run the classifier on a random subsample of jobs and transcripts and check both the sorting and the totals.
+          - code [ref=e247]: "You’re helping to perform an internal audit at the frontier AI company Anthropic to track where our research compute goes. The aim of the audit is to produce a public-facing breakdown of the usage of all of our AI accelerator chips into a handful of buckets. One split we particularly care about is the division between compute which was spent on safety research versus other R&D. Your job is to look at one research job at a time, figure out what it was doing, and assign it to one of those two buckets. [...] Safety and/or security research is work whose dominant purpose is making AI systems safer, more understandable, or more secure. This work can be broken down into a few main categories: [...] On the other hand, the following work falls outside of the scope of safety research: [...] Here are some boundary cases, along with how to think about them: [...]"
+          - paragraph [ref=e248]:
+            - strong [ref=e249]: What this does and doesn’t capture.
+            - text: The main lesson of this exercise is that classifying what is and isn’t safety work is difficult but tractable, since the boundary between these categories is not black and white. For example, research on scalable oversight might make future models more aligned and current models more commercially useful — it’s difficult to determine whether this is primarily safety- or capabilities-advancing. We found that an extensive written definition of each task, with clear boundary cases (an excerpt is above), gets the classifier to agree with human reviewers within one or two percentage points of difference between the human and machine raters. But some cases were too difficult to determine even after several hours of human review. Our definition is one reasonable choice among many; a different developer, or a regulator, might draw the line differently.
+          - paragraph [ref=e250]: Three further limitations matter. First, many of the underlying labels we relied on (i.e., reasons for runs, workload tags, the source of API traffic) are set by automated rules, or occasionally directly by users, and are best-effort, not verified. In most cases, we expect that our classifications are accurate, but in some cases usage may be mislabeled and our pipeline would not necessarily catch it. A measurement meant to be trusted by outsiders will need to be complete, accurate, and technically enforced. Second, the measurement covers one week, which is enough to show that the measurement can be made, but not enough to show a meaningful trend. Third, and most importantly, compute share measures only what is spent. A more efficient safety classifier, or a faster inference stack for production models, lowers the safety portion, but doesn’t mean we’re doing less safety work. Our own classifier overheads have fallen with efficiency improvements, and have risen when production inference was more efficient than the classifiers were.
+          - paragraph
+          - paragraph [ref=e251]:
+            - emphasis [ref=e252]: Marina Favaro and Phillie Wright co-authored this piece, with editorial support from Santi Ruiz, Adam Farina, and Sarah Pollack. Jack Clark provided research direction. Dan Altman, Kerry Persen, AJ Kourabi, James Bradbury, Holden Karnofsky, Kevin Troy, and Avital Balwit provided feedback. Technical proofs of concepts were developed by Jun Shern Chan, Brian Calvert, Francesco Mosconi, Henry de Valence, Fabien Roger, and Joe Benton. Shan Carter, Johnnie Gomez, Maria Gonzalez, Fayaz Ashraf, and Monika Tuchowska, and Kim Withee created the visuals. Alex Cloud and Andrea Vallone organized a workshop to red team these and other measurement proposals with external experts.
+          - paragraph [ref=e253]:
+            - emphasis [ref=e254]: Thanks to Nate Rush, Eli Lifland, and Peter Wildeford, who also provided feedback.
+          - heading "Footnotes" [level=2] [ref=e255]
+          - list [ref=e256]:
+            - listitem [ref=e257]:
+              - text: "To make the levels concrete, consider a routine piece of infrastructure work: a nightly data pipeline has broken and needs fixing before tomorrow’s run."
+              - list [ref=e258]:
+                - listitem [ref=e259]: At AL3 (“collaborates”), an engineer would come to Claude with logs from the failed runs. They might already have skimmed the logs and have a hypothesis about what is broken. Claude might interview them to pin down the details and context, and once the engineer is satisfied, they would let Claude start on the investigation and the fix. If an additional problem turned up along the way, then Claude would stop, and the engineer would decide whether to patch around it or fix it properly. Once the tests passed, the engineer might review the change line by line, rerun the pipeline themselves, and deploy it.
+                - listitem [ref=e260]: At AL4 (“leads”), the key difference is that the engineer wouldn’t have to stay actively tuned in; for instance, to unblock Claude when new issues arise. In this specific scenario, the engineer would hand Claude the failure alert and ask it to fix the pipeline. Claude would work through the logs on its own, find the failing pipeline stage(s) and the cause, write and test the fix, and handle any surprises itself, while documenting the additional fixes. It would rerun the pipeline on a copy of the data to confirm it completes, compare the output against the last good run, and write up what went wrong and what it changed. Claude wouldn’t deploy the fix. Instead it would tag the engineer, who would read the write-up, skim the change, maybe ask a few questions, and decide whether it ships tonight or waits.
+                - listitem [ref=e261]: At AL5 (“fully autonomous”)—a level we have not yet reached—the engineer wouldn’t even have to bring the issue to Claude’s attention. Claude would be trusted to monitor for failures itself, scope the investigation, design and implement the fix, test it, and deploy it to production. It would still say what it was doing and why, and take human feedback when offered, but a human wouldn’t have to be involved at all unless they wanted to be.
+              - link "Back to reference 1" [ref=e262] [cursor=pointer]:
+                - /url: "#footnote-ref-1"
+                - img [ref=e263]
+            - listitem [ref=e265]:
+              - text: We manage compute as a single, fungible pool and direct it dynamically to wherever it is most productive, so this is a snapshot of how capacity happened to be directed in one week, not a fixed allocation. These engineering categories don’t correspond to how expenses are classified.
+              - link "Back to reference 2" [ref=e266] [cursor=pointer]:
+                - /url: "#footnote-ref-2"
+                - img [ref=e267]
+  - contentinfo "Site footer" [ref=e269]:
+    - generic [ref=e270]:
+      - link "Return to homepage" [ref=e272] [cursor=pointer]:
+        - /url: /
+        - img [ref=e273]
+      - navigation "Footer navigation" [ref=e275]:
+        - generic [ref=e276]:
+          - generic [ref=e277]:
+            - heading "Products" [level=3] [ref=e278]
+            - list [ref=e279]:
+              - listitem [ref=e280]:
+                - link "Claude" [ref=e281] [cursor=pointer]:
+                  - /url: https://claude.com/product/overview
+              - listitem [ref=e282]:
+                - link "Claude Code" [ref=e283] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-code
+              - listitem [ref=e284]:
+                - link "Claude Code Enterprise" [ref=e285] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-code/enterprise
+              - listitem [ref=e286]:
+                - link "Claude Cowork" [ref=e287] [cursor=pointer]:
+                  - /url: https://claude.com/product/cowork
+              - listitem [ref=e288]:
+                - link "@Claude" [ref=e289] [cursor=pointer]:
+                  - /url: https://claude.com/product/tag
+              - listitem [ref=e290]:
+                - link "Claude Design" [ref=e291] [cursor=pointer]:
+                  - /url: https://claude.com/product/design
+              - listitem [ref=e292]:
+                - link "Claude Science" [ref=e293] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-science
+              - listitem [ref=e294]:
+                - link "Claude Security" [ref=e295] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-security
+              - listitem [ref=e296]:
+                - link "Claude in Chrome" [ref=e297] [cursor=pointer]:
+                  - /url: https://claude.com/claude-in-chrome
+              - listitem [ref=e298]:
+                - link "Claude for Google Workspace" [ref=e299] [cursor=pointer]:
+                  - /url: https://claude.com/claude-for-google-workspace
+              - listitem [ref=e300]:
+                - link "Claude for Microsoft 365" [ref=e301] [cursor=pointer]:
+                  - /url: https://claude.com/claude-for-microsoft-365
+              - listitem [ref=e302]:
+                - link "Skills" [ref=e303] [cursor=pointer]:
+                  - /url: https://www.claude.com/skills
+              - listitem [ref=e304]:
+                - link "Download app" [ref=e305] [cursor=pointer]:
+                  - /url: https://claude.ai/download
+              - listitem [ref=e306]:
+                - link "Pricing" [ref=e307] [cursor=pointer]:
+                  - /url: https://claude.com/pricing
+              - listitem [ref=e308]:
+                - link "Log in to Claude" [ref=e309] [cursor=pointer]:
+                  - /url: https://claude.ai/
+          - generic [ref=e310]:
+            - heading "Models" [level=3] [ref=e311]
+            - list [ref=e312]:
+              - listitem [ref=e313]:
+                - link "Mythos" [ref=e314] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/mythos
+              - listitem [ref=e315]:
+                - link "Fable" [ref=e316] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/fable
+              - listitem [ref=e317]:
+                - link "Opus" [ref=e318] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/opus
+              - listitem [ref=e319]:
+                - link "Sonnet" [ref=e320] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/sonnet
+              - listitem [ref=e321]:
+                - link "Haiku" [ref=e322] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/haiku
+        - generic [ref=e323]:
+          - generic [ref=e324]:
+            - heading "Solutions" [level=3] [ref=e325]
+            - list [ref=e326]:
+              - listitem [ref=e327]:
+                - link "AI agents" [ref=e328] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/agents
+              - listitem [ref=e329]:
+                - link "Code modernization" [ref=e330] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/code-modernization
+              - listitem [ref=e331]:
+                - link "Coding" [ref=e332] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/coding
+              - listitem [ref=e333]:
+                - link "Commerce" [ref=e334] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/commerce
+              - listitem [ref=e335]:
+                - link "Customer support" [ref=e336] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/customer-support
+              - listitem [ref=e337]:
+                - link "Cybersecurity" [ref=e338] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/cybersecurity
+              - listitem [ref=e339]:
+                - link "Enterprise" [ref=e340] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/enterprise
+              - listitem [ref=e341]:
+                - link "Financial advisors" [ref=e342] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/financial-advisors
+              - listitem [ref=e343]:
+                - link "Financial services" [ref=e344] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/financial-services
+              - listitem [ref=e345]:
+                - link "Government" [ref=e346] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/government
+              - listitem [ref=e347]:
+                - link "Healthcare" [ref=e348] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/healthcare
+              - listitem [ref=e349]:
+                - link "Higher education" [ref=e350] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/education
+              - listitem [ref=e351]:
+                - link "K-12 teachers" [ref=e352] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/teachers
+              - listitem [ref=e353]:
+                - link "Legal" [ref=e354] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/legal
+              - listitem [ref=e355]:
+                - link "Life sciences" [ref=e356] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/life-sciences
+              - listitem [ref=e357]:
+                - link "Nonprofits" [ref=e358] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/nonprofits
+              - listitem [ref=e359]:
+                - link "Sales" [ref=e360] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/sales
+              - listitem [ref=e361]:
+                - link "Small business" [ref=e362] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/small-business
+          - generic [ref=e363]:
+            - heading "Claude Platform" [level=3] [ref=e364]
+            - list [ref=e365]:
+              - listitem [ref=e366]:
+                - link "Overview" [ref=e367] [cursor=pointer]:
+                  - /url: https://claude.com/platform/api
+              - listitem [ref=e368]:
+                - link "Developer docs" [ref=e369] [cursor=pointer]:
+                  - /url: https://platform.claude.com/docs
+              - listitem [ref=e370]:
+                - link "Pricing" [ref=e371] [cursor=pointer]:
+                  - /url: https://claude.com/pricing#api
+              - listitem [ref=e372]:
+                - link "Ecosystem" [ref=e373] [cursor=pointer]:
+                  - /url: https://claude.com/ecosystem
+              - listitem [ref=e374]:
+                - link "Marketplace" [ref=e375] [cursor=pointer]:
+                  - /url: https://claude.com/platform/marketplace
+              - listitem [ref=e376]:
+                - link "Regional compliance" [ref=e377] [cursor=pointer]:
+                  - /url: https://claude.com/regional-compliance
+              - listitem [ref=e378]:
+                - link "Claude on AWS" [ref=e379] [cursor=pointer]:
+                  - /url: https://claude.com/partners/claude-on-aws
+              - listitem [ref=e380]:
+                - link "Google Cloud" [ref=e381] [cursor=pointer]:
+                  - /url: https://claude.com/partners/google-cloud-vertex-ai
+              - listitem [ref=e382]:
+                - link "Microsoft Foundry" [ref=e383] [cursor=pointer]:
+                  - /url: https://claude.com/partners/microsoft-foundry
+              - listitem [ref=e384]:
+                - link "Console login" [ref=e385] [cursor=pointer]:
+                  - /url: https://platform.claude.com/
+        - generic [ref=e386]:
+          - generic [ref=e387]:
+            - heading "Resources" [level=3] [ref=e388]
+            - list [ref=e389]:
+              - listitem [ref=e390]:
+                - link "Blog" [ref=e391] [cursor=pointer]:
+                  - /url: https://claude.com/blog
+              - listitem [ref=e392]:
+                - link "Claude partner network" [ref=e393] [cursor=pointer]:
+                  - /url: https://claude.com/partners
+              - listitem [ref=e394]:
+                - link "Community" [ref=e395] [cursor=pointer]:
+                  - /url: https://claude.com/community
+              - listitem [ref=e396]:
+                - link "Connectors" [ref=e397] [cursor=pointer]:
+                  - /url: https://claude.com/connectors
+              - listitem [ref=e398]:
+                - link "Courses" [ref=e399] [cursor=pointer]:
+                  - /url: https://academy.claude.com
+              - listitem [ref=e400]:
+                - link "Customer stories" [ref=e401] [cursor=pointer]:
+                  - /url: https://claude.com/customers
+              - listitem [ref=e402]:
+                - link "Developer blog" [ref=e403] [cursor=pointer]:
+                  - /url: https://claude.dev
+              - listitem [ref=e404]:
+                - link "Engineering at Anthropic" [ref=e405] [cursor=pointer]:
+                  - /url: /engineering
+              - listitem [ref=e406]:
+                - link "Events" [ref=e407] [cursor=pointer]:
+                  - /url: /events
+              - listitem [ref=e408]:
+                - link "Plugins" [ref=e409] [cursor=pointer]:
+                  - /url: https://claude.com/plugins
+              - listitem [ref=e410]:
+                - link "Powered by Claude" [ref=e411] [cursor=pointer]:
+                  - /url: https://claude.com/partners/powered-by-claude
+              - listitem [ref=e412]:
+                - link "Service partners" [ref=e413] [cursor=pointer]:
+                  - /url: https://claude.com/partners/services
+              - listitem [ref=e414]:
+                - link "Tutorials" [ref=e415] [cursor=pointer]:
+                  - /url: https://claude.com/resources/tutorials
+              - listitem [ref=e416]:
+                - link "Use cases" [ref=e417] [cursor=pointer]:
+                  - /url: https://claude.com/resources/use-cases
+          - generic [ref=e418]:
+            - heading "Programs" [level=3] [ref=e419]
+            - list [ref=e420]:
+              - listitem [ref=e421]:
+                - link "Campus" [ref=e422] [cursor=pointer]:
+                  - /url: https://claude.com/programs/campus
+              - listitem [ref=e423]:
+                - link "Frontier Academy" [ref=e424] [cursor=pointer]:
+                  - /url: https://claude.com/programs/frontier-academy
+              - listitem [ref=e425]:
+                - link "Scientists" [ref=e426] [cursor=pointer]:
+                  - /url: https://claude.com/programs/team-plan-for-scientists
+              - listitem [ref=e427]:
+                - link "Startups" [ref=e428] [cursor=pointer]:
+                  - /url: https://claude.com/programs/startups
+          - generic [ref=e429]:
+            - heading "Help and security" [level=3] [ref=e430]
+            - list [ref=e431]:
+              - listitem [ref=e432]:
+                - link "Availability" [ref=e433] [cursor=pointer]:
+                  - /url: /legal/supported-regions
+              - listitem [ref=e434]:
+                - link "Status" [ref=e435] [cursor=pointer]:
+                  - /url: https://status.anthropic.com/
+              - listitem [ref=e436]:
+                - link "Support center" [ref=e437] [cursor=pointer]:
+                  - /url: https://support.claude.com/en/
+        - generic [ref=e438]:
+          - generic [ref=e439]:
+            - heading "Company" [level=3] [ref=e440]
+            - list [ref=e441]:
+              - listitem [ref=e442]:
+                - link "Anthropic" [ref=e443] [cursor=pointer]:
+                  - /url: /company
+              - listitem [ref=e444]:
+                - link "Careers" [ref=e445] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=e446]:
+                - link "Leadership" [ref=e447] [cursor=pointer]:
+                  - /url: /company/leadership
+              - listitem [ref=e448]:
+                - link "Policy" [ref=e449] [cursor=pointer]:
+                  - /url: /policy
+              - listitem [ref=e450]:
+                - link "Economic Futures" [ref=e451] [cursor=pointer]:
+                  - /url: /economic-futures
+              - listitem [ref=e452]:
+                - link "Research" [ref=e453] [cursor=pointer]:
+                  - /url: /research
+              - listitem [ref=e454]:
+                - link "News" [ref=e455] [cursor=pointer]:
+                  - /url: /news
+              - listitem [ref=e456]:
+                - link "Claude’s Constitution" [ref=e457] [cursor=pointer]:
+                  - /url: /constitution
+              - listitem [ref=e458]:
+                - link "Claude Corps" [ref=e459] [cursor=pointer]:
+                  - /url: /claude-corps
+              - listitem [ref=e460]:
+                - link "Keep thinking" [ref=e461] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/path-to-hope
+              - listitem [ref=e462]:
+                - link "Policy on the AI Exponential" [ref=e463] [cursor=pointer]:
+                  - /url: /policy-on-the-ai-exponential
+              - listitem [ref=e464]:
+                - link "Responsible Scaling Policy" [ref=e465] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/news/announcing-our-updated-responsible-scaling-policy
+              - listitem [ref=e466]:
+                - link "Security and compliance" [ref=e467] [cursor=pointer]:
+                  - /url: https://trust.anthropic.com/
+              - listitem [ref=e468]:
+                - link "Transparency" [ref=e469] [cursor=pointer]:
+                  - /url: /transparency
+          - generic [ref=e470]:
+            - heading "Terms and policies" [level=3] [ref=e471]
+            - list [ref=e472]:
+              - listitem [ref=e473]:
+                - link "Privacy policy" [ref=e474] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/privacy
+              - listitem [ref=e475]:
+                - link "Consumer health data privacy policy" [ref=e476] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/consumer-health-data-privacy-policy
+              - listitem [ref=e477]:
+                - link "Responsible disclosure policy" [ref=e478] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/responsible-disclosure-policy
+              - listitem [ref=e479]:
+                - 'link "Terms of service: Commercial" [ref=e480] [cursor=pointer]':
+                  - /url: https://www.anthropic.com/legal/commercial-terms
+              - listitem [ref=e481]:
+                - 'link "Terms of service: Consumer" [ref=e482] [cursor=pointer]':
+                  - /url: https://www.anthropic.com/legal/consumer-terms
+              - listitem [ref=e483]:
+                - 'link "Terms of Service: US K-12" [ref=e484] [cursor=pointer]':
+                  - /url: https://anthropic.com/legal/k12-terms
+              - listitem [ref=e485]:
+                - 'link "Data Processing Agreement: US K-12" [ref=e486] [cursor=pointer]':
+                  - /url: https://anthropic.com/legal/k12-dpa
+              - listitem [ref=e487]:
+                - link "Usage policy" [ref=e488] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/aup
+      - generic [ref=e489]:
+        - contentinfo [ref=e490]: © 2026 Anthropic PBC
+        - navigation "Social media links" [ref=e491]:
+          - listitem [ref=e492]:
+            - link "Visit our LinkedIn page" [ref=e493] [cursor=pointer]:
+              - /url: https://www.linkedin.com/company/anthropicresearch
+              - img [ref=e494]
+          - listitem [ref=e496]:
+            - link "Visit our X (formerly Twitter) profile" [ref=e497] [cursor=pointer]:
+              - /url: https://x.com/AnthropicAI
+              - img [ref=e498]
+          - listitem [ref=e500]:
+            - link "Visit our YouTube channel" [ref=e501] [cursor=pointer]:
+              - /url: https://www.youtube.com/@anthropic-ai
+              - img [ref=e502]
+  - alert [ref=e504]

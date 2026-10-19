@@ -1,0 +1,308 @@
+- generic [active] [ref=e1]:
+  - navigation "Main" [ref=e3]:
+    - generic [ref=e5]:
+      - link "Loading image... Kiro" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e11]:
+          - generic [ref=e13]: Loading image...
+          - img "Kiro" [ref=e14]
+      - list [ref=e19]:
+        - listitem [ref=e20]:
+          - link "Agents" [ref=e21] [cursor=pointer]:
+            - /url: /agents/
+        - listitem [ref=e22]:
+          - button "Apps menu" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Apps
+            - img [ref=e25]
+        - listitem [ref=e27]:
+          - link "Enterprise" [ref=e28] [cursor=pointer]:
+            - /url: /enterprise/
+        - listitem [ref=e29]:
+          - link "Pricing" [ref=e30] [cursor=pointer]:
+            - /url: /pricing/
+        - listitem [ref=e31]:
+          - link "Docs" [ref=e32] [cursor=pointer]:
+            - /url: /docs/
+        - listitem [ref=e33]:
+          - button "Community menu" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: Community
+            - img [ref=e36]
+        - listitem [ref=e38]:
+          - button "Resources menu" [ref=e39] [cursor=pointer]:
+            - generic [ref=e40]: Resources
+            - img [ref=e41]
+      - generic [ref=e43]:
+        - button "Search across all Kiro content (Command+K)" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+        - button "Language options" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+          - img [ref=e55]
+        - link "SIGN IN" [ref=e57] [cursor=pointer]:
+          - /url: https://app.kiro.dev
+          - generic [ref=e58]: SIGN IN
+        - link "Downloads" [ref=e59] [cursor=pointer]:
+          - /url: /downloads/
+          - generic [ref=e60]: DOWNLOADS
+  - main [ref=e61]:
+    - region "Page content" [ref=e64]:
+      - generic [ref=e65]:
+        - link "Back to all posts" [ref=e67] [cursor=pointer]:
+          - /url: /blog/
+          - img [ref=e68]
+          - generic [ref=e70]: Back to all posts
+        - article [ref=e71]:
+          - generic [ref=e72]:
+            - time [ref=e74]: September 16, 2026
+            - heading "Claude Fable 5.1 is now available in Kiro" [level=1] [ref=e75]
+            - generic [ref=e76]:
+              - generic [ref=e77]: By
+              - link "Vipin Mohan Product" [ref=e79] [cursor=pointer]:
+                - /url: https://github.com/vipin-mohan/
+                - generic [ref=e81]:
+                  - paragraph [ref=e82]: Vipin Mohan
+                  - paragraph [ref=e83]: Product
+          - generic [ref=e84]:
+            - paragraph [ref=e85]: Claude Fable 5.1 is available today to Kiro enterprise customers. For long-running, context-heavy agentic sessions, Fable 5.1 sets a new bar. It traces problems to their root causes in the code rather than surfacing symptoms, and it holds context and intent across the full arc of complex tasks.
+            - paragraph [ref=e86]: "Kiro is built to deliver production-ready code — not early drafts that need cleaning up, not stubs that need filling in. Fable 5.1 in Kiro raises the ceiling across three types of work:"
+            - list [ref=e87]:
+              - listitem [ref=e88]:
+                - paragraph [ref=e89]:
+                  - strong [ref=e90]: Interactive tasks.
+                  - text: On fast, back-and-forth coding sessions — fixing a bug, refactoring a function, unblocking a PR — Fable 5.1 is more precise. It understands what you’re actually trying to accomplish and gets there in fewer back-and-forth steps.
+              - listitem [ref=e91]:
+                - paragraph [ref=e92]:
+                  - strong [ref=e93]: Long-running multi-step tasks.
+                  - text: For large refactors and long autonomous runs, Kiro’s spec-driven workflows run to completion more reliably with Fable 5.1 — the model holds the plan across the full session without losing context or going off-track near the finish line.
+              - listitem [ref=e94]:
+                - paragraph [ref=e95]:
+                  - strong [ref=e96]: Complex tasks with security or system-level work.
+                  - text: Fable 5.1 brings improved convergence on hard problems that require reasoning across a large codebase.
+            - generic [ref=e97]:
+              - heading "More value from long agentic sessions" [level=2] [ref=e98]
+              - link "Copy link to More value from long agentic sessions section" [ref=e99] [cursor=pointer]:
+                - /url: "#more-value-from-long-agentic-sessions"
+                - img [ref=e101]
+            - paragraph [ref=e104]: Fable 5.1 is designed to get more efficient as sessions run longer. Kiro’s spec-driven approach also means the model stops early when a task isn’t going to succeed, rather than burning credits iterating on a dead end. For highly agentic work such as multi-file refactors, long autonomous runs, or sessions with heavy tool use, you’re getting Anthropic’s most capable model in Kiro.
+            - generic [ref=e105]:
+              - heading "Enabling Fable 5.1 for your organization" [level=2] [ref=e106]
+              - link "Copy link to Enabling fable 51 for your organization section" [ref=e107] [cursor=pointer]:
+                - /url: "#enabling-fable-51-for-your-organization"
+                - img [ref=e109]
+            - paragraph [ref=e112]:
+              - text: Fable 5.1 is available to Kiro enterprise customers who have enabled
+              - link "Model Governance" [ref=e113] [cursor=pointer]:
+                - /url: /blog/enterprise-governance-mcp-and-models/
+              - text: . To get started, open the Kiro settings in the AWS Management Console, turn on the Model availability toggle, and select Fable 5.1 from the model list. Once enabled, Fable 5.1 will appear in the model selector across all Kiro clients for every user. You’ll see a data retention notice indicating that AWS retains traffic for 30 days for abuse detection and that flagged traffic is subject to human review. If your organization needs to restrict access, Fable 5.1 can be disabled at any time from the same model settings page.
+            - generic [ref=e114]:
+              - heading "A note on safeguards" [level=2] [ref=e115]
+              - link "Copy link to A note on safeguards section" [ref=e116] [cursor=pointer]:
+                - /url: "#a-note-on-safeguards"
+                - img [ref=e118]
+            - paragraph [ref=e121]: Fable 5.1 ships with updated cybersecurity safeguards that are more precise than prior models. The classifiers have been tuned to better distinguish defensive security work from genuine threats, so you’ll see fewer interruptions on legitimate tasks. Fable 5.1 can now be used to discover software vulnerabilities, though tasks like exploit generation, binary-based vulnerability scanning, and penetration testing still redirect to Opus-class models in Kiro.
+            - generic [ref=e122]:
+              - heading "Availability" [level=2] [ref=e123]
+              - link "Copy link to Availability section" [ref=e124] [cursor=pointer]:
+                - /url: "#availability"
+                - img [ref=e126]
+            - paragraph [ref=e129]:
+              - text: Claude Fable 5.1 is rolling out gradually
+              - link "with experimental support" [ref=e130] [cursor=pointer]:
+                - /url: /docs/models/available-models/#model-lifecycle
+              - text: to Kiro enterprise customers in us-east-1 (IAD). It ships with a
+              - strong [ref=e131]: 1M
+              - text: context window and a
+              - strong [ref=e132]: 6x credit multiplier
+              - text: .
+            - paragraph [ref=e133]:
+              - text: Fable 5.1 requires
+              - link "Model Governance" [ref=e134] [cursor=pointer]:
+                - /url: /blog/enterprise-governance-mcp-and-models/
+              - text: to be turned on in the AWS Management Console, with Fable 5.1 selected from the model list.
+              - link "Download Kiro" [ref=e135] [cursor=pointer]:
+                - /url: /downloads/
+              - text: or restart the IDE or CLI to pick up the latest models.
+              - link "Web users" [ref=e136] [cursor=pointer]:
+                - /url: /web/
+              - text: can refresh their browser.
+          - generic [ref=e137]:
+            - generic [ref=e138]: Share
+            - generic [ref=e139]:
+              - link "Share on LinkedIn" [ref=e140] [cursor=pointer]:
+                - /url: https://www.linkedin.com/shareArticle?mini=true&url=https%3A%2F%2Fkiro.dev%2Fblog%2Ffable-5-1%2F
+                - img [ref=e141]
+              - link "Share on X" [ref=e143] [cursor=pointer]:
+                - /url: https://x.com/intent/post?text=Claude+Fable+5.1+is+now+available+in+Kiro&url=https%3A%2F%2Fkiro.dev%2Fblog%2Ffable-5-1%2F
+                - img [ref=e144]
+              - link "Share on Bluesky" [ref=e146] [cursor=pointer]:
+                - /url: https://bsky.app/intent/compose?text=https%3A%2F%2Fkiro.dev%2Fblog%2Ffable-5-1%2F
+                - img [ref=e147]
+              - button "Copy link" [ref=e151] [cursor=pointer]:
+                - img [ref=e152]
+          - generic [ref=e156]:
+            - link "PREVIOUS Tackling technical debt at scale with autonomous mode in Kiro Web" [ref=e158] [cursor=pointer]:
+              - /url: /blog/tackling-technical-debt-at-scale-with-autonomous-mode/
+              - generic [ref=e159]:
+                - generic [ref=e160]: "{"
+                - generic [ref=e161]: PREVIOUS
+                - generic [ref=e162]: "}"
+              - heading "Tackling technical debt at scale with autonomous mode in Kiro Web" [level=3] [ref=e163]
+            - link "NEXT How we built a software factory with Kiro Crew to merge 1,000 PRs in a week" [ref=e165] [cursor=pointer]:
+              - /url: /blog/software-factory-1000-prs/
+              - generic [ref=e167]:
+                - generic [ref=e168]: "{"
+                - generic [ref=e169]: NEXT
+                - generic [ref=e170]: "}"
+              - heading "How we built a software factory with Kiro Crew to merge 1,000 PRs in a week" [level=3] [ref=e171]
+  - contentinfo [ref=e172]:
+    - generic [ref=e174]:
+      - img "Kiro" [ref=e178]
+      - navigation "Footer Navigation" [ref=e179]:
+        - generic [ref=e180]:
+          - heading "Product" [level=2] [ref=e181]
+          - list [ref=e182]:
+            - listitem [ref=e183]:
+              - link "About Kiro" [ref=e184] [cursor=pointer]:
+                - /url: /about/
+            - listitem [ref=e185]:
+              - link "Agents" [ref=e186] [cursor=pointer]:
+                - /url: /agents/
+            - listitem [ref=e187]:
+              - link "IDE" [ref=e188] [cursor=pointer]:
+                - /url: /ide/
+            - listitem [ref=e189]:
+              - link "CLI" [ref=e190] [cursor=pointer]:
+                - /url: /cli/
+            - listitem [ref=e191]:
+              - link "Web" [ref=e192] [cursor=pointer]:
+                - /url: /web/
+            - listitem [ref=e193]:
+              - link "Mobile" [ref=e194] [cursor=pointer]:
+                - /url: /mobile/
+            - listitem [ref=e195]:
+              - link "Crew" [ref=e196] [cursor=pointer]:
+                - /url: /crew/
+            - listitem [ref=e197]:
+              - link "Pricing" [ref=e198] [cursor=pointer]:
+                - /url: /pricing/
+            - listitem [ref=e199]:
+              - link "Downloads" [ref=e200] [cursor=pointer]:
+                - /url: /downloads/
+        - generic [ref=e201]:
+          - heading "For" [level=2] [ref=e202]
+          - list [ref=e203]:
+            - listitem [ref=e204]:
+              - link "Enterprise" [ref=e205] [cursor=pointer]:
+                - /url: /enterprise/
+            - listitem [ref=e206]:
+              - link "Startups" [ref=e207] [cursor=pointer]:
+                - /url: /startups/
+            - listitem [ref=e208]:
+              - link "Students" [ref=e209] [cursor=pointer]:
+                - /url: /students/
+        - generic [ref=e210]:
+          - heading "Community" [level=2] [ref=e211]
+          - list [ref=e212]:
+            - listitem [ref=e213]:
+              - link "Overview" [ref=e214] [cursor=pointer]:
+                - /url: /community/
+            - listitem [ref=e215]:
+              - link "Ambassadors" [ref=e216] [cursor=pointer]:
+                - /url: /ambassadors/
+            - listitem [ref=e217]:
+              - link "Case studies" [ref=e218] [cursor=pointer]:
+                - /url: /case-studies/
+            - listitem [ref=e219]:
+              - link "Discord" [ref=e220] [cursor=pointer]:
+                - /url: /discord/
+            - listitem [ref=e221]:
+              - link "Events" [ref=e222] [cursor=pointer]:
+                - /url: /events/
+            - listitem [ref=e223]:
+              - link "Powers" [ref=e224] [cursor=pointer]:
+                - /url: /powers/
+            - listitem [ref=e225]:
+              - link "Shop" [ref=e226] [cursor=pointer]:
+                - /url: https://shop.kiro.dev
+            - listitem [ref=e227]:
+              - link "Showcase" [ref=e228] [cursor=pointer]:
+                - /url: /showcase/
+        - generic [ref=e229]:
+          - heading "Resources" [level=2] [ref=e230]
+          - list [ref=e231]:
+            - listitem [ref=e232]:
+              - link "Docs" [ref=e233] [cursor=pointer]:
+                - /url: /docs/
+            - listitem [ref=e234]:
+              - link "Blog" [ref=e235] [cursor=pointer]:
+                - /url: /blog/
+            - listitem [ref=e236]:
+              - link "Changelog" [ref=e237] [cursor=pointer]:
+                - /url: /changelog/
+            - listitem [ref=e238]:
+              - link "FAQs" [ref=e239] [cursor=pointer]:
+                - /url: /faq/
+            - listitem [ref=e240]:
+              - link "Videos" [ref=e241] [cursor=pointer]:
+                - /url: /videos/
+            - listitem [ref=e242]:
+              - link "Report a bug" [ref=e243] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new/choose
+            - listitem [ref=e244]:
+              - link "Suggest an idea" [ref=e245] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new?template=feature_request.yml
+            - listitem [ref=e246]:
+              - link "Billing support" [ref=e247] [cursor=pointer]:
+                - /url: https://app.kiro.dev/settings/account
+        - generic [ref=e248]:
+          - heading "Social" [level=2] [ref=e249]
+          - list "Social" [ref=e250]:
+            - listitem [ref=e251]:
+              - link "Join our Discord community" [ref=e252] [cursor=pointer]:
+                - /url: https://discord.gg/kirodotdev
+                - img [ref=e253]
+            - listitem [ref=e255]:
+              - link "Follow us on LinkedIn" [ref=e256] [cursor=pointer]:
+                - /url: https://www.linkedin.com/showcase/kirodotdev
+                - img [ref=e257]
+            - listitem [ref=e259]:
+              - link "Follow us on X" [ref=e260] [cursor=pointer]:
+                - /url: https://x.com/kirodotdev
+                - img [ref=e261]
+            - listitem [ref=e263]:
+              - link "Follow us on Instagram" [ref=e264] [cursor=pointer]:
+                - /url: https://www.instagram.com/kirodotdev
+                - img [ref=e265]
+            - listitem [ref=e267]:
+              - link "Follow us on YouTube" [ref=e268] [cursor=pointer]:
+                - /url: https://www.youtube.com/@kirodotdev
+                - img [ref=e269]
+            - listitem [ref=e271]:
+              - link "Follow us on Bluesky" [ref=e272] [cursor=pointer]:
+                - /url: https://bsky.app/profile/kiro.dev
+                - img [ref=e273]
+            - listitem [ref=e276]:
+              - link "Follow us on Twitch" [ref=e277] [cursor=pointer]:
+                - /url: https://www.twitch.tv/kirodotdev
+                - img [ref=e278]
+    - generic [ref=e282]:
+      - link "AWS Amazon" [ref=e284] [cursor=pointer]:
+        - /url: https://aws.amazon.com
+        - img [ref=e285]
+      - generic [ref=e288]:
+        - link "Site Terms" [ref=e289] [cursor=pointer]:
+          - /url: https://aws.amazon.com/terms/
+        - link "License" [ref=e290] [cursor=pointer]:
+          - /url: /license/
+        - link "Responsible AI Policy" [ref=e291] [cursor=pointer]:
+          - /url: https://aws.amazon.com/ai/responsible-ai/policy/
+        - link "Legal" [ref=e292] [cursor=pointer]:
+          - /url: https://aws.amazon.com/legal/
+        - link "Privacy Policy" [ref=e293] [cursor=pointer]:
+          - /url: https://aws.amazon.com/privacy/
+        - link "Cookie Preferences" [ref=e294] [cursor=pointer]:
+          - /url: "#"
+        - button "Language options" [ref=e295] [cursor=pointer]:
+          - img [ref=e296]
+          - generic [ref=e298]: English
+          - img [ref=e300]
+  - alert [ref=e302]

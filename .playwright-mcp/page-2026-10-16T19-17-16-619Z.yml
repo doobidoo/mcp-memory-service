@@ -1,0 +1,371 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "Google for Developers" [ref=e5] [cursor=pointer]:
+        - /url: https://developers.google.com/
+        - img "Google for Developers" [ref=e6]
+      - navigation "Upper Tabs" [ref=e10]:
+        - link "Community/Events" [ref=e12] [cursor=pointer]:
+          - /url: //developers.google.com/community
+        - link "Learn" [ref=e14] [cursor=pointer]:
+          - /url: //developers.google.com/solutions/catalog
+        - link "Blog" [ref=e16] [cursor=pointer]:
+          - /url: //developers.googleblog.com
+        - link "YouTube" [ref=e18] [cursor=pointer]:
+          - /url: https://www.youtube.com/user/GoogleDevelopers
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - img [ref=e24]
+        - textbox "Search" [ref=e26]:
+          - /placeholder: Search all articles...
+          - text: Gemini 3.8 Live
+      - button "Search" [ref=e27] [cursor=pointer]
+  - generic [ref=e28]:
+    - banner [ref=e29]:
+      - heading "Search for \"Gemini 3.8 Live\"" [level=2] [ref=e30]
+      - paragraph [ref=e31]: 2 results
+    - link "Clear filters" [ref=e34] [cursor=pointer]:
+      - /url: /en/search/?query=Gemini 3.8 Live
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - paragraph [ref=e38]: Filter by
+        - generic [ref=e40]:
+          - heading "Content Type" [level=4] [ref=e41]
+          - link "Select all" [ref=e42] [cursor=pointer]:
+            - /url: /en/search/?query=Gemini+3.8+Live&content_type_categories=Announcements%2CBeginner%2CBest+Practices%2CBusiness+and+Leadership%2CCase+Studies%2CCode+Health%2CCommunity%2CDocumentation%2CEvents%2CExplore%2CHard%2CHow-To+Guides%2CIndustry+Trends%2CIntermediate%2CLearn%2CPerformance%2CProblem-Solving%2CProject+Management%2FAgile%2CQ%26A%2CRelease+Notes%2CSolutions%2CTesting%2CTotT%2CTutorials
+          - list [ref=e43]:
+            - listitem [ref=e44]:
+              - checkbox "Announcements Announcements" [ref=e46]
+              - generic [ref=e47]: Announcements
+            - listitem [ref=e48]:
+              - checkbox "Beginner Beginner" [ref=e50]
+              - generic [ref=e51]: Beginner
+            - listitem [ref=e52]:
+              - checkbox "Best Practices Best Practices" [ref=e54]
+              - generic [ref=e55]: Best Practices
+            - listitem [ref=e56]:
+              - checkbox "Business and Leadership Business and Leadership" [ref=e58]
+              - generic [ref=e59]: Business and Leadership
+            - listitem [ref=e60]:
+              - checkbox "Case Studies Case Studies" [ref=e62]
+              - generic [ref=e63]: Case Studies
+            - listitem [ref=e64]:
+              - checkbox "Code Health Code Health" [ref=e66]
+              - generic [ref=e67]: Code Health
+            - listitem [ref=e68]:
+              - checkbox "Community Community" [ref=e70]
+              - generic [ref=e71]: Community
+            - listitem [ref=e72]:
+              - checkbox "Documentation Documentation" [ref=e74]
+              - generic [ref=e75]: Documentation
+            - listitem [ref=e76]:
+              - checkbox "Events Events" [ref=e78]
+              - generic [ref=e79]: Events
+            - listitem [ref=e80]:
+              - checkbox "Explore Explore" [ref=e82]
+              - generic [ref=e83]: Explore
+            - listitem [ref=e84]:
+              - checkbox "Hard Hard" [ref=e86]
+              - generic [ref=e87]: Hard
+            - listitem [ref=e88]:
+              - checkbox "How-To Guides How-To Guides" [ref=e90]
+              - generic [ref=e91]: How-To Guides
+            - listitem [ref=e92]:
+              - checkbox "Industry Trends Industry Trends" [ref=e94]
+              - generic [ref=e95]: Industry Trends
+            - listitem [ref=e96]:
+              - checkbox "Intermediate Intermediate" [ref=e98]
+              - generic [ref=e99]: Intermediate
+            - listitem [ref=e100]:
+              - checkbox "Learn Learn" [ref=e102]
+              - generic [ref=e103]: Learn
+            - listitem [ref=e104]:
+              - checkbox "Performance Performance" [ref=e106]
+              - generic [ref=e107]: Performance
+            - listitem [ref=e108]:
+              - checkbox "Problem-Solving Problem-Solving" [ref=e110]
+              - generic [ref=e111]: Problem-Solving
+            - listitem [ref=e112]:
+              - checkbox "Project Management/Agile Project Management/Agile" [ref=e114]
+              - generic [ref=e115]: Project Management/Agile
+            - listitem [ref=e116]:
+              - checkbox "Q&A Q&A" [ref=e118]
+              - generic [ref=e119]: Q&A
+            - listitem [ref=e120]:
+              - checkbox "Release Notes Release Notes" [ref=e122]
+              - generic [ref=e123]: Release Notes
+            - listitem [ref=e124]:
+              - checkbox "Solutions Solutions" [ref=e126]
+              - generic [ref=e127]: Solutions
+            - listitem [ref=e128]:
+              - checkbox "Testing Testing" [ref=e130]
+              - generic [ref=e131]: Testing
+            - listitem [ref=e132]:
+              - checkbox "TotT TotT" [ref=e134]
+              - generic [ref=e135]: TotT
+            - listitem [ref=e136]:
+              - checkbox "Tutorials Tutorials" [ref=e138]
+              - generic [ref=e139]: Tutorials
+        - generic [ref=e140]:
+          - heading "Product" [level=4] [ref=e141]
+          - link "Select all" [ref=e142] [cursor=pointer]:
+            - /url: /en/search/?query=Gemini+3.8+Live&product_categories=Ads%2CAI+Edge%2CAndroid%2CAngular%2CAR%2CAssistant%2CAuto%2CChecks%2CChrome+OS%2CChrome+Web%2CCloud%2CDeepMind%2CDesign%2CEngineering%2CFirebase%2CFlutter%2CGemini%2CGemma%2CGeo%2CGo%2CGoogle+AI+Studio%2CGoogle+Labs%2CGoogle+Pay%2CIDX%2CKaggle%2CKeras%2CMatter%2CPay%2CPlay%2CSearch%2CSmart+Home%2CTensorFlow%2CTV%2CWallet%2CWear+OS%2CWorkspace
+          - list [ref=e143]:
+            - listitem [ref=e144]:
+              - checkbox "Ads Ads" [ref=e146]
+              - generic [ref=e147]: Ads
+            - listitem [ref=e148]:
+              - checkbox "AI Edge AI Edge" [ref=e150]
+              - generic [ref=e151]: AI Edge
+            - listitem [ref=e152]:
+              - checkbox "Android Android" [ref=e154]
+              - generic [ref=e155]: Android
+            - listitem [ref=e156]:
+              - checkbox "Angular Angular" [ref=e158]
+              - generic [ref=e159]: Angular
+            - listitem [ref=e160]:
+              - checkbox "AR AR" [ref=e162]
+              - generic [ref=e163]: AR
+            - listitem [ref=e164]:
+              - checkbox "Assistant Assistant" [ref=e166]
+              - generic [ref=e167]: Assistant
+            - listitem [ref=e168]:
+              - checkbox "Auto Auto" [ref=e170]
+              - generic [ref=e171]: Auto
+            - listitem [ref=e172]:
+              - checkbox "Checks Checks" [ref=e174]
+              - generic [ref=e175]: Checks
+            - listitem [ref=e176]:
+              - checkbox "Chrome OS Chrome OS" [ref=e178]
+              - generic [ref=e179]: Chrome OS
+            - listitem [ref=e180]:
+              - checkbox "Chrome Web Chrome Web" [ref=e182]
+              - generic [ref=e183]: Chrome Web
+            - listitem [ref=e184]:
+              - checkbox "Cloud Cloud" [ref=e186]
+              - generic [ref=e187]: Cloud
+            - listitem [ref=e188]:
+              - checkbox "DeepMind DeepMind" [ref=e190]
+              - generic [ref=e191]: DeepMind
+            - listitem [ref=e192]:
+              - checkbox "Design Design" [ref=e194]
+              - generic [ref=e195]: Design
+            - listitem [ref=e196]:
+              - checkbox "Engineering Engineering" [ref=e198]
+              - generic [ref=e199]: Engineering
+            - listitem [ref=e200]:
+              - checkbox "Firebase Firebase" [ref=e202]
+              - generic [ref=e203]: Firebase
+            - listitem [ref=e204]:
+              - checkbox "Flutter Flutter" [ref=e206]
+              - generic [ref=e207]: Flutter
+            - listitem [ref=e208]:
+              - checkbox "Gemini Gemini" [ref=e210]
+              - generic [ref=e211]: Gemini
+            - listitem [ref=e212]:
+              - checkbox "Gemma Gemma" [ref=e214]
+              - generic [ref=e215]: Gemma
+            - listitem [ref=e216]:
+              - checkbox "Geo Geo" [ref=e218]
+              - generic [ref=e219]: Geo
+            - listitem [ref=e220]:
+              - checkbox "Go Go" [ref=e222]
+              - generic [ref=e223]: Go
+            - listitem [ref=e224]:
+              - checkbox "Google AI Studio Google AI Studio" [ref=e226]
+              - generic [ref=e227]: Google AI Studio
+            - listitem [ref=e228]:
+              - checkbox "Google Labs Google Labs" [ref=e230]
+              - generic [ref=e231]: Google Labs
+            - listitem [ref=e232]:
+              - checkbox "Google Pay Google Pay" [ref=e234]
+              - generic [ref=e235]: Google Pay
+            - listitem [ref=e236]:
+              - checkbox "IDX IDX" [ref=e238]
+              - generic [ref=e239]: IDX
+            - listitem [ref=e240]:
+              - checkbox "Kaggle Kaggle" [ref=e242]
+              - generic [ref=e243]: Kaggle
+            - listitem [ref=e244]:
+              - checkbox "Keras Keras" [ref=e246]
+              - generic [ref=e247]: Keras
+            - listitem [ref=e248]:
+              - checkbox "Matter Matter" [ref=e250]
+              - generic [ref=e251]: Matter
+            - listitem [ref=e252]:
+              - checkbox "Pay Pay" [ref=e254]
+              - generic [ref=e255]: Pay
+            - listitem [ref=e256]:
+              - checkbox "Play Play" [ref=e258]
+              - generic [ref=e259]: Play
+            - listitem [ref=e260]:
+              - checkbox "Search Search" [ref=e262]
+              - generic [ref=e263]: Search
+            - listitem [ref=e264]:
+              - checkbox "Smart Home Smart Home" [ref=e266]
+              - generic [ref=e267]: Smart Home
+            - listitem [ref=e268]:
+              - checkbox "TensorFlow TensorFlow" [ref=e270]
+              - generic [ref=e271]: TensorFlow
+            - listitem [ref=e272]:
+              - checkbox "TV TV" [ref=e274]
+              - generic [ref=e275]: TV
+            - listitem [ref=e276]:
+              - checkbox "Wallet Wallet" [ref=e278]
+              - generic [ref=e279]: Wallet
+            - listitem [ref=e280]:
+              - checkbox "Wear OS Wear OS" [ref=e282]
+              - generic [ref=e283]: Wear OS
+            - listitem [ref=e284]:
+              - checkbox "Workspace Workspace" [ref=e286]
+              - generic [ref=e287]: Workspace
+        - generic [ref=e288]:
+          - heading "Technology" [level=4] [ref=e289]
+          - link "Select all" [ref=e290] [cursor=pointer]:
+            - /url: /en/search/?query=Gemini+3.8+Live&technology_categories=AI%2CCloud%2CMobile%2CWeb
+          - list [ref=e291]:
+            - listitem [ref=e292]:
+              - checkbox "AI AI" [ref=e294]
+              - generic [ref=e295]: AI
+            - listitem [ref=e296]:
+              - checkbox "Cloud Cloud" [ref=e298]
+              - generic [ref=e299]: Cloud
+            - listitem [ref=e300]:
+              - checkbox "Mobile Mobile" [ref=e302]
+              - generic [ref=e303]: Mobile
+            - listitem [ref=e304]:
+              - checkbox "Web Web" [ref=e306]
+              - generic [ref=e307]: Web
+      - generic [ref=e308]:
+        - list [ref=e309]:
+          - listitem [ref=e310]:
+            - generic [ref=e311]:
+              - generic [ref=e312]:
+                - paragraph [ref=e313]: OCT. 8, 2026 / AI
+                - 'heading "The Outer Loop, Insights First: An Ambient Quality Agent That Diagnoses Your Production Agent" [level=3] [ref=e314]':
+                  - 'link "The Outer Loop, Insights First: An Ambient Quality Agent That Diagnoses Your Production Agent" [ref=e315] [cursor=pointer]':
+                    - /url: /en/the-outer-loop-insights-first-an-ambient-quality-agent-that-diagnoses-your-production-agent/
+                - paragraph [ref=e316]: How do you keep improving an AI agent after the first 80%, once it serves real production traffic and silent quality regressions return HTTP 200 OK? We are open-sourcing AQuA (Ambient Quality Agent), a reference implementation that runs beside your production agent in Google Cloud, sweeps and verifies failure clusters against conversation transcripts, and diagnoses root causes anchored to the exact deployed source snapshot.
+              - img "Gemini_Generated_Image_2g9cog2g9cog2g9c" [ref=e317]
+          - listitem [ref=e318]:
+            - generic [ref=e319]:
+              - generic [ref=e320]:
+                - paragraph [ref=e321]: SEPT. 23, 2026 / AI
+                - heading "Introducing Support for Local AI Models in the Antigravity SDK" [level=3] [ref=e322]:
+                  - link "Introducing Support for Local AI Models in the Antigravity SDK" [ref=e323] [cursor=pointer]:
+                    - /url: /en/introducing-support-for-local-ai-models-in-the-antigravity-sdk/
+                - paragraph [ref=e324]: The Google Antigravity SDK now empowers developers to execute offline, agentic workflows locally using models like Gemma 4 26B A4B via LiteRT. This update facilitates powerful hybrid orchestration architectures, allowing a cloud model to act as a lightweight planner while local models securely handle token-intensive tasks—like code auditing and patching—directly on-device. Furthermore, the SDK provides drop-in support for OpenAI-compatible inference servers like Ollama and vLLM, enabling the seamless creation of privacy-first, autonomous local utilities.
+              - img "agy_litrt" [ref=e325]
+        - generic [ref=e326]:
+          - generic [ref=e327]:
+            - link "Previous":
+              - /url: None
+              - img
+            - generic: Previous
+          - generic [ref=e328]:
+            - generic: Next
+            - link "Next":
+              - /url: None
+              - img
+  - navigation "Footer links" [ref=e330]:
+    - list [ref=e331]:
+      - listitem [ref=e332]:
+        - text: Connect
+        - list [ref=e333]:
+          - listitem [ref=e334]:
+            - link "Blog" [ref=e335] [cursor=pointer]:
+              - /url: //googledevelopers.blogspot.com
+          - listitem [ref=e336]:
+            - link "Bluesky" [ref=e337] [cursor=pointer]:
+              - /url: https://goo.gle/3FReQXN
+          - listitem [ref=e338]:
+            - link "Instagram" [ref=e339] [cursor=pointer]:
+              - /url: https://goo.gle/googlefordevs
+          - listitem [ref=e340]:
+            - link "LinkedIn" [ref=e341] [cursor=pointer]:
+              - /url: https://goo.gle/gdevs-li
+          - listitem [ref=e342]:
+            - link "X (Twitter)" [ref=e343] [cursor=pointer]:
+              - /url: https://goo.gle/gdevs-tw
+          - listitem [ref=e344]:
+            - link "YouTube" [ref=e345] [cursor=pointer]:
+              - /url: https://goo.gle/developers
+      - listitem [ref=e346]:
+        - text: Programs
+        - list [ref=e347]:
+          - listitem [ref=e348]:
+            - link "Google Developer Program" [ref=e349] [cursor=pointer]:
+              - /url: //developers.google.com/program
+          - listitem [ref=e350]:
+            - link "Google Developer Groups" [ref=e351] [cursor=pointer]:
+              - /url: //developers.google.com/community/gdg
+          - listitem [ref=e352]:
+            - link "Google Developer Experts" [ref=e353] [cursor=pointer]:
+              - /url: //developers.google.com/community/experts
+          - listitem [ref=e354]:
+            - link "Accelerators" [ref=e355] [cursor=pointer]:
+              - /url: //developers.google.com/community/accelerators
+          - listitem [ref=e356]:
+            - link "Women Techmakers" [ref=e357] [cursor=pointer]:
+              - /url: //www.womentechmakers.com
+          - listitem [ref=e358]:
+            - link "Google Cloud & NVIDIA" [ref=e359] [cursor=pointer]:
+              - /url: //developers.google.com/community/nvidia
+      - listitem [ref=e360]:
+        - text: Developer consoles
+        - list [ref=e361]:
+          - listitem [ref=e362]:
+            - link "Google API Console" [ref=e363] [cursor=pointer]:
+              - /url: //console.developers.google.com
+          - listitem [ref=e364]:
+            - link "Google Cloud Platform Console" [ref=e365] [cursor=pointer]:
+              - /url: //console.cloud.google.com
+          - listitem [ref=e366]:
+            - link "Google Play Console" [ref=e367] [cursor=pointer]:
+              - /url: //play.google.com/apps/publish
+          - listitem [ref=e368]:
+            - link "Firebase Console" [ref=e369] [cursor=pointer]:
+              - /url: //console.firebase.google.com
+          - listitem [ref=e370]:
+            - link "Actions on Google Console" [ref=e371] [cursor=pointer]:
+              - /url: //console.actions.google.com
+          - listitem [ref=e372]:
+            - link "Cast SDK Developer Console" [ref=e373] [cursor=pointer]:
+              - /url: //cast.google.com/publish
+          - listitem [ref=e374]:
+            - link "Chrome Web Store Dashboard" [ref=e375] [cursor=pointer]:
+              - /url: //chrome.google.com/webstore/developer/dashboard
+          - listitem [ref=e376]:
+            - link "Google Home Developer Console" [ref=e377] [cursor=pointer]:
+              - /url: //console.home.google.com/
+  - generic [ref=e379]:
+    - navigation "Other Google Developers websites" [ref=e380]:
+      - link "Google for Developers" [ref=e381] [cursor=pointer]:
+        - /url: https://developers.google.com/
+        - img "Google for Developers" [ref=e382]
+      - list [ref=e383]:
+        - listitem [ref=e384]:
+          - link "Android" [ref=e385] [cursor=pointer]:
+            - /url: //developer.android.com
+        - listitem [ref=e386]:
+          - link "Chrome" [ref=e387] [cursor=pointer]:
+            - /url: //developer.chrome.com/home
+        - listitem [ref=e388]:
+          - link "Firebase" [ref=e389] [cursor=pointer]:
+            - /url: //firebase.google.com
+        - listitem [ref=e390]:
+          - link "Google Cloud Platform" [ref=e391] [cursor=pointer]:
+            - /url: //cloud.google.com
+        - listitem [ref=e392]:
+          - link "All products" [ref=e393] [cursor=pointer]:
+            - /url: //developers.google.com/products
+        - listitem
+    - navigation [ref=e394]:
+      - list [ref=e395]:
+        - listitem [ref=e396]:
+          - link "Terms" [ref=e397] [cursor=pointer]:
+            - /url: //developers.google.com/terms/site-terms
+        - listitem [ref=e398]:
+          - text: "|"
+          - link "Privacy" [ref=e399] [cursor=pointer]:
+            - /url: //policies.google.com/privacy

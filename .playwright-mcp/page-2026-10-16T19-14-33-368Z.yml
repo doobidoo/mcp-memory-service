@@ -1,0 +1,408 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Simon Willison’s Weblog" [level=1] [ref=e4]:
+      - link "Simon Willison’s Weblog" [ref=e5] [cursor=pointer]:
+        - /url: /
+    - link "Newsletter" [ref=e6] [cursor=pointer]:
+      - /url: /newsletters/
+  - generic [ref=e8]:
+    - strong [ref=e9]: "Sponsored by:"
+    - text: Pomerium — Static OAuth scopes won't stop AI agent breakouts.
+    - link "Upgrade to Pomerium's agentic access management trusted by NVIDIA and OpenAI" [ref=e10] [cursor=pointer]:
+      - /url: https://fandf.co/4hJeKAm
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - heading "Monday, 14th September 2026" [level=2] [ref=e13]
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - link "Release" [ref=e17] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "commit-rewriter 0.1" [ref=e19] [cursor=pointer]:
+            - /url: https://github.com/simonw/commit-rewriter/releases/tag/0.1
+        - generic [ref=e20]:
+          - paragraph [ref=e21]:
+            - text: I built this little web app the other day to help edit the commit messages for the
+            - link "Datasette security releases" [ref=e22] [cursor=pointer]:
+              - /url: https://datasette.io/blog/2026/september-security-releases/
+            - text: . The initial commits were full of coding agent cruft and references to issue IDs from our private repository, so they weren't fit for publication.
+          - paragraph [ref=e23]: "If you want to edit the commit messages for a repository you can run it like this:"
+          - code [ref=e25]: uvx commit-rewriter path/to/repo
+          - paragraph [ref=e26]: Omit the path if you are already in the directory for that repo.
+          - paragraph [ref=e27]:
+            - img "Screenshot of the commit-rewriter web interface. A heading reads commit-rewriter above the repository path and current branch and commit hash, with a short description of the tool. A toolbar shows a pending edits count with Discard drafts and Rewrite commit messages buttons, followed by a search box for message, author, or hash and an Edited only checkbox. A left sidebar titled Navigate commits lists recent commit messages with their short hashes. The main panel shows a card for each commit with its hash, author and timestamp, an editable text area containing the commit message, and a View full formatted diff toggle." [ref=e28]
+          - paragraph [ref=e29]: When you submit your edits the tool creates a timestamped branch of your current repo state - to allow you to revert if you need to - and then rewrites every commit from the first one you edited to the most recent.
+        - generic [ref=e30]:
+          - link "14th Sep 2026, 12:28 am" [ref=e31] [cursor=pointer]:
+            - /url: /2026/Sep/14/commit-rewriter/
+          - text: ·
+          - link "git" [ref=e32] [cursor=pointer]:
+            - /url: /tags/git/
+          - text: ","
+          - link "projects" [ref=e33] [cursor=pointer]:
+            - /url: /tags/projects/
+          - text: ","
+          - link "python" [ref=e34] [cursor=pointer]:
+            - /url: /tags/python/
+          - text: ","
+          - link "ai-assisted-programming" [ref=e35] [cursor=pointer]:
+            - /url: /tags/ai-assisted-programming/
+      - generic [ref=e36]:
+        - blockquote [ref=e37]:
+          - paragraph [ref=e38]: The cost of writing code collapsed, and the cost of reviewing, fixing and operating it is following, and I'm assuming it gets there. What's left of making software is finding out what people actually want, defining it precisely, and making it pleasant to use. That cost is per piece of software and doesn't transfer, so as the amount of software goes to infinity, which it will because there's no ceiling on demand, that cost becomes the whole job.
+        - paragraph [ref=e39]:
+          - text: —
+          - link "Laurie Voss" [ref=e40] [cursor=pointer]:
+            - /url: https://seldo.com/posts/we-are-all-product-engineers-now/
+          - text: ", We are all Product Engineers now"
+        - paragraph [ref=e41]:
+          - link "#" [ref=e42] [cursor=pointer]:
+            - /url: /2026/Sep/14/laurie-voss/
+          - link "2:34 pm" [ref=e43] [cursor=pointer]:
+            - /url: /2026/Sep/14/laurie-voss/
+          - text: /
+          - link "careers" [ref=e44] [cursor=pointer]:
+            - /url: /tags/careers/
+          - text: ","
+          - link "ai" [ref=e45] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "laurie-voss" [ref=e46] [cursor=pointer]:
+            - /url: /tags/laurie-voss/
+          - text: ","
+          - link "generative-ai" [ref=e47] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e48] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "agentic-engineering" [ref=e49] [cursor=pointer]:
+            - /url: /tags/agentic-engineering/
+          - text: ","
+          - link "deep-blue" [ref=e50] [cursor=pointer]:
+            - /url: /tags/deep-blue/
+      - generic [ref=e51]:
+        - paragraph [ref=e52]:
+          - link "Comment" [ref=e53] [cursor=pointer]:
+            - /url: /elsewhere/comment/
+          - link "My comment" [ref=e54] [cursor=pointer]:
+            - /url: https://lobste.rs/s/lbavmm/what_blog_posts_influenced_your_thinking#c_4fxnwn
+          - text: "on"
+          - link "What blog posts influenced your thinking the most?" [ref=e55] [cursor=pointer]:
+            - /url: https://lobste.rs/s/lbavmm/what_blog_posts_influenced_your_thinking
+          - text: — Lobste.rs
+        - paragraph [ref=e56]:
+          - text: An early Joel Spolsky one for me was
+          - link "The Law of Leaky Abstractions" [ref=e57] [cursor=pointer]:
+            - /url: https://www.joelonsoftware.com/2002/11/11/the-law-of-leaky-abstractions/
+          - text: . I read that near the start of my career and it's encouraged me to
+          - emphasis [ref=e58]: always
+          - text: be looking for improved understanding of the layers under where I'm working, just in case one of those abstractions leaks.
+        - paragraph [ref=e59]:
+          - text: A more recent one, from 2018, is
+          - 'link "Migrations: the sole scalable fix to tech debt" [ref=e60] [cursor=pointer]':
+            - /url: https://lethain.com/migrations/
+          - text: by Will Larson. I absolutely love his idea that migrations (e.g. replacing one service with a new one, or switching database engines, or whatever) are part and parcel of software engineering and are a skill that you should invest in and get good at, not avoid or treat as special one-offs.
+        - paragraph [ref=e61]:
+          - link "The Engineer/Manager Pendulum" [ref=e62] [cursor=pointer]:
+            - /url: https://charity.wtf/p/the-engineer-manager-pendulum
+          - text: by Charity Majors was hugely influential for me. I was stuck in engineering management and worried that if I switched back to being an "Individual Contributor" (ugh I hate that term) I'd damage my career. Charity gave me permission to make the switch by pointing out that many of the most successful software developers pendulum from one track to the other multiple times over their career, and doing so makes you better at both sides.
+        - paragraph [ref=e63]:
+          - link "#" [ref=e64] [cursor=pointer]:
+            - /url: /2026/Sep/14/influences/
+          - link "8:21 pm" [ref=e65] [cursor=pointer]:
+            - /url: /2026/Sep/14/influences/
+          - text: /
+          - link "joel-spolsky" [ref=e66] [cursor=pointer]:
+            - /url: /tags/joel-spolsky/
+          - text: ","
+          - link "software-engineering" [ref=e67] [cursor=pointer]:
+            - /url: /tags/software-engineering/
+          - text: ","
+          - link "will-larson" [ref=e68] [cursor=pointer]:
+            - /url: /tags/will-larson/
+          - text: ","
+          - link "charity-majors" [ref=e69] [cursor=pointer]:
+            - /url: /tags/charity-majors/
+      - generic [ref=e70]:
+        - link [ref=e71] [cursor=pointer]:
+          - /url: https://simonw.substack.com/p/navierstokes-rubygems-attacked-gis
+        - generic [ref=e72]:
+          - paragraph [ref=e73]:
+            - time [ref=e74]: 14 September 2026
+            - text: · Substack
+          - heading "Navier–Stokes, RubyGems attacked, GIS and Blender with GPT-6 Astra" [level=3] [ref=e75]:
+            - link "Navier–Stokes, RubyGems attacked, GIS and Blender with GPT-6 Astra" [ref=e76] [cursor=pointer]:
+              - /url: https://simonw.substack.com/p/navierstokes-rubygems-attacked-gis
+          - paragraph [ref=e77]: Plus a Datasette security release, and a Pluribus Fabergé egg
+      - generic [ref=e78]:
+        - paragraph [ref=e79]:
+          - strong [ref=e80]:
+            - link "The contagion of fear" [ref=e81] [cursor=pointer]:
+              - /url: https://bcantrill.dtrace.org/2026/09/13/the-contagion-of-fear/
+          - text: (
+          - link "via" [ref=e82] [cursor=pointer]:
+            - /url: https://lobste.rs/s/1ifr5f/contagion_fear
+          - text: ) Bryan Cantrill responds to the
+          - link "tweet by former Anthropic employee Jacob Coxon" [ref=e83] [cursor=pointer]:
+            - /url: https://x.com/hilbertspaess/status/2097476203863224394
+          - text: confirming that many Anthropic researchers believe AI "could kill us all by the end of the decade".
+        - paragraph [ref=e84]: "Bryan shares a story of his own youthful mistakes causing unjustified panic among less technical peers, and warns against doing the same:"
+        - blockquote [ref=e85]:
+          - paragraph [ref=e86]:
+            - text: "These ghoulish claims strike brazenly at the hearth, and given the obvious importance of AI, it is unsurprising that they have leapt into the mainstream, with people asking the natural question:"
+            - link "how would that happen?" [ref=e87] [cursor=pointer]:
+              - /url: https://www.youtube.com/watch?v=kwPxjBJamVs
+            - text: The answers always rely on hand-wavy extrapolation into the future; for example, Jacob Coxon cites "hacking critical infrastructure" and "extinction-level bioweapons" without further elaboration. But Coxon is not an expert on critical infrastructure, nor on bioweapons — nor, for that matter, on extinction. [...]
+          - paragraph [ref=e88]: That said, we should not expect the public to understand LLMs, critical infrastructure, bioweapons, extinction biology, etc. — that burden must lie with those making the claim. The lesson that I learned (shamefully) decades ago is that domain experts, by way of their expertise, implicitly hold the public’s trust — and we must not abuse it. It is incumbent upon us to be circumspect in our claims — and maximally so when raising the alarm.
+        - paragraph [ref=e89]:
+          - text: Bryan talked about his doubts about the bioweapons concerns in the recent episode of Oxide and Friends that I joined. You can hear more of his thoughts on that
+          - link "starting at 51m44s" [ref=e90] [cursor=pointer]:
+            - /url: https://oxide-and-friends.transistor.fm/episodes/the-open-weight-revolution-with-simon-willison/transcript#t=51m44s
+          - text: in that episode. Here's
+          - link "57m04s" [ref=e91] [cursor=pointer]:
+            - /url: https://oxide-and-friends.transistor.fm/episodes/the-open-weight-revolution-with-simon-willison/transcript#t=57m4s
+          - text: ":"
+        - blockquote [ref=e92]:
+          - paragraph [ref=e93]:
+            - text: I really think we need to be careful because it's
+            - emphasis [ref=e94]: so easy
+            - text: to be overcome with fear when we kind of make up these... it can give you biological weapons. Like, how? I mean, can we please have a biologist weigh in on this? Or can we have like someone who's got experience with bioweapons? [...] The bioweapon thing just gets under my fingernails because it leaves so much to the imagination that we insert with fear.
+        - paragraph
+        - paragraph [ref=e95]:
+          - link "#" [ref=e96] [cursor=pointer]:
+            - /url: /2026/Sep/14/the-contagion-of-fear/
+          - link "9:18 pm" [ref=e97] [cursor=pointer]:
+            - /url: /2026/Sep/14/the-contagion-of-fear/
+          - text: /
+          - link "ai" [ref=e98] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "anthropic" [ref=e99] [cursor=pointer]:
+            - /url: /tags/anthropic/
+          - text: ","
+          - link "bryan-cantrill" [ref=e100] [cursor=pointer]:
+            - /url: /tags/bryan-cantrill/
+          - text: ","
+          - link "ai-ethics" [ref=e101] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+      - generic [ref=e102]:
+        - generic [ref=e103]:
+          - text: ←
+          - link "Sunday, 13th September 2026" [ref=e104] [cursor=pointer]:
+            - /url: /2026/Sep/13/
+        - generic [ref=e105]:
+          - link "Tuesday, 15th September 2026" [ref=e106] [cursor=pointer]:
+            - /url: /2026/Sep/15/
+          - text: →
+    - generic [ref=e108]:
+      - paragraph [ref=e109]:
+        - link "2026" [ref=e110] [cursor=pointer]:
+          - /url: /2026/
+        - text: »
+        - link "September" [ref=e111] [cursor=pointer]:
+          - /url: /2026/Sep/
+      - table [ref=e112]:
+        - rowgroup [ref=e113]:
+          - row "M T W T F S S" [ref=e114]:
+            - columnheader "M" [ref=e115]
+            - columnheader "T" [ref=e116]
+            - columnheader "W" [ref=e117]
+            - columnheader "T" [ref=e118]
+            - columnheader "F" [ref=e119]
+            - columnheader "S" [ref=e120]
+            - columnheader "S" [ref=e121]
+          - row "1 2 3 4 5 6" [ref=e122]:
+            - cell [ref=e123]
+            - cell "1" [ref=e124]:
+              - strong [ref=e125]:
+                - link "1" [ref=e126] [cursor=pointer]:
+                  - /url: /2026/Sep/1/
+            - cell "2" [ref=e127]:
+              - strong [ref=e128]:
+                - link "2" [ref=e129] [cursor=pointer]:
+                  - /url: /2026/Sep/2/
+            - cell "3" [ref=e130]:
+              - link "3" [ref=e131] [cursor=pointer]:
+                - /url: /2026/Sep/3/
+            - cell "4" [ref=e132]:
+              - strong [ref=e133]:
+                - link "4" [ref=e134] [cursor=pointer]:
+                  - /url: /2026/Sep/4/
+            - cell "5" [ref=e135]:
+              - link "5" [ref=e136] [cursor=pointer]:
+                - /url: /2026/Sep/5/
+            - cell "6" [ref=e137]:
+              - link "6" [ref=e138] [cursor=pointer]:
+                - /url: /2026/Sep/6/
+          - row "7 8 9 10 11 12 13" [ref=e139]:
+            - cell "7" [ref=e140]:
+              - link "7" [ref=e141] [cursor=pointer]:
+                - /url: /2026/Sep/7/
+            - cell "8" [ref=e142]:
+              - strong [ref=e143]:
+                - link "8" [ref=e144] [cursor=pointer]:
+                  - /url: /2026/Sep/8/
+            - cell "9" [ref=e145]:
+              - link "9" [ref=e146] [cursor=pointer]:
+                - /url: /2026/Sep/9/
+            - cell "10" [ref=e147]:
+              - link "10" [ref=e148] [cursor=pointer]:
+                - /url: /2026/Sep/10/
+            - cell "11" [ref=e149]:
+              - link "11" [ref=e150] [cursor=pointer]:
+                - /url: /2026/Sep/11/
+            - cell "12" [ref=e151]:
+              - strong [ref=e152]:
+                - link "12" [ref=e153] [cursor=pointer]:
+                  - /url: /2026/Sep/12/
+            - cell "13" [ref=e154]:
+              - link "13" [ref=e155] [cursor=pointer]:
+                - /url: /2026/Sep/13/
+          - row "14 15 16 17 18 19 20" [ref=e156]:
+            - cell "14" [ref=e157]:
+              - link "14" [ref=e158] [cursor=pointer]:
+                - /url: /2026/Sep/14/
+            - cell "15" [ref=e159]:
+              - link "15" [ref=e160] [cursor=pointer]:
+                - /url: /2026/Sep/15/
+            - cell "16" [ref=e161]:
+              - link "16" [ref=e162] [cursor=pointer]:
+                - /url: /2026/Sep/16/
+            - cell "17" [ref=e163]:
+              - link "17" [ref=e164] [cursor=pointer]:
+                - /url: /2026/Sep/17/
+            - cell "18" [ref=e165]:
+              - link "18" [ref=e166] [cursor=pointer]:
+                - /url: /2026/Sep/18/
+            - cell "19" [ref=e167]:
+              - link "19" [ref=e168] [cursor=pointer]:
+                - /url: /2026/Sep/19/
+            - cell "20" [ref=e169]:
+              - link "20" [ref=e170] [cursor=pointer]:
+                - /url: /2026/Sep/20/
+          - row "21 22 23 24 25 26 27" [ref=e171]:
+            - cell "21" [ref=e172]:
+              - strong [ref=e173]:
+                - link "21" [ref=e174] [cursor=pointer]:
+                  - /url: /2026/Sep/21/
+            - cell "22" [ref=e175]:
+              - strong [ref=e176]:
+                - link "22" [ref=e177] [cursor=pointer]:
+                  - /url: /2026/Sep/22/
+            - cell "23" [ref=e178]:
+              - link "23" [ref=e179] [cursor=pointer]:
+                - /url: /2026/Sep/23/
+            - cell "24" [ref=e180]:
+              - link "24" [ref=e181] [cursor=pointer]:
+                - /url: /2026/Sep/24/
+            - cell "25" [ref=e182]:
+              - link "25" [ref=e183] [cursor=pointer]:
+                - /url: /2026/Sep/25/
+            - cell "26" [ref=e184]:
+              - link "26" [ref=e185] [cursor=pointer]:
+                - /url: /2026/Sep/26/
+            - cell "27" [ref=e186]:
+              - strong [ref=e187]:
+                - link "27" [ref=e188] [cursor=pointer]:
+                  - /url: /2026/Sep/27/
+          - row "28 29 30" [ref=e189]:
+            - cell "28" [ref=e190]:
+              - link "28" [ref=e191] [cursor=pointer]:
+                - /url: /2026/Sep/28/
+            - cell "29" [ref=e192]:
+              - strong [ref=e193]:
+                - link "29" [ref=e194] [cursor=pointer]:
+                  - /url: /2026/Sep/29/
+            - cell "30" [ref=e195]:
+              - link "30" [ref=e196] [cursor=pointer]:
+                - /url: /2026/Sep/30/
+            - cell [ref=e197]
+            - cell [ref=e198]
+            - cell [ref=e199]
+            - cell [ref=e200]
+  - list [ref=e202]:
+    - listitem [ref=e203]:
+      - link "Disclosures" [ref=e204] [cursor=pointer]:
+        - /url: /about/#disclosures
+    - listitem [ref=e205]:
+      - link "Colophon" [ref=e206] [cursor=pointer]:
+        - /url: /about/#about-site
+    - listitem [ref=e207]: ©
+    - listitem [ref=e208]:
+      - link "2002" [ref=e209] [cursor=pointer]:
+        - /url: /2002/
+    - listitem [ref=e210]:
+      - link "2003" [ref=e211] [cursor=pointer]:
+        - /url: /2003/
+    - listitem [ref=e212]:
+      - link "2004" [ref=e213] [cursor=pointer]:
+        - /url: /2004/
+    - listitem [ref=e214]:
+      - link "2005" [ref=e215] [cursor=pointer]:
+        - /url: /2005/
+    - listitem [ref=e216]:
+      - link "2006" [ref=e217] [cursor=pointer]:
+        - /url: /2006/
+    - listitem [ref=e218]:
+      - link "2007" [ref=e219] [cursor=pointer]:
+        - /url: /2007/
+    - listitem [ref=e220]:
+      - link "2008" [ref=e221] [cursor=pointer]:
+        - /url: /2008/
+    - listitem [ref=e222]:
+      - link "2009" [ref=e223] [cursor=pointer]:
+        - /url: /2009/
+    - listitem [ref=e224]:
+      - link "2010" [ref=e225] [cursor=pointer]:
+        - /url: /2010/
+    - listitem [ref=e226]:
+      - link "2011" [ref=e227] [cursor=pointer]:
+        - /url: /2011/
+    - listitem [ref=e228]:
+      - link "2012" [ref=e229] [cursor=pointer]:
+        - /url: /2012/
+    - listitem [ref=e230]:
+      - link "2013" [ref=e231] [cursor=pointer]:
+        - /url: /2013/
+    - listitem [ref=e232]:
+      - link "2014" [ref=e233] [cursor=pointer]:
+        - /url: /2014/
+    - listitem [ref=e234]:
+      - link "2015" [ref=e235] [cursor=pointer]:
+        - /url: /2015/
+    - listitem [ref=e236]:
+      - link "2016" [ref=e237] [cursor=pointer]:
+        - /url: /2016/
+    - listitem [ref=e238]:
+      - link "2017" [ref=e239] [cursor=pointer]:
+        - /url: /2017/
+    - listitem [ref=e240]:
+      - link "2018" [ref=e241] [cursor=pointer]:
+        - /url: /2018/
+    - listitem [ref=e242]:
+      - link "2019" [ref=e243] [cursor=pointer]:
+        - /url: /2019/
+    - listitem [ref=e244]:
+      - link "2020" [ref=e245] [cursor=pointer]:
+        - /url: /2020/
+    - listitem [ref=e246]:
+      - link "2021" [ref=e247] [cursor=pointer]:
+        - /url: /2021/
+    - listitem [ref=e248]:
+      - link "2022" [ref=e249] [cursor=pointer]:
+        - /url: /2022/
+    - listitem [ref=e250]:
+      - link "2023" [ref=e251] [cursor=pointer]:
+        - /url: /2023/
+    - listitem [ref=e252]:
+      - link "2024" [ref=e253] [cursor=pointer]:
+        - /url: /2024/
+    - listitem [ref=e254]:
+      - link "2025" [ref=e255] [cursor=pointer]:
+        - /url: /2025/
+    - listitem [ref=e256]:
+      - link "2026" [ref=e257] [cursor=pointer]:
+        - /url: /2026/
+    - listitem [ref=e258]:
+      - 'button "Theme: Auto (system preference). Click to switch to light." [ref=e259] [cursor=pointer]':
+        - img [ref=e260]

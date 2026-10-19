@@ -1,0 +1,554 @@
+- generic [ref=e4]:
+  - generic [ref=e9]:
+    - generic [ref=e12]:
+      - link "Instagram" [ref=e17] [cursor=pointer]:
+        - /url: /
+        - img "Instagram" [ref=e22]
+      - generic [ref=e25]:
+        - link "Home" [ref=e30] [cursor=pointer]:
+          - /url: /
+          - img "Home" [ref=e35]
+        - link "Reels" [ref=e40] [cursor=pointer]:
+          - /url: /reels/
+          - img "Reels" [ref=e45]
+        - link "Messages Direct messaging - 1 new notification link" [ref=e52] [cursor=pointer]:
+          - /url: /direct/inbox/
+          - generic [ref=e55]:
+            - img "Messages" [ref=e57]
+            - generic "Direct messaging - 1 new notification link" [ref=e60]:
+              - generic [ref=e62]: "1"
+        - link "Search" [ref=e66] [cursor=pointer]:
+          - /url: /explore/
+          - img "Search" [ref=e71]
+        - link "Notifications" [ref=e78] [cursor=pointer]:
+          - /url: "#"
+          - img "Notifications" [ref=e83]
+        - link "New post" [ref=e91] [cursor=pointer]:
+          - /url: "#"
+          - img "New post" [ref=e96]
+        - link "cfnarede's profile picture" [ref=e102] [cursor=pointer]:
+          - /url: /cfnarede/
+          - link "cfnarede's profile picture" [ref=e107]:
+            - img "cfnarede's profile picture" [ref=e108]
+      - generic [ref=e109]:
+        - link "Settings" [ref=e112] [cursor=pointer]:
+          - /url: "#"
+          - img "Settings" [ref=e117]
+        - link "Also from Meta" [ref=e120] [cursor=pointer]:
+          - /url: "#"
+          - img "Also from Meta" [ref=e125]
+    - generic [ref=e128]:
+      - main [ref=e129]:
+        - generic [ref=e130]:
+          - generic [ref=e132]:
+            - generic [ref=e137]:
+              - list [ref=e139]:
+                - listitem [ref=e140]
+                - listitem [ref=e141]:
+                  - button "Story by _luizamota, not seen" [ref=e142] [cursor=pointer]:
+                    - link "_luizamota's profile picture" [ref=e147]:
+                      - img "_luizamota's profile picture" [ref=e148]
+                    - generic [ref=e151]: _luizamota
+                - listitem [ref=e152]:
+                  - button "Story by gabiiosantos, not seen" [ref=e153] [cursor=pointer]:
+                    - link "gabiiosantos's profile picture" [ref=e158]:
+                      - img "gabiiosantos's profile picture" [ref=e159]
+                    - generic [ref=e162]: gabiiosantos
+                - listitem [ref=e163]:
+                  - button "Story by gabirubi_, not seen" [ref=e164] [cursor=pointer]:
+                    - link "gabirubi_'s profile picture" [ref=e169]:
+                      - img "gabirubi_'s profile picture" [ref=e170]
+                    - generic [ref=e173]: gabirubi_
+                - listitem [ref=e174]:
+                  - button "Story by projetomilhao, not seen" [ref=e175] [cursor=pointer]:
+                    - link "projetomilhao's profile picture" [ref=e180]:
+                      - img "projetomilhao's profile picture" [ref=e181]
+                    - generic [ref=e184]: projetomilhao
+                - listitem [ref=e185]:
+                  - button "Story by batepaponerdlive, not seen" [ref=e186] [cursor=pointer]:
+                    - link "batepaponerdlive's profile picture" [ref=e191]:
+                      - img "batepaponerdlive's profile picture" [ref=e192]
+                    - generic [ref=e195]: batepaponerdlive
+                - listitem [ref=e196]:
+                  - button "Story by defesacivilsc, not seen" [ref=e197] [cursor=pointer]:
+                    - link "defesacivilsc's profile picture" [ref=e202]:
+                      - img "defesacivilsc's profile picture" [ref=e203]
+                    - generic [ref=e206]: defesacivilsc
+                - listitem [ref=e207]:
+                  - button "Story by techleads.club, not seen" [ref=e208] [cursor=pointer]:
+                    - link "techleads.club's profile picture" [ref=e213]:
+                      - img "techleads.club's profile picture" [ref=e214]
+                    - generic [ref=e217]: techleads.club
+                - listitem [ref=e218]:
+                  - button "Story by detranscoficial, not seen" [ref=e219] [cursor=pointer]:
+                    - link "detranscoficial's profile picture" [ref=e224]:
+                      - img "detranscoficial's profile picture" [ref=e225]
+                    - generic [ref=e228]: detranscoficial
+                - listitem [ref=e229]:
+                  - button "Story by samira__shokouhmand, not seen" [ref=e230] [cursor=pointer]:
+                    - link "samira__shokouhmand's profile picture" [ref=e235]:
+                      - img "samira__shokouhmand's profile picture" [ref=e236]
+                    - generic [ref=e239]: samira__shokouhmand
+                - listitem [ref=e240]:
+                  - button "Story by joaojustopires, not seen" [ref=e241] [cursor=pointer]:
+                    - link "joaojustopires's profile picture" [ref=e246]:
+                      - img "joaojustopires's profile picture" [ref=e247]
+                    - generic [ref=e250]: joaojustopires
+                - listitem [ref=e251]:
+                  - button "Story by pavanato.deputado, not seen" [ref=e252] [cursor=pointer]:
+                    - link "pavanato.deputado's profile picture" [ref=e257]:
+                      - img "pavanato.deputado's profile picture" [ref=e258]
+                    - generic [ref=e261]: pavanato.deputado
+                - listitem [ref=e262]:
+                  - button "Story by jairkobe, not seen" [ref=e263] [cursor=pointer]:
+                    - link "jairkobe's profile picture" [ref=e268]:
+                      - img "jairkobe's profile picture" [ref=e269]
+                    - generic [ref=e272]: jairkobe
+              - button "Next" [ref=e273] [cursor=pointer]
+            - generic [ref=e276]:
+              - generic [ref=e278]:
+                - article [ref=e279]:
+                  - generic [ref=e280]:
+                    - generic [ref=e282]:
+                      - button "globonews's profile picture" [ref=e287] [cursor=pointer]:
+                        - link "globonews's profile picture" [ref=e289]:
+                          - img "globonews's profile picture" [ref=e290]
+                      - generic [ref=e295]:
+                        - generic [ref=e297]:
+                          - link "globonews" [ref=e303] [cursor=pointer]:
+                            - /url: /globonews/
+                            - generic [ref=e306]: globonews
+                          - img "Verified" [ref=e308]
+                        - generic [ref=e310]:
+                          - generic [ref=e312]: •
+                          - link "3h" [ref=e314] [cursor=pointer]:
+                            - /url: /p/Dej3EpwqOL7/
+                            - time [ref=e316]: 3h
+                      - button "More options" [ref=e319] [cursor=pointer]:
+                        - img "More options" [ref=e322]
+                    - img "Photo by GloboNews on October 16, 2026. May be an image of text." [ref=e335]
+                    - generic [ref=e339]:
+                      - generic [ref=e340]:
+                        - generic [ref=e341]:
+                          - button "Like" [ref=e344] [cursor=pointer]:
+                            - img "Like" [ref=e347]
+                          - button "2.2K" [ref=e349] [cursor=pointer]
+                          - button "Comment" [ref=e351] [cursor=pointer]:
+                            - img "Comment" [ref=e353]
+                          - button "546" [ref=e355] [cursor=pointer]
+                          - button "Share" [ref=e356] [cursor=pointer]:
+                            - img "Share" [ref=e357]
+                        - button "Save" [ref=e362] [cursor=pointer]:
+                          - button "Save" [ref=e363]:
+                            - img "Save" [ref=e365]
+                      - generic [ref=e367]:
+                        - link "globonews Verified" [ref=e372] [cursor=pointer]:
+                          - /url: /globonews/
+                          - generic [ref=e374]:
+                            - generic [ref=e375]: globonews
+                            - img "Verified" [ref=e377]
+                        - generic [ref=e379]:
+                          - generic [ref=e380]: STF - O ministro Alexandre de Moraes votou nesta sexta-feira (16) para tornar réu o blogueiro Oswaldo Eustáquio,
+                          - generic [ref=e381]:
+                            - text: ...
+                            - button "more" [ref=e382] [cursor=pointer]:
+                              - generic [ref=e383]: more
+                - article [ref=e384]:
+                  - generic [ref=e385]:
+                    - generic [ref=e387]:
+                      - generic [ref=e391]:
+                        - button "draartrose's profile picture" [ref=e396] [cursor=pointer]:
+                          - link "draartrose's profile picture" [ref=e398]:
+                            - img "draartrose's profile picture" [ref=e399]
+                        - generic [ref=e402]:
+                          - generic [ref=e403]:
+                            - generic [ref=e404]:
+                              - generic [ref=e406]:
+                                - link "draartrose" [ref=e412] [cursor=pointer]:
+                                  - /url: /draartrose/
+                                  - generic [ref=e415]: draartrose
+                                - img "Verified" [ref=e417]
+                              - generic [ref=e419]:
+                                - generic [ref=e421]: •
+                                - link "6w" [ref=e423] [cursor=pointer]:
+                                  - /url: /p/DczdBkcp2VA/
+                                  - time [ref=e425]: 6w
+                            - generic [ref=e429]: Suggested for you
+                          - button "Follow" [ref=e431] [cursor=pointer]
+                        - button "More options" [ref=e434] [cursor=pointer]:
+                          - img "More options" [ref=e437]
+                      - link "Video player" [ref=e441] [cursor=pointer]:
+                        - /url: /reels/DczdBkcp2VA/
+                        - group "Video player" [ref=e458]:
+                          - img [ref=e460]
+                          - generic:
+                            - generic "Play"
+                          - slider "Adjust volume" [ref=e461]:
+                            - button "Audio is muted" [ref=e463]:
+                              - img "Audio is muted" [ref=e464]
+                    - generic [ref=e468]:
+                      - generic [ref=e469]:
+                        - generic [ref=e470]:
+                          - button "Like" [ref=e473] [cursor=pointer]:
+                            - img "Like" [ref=e476]
+                          - button "Comment" [ref=e479] [cursor=pointer]:
+                            - img "Comment" [ref=e481]
+                          - button "1.4K" [ref=e483] [cursor=pointer]
+                          - button "Share" [ref=e484] [cursor=pointer]:
+                            - img "Share" [ref=e485]
+                        - button "Save" [ref=e490] [cursor=pointer]:
+                          - button "Save" [ref=e491]:
+                            - img "Save" [ref=e493]
+                      - generic [ref=e498]:
+                        - text: Liked by
+                        - link "nino_guima" [ref=e499] [cursor=pointer]:
+                          - /url: /nino_guima/
+                        - text: and
+                        - link "others" [ref=e500] [cursor=pointer]:
+                          - /url: /p/DczdBkcp2VA/liked_by/
+                - article [ref=e501]:
+                  - generic [ref=e502]:
+                    - generic [ref=e504]:
+                      - button "kairogen.oficial's profile picture" [disabled] [ref=e509]:
+                        - link "kairogen.oficial's profile picture" [disabled] [ref=e511] [cursor=pointer]:
+                          - img "kairogen.oficial's profile picture" [ref=e512]
+                      - generic [ref=e516]:
+                        - link "kairogen.oficial" [ref=e525] [cursor=pointer]:
+                          - /url: /kairogen.oficial/?enable_persistent_cta=true&entry_point=feed&e=e35b11d5-85ce-4a41-9d0f-9ec58f989439&a_mpk=3930867281629000261_23682165853&c[0]=AI%40AQKdwOHdytyUMd7VYyByqC3OnKfEXz8SGiEGgqLQEANmiYbLsrKgxz0tErZtgR4UneP7jrlKtOGfCNaTm_G3UwNDKnOrEuasZqaNlfzCsVVneA&__tn__=[%7B%22type%22%3A10%7D%2C%7B%22type%22%3A230%7D%2C%7B%22type%22%3A301%7D]&a_tt=AI%40AQKdwOHdytyUMd7VYyByqC3OnKfEXz8SGiEGgqLQEANmiYbLsrKgxz0tErZtgR4UneP7jrlKtOGfCNaTm_G3UwNDKnOrEuasZqaNlfzCsVVneA
+                          - generic [ref=e528]: kairogen.oficial
+                        - generic [ref=e533]: Ad
+                      - button "More options" [ref=e536] [cursor=pointer]:
+                        - img "More options" [ref=e539]
+                    - generic [ref=e544]:
+                      - group "Video player" [ref=e561]:
+                        - img [ref=e563]
+                        - generic:
+                          - generic "Play"
+                        - slider "Adjust volume" [ref=e564]:
+                          - button "Audio is muted" [ref=e566] [cursor=pointer]:
+                            - img "Audio is muted" [ref=e567]
+                      - link "See details Right chevron" [ref=e572] [cursor=pointer]:
+                        - /url: https://www.facebook.com/ads/ig_redirect/?d=Ad-J3RD2o4JKsmT5eIzZWVLPyOwOoeIagGCkKM_hdQ-rjiuc9dvRLUI-TvoYqZrS65JilWguALRWgmfEgh08P9yEoerdZN7MdtXkQAYLf0FPcEhYZzArDKmwXGVcoD5StVXiCsmVlQbhHgnFu1WaUILx2xxxSWvkKyRiHiE87w_AG9ni44HrTzUP_eR5YQRRlw4SEQE-rI9YpYWdsXgcf7hMS07DdxP-6Oy6RRjnMB9M3jMVSr58ai3AZxHS0s0mj27TxAapkU8WzcHP2neAHW6dXuUmsj2639AmyEsqiSqpaF_xHrxB1-I8CBtVu9dfLj1RwKzYSSHI3F-vi8zJc1LlcJY3WP_w1TDsZp8wAVbOEPQdvegYpblIm0XHZLuJcET__0vF4O5dm1XgscV2I0mcC9gcaCwZMWKmbj4ioKNkk6ji8OlB2GYSUAuUS9Smk2VtGgGE29ucHi6RcR1B8BfB4e_nxHttRYvx9HuE699zT89Kq-9GoDA1bF8i5uG5PJT1O2Y3AMCrpoBhBz8yCfuas_6LbFKFhDUjvROVVSuLkNzhdQh2JafS0IdGOMeWcQjFaPHWmS_2EPC1WWBihqZjgoC8OrIlPT_Coi80EN3IlcjCFeNlW6Mf9qZNImMfZ-xeitzAlDbsn5xNG_Bso0iO&a=1&hash=Ad_Fkz7bjx5vPT9DCJ4&c[0]=AI%40AQKdwOHdytyUMd7VYyByqC3OnKfEXz8SGiEGgqLQEANmiYbLsrKgxz0tErZtgR4UneP7jrlKtOGfCNaTm_G3UwNDKnOrEuasZqaNlfzCsVVneA&__tn__=*J-R
+                        - generic [ref=e574]:
+                          - generic [ref=e576]: See details
+                          - img "Right chevron" [ref=e578]
+                    - generic [ref=e582]:
+                      - generic [ref=e583]:
+                        - generic [ref=e584]:
+                          - button "Like" [ref=e587] [cursor=pointer]:
+                            - img "Like" [ref=e590]
+                          - button "5.1K" [ref=e592] [cursor=pointer]
+                          - button "Comment" [ref=e594] [cursor=pointer]:
+                            - img "Comment" [ref=e596]
+                          - button "3.2K" [ref=e598] [cursor=pointer]
+                          - button "Share" [ref=e599] [cursor=pointer]:
+                            - img "Share" [ref=e600]
+                        - button "Remove" [ref=e605] [cursor=pointer]:
+                          - button "Remove" [ref=e606]:
+                            - img "Remove" [ref=e608]
+                      - generic [ref=e610]:
+                        - link "kairogen.oficial" [ref=e615] [cursor=pointer]:
+                          - /url: /kairogen.oficial/?enable_persistent_cta=true&entry_point=feed&e=a5aa6170-661f-43e1-938a-f73b4a49473b&a_mpk=3930867281629000261_23682165853&c[0]=AI%40AQKdwOHdytyUMd7VYyByqC3OnKfEXz8SGiEGgqLQEANmiYbLsrKgxz0tErZtgR4UneP7jrlKtOGfCNaTm_G3UwNDKnOrEuasZqaNlfzCsVVneA&__tn__=[%7B%22type%22%3A301%7D]&a_tt=AI%40AQKdwOHdytyUMd7VYyByqC3OnKfEXz8SGiEGgqLQEANmiYbLsrKgxz0tErZtgR4UneP7jrlKtOGfCNaTm_G3UwNDKnOrEuasZqaNlfzCsVVneA
+                          - generic [ref=e618]: kairogen.oficial
+                        - generic [ref=e619]:
+                          - generic [ref=e620]: ⚠️ Comenta “MCP” para receber o link na DM.
+                          - generic [ref=e621]:
+                            - text: ...
+                            - button "more" [ref=e622] [cursor=pointer]:
+                              - generic [ref=e623]: more
+                - article [ref=e624]:
+                  - generic [ref=e625]:
+                    - generic [ref=e627]:
+                      - button "seufilmefavorito's profile picture" [ref=e632] [cursor=pointer]:
+                        - link "seufilmefavorito's profile picture" [ref=e634]:
+                          - img "seufilmefavorito's profile picture" [ref=e635]
+                      - generic [ref=e640]:
+                        - generic [ref=e642]:
+                          - link "seufilmefavorito" [ref=e648] [cursor=pointer]:
+                            - /url: /seufilmefavorito/
+                            - generic [ref=e651]: seufilmefavorito
+                          - img "Verified" [ref=e653]
+                        - generic [ref=e655]:
+                          - generic [ref=e657]: •
+                          - link "8m" [ref=e659] [cursor=pointer]:
+                            - /url: /p/DekRIjLAtnV/
+                            - time [ref=e661]: 8m
+                      - button "More options" [ref=e664] [cursor=pointer]:
+                        - img "More options" [ref=e667]
+                    - img "Photo by Seu Filme Favorito on October 16, 2026. May be an image of text." [ref=e680]
+                    - generic [ref=e684]:
+                      - generic [ref=e685]:
+                        - generic [ref=e686]:
+                          - button "Like" [ref=e689] [cursor=pointer]:
+                            - img "Like" [ref=e692]
+                          - button "1.6K" [ref=e694] [cursor=pointer]
+                          - button "Comment" [ref=e696] [cursor=pointer]:
+                            - img "Comment" [ref=e698]
+                          - button "19" [ref=e700] [cursor=pointer]
+                          - button "Share" [ref=e701] [cursor=pointer]:
+                            - img "Share" [ref=e702]
+                        - button "Save" [ref=e707] [cursor=pointer]:
+                          - button "Save" [ref=e708]:
+                            - img "Save" [ref=e710]
+                      - generic [ref=e712]:
+                        - link "seufilmefavorito Verified" [ref=e717] [cursor=pointer]:
+                          - /url: /seufilmefavorito/
+                          - generic [ref=e719]:
+                            - generic [ref=e720]: seufilmefavorito
+                            - img "Verified" [ref=e722]
+                        - generic [ref=e724]:
+                          - generic [ref=e725]: O desejo expresso pelos fãs por um retorno de Simon Baker ao papel do icónico Patrick Jane reflete o carinho contínuo do
+                          - generic [ref=e726]:
+                            - text: ...
+                            - button "more" [ref=e727] [cursor=pointer]:
+                              - generic [ref=e728]: more
+              - progressbar [ref=e730]:
+                - img "Loading..." [ref=e731]
+          - generic [ref=e745]:
+            - generic [ref=e751]:
+              - button "cfnarede's profile picture" [disabled] [ref=e754]:
+                - link "cfnarede's profile picture" [disabled] [ref=e756] [cursor=pointer]:
+                  - /url: /cfnarede/
+                  - img "cfnarede's profile picture" [ref=e757]
+              - generic [ref=e760]:
+                - link "cfnarede" [ref=e762] [cursor=pointer]:
+                  - /url: /cfnarede/
+                - generic [ref=e766]: CF na Rede
+              - button "Switch" [ref=e769] [cursor=pointer]
+            - generic [ref=e772]:
+              - generic [ref=e773]:
+                - generic [ref=e775]: Suggested for you
+                - link "See all" [ref=e776] [cursor=pointer]:
+                  - /url: /explore/people/
+                  - generic [ref=e777]: See all
+              - generic [ref=e781]:
+                - generic [ref=e785]:
+                  - link "enzo_buss_mendes's profile picture" [ref=e792] [cursor=pointer]:
+                    - /url: /enzo_buss_mendes/
+                    - img "enzo_buss_mendes's profile picture" [ref=e793]
+                  - generic [ref=e796]:
+                    - link "Enzo Buss Mendes" [ref=e801] [cursor=pointer]:
+                      - /url: /enzo_buss_mendes/
+                      - generic [ref=e804]: Enzo Buss Mendes
+                    - generic [ref=e806]: Suggested for you
+                  - button "Follow" [ref=e809] [cursor=pointer]:
+                    - generic [ref=e811]: Follow
+                - generic [ref=e815]:
+                  - link "eloacopettiviana's profile picture" [ref=e822] [cursor=pointer]:
+                    - /url: /eloacopettiviana/
+                    - img "eloacopettiviana's profile picture" [ref=e823]
+                  - generic [ref=e826]:
+                    - link "Eloá copetti viana" [ref=e831] [cursor=pointer]:
+                      - /url: /eloacopettiviana/
+                      - generic [ref=e834]: Eloá copetti viana
+                    - generic [ref=e836]: Suggested for you
+                  - button "Follow" [ref=e839] [cursor=pointer]:
+                    - generic [ref=e841]: Follow
+                - generic [ref=e845]:
+                  - link "marlicardias's profile picture" [ref=e852] [cursor=pointer]:
+                    - /url: /marlicardias/
+                    - img "marlicardias's profile picture" [ref=e853]
+                  - generic [ref=e856]:
+                    - link "Marli Cardias" [ref=e861] [cursor=pointer]:
+                      - /url: /marlicardias/
+                      - generic [ref=e864]: Marli Cardias
+                    - generic [ref=e867]:
+                      - generic [ref=e868]:
+                        - button [ref=e869] [cursor=pointer]:
+                          - link [ref=e870]
+                        - button [ref=e871] [cursor=pointer]:
+                          - link [ref=e872]
+                      - generic [ref=e873]: Followed by cardiasdecampos + 1 more
+                  - button "Follow" [ref=e876] [cursor=pointer]:
+                    - generic [ref=e878]: Follow
+                - generic [ref=e882]:
+                  - link "gabiicipriani's profile picture" [ref=e889] [cursor=pointer]:
+                    - /url: /gabiicipriani/
+                    - img "gabiicipriani's profile picture" [ref=e890]
+                  - generic [ref=e893]:
+                    - link "gabiicipriani" [ref=e898] [cursor=pointer]:
+                      - /url: /gabiicipriani/
+                      - generic [ref=e901]: gabiicipriani
+                    - generic [ref=e904]:
+                      - button [ref=e906] [cursor=pointer]:
+                        - link [ref=e907]
+                      - generic [ref=e908]: Followed by tryguria
+                  - button "Follow" [ref=e911] [cursor=pointer]:
+                    - generic [ref=e913]: Follow
+                - generic [ref=e917]:
+                  - link "binobiasutti's profile picture" [ref=e924] [cursor=pointer]:
+                    - /url: /binobiasutti/
+                    - img "binobiasutti's profile picture" [ref=e925]
+                  - generic [ref=e928]:
+                    - link "bino biasutti" [ref=e933] [cursor=pointer]:
+                      - /url: /binobiasutti/
+                      - generic [ref=e936]: bino biasutti
+                    - generic [ref=e938]: Suggested for you
+                  - button "Follow" [ref=e941] [cursor=pointer]:
+                    - generic [ref=e943]: Follow
+            - generic [ref=e945]:
+              - navigation [ref=e946]:
+                - list [ref=e947]:
+                  - listitem [ref=e948]:
+                    - link "About" [ref=e949] [cursor=pointer]:
+                      - /url: https://about.instagram.com/
+                      - generic [ref=e950]: About
+                    - text: ·
+                  - listitem [ref=e951]:
+                    - link "Help" [ref=e952] [cursor=pointer]:
+                      - /url: https://help.instagram.com/
+                      - generic [ref=e953]: Help
+                    - text: ·
+                  - listitem [ref=e954]:
+                    - link "Press" [ref=e955] [cursor=pointer]:
+                      - /url: https://about.instagram.com/blog/
+                      - generic [ref=e956]: Press
+                    - text: ·
+                  - listitem [ref=e957]:
+                    - link "API" [ref=e958] [cursor=pointer]:
+                      - /url: https://developers.facebook.com/docs/instagram
+                      - generic [ref=e959]: API
+                    - text: ·
+                  - listitem [ref=e960]:
+                    - link "Jobs" [ref=e961] [cursor=pointer]:
+                      - /url: https://about.instagram.com/about-us/careers
+                      - generic [ref=e962]: Jobs
+                    - text: ·
+                  - listitem [ref=e963]:
+                    - link "Privacy" [ref=e964] [cursor=pointer]:
+                      - /url: /legal/privacy/
+                      - generic [ref=e965]: Privacy
+                    - text: ·
+                  - listitem [ref=e966]:
+                    - link "Terms" [ref=e967] [cursor=pointer]:
+                      - /url: /legal/terms/
+                      - generic [ref=e968]: Terms
+                    - text: ·
+                  - listitem [ref=e969]:
+                    - link "Locations" [ref=e970] [cursor=pointer]:
+                      - /url: /explore/locations/
+                      - generic [ref=e971]: Locations
+                    - text: ·
+                  - listitem [ref=e972]:
+                    - link "Language" [ref=e973] [cursor=pointer]:
+                      - /url: /language/preferences/
+                      - generic [ref=e974]: Language
+              - generic [ref=e976]: © 2026 Instagram from Meta
+      - contentinfo [ref=e977]:
+        - generic [ref=e978]:
+          - generic [ref=e980]:
+            - link "Meta" [ref=e982] [cursor=pointer]:
+              - /url: https://about.meta.com/
+              - generic [ref=e983]: Meta
+            - link "About" [ref=e985] [cursor=pointer]:
+              - /url: https://about.instagram.com/
+              - generic [ref=e986]: About
+            - link "Blog" [ref=e988] [cursor=pointer]:
+              - /url: https://about.instagram.com/blog/
+              - generic [ref=e989]: Blog
+            - link "Jobs" [ref=e991] [cursor=pointer]:
+              - /url: https://about.instagram.com/about-us/careers
+              - generic [ref=e992]: Jobs
+            - link "Help" [ref=e994] [cursor=pointer]:
+              - /url: https://help.instagram.com/
+              - generic [ref=e995]: Help
+            - link "API" [ref=e997] [cursor=pointer]:
+              - /url: https://developers.facebook.com/docs/instagram
+              - generic [ref=e998]: API
+            - link "Privacy" [ref=e1000] [cursor=pointer]:
+              - /url: /legal/privacy/
+              - generic [ref=e1001]: Privacy
+            - link "Terms" [ref=e1003] [cursor=pointer]:
+              - /url: /legal/terms/
+              - generic [ref=e1004]: Terms
+            - link "Locations" [ref=e1006] [cursor=pointer]:
+              - /url: /explore/locations/
+              - generic [ref=e1007]: Locations
+            - link "Popular" [ref=e1009] [cursor=pointer]:
+              - /url: /popular/
+              - generic [ref=e1010]: Popular
+            - link "Instagram Lite" [ref=e1012] [cursor=pointer]:
+              - /url: /web/lite/
+              - generic [ref=e1013]: Instagram Lite
+            - link "Meta AI" [ref=e1015] [cursor=pointer]:
+              - /url: https://www.meta.ai/?utm_source=foa_web_footer
+              - generic [ref=e1016]: Meta AI
+            - link "Muse" [ref=e1018] [cursor=pointer]:
+              - /url: https://muse.ai/
+              - generic [ref=e1019]: Muse
+            - link "Threads" [ref=e1021] [cursor=pointer]:
+              - /url: https://www.threads.com/
+              - generic [ref=e1022]: Threads
+            - link "Contact Uploading & Non-Users" [ref=e1024] [cursor=pointer]:
+              - /url: https://www.facebook.com/help/instagram/261704639352628
+              - generic [ref=e1025]: Contact Uploading & Non-Users
+          - generic [ref=e1026]:
+            - generic [ref=e1027] [cursor=pointer]:
+              - generic [ref=e1028]:
+                - generic [ref=e1029]: English
+                - img "Down chevron icon" [ref=e1032]
+              - combobox "Switch Display Language" [ref=e1034]:
+                - option "Afrikaans"
+                - option "العربية"
+                - option "Čeština"
+                - option "Dansk"
+                - option "Deutsch"
+                - option "Ελληνικά"
+                - option "English" [selected]
+                - option "English (UK)"
+                - option "Español (España)"
+                - option "Español"
+                - option "فارسی"
+                - option "Suomi"
+                - option "Français"
+                - option "עברית"
+                - option "Bahasa Indonesia"
+                - option "Italiano"
+                - option "日本語"
+                - option "한국어"
+                - option "Bahasa Melayu"
+                - option "Norsk"
+                - option "Nederlands"
+                - option "Polski"
+                - option "Português (Brasil)"
+                - option "Português (Portugal)"
+                - option "Русский"
+                - option "Svenska"
+                - option "ภาษาไทย"
+                - option "Filipino"
+                - option "Türkçe"
+                - option "中文(简体)"
+                - option "中文(台灣)"
+                - option "বাংলা"
+                - option "ગુજરાતી"
+                - option "हिन्दी"
+                - option "Hrvatski"
+                - option "Magyar"
+                - option "ಕನ್ನಡ"
+                - option "മലയാളം"
+                - option "मराठी"
+                - option "नेपाली"
+                - option "ਪੰਜਾਬੀ"
+                - option "සිංහල"
+                - option "Slovenčina"
+                - option "தமிழ்"
+                - option "తెలుగు"
+                - option "اردو"
+                - option "Tiếng Việt"
+                - option "中文(香港)"
+                - option "Български"
+                - option "Français (Canada)"
+                - option "Română"
+                - option "Српски"
+                - option "Українська"
+            - generic [ref=e1036]: © 2026 Instagram from Meta
+  - button "Messages - 1 new notification" [ref=e1038] [cursor=pointer]:
+    - generic "Messages - 1 new notification" [ref=e1039]:
+      - generic [ref=e1040]:
+        - generic [ref=e1042]:
+          - img "Messages" [ref=e1043]
+          - generic "Direct messaging - 1 new notification link" [ref=e1046]:
+            - generic [ref=e1048]: "1"
+        - generic [ref=e1049]: Messages
+      - button "User avatar Try Guria" [ref=e1052]:
+        - img "User avatar" [ref=e1055]

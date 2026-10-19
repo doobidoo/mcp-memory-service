@@ -1,0 +1,150 @@
+- generic [ref=e4]:
+  - generic [ref=e9]:
+    - generic [ref=e12]:
+      - link "Instagram" [ref=e17] [cursor=pointer]:
+        - /url: /
+        - img "Instagram" [ref=e22]
+      - generic [ref=e25]:
+        - link "Home" [ref=e30] [cursor=pointer]:
+          - /url: /
+          - img "Home" [ref=e35]
+        - link "Reels" [ref=e40] [cursor=pointer]:
+          - /url: /reels/
+          - img "Reels" [ref=e45]
+        - link "Messages" [ref=e52] [cursor=pointer]:
+          - /url: /direct/inbox/
+          - img "Messages" [ref=e57]
+        - link "Search" [ref=e63] [cursor=pointer]:
+          - /url: /explore/
+          - img "Search" [ref=e68]
+        - link "Notifications" [ref=e75] [cursor=pointer]:
+          - /url: "#"
+          - img "Notifications" [ref=e80]
+        - link "New post" [ref=e86] [cursor=pointer]:
+          - /url: "#"
+          - img "New post" [ref=e91]
+        - link "cfnarede's profile picture" [ref=e97] [cursor=pointer]:
+          - /url: /cfnarede/
+          - link "cfnarede's profile picture" [ref=e102]:
+            - img "cfnarede's profile picture" [ref=e103]
+      - generic [ref=e104]:
+        - link "Settings" [ref=e107] [cursor=pointer]:
+          - /url: "#"
+          - img "Settings" [ref=e112]
+        - link "Also from Meta" [ref=e115] [cursor=pointer]:
+          - /url: "#"
+          - img "Also from Meta" [ref=e120]
+    - generic [ref=e123]:
+      - main [ref=e124]
+      - contentinfo [ref=e125]:
+        - generic [ref=e126]:
+          - generic [ref=e128]:
+            - link "Meta" [ref=e130] [cursor=pointer]:
+              - /url: https://about.meta.com/
+              - generic [ref=e131]: Meta
+            - link "About" [ref=e133] [cursor=pointer]:
+              - /url: https://about.instagram.com/
+              - generic [ref=e134]: About
+            - link "Blog" [ref=e136] [cursor=pointer]:
+              - /url: https://about.instagram.com/blog/
+              - generic [ref=e137]: Blog
+            - link "Jobs" [ref=e139] [cursor=pointer]:
+              - /url: https://about.instagram.com/about-us/careers
+              - generic [ref=e140]: Jobs
+            - link "Help" [ref=e142] [cursor=pointer]:
+              - /url: https://help.instagram.com/
+              - generic [ref=e143]: Help
+            - link "API" [ref=e145] [cursor=pointer]:
+              - /url: https://developers.facebook.com/docs/instagram
+              - generic [ref=e146]: API
+            - link "Privacy" [ref=e148] [cursor=pointer]:
+              - /url: /legal/privacy/
+              - generic [ref=e149]: Privacy
+            - link "Terms" [ref=e151] [cursor=pointer]:
+              - /url: /legal/terms/
+              - generic [ref=e152]: Terms
+            - link "Locations" [ref=e154] [cursor=pointer]:
+              - /url: /explore/locations/
+              - generic [ref=e155]: Locations
+            - link "Popular" [ref=e157] [cursor=pointer]:
+              - /url: /popular/
+              - generic [ref=e158]: Popular
+            - link "Instagram Lite" [ref=e160] [cursor=pointer]:
+              - /url: /web/lite/
+              - generic [ref=e161]: Instagram Lite
+            - link "Meta AI" [ref=e163] [cursor=pointer]:
+              - /url: https://www.meta.ai/?utm_source=foa_web_footer
+              - generic [ref=e164]: Meta AI
+            - link "Muse" [ref=e166] [cursor=pointer]:
+              - /url: https://muse.ai/
+              - generic [ref=e167]: Muse
+            - link "Threads" [ref=e169] [cursor=pointer]:
+              - /url: https://www.threads.com/
+              - generic [ref=e170]: Threads
+            - link "Contact Uploading & Non-Users" [ref=e172] [cursor=pointer]:
+              - /url: https://www.facebook.com/help/instagram/261704639352628
+              - generic [ref=e173]: Contact Uploading & Non-Users
+          - generic [ref=e174]:
+            - generic [ref=e175] [cursor=pointer]:
+              - generic [ref=e176]:
+                - generic [ref=e177]: English
+                - img "Down chevron icon" [ref=e180]
+              - combobox "Switch Display Language" [ref=e182]:
+                - option "Afrikaans"
+                - option "العربية"
+                - option "Čeština"
+                - option "Dansk"
+                - option "Deutsch"
+                - option "Ελληνικά"
+                - option "English" [selected]
+                - option "English (UK)"
+                - option "Español (España)"
+                - option "Español"
+                - option "فارسی"
+                - option "Suomi"
+                - option "Français"
+                - option "עברית"
+                - option "Bahasa Indonesia"
+                - option "Italiano"
+                - option "日本語"
+                - option "한국어"
+                - option "Bahasa Melayu"
+                - option "Norsk"
+                - option "Nederlands"
+                - option "Polski"
+                - option "Português (Brasil)"
+                - option "Português (Portugal)"
+                - option "Русский"
+                - option "Svenska"
+                - option "ภาษาไทย"
+                - option "Filipino"
+                - option "Türkçe"
+                - option "中文(简体)"
+                - option "中文(台灣)"
+                - option "বাংলা"
+                - option "ગુજરાતી"
+                - option "हिन्दी"
+                - option "Hrvatski"
+                - option "Magyar"
+                - option "ಕನ್ನಡ"
+                - option "മലയാളം"
+                - option "मराठी"
+                - option "नेपाली"
+                - option "ਪੰਜਾਬੀ"
+                - option "සිංහල"
+                - option "Slovenčina"
+                - option "தமிழ்"
+                - option "తెలుగు"
+                - option "اردو"
+                - option "Tiếng Việt"
+                - option "中文(香港)"
+                - option "Български"
+                - option "Français (Canada)"
+                - option "Română"
+                - option "Српски"
+                - option "Українська"
+            - generic [ref=e184]: © 2026 Instagram from Meta
+  - button "Messages Messages" [ref=e186] [cursor=pointer]:
+    - generic [ref=e188]:
+      - img "Messages" [ref=e190]
+      - generic [ref=e193]: Messages

@@ -1,0 +1,502 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic:
+      - link "Skip to main content" [ref=e3] [cursor=pointer]:
+        - /url: "#main-content"
+      - link "Skip to footer" [ref=e4] [cursor=pointer]:
+        - /url: "#footer"
+    - generic [ref=e5]:
+      - link "Home" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - generic [ref=e53]:
+        - navigation [ref=e54]:
+          - list [ref=e55]:
+            - listitem [ref=e56] [cursor=pointer]:
+              - button "Research" [ref=e57]:
+                - generic [ref=e58]: Research
+                - img [ref=e59]
+            - listitem [ref=e61] [cursor=pointer]:
+              - link "Policy" [ref=e62]:
+                - /url: /policy
+            - listitem [ref=e63] [cursor=pointer]:
+              - button "Commitments" [ref=e64]:
+                - generic [ref=e65]: Commitments
+                - img [ref=e66]
+            - listitem [ref=e68] [cursor=pointer]:
+              - button "Learn" [ref=e69]:
+                - generic [ref=e70]: Learn
+                - img [ref=e71]
+            - listitem [ref=e73] [cursor=pointer]:
+              - link "News" [ref=e74]:
+                - /url: /news
+        - generic [ref=e75]:
+          - link "Try Claude" [ref=e76] [cursor=pointer]:
+            - /url: https://claude.ai/
+          - img [ref=e78] [cursor=pointer]
+  - main [ref=e80]:
+    - article [ref=e81]:
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - generic [ref=e85]: Announcements
+          - heading "Introducing the Life Sciences Verification Program" [level=1] [ref=e86]
+          - time [ref=e88]: Sep 17, 2026
+        - img "Introducing the Life Sciences Verification Program" [ref=e92]
+      - article [ref=e94]:
+        - generic [ref=e96]:
+          - paragraph [ref=e97]:
+            - text: Today, we are introducing the Life Sciences Verification Program (LSVP), which gives life science professionals access to our Mythos, Opus, and Sonnet models with a refined set of safeguards more permissive for biology-related work. We have already onboarded dozens of organizations through an early-access program, and are now opening applications to the broader life science community (
+            - link "join waitlist here" [ref=e98] [cursor=pointer]:
+              - /url: https://claude.com/form/life-sciences-verification-program
+            - text: ). The program is launching in beta, initially for teams and institutions. We will continue to improve the program and expand access to individual Pro and Max plans over time.
+          - paragraph [ref=e99]: The LSVP is designed to enable life science professionals to use our models across a wide range of tasks that are currently blocked in our generally available Fable models, like drug discovery, research biology, clinical development, and manufacturing. It’s built for teams of all kinds—from academic labs to startups, pharma companies, and more.
+          - heading "Verification and access types" [level=2] [ref=e100]:
+            - strong [ref=e101]: Verification and access types
+          - paragraph [ref=e102]:
+            - text: To qualify for these grants, each applicant goes through a verification process that includes a review of their research credentials, security standards, and ethical research oversight. Once verified, teams may apply for two types of LSVP grants, “Standard Use” or “High-risk Use,” depending on their access needs. These grants can be used through all our product surfaces, including
+            - link "Claude Science" [ref=e103] [cursor=pointer]:
+              - /url: https://claude.com/product/claude-science
+            - text: ","
+            - link "Claude.ai" [ref=e104] [cursor=pointer]:
+              - /url: http://claude.ai/redirect/website.v1.046654c2-339b-48d8-8b8d-426922fadb22
+            - text: ", Claude Code and the API."
+            - strong [ref=e105]: Standard Use
+            - text: grants are suitable for most life science work, including the majority of biology research and development workflows. These grants can be extended to entire teams for diverse, daily workloads, and are renewed once a year. They give those teams access to our Mythos, Opus, and Sonnet models, with refined classifiers that are more permissive for science tasks than our generally available models. Standard Use grants apply to Mythos 5.1, Opus 5, and Sonnet 5 today, and to future models as they launch. They’re specifically designed to enable the full breadth of life science activities in areas spanning basic science, R&D, supply chain and manufacturing, clinical development, quality assurance, regulatory affairs, investing and diligence, and more.
+          - paragraph [ref=e106]: Although we expect Standard Use to cover the majority of access needs, some work carries a higher potential for misuse and therefore requires additional vetting.
+          - paragraph [ref=e107]:
+            - strong [ref=e108]: High-risk Use
+            - text: is an add-on grant for teams working in areas blocked under Standard Use. It removes all safeguards that block life sciences requests. This grant applies to a single research project as opposed to a full team, and must be renewed every six months. Typically, a single researcher with dual-use work would have access to one Standard Use grant for diverse, daily activities, and one or more High-risk Use grants which only apply to work on specific projects (for example, characterizing how one specific family of viral vectors is recognized by human immune pathways).
+          - paragraph [ref=e109]: High-risk grants for Claude Opus 5 and Claude Sonnet 5 are available today. We are working with the US government to make high-risk grants more broadly available for Claude Mythos, but at the time of this launch they will remain limited to a small set of entities with additional vetting.
+          - paragraph [ref=e110]: All other safeguards, such as cyber classifiers, will remain in place under LSVP grants.
+          - heading "Enabling trusted access through shared responsibility" [level=2] [ref=e111]
+          - paragraph [ref=e112]:
+            - text: As we’ve shown in our recent
+            - link "threat report" [ref=e113] [cursor=pointer]:
+              - /url: https://www.anthropic.com/threat-intelligence-report-september-2026
+            - text: ", there are increasingly sophisticated misuse attempts happening on our platform, including attempts that could support biological weapons development. In biology, where it’s often not possible to differentiate between a user doing valid work (e.g. research a viral pathogen to develop vaccines against it) and pursuing harm (e.g. trying to increase the transmissibility of a virus maliciously), the most concerning threat models are ones where valid access has been diverted or overtaken by an actor with bad intent. Indeed, insider threats and rogue-use have been major factors in significant biosafety incidents and scares. In developing the LSVP’s safeguards, we aimed to protect against three concerning threat models in particular:"
+          - list [ref=e114]:
+            - listitem [ref=e115]:
+              - emphasis [ref=e116]: "Access compromise:"
+              - text: Malware or account takeover diverting access to a bad actor
+            - listitem [ref=e117]:
+              - emphasis [ref=e118]: "Insider threats:"
+              - text: Rogue or coerced employees intentionally taking malicious action or diverting their access to a bad actor
+            - listitem [ref=e119]:
+              - emphasis [ref=e120]: "Agent misuse:"
+              - text: Agents, especially working in swarms or over long-horizon tasks, taking unintended dangerous actions
+          - paragraph [ref=e121]:
+            - text: In order to defend against these threats and in close collaboration with enterprise CISOs, we designed the new LSVP safeguards around the concept of shared responsibility by monitoring usage against the
+            - emphasis [ref=e122]: intended use-case
+            - text: for the model access. Because we vet the LSVP organizations for their life sciences credibility and oversight, we can empower them to specify for themselves what constitutes safe usage for teams or projects within their program.
+          - paragraph [ref=e123]: Each entity’s access is tied to the use cases it has specified in its grant applications, and we continuously monitor LSVP traffic to identify usage or patterns that are outside the stated safe scope. Should unauthorized activity occur, we can flag these cases to organization admins to take action within pre-agreed timeframes for triaging and remediating incidents. The use cases should include high-level descriptions of the intended work, like one would share in a job listing, and not include any sensitive information or IP.
+          - heading "How monitoring works in LSVP" [level=2] [ref=e124]
+          - paragraph [ref=e125]: Serious misuse is often spread across many requests and sessions to look disconnected and evade detection. In the LSVP, we are shifting safeguards from real-time blocking, where we reject potentially harmful access at the time of each request, to offline monitoring, which allows us to more clearly identify potential misuse across patterns of behavior. Shifting enforcement from real-time blocking to offline monitoring allows legitimate work to proceed with fewer interruptions, but it requires us to retain data associated with flagged activity for review. For LSVP traffic, we are requiring data retention for 30 days to be able to do this monitoring effectively.
+          - paragraph [ref=e126]:
+            - text: This data is strictly compartmentalized and cannot be used for model training or accessed by members of Anthropic’s life sciences research teams. For organizations that qualify, we are also working to understand how LSVP can integrate with features from our
+            - link "Enterprise Frontier Safeguards" [ref=e127] [cursor=pointer]:
+              - /url: https://www.anthropic.com/news/enterprise-frontier-safeguards
+            - text: (EFS) systems.
+          - heading "What researchers are saying" [level=2] [ref=e128]
+          - generic [ref=e130]:
+            - generic [ref=e132]:
+              - generic [ref=e133]:
+                - img [ref=e135]
+                - blockquote [ref=e137]:
+                  - generic [ref=e138]: Xaira is making biology more computable, generating biological data at unprecedented scale and building foundation models of cell, protein and disease biology that turn it into the next generation of life-changing medicines. We’re excited to put Anthropic's frontier models to work across our drug discovery engine, and we believe pairing trusted access with intelligence is the right way to realize AI’s promise in biology.
+                  - generic [ref=e140]: Xaira Therapeutics
+              - generic [ref=e141]:
+                - img [ref=e143]
+                - blockquote [ref=e145]:
+                  - generic [ref=e146]: Edison’s mission is to accelerate science and the discovery and development of new medicines. With the Life Sciences Verification Program, we are excited to be able to bring Anthropic’s most intelligent models to bear on these problems. We look forward to collaborating with Anthropic further to end disease and improve the lives of patients everywhere.
+                  - generic [ref=e148]: Edison Scientific
+              - generic [ref=e149]:
+                - img [ref=e151]
+                - blockquote [ref=e153]:
+                  - generic [ref=e154]: At Manifold Bio, we’re building a massively parallel interface into living systems to enable powerful AI to create medicines. We look forward to putting frontier intelligence to work safely in our engine, and we welcome Anthropic’s approach of pairing access with accountability.
+                  - generic [ref=e156]: Manifold Bio
+            - generic [ref=e157]:
+              - generic [ref=e158]: 01 / 03
+              - generic [ref=e159]:
+                - button "Previous quote" [disabled] [ref=e160] [cursor=pointer]:
+                  - img [ref=e161]
+                - button "Next quote" [ref=e163] [cursor=pointer]:
+                  - img [ref=e164]
+          - heading "Applications and availability" [level=2] [ref=e166]
+          - paragraph [ref=e167]:
+            - text: Organizations interested in joining the LSVP can
+            - link "register interest here" [ref=e168] [cursor=pointer]:
+              - /url: https://claude.com/form/life-sciences-verification-program
+            - text: . We expect to enroll hundreds of organizations within the first week, and to scale the program further to support the majority of the life science community in the coming weeks.
+          - paragraph [ref=e169]: Today, LSVP is available in our first-party console for API usage, as well as in Claude for Enterprise and Team plans. We do not yet support individual plans but are working to expand access for these users. It is also not yet available on third-party platforms.
+          - paragraph [ref=e170]: As a beta, LSVP is not available for BAA-enabled orgs. This means customers with PHI data should use separate non-BAA orgs with non-HIPAA.
+          - paragraph [ref=e171]:
+            - text: In API and Claude Science, users can switch between grants natively. In
+            - link "Claude.ai" [ref=e172] [cursor=pointer]:
+              - /url: http://claude.ai/redirect/website.v1.046654c2-339b-48d8-8b8d-426922fadb22
+            - text: and Claude Code, initially only a preselected default grant applies (except while using Claude Code with API authentication). This should be fine for the vast majority of users, who will only ever require a Standard Use grant. However, we will improve support and portability of these LSVP features over time.
+          - heading "What comes next" [level=2] [ref=e173]
+          - paragraph [ref=e174]: Providing these frontier capabilities is part of our broader efforts in supporting the life sciences community in our shared mission to accelerate curing disease and improving human health. We will share more about new products, research collaborations, and improvements to the program in the coming months.
+          - paragraph
+          - paragraph
+          - paragraph
+          - paragraph
+          - paragraph [ref=e175]:
+            - strong [ref=e176]: "Changelog:"
+            - text: September 30th, 2026. We clarified that the form we link to is an expression of interest, not an application.
+      - generic [ref=e178]:
+        - link "Share on Twitter" [ref=e179] [cursor=pointer]:
+          - /url: https://twitter.com/intent/tweet?text=https://www.anthropic.com/news/life-sciences-verification-program
+          - img [ref=e180]
+        - link "Share on LinkedIn" [ref=e182] [cursor=pointer]:
+          - /url: https://www.linkedin.com/shareArticle?mini=true&url=https://www.anthropic.com/news/life-sciences-verification-program
+          - img [ref=e183]
+      - generic [ref=e186]:
+        - heading "Related content" [level=2] [ref=e188]
+        - generic [ref=e190]:
+          - generic [ref=e191]:
+            - heading "An update on independent evaluators" [level=3] [ref=e192]
+            - paragraph [ref=e193]: To evaluate the safety of our systems, Anthropic is giving employee-like access to a team from METR, a nonprofit that evaluates frontier AI models, and we're in early discussions with several other organizations, including Hugging Face.
+            - link "Read more" [ref=e194] [cursor=pointer]:
+              - /url: /news/an-update-on-independent-evaluators
+              - generic [ref=e195]: Read more
+              - img [ref=e197]
+          - generic [ref=e199]:
+            - heading "Preparing for the 2026 US midterms" [level=3] [ref=e200]
+            - paragraph [ref=e201]: Earlier this year, we shared an update on our election safeguards. Here, we outline how we’ve continued to strengthen these safeguards ahead of this year’s US midterms.
+            - link "Read more" [ref=e202] [cursor=pointer]:
+              - /url: /news/2026-us-midterms
+              - generic [ref=e203]: Read more
+              - img [ref=e205]
+          - generic [ref=e207]:
+            - heading "Anthropic opens Singapore office and signs MOU with the Government of Singapore" [level=3] [ref=e208]
+            - paragraph [ref=e209]: Anthropic has opened an office in Singapore and signed an MOU with the country’s government to advance safe, responsible AI adoption.
+            - link "Read more" [ref=e210] [cursor=pointer]:
+              - /url: /news/singapore-office-opening
+              - generic [ref=e211]: Read more
+              - img [ref=e213]
+  - contentinfo "Site footer" [ref=e215]:
+    - generic [ref=e216]:
+      - link "Return to homepage" [ref=e218] [cursor=pointer]:
+        - /url: /
+        - img [ref=e219]
+      - navigation "Footer navigation" [ref=e221]:
+        - generic [ref=e222]:
+          - generic [ref=e223]:
+            - heading "Products" [level=3] [ref=e224]
+            - list [ref=e225]:
+              - listitem [ref=e226]:
+                - link "Claude" [ref=e227] [cursor=pointer]:
+                  - /url: https://claude.com/product/overview
+              - listitem [ref=e228]:
+                - link "Claude Code" [ref=e229] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-code
+              - listitem [ref=e230]:
+                - link "Claude Code Enterprise" [ref=e231] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-code/enterprise
+              - listitem [ref=e232]:
+                - link "Claude Cowork" [ref=e233] [cursor=pointer]:
+                  - /url: https://claude.com/product/cowork
+              - listitem [ref=e234]:
+                - link "@Claude" [ref=e235] [cursor=pointer]:
+                  - /url: https://claude.com/product/tag
+              - listitem [ref=e236]:
+                - link "Claude Design" [ref=e237] [cursor=pointer]:
+                  - /url: https://claude.com/product/design
+              - listitem [ref=e238]:
+                - link "Claude Science" [ref=e239] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-science
+              - listitem [ref=e240]:
+                - link "Claude Security" [ref=e241] [cursor=pointer]:
+                  - /url: https://claude.com/product/claude-security
+              - listitem [ref=e242]:
+                - link "Claude in Chrome" [ref=e243] [cursor=pointer]:
+                  - /url: https://claude.com/claude-in-chrome
+              - listitem [ref=e244]:
+                - link "Claude for Google Workspace" [ref=e245] [cursor=pointer]:
+                  - /url: https://claude.com/claude-for-google-workspace
+              - listitem [ref=e246]:
+                - link "Claude for Microsoft 365" [ref=e247] [cursor=pointer]:
+                  - /url: https://claude.com/claude-for-microsoft-365
+              - listitem [ref=e248]:
+                - link "Skills" [ref=e249] [cursor=pointer]:
+                  - /url: https://www.claude.com/skills
+              - listitem [ref=e250]:
+                - link "Download app" [ref=e251] [cursor=pointer]:
+                  - /url: https://claude.ai/download
+              - listitem [ref=e252]:
+                - link "Pricing" [ref=e253] [cursor=pointer]:
+                  - /url: https://claude.com/pricing
+              - listitem [ref=e254]:
+                - link "Log in to Claude" [ref=e255] [cursor=pointer]:
+                  - /url: https://claude.ai/
+          - generic [ref=e256]:
+            - heading "Models" [level=3] [ref=e257]
+            - list [ref=e258]:
+              - listitem [ref=e259]:
+                - link "Mythos" [ref=e260] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/mythos
+              - listitem [ref=e261]:
+                - link "Fable" [ref=e262] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/fable
+              - listitem [ref=e263]:
+                - link "Opus" [ref=e264] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/opus
+              - listitem [ref=e265]:
+                - link "Sonnet" [ref=e266] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/sonnet
+              - listitem [ref=e267]:
+                - link "Haiku" [ref=e268] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/claude/haiku
+        - generic [ref=e269]:
+          - generic [ref=e270]:
+            - heading "Solutions" [level=3] [ref=e271]
+            - list [ref=e272]:
+              - listitem [ref=e273]:
+                - link "AI agents" [ref=e274] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/agents
+              - listitem [ref=e275]:
+                - link "Code modernization" [ref=e276] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/code-modernization
+              - listitem [ref=e277]:
+                - link "Coding" [ref=e278] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/coding
+              - listitem [ref=e279]:
+                - link "Commerce" [ref=e280] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/commerce
+              - listitem [ref=e281]:
+                - link "Customer support" [ref=e282] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/customer-support
+              - listitem [ref=e283]:
+                - link "Cybersecurity" [ref=e284] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/cybersecurity
+              - listitem [ref=e285]:
+                - link "Enterprise" [ref=e286] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/enterprise
+              - listitem [ref=e287]:
+                - link "Financial advisors" [ref=e288] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/financial-advisors
+              - listitem [ref=e289]:
+                - link "Financial services" [ref=e290] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/financial-services
+              - listitem [ref=e291]:
+                - link "Government" [ref=e292] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/government
+              - listitem [ref=e293]:
+                - link "Healthcare" [ref=e294] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/healthcare
+              - listitem [ref=e295]:
+                - link "Higher education" [ref=e296] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/education
+              - listitem [ref=e297]:
+                - link "K-12 teachers" [ref=e298] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/teachers
+              - listitem [ref=e299]:
+                - link "Legal" [ref=e300] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/legal
+              - listitem [ref=e301]:
+                - link "Life sciences" [ref=e302] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/life-sciences
+              - listitem [ref=e303]:
+                - link "Nonprofits" [ref=e304] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/nonprofits
+              - listitem [ref=e305]:
+                - link "Sales" [ref=e306] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/sales
+              - listitem [ref=e307]:
+                - link "Small business" [ref=e308] [cursor=pointer]:
+                  - /url: https://claude.com/solutions/small-business
+          - generic [ref=e309]:
+            - heading "Claude Platform" [level=3] [ref=e310]
+            - list [ref=e311]:
+              - listitem [ref=e312]:
+                - link "Overview" [ref=e313] [cursor=pointer]:
+                  - /url: https://claude.com/platform/api
+              - listitem [ref=e314]:
+                - link "Developer docs" [ref=e315] [cursor=pointer]:
+                  - /url: https://platform.claude.com/docs
+              - listitem [ref=e316]:
+                - link "Pricing" [ref=e317] [cursor=pointer]:
+                  - /url: https://claude.com/pricing#api
+              - listitem [ref=e318]:
+                - link "Ecosystem" [ref=e319] [cursor=pointer]:
+                  - /url: https://claude.com/ecosystem
+              - listitem [ref=e320]:
+                - link "Marketplace" [ref=e321] [cursor=pointer]:
+                  - /url: https://claude.com/platform/marketplace
+              - listitem [ref=e322]:
+                - link "Regional compliance" [ref=e323] [cursor=pointer]:
+                  - /url: https://claude.com/regional-compliance
+              - listitem [ref=e324]:
+                - link "Claude on AWS" [ref=e325] [cursor=pointer]:
+                  - /url: https://claude.com/partners/claude-on-aws
+              - listitem [ref=e326]:
+                - link "Google Cloud" [ref=e327] [cursor=pointer]:
+                  - /url: https://claude.com/partners/google-cloud-vertex-ai
+              - listitem [ref=e328]:
+                - link "Microsoft Foundry" [ref=e329] [cursor=pointer]:
+                  - /url: https://claude.com/partners/microsoft-foundry
+              - listitem [ref=e330]:
+                - link "Console login" [ref=e331] [cursor=pointer]:
+                  - /url: https://platform.claude.com/
+        - generic [ref=e332]:
+          - generic [ref=e333]:
+            - heading "Resources" [level=3] [ref=e334]
+            - list [ref=e335]:
+              - listitem [ref=e336]:
+                - link "Blog" [ref=e337] [cursor=pointer]:
+                  - /url: https://claude.com/blog
+              - listitem [ref=e338]:
+                - link "Claude partner network" [ref=e339] [cursor=pointer]:
+                  - /url: https://claude.com/partners
+              - listitem [ref=e340]:
+                - link "Community" [ref=e341] [cursor=pointer]:
+                  - /url: https://claude.com/community
+              - listitem [ref=e342]:
+                - link "Connectors" [ref=e343] [cursor=pointer]:
+                  - /url: https://claude.com/connectors
+              - listitem [ref=e344]:
+                - link "Courses" [ref=e345] [cursor=pointer]:
+                  - /url: https://academy.claude.com
+              - listitem [ref=e346]:
+                - link "Customer stories" [ref=e347] [cursor=pointer]:
+                  - /url: https://claude.com/customers
+              - listitem [ref=e348]:
+                - link "Developer blog" [ref=e349] [cursor=pointer]:
+                  - /url: https://claude.dev
+              - listitem [ref=e350]:
+                - link "Engineering at Anthropic" [ref=e351] [cursor=pointer]:
+                  - /url: /engineering
+              - listitem [ref=e352]:
+                - link "Events" [ref=e353] [cursor=pointer]:
+                  - /url: /events
+              - listitem [ref=e354]:
+                - link "Plugins" [ref=e355] [cursor=pointer]:
+                  - /url: https://claude.com/plugins
+              - listitem [ref=e356]:
+                - link "Powered by Claude" [ref=e357] [cursor=pointer]:
+                  - /url: https://claude.com/partners/powered-by-claude
+              - listitem [ref=e358]:
+                - link "Service partners" [ref=e359] [cursor=pointer]:
+                  - /url: https://claude.com/partners/services
+              - listitem [ref=e360]:
+                - link "Tutorials" [ref=e361] [cursor=pointer]:
+                  - /url: https://claude.com/resources/tutorials
+              - listitem [ref=e362]:
+                - link "Use cases" [ref=e363] [cursor=pointer]:
+                  - /url: https://claude.com/resources/use-cases
+          - generic [ref=e364]:
+            - heading "Programs" [level=3] [ref=e365]
+            - list [ref=e366]:
+              - listitem [ref=e367]:
+                - link "Campus" [ref=e368] [cursor=pointer]:
+                  - /url: https://claude.com/programs/campus
+              - listitem [ref=e369]:
+                - link "Frontier Academy" [ref=e370] [cursor=pointer]:
+                  - /url: https://claude.com/programs/frontier-academy
+              - listitem [ref=e371]:
+                - link "Scientists" [ref=e372] [cursor=pointer]:
+                  - /url: https://claude.com/programs/team-plan-for-scientists
+              - listitem [ref=e373]:
+                - link "Startups" [ref=e374] [cursor=pointer]:
+                  - /url: https://claude.com/programs/startups
+          - generic [ref=e375]:
+            - heading "Help and security" [level=3] [ref=e376]
+            - list [ref=e377]:
+              - listitem [ref=e378]:
+                - link "Availability" [ref=e379] [cursor=pointer]:
+                  - /url: /legal/supported-regions
+              - listitem [ref=e380]:
+                - link "Status" [ref=e381] [cursor=pointer]:
+                  - /url: https://status.anthropic.com/
+              - listitem [ref=e382]:
+                - link "Support center" [ref=e383] [cursor=pointer]:
+                  - /url: https://support.claude.com/en/
+        - generic [ref=e384]:
+          - generic [ref=e385]:
+            - heading "Company" [level=3] [ref=e386]
+            - list [ref=e387]:
+              - listitem [ref=e388]:
+                - link "Anthropic" [ref=e389] [cursor=pointer]:
+                  - /url: /company
+              - listitem [ref=e390]:
+                - link "Careers" [ref=e391] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=e392]:
+                - link "Leadership" [ref=e393] [cursor=pointer]:
+                  - /url: /company/leadership
+              - listitem [ref=e394]:
+                - link "Policy" [ref=e395] [cursor=pointer]:
+                  - /url: /policy
+              - listitem [ref=e396]:
+                - link "Economic Futures" [ref=e397] [cursor=pointer]:
+                  - /url: /economic-futures
+              - listitem [ref=e398]:
+                - link "Research" [ref=e399] [cursor=pointer]:
+                  - /url: /research
+              - listitem [ref=e400]:
+                - link "News" [ref=e401] [cursor=pointer]:
+                  - /url: /news
+              - listitem [ref=e402]:
+                - link "Claude’s Constitution" [ref=e403] [cursor=pointer]:
+                  - /url: /constitution
+              - listitem [ref=e404]:
+                - link "Claude Corps" [ref=e405] [cursor=pointer]:
+                  - /url: /claude-corps
+              - listitem [ref=e406]:
+                - link "Keep thinking" [ref=e407] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/path-to-hope
+              - listitem [ref=e408]:
+                - link "Policy on the AI Exponential" [ref=e409] [cursor=pointer]:
+                  - /url: /policy-on-the-ai-exponential
+              - listitem [ref=e410]:
+                - link "Responsible Scaling Policy" [ref=e411] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/news/announcing-our-updated-responsible-scaling-policy
+              - listitem [ref=e412]:
+                - link "Security and compliance" [ref=e413] [cursor=pointer]:
+                  - /url: https://trust.anthropic.com/
+              - listitem [ref=e414]:
+                - link "Transparency" [ref=e415] [cursor=pointer]:
+                  - /url: /transparency
+          - generic [ref=e416]:
+            - heading "Terms and policies" [level=3] [ref=e417]
+            - list [ref=e418]:
+              - listitem [ref=e419]:
+                - link "Privacy policy" [ref=e420] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/privacy
+              - listitem [ref=e421]:
+                - link "Consumer health data privacy policy" [ref=e422] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/consumer-health-data-privacy-policy
+              - listitem [ref=e423]:
+                - link "Responsible disclosure policy" [ref=e424] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/responsible-disclosure-policy
+              - listitem [ref=e425]:
+                - 'link "Terms of service: Commercial" [ref=e426] [cursor=pointer]':
+                  - /url: https://www.anthropic.com/legal/commercial-terms
+              - listitem [ref=e427]:
+                - 'link "Terms of service: Consumer" [ref=e428] [cursor=pointer]':
+                  - /url: https://www.anthropic.com/legal/consumer-terms
+              - listitem [ref=e429]:
+                - 'link "Terms of Service: US K-12" [ref=e430] [cursor=pointer]':
+                  - /url: https://anthropic.com/legal/k12-terms
+              - listitem [ref=e431]:
+                - 'link "Data Processing Agreement: US K-12" [ref=e432] [cursor=pointer]':
+                  - /url: https://anthropic.com/legal/k12-dpa
+              - listitem [ref=e433]:
+                - link "Usage policy" [ref=e434] [cursor=pointer]:
+                  - /url: https://www.anthropic.com/legal/aup
+      - generic [ref=e435]:
+        - contentinfo [ref=e436]: © 2026 Anthropic PBC
+        - navigation "Social media links" [ref=e437]:
+          - listitem [ref=e438]:
+            - link "Visit our LinkedIn page" [ref=e439] [cursor=pointer]:
+              - /url: https://www.linkedin.com/company/anthropicresearch
+              - img [ref=e440]
+          - listitem [ref=e442]:
+            - link "Visit our X (formerly Twitter) profile" [ref=e443] [cursor=pointer]:
+              - /url: https://x.com/AnthropicAI
+              - img [ref=e444]
+          - listitem [ref=e446]:
+            - link "Visit our YouTube channel" [ref=e447] [cursor=pointer]:
+              - /url: https://www.youtube.com/@anthropic-ai
+              - img [ref=e448]
+  - alert [ref=e450]

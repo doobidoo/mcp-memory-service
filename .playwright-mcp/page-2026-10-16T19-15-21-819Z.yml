@@ -1,0 +1,498 @@
+- generic [active] [ref=e1]:
+  - navigation "Main" [ref=e3]:
+    - generic [ref=e5]:
+      - link "Loading image... Kiro" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e11]:
+          - generic [ref=e13]: Loading image...
+          - img "Kiro" [ref=e14]
+      - list [ref=e19]:
+        - listitem [ref=e20]:
+          - link "Agents" [ref=e21] [cursor=pointer]:
+            - /url: /agents/
+        - listitem [ref=e22]:
+          - button "Apps menu" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Apps
+            - img [ref=e25]
+        - listitem [ref=e27]:
+          - link "Enterprise" [ref=e28] [cursor=pointer]:
+            - /url: /enterprise/
+        - listitem [ref=e29]:
+          - link "Pricing" [ref=e30] [cursor=pointer]:
+            - /url: /pricing/
+        - listitem [ref=e31]:
+          - link "Docs" [ref=e32] [cursor=pointer]:
+            - /url: /docs/
+        - listitem [ref=e33]:
+          - button "Community menu" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: Community
+            - img [ref=e36]
+        - listitem [ref=e38]:
+          - button "Resources menu" [ref=e39] [cursor=pointer]:
+            - generic [ref=e40]: Resources
+            - img [ref=e41]
+      - generic [ref=e43]:
+        - button "Search across all Kiro content (Command+K)" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+        - button "Language options" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+          - img [ref=e55]
+        - link "SIGN IN" [ref=e57] [cursor=pointer]:
+          - /url: https://app.kiro.dev
+          - generic [ref=e58]: SIGN IN
+        - link "Downloads" [ref=e59] [cursor=pointer]:
+          - /url: /downloads/
+          - generic [ref=e60]: DOWNLOADS
+  - main [ref=e61]:
+    - region "Page content" [ref=e64]:
+      - generic [ref=e65]:
+        - link "Back to all posts" [ref=e67] [cursor=pointer]:
+          - /url: /blog/
+          - img [ref=e68]
+          - generic [ref=e70]: Back to all posts
+        - article [ref=e71]:
+          - generic [ref=e72]:
+            - time [ref=e74]: September 14, 2026
+            - heading "Tackling technical debt at scale with autonomous mode in Kiro Web" [level=1] [ref=e75]
+            - generic [ref=e76]:
+              - generic [ref=e77]: By
+              - generic [ref=e78]:
+                - generic [ref=e79]:
+                  - generic [ref=e81]: MI
+                  - generic [ref=e82]:
+                    - paragraph [ref=e83]: Michael Tautschnig
+                    - paragraph [ref=e84]: Applied Science
+                - link "RA Rajdeep Mukherjee Applied Science" [ref=e85] [cursor=pointer]:
+                  - /url: https://scholar.google.com/citations?user=YSEUnwwAAAAJ&hl=en&oi=ao
+                  - generic [ref=e87]: RA
+                  - generic [ref=e88]:
+                    - paragraph [ref=e89]: Rajdeep Mukherjee
+                    - paragraph [ref=e90]: Applied Science
+          - generic [ref=e91]:
+            - paragraph [ref=e92]:
+              - text: "Every software development team has experienced the tension between maintenance and building new features: time spent on one is time not spent on the other. For open-source maintainers, this challenge is even more acute with smaller teams, larger user bases, and a backlog that never stops growing. In"
+              - link "formal verification" [ref=e93] [cursor=pointer]:
+                - /url: https://www.amazon.science/blog/a-decade-of-mathematical-certainty-reflections-on-the-automated-reasoning-group
+              - text: ", the use of mathematical techniques to prove properties of software and the complexity of the domain makes this especially painful. The"
+              - link "AWS Automated Reasoning Group" [ref=e94] [cursor=pointer]:
+                - /url: https://aws.amazon.com/blogs/security/protect-sensitive-data-in-the-cloud-with-automated-reasoning-zelkova/
+              - text: maintains or is a principal contributor to several open-source formal verification tools, including the
+              - link "Kani Rust Verifier" [ref=e95] [cursor=pointer]:
+                - /url: https://model-checking.github.io/kani/
+              - text: and the
+              - link "C Bounded Model Checker (CBMC)" [ref=e96] [cursor=pointer]:
+                - /url: https://www.cprover.org/cbmc/
+              - text: . In November 2025, when we began the work described in this post, these repositories had 916 open issues, with maintenance tasks accumulating faster than the team could address them while continuing to advance core verification capabilities.
+            - paragraph [ref=e97]:
+              - text: Traditional approaches to technical debt force a choice between allocating developer time to maintenance (and slow feature delivery) or letting debt compound. Interactive AI coding assistants help speed up individual tasks but still require a developer actively in the loop for every step. We wanted a third option that takes a maintenance task end-to-end, from reading the issue to opening a pull request, so engineers only step in at code review, where their judgment matters most. That tool is
+              - link "Kiro’s autonomous mode" [ref=e98] [cursor=pointer]:
+                - /url: /web/
+              - text: in Web, an agentic software engineering tool that can perform a range of tasks, including maintenance, while engineers focus on higher-value work. Here is what that looks like in practice. Over two months, Kiro submitted pull requests addressing 87 open issues across our repositories, a volume approaching what the team had addressed during the prior 22 months (about 2 years).
+            - paragraph [ref=e99]: In this post, we describe how we set this up, share two case studies in detail, and explain how to use Kiro autonomously on your own repository.
+            - generic [ref=e100]:
+              - heading "How Kiro’s autonomous mode works" [level=2] [ref=e101]
+              - link "Copy link to How kiros autonomous mode works section" [ref=e102] [cursor=pointer]:
+                - /url: "#how-kiros-autonomous-mode-works"
+                - img [ref=e104]
+            - paragraph [ref=e107]:
+              - link "Kiro" [ref=e108] [cursor=pointer]:
+                - /url: /web/
+              - text: "in autonomous mode operates autonomously in its own secure cloud development environment while integrating with existing workflows. Assigning work to Kiro is simple: describe the task on"
+              - link "app.kiro.dev" [ref=e109] [cursor=pointer]:
+                - /url: https://app.kiro.dev/agent
+              - text: ", add the"
+              - code [ref=e110]: kiro
+              - text: label to a GitHub issue, or mention
+              - code [ref=e111]: /kiro
+              - text: in a comment. Kiro then clones the repository into an isolated sandbox, analyzes the issue and related code, breaks the work into steps, implements the changes, runs the full test suite, and opens a pull request. Every pull request is subject to the same approval requirements as human-authored code, including passing CI and code-owner review. Kiro never merges pull requests automatically and cannot bypass branch protection rules.
+            - paragraph [ref=e112]: The tasks most suitable for this approach are those with clear acceptance criteria and isolated scope. Dependency updates, well-reproduced bug fixes, and documentation improvements are all good starting options. Tasks requiring architectural decisions or crosscutting refactors are better left to humans. When Kiro encounters ambiguity, it asks clarifying questions rather than guessing. In our deployment across the Kani and CBMC repositories, we have observed zero regressions introduced by the merged Kiro-generated code.
+            - generic [ref=e113]:
+              - heading "Quantitative impact" [level=2] [ref=e114]
+              - link "Copy link to Quantitative impact section" [ref=e115] [cursor=pointer]:
+                - /url: "#quantitative-impact"
+                - img [ref=e117]
+            - paragraph [ref=e120]: "We started using Kiro in autonomous mode on the Kani repository in early November 2025 and expanded to CBMC later that month. Across both repositories, the numbers show the positive impact:"
+            - list [ref=e121]:
+              - listitem [ref=e122]:
+                - strong [ref=e123]: Code maintenance
+                - text: "(29%): Dependency updates, toolchain upgrades, CI improvements, and refactoring"
+              - listitem [ref=e124]:
+                - strong [ref=e125]: Documentation improvements
+                - text: "(4%): Updates to project documentation and build instructions"
+              - listitem [ref=e126]:
+                - strong [ref=e127]: Bug fixes
+                - text: "(36%): Resolution of reported issues, including crashes, incorrect results, and invariant violations"
+              - listitem [ref=e128]:
+                - strong [ref=e129]: Feature completion
+                - text: "(26%): Addressing documented gaps in prototype features"
+            - paragraph [ref=e130]: "The following chart shows monthly pull request activity in the CBMC repository. For most of 2025, the repository averaged fewer than 2 resolved issues per month. In November, that jumped to 60. Many of these pull requests are still working through review: of the 64 Kiro-submitted PRs in CBMC for November, 16 have been merged, 47 remain open, and 1 was closed because the underlying issue was resolved by another change, as of September 2026. Each one addresses a documented open issue. Across both CBMC and Kani, Kiro submitted pull requests addressing 87 unique issues in November and December 2025. In the prior 22 months (January 2024 through October 2025), the team addressed 94 issues total across both repositories."
+            - 'figure "Figure 1: Monthly pull request activity in the CBMC repository from January 2024 through December 2025. For most of 2025, fewer than 2 issues were resolved per month. In November 2025, when Kiro was introduced, this jumped to 60 issues addressed across 65 pull requests opened." [ref=e132]':
+              - 'button "Open image lightbox: Bar chart titled CBMC Repository: Monthly Pull Request Activity, January 2024 to December 2025, with blue bars for PRs opened and orange bars for issues addressed; issues addressed are near zero in most months until a dashed line labeled Kiro starts at November 2025, where 65 PRs were opened and 60 issues addressed" [ref=e133]':
+                - generic [ref=e134]:
+                  - generic [ref=e136]: Loading image...
+                  - 'img "Bar chart titled CBMC Repository: Monthly Pull Request Activity, January 2024 to December 2025, with blue bars for PRs opened and orange bars for issues addressed; issues addressed are near zero in most months until a dashed line labeled Kiro starts at November 2025, where 65 PRs were opened and 60 issues addressed" [ref=e137]'
+                - img [ref=e139]
+              - generic [ref=e142]: "Figure 1: Monthly pull request activity in the CBMC repository from January 2024 through December 2025. For most of 2025, fewer than 2 issues were resolved per month. In November 2025, when Kiro was introduced, this jumped to 60 issues addressed across 65 pull requests opened."
+            - paragraph [ref=e143]: "Of the 94 pull requests Kiro submitted across CBMC and Kani in November and December 2025, as of September 2026, 35 (37%) have been merged, 56 (60%) remain open and under review, and 3 (3%) were closed because the underlying issues were resolved by other changes. Of the merged PRs, some were merged as submitted while others required interactive refinement. The review backlog reflects a key bottleneck: Kiro can generate PRs faster than the team can review them. These were substantial changes: the median PR touched 5 files and ~110 lines, while the largest touched about 1,000 files. At 2–3 hours of focused developer effort per task, the 94 PRs represent roughly 200–280 hours of implementation effort, excluding review time and PRs that may not ultimately merge; because many tasks involve bug fixes or feature completion rather than mechanical updates, this is best viewed as a lower bound."
+            - paragraph [ref=e144]: "The throughput shift is equally striking: CBMC averaged fewer than 2 resolved issues per month across the 22 months before Kiro, while November 2025 saw 60 resolved issues, a more than 30× increase. Nearly all of November’s 65 opened PRs (64) were Kiro-submitted, indicating that the spike reflects added agent capacity rather than redirected developer effort. Overall, Kiro generated implementation work at roughly 10× the team’s historical issue-resolution throughput, although realized value depends on review and refinement capacity. The merged PRs continue to introduce zero regressions, a signal that now rests on a much larger base: across the full deployment (November 2025 through September 2026), 183 Kiro-generated pull requests have been merged across the two repositories. The 56 still-open PRs from the initial cohort reflect the review bottleneck discussed above rather than quality concerns, and the zero-regression record will continue to be re-evaluated as they clear review."
+            - generic [ref=e145]:
+              - 'heading "Case study: automated submodule updates" [level=2] [ref=e146]'
+              - link "Copy link to Case study automated submodule updates section" [ref=e147] [cursor=pointer]:
+                - /url: "#case-study-automated-submodule-updates"
+                - img [ref=e149]
+            - paragraph [ref=e152]:
+              - text: The Kani project maintains a
+              - link "charon" [ref=e153] [cursor=pointer]:
+                - /url: https://github.com/AeneasVerif/charon
+              - text: Git submodule to obtain an intermediate representation of Rust programs for alternative verification workflows. Unlike other submodules updated automatically through
+              - link "Dependabot" [ref=e154] [cursor=pointer]:
+                - /url: https://docs.github.com/en/code-security/dependabot
+              - text: ", charon updates require integration testing because translation-layer changes can affect Kani’s ability to model Rust semantics correctly. A manual update typically takes 2–3 hours, covering the submodule update, compilation and build-failure investigation, upstream change analysis, regression testing, and test-failure investigation. Rather than repeatedly spending developer time on this work, we handed the process to Kiro, which handles it autonomously."
+            - 'figure "Figure 2: The task prompt given to Kiro autonomous agent for updating Kani’s charon Git submodule, directing incremental updates with small, clearly described commits." [ref=e156]':
+              - 'button "Open image lightbox: Screenshot of the Kiro Web home screen asking What can I help you with, with a task prompt in the composer explaining that Kani has charon as a git submodule whose revision is not the latest upstream HEAD, that updating requires matching changes in the llbc back-end code, and that the submodule revision pointer should move in small increments rather than straight to current HEAD; the tautschnig/kani repository is selected below the prompt, with an Autonomous toggle and a Build with spec option visible" [ref=e157]':
+                - generic [ref=e158]:
+                  - generic [ref=e160]: Loading image...
+                  - img "Screenshot of the Kiro Web home screen asking What can I help you with, with a task prompt in the composer explaining that Kani has charon as a git submodule whose revision is not the latest upstream HEAD, that updating requires matching changes in the llbc back-end code, and that the submodule revision pointer should move in small increments rather than straight to current HEAD; the tautschnig/kani repository is selected below the prompt, with an Autonomous toggle and a Build with spec option visible" [ref=e161]
+                - img [ref=e163]
+              - generic [ref=e166]: "Figure 2: The task prompt given to Kiro autonomous agent for updating Kani’s charon Git submodule, directing incremental updates with small, clearly described commits."
+            - paragraph [ref=e167]:
+              - text: Kani issue
+              - link "#2236" [ref=e168] [cursor=pointer]:
+                - /url: https://github.com/model-checking/kani/issues/2236
+              - text: had been in the backlog for over two years.
+              - link "Kani" [ref=e169] [cursor=pointer]:
+                - /url: https://model-checking.github.io/kani/
+              - text: is an open-source formal verification tool for
+              - link "Rust" [ref=e170] [cursor=pointer]:
+                - /url: https://www.rust-lang.org/
+              - text: ", used in CI for critical AWS projects including"
+              - link "Firecracker" [ref=e171] [cursor=pointer]:
+                - /url: https://firecracker-microvm.github.io/
+              - text: and
+              - link "s2n-quic" [ref=e172] [cursor=pointer]:
+                - /url: https://github.com/aws/s2n-quic
+              - text: ", and relies on"
+              - link "CBMC" [ref=e173] [cursor=pointer]:
+                - /url: https://www.cprover.org/cbmc/
+              - text: ". A fuzzer had reported a Kani compiler crash with clear reproduction steps, but root-causing it required a substantial context switch. This is deliberate triage rather than neglect: issues that block users or threaten soundness are fixed immediately, while a fuzzer-found crash with no affected users loses the prioritization contest every time, it demands the same expensive context switch as a user-blocking bug, without the same payoff. After we added the"
+              - code [ref=e174]: kiro
+              - text: label, Kiro submitted
+              - 'link "PR #4461" [ref=e175] [cursor=pointer]':
+                - /url: https://github.com/model-checking/kani/pull/4461
+              - text: with a fix and regression test in two hours and 22 minutes; human time spent was under five minutes. Because the issue was old, we asked Kiro to first verify whether the bug still existed, or, if resolved, add the reproduction case as a regression test. Kiro adapted its plan and produced a PR that we merged directly.
+            - paragraph [ref=e176]:
+              - text: Kiro also produced
+              - 'link "PR #4445" [ref=e177] [cursor=pointer]':
+                - /url: https://github.com/model-checking/kani/pull/4445
+              - text: and
+              - link "#4464" [ref=e178] [cursor=pointer]:
+                - /url: https://github.com/model-checking/kani/pull/4464
+              - text: ", incrementally updating Kani’s charon Git submodule. Given only the instruction to make small, clearly described commits, Kiro analyzed available updates, determined the update sequence, generated the commits, and opened the PRs. Developers review the changes and can request work with"
+              - code [ref=e179]: /kiro fix
+              - text: for specific comments or
+              - code [ref=e180]: /kiro all
+              - text: for all comments. The incremental commits and clear descriptions let reviewers focus on semantic correctness rather than mechanical update work.
+            - 'figure "Figure 3: A reviewer uses /kiro fix on a pull request comment, directing Kiro autonomous agent to address specific review feedback." [ref=e182]':
+              - 'button "Open image lightbox: GitHub pull request conversation in which the maintainer tautschnig comments /kiro fix, asking Kiro to address the future work called out in the pull request description and update the charon submodule further; the kiro-agent bot replies that it has started addressing the future work items and updating the submodule, followed by a new commit titled Address future work items" [ref=e183]':
+                - generic [ref=e184]:
+                  - generic [ref=e186]: Loading image...
+                  - img "GitHub pull request conversation in which the maintainer tautschnig comments /kiro fix, asking Kiro to address the future work called out in the pull request description and update the charon submodule further; the kiro-agent bot replies that it has started addressing the future work items and updating the submodule, followed by a new commit titled Address future work items" [ref=e187]
+                - img [ref=e189]
+              - generic [ref=e192]: "Figure 3: A reviewer uses /kiro fix on a pull request comment, directing Kiro autonomous agent to address specific review feedback."
+            - generic [ref=e193]:
+              - 'heading "Case study: fixing an internal compiler error in Kani" [level=2] [ref=e194]'
+              - link "Copy link to Case study fixing an internal compiler error in kani section" [ref=e195] [cursor=pointer]:
+                - /url: "#case-study-fixing-an-internal-compiler-error-in-kani"
+                - img [ref=e197]
+            - paragraph [ref=e200]:
+              - text: The previous section gave the headline for
+              - 'link "Kani issue #2236" [ref=e201] [cursor=pointer]':
+                - /url: https://github.com/model-checking/kani/issues/2236
+              - text: ": two years dormant, then resolved with under five minutes of human effort. Here is how the human-agent collaboration actually worked."
+            - paragraph [ref=e202]:
+              - text: All it took was attaching the
+              - code [ref=e203]: kiro
+              - text: "label to the issue. The agent went to work, analyzing the issue and responding with a plan:"
+            - 'figure "Figure 4: Kiro autonomous agent’s proposed plan for investigating Kani issue #2236, listing steps for setting up the repository, reproducing the bug, and producing a fix." [ref=e205]':
+              - 'button "Open image lightbox: Kiro’s comment reading Here is my task plan, please approve to proceed or let me know what changes you’d like, followed by three numbered steps: set up development environment for Kani repository, fix Kani compiler ICE bug for extremely large array sizes, and create pull request for Kani compiler ICE fix" [ref=e206]':
+                - generic [ref=e207]:
+                  - generic [ref=e209]: Loading image...
+                  - 'img "Kiro’s comment reading Here is my task plan, please approve to proceed or let me know what changes you’d like, followed by three numbered steps: set up development environment for Kani repository, fix Kani compiler ICE bug for extremely large array sizes, and create pull request for Kani compiler ICE fix" [ref=e210]'
+                - img [ref=e212]
+              - generic [ref=e215]: "Figure 4: Kiro autonomous agent’s proposed plan for investigating Kani issue #2236, listing steps for setting up the repository, reproducing the bug, and producing a fix."
+            - paragraph [ref=e216]: "Given the issue was this old, it could very well have incidentally been fixed by some change. We responded to Kiro’s plan with the following guidance:"
+            - generic [ref=e218]: Loading code example...
+            - paragraph [ref=e219]:
+              - text: Kiro responded with an updated task plan, then produced the pull request that we merged as
+              - 'link "Kani PR #4461" [ref=e220] [cursor=pointer]':
+                - /url: https://github.com/model-checking/kani/pull/4461
+              - text: ", with no context switch required from anyone on the team."
+            - generic [ref=e221]:
+              - heading "What did not work" [level=2] [ref=e222]
+              - link "Copy link to What did not work section" [ref=e223] [cursor=pointer]:
+                - /url: "#what-did-not-work"
+                - img [ref=e225]
+            - generic [ref=e228]:
+              - heading "Failure modes in Kiro-generated pull requests" [level=3] [ref=e229]
+              - link "Copy link to Failure modes in kiro generated pull requests section" [ref=e230] [cursor=pointer]:
+                - /url: "#failure-modes-in-kiro-generated-pull-requests"
+                - img [ref=e232]
+            - paragraph [ref=e235]: Understanding where Kiro failed was as important as its successes because it shaped work assignments and review expectations.
+            - paragraph [ref=e236]:
+              - strong [ref=e237]: Incorrect fixes that pass CI.
+              - text: "In CBMC PR #8892, a regression test used"
+              - code [ref=e238]: "--no-library"
+              - text: while calling
+              - code [ref=e239]: memcpy
+              - text: ", so the triggering code path was never exercised. The test passed with or without the fix. We replaced it with a unit test that directly exercised the affected function."
+              - strong [ref=e240]: "Lesson: CI passing is necessary but not sufficient; reviewers must verify that tests validate the fix."
+            - paragraph [ref=e241]:
+              - strong [ref=e242]: Architecturally wrong fixes.
+              - text: "Some fixes addressed symptoms rather than root causes. In PR #8703, a 172-line restructuring broke nested quantifiers; the correct fix was 9 lines in the original location. These cases require reviewers with architectural knowledge, and Kiro also sometimes rebuilt functionality instead of using existing utilities."
+            - paragraph [ref=e243]:
+              - strong [ref=e244]: Platform-specific failures.
+              - text: "Because Kiro develops on Linux, platform issues can slip through. PR #8894 used empty structs ("
+              - code [ref=e245]: "struct S {}"
+              - text: ), valid as a GCC extension but rejected in MSVC mode. The fix was adding a gcc-only tag, despite an existing test already demonstrating the relevant platform guard.
+            - paragraph [ref=e246]:
+              - strong [ref=e247]: Formatting violations and stale PRs.
+              - text: "Nearly every PR had minor formatting issues. Unreviewed PRs also accumulate conflicts: PR #7861 was 1,614 commits behind"
+              - code [ref=e248]: develop
+              - text: ", requiring non-trivial rebasing. Prompt review is essential to avoid compounding costs."
+            - generic [ref=e249]:
+              - heading "Closing the loop with interactive refinement" [level=3] [ref=e250]
+              - link "Copy link to Closing the loop with interactive refinement section" [ref=e251] [cursor=pointer]:
+                - /url: "#closing-the-loop-with-interactive-refinement"
+                - img [ref=e253]
+            - paragraph [ref=e256]:
+              - text: The limitations described above were real, but they are not the end of the story. Every one of them was resolved without a developer opening an editor or IDE. Using
+              - link "Kiro CLI" [ref=e257] [cursor=pointer]:
+                - /url: /cli/
+              - text: ", maintainers start a"
+              - code [ref=e258]: kiro-cli chat
+              - text: session on the PR branch and guide fixes through conversation. The maintainer provides judgment; the agent provides execution. This two-phase workflow (autonomous generation, then interactive refinement) combines the strengths of both modes and keeps the total time cost well below a developer performing each task end-to-end.
+            - 'figure "Figure 5: The two-phase workflow. Kiro’s autonomous agent takes a labeled GitHub issue through analysis, implementation, and testing in its sandbox, then opens a pull request. When changes are needed during maintainer review, an interactive Kiro CLI session investigates, refines, and commits until the PR is ready to merge." [ref=e260]':
+              - 'button "Open image lightbox: Diagram titled Two-Phase Workflow: From Issue to Merged PR. Phase 1, autonomous implementation with no human involvement completing in 1 to 3 hours, flows from GitHub issue through clone and analyze, plan and decompose, implement changes, run full test suite, to open PR. Phase 2, interactive refinement where the maintainer directs and the agent executes, starts at maintainer review: if ready, merge; if not, choose /kiro fix or /kiro all comments, a real-time kiro-cli chat CLI session, or scope expansion, then re-review" [ref=e261]':
+                - generic [ref=e262]:
+                  - generic [ref=e264]: Loading image...
+                  - 'img "Diagram titled Two-Phase Workflow: From Issue to Merged PR. Phase 1, autonomous implementation with no human involvement completing in 1 to 3 hours, flows from GitHub issue through clone and analyze, plan and decompose, implement changes, run full test suite, to open PR. Phase 2, interactive refinement where the maintainer directs and the agent executes, starts at maintainer review: if ready, merge; if not, choose /kiro fix or /kiro all comments, a real-time kiro-cli chat CLI session, or scope expansion, then re-review" [ref=e265]'
+                - img [ref=e267]
+              - generic [ref=e270]: "Figure 5: The two-phase workflow. Kiro’s autonomous agent takes a labeled GitHub issue through analysis, implementation, and testing in its sandbox, then opens a pull request. When changes are needed during maintainer review, an interactive Kiro CLI session investigates, refines, and commits until the PR is ready to merge."
+            - paragraph [ref=e271]:
+              - strong [ref=e272]: Why two phases work.
+              - text: The autonomous agent eliminates the cold-start problem. By review time, there is working code, passing tests, and a clear approach description. The interactive CLI eliminates asynchronous back-and-forth latency, resolving issues in minutes instead of hours. Neither phase requires the maintainer to write code directly.
+            - paragraph [ref=e273]:
+              - strong [ref=e274]: Qualitative impact.
+              - text: "Rahul Kumar, Senior Manager of Applied Science in the AWS Automated Reasoning Group: “Kiro has fundamentally changed how we approach technical debt. Previously, submodule updates would sit in our backlog for weeks because they required context-switching from feature work. Now we label the issue with kiro and it handles the entire workflow, update, test, document. In November alone, we merged 15 Kiro-generated PRs into Kani with zero regressions.”"
+            - paragraph [ref=e275]: By handling routine maintenance, Kiro frees developers to focus on architectural decisions, complex algorithm design, community engagement, and research in formal verification.
+            - generic [ref=e276]:
+              - heading "How to use Kiro Web on your repository" [level=2] [ref=e277]
+              - link "Copy link to How to use kiro web on your repository section" [ref=e278] [cursor=pointer]:
+                - /url: "#how-to-use-kiro-web-on-your-repository"
+                - img [ref=e280]
+            - paragraph [ref=e283]:
+              - text: If you want to try this on your own open-source project, follow the steps
+              - link "here" [ref=e284] [cursor=pointer]:
+                - /url: /docs/web/
+              - text: .
+            - paragraph [ref=e285]:
+              - text: For complex tasks or interactive refinement, use
+              - link "Kiro CLI" [ref=e286] [cursor=pointer]:
+                - /url: /cli/
+              - text: on the pull request branch to guide the work through conversation, as described in the “Closing the loop” section above.
+            - generic [ref=e287]:
+              - heading "Getting involved" [level=2] [ref=e288]
+              - link "Copy link to Getting involved section" [ref=e289] [cursor=pointer]:
+                - /url: "#getting-involved"
+                - img [ref=e291]
+            - paragraph [ref=e294]:
+              - text: Kiro Web is generally available to all paid Kiro users at
+              - link "app.kiro.dev" [ref=e295] [cursor=pointer]:
+                - /url: https://app.kiro.dev/
+              - text: . If you are already a Kiro subscriber, sign in at
+              - link "app.kiro.dev/agent" [ref=e296] [cursor=pointer]:
+                - /url: https://app.kiro.dev/agent
+              - text: and follow the steps above.
+            - paragraph [ref=e297]: As of September 2026, Kiro has submitted over 400 pull requests across the public CBMC and Kani repositories, of which 183 have been merged, addressing about 150 unique issues. In a private staging repository with over 430 flagged issues, it has produced over 360 additional pull requests being reviewed and upstreamed incrementally. If you maintain a repository with a backlog of well-defined issues, this approach will get you started in minutes.
+          - generic [ref=e298]:
+            - generic [ref=e299]: Share
+            - generic [ref=e300]:
+              - link "Share on LinkedIn" [ref=e301] [cursor=pointer]:
+                - /url: https://www.linkedin.com/shareArticle?mini=true&url=https%3A%2F%2Fkiro.dev%2Fblog%2Ftackling-technical-debt-at-scale-with-autonomous-mode%2F
+                - img [ref=e302]
+              - link "Share on X" [ref=e304] [cursor=pointer]:
+                - /url: https://x.com/intent/post?text=Tackling+technical+debt+at+scale+with+autonomous+mode+in+Kiro+Web&url=https%3A%2F%2Fkiro.dev%2Fblog%2Ftackling-technical-debt-at-scale-with-autonomous-mode%2F
+                - img [ref=e305]
+              - link "Share on Bluesky" [ref=e307] [cursor=pointer]:
+                - /url: https://bsky.app/intent/compose?text=https%3A%2F%2Fkiro.dev%2Fblog%2Ftackling-technical-debt-at-scale-with-autonomous-mode%2F
+                - img [ref=e308]
+              - button "Copy link" [ref=e312] [cursor=pointer]:
+                - img [ref=e313]
+          - generic [ref=e317]:
+            - link "PREVIOUS GPT‑5.6 models now support 1 million token context windows in Kiro" [ref=e319] [cursor=pointer]:
+              - /url: /blog/gpt-5-6-1m-context/
+              - generic [ref=e320]:
+                - generic [ref=e321]: "{"
+                - generic [ref=e322]: PREVIOUS
+                - generic [ref=e323]: "}"
+              - heading "GPT‑5.6 models now support 1 million token context windows in Kiro" [level=3] [ref=e324]
+            - link "NEXT Claude Fable 5.1 is now available in Kiro" [ref=e326] [cursor=pointer]:
+              - /url: /blog/fable-5-1/
+              - generic [ref=e328]:
+                - generic [ref=e329]: "{"
+                - generic [ref=e330]: NEXT
+                - generic [ref=e331]: "}"
+              - heading "Claude Fable 5.1 is now available in Kiro" [level=3] [ref=e332]
+  - contentinfo [ref=e333]:
+    - generic [ref=e335]:
+      - img "Kiro" [ref=e339]
+      - navigation "Footer Navigation" [ref=e340]:
+        - generic [ref=e341]:
+          - heading "Product" [level=2] [ref=e342]
+          - list [ref=e343]:
+            - listitem [ref=e344]:
+              - link "About Kiro" [ref=e345] [cursor=pointer]:
+                - /url: /about/
+            - listitem [ref=e346]:
+              - link "Agents" [ref=e347] [cursor=pointer]:
+                - /url: /agents/
+            - listitem [ref=e348]:
+              - link "IDE" [ref=e349] [cursor=pointer]:
+                - /url: /ide/
+            - listitem [ref=e350]:
+              - link "CLI" [ref=e351] [cursor=pointer]:
+                - /url: /cli/
+            - listitem [ref=e352]:
+              - link "Web" [ref=e353] [cursor=pointer]:
+                - /url: /web/
+            - listitem [ref=e354]:
+              - link "Mobile" [ref=e355] [cursor=pointer]:
+                - /url: /mobile/
+            - listitem [ref=e356]:
+              - link "Crew" [ref=e357] [cursor=pointer]:
+                - /url: /crew/
+            - listitem [ref=e358]:
+              - link "Pricing" [ref=e359] [cursor=pointer]:
+                - /url: /pricing/
+            - listitem [ref=e360]:
+              - link "Downloads" [ref=e361] [cursor=pointer]:
+                - /url: /downloads/
+        - generic [ref=e362]:
+          - heading "For" [level=2] [ref=e363]
+          - list [ref=e364]:
+            - listitem [ref=e365]:
+              - link "Enterprise" [ref=e366] [cursor=pointer]:
+                - /url: /enterprise/
+            - listitem [ref=e367]:
+              - link "Startups" [ref=e368] [cursor=pointer]:
+                - /url: /startups/
+            - listitem [ref=e369]:
+              - link "Students" [ref=e370] [cursor=pointer]:
+                - /url: /students/
+        - generic [ref=e371]:
+          - heading "Community" [level=2] [ref=e372]
+          - list [ref=e373]:
+            - listitem [ref=e374]:
+              - link "Overview" [ref=e375] [cursor=pointer]:
+                - /url: /community/
+            - listitem [ref=e376]:
+              - link "Ambassadors" [ref=e377] [cursor=pointer]:
+                - /url: /ambassadors/
+            - listitem [ref=e378]:
+              - link "Case studies" [ref=e379] [cursor=pointer]:
+                - /url: /case-studies/
+            - listitem [ref=e380]:
+              - link "Discord" [ref=e381] [cursor=pointer]:
+                - /url: /discord/
+            - listitem [ref=e382]:
+              - link "Events" [ref=e383] [cursor=pointer]:
+                - /url: /events/
+            - listitem [ref=e384]:
+              - link "Powers" [ref=e385] [cursor=pointer]:
+                - /url: /powers/
+            - listitem [ref=e386]:
+              - link "Shop" [ref=e387] [cursor=pointer]:
+                - /url: https://shop.kiro.dev
+            - listitem [ref=e388]:
+              - link "Showcase" [ref=e389] [cursor=pointer]:
+                - /url: /showcase/
+        - generic [ref=e390]:
+          - heading "Resources" [level=2] [ref=e391]
+          - list [ref=e392]:
+            - listitem [ref=e393]:
+              - link "Docs" [ref=e394] [cursor=pointer]:
+                - /url: /docs/
+            - listitem [ref=e395]:
+              - link "Blog" [ref=e396] [cursor=pointer]:
+                - /url: /blog/
+            - listitem [ref=e397]:
+              - link "Changelog" [ref=e398] [cursor=pointer]:
+                - /url: /changelog/
+            - listitem [ref=e399]:
+              - link "FAQs" [ref=e400] [cursor=pointer]:
+                - /url: /faq/
+            - listitem [ref=e401]:
+              - link "Videos" [ref=e402] [cursor=pointer]:
+                - /url: /videos/
+            - listitem [ref=e403]:
+              - link "Report a bug" [ref=e404] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new/choose
+            - listitem [ref=e405]:
+              - link "Suggest an idea" [ref=e406] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new?template=feature_request.yml
+            - listitem [ref=e407]:
+              - link "Billing support" [ref=e408] [cursor=pointer]:
+                - /url: https://app.kiro.dev/settings/account
+        - generic [ref=e409]:
+          - heading "Social" [level=2] [ref=e410]
+          - list "Social" [ref=e411]:
+            - listitem [ref=e412]:
+              - link "Join our Discord community" [ref=e413] [cursor=pointer]:
+                - /url: https://discord.gg/kirodotdev
+                - img [ref=e414]
+            - listitem [ref=e416]:
+              - link "Follow us on LinkedIn" [ref=e417] [cursor=pointer]:
+                - /url: https://www.linkedin.com/showcase/kirodotdev
+                - img [ref=e418]
+            - listitem [ref=e420]:
+              - link "Follow us on X" [ref=e421] [cursor=pointer]:
+                - /url: https://x.com/kirodotdev
+                - img [ref=e422]
+            - listitem [ref=e424]:
+              - link "Follow us on Instagram" [ref=e425] [cursor=pointer]:
+                - /url: https://www.instagram.com/kirodotdev
+                - img [ref=e426]
+            - listitem [ref=e428]:
+              - link "Follow us on YouTube" [ref=e429] [cursor=pointer]:
+                - /url: https://www.youtube.com/@kirodotdev
+                - img [ref=e430]
+            - listitem [ref=e432]:
+              - link "Follow us on Bluesky" [ref=e433] [cursor=pointer]:
+                - /url: https://bsky.app/profile/kiro.dev
+                - img [ref=e434]
+            - listitem [ref=e437]:
+              - link "Follow us on Twitch" [ref=e438] [cursor=pointer]:
+                - /url: https://www.twitch.tv/kirodotdev
+                - img [ref=e439]
+    - generic [ref=e443]:
+      - link "AWS Amazon" [ref=e445] [cursor=pointer]:
+        - /url: https://aws.amazon.com
+        - img [ref=e446]
+      - generic [ref=e449]:
+        - link "Site Terms" [ref=e450] [cursor=pointer]:
+          - /url: https://aws.amazon.com/terms/
+        - link "License" [ref=e451] [cursor=pointer]:
+          - /url: /license/
+        - link "Responsible AI Policy" [ref=e452] [cursor=pointer]:
+          - /url: https://aws.amazon.com/ai/responsible-ai/policy/
+        - link "Legal" [ref=e453] [cursor=pointer]:
+          - /url: https://aws.amazon.com/legal/
+        - link "Privacy Policy" [ref=e454] [cursor=pointer]:
+          - /url: https://aws.amazon.com/privacy/
+        - link "Cookie Preferences" [ref=e455] [cursor=pointer]:
+          - /url: "#"
+        - button "Language options" [ref=e456] [cursor=pointer]:
+          - img [ref=e457]
+          - generic [ref=e459]: English
+          - img [ref=e461]
+  - alert [ref=e463]

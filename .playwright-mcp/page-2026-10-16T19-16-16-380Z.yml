@@ -1,0 +1,48 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic:
+      - link "Skip to main content" [ref=e3] [cursor=pointer]:
+        - /url: "#main-content"
+      - link "Skip to footer" [ref=e4] [cursor=pointer]:
+        - /url: "#footer"
+    - generic [ref=e5]:
+      - link "Home" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - generic [ref=e53]:
+        - navigation [ref=e54]:
+          - list [ref=e55]:
+            - listitem [ref=e56] [cursor=pointer]:
+              - button "Research" [ref=e57]:
+                - generic [ref=e58]: Research
+                - img [ref=e59]
+            - listitem [ref=e61] [cursor=pointer]:
+              - link "Policy" [ref=e62]:
+                - /url: /policy
+            - listitem [ref=e63] [cursor=pointer]:
+              - button "Commitments" [ref=e64]:
+                - generic [ref=e65]: Commitments
+                - img [ref=e66]
+            - listitem [ref=e68] [cursor=pointer]:
+              - button "Learn" [ref=e69]:
+                - generic [ref=e70]: Learn
+                - img [ref=e71]
+            - listitem [ref=e73] [cursor=pointer]:
+              - link "News" [ref=e74]:
+                - /url: /news
+        - generic [ref=e75]:
+          - link "Try Claude" [ref=e76] [cursor=pointer]:
+            - /url: https://claude.ai/
+          - img [ref=e78] [cursor=pointer]
+  - main [ref=e80]:
+    - generic [ref=e81]:
+      - generic [ref=e82]:
+        - text: A 404 poem by
+        - combobox [disabled] [ref=e83]:
+          - option "Claude Fable 5"
+          - option "Claude Opus 5.5"
+          - option "Claude Sonnet 5.5"
+          - option "Claude Haiku 5.5" [selected]
+      - paragraph [ref=e86]: Acr
+      - img [ref=e89]
+  - alert [ref=e91]

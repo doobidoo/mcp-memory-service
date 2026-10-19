@@ -1,0 +1,317 @@
+- generic [active] [ref=e1]:
+  - navigation "Main" [ref=e3]:
+    - generic [ref=e5]:
+      - link "Loading image... Kiro" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]:
+          - img [ref=e11]
+          - generic [ref=e35]:
+            - generic [ref=e37]: Loading image...
+            - img "Kiro" [ref=e38]
+      - list [ref=e43]:
+        - listitem [ref=e44]:
+          - link "Agents" [ref=e45] [cursor=pointer]:
+            - /url: /agents/
+        - listitem [ref=e46]:
+          - button "Apps menu" [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]: Apps
+            - img [ref=e49]
+        - listitem [ref=e51]:
+          - link "Enterprise" [ref=e52] [cursor=pointer]:
+            - /url: /enterprise/
+        - listitem [ref=e53]:
+          - link "Pricing" [ref=e54] [cursor=pointer]:
+            - /url: /pricing/
+        - listitem [ref=e55]:
+          - link "Docs" [ref=e56] [cursor=pointer]:
+            - /url: /docs/
+        - listitem [ref=e57]:
+          - button "Community menu" [ref=e58] [cursor=pointer]:
+            - generic [ref=e59]: Community
+            - img [ref=e60]
+        - listitem [ref=e62]:
+          - button "Resources menu" [ref=e63] [cursor=pointer]:
+            - generic [ref=e64]: Resources
+            - img [ref=e65]
+      - generic [ref=e67]:
+        - button "Search across all Kiro content (Command+K)" [ref=e71] [cursor=pointer]:
+          - img [ref=e73]
+        - button "Language options" [ref=e75] [cursor=pointer]:
+          - img [ref=e76]
+          - img [ref=e79]
+        - link "SIGN IN" [ref=e81] [cursor=pointer]:
+          - /url: https://app.kiro.dev
+          - generic [ref=e82]: SIGN IN
+        - link "Downloads" [ref=e83] [cursor=pointer]:
+          - /url: /downloads/
+          - generic [ref=e84]: DOWNLOADS
+  - main [ref=e85]:
+    - region "Page content" [ref=e88]:
+      - generic [ref=e89]:
+        - link "Back to all posts" [ref=e91] [cursor=pointer]:
+          - /url: /blog/
+          - img [ref=e92]
+          - generic [ref=e94]: Back to all posts
+        - article [ref=e95]:
+          - generic [ref=e96]:
+            - time [ref=e98]: September 14, 2026
+            - heading "GPT‑5.6 models now support 1 million token context windows in Kiro" [level=1] [ref=e99]
+            - generic [ref=e100]:
+              - generic [ref=e101]: By
+              - link "VI Vipin Mohan Product" [ref=e103] [cursor=pointer]:
+                - /url: https://github.com/vipin-mohan/
+                - generic [ref=e105]: VI
+                - generic [ref=e106]:
+                  - paragraph [ref=e107]: Vipin Mohan
+                  - paragraph [ref=e108]: Product
+          - generic [ref=e109]:
+            - paragraph [ref=e110]:
+              - text: Starting today, GPT‑5.6 Sol, Terra, and Luna support 1 million token context windows in Kiro, across the
+              - link "IDE" [ref=e111] [cursor=pointer]:
+                - /url: /ide/
+              - text: ","
+              - link "CLI" [ref=e112] [cursor=pointer]:
+                - /url: /cli/
+              - text: ", and"
+              - link "Web" [ref=e113] [cursor=pointer]:
+                - /url: /web/
+              - text: . You can now use GPT‑5.6 models to process entire codebases, long-form documents, and extended multi-turn agent histories in a single request, without chunking, summarization, or loss of detail.
+            - generic [ref=e114]:
+              - heading "What changes with 1M context" [level=2] [ref=e115]
+              - link "Copy link to What changes with 1m context section" [ref=e116] [cursor=pointer]:
+                - /url: "#what-changes-with-1m-context"
+                - img [ref=e118]
+            - paragraph [ref=e121]: The jump from 272K to 1M tokens changes what kind of work is possible in a single pass, not just how much.
+            - paragraph [ref=e122]:
+              - strong [ref=e123]: Repository-scale understanding.
+              - text: For code review, migration, and refactoring, the larger context window eliminates the need to manually stage context or rely on semantic search to approximate what the model doesn't have in view. Legacy migrations, dependency mapping, and cross-file architectural audits can run against the full codebase, not a curated slice of it.
+            - paragraph [ref=e124]:
+              - strong [ref=e125]: End-to-end debugging.
+              - text: Many hard bugs don't live in a single file. They emerge from the interplay between an API layer, a schema, and application state. With 1M context, you can supply your full application alongside multi-turn execution logs and tool outputs, without compressing earlier steps out of memory.
+            - paragraph [ref=e126]:
+              - strong [ref=e127]: Long-horizon agentic tasks.
+              - text: For multi-step agentic work, the larger context means the full history of a session (code iterations, compiler output, terminal logs) stays in view. That translates to less re-prompting and more reliable task completion across longer runs.
+            - generic [ref=e128]:
+              - heading "Pricing" [level=2] [ref=e129]
+              - link "Copy link to Pricing section" [ref=e130] [cursor=pointer]:
+                - /url: "#pricing"
+                - img [ref=e132]
+            - paragraph [ref=e135]: "GPT‑5.6 pricing in Kiro aligns with the same two-tier context model that OpenAI and Amazon Bedrock both use. With this launch, credit multipliers for the GPT‑5.6 family have been updated. Requests up to 272K tokens are billed at the following short context rate:"
+            - table [ref=e137]:
+              - rowgroup [ref=e138]:
+                - row "Model Kiro credit multiplier" [ref=e139]:
+                  - columnheader "Model" [ref=e140]
+                  - columnheader "Kiro credit multiplier" [ref=e141]
+              - rowgroup [ref=e142]:
+                - row "GPT‑5.6 Sol 4.4x" [ref=e143]:
+                  - cell "GPT‑5.6 Sol" [ref=e144]
+                  - cell "4.4x" [ref=e145]
+                - row "GPT‑5.6 Terra 2.2x" [ref=e146]:
+                  - cell "GPT‑5.6 Terra" [ref=e147]
+                  - cell "2.2x" [ref=e148]
+                - row "GPT‑5.6 Luna 1.1x" [ref=e149]:
+                  - cell "GPT‑5.6 Luna" [ref=e150]
+                  - cell "1.1x" [ref=e151]
+            - paragraph [ref=e152]:
+              - text: Requests that exceed 272K tokens are billed at double the short context rate, consistent with OpenAI's and Amazon Bedrock's long context pricing for GPT‑5.6. See the
+              - link "models documentation" [ref=e153] [cursor=pointer]:
+                - /url: /docs/models/
+              - text: for the full comparison.
+            - generic [ref=e154]:
+              - heading "Availability" [level=2] [ref=e155]
+              - link "Copy link to Availability section" [ref=e156] [cursor=pointer]:
+                - /url: "#availability"
+                - img [ref=e158]
+            - paragraph [ref=e161]:
+              - text: The 1M context for GPT‑5.6 Sol, Terra, and Luna is gradually rolling out
+              - link "with experimental support" [ref=e162] [cursor=pointer]:
+                - /url: /docs/models/available-models/#model-lifecycle
+              - text: to Kiro Pro, Pro+, Pro Max, and Power customers.
+              - link "Download Kiro" [ref=e163] [cursor=pointer]:
+                - /url: /downloads/
+              - text: or restart the IDE or CLI to check for the latest available models.
+              - link "Web users" [ref=e164] [cursor=pointer]:
+                - /url: /web/
+              - text: can refresh their browser to see GPT‑5.6 in the model selector.
+          - generic [ref=e165]:
+            - generic [ref=e166]: Share
+            - generic [ref=e167]:
+              - link "Share on LinkedIn" [ref=e168] [cursor=pointer]:
+                - /url: https://www.linkedin.com/shareArticle?mini=true&url=https%3A%2F%2Fkiro.dev%2Fblog%2Fgpt-5-6-1m-context%2F
+                - img [ref=e169]
+              - link "Share on X" [ref=e171] [cursor=pointer]:
+                - /url: https://x.com/intent/post?text=GPT%E2%80%915.6+models+now+support+1+million+token+context+windows+in+Kiro&url=https%3A%2F%2Fkiro.dev%2Fblog%2Fgpt-5-6-1m-context%2F
+                - img [ref=e172]
+              - link "Share on Bluesky" [ref=e174] [cursor=pointer]:
+                - /url: https://bsky.app/intent/compose?text=https%3A%2F%2Fkiro.dev%2Fblog%2Fgpt-5-6-1m-context%2F
+                - img [ref=e175]
+              - button "Copy link" [ref=e179] [cursor=pointer]:
+                - img [ref=e180]
+          - generic [ref=e184]:
+            - link "PREVIOUS Kiro adds ISO/IEC 27001:2022 coverage" [ref=e186] [cursor=pointer]:
+              - /url: /blog/iso-27001/
+              - generic [ref=e187]:
+                - generic [ref=e188]: "{"
+                - generic [ref=e189]: PREVIOUS
+                - generic [ref=e190]: "}"
+              - heading "Kiro adds ISO/IEC 27001:2022 coverage" [level=3] [ref=e191]
+            - link "NEXT Tackling technical debt at scale with autonomous mode in Kiro Web" [ref=e193] [cursor=pointer]:
+              - /url: /blog/tackling-technical-debt-at-scale-with-autonomous-mode/
+              - generic [ref=e195]:
+                - generic [ref=e196]: "{"
+                - generic [ref=e197]: NEXT
+                - generic [ref=e198]: "}"
+              - heading "Tackling technical debt at scale with autonomous mode in Kiro Web" [level=3] [ref=e199]
+  - contentinfo [ref=e200]:
+    - generic [ref=e202]:
+      - img "Kiro" [ref=e206]
+      - navigation "Footer Navigation" [ref=e207]:
+        - generic [ref=e208]:
+          - heading "Product" [level=2] [ref=e209]
+          - list [ref=e210]:
+            - listitem [ref=e211]:
+              - link "About Kiro" [ref=e212] [cursor=pointer]:
+                - /url: /about/
+            - listitem [ref=e213]:
+              - link "Agents" [ref=e214] [cursor=pointer]:
+                - /url: /agents/
+            - listitem [ref=e215]:
+              - link "IDE" [ref=e216] [cursor=pointer]:
+                - /url: /ide/
+            - listitem [ref=e217]:
+              - link "CLI" [ref=e218] [cursor=pointer]:
+                - /url: /cli/
+            - listitem [ref=e219]:
+              - link "Web" [ref=e220] [cursor=pointer]:
+                - /url: /web/
+            - listitem [ref=e221]:
+              - link "Mobile" [ref=e222] [cursor=pointer]:
+                - /url: /mobile/
+            - listitem [ref=e223]:
+              - link "Crew" [ref=e224] [cursor=pointer]:
+                - /url: /crew/
+            - listitem [ref=e225]:
+              - link "Pricing" [ref=e226] [cursor=pointer]:
+                - /url: /pricing/
+            - listitem [ref=e227]:
+              - link "Downloads" [ref=e228] [cursor=pointer]:
+                - /url: /downloads/
+        - generic [ref=e229]:
+          - heading "For" [level=2] [ref=e230]
+          - list [ref=e231]:
+            - listitem [ref=e232]:
+              - link "Enterprise" [ref=e233] [cursor=pointer]:
+                - /url: /enterprise/
+            - listitem [ref=e234]:
+              - link "Startups" [ref=e235] [cursor=pointer]:
+                - /url: /startups/
+            - listitem [ref=e236]:
+              - link "Students" [ref=e237] [cursor=pointer]:
+                - /url: /students/
+        - generic [ref=e238]:
+          - heading "Community" [level=2] [ref=e239]
+          - list [ref=e240]:
+            - listitem [ref=e241]:
+              - link "Overview" [ref=e242] [cursor=pointer]:
+                - /url: /community/
+            - listitem [ref=e243]:
+              - link "Ambassadors" [ref=e244] [cursor=pointer]:
+                - /url: /ambassadors/
+            - listitem [ref=e245]:
+              - link "Case studies" [ref=e246] [cursor=pointer]:
+                - /url: /case-studies/
+            - listitem [ref=e247]:
+              - link "Discord" [ref=e248] [cursor=pointer]:
+                - /url: /discord/
+            - listitem [ref=e249]:
+              - link "Events" [ref=e250] [cursor=pointer]:
+                - /url: /events/
+            - listitem [ref=e251]:
+              - link "Powers" [ref=e252] [cursor=pointer]:
+                - /url: /powers/
+            - listitem [ref=e253]:
+              - link "Shop" [ref=e254] [cursor=pointer]:
+                - /url: https://shop.kiro.dev
+            - listitem [ref=e255]:
+              - link "Showcase" [ref=e256] [cursor=pointer]:
+                - /url: /showcase/
+        - generic [ref=e257]:
+          - heading "Resources" [level=2] [ref=e258]
+          - list [ref=e259]:
+            - listitem [ref=e260]:
+              - link "Docs" [ref=e261] [cursor=pointer]:
+                - /url: /docs/
+            - listitem [ref=e262]:
+              - link "Blog" [ref=e263] [cursor=pointer]:
+                - /url: /blog/
+            - listitem [ref=e264]:
+              - link "Changelog" [ref=e265] [cursor=pointer]:
+                - /url: /changelog/
+            - listitem [ref=e266]:
+              - link "FAQs" [ref=e267] [cursor=pointer]:
+                - /url: /faq/
+            - listitem [ref=e268]:
+              - link "Videos" [ref=e269] [cursor=pointer]:
+                - /url: /videos/
+            - listitem [ref=e270]:
+              - link "Report a bug" [ref=e271] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new/choose
+            - listitem [ref=e272]:
+              - link "Suggest an idea" [ref=e273] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new?template=feature_request.yml
+            - listitem [ref=e274]:
+              - link "Billing support" [ref=e275] [cursor=pointer]:
+                - /url: https://app.kiro.dev/settings/account
+        - generic [ref=e276]:
+          - heading "Social" [level=2] [ref=e277]
+          - list "Social" [ref=e278]:
+            - listitem [ref=e279]:
+              - link "Join our Discord community" [ref=e280] [cursor=pointer]:
+                - /url: https://discord.gg/kirodotdev
+                - img [ref=e281]
+            - listitem [ref=e283]:
+              - link "Follow us on LinkedIn" [ref=e284] [cursor=pointer]:
+                - /url: https://www.linkedin.com/showcase/kirodotdev
+                - img [ref=e285]
+            - listitem [ref=e287]:
+              - link "Follow us on X" [ref=e288] [cursor=pointer]:
+                - /url: https://x.com/kirodotdev
+                - img [ref=e289]
+            - listitem [ref=e291]:
+              - link "Follow us on Instagram" [ref=e292] [cursor=pointer]:
+                - /url: https://www.instagram.com/kirodotdev
+                - img [ref=e293]
+            - listitem [ref=e295]:
+              - link "Follow us on YouTube" [ref=e296] [cursor=pointer]:
+                - /url: https://www.youtube.com/@kirodotdev
+                - img [ref=e297]
+            - listitem [ref=e299]:
+              - link "Follow us on Bluesky" [ref=e300] [cursor=pointer]:
+                - /url: https://bsky.app/profile/kiro.dev
+                - img [ref=e301]
+            - listitem [ref=e304]:
+              - link "Follow us on Twitch" [ref=e305] [cursor=pointer]:
+                - /url: https://www.twitch.tv/kirodotdev
+                - img [ref=e306]
+    - generic [ref=e310]:
+      - link "AWS Amazon" [ref=e312] [cursor=pointer]:
+        - /url: https://aws.amazon.com
+        - img [ref=e313]
+      - generic [ref=e316]:
+        - link "Site Terms" [ref=e317] [cursor=pointer]:
+          - /url: https://aws.amazon.com/terms/
+        - link "License" [ref=e318] [cursor=pointer]:
+          - /url: /license/
+        - link "Responsible AI Policy" [ref=e319] [cursor=pointer]:
+          - /url: https://aws.amazon.com/ai/responsible-ai/policy/
+        - link "Legal" [ref=e320] [cursor=pointer]:
+          - /url: https://aws.amazon.com/legal/
+        - link "Privacy Policy" [ref=e321] [cursor=pointer]:
+          - /url: https://aws.amazon.com/privacy/
+        - link "Cookie Preferences" [ref=e322] [cursor=pointer]:
+          - /url: "#"
+        - button "Language options" [ref=e323] [cursor=pointer]:
+          - img [ref=e324]
+          - generic [ref=e326]: English
+          - img [ref=e328]
+  - alert [ref=e330]

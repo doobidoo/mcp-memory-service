@@ -1,0 +1,142 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e3]:
+    - navigation [ref=e5]:
+      - button "Skip to main content" [ref=e6] [cursor=pointer]:
+        - generic [ref=e7]: Skip to main content
+      - link "News from Google" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - button "Innovation & AI" [ref=e15] [cursor=pointer]: Innovation & AI
+        - listitem [ref=e17]:
+          - button "Products & platforms" [ref=e18] [cursor=pointer]: Products & platforms
+        - listitem [ref=e20]:
+          - button "Company news" [ref=e21] [cursor=pointer]: Company news
+        - listitem [ref=e23]:
+          - link "Feed" [ref=e24] [cursor=pointer]:
+            - /url: /feed
+      - generic [ref=e25]:
+        - button "Search" [ref=e28] [cursor=pointer]:
+          - img [ref=e30]
+        - button "Secondary menu" [ref=e33] [cursor=pointer]:
+          - img [ref=e34]
+        - button "Newsletter" [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]: Newsletter
+  - main [ref=e38]:
+    - article [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - navigation "Breadcrumb" [ref=e45]:
+            - list [ref=e46]:
+              - listitem [ref=e47]:
+                - link "News from Google" [ref=e48] [cursor=pointer]:
+                  - /url: https://blog.google/
+                  - text: Home
+              - listitem [ref=e49]:
+                - img [ref=e50]
+                - link "Innovation & AI" [ref=e52] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/
+              - listitem [ref=e53]:
+                - img [ref=e54]
+                - link "Models & research" [ref=e56] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/
+          - generic [ref=e58]:
+            - heading "Gemini Models" [level=1] [ref=e60]
+            - navigation [ref=e62]:
+              - generic [ref=e64]:
+                - paragraph [ref=e65]: Follow Us
+                - list [ref=e66]:
+                  - listitem [ref=e67]:
+                    - link "RSS" [ref=e68] [cursor=pointer]:
+                      - /url: /innovation-and-ai/models-and-research/gemini-models/rss/
+                      - img [ref=e69]
+        - generic [ref=e74]:
+          - link "TBD" [ref=e75] [cursor=pointer]:
+            - /url: https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-argon/
+            - img "TBD" [ref=e77]
+          - 'generic "Gemini 4 Argon: Built to solve your hardest problems" [ref=e78]':
+            - paragraph [ref=e79]:
+              - link "This story is about Gemini models" [ref=e80] [cursor=pointer]:
+                - /url: https://blog.google/products-and-platforms/products/gemini/
+                - text: Gemini models
+            - 'link "Gemini 4 Argon: Built to solve your hardest problems We’re giving developers, enterprises, scientists, and consumers access to Gemini 4 Argon, our latest frontier model." [ref=e81] [cursor=pointer]':
+              - /url: https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-argon/
+              - 'heading "Gemini 4 Argon: Built to solve your hardest problems" [level=2] [ref=e82]'
+              - paragraph [ref=e83]: We’re giving developers, enterprises, scientists, and consumers access to Gemini 4 Argon, our latest frontier model.
+      - generic [ref=e88]:
+        - heading "All the Latest" [level=2] [ref=e89]
+        - img [ref=e91]
+  - contentinfo [ref=e93]:
+    - link "The Google logo" [ref=e95] [cursor=pointer]:
+      - /url: https://www.google.com
+      - img [ref=e96]
+    - list [ref=e98]:
+      - listitem [ref=e99]:
+        - button "Privacy" [ref=e100] [cursor=pointer]:
+          - generic [ref=e101]: Privacy
+      - listitem [ref=e102]:
+        - button "Terms" [ref=e103] [cursor=pointer]:
+          - generic [ref=e104]: Terms
+      - listitem [ref=e105]:
+        - button "Help" [ref=e106] [cursor=pointer]:
+          - generic [ref=e107]: Help
+      - listitem [ref=e108]:
+        - generic [ref=e109]:
+          - combobox "More of Google" [ref=e110] [cursor=pointer]:
+            - option "More of Google" [selected]
+            - option "Google Products"
+            - option "About the Blog"
+          - generic:
+            - img
+      - listitem [ref=e111]:
+        - generic [ref=e112]:
+          - combobox "Change Region" [ref=e113] [cursor=pointer]:
+            - option "Global (English)" [selected]
+            - option "Africa (English)"
+            - option "Australia (English)"
+            - option "Brasil (Português)"
+            - option "Canada (English)"
+            - option "Canada (Français)"
+            - option "Česko (Čeština)"
+            - option "Deutschland (Deutsch)"
+            - option "España (Español)"
+            - option "France (Français)"
+            - option "Greece (Ελληνικά)"
+            - option "India (English)"
+            - option "Indonesia (Bahasa Indonesia)"
+            - option "Ireland (English)"
+            - option "Italia (Italiano)"
+            - option "日本 (日本語)"
+            - option "대한민국 (한국어)"
+            - option "Latinoamérica (Español)"
+            - option "Malaysia (English)"
+            - option "الشرق الأوسط وشمال أفريقيا (اللغة العربية)"
+            - option "MENA (English)"
+            - option "Nederlands (Nederland)"
+            - option "New Zealand (English)"
+            - option "Polska (Polski)"
+            - option "Portugal (Português)"
+            - option "România (Română)"
+            - option "Sverige (Svenska)"
+            - option "ประเทศไทย (ไทย)"
+            - option "Türkiye (Türkçe)"
+            - option "台灣 (中文)"
+          - generic:
+            - img
+    - list [ref=e114]:
+      - listitem [ref=e115]:
+        - button "Instagram" [ref=e116] [cursor=pointer]:
+          - img [ref=e119]
+      - listitem [ref=e121]:
+        - button "x.com" [ref=e122] [cursor=pointer]:
+          - img [ref=e125]
+      - listitem [ref=e127]:
+        - button "YouTube" [ref=e128] [cursor=pointer]:
+          - img [ref=e131]
+      - listitem [ref=e133]:
+        - button "Facebook" [ref=e134] [cursor=pointer]:
+          - img [ref=e137]
+      - listitem [ref=e139]:
+        - button "LinkedIn" [ref=e140] [cursor=pointer]:
+          - img [ref=e143]

@@ -1268,6 +1268,10 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
     if "error" in result:
         return result, None
 
+    # Declare the effective scope (spec-store-visibility R5): the explicit partition
+    # when the caller constrained it, otherwise every store holding live memories.
+    result["stores_searched"] = [store] if store else await storage.get_stores()
+
     memories = result["memories"]
     fallback_used = None
     if _should_use_cascading_fallback(arguments, query, memories):
@@ -1467,6 +1471,9 @@ def _build_memory_search_header(result: dict, total: int, fallback_used: bool) -
         header += " [fallback: exact+tag]"
     if result.get("query"):
         header += f" for query: '{result['query']}'"
+    stores = result.get("stores_searched")
+    if stores:
+        header += f" | scope: {', '.join(stores) if len(stores) < 5 else f'all ({len(stores)} stores)'}"
     return header
 
 
@@ -1501,10 +1508,11 @@ def _format_search_memory(memory: dict, index: int, fallback_used: bool) -> str:
     match_info = ""
     if fallback_used and memory.get("match_method"):
         match_info = f" (via {memory['match_method']})"
+    store_label = f" [store: {memory['store']}]" if memory.get("store") else ""
     return (
         f"{index}. {memory.get('content', '')}\n"
         f"   Hash: {content_hash}\n"
-        f"   Created: {created_at}{tags_display}{match_info}"
+        f"   Created: {created_at}{tags_display}{store_label}{match_info}"
     )
 
 

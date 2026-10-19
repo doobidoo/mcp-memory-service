@@ -1499,6 +1499,10 @@ class MemoryStorage(ABC):
             for r in results:
                 mem_dict = r.memory.to_dict()
                 mem_dict["similarity_score"] = r.relevance_score
+                # Origin store, as a first-class field of the result
+                # (spec-store-visibility R2). Absent means "not fetched by this backend".
+                if getattr(r.memory, "store", None):
+                    mem_dict["store"] = r.memory.store
                 if r.debug_info:
                     mem_dict["debug_info"] = r.debug_info
                 memories.append(mem_dict)

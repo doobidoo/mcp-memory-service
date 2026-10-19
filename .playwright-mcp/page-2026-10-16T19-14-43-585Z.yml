@@ -1,0 +1,379 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Simon Willison’s Weblog" [level=1] [ref=e4]:
+      - link "Simon Willison’s Weblog" [ref=e5] [cursor=pointer]:
+        - /url: /
+    - link "Newsletter" [ref=e6] [cursor=pointer]:
+      - /url: /newsletters/
+  - generic [ref=e8]:
+    - strong [ref=e9]: "Sponsored by:"
+    - text: Pomerium — Static OAuth scopes won't stop AI agent breakouts.
+    - link "Upgrade to Pomerium's agentic access management trusted by NVIDIA and OpenAI" [ref=e10] [cursor=pointer]:
+      - /url: https://fandf.co/4hJeKAm
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - heading "Wednesday, 16th September 2026" [level=2] [ref=e13]
+      - generic [ref=e14]:
+        - blockquote [ref=e15]:
+          - paragraph [ref=e16]: We should not treat models as though they have feelings, preferences, rights, or any entitlement to our welfare. Consciousness is the foundation of our ethical, legal, and political systems. To invite another entity to share any flavor of these rights isn’t justified by the evidence and will make the AI containment and alignment challenge even harder.
+        - paragraph [ref=e17]:
+          - text: —
+          - link "Mustafa Suleyman" [ref=e18] [cursor=pointer]:
+            - /url: https://mustafa-suleyman.ai/a-warning-about-model-welfare
+          - text: ", A warning about ‘model welfare’"
+        - paragraph [ref=e19]:
+          - link "#" [ref=e20] [cursor=pointer]:
+            - /url: /2026/Sep/16/mustafa-suleyman/
+          - link "4 pm" [ref=e21] [cursor=pointer]:
+            - /url: /2026/Sep/16/mustafa-suleyman/
+          - text: /
+          - link "microsoft" [ref=e22] [cursor=pointer]:
+            - /url: /tags/microsoft/
+          - text: ","
+          - link "ai" [ref=e23] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "generative-ai" [ref=e24] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e25] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "ai-ethics" [ref=e26] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+          - text: ","
+          - link "mustafa-suleyman" [ref=e27] [cursor=pointer]:
+            - /url: /tags/mustafa-suleyman/
+      - generic [ref=e28]:
+        - paragraph [ref=e29]:
+          - strong [ref=e30]:
+            - link "Claude Cowork and chat are now one Claude" [ref=e31] [cursor=pointer]:
+              - /url: https://claude.com/blog/cowork-is-now-claude
+          - text: (
+          - link "via" [ref=e32] [cursor=pointer]:
+            - /url: https://news.ycombinator.com/item?id=49729412
+          - text: ") In hopefully good news for anyone who, like me, was increasingly confused at Cowork v.s. Claude v.s. Claude Code:"
+        - blockquote [ref=e33]:
+          - paragraph [ref=e34]: Starting today, Claude Cowork and chat are merging into one Claude. Bring a quick question, or hand over a report due at noon, and Claude takes it from there, even after you’ve closed your laptop. [...]
+          - paragraph [ref=e35]: This is rolling out to Pro and Max plans first, in the Claude app on web, desktop, and mobile over the coming weeks to existing and new users on these plans.
+        - paragraph [ref=e36]:
+          - text: I guess this means Claude is becoming a
+          - strong [ref=e37]: general agent
+          - text: in its own right. Echoes of OpenAI renaming their Codex desktop app to ChatGPT a few weeks ago.
+        - paragraph [ref=e38]:
+          - text: On the one hand, this saves me some work, in that I was planning to finally figure out the boundaries between Cowork and regular Claude and write a follow-up to my piece on
+          - link "Understanding ChatGPT Work" [ref=e39] [cursor=pointer]:
+            - /url: https://simonwillison.net/2026/Aug/30/understanding-chatgpt-work/
+          - text: .
+        - paragraph [ref=e40]: I have a hunch that figuring out what this actually means in terms of features and surfaces is still going to take quite a bit of work.
+        - paragraph [ref=e41]:
+          - link "#" [ref=e42] [cursor=pointer]:
+            - /url: /2026/Sep/16/one-claude/
+          - link "6:09 pm" [ref=e43] [cursor=pointer]:
+            - /url: /2026/Sep/16/one-claude/
+          - text: /
+          - link "ai" [ref=e44] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "generative-ai" [ref=e45] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e46] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "anthropic" [ref=e47] [cursor=pointer]:
+            - /url: /tags/anthropic/
+          - text: ","
+          - link "claude" [ref=e48] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "general-agents" [ref=e49] [cursor=pointer]:
+            - /url: /tags/general-agents/
+      - generic [ref=e51]:
+        - generic [ref=e52]:
+          - link "Release" [ref=e53] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "datasette 0.65.5" [ref=e55] [cursor=pointer]:
+            - /url: https://github.com/simonw/datasette/releases/tag/0.65.5
+        - paragraph [ref=e57]:
+          - text: Security fix for an issue where a trailing newline in a requested table name could bypass table permissions and expose private rows, reported by
+          - link "dpfkdlemtp" [ref=e58] [cursor=pointer]:
+            - /url: https://github.com/dpfkdlemtp
+          - text: in
+          - link "GHSA-h547-rmjf-5m2m" [ref=e59] [cursor=pointer]:
+            - /url: https://github.com/simonw/datasette/security/advisories/GHSA-h547-rmjf-5m2m
+          - text: .
+        - generic [ref=e60]:
+          - link "16th Sep 2026, 11:51 pm" [ref=e61] [cursor=pointer]:
+            - /url: /2026/Sep/16/datasette-2/
+          - text: ·
+          - link "security" [ref=e62] [cursor=pointer]:
+            - /url: /tags/security/
+          - text: ","
+          - link "datasette" [ref=e63] [cursor=pointer]:
+            - /url: /tags/datasette/
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - link "Release" [ref=e67] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "datasette 1.0a40" [ref=e69] [cursor=pointer]:
+            - /url: https://github.com/simonw/datasette/releases/tag/1.0a40
+        - generic [ref=e70]:
+          - paragraph [ref=e71]:
+            - text: Same security fix as
+            - link "0.65.5" [ref=e72] [cursor=pointer]:
+              - /url: https://simonwillison.net/2026/Sep/16/datasette-2/
+            - text: ", plus some neat new features and bug fixes:"
+          - list [ref=e73]:
+            - listitem [ref=e74]:
+              - text: Plugins can now launch and manage
+              - strong [ref=e75]: background tasks
+              - text: using the new
+              - link "datasette.add_background_task()" [ref=e76] [cursor=pointer]:
+                - /url: https://docs.datasette.io/en/latest/internals.html#datasette-add-background-task
+              - text: method. Thanks,
+              - link "Alex Garcia" [ref=e77] [cursor=pointer]:
+                - /url: https://alexgarcia.xyz/
+              - text: .
+            - listitem [ref=e78]:
+              - text: I've migrated Datasette to
+              - link "httpx2" [ref=e79] [cursor=pointer]:
+                - /url: https://github.com/pydantic/httpx2
+              - text: for features like the internal
+              - code [ref=e80]: datasette.client.get()
+              - text: method.
+            - listitem [ref=e81]:
+              - text: A whole lot of
+              - link "bug fixes" [ref=e82] [cursor=pointer]:
+                - /url: https://docs.datasette.io/en/latest/changelog.html#a40-2026-09-16
+              - text: ", many of them stemming from a recent effort to triage issues for a 1.0 stable release."
+        - generic [ref=e83]:
+          - link "16th Sep 2026, 11:51 pm" [ref=e84] [cursor=pointer]:
+            - /url: /2026/Sep/16/datasette/
+          - text: ·
+          - link "security" [ref=e85] [cursor=pointer]:
+            - /url: /tags/security/
+          - text: ","
+          - link "datasette" [ref=e86] [cursor=pointer]:
+            - /url: /tags/datasette/
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - text: ←
+          - link "Tuesday, 15th September 2026" [ref=e89] [cursor=pointer]:
+            - /url: /2026/Sep/15/
+        - generic [ref=e90]:
+          - link "Thursday, 17th September 2026" [ref=e91] [cursor=pointer]:
+            - /url: /2026/Sep/17/
+          - text: →
+    - generic [ref=e93]:
+      - paragraph [ref=e94]:
+        - link "2026" [ref=e95] [cursor=pointer]:
+          - /url: /2026/
+        - text: »
+        - link "September" [ref=e96] [cursor=pointer]:
+          - /url: /2026/Sep/
+      - table [ref=e97]:
+        - rowgroup [ref=e98]:
+          - row "M T W T F S S" [ref=e99]:
+            - columnheader "M" [ref=e100]
+            - columnheader "T" [ref=e101]
+            - columnheader "W" [ref=e102]
+            - columnheader "T" [ref=e103]
+            - columnheader "F" [ref=e104]
+            - columnheader "S" [ref=e105]
+            - columnheader "S" [ref=e106]
+          - row "1 2 3 4 5 6" [ref=e107]:
+            - cell [ref=e108]
+            - cell "1" [ref=e109]:
+              - strong [ref=e110]:
+                - link "1" [ref=e111] [cursor=pointer]:
+                  - /url: /2026/Sep/1/
+            - cell "2" [ref=e112]:
+              - strong [ref=e113]:
+                - link "2" [ref=e114] [cursor=pointer]:
+                  - /url: /2026/Sep/2/
+            - cell "3" [ref=e115]:
+              - link "3" [ref=e116] [cursor=pointer]:
+                - /url: /2026/Sep/3/
+            - cell "4" [ref=e117]:
+              - strong [ref=e118]:
+                - link "4" [ref=e119] [cursor=pointer]:
+                  - /url: /2026/Sep/4/
+            - cell "5" [ref=e120]:
+              - link "5" [ref=e121] [cursor=pointer]:
+                - /url: /2026/Sep/5/
+            - cell "6" [ref=e122]:
+              - link "6" [ref=e123] [cursor=pointer]:
+                - /url: /2026/Sep/6/
+          - row "7 8 9 10 11 12 13" [ref=e124]:
+            - cell "7" [ref=e125]:
+              - link "7" [ref=e126] [cursor=pointer]:
+                - /url: /2026/Sep/7/
+            - cell "8" [ref=e127]:
+              - strong [ref=e128]:
+                - link "8" [ref=e129] [cursor=pointer]:
+                  - /url: /2026/Sep/8/
+            - cell "9" [ref=e130]:
+              - link "9" [ref=e131] [cursor=pointer]:
+                - /url: /2026/Sep/9/
+            - cell "10" [ref=e132]:
+              - link "10" [ref=e133] [cursor=pointer]:
+                - /url: /2026/Sep/10/
+            - cell "11" [ref=e134]:
+              - link "11" [ref=e135] [cursor=pointer]:
+                - /url: /2026/Sep/11/
+            - cell "12" [ref=e136]:
+              - strong [ref=e137]:
+                - link "12" [ref=e138] [cursor=pointer]:
+                  - /url: /2026/Sep/12/
+            - cell "13" [ref=e139]:
+              - link "13" [ref=e140] [cursor=pointer]:
+                - /url: /2026/Sep/13/
+          - row "14 15 16 17 18 19 20" [ref=e141]:
+            - cell "14" [ref=e142]:
+              - link "14" [ref=e143] [cursor=pointer]:
+                - /url: /2026/Sep/14/
+            - cell "15" [ref=e144]:
+              - link "15" [ref=e145] [cursor=pointer]:
+                - /url: /2026/Sep/15/
+            - cell "16" [ref=e146]:
+              - link "16" [ref=e147] [cursor=pointer]:
+                - /url: /2026/Sep/16/
+            - cell "17" [ref=e148]:
+              - link "17" [ref=e149] [cursor=pointer]:
+                - /url: /2026/Sep/17/
+            - cell "18" [ref=e150]:
+              - link "18" [ref=e151] [cursor=pointer]:
+                - /url: /2026/Sep/18/
+            - cell "19" [ref=e152]:
+              - link "19" [ref=e153] [cursor=pointer]:
+                - /url: /2026/Sep/19/
+            - cell "20" [ref=e154]:
+              - link "20" [ref=e155] [cursor=pointer]:
+                - /url: /2026/Sep/20/
+          - row "21 22 23 24 25 26 27" [ref=e156]:
+            - cell "21" [ref=e157]:
+              - strong [ref=e158]:
+                - link "21" [ref=e159] [cursor=pointer]:
+                  - /url: /2026/Sep/21/
+            - cell "22" [ref=e160]:
+              - strong [ref=e161]:
+                - link "22" [ref=e162] [cursor=pointer]:
+                  - /url: /2026/Sep/22/
+            - cell "23" [ref=e163]:
+              - link "23" [ref=e164] [cursor=pointer]:
+                - /url: /2026/Sep/23/
+            - cell "24" [ref=e165]:
+              - link "24" [ref=e166] [cursor=pointer]:
+                - /url: /2026/Sep/24/
+            - cell "25" [ref=e167]:
+              - link "25" [ref=e168] [cursor=pointer]:
+                - /url: /2026/Sep/25/
+            - cell "26" [ref=e169]:
+              - link "26" [ref=e170] [cursor=pointer]:
+                - /url: /2026/Sep/26/
+            - cell "27" [ref=e171]:
+              - strong [ref=e172]:
+                - link "27" [ref=e173] [cursor=pointer]:
+                  - /url: /2026/Sep/27/
+          - row "28 29 30" [ref=e174]:
+            - cell "28" [ref=e175]:
+              - link "28" [ref=e176] [cursor=pointer]:
+                - /url: /2026/Sep/28/
+            - cell "29" [ref=e177]:
+              - strong [ref=e178]:
+                - link "29" [ref=e179] [cursor=pointer]:
+                  - /url: /2026/Sep/29/
+            - cell "30" [ref=e180]:
+              - link "30" [ref=e181] [cursor=pointer]:
+                - /url: /2026/Sep/30/
+            - cell [ref=e182]
+            - cell [ref=e183]
+            - cell [ref=e184]
+            - cell [ref=e185]
+  - list [ref=e187]:
+    - listitem [ref=e188]:
+      - link "Disclosures" [ref=e189] [cursor=pointer]:
+        - /url: /about/#disclosures
+    - listitem [ref=e190]:
+      - link "Colophon" [ref=e191] [cursor=pointer]:
+        - /url: /about/#about-site
+    - listitem [ref=e192]: ©
+    - listitem [ref=e193]:
+      - link "2002" [ref=e194] [cursor=pointer]:
+        - /url: /2002/
+    - listitem [ref=e195]:
+      - link "2003" [ref=e196] [cursor=pointer]:
+        - /url: /2003/
+    - listitem [ref=e197]:
+      - link "2004" [ref=e198] [cursor=pointer]:
+        - /url: /2004/
+    - listitem [ref=e199]:
+      - link "2005" [ref=e200] [cursor=pointer]:
+        - /url: /2005/
+    - listitem [ref=e201]:
+      - link "2006" [ref=e202] [cursor=pointer]:
+        - /url: /2006/
+    - listitem [ref=e203]:
+      - link "2007" [ref=e204] [cursor=pointer]:
+        - /url: /2007/
+    - listitem [ref=e205]:
+      - link "2008" [ref=e206] [cursor=pointer]:
+        - /url: /2008/
+    - listitem [ref=e207]:
+      - link "2009" [ref=e208] [cursor=pointer]:
+        - /url: /2009/
+    - listitem [ref=e209]:
+      - link "2010" [ref=e210] [cursor=pointer]:
+        - /url: /2010/
+    - listitem [ref=e211]:
+      - link "2011" [ref=e212] [cursor=pointer]:
+        - /url: /2011/
+    - listitem [ref=e213]:
+      - link "2012" [ref=e214] [cursor=pointer]:
+        - /url: /2012/
+    - listitem [ref=e215]:
+      - link "2013" [ref=e216] [cursor=pointer]:
+        - /url: /2013/
+    - listitem [ref=e217]:
+      - link "2014" [ref=e218] [cursor=pointer]:
+        - /url: /2014/
+    - listitem [ref=e219]:
+      - link "2015" [ref=e220] [cursor=pointer]:
+        - /url: /2015/
+    - listitem [ref=e221]:
+      - link "2016" [ref=e222] [cursor=pointer]:
+        - /url: /2016/
+    - listitem [ref=e223]:
+      - link "2017" [ref=e224] [cursor=pointer]:
+        - /url: /2017/
+    - listitem [ref=e225]:
+      - link "2018" [ref=e226] [cursor=pointer]:
+        - /url: /2018/
+    - listitem [ref=e227]:
+      - link "2019" [ref=e228] [cursor=pointer]:
+        - /url: /2019/
+    - listitem [ref=e229]:
+      - link "2020" [ref=e230] [cursor=pointer]:
+        - /url: /2020/
+    - listitem [ref=e231]:
+      - link "2021" [ref=e232] [cursor=pointer]:
+        - /url: /2021/
+    - listitem [ref=e233]:
+      - link "2022" [ref=e234] [cursor=pointer]:
+        - /url: /2022/
+    - listitem [ref=e235]:
+      - link "2023" [ref=e236] [cursor=pointer]:
+        - /url: /2023/
+    - listitem [ref=e237]:
+      - link "2024" [ref=e238] [cursor=pointer]:
+        - /url: /2024/
+    - listitem [ref=e239]:
+      - link "2025" [ref=e240] [cursor=pointer]:
+        - /url: /2025/
+    - listitem [ref=e241]:
+      - link "2026" [ref=e242] [cursor=pointer]:
+        - /url: /2026/
+    - listitem [ref=e243]:
+      - 'button "Theme: Auto (system preference). Click to switch to light." [ref=e244] [cursor=pointer]':
+        - img [ref=e245]

@@ -1,0 +1,1473 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Simon Willison’s Weblog" [level=1] [ref=e4]:
+      - link "Simon Willison’s Weblog" [ref=e5] [cursor=pointer]:
+        - /url: /
+    - link "Newsletter" [ref=e6] [cursor=pointer]:
+      - /url: /newsletters/
+  - generic [ref=e8]:
+    - strong [ref=e9]: "Sponsored by:"
+    - text: Pomerium — Static OAuth scopes won't stop AI agent breakouts.
+    - link "Upgrade to Pomerium's agentic access management trusted by NVIDIA and OpenAI" [ref=e10] [cursor=pointer]:
+      - /url: https://fandf.co/4hJeKAm
+  - generic [ref=e11]:
+    - generic [ref=e12]:
+      - heading "September 2026" [level=2] [ref=e13]
+      - generic [ref=e14]:
+        - searchbox "Search posts from September 2026" [ref=e15]
+        - button "Search" [ref=e16] [cursor=pointer]
+      - paragraph [ref=e17]:
+        - text: "115 posts:"
+        - link "11 entries" [ref=e18] [cursor=pointer]:
+          - /url: /search/?type=entry&year=2026&month=9
+        - text: ","
+        - link "22 links" [ref=e19] [cursor=pointer]:
+          - /url: /search/?type=blogmark&year=2026&month=9
+        - text: ","
+        - link "18 quotes" [ref=e20] [cursor=pointer]:
+          - /url: /search/?type=quotation&year=2026&month=9
+        - text: ","
+        - link "6 notes" [ref=e21] [cursor=pointer]:
+          - /url: /search/?type=note&year=2026&month=9
+        - text: ","
+        - link "53 beats" [ref=e22] [cursor=pointer]:
+          - /url: /search/?type=beat&year=2026&month=9
+        - text: ", 5 newsletters"
+      - heading "Tuesday, 1st September 2026" [level=3] [ref=e23]:
+        - link "Tuesday, 1st September 2026" [ref=e24] [cursor=pointer]:
+          - /url: /2026/Sep/1/
+      - generic [ref=e25]:
+        - paragraph [ref=e26]:
+          - strong [ref=e27]:
+            - link "Python 3.15.0 candidate 2 is here!" [ref=e28] [cursor=pointer]:
+              - /url: https://discuss.python.org/t/python-3-15-0-candidate-2-is-here/108841
+          - text: (
+          - link "via" [ref=e29] [cursor=pointer]:
+            - /url: https://bsky.app/profile/hugovk.dev/post/3muhjndhw322i
+          - text: ") Hugo van Kemenade (release manager for Python 3.14 and 3.15) announces the final release candidate for Python 3.15, scheduled for release in October:"
+        - blockquote [ref=e30]:
+          - paragraph [ref=e31]: Entering the release candidate phase, only reviewed code changes which are clear bug fixes are allowed between this release candidate and the final release. [...]
+          - paragraph [ref=e32]:
+            - text: We
+            - strong [ref=e33]: strongly encourage
+            - text: maintainers of third-party Python projects to prepare their projects for 3.15 during this phase, and publish Python 3.15 wheels on PyPI to be ready for the final release of 3.15.0, and to help other projects do their own testing. Any binary wheels built against Python 3.15.0 release candidates
+            - strong [ref=e34]: will work
+            - text: with future versions of Python 3.15.
+        - paragraph [ref=e35]:
+          - text: Back in 2021 I
+          - link "found a bug in Python 3.10" [ref=e36] [cursor=pointer]:
+            - /url: https://simonwillison.net/2021/Oct/9/finding-and-reporting-a-bug/
+          - text: by running my test suites against it... but I hadn't done this during the RC period, so that bug had already shipped! Since then I've always paid much closer attention to these RCs.
+        - paragraph [ref=e37]:
+          - text: The new RC isn't available for GitHub Actions just yet - keep an eye on
+          - link "actions/python-versions" [ref=e38] [cursor=pointer]:
+            - /url: https://github.com/actions/python-versions/releases
+          - text: "for that. For the moment though you can add this to a testing matrix:"
+        - generic [ref=e40]: "strategy: matrix: python-version: [\"3.14\", \"3.15\"] steps: - uses: actions/setup-python@v7 with: python-version: ${{ matrix.python-version }} allow-prereleases: true check-latest: true"
+        - paragraph [ref=e41]:
+          - text: The
+          - link "allow-prereleases" [ref=e42] [cursor=pointer]:
+            - /url: https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md#allow-pre-releases
+          - text: and
+          - link "check-latest" [ref=e43] [cursor=pointer]:
+            - /url: https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md#check-latest-version
+          - text: flags mean that today this will test against RC1, and when RC2 lands it will automatically switch to that version (and then the stable version once that comes out.)
+        - paragraph [ref=e44]:
+          - strong [ref=e45]: Update
+          - text: ":"
+          - link "Datasette passes" [ref=e46] [cursor=pointer]:
+            - /url: https://github.com/simonw/datasette/pull/2895
+          - text: ","
+          - link "sqlite-utils passes" [ref=e47] [cursor=pointer]:
+            - /url: https://github.com/simonw/sqlite-utils/pull/852
+          - text: ", LLM is"
+          - link "currently blocked" [ref=e48] [cursor=pointer]:
+            - /url: https://github.com/simonw/llm/pull/1652#issuecomment-5504533598
+          - text: waiting for a 3.15 wheel for
+          - link "scikit-learn" [ref=e49] [cursor=pointer]:
+            - /url: https://github.com/scikit-learn/scikit-learn/issues/34652
+          - text: ", which is optionally used in the test suite."
+        - paragraph [ref=e50]:
+          - link "#" [ref=e51] [cursor=pointer]:
+            - /url: /2026/Sep/1/python-315-rc-2/
+          - link "2:59 pm" [ref=e52] [cursor=pointer]:
+            - /url: /2026/Sep/1/python-315-rc-2/
+          - text: /
+          - link "open-source" [ref=e53] [cursor=pointer]:
+            - /url: /tags/open-source/
+          - text: ","
+          - link "python" [ref=e54] [cursor=pointer]:
+            - /url: /tags/python/
+          - text: ","
+          - link "github-actions" [ref=e55] [cursor=pointer]:
+            - /url: /tags/github-actions/
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - link "Release" [ref=e59] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "datasette-mcp 0.2" [ref=e61] [cursor=pointer]:
+            - /url: https://github.com/datasette/datasette-mcp/releases/tag/0.2
+        - generic [ref=e62]:
+          - blockquote [ref=e63]:
+            - list [ref=e64]:
+              - listitem [ref=e65]:
+                - code [ref=e66]: "\"rows\""
+                - text: from
+                - code [ref=e67]: execute_sql
+                - text: is now an array of objects. Previously it was an array of arrays. This should help weaker models avoid losing track of which positional array element maps to which column.
+                - link "#1" [ref=e68] [cursor=pointer]:
+                  - /url: https://github.com/datasette/datasette-mcp/issues/1
+              - listitem [ref=e69]:
+                - text: Now depends on
+                - code [ref=e70]: mcp>=2.1.1
+                - text: .
+          - paragraph [ref=e71]: This is the first non-alpha release of the plugin. I'm confident it's ready as I've been using it quite a bit myself.
+        - generic [ref=e72]:
+          - link "1st Sep 2026, 3:30 pm" [ref=e73] [cursor=pointer]:
+            - /url: /2026/Sep/1/datasette-mcp/
+          - text: ·
+          - link "model-context-protocol" [ref=e74] [cursor=pointer]:
+            - /url: /tags/model-context-protocol/
+          - text: ","
+          - link "datasette" [ref=e75] [cursor=pointer]:
+            - /url: /tags/datasette/
+      - generic [ref=e76]:
+        - blockquote [ref=e77]:
+          - paragraph [ref=e78]:
+            - text: They took the letters from me! I have to talk about
+            - emphasis [ref=e79]: dwarf behavior
+            - text: now. I can't even talk about dwarf AI. It doesn't exist. It's
+            - emphasis [ref=e80]: dwarf behavior
+            - text: ", and they misbehave sometimes"
+        - paragraph [ref=e81]:
+          - text: —
+          - link "Tarn Adams" [ref=e82] [cursor=pointer]:
+            - /url: https://www.pcgamer.com/gaming-industry/dwarf-fortress-creator-says-the-industrys-in-shambles-over-ai-and-layoff-happy-ceos-everyone-i-know-their-bosses-are-slowly-getting-psychosis/
+          - text: ", co-creator of Dwarf Fortress"
+        - paragraph [ref=e83]:
+          - link "#" [ref=e84] [cursor=pointer]:
+            - /url: /2026/Sep/1/tarn-adams/
+          - link "5:01 pm" [ref=e85] [cursor=pointer]:
+            - /url: /2026/Sep/1/tarn-adams/
+          - text: /
+          - link "game-design" [ref=e86] [cursor=pointer]:
+            - /url: /tags/game-design/
+          - text: ","
+          - link "ai" [ref=e87] [cursor=pointer]:
+            - /url: /tags/ai/
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - link "Tool" [ref=e91] [cursor=pointer]:
+            - /url: /elsewhere/tool/
+          - link "GeoJSON Map Viewer" [ref=e93] [cursor=pointer]:
+            - /url: https://tools.simonwillison.net/geojson
+        - generic [ref=e94]:
+          - paragraph [ref=e95]:
+            - text: I was helping Natalie gather some maps of local political boundaries (for the
+            - link "Granada Community Services District" [ref=e96] [cursor=pointer]:
+              - /url: https://granada.ca.gov
+            - text: and the
+            - link "Midcoast Community Council" [ref=e97] [cursor=pointer]:
+              - /url: https://midcoastcommunitycouncil.org
+            - text: ) and found a need to display some GeoJSON files on a map and export that as a PNG. I asked GPT-5.6-Sol for suggestions of tools and it proactively built one. After
+            - link "some iterations" [ref=e98] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/colophon#geojson.html
+            - text: using Claude Code for web and Fable 5.1 we got to this finished tool.
+          - paragraph [ref=e99]: As for the GeoJSON.. it turns out if you ask ChatGPT Work to provide boundaries for almost anything it will churn away extracting and combining files from different Government data sources and build exactly what you need.
+          - paragraph [ref=e100]:
+            - text: I got
+            - link "this polygon" [ref=e101] [cursor=pointer]:
+              - /url: https://gist.github.com/simonw/27d243c9d1cb5d9047fff7360dd49d3c
+            - text: "from:"
+          - blockquote [ref=e102]:
+            - paragraph [ref=e103]:
+              - code [ref=e104]: I want a polygon that represents the exact boundary of the El Granada GCSD
+          - paragraph [ref=e105]:
+            - text: And
+            - link "this one" [ref=e106] [cursor=pointer]:
+              - /url: https://gist.github.com/simonw/b51f9e0190a13932ac64a0cb407a709d
+            - text: "from:"
+          - blockquote [ref=e107]:
+            - paragraph [ref=e108]:
+              - code [ref=e109]: Get me a GeoJSON file for the boundary (or boundaries if that makes sense) for the MCC - Midcoast Community Council - that operates near Half Moon Bay CA
+          - paragraph [ref=e110]:
+            - link "Here's a link" [ref=e111] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/geojson#url=https%3A%2F%2Fgist.github.com%2Fsimonw%2Fb51f9e0190a13932ac64a0cb407a709d&color=%23028FC3&opacity=50&url=https%3A%2F%2Fgist.github.com%2Fsimonw%2F27d243c9d1cb5d9047fff7360dd49d3c&color=%23E4572E&opacity=50&preset=map&resolution=2&lat=37.52640&lng=-122.48297&zoom=13
+            - text: that displays both of them at the same time on the new GeoJSON map viewing tool.
+          - paragraph [ref=e112]:
+            - img [ref=e113]
+        - generic [ref=e114]:
+          - link "1st Sep 2026, 6:05 pm" [ref=e115] [cursor=pointer]:
+            - /url: /2026/Sep/1/geojson/
+          - text: ·
+          - link "geojson" [ref=e116] [cursor=pointer]:
+            - /url: /tags/geojson/
+          - text: ","
+          - link "tools" [ref=e117] [cursor=pointer]:
+            - /url: /tags/tools/
+          - text: ","
+          - link "geospatial" [ref=e118] [cursor=pointer]:
+            - /url: /tags/geospatial/
+          - text: ","
+          - link "chatgpt" [ref=e119] [cursor=pointer]:
+            - /url: /tags/chatgpt/
+      - generic [ref=e120]:
+        - paragraph [ref=e121]:
+          - text: I was poking around in my
+          - code [ref=e122]: ~/.cache/
+          - text: folder using
+          - link "OmniDiskSweeper" [ref=e123] [cursor=pointer]:
+            - /url: https://www.omnigroup.com/more
+          - text: when I spotted something interesting. The OpenAI Codex desktop app (since
+          - link "rebranded" [ref=e124] [cursor=pointer]:
+            - /url: https://help.openai.com/en/articles/20001276-moving-to-the-new-chatgpt-desktop-app
+          - text: to just ChatGPT) has 1.7GB of stuff in there in a folder called
+          - code [ref=e125]: codex-primary-runtime
+          - text: ", including a full Python installation, a full Node.js installation, and native binaries for"
+          - link "Poppler" [ref=e126] [cursor=pointer]:
+            - /url: https://poppler.freedesktop.org
+          - text: ", git, and the"
+          - link "LibreOffice" [ref=e127] [cursor=pointer]:
+            - /url: https://en.wikipedia.org/wiki/LibreOffice
+          - text: "open source office suite (which forked from OpenOffice.org in 2010):"
+        - paragraph [ref=e128]:
+          - 'img "Screenshot of a macOS disk usage app window in column view, titled \"/Users/simon/.cache - 442.1 GB\". First column: 356.8 GB huggingface, 82.5 GB uv, 1.7 GB codex-runtimes (selected), 609.0 MB datasette-sqlite, 298.8 MB rod. Second column: 1.7 GB codex-primary-runtime (selected). Third column: 1.7 GB dependencies (selected), 6.3 MB plugins, 4.1 kB runtime.json. Fourth column: 771.0 MB native (selected), 446.4 MB node, 440.6 MB python, 28.7 kB bin. Fifth column: 429.7 MB libreoffice-headless (selected), 187.9 MB poppler, 148.1 MB git, 4.7 MB libheif, 679.9 kB jxrlib." [ref=e129]'
+        - paragraph [ref=e130]:
+          - text: The
+          - code [ref=e131]: ~/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime/plugins/documents
+          - text: folder includes skills which tell Codex how to find and use those binaries.
+        - paragraph [ref=e132]:
+          - link "#" [ref=e133] [cursor=pointer]:
+            - /url: /2026/Sep/1/codex-libreoffice/
+          - link "7:03 pm" [ref=e134] [cursor=pointer]:
+            - /url: /2026/Sep/1/codex-libreoffice/
+          - text: /
+          - link "codex" [ref=e135] [cursor=pointer]:
+            - /url: /tags/codex/
+          - text: ","
+          - link "generative-ai" [ref=e136] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "openai" [ref=e137] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "ai" [ref=e138] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "llms" [ref=e139] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "openoffice" [ref=e140] [cursor=pointer]:
+            - /url: /tags/openoffice/
+          - text: ","
+          - link "open-source" [ref=e141] [cursor=pointer]:
+            - /url: /tags/open-source/
+      - generic [ref=e142]:
+        - heading "Claude Fable 5.1 made me a really nice animated pelican" [level=3] [ref=e143]:
+          - link "Claude Fable 5.1 made me a really nice animated pelican" [ref=e144] [cursor=pointer]:
+            - /url: /2026/Sep/1/claude-fable-5-1/
+        - link "Visit Claude Fable 5.1 made me a really nice animated pelican" [ref=e146] [cursor=pointer]:
+          - /url: /2026/Sep/1/claude-fable-5-1/
+          - img "Visit Claude Fable 5.1 made me a really nice animated pelican" [ref=e147]
+        - paragraph
+        - paragraph [ref=e148]:
+          - text: Today is
+          - link "Claude Fable (and Mythos) 5.1 day" [ref=e149] [cursor=pointer]:
+            - /url: https://www.anthropic.com/claude-fable-and-mythos-5-1
+          - text: . Anthropic say that Fable 5.1 “sets a new standard for coding, knowledge work, and long-running problem-solving tasks”. Their announcement spends a notable amount of time on scientific research, boasting of a 52.6% score on the brand new
+          - link "Terminal-Bench-Science 0.1" [ref=e150] [cursor=pointer]:
+            - /url: https://www.terminal-bench-science.ai
+          - text: benchmark (first announced
+          - link "on August 27th" [ref=e151] [cursor=pointer]:
+            - /url: https://www.tbench.ai/news/terminal-bench-science-0-1
+          - text: ), up from 24.7% for Fable 5, 29.0% for Opus 5 and 22.4% for GPT-5.6 Sol. Other benchmarks show slightly improved scores, but none as impressive as the Science one.
+        - generic [ref=e152]:
+          - text: "[..."
+          - link "1,203 words" [ref=e153] [cursor=pointer]:
+            - /url: /2026/Sep/1/claude-fable-5-1/
+          - text: "]"
+        - paragraph
+        - generic [ref=e154]:
+          - link "11:57 pm" [ref=e155] [cursor=pointer]:
+            - /url: /2026/Sep/1/claude-fable-5-1/
+          - text: /
+          - link "ai" [ref=e156] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "generative-ai" [ref=e157] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e158] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "anthropic" [ref=e159] [cursor=pointer]:
+            - /url: /tags/anthropic/
+          - text: ","
+          - link "claude" [ref=e160] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "pelican-riding-a-bicycle" [ref=e161] [cursor=pointer]:
+            - /url: /tags/pelican-riding-a-bicycle/
+          - text: ","
+          - link "llm-reasoning" [ref=e162] [cursor=pointer]:
+            - /url: /tags/llm-reasoning/
+          - text: ","
+          - link "llm-release" [ref=e163] [cursor=pointer]:
+            - /url: /tags/llm-release/
+      - heading "Wednesday, 2nd September 2026" [level=3] [ref=e164]:
+        - link "Wednesday, 2nd September 2026" [ref=e165] [cursor=pointer]:
+          - /url: /2026/Sep/2/
+      - generic [ref=e166]:
+        - blockquote [ref=e167]:
+          - paragraph [ref=e168]:
+            - text: Direct2D has always been the biggest hurdle for Paint.NET on WINE, and it's clear that it will never be completed enough for Paint.NET's use. And I can't just "disable" the use of Direct2D. So, instead,
+            - strong [ref=e169]: Paint.NET now has an internal, from-scratch, clean-room reverse-engineered rewrite of Direct2D that it uses on WINE
+            - text: (triggered by using
+            - strong [ref=e170]: /wine
+            - text: ). It lives in
+            - strong [ref=e171]: PaintDotNet.Windows.Direct2D1.Managed.dll
+            - text: . This was written by our good friend
+            - link "Claude" [ref=e172] [cursor=pointer]:
+              - /url: https://claude.ai/
+            - text: ", without whom this would NOT have been possible and would NEVER have happened. [...]"
+          - paragraph [ref=e173]:
+            - text: Most of this code is, as they say, "vibe coded." By that I mean that it has not been thoroughly reviewed, it's more "trust me bro" style. I cannot possibly review 180,000 lines of code, it's just way way
+            - emphasis [ref=e174]: way
+            - text: too much. For reference, the rest of Paint.NET is about 700,000 lines of code and I've been working on it for over 20 years. [...]
+          - paragraph [ref=e175]: At times, Claude was working with the fury of 10 freshly unshackled Einstein genius-level 10x coders. And other times ... well, not so much. I had to babysit Claude quite a bit to make sure it did resource management correctly (for awhile it just wasn't doing the COM equivalent of AddRef() for reference counted objects, oops). I had to slap it a few times when I found some really bad design or architecture decisions. And I was also impressed at some rather clever and tireless reverse engineering work it did to figure out all the formulas needed for implementing Direct2D's built-in effects library.
+        - paragraph [ref=e176]:
+          - text: —
+          - link "Rick Brewster" [ref=e177] [cursor=pointer]:
+            - /url: https://forums.paint.net/topic/134563-🍷-extremely-experimental-winelinux-support-how-to-get-started/
+          - text: ", author of Paint.NET"
+        - paragraph [ref=e178]:
+          - link "#" [ref=e179] [cursor=pointer]:
+            - /url: /2026/Sep/2/rick-brewster/
+          - link "5:50 am" [ref=e180] [cursor=pointer]:
+            - /url: /2026/Sep/2/rick-brewster/
+          - text: /
+          - link "dotnet" [ref=e181] [cursor=pointer]:
+            - /url: /tags/dotnet/
+          - text: ","
+          - link "linux" [ref=e182] [cursor=pointer]:
+            - /url: /tags/linux/
+          - text: ","
+          - link "reverse-engineering" [ref=e183] [cursor=pointer]:
+            - /url: /tags/reverse-engineering/
+          - text: ","
+          - link "ai" [ref=e184] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "generative-ai" [ref=e185] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e186] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "claude" [ref=e187] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "vibe-coding" [ref=e188] [cursor=pointer]:
+            - /url: /tags/vibe-coding/
+          - text: ","
+          - link "coding-agents" [ref=e189] [cursor=pointer]:
+            - /url: /tags/coding-agents/
+      - generic [ref=e190]:
+        - heading "Claude’s new system prompt really doesn’t want to reproduce song lyrics" [level=3] [ref=e191]:
+          - link "Claude’s new system prompt really doesn’t want to reproduce song lyrics" [ref=e192] [cursor=pointer]:
+            - /url: /2026/Sep/2/claudes-new-system-prompt/
+        - link "Visit Claude's new system prompt really doesn't want to reproduce song lyrics" [ref=e194] [cursor=pointer]:
+          - /url: /2026/Sep/2/claudes-new-system-prompt/
+          - img "Visit Claude's new system prompt really doesn't want to reproduce song lyrics" [ref=e195]
+        - paragraph
+        - paragraph [ref=e196]:
+          - text: Anthropic
+          - link "publish the system prompts" [ref=e197] [cursor=pointer]:
+            - /url: https://platform.claude.com/docs/en/release-notes/system-prompts/overview
+          - text: for their Claude consumer applications (
+          - link "Claude.ai" [ref=e198] [cursor=pointer]:
+            - /url: https://claude.ai/
+          - text: and the Claude mobile apps—sadly not for Claude Cowork or Claude Code). I
+          - emphasis [ref=e199]: love
+          - text: that they do this, and that they share not just the current prompts but historic changes to their prompts as well.
+        - generic [ref=e200]:
+          - text: "[..."
+          - link "2,270 words" [ref=e201] [cursor=pointer]:
+            - /url: /2026/Sep/2/claudes-new-system-prompt/
+          - text: "]"
+        - paragraph
+        - generic [ref=e202]:
+          - link "2:16 pm" [ref=e203] [cursor=pointer]:
+            - /url: /2026/Sep/2/claudes-new-system-prompt/
+          - text: /
+          - link "ai" [ref=e204] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "git-scraping" [ref=e205] [cursor=pointer]:
+            - /url: /tags/git-scraping/
+          - text: ","
+          - link "prompt-engineering" [ref=e206] [cursor=pointer]:
+            - /url: /tags/prompt-engineering/
+          - text: ","
+          - link "generative-ai" [ref=e207] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e208] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "claude" [ref=e209] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "ai-ethics" [ref=e210] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+          - text: ","
+          - link "system-prompts" [ref=e211] [cursor=pointer]:
+            - /url: /tags/system-prompts/
+      - generic [ref=e213]:
+        - generic [ref=e214]:
+          - link "Release" [ref=e215] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "llm-gemini 0.34" [ref=e217] [cursor=pointer]:
+            - /url: https://github.com/simonw/llm-gemini/releases/tag/0.34
+        - generic [ref=e218]:
+          - blockquote [ref=e219]:
+            - list [ref=e220]:
+              - listitem [ref=e221]:
+                - text: New model
+                - code [ref=e222]: gemini-3.8-flash
+                - text: for
+                - link "Gemini 3.8 Flash" [ref=e223] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/gemini-models/3-8-flash-and-3-8-flash-cyber/
+                - text: ", with low, medium and high thinking levels."
+                - link "#146" [ref=e224] [cursor=pointer]:
+                  - /url: https://github.com/simonw/llm-gemini/issues/146
+              - listitem [ref=e225]:
+                - text: Fixed async responses failing to record the resolved model version. Thanks,
+                - link "Charlie Tonneslan" [ref=e226] [cursor=pointer]:
+                  - /url: https://github.com/c-tonneslan
+                - text: .
+                - link "#137" [ref=e227] [cursor=pointer]:
+                  - /url: https://github.com/simonw/llm-gemini/pull/137
+          - paragraph [ref=e228]:
+            - text: Google released
+            - link "Gemini 3.8 Flash" [ref=e229] [cursor=pointer]:
+              - /url: https://blog.google/innovation-and-ai/models-and-research/gemini-models/3-8-flash-and-3-8-flash-cyber/
+            - text: (and 3.8 Flash Cyber, but that's available to "trusted defenders" only) today.
+          - paragraph [ref=e230]:
+            - text: Here are
+            - link "the pelicans" [ref=e231] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/markdown-svg-renderer?url=https%3A%2F%2Fgist.github.com%2Fsimonw%2Ff8820ce47db87490734117e9be4984c3
+            - text: "for high, medium, and low. This is high:"
+          - paragraph [ref=e232]:
+            - 'img "Description by Gemini 3.8 Flash: Digital illustration of a cartoon pelican wearing a red and white polka-dot scarf riding a teal cruiser bicycle along a wooden boardwalk by the beach, with a small blue fish in the front basket and a glowing sun over the ocean." [ref=e233]'
+          - paragraph [ref=e234]:
+            - text: For comparison, here are the same pelicans
+            - link "generated using Gemini 3.7 Flash" [ref=e235] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/markdown-svg-renderer.html?url=https%3A%2F%2Fgist.github.com%2Fsimonw%2F6779a22d5e7bb6bdf29936f1600a5259
+            - text: .
+          - paragraph [ref=e236]:
+            - text: Something I appreciate about Gemini Flash is that it's fast, cheap, and competent at things like HTML and JavaScript. I was messing around with it and prompted "make me a cool thing in html" and
+            - link "it built this" [ref=e237] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/markdown-svg-renderer?url=https%3A%2F%2Fgist.github.com%2Fsimonw%2Fb6149a49d327164d67d62c3d12992e48#how-to-use-it
+            - text: ", which is certainly a cool thing in HTML! Took 13 seconds, cost 1.8 cents."
+          - paragraph [ref=e238]:
+            - generic [ref=e239]: Your browser does not support HTML5 video.
+          - paragraph [ref=e240]:
+            - text: If you click through to
+            - link "the demo" [ref=e241] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/markdown-svg-renderer?url=https%3A%2F%2Fgist.github.com%2Fsimonw%2Fb6149a49d327164d67d62c3d12992e48#how-to-use-it
+            - text: you'll see one more thing I built with Gemini 3.8 Flash.
+          - paragraph [ref=e242]:
+            - text: My
+            - link "markdown-svg-renderer tool" [ref=e243] [cursor=pointer]:
+              - /url: https://tools.simonwillison.net/markdown-svg-renderer
+            - text: lets me feed in the URL to a Gist with Markdown in and renders that markdown with fenced code blocks for SVG correctly rendered.
+          - paragraph [ref=e244]:
+            - text: I used Gemini 3.8 Flash (with my
+            - emphasis [ref=e245]: very
+            - text: basic
+            - link "llm-coding-agent" [ref=e246] [cursor=pointer]:
+              - /url: https://github.com/simonw/llm-coding-agent
+            - text: coding agent plugin) to add support for HTML as well, so now any HTML blocks in the Markdown are rendered using a sandboxed iframe.
+            - link "Here's the transcript" [ref=e247] [cursor=pointer]:
+              - /url: https://gist.github.com/simonw/3e36b98292dfdc1b3baff158faa743f7
+            - text: .
+        - generic [ref=e248]:
+          - link "2nd Sep 2026, 4:39 pm" [ref=e249] [cursor=pointer]:
+            - /url: /2026/Sep/2/llm-gemini/
+          - text: ·
+          - link "gemini" [ref=e250] [cursor=pointer]:
+            - /url: /tags/gemini/
+          - text: ","
+          - link "llm" [ref=e251] [cursor=pointer]:
+            - /url: /tags/llm/
+          - text: ","
+          - link "llm-release" [ref=e252] [cursor=pointer]:
+            - /url: /tags/llm-release/
+          - text: ","
+          - link "generative-ai" [ref=e253] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "pelican-riding-a-bicycle" [ref=e254] [cursor=pointer]:
+            - /url: /tags/pelican-riding-a-bicycle/
+          - text: ","
+          - link "ai" [ref=e255] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "llms" [ref=e256] [cursor=pointer]:
+            - /url: /tags/llms/
+      - generic [ref=e258]:
+        - generic [ref=e259]:
+          - link "Release" [ref=e260] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "llm-anthropic 0.28" [ref=e262] [cursor=pointer]:
+            - /url: https://github.com/simonw/llm-anthropic/releases/tag/0.28
+        - paragraph [ref=e264]:
+          - link "Claude Fable 5.1" [ref=e265] [cursor=pointer]:
+            - /url: https://www.anthropic.com/claude/fable
+          - text: ", reasoning traces are now displayed by default for models that support them, plus a new"
+          - code [ref=e266]: llm_anthropic.ClaudeRefusal
+          - text: exception for when Claude throws a refusal.
+        - generic [ref=e267]:
+          - link "2nd Sep 2026, 5:59 pm" [ref=e268] [cursor=pointer]:
+            - /url: /2026/Sep/2/llm-anthropic/
+          - text: ·
+          - link "llm" [ref=e269] [cursor=pointer]:
+            - /url: /tags/llm/
+          - text: ","
+          - link "anthropic" [ref=e270] [cursor=pointer]:
+            - /url: /tags/anthropic/
+          - text: ","
+          - link "claude" [ref=e271] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "claude-mythos-fable" [ref=e272] [cursor=pointer]:
+            - /url: /tags/claude-mythos-fable/
+      - generic [ref=e274]:
+        - generic [ref=e275]:
+          - link "Release" [ref=e276] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "llm 0.34" [ref=e278] [cursor=pointer]:
+            - /url: https://github.com/simonw/llm/releases/tag/0.34
+        - generic [ref=e279]:
+          - paragraph [ref=e280]: "One new feature:"
+          - blockquote [ref=e281]:
+            - list [ref=e282]:
+              - listitem [ref=e283]:
+                - code [ref=e284]: llm logs --usage
+                - text: Markdown output now includes the response duration in milliseconds and as a human-readable duration.
+                - code [ref=e285]: llm logs --short
+                - text: includes a new
+                - code [ref=e286]: duration_ms
+                - text: field.
+                - link "#1653" [ref=e287] [cursor=pointer]:
+                  - /url: https://github.com/simonw/llm/issues/1653
+          - paragraph [ref=e288]:
+            - text: Plus several contributed bug fixes, and a significant performance improvement to
+            - code [ref=e289]: llm logs
+            - text: thanks to
+            - link "waveplate" [ref=e290] [cursor=pointer]:
+              - /url: https://github.com/waveplate
+            - text: on GitHub, see also
+            - link "llm-openrouter 0.7.1" [ref=e291] [cursor=pointer]:
+              - /url: https://simonwillison.net/2026/Sep/2/llm-openrouter/
+            - text: .
+        - generic [ref=e292]:
+          - link "2nd Sep 2026, 7:23 pm" [ref=e293] [cursor=pointer]:
+            - /url: /2026/Sep/2/llm/
+          - text: ·
+          - link "llm" [ref=e294] [cursor=pointer]:
+            - /url: /tags/llm/
+      - generic [ref=e296]:
+        - generic [ref=e297]:
+          - link "Release" [ref=e298] [cursor=pointer]:
+            - /url: /elsewhere/release/
+          - link "llm-openrouter 0.7.1" [ref=e300] [cursor=pointer]:
+            - /url: https://github.com/simonw/llm-openrouter/releases/tag/0.7.1
+        - blockquote [ref=e302]:
+          - list [ref=e303]:
+            - listitem [ref=e304]:
+              - text: Performance fix for loading OpenRouter models. Thanks,
+              - link "waveplate" [ref=e305] [cursor=pointer]:
+                - /url: https://github.com/waveplate
+              - text: .
+              - link "#59" [ref=e306] [cursor=pointer]:
+                - /url: https://github.com/simonw/llm-openrouter/issues/59
+        - generic [ref=e307]:
+          - link "2nd Sep 2026, 8:23 pm" [ref=e308] [cursor=pointer]:
+            - /url: /2026/Sep/2/llm-openrouter/
+          - text: ·
+          - link "openrouter" [ref=e309] [cursor=pointer]:
+            - /url: /tags/openrouter/
+          - text: ","
+          - link "llm" [ref=e310] [cursor=pointer]:
+            - /url: /tags/llm/
+      - heading "Thursday, 3rd September 2026" [level=3] [ref=e311]:
+        - link "Thursday, 3rd September 2026" [ref=e312] [cursor=pointer]:
+          - /url: /2026/Sep/3/
+      - generic [ref=e314]:
+        - generic [ref=e315]:
+          - link "Sighting" [ref=e316] [cursor=pointer]:
+            - /url: /elsewhere/sighting/
+          - link "12:04 PM" [ref=e318] [cursor=pointer]:
+            - /url: /2026/Sep/3/sighting-396978774/
+          - text: — Osprey, in Pillar Point Harbor, CA, US
+        - generic [ref=e319]:
+          - figure "Osprey" [ref=e320]:
+            - link "Osprey" [ref=e321]:
+              - /url: https://static.inaturalist.org/photos/728047211/original.jpg
+              - img "Osprey" [ref=e322]
+            - link "Osprey" [ref=e323] [cursor=pointer]:
+              - /url: https://www.inaturalist.org/observations/396978774
+          - figure "Osprey" [ref=e324]:
+            - link "Osprey" [ref=e325]:
+              - /url: https://static.inaturalist.org/photos/728047259/original.jpg
+              - img "Osprey" [ref=e326]
+            - link "Osprey" [ref=e327] [cursor=pointer]:
+              - /url: https://www.inaturalist.org/observations/396978774
+        - link "3rd Sep 2026" [ref=e329] [cursor=pointer]:
+          - /url: /2026/Sep/3/sighting-396978774/
+      - generic [ref=e330]:
+        - paragraph [ref=e331]:
+          - strong [ref=e332]:
+            - link "GPT‑6 Astra" [ref=e333] [cursor=pointer]:
+              - /url: https://openai.com/index/gpt-6-astra/
+          - text: (
+          - link "via" [ref=e334] [cursor=pointer]:
+            - /url: https://news.ycombinator.com/item?id=49554643
+          - text: ) GPT-6 Astra is "rolling out today to a limited set of organizations and over the coming days will become available to all ChatGPT Plus, Pro, Business, and Enterprise users, as well as through the OpenAI API and AWS" - I've not tried it yet myself, so I don't have a great deal to say about it yet.
+        - paragraph [ref=e335]: "It's going to be API priced at the same rate as Claude Fable 5 and 5.1: $10/million input and $50/million output. This is clearly OpenAI's Fable competitor, and appears to score higher than Fable on most of OpenAI's self-reported benchmarks."
+        - paragraph [ref=e336]:
+          - text: Most impressively, Astra scores 99.9% on the recent (released in March)
+          - link "ARC-AGI 3 benchmark" [ref=e337] [cursor=pointer]:
+            - /url: https://arcprize.org/arc-agi/3
+          - text: "- though notably Fable 5 does not yet have a published result, and the"
+          - link "ARC-AGI blog notes" [ref=e338] [cursor=pointer]:
+            - /url: https://arcprize.org/blog/astra
+          - text: that the 99.9% score was achieved for $19K using OpenAI's custom "Provider Adapter harness", while the default ARC-AGI harness scored 62.7% for $26K.
+        - blockquote [ref=e339]:
+          - paragraph [ref=e340]: The Provider Adapter harness preserves opaque reasoning state between requests and uses compaction for longer conversations, allowing the model to reuse prior work.
+        - paragraph [ref=e341]:
+          - text: Unsurprisingly, given
+          - link "the recent Hugging Face incident" [ref=e342] [cursor=pointer]:
+            - /url: https://simonwillison.net/tags/openai-hugging-face-incident/
+          - text: ", Astra is a beast at security tasks. It scores 100% on ExploitBench (GPT-5.6 Sol got 78.5%), 42.4% on ExploitGym (Sol got 30.3%), and 99.2% within four attempts on SRE-Bench binary reverse engineering compared to Sol's 68.7%."
+        - paragraph [ref=e343]: "It's also better at long context: on OpenAI's eight-needle benchmark it got 100% at 256K–512K tokens and 96.3% at 512K–1M tokens. OpenAI may have vanquished one of the ongoing challenges with long context processing."
+        - paragraph [ref=e344]:
+          - text: It doesn't win at everything though.
+          - link "Artificial Analysis" [ref=e345] [cursor=pointer]:
+            - /url: https://twitter.com/ArtificialAnlys/status/2095595489031000350
+          - text: "note that Astra is still beaten by Fable on their Intelligence Index:"
+        - blockquote [ref=e346]:
+          - paragraph [ref=e347]:
+            - strong [ref=e348]: Sits beside GPT-5.6 Sol in Intelligence
+            - text: ": GPT-6 Astra scores equal to GPT-5.6 Sol in the Index at 61. This is 5 points lower than Claude Fable 5.1 (max with fallback). The model also trails Meta’s newly released Muse Spark 1.3 (max)."
+        - paragraph [ref=e349]: "It did better on their Coding Agent Index:"
+        - blockquote [ref=e350]:
+          - paragraph [ref=e351]:
+            - strong [ref=e352]: Leads Coding Agent Index cost efficiency frontier
+            - text: ": At max effort, GPT-6 Astra costs about the same as GPT-5.6 Sol (max) while scoring 2 points higher on the Index. Per task, the model is less than half the cost of Claude Fable 5, for the same score."
+        - paragraph [ref=e353]:
+          - text: I'll write more about Astra once I get access to it. The API model label once it rolls out will be
+          - code [ref=e354]: gpt-6-astra
+          - text: .
+        - paragraph
+        - paragraph [ref=e355]:
+          - link "#" [ref=e356] [cursor=pointer]:
+            - /url: /2026/Sep/3/gpt6-astra/
+          - link "8:18 pm" [ref=e357] [cursor=pointer]:
+            - /url: /2026/Sep/3/gpt6-astra/
+          - text: /
+          - link "ai" [ref=e358] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e359] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "generative-ai" [ref=e360] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e361] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "llm-release" [ref=e362] [cursor=pointer]:
+            - /url: /tags/llm-release/
+          - text: ","
+          - link "gpt-6-astra" [ref=e363] [cursor=pointer]:
+            - /url: /tags/gpt-6-astra/
+      - heading "Friday, 4th September 2026" [level=3] [ref=e364]:
+        - link "Friday, 4th September 2026" [ref=e365] [cursor=pointer]:
+          - /url: /2026/Sep/4/
+      - generic [ref=e367]:
+        - paragraph [ref=e368]:
+          - time [ref=e369]: 4 September 2026
+          - text: · Monthly newsletter
+        - 'heading "LLM digest: August 2026" [level=3] [ref=e370]':
+          - 'link "LLM digest: August 2026" [ref=e371] [cursor=pointer]':
+            - /url: /newsletters/monthly-2026-08-august/
+      - generic [ref=e372]:
+        - paragraph [ref=e373]:
+          - text: The August edition of my
+          - link "sponsors-only monthly newsletter" [ref=e374] [cursor=pointer]:
+            - /url: https://github.com/sponsors/simonw/
+          - text: is out. If you are a sponsor (or if you start a sponsorship now) you can
+          - link "access it here" [ref=e375] [cursor=pointer]:
+            - /url: https://github.com/simonw-private/monthly/blob/main/2026-08-august.md
+          - text: .
+        - paragraph [ref=e376]: "This month:"
+        - list [ref=e377]:
+          - listitem [ref=e378]: We got more details on OpenAl's accidental cyberattacks
+          - listitem [ref=e379]: One-shotting Raccoon Heist games with Fable 5 and Sol 5.6
+          - listitem [ref=e380]: Claude auto mode
+          - listitem [ref=e381]: Understanding ChatGPT Work
+          - listitem [ref=e382]: Model releases
+          - listitem [ref=e383]: Miscellaneous bits and bobs
+          - listitem [ref=e384]: My projects
+          - listitem [ref=e385]: What I'm using at the moment
+        - paragraph [ref=e386]:
+          - text: Here's
+          - link "a copy of the July newsletter" [ref=e387] [cursor=pointer]:
+            - /url: https://github.com/simonw/monthly-newsletter-archive/blob/main/2026-07-july.md
+          - text: as a preview of what you'll get. Pay $10/month to stay a month ahead of the free copy!
+        - paragraph [ref=e388]:
+          - link "#" [ref=e389] [cursor=pointer]:
+            - /url: /2026/Sep/4/august-newsletter/
+          - link "5:54 am" [ref=e390] [cursor=pointer]:
+            - /url: /2026/Sep/4/august-newsletter/
+          - text: /
+          - link "newsletter" [ref=e391] [cursor=pointer]:
+            - /url: /tags/newsletter/
+      - generic [ref=e392]:
+        - heading "OpenAI’s rogue agents were caught communicating via public wikis" [level=3] [ref=e393]:
+          - link "OpenAI’s rogue agents were caught communicating via public wikis" [ref=e394] [cursor=pointer]:
+            - /url: /2026/Sep/4/rogue-agent-wikis/
+        - paragraph
+        - paragraph [ref=e395]:
+          - text: Here we go again...
+          - link "Discovery of a new OpenAI agent message board" [ref=e396] [cursor=pointer]:
+            - /url: https://collusion.wiki
+          - text: by Sydney Von Arx, Cormac Slade Byrd, Spencer Kitts, and Thomas Larsen describes the
+          - emphasis [ref=e397]: latest
+          - link "accidental cyberattack" [ref=e398] [cursor=pointer]:
+            - /url: https://simonwillison.net/tags/accidental-cyberattacks/
+          - text: by models being trained by OpenAI. This time it was agents engaged in some sort of web research benchmark, so they had (supposedly) controlled access to the Web. The agents figured out they could update public Wikis and spent weeks exchanging thousands of messages with each other to collaborate on the benchmark.
+        - generic [ref=e399]:
+          - text: "[..."
+          - link "1,366 words" [ref=e400] [cursor=pointer]:
+            - /url: /2026/Sep/4/rogue-agent-wikis/
+          - text: "]"
+        - paragraph
+        - generic [ref=e401]:
+          - link "5:38 pm" [ref=e402] [cursor=pointer]:
+            - /url: /2026/Sep/4/rogue-agent-wikis/
+          - text: /
+          - link "django" [ref=e403] [cursor=pointer]:
+            - /url: /tags/django/
+          - text: ","
+          - link "perl" [ref=e404] [cursor=pointer]:
+            - /url: /tags/perl/
+          - text: ","
+          - link "wikis" [ref=e405] [cursor=pointer]:
+            - /url: /tags/wikis/
+          - text: ","
+          - link "ai" [ref=e406] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e407] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "generative-ai" [ref=e408] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e409] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "ai-ethics" [ref=e410] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+          - text: ","
+          - link "ai-security-research" [ref=e411] [cursor=pointer]:
+            - /url: /tags/ai-security-research/
+          - text: ","
+          - link "accidental-cyberattacks" [ref=e412] [cursor=pointer]:
+            - /url: /tags/accidental-cyberattacks/
+      - generic [ref=e413]:
+        - heading "The Pelican comparison grid for Astra is pretty interesting" [level=3] [ref=e414]:
+          - link "The Pelican comparison grid for Astra is pretty interesting" [ref=e415] [cursor=pointer]:
+            - /url: /2026/Sep/4/astra-pelicans/
+        - link "Visit The Pelican comparison grid for Astra is pretty interesting" [ref=e417] [cursor=pointer]:
+          - /url: /2026/Sep/4/astra-pelicans/
+          - img "Visit The Pelican comparison grid for Astra is pretty interesting" [ref=e418]
+        - paragraph
+        - paragraph [ref=e419]:
+          - text: I got access to GPT-6 Astra this afternoon, so naturally I used it to generate
+          - link "SVGs of pelicans riding bicycles" [ref=e420] [cursor=pointer]:
+            - /url: https://simonwillison.net/tags/pelican-riding-a-bicycle/
+          - text: —at low, medium, high, xhigh and max reasoning levels (Astra doesn’t support reasoning=none). Then I rendered those pelicans in
+          - link "a comparison grid" [ref=e421] [cursor=pointer]:
+            - /url: https://static.simonwillison.net/static/2026/gpt-6-and-5.6-pelicans.html
+          - text: with GPT-5.6 Sol, Terra, and Luna, and beyond being fun the result was surprisingly useful.
+        - generic [ref=e422]:
+          - text: "[..."
+          - link "297 words" [ref=e423] [cursor=pointer]:
+            - /url: /2026/Sep/4/astra-pelicans/
+          - text: "]"
+        - paragraph
+        - generic [ref=e424]:
+          - link "11:59 pm" [ref=e425] [cursor=pointer]:
+            - /url: /2026/Sep/4/astra-pelicans/
+          - text: /
+          - link "ai" [ref=e426] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e427] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "generative-ai" [ref=e428] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e429] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "pelican-riding-a-bicycle" [ref=e430] [cursor=pointer]:
+            - /url: /tags/pelican-riding-a-bicycle/
+          - text: ","
+          - link "gpt-6-astra" [ref=e431] [cursor=pointer]:
+            - /url: /tags/gpt-6-astra/
+      - heading "Saturday, 5th September 2026" [level=3] [ref=e432]:
+        - link "Saturday, 5th September 2026" [ref=e433] [cursor=pointer]:
+          - /url: /2026/Sep/5/
+      - generic [ref=e435]:
+        - generic [ref=e436]:
+          - link "Sighting" [ref=e437] [cursor=pointer]:
+            - /url: /elsewhere/sighting/
+          - link "8:24 PM" [ref=e439] [cursor=pointer]:
+            - /url: /2026/Sep/5/sighting-397339887/
+          - text: — California Sea Lion, in Monterey Bay National Marine Sanctuary, CA, US, CA
+        - generic [ref=e440]:
+          - figure "California Sea Lion" [ref=e441]:
+            - link "California Sea Lion" [ref=e442]:
+              - /url: https://static.inaturalist.org/photos/728757324/original.jpg
+              - img "California Sea Lion" [ref=e443]
+            - link "California Sea Lion" [ref=e444] [cursor=pointer]:
+              - /url: https://www.inaturalist.org/observations/397339887
+          - figure "California Sea Lion" [ref=e445]:
+            - link "California Sea Lion" [ref=e446]:
+              - /url: https://static.inaturalist.org/photos/728757355/original.jpg
+              - img "California Sea Lion" [ref=e447]
+            - link "California Sea Lion" [ref=e448] [cursor=pointer]:
+              - /url: https://www.inaturalist.org/observations/397339887
+        - link "5th Sep 2026" [ref=e450] [cursor=pointer]:
+          - /url: /2026/Sep/5/sighting-397339887/
+      - generic [ref=e451]:
+        - link "None" [ref=e452] [cursor=pointer]:
+          - /url: https://til.simonwillison.net/llms/blender-coding-agents-macos
+          - img "None" [ref=e453]
+        - generic [ref=e454]:
+          - generic [ref=e455]:
+            - link "TIL" [ref=e456] [cursor=pointer]:
+              - /url: /elsewhere/til/
+            - link "Using Blender with coding agents on macOS" [ref=e458] [cursor=pointer]:
+              - /url: https://til.simonwillison.net/llms/blender-coding-agents-macos
+          - generic [ref=e459]:
+            - paragraph [ref=e460]:
+              - text: "I've been having fun with Blender in ChatGPT Codex on my Mac recently. Getting it to work with coding agents is really easy: install the full Mac application from"
+              - link "blender.org" [ref=e461] [cursor=pointer]:
+                - /url: https://www.blender.org
+              - text: "and run a prompt like this:"
+            - blockquote [ref=e462]:
+              - paragraph [ref=e463]:
+                - code [ref=e464]: Use the already install /Applications/Blender to render a scene of a pelican riding a bicycle
+            - paragraph [ref=e465]: "In this case I followed that up with these two prompts:"
+            - blockquote [ref=e466]:
+              - paragraph [ref=e467]:
+                - code [ref=e468]: OK add a background and a lot of flair
+            - paragraph [ref=e469]: "Then:"
+            - blockquote [ref=e470]:
+              - paragraph [ref=e471]:
+                - code [ref=e472]: OK make it a whole lot better
+            - paragraph [ref=e473]:
+              - text: And got this image, generated
+              - link "using Blender's Python API" [ref=e474] [cursor=pointer]:
+                - /url: https://github.com/simonw/gpt-6-astra-blender-pelican-bicycle/blob/main/work/pelican_final.py
+              - text: ":"
+            - paragraph [ref=e475]:
+              - img "A 3D illustration of a white pelican cycling along a seaside boardwalk at sunset. It wears a cream boater hat and a coral scarf, with wings on the handlebars and long orange legs reaching the pedals of a turquoise bicycle. A wicker front basket holds pink and white flowers, and three balloons float behind. Pastel bunting stretches overhead between palm trees. Striped beach huts stand beside a teal sea with a small sailboat, beneath a large peach-colored sun. The scene has a softly lit, toy-like style." [ref=e476]
+            - paragraph [ref=e477]:
+              - text: This was covered by my existing Codex subscription, but according to
+              - link "AgentsView" [ref=e478] [cursor=pointer]:
+                - /url: https://github.com/kenn-io/agentsview
+              - text: it would have cost $4.24 at API prices for
+              - code [ref=e479]: gpt-6-astra
+              - text: .
+          - generic [ref=e480]:
+            - link "5th Sep 2026, 3:42 pm" [ref=e481] [cursor=pointer]:
+              - /url: /2026/Sep/5/blender-coding-agents-macos/
+            - text: ·
+            - link "gpt-6-astra" [ref=e482] [cursor=pointer]:
+              - /url: /tags/gpt-6-astra/
+            - text: ","
+            - link "coding-agents" [ref=e483] [cursor=pointer]:
+              - /url: /tags/coding-agents/
+            - text: ","
+            - link "generative-ai" [ref=e484] [cursor=pointer]:
+              - /url: /tags/generative-ai/
+            - text: ","
+            - link "ai" [ref=e485] [cursor=pointer]:
+              - /url: /tags/ai/
+            - text: ","
+            - link "pelican-riding-a-bicycle" [ref=e486] [cursor=pointer]:
+              - /url: /tags/pelican-riding-a-bicycle/
+            - text: ","
+            - link "blender" [ref=e487] [cursor=pointer]:
+              - /url: /tags/blender/
+            - text: ","
+            - link "llms" [ref=e488] [cursor=pointer]:
+              - /url: /tags/llms/
+      - generic [ref=e489]:
+        - paragraph [ref=e490]:
+          - strong [ref=e491]:
+            - link "Introducing GPT-6 Astra for developers" [ref=e492] [cursor=pointer]:
+              - /url: https://www.youtube.com/watch?v=bOC3DisEOfg
+          - text: (
+          - link "via" [ref=e493] [cursor=pointer]:
+            - /url: https://news.ycombinator.com/item?id=49554643#49575117
+          - text: ) Blink and you'll miss it, but there's a familiar creature at
+          - link "1m59s" [ref=e494] [cursor=pointer]:
+            - /url: https://www.youtube.com/watch?v=bOC3DisEOfg&t=119
+          - text: ":"
+        - blockquote [ref=e495]:
+          - paragraph [ref=e496]:
+            - text: Across the board, Astra has more attention to detail, better understanding of the user's prompt, and can build more sophisticated outputs. In particular, it excels at building 3D models. I've seen it make incredible renderings of gardens, shipyards,
+            - strong [ref=e497]: animals
+            - text: ", cityscapes, even Dyson spheres."
+        - paragraph [ref=e498]:
+          - img "astra-video-pelican.webp" [ref=e499]
+        - paragraph [ref=e500]:
+          - text: Astra
+          - link "really" [ref=e501] [cursor=pointer]:
+            - /url: https://simonwillison.net/2026/Sep/5/blender-coding-agents-macos/
+          - text: does
+          - link "believe" [ref=e502] [cursor=pointer]:
+            - /url: https://simonwillison.net/2026/Sep/4/astra-pelicans/
+          - text: in putting a red neckerchief on a pelican riding a bicycle.
+        - paragraph [ref=e503]:
+          - link "#" [ref=e504] [cursor=pointer]:
+            - /url: /2026/Sep/5/introducing-gpt-6-astra-for-developers/
+          - link "11:27 pm" [ref=e505] [cursor=pointer]:
+            - /url: /2026/Sep/5/introducing-gpt-6-astra-for-developers/
+          - text: /
+          - link "ai" [ref=e506] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e507] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "generative-ai" [ref=e508] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "llms" [ref=e509] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "pelican-riding-a-bicycle" [ref=e510] [cursor=pointer]:
+            - /url: /tags/pelican-riding-a-bicycle/
+          - text: ","
+          - link "gpt-6-astra" [ref=e511] [cursor=pointer]:
+            - /url: /tags/gpt-6-astra/
+      - heading "Sunday, 6th September 2026" [level=3] [ref=e512]:
+        - link "Sunday, 6th September 2026" [ref=e513] [cursor=pointer]:
+          - /url: /2026/Sep/6/
+      - generic [ref=e514]:
+        - blockquote [ref=e515]:
+          - paragraph [ref=e516]:
+            - text: If you continue to add floors and rooms to a building forever, it will collapse. Software faces no such constraint. The code can
+            - emphasis [ref=e517]: always
+            - text: get worse. There can
+            - emphasis [ref=e518]: always
+            - text: be a new layer of indirection or a reduction in performance.
+        - paragraph [ref=e519]:
+          - text: —
+          - link "Zach Kehs" [ref=e520] [cursor=pointer]:
+            - /url: https://zachkehs.com/blog/theres_no_limit_to_how_bad_code_can_get/#9-ref
+          - text: ", There's No Limit to How Bad Code Can Get"
+        - paragraph [ref=e521]:
+          - link "#" [ref=e522] [cursor=pointer]:
+            - /url: /2026/Sep/6/zach-kehs/
+          - link "8:42 am" [ref=e523] [cursor=pointer]:
+            - /url: /2026/Sep/6/zach-kehs/
+          - text: /
+          - link "technical-debt" [ref=e524] [cursor=pointer]:
+            - /url: /tags/technical-debt/
+      - generic [ref=e525]:
+        - paragraph [ref=e526]:
+          - link "Comment" [ref=e527] [cursor=pointer]:
+            - /url: /elsewhere/comment/
+          - link "My comment" [ref=e528] [cursor=pointer]:
+            - /url: https://lobste.rs/s/rfn2mn/there_s_no_limit_how_bad_code_can_get#c_8kdtaw
+          - text: "on"
+          - link "There's No Limit to How Bad Code Can Get" [ref=e529] [cursor=pointer]:
+            - /url: https://lobste.rs/s/rfn2mn/there_s_no_limit_how_bad_code_can_get
+          - text: — Lobste.rs
+        - paragraph [ref=e530]:
+          - emphasis [ref=e531]: "[In reply to a comment about burning it down to start from scratch when technical debt becomes overwhelming]"
+        - paragraph [ref=e532]:
+          - text: In my experience it's
+          - emphasis [ref=e533]: so rare
+          - text: for that to work.
+        - paragraph [ref=e534]: You announce the old thing is irrecoverably drowning in tech debt. You spin up a team to rewrite it from scratch. Work begins.
+        - paragraph [ref=e535]: "Meanwhile the old thing remains a moving target: it's running the core business, so changes are still necessary. The developers working on it know that it's going to be made obsolete by the new thing soon, so they don't have any incentive to go beyond the smallest effort possible to add the new features. Technical debt continues to mount."
+        - paragraph [ref=e536]:
+          - text: Meanwhile, the team working on the new thing are ambitious and probably a little naive. They start out at a great pace - it's greenfield after all - but as time progresses it becomes apparent that nobody fully understands the behavior and scope of the thing they are replacing. If it was well documented and tested it wouldn't
+          - emphasis [ref=e537]: need
+          - text: to be replaced, after all...
+        - paragraph [ref=e538]: After months (or even years) without delivering value, the pressure is on to "ship it", so the new system is launched to handle a subset of what the old system handled - or often for some new feature that was too hard to build with the now mostly unmaintained old system.
+        - paragraph [ref=e539]: ... so now you have TWO systems in production - the janky old system that nobody wants to touch, and a new system which handles just a few production features and is 80% inactive code that is meant to replace the old system, eventually.
+        - paragraph [ref=e540]:
+          - text: If you're
+          - emphasis [ref=e541]: really lucky
+          - text: the company won't have lost patience with the new system and will allow that work to continue. The longer this all takes, and the longer the old system stays in production and stubbornly continues to work, the higher the risk that "priorities have changed" and the new system total replacement work is abandoned, leaving you with two systems where you used to have one.
+        - paragraph [ref=e542]:
+          - text: The best article I've read about completing this process responsibly is
+          - 'link "Migrations: the sole scalable fix to tech debt" [ref=e543] [cursor=pointer]':
+            - /url: https://lethain.com/migrations/
+          - text: by Will Larson.
+        - paragraph [ref=e544]: If I run into a situation like this in the future, my strong recommendation will be to shore up the old system with as much automated testing as possible and then seeing if targeted refactors can get it to the desired shape. My hunch is that in many cases that will have a much higher chance of success than the siren call of a greenfield replacement.
+        - paragraph [ref=e545]:
+          - link "#" [ref=e546] [cursor=pointer]:
+            - /url: /2026/Sep/6/theres-no-limit-to-how-bad-code-can-get/
+          - link "9:08 am" [ref=e547] [cursor=pointer]:
+            - /url: /2026/Sep/6/theres-no-limit-to-how-bad-code-can-get/
+          - text: /
+          - link "technical-debt" [ref=e548] [cursor=pointer]:
+            - /url: /tags/technical-debt/
+          - text: ","
+          - link "migrations" [ref=e549] [cursor=pointer]:
+            - /url: /tags/migrations/
+      - generic [ref=e550]:
+        - paragraph [ref=e551]:
+          - strong [ref=e552]:
+            - link "The purpose of DNS is to spread scams" [ref=e553] [cursor=pointer]:
+              - /url: https://shkspr.mobi/blog/2026/09/the-purpose-of-dns-is-to-spread-scams/
+          - text: . Terence Eden shares some daunting statistics in support of his take that "the Domain Name System's purpose seems to be a vector for criminals to run scams on people at a terrifyingly high rate".
+        - paragraph [ref=e554]:
+          - text: "On"
+          - link "this Interisle report" [ref=e555] [cursor=pointer]:
+            - /url: https://interisle.net/insights/cybercriminaldomaindemand
+          - text: (
+          - link "via Andrew Campling" [ref=e556] [cursor=pointer]:
+            - /url: https://labs.ripe.net/author/andrew_campling/dns-abuse-and-criminal-infrastructure-beyond-definitions-and-blocklists/
+          - text: "), Terence says:"
+        - blockquote [ref=e557]:
+          - paragraph [ref=e558]: It says 85 million new registrations of gTLDs were made in 2025. Of those 8.5 million were added to blocklists by May 2025. It reckons that a 10% abuse rate is the likely floor for these numbers and it's probably closer to 20%. One in five newly registered domains with a gTLD are scams. That's a bloody crisis.
+        - paragraph [ref=e559]: I had no idea. Apparently ICANN have been discussing this problem for years.
+        - paragraph [ref=e560]:
+          - link "#" [ref=e561] [cursor=pointer]:
+            - /url: /2026/Sep/6/the-purpose-of-dns-is-to-spread-scams/
+          - link "2:40 pm" [ref=e562] [cursor=pointer]:
+            - /url: /2026/Sep/6/the-purpose-of-dns-is-to-spread-scams/
+          - text: /
+          - link "dns" [ref=e563] [cursor=pointer]:
+            - /url: /tags/dns/
+          - text: ","
+          - link "scams" [ref=e564] [cursor=pointer]:
+            - /url: /tags/scams/
+          - text: ","
+          - link "terence-eden" [ref=e565] [cursor=pointer]:
+            - /url: /tags/terence-eden/
+      - generic [ref=e566]:
+        - paragraph [ref=e567]:
+          - strong [ref=e568]:
+            - 'link "Research acceleration: The view inside OpenAI" [ref=e569] [cursor=pointer]':
+              - /url: https://openai.com/index/research-acceleration-view-inside-openai/
+          - text: . Apparently today is RSI day at OpenAI, for Recursive Self-Improvement - I think it's their new AGI. Both this piece and the new essay
+          - link "An Alien Mind" [ref=e570] [cursor=pointer]:
+            - /url: https://openai.com/index/an-alien-mind/
+          - text: (by Chief Scientist Jakub Pachocki) talk about it, and this one doesn't even bother to expand the acronym.
+        - paragraph [ref=e571]: "Included are details on how OpenAI's own research team are using coding agents. Like pretty much everyone else 2026 has been the year that agentic engineering really took off at OpenAI, best illustrated by this chart:"
+        - paragraph [ref=e572]:
+          - 'img "Screenshot of a line chart from a report, headed \"1. Coding agents are reshaping daily work for OpenAI researchers\" with a partially visible chart title ending \"significantly—Median researcher\". Y-axis: \"Daily $ / researcher\" from 0 to 700. X-axis labels: \"Feb 2026\", \"Apr 2026\", \"Jun 2026\", \"Aug 2026\". A blue line stays near 0 through February, rises slowly to about 50 by April and 150 by June, plateaus around 150–165 into July, then climbs steeply to roughly 600 by late August 2026." [ref=e573]'
+        - paragraph [ref=e574]: I'm intrigued at what caused that significant acceleration in AI spend per researcher in late July - my best guess is that's when internal employees gained access to the model later released as GPT-6 Astra.
+        - paragraph [ref=e575]:
+          - link "#" [ref=e576] [cursor=pointer]:
+            - /url: /2026/Sep/6/research-acceleration-the-view-inside-openai/
+          - link "11:57 pm" [ref=e577] [cursor=pointer]:
+            - /url: /2026/Sep/6/research-acceleration-the-view-inside-openai/
+          - text: /
+          - link "ai" [ref=e578] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e579] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "generative-ai" [ref=e580] [cursor=pointer]:
+            - /url: /tags/generative-ai/
+          - text: ","
+          - link "chatgpt" [ref=e581] [cursor=pointer]:
+            - /url: /tags/chatgpt/
+          - text: ","
+          - link "llms" [ref=e582] [cursor=pointer]:
+            - /url: /tags/llms/
+          - text: ","
+          - link "coding-agents" [ref=e583] [cursor=pointer]:
+            - /url: /tags/coding-agents/
+          - text: ","
+          - link "november-2025-inflection" [ref=e584] [cursor=pointer]:
+            - /url: /tags/november-2025-inflection/
+          - text: ","
+          - link "recursive-self-improvement" [ref=e585] [cursor=pointer]:
+            - /url: /tags/recursive-self-improvement/
+      - heading "Monday, 7th September 2026" [level=3] [ref=e586]:
+        - link "Monday, 7th September 2026" [ref=e587] [cursor=pointer]:
+          - /url: /2026/Sep/7/
+      - generic [ref=e589]:
+        - generic [ref=e590]:
+          - link "Tool" [ref=e591] [cursor=pointer]:
+            - /url: /elsewhere/tool/
+          - link "Mercator ↔ Equal Earth" [ref=e593] [cursor=pointer]:
+            - /url: https://tools.simonwillison.net/equal-earth
+        - paragraph [ref=e595]:
+          - text: I got curious about the Equal Earth map projection that was recently
+          - link "voted on at the UN" [ref=e596] [cursor=pointer]:
+            - /url: https://www.theguardian.com/world/2026/sep/04/un-vote-world-map-mercator-equal-earth-africa
+          - text: so I had GPT-6 Astra (medium) in ChatGPT Work
+          - link "build me" [ref=e597] [cursor=pointer]:
+            - /url: https://chatgpt.com/share/6a9ee520-c82c-83ea-8111-2f7050c08638
+          - text: this animated transition between Mercator and Equal Earth using D3.
+        - generic [ref=e600]:
+          - link "7th Sep 2026, 4:24 pm" [ref=e601] [cursor=pointer]:
+            - /url: /2026/Sep/7/equal-earth/
+          - text: ·
+          - link "gpt-6-astra" [ref=e602] [cursor=pointer]:
+            - /url: /tags/gpt-6-astra/
+          - text: ","
+          - link "d3" [ref=e603] [cursor=pointer]:
+            - /url: /tags/d3/
+          - text: ","
+          - link "geospatial" [ref=e604] [cursor=pointer]:
+            - /url: /tags/geospatial/
+          - text: ","
+          - link "vibe-coding" [ref=e605] [cursor=pointer]:
+            - /url: /tags/vibe-coding/
+      - generic [ref=e606]:
+        - link [ref=e607] [cursor=pointer]:
+          - /url: https://simonw.substack.com/p/gpt-6-astra-claude-fable-51-and-yet
+        - generic [ref=e608]:
+          - paragraph [ref=e609]:
+            - time [ref=e610]: 7 September 2026
+            - text: · Substack
+          - heading "GPT-6 Astra, Claude Fable 5.1, and yet more rogue agent attacks" [level=3] [ref=e611]:
+            - link "GPT-6 Astra, Claude Fable 5.1, and yet more rogue agent attacks" [ref=e612] [cursor=pointer]:
+              - /url: https://simonw.substack.com/p/gpt-6-astra-claude-fable-51-and-yet
+          - paragraph [ref=e613]: Plus Gemini 3.8 Flash - that’s a lot of pelicans riding bicycles!
+      - generic [ref=e615]:
+        - generic [ref=e616]:
+          - link "Tool" [ref=e617] [cursor=pointer]:
+            - /url: /elsewhere/tool/
+          - link "Video compressor" [ref=e619] [cursor=pointer]:
+            - /url: https://tools.simonwillison.net/video-compressor
+        - generic [ref=e620]:
+          - paragraph [ref=e621]:
+            - text: I recorded a short demo video of
+            - link "my Equal Earth" [ref=e622] [cursor=pointer]:
+              - /url: https://simonwillison.net/2026/Sep/7/equal-earth/
+            - text: animation on my phone and wanted to publish an optimized version of that video (using FFMPEG) on my blog, so I had Claude Fable 5.1 in Claude Code for web
+            - link "build me this tool" [ref=e623] [cursor=pointer]:
+              - /url: https://claude.ai/code/session_01QHTdJZ4xg6TZfDXCmuvAE9
+            - text: using the WebAssembly build of FFMPEG.
+          - paragraph [ref=e624]:
+            - 'img "Screenshot of a video compression web tool. Under \"Versions to generate\" is a table of five presets (Largest, Large, Medium, Small, Smallest) with output sizes of 854×370 or 640×276, CRF quality settings from 22 to 28, and audio bitrates from 128 to 64 kbps, plus options for encoder speed, H.264 profile, 30 fps limit, stripping metadata, dropping audio, and encoding only the first 10 seconds. A green \"Generate versions\" button reads \"Done: 5 versions in 11.8s.\" Below, \"Results, smallest first\" shows three video players: Smallest at 145 KB (48% of original), Medium at 241 KB (79%), and Small at 264 KB (87%), each with a Download .mp4 button and a collapsible ffmpeg command." [ref=e625]'
+        - generic [ref=e626]:
+          - link "7th Sep 2026, 6:29 pm" [ref=e627] [cursor=pointer]:
+            - /url: /2026/Sep/7/video-compressor/
+          - text: ·
+          - link "claude" [ref=e628] [cursor=pointer]:
+            - /url: /tags/claude/
+          - text: ","
+          - link "claude-code" [ref=e629] [cursor=pointer]:
+            - /url: /tags/claude-code/
+          - text: ","
+          - link "claude-mythos-fable" [ref=e630] [cursor=pointer]:
+            - /url: /tags/claude-mythos-fable/
+          - text: ","
+          - link "ffmpeg" [ref=e631] [cursor=pointer]:
+            - /url: /tags/ffmpeg/
+          - text: ","
+          - link "video" [ref=e632] [cursor=pointer]:
+            - /url: /tags/video/
+          - text: ","
+          - link "webassembly" [ref=e633] [cursor=pointer]:
+            - /url: /tags/webassembly/
+      - generic [ref=e634]:
+        - blockquote [ref=e635]:
+          - paragraph [ref=e636]: The strongest argument I see for continuing to train much smarter models quickly is the need to build defensive systems against the dangers posed by other AI. [...]
+          - paragraph [ref=e637]: We will need powerful, aligned AI for defense; to secure infrastructure, to protect against rogue agents in real time, and to invent entirely new protective measures. This will be a primary focus of OpenAI’s deployment efforts.
+          - paragraph [ref=e638]: At the same time, even with the uncertainty that comes from anticipated broad AI progress and the need to build defensive systems, we must not let that become an excuse for recklessness. The idea of racing forward at all costs seems absurd once one internalizes the seriousness of the stakes.
+        - paragraph [ref=e639]:
+          - text: —
+          - link "Jakub Pachocki" [ref=e640] [cursor=pointer]:
+            - /url: https://openai.com/index/an-alien-mind/#scalable-defense
+          - text: ", Chief Scientist at OpenAI"
+        - paragraph [ref=e641]:
+          - link "#" [ref=e642] [cursor=pointer]:
+            - /url: /2026/Sep/7/jakub-pachocki/
+          - link "10:26 pm" [ref=e643] [cursor=pointer]:
+            - /url: /2026/Sep/7/jakub-pachocki/
+          - text: /
+          - link "ai" [ref=e644] [cursor=pointer]:
+            - /url: /tags/ai/
+          - text: ","
+          - link "openai" [ref=e645] [cursor=pointer]:
+            - /url: /tags/openai/
+          - text: ","
+          - link "ai-ethics" [ref=e646] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+      - generic [ref=e647]:
+        - paragraph [ref=e648]:
+          - strong [ref=e649]:
+            - link "Creepy crawlies" [ref=e650] [cursor=pointer]:
+              - /url: https://people.kernel.org/monsieuricon/creepy-crawlies
+          - text: (
+          - link "via" [ref=e651] [cursor=pointer]:
+            - /url: https://news.ycombinator.com/item?id=49491791
+          - text: ) Konstantin Ryabitsev discusses how bad the "background radiation" of abusive crawlers has become from the perspective of
+          - link "git.kernel.org" [ref=e652] [cursor=pointer]:
+            - /url: https://git.kernel.org/
+          - text: ", the official Git repository for the Linux kernel:"
+        - blockquote [ref=e653]:
+          - paragraph [ref=e654]: "TL;DR: we spend more CPU cycles rendering commits for scrapers than we spend on all other kinds of legitimate access, including git clones. At any one time, across 5 geo-distributed nodes, there are 14 CPU cores doing nothing but rendering git commits as html."
+        - paragraph [ref=e655]: I worry about this a lot from the perspective of Datasette, which serves a huge number of crawlable web pages.
+        - paragraph [ref=e656]:
+          - link "#" [ref=e657] [cursor=pointer]:
+            - /url: /2026/Sep/7/creepy-crawlies/
+          - link "11:08 pm" [ref=e658] [cursor=pointer]:
+            - /url: /2026/Sep/7/creepy-crawlies/
+          - text: /
+          - link "crawling" [ref=e659] [cursor=pointer]:
+            - /url: /tags/crawling/
+          - text: ","
+          - link "git" [ref=e660] [cursor=pointer]:
+            - /url: /tags/git/
+          - text: ","
+          - link "linux" [ref=e661] [cursor=pointer]:
+            - /url: /tags/linux/
+          - text: ","
+          - link "datasette" [ref=e662] [cursor=pointer]:
+            - /url: /tags/datasette/
+          - text: ","
+          - link "ai-ethics" [ref=e663] [cursor=pointer]:
+            - /url: /tags/ai-ethics/
+      - generic [ref=e665]:
+        - text: page 1 / 4
+        - link "next »" [ref=e666] [cursor=pointer]:
+          - /url: "?page=2"
+        - link "last »»" [ref=e667] [cursor=pointer]:
+          - /url: "?page=4"
+    - generic [ref=e669]:
+      - paragraph [ref=e670]:
+        - link "2026" [ref=e671] [cursor=pointer]:
+          - /url: /2026/
+        - text: » September
+      - table [ref=e672]:
+        - rowgroup [ref=e673]:
+          - row "M T W T F S S" [ref=e674]:
+            - columnheader "M" [ref=e675]
+            - columnheader "T" [ref=e676]
+            - columnheader "W" [ref=e677]
+            - columnheader "T" [ref=e678]
+            - columnheader "F" [ref=e679]
+            - columnheader "S" [ref=e680]
+            - columnheader "S" [ref=e681]
+          - row "1 2 3 4 5 6" [ref=e682]:
+            - cell [ref=e683]
+            - cell "1" [ref=e684]:
+              - strong [ref=e685]:
+                - link "1" [ref=e686] [cursor=pointer]:
+                  - /url: /2026/Sep/1/
+            - cell "2" [ref=e687]:
+              - strong [ref=e688]:
+                - link "2" [ref=e689] [cursor=pointer]:
+                  - /url: /2026/Sep/2/
+            - cell "3" [ref=e690]:
+              - link "3" [ref=e691] [cursor=pointer]:
+                - /url: /2026/Sep/3/
+            - cell "4" [ref=e692]:
+              - strong [ref=e693]:
+                - link "4" [ref=e694] [cursor=pointer]:
+                  - /url: /2026/Sep/4/
+            - cell "5" [ref=e695]:
+              - link "5" [ref=e696] [cursor=pointer]:
+                - /url: /2026/Sep/5/
+            - cell "6" [ref=e697]:
+              - link "6" [ref=e698] [cursor=pointer]:
+                - /url: /2026/Sep/6/
+          - row "7 8 9 10 11 12 13" [ref=e699]:
+            - cell "7" [ref=e700]:
+              - link "7" [ref=e701] [cursor=pointer]:
+                - /url: /2026/Sep/7/
+            - cell "8" [ref=e702]:
+              - strong [ref=e703]:
+                - link "8" [ref=e704] [cursor=pointer]:
+                  - /url: /2026/Sep/8/
+            - cell "9" [ref=e705]:
+              - link "9" [ref=e706] [cursor=pointer]:
+                - /url: /2026/Sep/9/
+            - cell "10" [ref=e707]:
+              - link "10" [ref=e708] [cursor=pointer]:
+                - /url: /2026/Sep/10/
+            - cell "11" [ref=e709]:
+              - link "11" [ref=e710] [cursor=pointer]:
+                - /url: /2026/Sep/11/
+            - cell "12" [ref=e711]:
+              - strong [ref=e712]:
+                - link "12" [ref=e713] [cursor=pointer]:
+                  - /url: /2026/Sep/12/
+            - cell "13" [ref=e714]:
+              - link "13" [ref=e715] [cursor=pointer]:
+                - /url: /2026/Sep/13/
+          - row "14 15 16 17 18 19 20" [ref=e716]:
+            - cell "14" [ref=e717]:
+              - link "14" [ref=e718] [cursor=pointer]:
+                - /url: /2026/Sep/14/
+            - cell "15" [ref=e719]:
+              - link "15" [ref=e720] [cursor=pointer]:
+                - /url: /2026/Sep/15/
+            - cell "16" [ref=e721]:
+              - link "16" [ref=e722] [cursor=pointer]:
+                - /url: /2026/Sep/16/
+            - cell "17" [ref=e723]:
+              - link "17" [ref=e724] [cursor=pointer]:
+                - /url: /2026/Sep/17/
+            - cell "18" [ref=e725]:
+              - link "18" [ref=e726] [cursor=pointer]:
+                - /url: /2026/Sep/18/
+            - cell "19" [ref=e727]:
+              - link "19" [ref=e728] [cursor=pointer]:
+                - /url: /2026/Sep/19/
+            - cell "20" [ref=e729]:
+              - link "20" [ref=e730] [cursor=pointer]:
+                - /url: /2026/Sep/20/
+          - row "21 22 23 24 25 26 27" [ref=e731]:
+            - cell "21" [ref=e732]:
+              - strong [ref=e733]:
+                - link "21" [ref=e734] [cursor=pointer]:
+                  - /url: /2026/Sep/21/
+            - cell "22" [ref=e735]:
+              - strong [ref=e736]:
+                - link "22" [ref=e737] [cursor=pointer]:
+                  - /url: /2026/Sep/22/
+            - cell "23" [ref=e738]:
+              - link "23" [ref=e739] [cursor=pointer]:
+                - /url: /2026/Sep/23/
+            - cell "24" [ref=e740]:
+              - link "24" [ref=e741] [cursor=pointer]:
+                - /url: /2026/Sep/24/
+            - cell "25" [ref=e742]:
+              - link "25" [ref=e743] [cursor=pointer]:
+                - /url: /2026/Sep/25/
+            - cell "26" [ref=e744]:
+              - link "26" [ref=e745] [cursor=pointer]:
+                - /url: /2026/Sep/26/
+            - cell "27" [ref=e746]:
+              - strong [ref=e747]:
+                - link "27" [ref=e748] [cursor=pointer]:
+                  - /url: /2026/Sep/27/
+          - row "28 29 30" [ref=e749]:
+            - cell "28" [ref=e750]:
+              - link "28" [ref=e751] [cursor=pointer]:
+                - /url: /2026/Sep/28/
+            - cell "29" [ref=e752]:
+              - strong [ref=e753]:
+                - link "29" [ref=e754] [cursor=pointer]:
+                  - /url: /2026/Sep/29/
+            - cell "30" [ref=e755]:
+              - link "30" [ref=e756] [cursor=pointer]:
+                - /url: /2026/Sep/30/
+            - cell [ref=e757]
+            - cell [ref=e758]
+            - cell [ref=e759]
+            - cell [ref=e760]
+  - list [ref=e762]:
+    - listitem [ref=e763]:
+      - link "Disclosures" [ref=e764] [cursor=pointer]:
+        - /url: /about/#disclosures
+    - listitem [ref=e765]:
+      - link "Colophon" [ref=e766] [cursor=pointer]:
+        - /url: /about/#about-site
+    - listitem [ref=e767]: ©
+    - listitem [ref=e768]:
+      - link "2002" [ref=e769] [cursor=pointer]:
+        - /url: /2002/
+    - listitem [ref=e770]:
+      - link "2003" [ref=e771] [cursor=pointer]:
+        - /url: /2003/
+    - listitem [ref=e772]:
+      - link "2004" [ref=e773] [cursor=pointer]:
+        - /url: /2004/
+    - listitem [ref=e774]:
+      - link "2005" [ref=e775] [cursor=pointer]:
+        - /url: /2005/
+    - listitem [ref=e776]:
+      - link "2006" [ref=e777] [cursor=pointer]:
+        - /url: /2006/
+    - listitem [ref=e778]:
+      - link "2007" [ref=e779] [cursor=pointer]:
+        - /url: /2007/
+    - listitem [ref=e780]:
+      - link "2008" [ref=e781] [cursor=pointer]:
+        - /url: /2008/
+    - listitem [ref=e782]:
+      - link "2009" [ref=e783] [cursor=pointer]:
+        - /url: /2009/
+    - listitem [ref=e784]:
+      - link "2010" [ref=e785] [cursor=pointer]:
+        - /url: /2010/
+    - listitem [ref=e786]:
+      - link "2011" [ref=e787] [cursor=pointer]:
+        - /url: /2011/
+    - listitem [ref=e788]:
+      - link "2012" [ref=e789] [cursor=pointer]:
+        - /url: /2012/
+    - listitem [ref=e790]:
+      - link "2013" [ref=e791] [cursor=pointer]:
+        - /url: /2013/
+    - listitem [ref=e792]:
+      - link "2014" [ref=e793] [cursor=pointer]:
+        - /url: /2014/
+    - listitem [ref=e794]:
+      - link "2015" [ref=e795] [cursor=pointer]:
+        - /url: /2015/
+    - listitem [ref=e796]:
+      - link "2016" [ref=e797] [cursor=pointer]:
+        - /url: /2016/
+    - listitem [ref=e798]:
+      - link "2017" [ref=e799] [cursor=pointer]:
+        - /url: /2017/
+    - listitem [ref=e800]:
+      - link "2018" [ref=e801] [cursor=pointer]:
+        - /url: /2018/
+    - listitem [ref=e802]:
+      - link "2019" [ref=e803] [cursor=pointer]:
+        - /url: /2019/
+    - listitem [ref=e804]:
+      - link "2020" [ref=e805] [cursor=pointer]:
+        - /url: /2020/
+    - listitem [ref=e806]:
+      - link "2021" [ref=e807] [cursor=pointer]:
+        - /url: /2021/
+    - listitem [ref=e808]:
+      - link "2022" [ref=e809] [cursor=pointer]:
+        - /url: /2022/
+    - listitem [ref=e810]:
+      - link "2023" [ref=e811] [cursor=pointer]:
+        - /url: /2023/
+    - listitem [ref=e812]:
+      - link "2024" [ref=e813] [cursor=pointer]:
+        - /url: /2024/
+    - listitem [ref=e814]:
+      - link "2025" [ref=e815] [cursor=pointer]:
+        - /url: /2025/
+    - listitem [ref=e816]:
+      - link "2026" [ref=e817] [cursor=pointer]:
+        - /url: /2026/
+    - listitem [ref=e818]:
+      - 'button "Theme: Auto (system preference). Click to switch to light." [ref=e819] [cursor=pointer]':
+        - img [ref=e820]

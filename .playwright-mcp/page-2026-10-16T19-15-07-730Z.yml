@@ -1,0 +1,552 @@
+- generic [active] [ref=e1]:
+  - navigation "Main" [ref=e3]:
+    - generic [ref=e5]:
+      - link "Loading image... Kiro" [ref=e7] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e11]:
+          - generic [ref=e13]: Loading image...
+          - img "Kiro" [ref=e14]
+      - list [ref=e19]:
+        - listitem [ref=e20]:
+          - link "Agents" [ref=e21] [cursor=pointer]:
+            - /url: /agents/
+        - listitem [ref=e22]:
+          - button "Apps menu" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Apps
+            - img [ref=e25]
+        - listitem [ref=e27]:
+          - link "Enterprise" [ref=e28] [cursor=pointer]:
+            - /url: /enterprise/
+        - listitem [ref=e29]:
+          - link "Pricing" [ref=e30] [cursor=pointer]:
+            - /url: /pricing/
+        - listitem [ref=e31]:
+          - link "Docs" [ref=e32] [cursor=pointer]:
+            - /url: /docs/
+        - listitem [ref=e33]:
+          - button "Community menu" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]: Community
+            - img [ref=e36]
+        - listitem [ref=e38]:
+          - button "Resources menu" [ref=e39] [cursor=pointer]:
+            - generic [ref=e40]: Resources
+            - img [ref=e41]
+      - generic [ref=e43]:
+        - button "Search across all Kiro content (Command+K)" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+        - button "Language options" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+          - img [ref=e55]
+        - link "SIGN IN" [ref=e57] [cursor=pointer]:
+          - /url: https://app.kiro.dev
+          - generic [ref=e58]: SIGN IN
+        - link "Downloads" [ref=e59] [cursor=pointer]:
+          - /url: /downloads/
+          - generic [ref=e60]: DOWNLOADS
+  - main [ref=e61]:
+    - generic [ref=e63]:
+      - heading "Blog" [level=1] [ref=e65]
+      - generic [ref=e66]:
+        - paragraph [ref=e67]: News, tutorials, updates from the Kiro team - find it all here.
+        - generic [ref=e69]:
+          - text: "Follow us:"
+          - link "Bluesky," [ref=e70] [cursor=pointer]:
+            - /url: https://bsky.app/profile/kiro.dev
+          - link "X," [ref=e71] [cursor=pointer]:
+            - /url: https://x.com/kirodotdev
+          - link "Discord," [ref=e72] [cursor=pointer]:
+            - /url: https://discord.com/invite/kirodotdev
+          - generic [ref=e73]: and
+          - link "LinkedIn" [ref=e74] [cursor=pointer]:
+            - /url: https://www.linkedin.com/showcase/kirodotdev
+      - generic [ref=e75]:
+        - link "RSS Feed" [ref=e77] [cursor=pointer]:
+          - /url: /blog/feed.rss
+          - generic [ref=e78]: RSS Feed
+          - img [ref=e79]
+        - link "Atom Feed" [ref=e82] [cursor=pointer]:
+          - /url: /blog/feed.atom
+          - generic [ref=e83]: Atom Feed
+          - img [ref=e84]
+    - region "Page content" [ref=e88]:
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - heading "All blog posts" [level=2] [ref=e91]
+          - link "Oct 15, 2026 Kimi K3 model is now available in Kiro Hardeep Singh, Krishna Parab" [ref=e93] [cursor=pointer]:
+            - /url: /blog/kimi-k3/
+            - time [ref=e96]: Oct 15, 2026
+            - paragraph [ref=e98]: Kimi K3 model is now available in Kiro
+            - generic [ref=e99]:
+              - generic [ref=e100]: Hardeep Singh,
+              - text: Krishna Parab
+          - 'link "Oct 14, 2026 Local sandboxing in Kiro: keep agent commands within boundaries Mike Landi, Doug Clauson" [ref=e103] [cursor=pointer]':
+            - /url: /blog/local-sandboxing/
+            - time [ref=e106]: Oct 14, 2026
+            - paragraph [ref=e108]: "Local sandboxing in Kiro: keep agent commands within boundaries"
+            - generic [ref=e109]:
+              - generic [ref=e110]: Mike Landi,
+              - text: Doug Clauson
+          - link "Oct 13, 2026 Introducing improved enterprise sign-in controls Shweta V A" [ref=e113] [cursor=pointer]:
+            - /url: /blog/sign-in-controls/
+            - time [ref=e116]: Oct 13, 2026
+            - paragraph [ref=e118]: Introducing improved enterprise sign-in controls
+            - generic [ref=e119]: Shweta V A
+          - link "Oct 9, 2026 Kiro CLI V3 is rolling out as the default experience Pooja Giri, Jay Raval" [ref=e122] [cursor=pointer]:
+            - /url: /blog/cli-3/
+            - time [ref=e125]: Oct 9, 2026
+            - paragraph [ref=e127]: Kiro CLI V3 is rolling out as the default experience
+            - generic [ref=e128]:
+              - generic [ref=e129]: Pooja Giri,
+              - text: Jay Raval
+          - link "Oct 2, 2026 Claude Sonnet 5.5 is now available in Kiro Hardeep Singh" [ref=e132] [cursor=pointer]:
+            - /url: /blog/sonnet-5-5/
+            - time [ref=e135]: Oct 2, 2026
+            - paragraph [ref=e137]: Claude Sonnet 5.5 is now available in Kiro
+            - generic [ref=e138]: Hardeep Singh
+          - link "Sep 30, 2026 Introducing Kiro workflows Romain Dura, Doug Clauson" [ref=e141] [cursor=pointer]:
+            - /url: /blog/introducing-workflows/
+            - time [ref=e144]: Sep 30, 2026
+            - paragraph [ref=e146]: Introducing Kiro workflows
+            - generic [ref=e147]:
+              - generic [ref=e148]: Romain Dura,
+              - text: Doug Clauson
+          - link "Sep 28, 2026 Claude Opus 5.5 is now available in Kiro Vipin Mohan" [ref=e151] [cursor=pointer]:
+            - /url: /blog/opus-5-5/
+            - time [ref=e154]: Sep 28, 2026
+            - paragraph [ref=e156]: Claude Opus 5.5 is now available in Kiro
+            - generic [ref=e157]: Vipin Mohan
+          - link "Sep 18, 2026 How we built a software factory with Kiro Crew to merge 1,000 PRs in a week Zejiang (Joe) Guo, Bolin Chen, Zezhen Xu" [ref=e160] [cursor=pointer]:
+            - /url: /blog/software-factory-1000-prs/
+            - time [ref=e163]: Sep 18, 2026
+            - paragraph [ref=e165]: How we built a software factory with Kiro Crew to merge 1,000 PRs in a week
+            - generic [ref=e166]:
+              - generic [ref=e167]: Zejiang (Joe) Guo,
+              - generic [ref=e168]: Bolin Chen,
+              - text: Zezhen Xu
+          - link "Sep 16, 2026 Claude Fable 5.1 is now available in Kiro Vipin Mohan" [ref=e171] [cursor=pointer]:
+            - /url: /blog/fable-5-1/
+            - time [ref=e174]: Sep 16, 2026
+            - paragraph [ref=e176]: Claude Fable 5.1 is now available in Kiro
+            - generic [ref=e177]: Vipin Mohan
+          - link "Sep 14, 2026 Tackling technical debt at scale with autonomous mode in Kiro Web Michael Tautschnig, Rajdeep Mukherjee" [ref=e180] [cursor=pointer]:
+            - /url: /blog/tackling-technical-debt-at-scale-with-autonomous-mode/
+            - time [ref=e183]: Sep 14, 2026
+            - paragraph [ref=e185]: Tackling technical debt at scale with autonomous mode in Kiro Web
+            - generic [ref=e186]:
+              - generic [ref=e187]: Michael Tautschnig,
+              - text: Rajdeep Mukherjee
+          - link "Sep 14, 2026 GPT‑5.6 models now support 1 million token context windows in Kiro Vipin Mohan" [ref=e190] [cursor=pointer]:
+            - /url: /blog/gpt-5-6-1m-context/
+            - time [ref=e193]: Sep 14, 2026
+            - paragraph [ref=e195]: GPT‑5.6 models now support 1 million token context windows in Kiro
+            - generic [ref=e196]: Vipin Mohan
+          - link "Sep 8, 2026 Kiro adds ISO/IEC 27001:2022 coverage Arundeep Nagaraj, Jay Raval, Krishna Parab" [ref=e199] [cursor=pointer]:
+            - /url: /blog/iso-27001/
+            - time [ref=e202]: Sep 8, 2026
+            - paragraph [ref=e204]: Kiro adds ISO/IEC 27001:2022 coverage
+            - generic [ref=e205]:
+              - generic [ref=e206]: Arundeep Nagaraj,
+              - generic [ref=e207]: Jay Raval,
+              - text: Krishna Parab
+          - link "Sep 8, 2026 A free year of Kiro, now for students around the world Sharanya Balaji" [ref=e210] [cursor=pointer]:
+            - /url: /blog/students-2026/
+            - time [ref=e213]: Sep 8, 2026
+            - paragraph [ref=e215]: A free year of Kiro, now for students around the world
+            - generic [ref=e216]: Sharanya Balaji
+          - link "Sep 3, 2026 Agentic engineering in the cloud Prateek Kotak, Alex Jia" [ref=e219] [cursor=pointer]:
+            - /url: /blog/agentic-engineering-in-the-cloud/
+            - time [ref=e222]: Sep 3, 2026
+            - paragraph [ref=e224]: Agentic engineering in the cloud
+            - generic [ref=e225]:
+              - generic [ref=e226]: Prateek Kotak,
+              - text: Alex Jia
+          - link "Aug 26, 2026 Are AI coding agents actually getting better? Pardis Pashakhanloo, Rajdeep Mukherjee" [ref=e229] [cursor=pointer]:
+            - /url: /blog/diagnostics-over-time/
+            - time [ref=e232]: Aug 26, 2026
+            - paragraph [ref=e234]: Are AI coding agents actually getting better?
+            - generic [ref=e235]:
+              - generic [ref=e236]: Pardis Pashakhanloo,
+              - text: Rajdeep Mukherjee
+          - 'link "Aug 21, 2026 Continuous Prompt Evaluation: How We Use LLM Judges and Live Signals to Improve Kiro Agent Quality Myeongsoo Kim, Patrick Chapman, Sai Srinivas Somarouthu, Jay Agrawal, Murali Krishna Ramanathan" [ref=e239] [cursor=pointer]':
+            - /url: /blog/continuous-prompt-evaluation/
+            - time [ref=e242]: Aug 21, 2026
+            - paragraph [ref=e244]: "Continuous Prompt Evaluation: How We Use LLM Judges and Live Signals to Improve Kiro Agent Quality"
+            - generic [ref=e245]:
+              - generic [ref=e246]: Myeongsoo Kim,
+              - generic [ref=e247]: Patrick Chapman,
+              - generic [ref=e248]: Sai Srinivas Somarouthu,
+              - generic [ref=e249]: Jay Agrawal,
+              - text: Murali Krishna Ramanathan
+          - link "Aug 21, 2026 How We Learned to Trust an AI Agent to Triage Production Incidents Sai Srinivas Somarouthu" [ref=e252] [cursor=pointer]:
+            - /url: /blog/trust-agent-triage/
+            - time [ref=e255]: Aug 21, 2026
+            - paragraph [ref=e257]: How We Learned to Trust an AI Agent to Triage Production Incidents
+            - generic [ref=e258]: Sai Srinivas Somarouthu
+          - 'link "Aug 18, 2026 Close the laptop, keep the agent: building with cloud sessions Brian Beach" [ref=e261] [cursor=pointer]':
+            - /url: /blog/cloud-sessions/
+            - time [ref=e264]: Aug 18, 2026
+            - paragraph [ref=e266]: "Close the laptop, keep the agent: building with cloud sessions"
+            - generic [ref=e267]: Brian Beach
+          - link "Aug 12, 2026 Which Kiro app should I pick? Massimo Re Ferre" [ref=e270] [cursor=pointer]:
+            - /url: /blog/which-kiro-app-should-i-pick/
+            - time [ref=e273]: Aug 12, 2026
+            - paragraph [ref=e275]: Which Kiro app should I pick?
+            - generic [ref=e276]: Massimo Re Ferre
+          - link "Aug 7, 2026 Kiro powers now support Agent Plugins Clare Liguori, Dan Kiuna" [ref=e279] [cursor=pointer]:
+            - /url: /blog/powers-supports-plugins/
+            - time [ref=e282]: Aug 7, 2026
+            - paragraph [ref=e284]: Kiro powers now support Agent Plugins
+            - generic [ref=e285]:
+              - generic [ref=e286]: Clare Liguori,
+              - text: Dan Kiuna
+          - link "Aug 4, 2026 Introducing Kiro Crew Bolin Chen, Zejiang (Joe) Guo, Zezhen Xu" [ref=e289] [cursor=pointer]:
+            - /url: /blog/introducing-kiro-crew/
+            - time [ref=e292]: Aug 4, 2026
+            - paragraph [ref=e294]: Introducing Kiro Crew
+            - generic [ref=e295]:
+              - generic [ref=e296]: Bolin Chen,
+              - generic [ref=e297]: Zejiang (Joe) Guo,
+              - text: Zezhen Xu
+          - 'link "Aug 3, 2026 One agent, every surface: how we built the Kiro agent harness Clare Liguori, Romain Dura, Al Harris, Richard Threlkeld" [ref=e300] [cursor=pointer]':
+            - /url: /blog/one-agent/
+            - time [ref=e303]: Aug 3, 2026
+            - paragraph [ref=e305]: "One agent, every surface: how we built the Kiro agent harness"
+            - generic [ref=e306]:
+              - generic [ref=e307]: Clare Liguori,
+              - generic [ref=e308]: Romain Dura,
+              - generic [ref=e309]: Al Harris,
+              - text: Richard Threlkeld
+          - 'link "Jul 31, 2026 GPT‑5.6 update: lower credit multipliers for Terra and Luna Vipin Mohan" [ref=e312] [cursor=pointer]':
+            - /url: /blog/gpt-5-6-pricing/
+            - time [ref=e315]: Jul 31, 2026
+            - paragraph [ref=e317]: "GPT‑5.6 update: lower credit multipliers for Terra and Luna"
+            - generic [ref=e318]: Vipin Mohan
+          - link "Jul 24, 2026 Claude Opus 5 is now available in Kiro Vipin Mohan" [ref=e321] [cursor=pointer]:
+            - /url: /blog/opus-5/
+            - time [ref=e324]: Jul 24, 2026
+            - paragraph [ref=e326]: Claude Opus 5 is now available in Kiro
+            - generic [ref=e327]: Vipin Mohan
+          - link "Jul 20, 2026 How Kiro and Snyk create multi-layered security guardrails Gourav Bhardwaj, David B. Schott, Jack Ryan" [ref=e330] [cursor=pointer]:
+            - /url: /blog/kiro-and-snyk-guardrails/
+            - time [ref=e333]: Jul 20, 2026
+            - paragraph [ref=e335]: How Kiro and Snyk create multi-layered security guardrails
+            - generic [ref=e336]:
+              - generic [ref=e337]: Gourav Bhardwaj,
+              - generic [ref=e338]: David B. Schott,
+              - text: Jack Ryan
+          - 'link "Jul 16, 2026 Celebrating the builders: how founders are shipping faster with Kiro Nicole Shum" [ref=e341] [cursor=pointer]':
+            - /url: /blog/one-year-startups/
+            - time [ref=e344]: Jul 16, 2026
+            - paragraph [ref=e346]: "Celebrating the builders: how founders are shipping faster with Kiro"
+            - generic [ref=e347]: Nicole Shum
+          - 'link "Jul 16, 2026 One year of Kiro: how students are building the future, right now Nicole Shum" [ref=e350] [cursor=pointer]':
+            - /url: /blog/one-year-students/
+            - time [ref=e353]: Jul 16, 2026
+            - paragraph [ref=e355]: "One year of Kiro: how students are building the future, right now"
+            - generic [ref=e356]: Nicole Shum
+          - link "Jul 14, 2026 GPT‑5.6 is now available in Kiro Vipin Mohan" [ref=e359] [cursor=pointer]:
+            - /url: /blog/gpt-5-6/
+            - time [ref=e362]: Jul 14, 2026
+            - paragraph [ref=e364]: GPT‑5.6 is now available in Kiro
+            - generic [ref=e365]: Vipin Mohan
+          - 'link "Jul 14, 2026 One year of Kiro: a look back, and a look ahead Deepak Singh" [ref=e368] [cursor=pointer]':
+            - /url: /blog/one-year/
+            - time [ref=e371]: Jul 14, 2026
+            - paragraph [ref=e373]: "One year of Kiro: a look back, and a look ahead"
+            - generic [ref=e374]: Deepak Singh
+          - link "Jul 13, 2026 Welcome to birthday week Helen Hasbun, Emma Parkerton" [ref=e377] [cursor=pointer]:
+            - /url: /blog/birthday-2026/
+            - time [ref=e380]: Jul 13, 2026
+            - paragraph [ref=e382]: Welcome to birthday week
+            - generic [ref=e383]:
+              - generic [ref=e384]: Helen Hasbun,
+              - text: Emma Parkerton
+          - link "Jul 2, 2026 Set a cap on overage spend, or pre-pay for it Ranjith Ramakrishnan" [ref=e387] [cursor=pointer]:
+            - /url: /blog/cap-prepay-overage/
+            - time [ref=e390]: Jul 2, 2026
+            - paragraph [ref=e392]: Set a cap on overage spend, or pre-pay for it
+            - generic [ref=e393]: Ranjith Ramakrishnan
+          - link "Jul 1, 2026 Sonnet 5 is now available in Kiro Vipin Mohan" [ref=e396] [cursor=pointer]:
+            - /url: /blog/sonnet-5/
+            - time [ref=e399]: Jul 1, 2026
+            - paragraph [ref=e401]: Sonnet 5 is now available in Kiro
+            - generic [ref=e402]: Vipin Mohan
+          - 'link "Jun 26, 2026 One Task, Two Providers: Coordinating Changes Across GitLab and GitHub in one session Brian Beach" [ref=e405] [cursor=pointer]':
+            - /url: /blog/coordinating-changes-across-gitlab-and-github-in-one-session/
+            - time [ref=e408]: Jun 26, 2026
+            - paragraph [ref=e410]: "One Task, Two Providers: Coordinating Changes Across GitLab and GitHub in one session"
+            - generic [ref=e411]: Brian Beach
+          - link "Jun 25, 2026 From OpenAPI/Swagger specifications to test suite in seconds with Kiro Sumitha AP, Rajdeep Mukherjee" [ref=e414] [cursor=pointer]:
+            - /url: /blog/from-openapi-swagger-to-test-suite-in-seconds-with-kiro/
+            - time [ref=e417]: Jun 25, 2026
+            - paragraph [ref=e419]: From OpenAPI/Swagger specifications to test suite in seconds with Kiro
+            - generic [ref=e420]:
+              - generic [ref=e421]: Sumitha AP,
+              - text: Rajdeep Mukherjee
+          - link "Jun 25, 2026 Introducing Agent Focus Sharanya Balaji, Phill Shaffer" [ref=e424] [cursor=pointer]:
+            - /url: /blog/introducing-agent-focus/
+            - time [ref=e427]: Jun 25, 2026
+            - paragraph [ref=e429]: Introducing Agent Focus
+            - generic [ref=e430]:
+              - generic [ref=e431]: Sharanya Balaji,
+              - text: Phill Shaffer
+          - link "Jun 18, 2026 Introducing automations in Kiro on the web Kyle Seaman, Alex Jia" [ref=e434] [cursor=pointer]:
+            - /url: /blog/introducing-automations/
+            - time [ref=e437]: Jun 18, 2026
+            - paragraph [ref=e439]: Introducing automations in Kiro on the web
+            - generic [ref=e440]:
+              - generic [ref=e441]: Kyle Seaman,
+              - text: Alex Jia
+          - link "Jun 17, 2026 Introducing Kiro for iOS Kyle Seaman" [ref=e444] [cursor=pointer]:
+            - /url: /blog/introducing-kiro-for-ios/
+            - time [ref=e447]: Jun 17, 2026
+            - paragraph [ref=e449]: Introducing Kiro for iOS
+            - generic [ref=e450]: Kyle Seaman
+          - link "Jun 15, 2026 Introducing the Kiro merch store Helen Hasbun" [ref=e453] [cursor=pointer]:
+            - /url: /blog/kiro-merch-store/
+            - time [ref=e456]: Jun 15, 2026
+            - paragraph [ref=e458]: Introducing the Kiro merch store
+            - generic [ref=e459]: Helen Hasbun
+          - 'link "Jun 11, 2026 New in Kiro Web: Build with Spec, GitLab, and more Kyle Seaman" [ref=e462] [cursor=pointer]':
+            - /url: /blog/kiro-web-specs-gitlab/
+            - time [ref=e465]: Jun 11, 2026
+            - paragraph [ref=e467]: "New in Kiro Web: Build with Spec, GitLab, and more"
+            - generic [ref=e468]: Kyle Seaman
+          - 'link "Jun 11, 2026 Introducing Kiro Pro Max ($100/mo): more credits, less guesswork Ranjith Ramakrishnan, Dragos Ilinca" [ref=e471] [cursor=pointer]':
+            - /url: /blog/kiro-pro-max/
+            - time [ref=e474]: Jun 11, 2026
+            - paragraph [ref=e476]: "Introducing Kiro Pro Max ($100/mo): more credits, less guesswork"
+            - generic [ref=e477]:
+              - generic [ref=e478]: Ranjith Ramakrishnan,
+              - text: Dragos Ilinca
+          - link "May 29, 2026 Opus 4.8 is now available in Kiro Nima Kaviani, Nicole Shum" [ref=e481] [cursor=pointer]:
+            - /url: /blog/opus-4-8/
+            - time [ref=e484]: May 29, 2026
+            - paragraph [ref=e486]: Opus 4.8 is now available in Kiro
+            - generic [ref=e487]:
+              - generic [ref=e488]: Nima Kaviani,
+              - text: Nicole Shum
+          - 'link "May 21, 2026 Test Driven Development (TDD) with Kiro: this is how it should feel Mike George" [ref=e491] [cursor=pointer]':
+            - /url: /blog/how-tdd-should-feel/
+            - time [ref=e494]: May 21, 2026
+            - paragraph [ref=e496]: "Test Driven Development (TDD) with Kiro: this is how it should feel"
+            - generic [ref=e497]: Mike George
+          - link "May 18, 2026 Introducing Kiro Web Kyle Seaman" [ref=e500] [cursor=pointer]:
+            - /url: /blog/introducing-kiro-web/
+            - time [ref=e503]: May 18, 2026
+            - paragraph [ref=e505]: Introducing Kiro Web
+            - generic [ref=e506]: Kyle Seaman
+          - link "May 12, 2026 Specs just got faster (and smarter) Ankit Sharma" [ref=e509] [cursor=pointer]:
+            - /url: /blog/faster-smarter-specs/
+            - time [ref=e512]: May 12, 2026
+            - paragraph [ref=e514]: Specs just got faster (and smarter)
+            - generic [ref=e515]: Ankit Sharma
+          - 'link "May 12, 2026 Requirements analysis: catching requirement bugs before they become code Oyendrila Dobe, Jatin Arora, Stefan Zetzsche, Nadia Labai, Rémi Delmas" [ref=e518] [cursor=pointer]':
+            - /url: /blog/deep-spec-analysis/
+            - time [ref=e521]: May 12, 2026
+            - paragraph [ref=e523]: "Requirements analysis: catching requirement bugs before they become code"
+            - generic [ref=e524]:
+              - generic [ref=e525]: Oyendrila Dobe,
+              - generic [ref=e526]: Jatin Arora,
+              - generic [ref=e527]: Stefan Zetzsche,
+              - generic [ref=e528]: Nadia Labai,
+              - text: Rémi Delmas
+          - 'link "May 8, 2026 More room to explore: $20 paid tier sign-up bonus Ranjith Ramakrishnan, Dragos Ilinca" [ref=e531] [cursor=pointer]':
+            - /url: /blog/new-paid-tier-bonus/
+            - time [ref=e534]: May 8, 2026
+            - paragraph [ref=e536]: "More room to explore: $20 paid tier sign-up bonus"
+            - generic [ref=e537]:
+              - generic [ref=e538]: Ranjith Ramakrishnan,
+              - text: Dragos Ilinca
+          - link "May 7, 2026 Introducing Kiro Ambassadors Helen Hasbun" [ref=e541] [cursor=pointer]:
+            - /url: /blog/introducing-kiro-ambassadors/
+            - time [ref=e544]: May 7, 2026
+            - paragraph [ref=e546]: Introducing Kiro Ambassadors
+            - generic [ref=e547]: Helen Hasbun
+          - 'link "Apr 23, 2026 Build with Kiro: Introducing the community hub and Kiro Labs Helen Hasbun, Massimo Re Ferre, Alex Bello" [ref=e550] [cursor=pointer]':
+            - /url: /blog/introducing-community-and-labs/
+            - time [ref=e553]: Apr 23, 2026
+            - paragraph [ref=e555]: "Build with Kiro: Introducing the community hub and Kiro Labs"
+            - generic [ref=e556]:
+              - generic [ref=e557]: Helen Hasbun,
+              - generic [ref=e558]: Massimo Re Ferre,
+              - text: Alex Bello
+          - link "Apr 17, 2026 Opus 4.7 is now available in Kiro Nima Kaviani" [ref=e561] [cursor=pointer]:
+            - /url: /blog/opus-4-7/
+            - time [ref=e564]: Apr 17, 2026
+            - paragraph [ref=e566]: Opus 4.7 is now available in Kiro
+            - generic [ref=e567]: Nima Kaviani
+          - 'link "Apr 16, 2026 Root cause in 33 seconds: How Kiro CLI saved 4 years of build time Cameron Conradt, Sameer Bansal" [ref=e570] [cursor=pointer]':
+            - /url: /blog/root-cause-in-33s/
+            - time [ref=e573]: Apr 16, 2026
+            - paragraph [ref=e575]: "Root cause in 33 seconds: How Kiro CLI saved 4 years of build time"
+            - generic [ref=e576]:
+              - generic [ref=e577]: Cameron Conradt,
+              - text: Sameer Bansal
+        - navigation "Pagination" [ref=e579]:
+          - img [ref=e581]
+          - link "Page 1" [ref=e583] [cursor=pointer]:
+            - /url: /blog/
+            - generic [ref=e584]: "1"
+          - link "Page 2" [ref=e585] [cursor=pointer]:
+            - /url: /blog/page/2/
+            - generic [ref=e586]: "2"
+          - link "Page 3" [ref=e587] [cursor=pointer]:
+            - /url: /blog/page/3/
+            - generic [ref=e588]: "3"
+          - link "Go to page 2" [ref=e589] [cursor=pointer]:
+            - /url: /blog/page/2/
+            - img [ref=e590]
+  - contentinfo [ref=e592]:
+    - generic [ref=e594]:
+      - img "Kiro" [ref=e598]
+      - navigation "Footer Navigation" [ref=e599]:
+        - generic [ref=e600]:
+          - heading "Product" [level=2] [ref=e601]
+          - list [ref=e602]:
+            - listitem [ref=e603]:
+              - link "About Kiro" [ref=e604] [cursor=pointer]:
+                - /url: /about/
+            - listitem [ref=e605]:
+              - link "Agents" [ref=e606] [cursor=pointer]:
+                - /url: /agents/
+            - listitem [ref=e607]:
+              - link "IDE" [ref=e608] [cursor=pointer]:
+                - /url: /ide/
+            - listitem [ref=e609]:
+              - link "CLI" [ref=e610] [cursor=pointer]:
+                - /url: /cli/
+            - listitem [ref=e611]:
+              - link "Web" [ref=e612] [cursor=pointer]:
+                - /url: /web/
+            - listitem [ref=e613]:
+              - link "Mobile" [ref=e614] [cursor=pointer]:
+                - /url: /mobile/
+            - listitem [ref=e615]:
+              - link "Crew" [ref=e616] [cursor=pointer]:
+                - /url: /crew/
+            - listitem [ref=e617]:
+              - link "Pricing" [ref=e618] [cursor=pointer]:
+                - /url: /pricing/
+            - listitem [ref=e619]:
+              - link "Downloads" [ref=e620] [cursor=pointer]:
+                - /url: /downloads/
+        - generic [ref=e621]:
+          - heading "For" [level=2] [ref=e622]
+          - list [ref=e623]:
+            - listitem [ref=e624]:
+              - link "Enterprise" [ref=e625] [cursor=pointer]:
+                - /url: /enterprise/
+            - listitem [ref=e626]:
+              - link "Startups" [ref=e627] [cursor=pointer]:
+                - /url: /startups/
+            - listitem [ref=e628]:
+              - link "Students" [ref=e629] [cursor=pointer]:
+                - /url: /students/
+        - generic [ref=e630]:
+          - heading "Community" [level=2] [ref=e631]
+          - list [ref=e632]:
+            - listitem [ref=e633]:
+              - link "Overview" [ref=e634] [cursor=pointer]:
+                - /url: /community/
+            - listitem [ref=e635]:
+              - link "Ambassadors" [ref=e636] [cursor=pointer]:
+                - /url: /ambassadors/
+            - listitem [ref=e637]:
+              - link "Case studies" [ref=e638] [cursor=pointer]:
+                - /url: /case-studies/
+            - listitem [ref=e639]:
+              - link "Discord" [ref=e640] [cursor=pointer]:
+                - /url: /discord/
+            - listitem [ref=e641]:
+              - link "Events" [ref=e642] [cursor=pointer]:
+                - /url: /events/
+            - listitem [ref=e643]:
+              - link "Powers" [ref=e644] [cursor=pointer]:
+                - /url: /powers/
+            - listitem [ref=e645]:
+              - link "Shop" [ref=e646] [cursor=pointer]:
+                - /url: https://shop.kiro.dev
+            - listitem [ref=e647]:
+              - link "Showcase" [ref=e648] [cursor=pointer]:
+                - /url: /showcase/
+        - generic [ref=e649]:
+          - heading "Resources" [level=2] [ref=e650]
+          - list [ref=e651]:
+            - listitem [ref=e652]:
+              - link "Docs" [ref=e653] [cursor=pointer]:
+                - /url: /docs/
+            - listitem [ref=e654]:
+              - link "Blog" [ref=e655] [cursor=pointer]:
+                - /url: /blog/
+            - listitem [ref=e656]:
+              - link "Changelog" [ref=e657] [cursor=pointer]:
+                - /url: /changelog/
+            - listitem [ref=e658]:
+              - link "FAQs" [ref=e659] [cursor=pointer]:
+                - /url: /faq/
+            - listitem [ref=e660]:
+              - link "Videos" [ref=e661] [cursor=pointer]:
+                - /url: /videos/
+            - listitem [ref=e662]:
+              - link "Report a bug" [ref=e663] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new/choose
+            - listitem [ref=e664]:
+              - link "Suggest an idea" [ref=e665] [cursor=pointer]:
+                - /url: https://github.com/kirodotdev/Kiro/issues/new?template=feature_request.yml
+            - listitem [ref=e666]:
+              - link "Billing support" [ref=e667] [cursor=pointer]:
+                - /url: https://app.kiro.dev/settings/account
+        - generic [ref=e668]:
+          - heading "Social" [level=2] [ref=e669]
+          - list "Social" [ref=e670]:
+            - listitem [ref=e671]:
+              - link "Join our Discord community" [ref=e672] [cursor=pointer]:
+                - /url: https://discord.gg/kirodotdev
+                - img [ref=e673]
+            - listitem [ref=e675]:
+              - link "Follow us on LinkedIn" [ref=e676] [cursor=pointer]:
+                - /url: https://www.linkedin.com/showcase/kirodotdev
+                - img [ref=e677]
+            - listitem [ref=e679]:
+              - link "Follow us on X" [ref=e680] [cursor=pointer]:
+                - /url: https://x.com/kirodotdev
+                - img [ref=e681]
+            - listitem [ref=e683]:
+              - link "Follow us on Instagram" [ref=e684] [cursor=pointer]:
+                - /url: https://www.instagram.com/kirodotdev
+                - img [ref=e685]
+            - listitem [ref=e687]:
+              - link "Follow us on YouTube" [ref=e688] [cursor=pointer]:
+                - /url: https://www.youtube.com/@kirodotdev
+                - img [ref=e689]
+            - listitem [ref=e691]:
+              - link "Follow us on Bluesky" [ref=e692] [cursor=pointer]:
+                - /url: https://bsky.app/profile/kiro.dev
+                - img [ref=e693]
+            - listitem [ref=e696]:
+              - link "Follow us on Twitch" [ref=e697] [cursor=pointer]:
+                - /url: https://www.twitch.tv/kirodotdev
+                - img [ref=e698]
+    - generic [ref=e702]:
+      - link "AWS Amazon" [ref=e704] [cursor=pointer]:
+        - /url: https://aws.amazon.com
+        - img [ref=e705]
+      - generic [ref=e708]:
+        - link "Site Terms" [ref=e709] [cursor=pointer]:
+          - /url: https://aws.amazon.com/terms/
+        - link "License" [ref=e710] [cursor=pointer]:
+          - /url: /license/
+        - link "Responsible AI Policy" [ref=e711] [cursor=pointer]:
+          - /url: https://aws.amazon.com/ai/responsible-ai/policy/
+        - link "Legal" [ref=e712] [cursor=pointer]:
+          - /url: https://aws.amazon.com/legal/
+        - link "Privacy Policy" [ref=e713] [cursor=pointer]:
+          - /url: https://aws.amazon.com/privacy/
+        - link "Cookie Preferences" [ref=e714] [cursor=pointer]:
+          - /url: "#"
+        - button "Language options" [ref=e715] [cursor=pointer]:
+          - img [ref=e716]
+          - generic [ref=e718]: English
+          - img [ref=e720]
+  - alert [ref=e722]

@@ -1,0 +1,211 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e3]:
+    - navigation [ref=e5]:
+      - button "Skip to main content" [ref=e6] [cursor=pointer]:
+        - generic [ref=e7]: Skip to main content
+      - link "News from Google" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - img [ref=e10]
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - button "Innovation & AI" [ref=e15] [cursor=pointer]: Innovation & AI
+        - listitem [ref=e17]:
+          - button "Products & platforms" [ref=e18] [cursor=pointer]: Products & platforms
+        - listitem [ref=e20]:
+          - button "Company news" [ref=e21] [cursor=pointer]: Company news
+        - listitem [ref=e23]:
+          - link "Feed" [ref=e24] [cursor=pointer]:
+            - /url: /feed
+      - generic [ref=e25]:
+        - button "Search" [ref=e28] [cursor=pointer]:
+          - img [ref=e30]
+        - button "Secondary menu" [ref=e33] [cursor=pointer]:
+          - img [ref=e34]
+        - button "Newsletter" [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]: Newsletter
+  - main [ref=e38]:
+    - article [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - navigation "Breadcrumb" [ref=e45]:
+            - list [ref=e46]:
+              - listitem [ref=e47]:
+                - link "News from Google" [ref=e48] [cursor=pointer]:
+                  - /url: https://blog.google/
+                  - text: Home
+              - listitem [ref=e49]:
+                - img [ref=e50]
+                - link "Innovation & AI" [ref=e52] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/
+              - listitem [ref=e53]:
+                - img [ref=e54]
+                - link "Models & research" [ref=e56] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - heading "Google DeepMind" [level=1] [ref=e60]
+              - paragraph [ref=e63]:
+                - text: News from
+                - link "Google DeepMind" [ref=e64] [cursor=pointer]:
+                  - /url: https://deepmind.google/
+                - text: about how we're building AI responsibly to benefit everyone.
+            - generic [ref=e65]:
+              - navigation [ref=e66]:
+                - generic [ref=e68]:
+                  - paragraph [ref=e69]: Follow Us
+                  - list [ref=e70]:
+                    - listitem [ref=e71]:
+                      - link "RSS" [ref=e72] [cursor=pointer]:
+                        - /url: /innovation-and-ai/models-and-research/google-deepmind/rss/
+                        - img [ref=e73]
+              - img [ref=e75]
+        - generic [ref=e79]:
+          - link "Wavy pink and lavender pillars with glowing orange columns in the center." [ref=e80] [cursor=pointer]:
+            - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/alphagenome-atlas/
+            - img "Wavy pink and lavender pillars with glowing orange columns in the center." [ref=e82]
+          - 'generic "AlphaGenome Atlas: a high-resolution map of human DNA" [ref=e83]':
+            - paragraph [ref=e84]:
+              - link "This story is about Google DeepMind" [ref=e85] [cursor=pointer]:
+                - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/
+                - text: Google DeepMind
+            - 'link "AlphaGenome Atlas: a high-resolution map of human DNA We’re introducing AlphaGenome Atlas, a database predicting the effects of every possible single nucleotide variant in the human genome." [ref=e86] [cursor=pointer]':
+              - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/alphagenome-atlas/
+              - 'heading "AlphaGenome Atlas: a high-resolution map of human DNA" [level=2] [ref=e87]'
+              - paragraph [ref=e88]: We’re introducing AlphaGenome Atlas, a database predicting the effects of every possible single nucleotide variant in the human genome.
+      - generic [ref=e93]:
+        - heading "All the Latest" [level=2] [ref=e94]
+        - list [ref=e95]:
+          - listitem [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - generic [ref=e99]: Oct 15
+                - generic [ref=e100]: ·
+                - link "Google DeepMind" [ref=e101] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/
+              - link "TIME has named Google SynthID one of the Best Inventions of 2026." [ref=e102] [cursor=pointer]:
+                - /url: /innovation-and-ai/models-and-research/google-deepmind/synthid-time-best-inventions/
+                - heading "TIME has named Google SynthID one of the Best Inventions of 2026." [level=3] [ref=e103]
+          - listitem [ref=e105]:
+            - generic [ref=e106]:
+              - generic [ref=e107]:
+                - generic [ref=e108]: Oct 14
+                - generic [ref=e109]: ·
+                - link "Google DeepMind" [ref=e110] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/
+              - link "We’re powering European scientific discovery with advanced AI compute and frontier models." [ref=e111] [cursor=pointer]:
+                - /url: /innovation-and-ai/models-and-research/google-deepmind/were-powering-european-scientific-discovery-with-advanced-ai-compute-and-frontier-models/
+                - heading "We’re powering European scientific discovery with advanced AI compute and frontier models." [level=3] [ref=e112]
+          - listitem [ref=e114]:
+            - generic [ref=e115]:
+              - generic [ref=e116]:
+                - generic [ref=e117]: Oct 12
+                - generic [ref=e118]: ·
+                - link "Health" [ref=e119] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/technology/health/
+              - link "Applying technology to understand and treat disease" [ref=e120] [cursor=pointer]:
+                - /url: /innovation-and-ai/technology/health/ai-health-research/
+                - heading "Applying technology to understand and treat disease" [level=3] [ref=e121]
+          - listitem [ref=e123]:
+            - generic [ref=e124]:
+              - generic [ref=e125]:
+                - generic [ref=e126]: Oct 07
+                - generic [ref=e127]: ·
+                - link "Google DeepMind" [ref=e128] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/
+              - link "We're making it easier to identify AI-generated content globally." [ref=e129] [cursor=pointer]:
+                - /url: /innovation-and-ai/models-and-research/google-deepmind/synth-id-ai-content/
+                - heading "We're making it easier to identify AI-generated content globally." [level=3] [ref=e130]
+          - listitem [ref=e132]:
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - generic [ref=e135]: Oct 06
+                - generic [ref=e136]: ·
+                - link "Google DeepMind" [ref=e137] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/models-and-research/google-deepmind/
+              - 'link "EmbeddingGemma 2: an open, lightweight multimodal embedding model" [ref=e138] [cursor=pointer]':
+                - /url: /innovation-and-ai/technology/developers-tools/embeddinggemma-2/
+                - 'heading "EmbeddingGemma 2: an open, lightweight multimodal embedding model" [level=3] [ref=e139]'
+          - listitem [ref=e141]:
+            - generic [ref=e142]:
+              - generic [ref=e143]:
+                - generic [ref=e144]: Oct 02
+                - generic [ref=e145]: ·
+                - link "AI" [ref=e146] [cursor=pointer]:
+                  - /url: https://blog.google/innovation-and-ai/technology/ai/
+              - link "The latest AI news we announced in September 2026" [ref=e147] [cursor=pointer]:
+                - /url: /innovation-and-ai/technology/ai/google-ai-updates-september-2026/
+                - heading "The latest AI news we announced in September 2026" [level=3] [ref=e148]
+        - button "Load more stories" [ref=e150] [cursor=pointer]
+  - contentinfo [ref=e151]:
+    - link "The Google logo" [ref=e153] [cursor=pointer]:
+      - /url: https://www.google.com
+      - img [ref=e154]
+    - list [ref=e156]:
+      - listitem [ref=e157]:
+        - button "Privacy" [ref=e158] [cursor=pointer]:
+          - generic [ref=e159]: Privacy
+      - listitem [ref=e160]:
+        - button "Terms" [ref=e161] [cursor=pointer]:
+          - generic [ref=e162]: Terms
+      - listitem [ref=e163]:
+        - button "Help" [ref=e164] [cursor=pointer]:
+          - generic [ref=e165]: Help
+      - listitem [ref=e166]:
+        - generic [ref=e167]:
+          - combobox "More of Google" [ref=e168] [cursor=pointer]:
+            - option "More of Google" [selected]
+            - option "Google Products"
+            - option "About the Blog"
+          - generic:
+            - img
+      - listitem [ref=e169]:
+        - generic [ref=e170]:
+          - combobox "Change Region" [ref=e171] [cursor=pointer]:
+            - option "Global (English)" [selected]
+            - option "Africa (English)"
+            - option "Australia (English)"
+            - option "Brasil (Português)"
+            - option "Canada (English)"
+            - option "Canada (Français)"
+            - option "Česko (Čeština)"
+            - option "Deutschland (Deutsch)"
+            - option "España (Español)"
+            - option "France (Français)"
+            - option "Greece (Ελληνικά)"
+            - option "India (English)"
+            - option "Indonesia (Bahasa Indonesia)"
+            - option "Ireland (English)"
+            - option "Italia (Italiano)"
+            - option "日本 (日本語)"
+            - option "대한민국 (한국어)"
+            - option "Latinoamérica (Español)"
+            - option "Malaysia (English)"
+            - option "الشرق الأوسط وشمال أفريقيا (اللغة العربية)"
+            - option "MENA (English)"
+            - option "Nederlands (Nederland)"
+            - option "New Zealand (English)"
+            - option "Polska (Polski)"
+            - option "Portugal (Português)"
+            - option "România (Română)"
+            - option "Sverige (Svenska)"
+            - option "ประเทศไทย (ไทย)"
+            - option "Türkiye (Türkçe)"
+            - option "台灣 (中文)"
+          - generic:
+            - img
+    - list [ref=e172]:
+      - listitem [ref=e173]:
+        - button "Instagram" [ref=e174] [cursor=pointer]:
+          - img [ref=e177]
+      - listitem [ref=e179]:
+        - button "x.com" [ref=e180] [cursor=pointer]:
+          - img [ref=e183]
+      - listitem [ref=e185]:
+        - button "YouTube" [ref=e186] [cursor=pointer]:
+          - img [ref=e189]
+      - listitem [ref=e191]:
+        - button "Facebook" [ref=e192] [cursor=pointer]:
+          - img [ref=e195]
+      - listitem [ref=e197]:
+        - button "LinkedIn" [ref=e198] [cursor=pointer]:
+          - img [ref=e201]
