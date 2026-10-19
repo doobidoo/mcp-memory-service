@@ -61,7 +61,14 @@ class RetrieveMixin:
     """Mixin providing memory retrieval and search operations."""
 
     async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = 'default') -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search."""
+        """Retrieve memories using semantic search.
+
+        ``store`` defaults to ``'default'`` to preserve the historical contract for
+        internal callers that omit it (dedup, belief grouping, harvest). Passing
+        ``store=None`` explicitly means "every store" — the search handler does
+        that when the user did not constrain the scope (spec-store-visibility R1).
+        An explicit store value still restricts the search to that partition (R3).
+        """
         _telemetry_t0 = time.time()
         try:
             if not self.conn:
@@ -139,7 +146,7 @@ class RetrieveMixin:
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
-                           e.distance
+                           e.distance, m.store
                     FROM memories m
                     INNER JOIN (
                         SELECT rowid, distance
@@ -170,7 +177,7 @@ class RetrieveMixin:
             for row in search_results:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:]
+                    created_at, updated_at, created_at_iso, updated_at_iso, distance, origin_store = row[5:]
 
                     tags_list = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
@@ -184,7 +191,8 @@ class RetrieveMixin:
                         created_at=created_at,
                         updated_at=updated_at,
                         created_at_iso=created_at_iso,
-                        updated_at_iso=updated_at_iso
+                        updated_at_iso=updated_at_iso,
+                        store=origin_store
                     )
 
                     relevance_score = max(0.0, 1.0 - (float(distance) / 2.0)) if distance is not None else 0.0

@@ -53,6 +53,11 @@ class Memory:
     # Legacy timestamp field (maintain for backward compatibility)
     timestamp: datetime = field(default_factory=datetime.now)
 
+    # Origin store the memory lives in (`memories.store`). First-class so search
+    # results can tell the client where a hit came from (spec-store-visibility R2).
+    # None means "unknown/not fetched" — never inferred from the query scope.
+    store: Optional[str] = None
+
     def __post_init__(self):
         """Initialize timestamps and validate ontology after object creation."""
         # Synchronize the timestamps
