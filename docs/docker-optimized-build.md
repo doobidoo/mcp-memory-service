@@ -94,7 +94,7 @@ python scripts/installation/install.py
 python scripts/installation/install.py --with-ml
 
 # Then build Docker image
-docker build -t mcp-memory-service:full .
+docker build -f tools/docker/Dockerfile -t mcp-memory-service:full .
 ```
 
 ## Environment Variables
