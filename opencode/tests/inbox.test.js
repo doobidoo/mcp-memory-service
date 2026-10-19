@@ -6,7 +6,7 @@
 
 import { test } from "node:test"
 import assert from "node:assert"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, utimes } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -118,7 +118,7 @@ test("tag search excludes the configured agent and exact-old results", async () 
     }
   }
 
-  const memories = await searchInboxMemories(config, since, now, request)
+  const { memories } = await searchInboxMemories(config, since, now, request)
 
   assert.deepStrictEqual(memories.map((memory) => memory.id), ["other"])
   assert.strictEqual(calls.length, 1)
@@ -151,7 +151,7 @@ test("own messages cannot hide an older unread peer message", async () => {
     },
   })
 
-  const memories = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
+  const { memories } = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
     const { limit } = JSON.parse(init.body)
     return { results: limit ? rows.slice(0, limit) : rows }
   })
@@ -172,7 +172,7 @@ test("maxItems is clamped to the documented range", async () => {
     },
   }))
 
-  const memories = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
+  const { memories } = await searchInboxMemories(config, since, now, async (_config, _path, init) => {
     assert.strictEqual(JSON.parse(init.body).limit, undefined)
     return { results: rows }
   })
@@ -203,6 +203,59 @@ test("concurrent marker writes preserve every inbox", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test("an abandoned marker lock is recovered", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "opencode-inbox-stale-lock-"))
+  const stateFile = path.join(directory, "state.json")
+  const lockDirectory = `${stateFile}.lock`
+
+  try {
+    await mkdir(lockDirectory)
+    const staleTime = new Date(Date.now() - 60_000)
+    await utimes(lockDirectory, staleTime, staleTime)
+
+    await writeInboxMarker("recovered", "2026-10-15T09:00:00.000Z", stateFile)
+
+    const state = JSON.parse(await readFile(stateFile, "utf8"))
+    assert.strictEqual(state.markers.recovered, "2026-10-15T09:00:00.000Z")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("backlogged peer messages are delivered oldest-first without advancing past unread rows", async () => {
+  const config = inboxConfig({ maxItems: 2, checkIntervalMinutes: 5 })
+  const current = new Date("2026-10-15T10:00:00.000Z")
+  const previous = "2026-10-15T08:00:00.000Z"
+  const rows = ["08:30", "08:40", "08:50"].map((time, index) => ({
+    memory: {
+      content_hash: `peer-${index}`,
+      content: `peer message ${index}`,
+      tags: ["msg:cluster", "agent:peer"],
+      created_at_iso: `2026-10-15T${time}:00.000Z`,
+    },
+  }))
+  const writes = []
+  const checker = createInboxChecker({
+    config,
+    now: () => current,
+    readMarker: async () => previous,
+    writeMarker: async (_key, value) => { writes.push(value) },
+    search: (receivedConfig, since, now) => searchInboxMemories(
+      receivedConfig,
+      since,
+      now,
+      async () => ({ results: rows }),
+    ),
+  })
+
+  const first = await checker.check("session-1")
+  const second = await checker.check("session-1")
+
+  assert.deepStrictEqual(first.memories.map((memory) => memory.id), ["peer-0", "peer-1"])
+  assert.deepStrictEqual(second.memories.map((memory) => memory.id), ["peer-2"])
+  assert.deepStrictEqual(writes, ["2026-10-15T08:40:00.000Z", current.toISOString()])
 })
 
 test("checks the first prompt per session and throttles later prompts", async () => {

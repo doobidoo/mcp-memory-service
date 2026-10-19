@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import http from "node:http"
 import https from "node:https"
@@ -8,6 +8,7 @@ const STATUS_FILE = process.env.OPENCODE_MEMORY_STATUS_FILE
   || path.join(homedir(), ".local", "state", "opencode", ".memory-status.json")
 const INBOX_STATE_FILE = process.env.OPENCODE_MEMORY_INBOX_STATE_FILE
   || path.join(path.dirname(STATUS_FILE), ".memory-inbox-state.json")
+const INBOX_LOCK_STALE_MS = 30_000
 
 // TLS certificate verification stays on by default. Setting
 // allowSelfSignedCerts disables it for that request only, with a warning —
@@ -642,6 +643,16 @@ async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
       break
     } catch (error) {
       if (error?.code !== "EEXIST") throw error
+      try {
+        const lockAge = Date.now() - (await stat(lockDirectory)).mtimeMs
+        if (lockAge > INBOX_LOCK_STALE_MS) {
+          await rm(lockDirectory, { recursive: true, force: true })
+          continue
+        }
+      } catch (lockError) {
+        if (lockError?.code !== "ENOENT") throw lockError
+        continue
+      }
       if (Date.now() >= lockDeadline) {
         throw new Error(`Timed out waiting for inbox state lock: ${lockDirectory}`)
       }
@@ -698,7 +709,7 @@ async function searchInboxMemories(config, since, now, request = requestJson) {
     ? `agent:${config.inbox.agentId}`.toLowerCase()
     : null
 
-  return rows
+  const eligible = rows
     .map(normalizeMemory)
     .filter(Boolean)
     .filter((memory) => {
@@ -707,8 +718,25 @@ async function searchInboxMemories(config, since, now, request = requestJson) {
       if (!ownAgentTag) return true
       return !memory.tags.some((tag) => String(tag).toLowerCase() === ownAgentTag)
     })
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
-    .slice(0, maxItems)
+    .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+
+  let deliveryCount = Math.min(maxItems, eligible.length)
+  if (deliveryCount > 0 && deliveryCount < eligible.length) {
+    const boundary = Date.parse(eligible[deliveryCount - 1].createdAt)
+    while (
+      deliveryCount < eligible.length
+      && Date.parse(eligible[deliveryCount].createdAt) === boundary
+    ) deliveryCount += 1
+  }
+
+  const memories = eligible.slice(0, deliveryCount)
+  const hasMore = deliveryCount < eligible.length
+  return {
+    memories,
+    nextMarker: hasMore && memories.length
+      ? memories[memories.length - 1].createdAt
+      : null,
+  }
 }
 
 function inboxCheckDue(marker, now, intervalMinutes) {
@@ -750,8 +778,19 @@ function createInboxChecker({
     const since = marker
       ? new Date(marker)
       : new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000)
-    const memories = await search(config, since, checkedAt)
-    const nextMarker = checkedAt.toISOString()
+    const searchResult = await search(config, since, checkedAt)
+    const memories = Array.isArray(searchResult)
+      ? searchResult
+      : (searchResult?.memories || [])
+    const suggestedMarker = Array.isArray(searchResult)
+      ? null
+      : searchResult?.nextMarker
+    const completedAt = now()
+    const nextMarker = typeof suggestedMarker === "string"
+      && Number.isFinite(Date.parse(suggestedMarker))
+      && Date.parse(suggestedMarker) <= completedAt.getTime()
+      ? suggestedMarker
+      : completedAt.toISOString()
     await writeMarker(key, nextMarker, stateFile)
     marker = nextMarker
     checkedSessions.add(sessionID)
