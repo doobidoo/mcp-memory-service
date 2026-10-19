@@ -324,6 +324,12 @@ Examples:
         help="Preserve graph edges (by default they are wiped since similarity scores change)",
     )
     parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Run without asking for confirmation when the memory service appears to be running "
+             "(required in non-interactive contexts such as CI)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Report current state without making any changes",
@@ -375,11 +381,12 @@ Examples:
     print()
     service_stopped = check_service_not_running()
     if not service_stopped:
-        response = input("\n  Continue anyway? (y/N): ").strip().lower()
-        if response != "y":
-            print("  Migration cancelled.")
+        if not _confirm_continue(service_stopped, getattr(args, "yes", False),
+                                 sys.stdin.isatty()):
+            print("  Migration cancelled. Pass --yes to run without prompting.")
             conn.close()
-            sys.exit(0)
+            sys.exit(0 if sys.stdin.isatty() else 2)
+        print("  Service check bypassed.")
     else:
         print("  Service check OK.")
 
@@ -397,6 +404,22 @@ Examples:
         conn.close()
 
 
+def _confirm_continue(service_stopped: bool, assume_yes: bool, is_tty: bool) -> bool:
+    """Decide se a migração segue quando o serviço parece estar rodando.
+
+    A checagem de serviço é heurística e não distingue "o serviço desta base" de
+    "outro serviço da máquina". Em contexto não interativo (CI, testes) pedir
+    confirmação trava ou estoura EOF, então exige ``--yes`` explícito.
+    """
+    if service_stopped:
+        return True
+    if assume_yes:
+        return True
+    if not is_tty:
+        return False
+    return input("\n  Continue anyway? (y/N): ").strip().lower() == "y"
+
+
 def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     """Execute the destructive migration phases (2-5)."""
     # --- Phase 2: Prepare ---
@@ -410,11 +433,25 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     shutil.copy2(str(db_path), str(backup_path))
 
     print("  Reading active memories...")
-    rows = conn.execute(
-        "SELECT rowid, content FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
-    ).fetchall()
+    # Bancos antigos podem não ter a coluna ``store`` em ``memories``. Ler a coluna
+    # incondicionalmente quebraria a migração deles com "no such column: store".
+    memory_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(memories)").fetchall()
+    }
+    has_store_column = "store" in memory_columns
+    if has_store_column:
+        rows = conn.execute(
+            "SELECT rowid, content, store FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [r[2] for r in rows]
+    else:
+        rows = conn.execute(
+            "SELECT rowid, content FROM memories WHERE deleted_at IS NULL ORDER BY rowid"
+        ).fetchall()
+        contents = [r[1] for r in rows]
+        stores = [None] * len(rows)
     rowids = [r[0] for r in rows]
-    contents = [r[1] for r in rows]
     print(f"  Read {len(rows)} memories")
 
     # --- Phase 3: Generate new embeddings ---
@@ -446,7 +483,19 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
     print("Phase 4: Migrate database")
     print("=" * 60)
 
-    # Drop old vec0 table (virtual table DDL must be outside transactions)
+    # Drop old vec0 table (virtual table DDL must be outside transactions).
+    # A DDL original é capturada ANTES do drop: versões atuais do serviço criam
+    # ``memory_embeddings`` com coluna de partição (``store TEXT partition key``).
+    # Recriar sem ela quebra toda busca que filtra por store — o modo semantic
+    # passa a falhar com "no such column: store" e devolve zero resultados.
+    existing_ddl = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='memory_embeddings'"
+    ).fetchone()
+    existing_sql = (existing_ddl[0] or "") if existing_ddl else ""
+    partition_cols = re.findall(r"(\w+)\s+TEXT\s+partition key", existing_sql, re.I)
+    if partition_cols:
+        print(f"  Preserving partition key(s): {', '.join(partition_cols)}")
+
     print("  Dropping old memory_embeddings table...")
     conn.execute("DROP TABLE IF EXISTS memory_embeddings")
     conn.commit()
@@ -459,22 +508,40 @@ def _run_migration(args, conn, db_path, stats, target_dims, api_key):
         sys.exit(1)
 
     print(f"  Creating new vec0 table at FLOAT[{target_dims}]...")
-    conn.execute(
-        f"CREATE VIRTUAL TABLE memory_embeddings USING vec0("
-        f"content_embedding FLOAT[{target_dims}] distance_metric=cosine"
-        f")"
-    )
+    if partition_cols:
+        # Reaproveita a DDL original, trocando apenas a dimensão do vetor.
+        new_sql = re.sub(
+            r"FLOAT\[\d+\]", f"FLOAT[{target_dims}]", existing_sql, flags=re.I
+        )
+        conn.execute(new_sql)
+    else:
+        conn.execute(
+            f"CREATE VIRTUAL TABLE memory_embeddings USING vec0("
+            f"content_embedding FLOAT[{target_dims}] distance_metric=cosine"
+            f")"
+        )
     conn.commit()
 
     print(f"  Inserting {len(embeddings)} embeddings...")
     t0 = time.time()
     conn.execute("BEGIN")
-    data_to_insert = (
-        (rowid, serialize_float32(emb))
-        for rowid, emb in zip(rowids, embeddings)
-    )
+    if partition_cols and has_store_column:
+        cols = ", ".join(["rowid", "content_embedding"] + partition_cols)
+        marks = ", ".join("?" for _ in range(2 + len(partition_cols)))
+        store_of = dict(zip(rowids, stores))
+        data_to_insert = (
+            tuple([rowid, serialize_float32(emb)] + [store_of.get(rowid)] * len(partition_cols))
+            for rowid, emb in zip(rowids, embeddings)
+        )
+    else:
+        cols = "rowid, content_embedding"
+        marks = "?, ?"
+        data_to_insert = (
+            (rowid, serialize_float32(emb))
+            for rowid, emb in zip(rowids, embeddings)
+        )
     conn.executemany(
-        "INSERT INTO memory_embeddings (rowid, content_embedding) VALUES (?, ?)",
+        f"INSERT INTO memory_embeddings ({cols}) VALUES ({marks})",
         data_to_insert,
     )
     conn.commit()
