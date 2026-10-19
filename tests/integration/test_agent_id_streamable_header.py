@@ -281,3 +281,123 @@ async def test_ca3_no_header_falls_back_to_env(service):
         f"regressão no fallback de env: agent_id gravado={stored.get(content)!r}, "
         f"esperado '{ENV_AGENT}' (MCP_AGENT_ID sem header)"
     )
+
+
+# --------------------------------------------------------------------------- #
+# CA4 estendido — evolve honra o header (R2: precedência nos 3 caminhos)
+# --------------------------------------------------------------------------- #
+
+async def test_ca4_evolve_header_sets_author(service):
+    """CA4 estendido / R2: evoluir uma memória com X-Agent-ID e SEM argumento
+    agent_id → a NOVA versão carrega o autor do header.
+
+    O caminho de escrita ``evolve_memory`` (harvest) ignorava o header em main
+    (usava ``env or metadata``). A correção roteia os TRÊS caminhos de escrita
+    pelo mesmo ``resolve_agent_id``; aqui provamos o caminho de evolve.
+
+    Transporte NÃO mockado: o serviço streamable real está no ar (prova viva de
+    CA1/CA2); a semente é gravada pelo transporte real com o header. A evolução
+    usa o MESMO mecanismo que o middleware ASGI usa para propagar o header — o
+    ContextVar real (``set_current_agent_id``), que é exatamente a função que
+    ``startup_orchestrator`` chama por requisição. Lê-se de volta pelo storage
+    real (``get_all_memories``), como o resto desta suíte.
+    """
+    from mcp_memory_service.services.memory_service import MemoryService
+    from mcp_memory_service.utils.agent_context import (
+        reset_current_agent_id,
+        set_current_agent_id,
+    )
+
+    seed = "ca4 evolve seed :: uniq-evolve"
+    # Semente gravada pelo transporte real, carimbada pelo header 'alfa'.
+    await _store_via_header(service.mcp_url, "alfa", seed)
+
+    storage = SqliteVecMemoryStorage(service.db_path)
+    await storage.initialize()
+    try:
+        before = await storage.get_all_memories()
+        seed_hash = next(m.content_hash for m in before if m.content == seed)
+
+        svc = MemoryService(storage)
+        # O middleware liga o header num ContextVar por requisição; reproduzimos
+        # EXATAMENTE isso (sem mock) para provar que evolve_memory o consulta.
+        token = set_current_agent_id("gamma")
+        try:
+            ok, _msg, new_hash = await svc.evolve_memory(
+                seed_hash,
+                "ca4 evolve seed :: uniq-evolve (evolved v2)",
+                reason="test evolve header author",
+            )
+        finally:
+            reset_current_agent_id(token)
+
+        assert ok and new_hash and new_hash != seed_hash
+        evolved = await storage.get_by_hash(new_hash)
+        assert evolved is not None
+        assert evolved.agent_id == "gamma", (
+            f"evolve ignorou o header: agent_id da nova versão={evolved.agent_id!r}, "
+            "esperado 'gamma' (header > env > metadata na precedência única)"
+        )
+    finally:
+        await storage.close()
+
+
+# --------------------------------------------------------------------------- #
+# R5 — log DEBUG com a ORIGEM da resolução (sem o valor do header em produção)
+# --------------------------------------------------------------------------- #
+
+async def test_r5_debug_log_reports_origin(caplog):
+    """R5: uma linha DEBUG por chamada nomeando a origem da resolução.
+
+    origem='header' quando veio do ContextVar; origem='env' quando não veio e
+    o MCP_AGENT_ID está setado. O valor é mascarado (nunca o header cru).
+    Não depende do transporte: exercita o ponto único ``resolve_agent_id`` +
+    ``log_agent_id_resolution`` que os três caminhos de escrita chamam.
+    """
+    import logging
+
+    from mcp_memory_service.utils import agent_context
+    from mcp_memory_service.utils.agent_context import (
+        log_agent_id_resolution,
+        reset_current_agent_id,
+        resolve_agent_id,
+        set_current_agent_id,
+    )
+
+    logger_name = agent_context.logger.name
+
+    # Caso 1: header presente → origin=header, valor mascarado (não 'tpolsecret').
+    token = set_current_agent_id("tpolsecret")
+    try:
+        with caplog.at_level(logging.DEBUG, logger=logger_name):
+            res = resolve_agent_id(explicit=None, metadata=None, default=None)
+            log_agent_id_resolution(res, context="store_memory")
+    finally:
+        reset_current_agent_id(token)
+
+    assert res.origin == "header"
+    header_lines = [r.getMessage() for r in caplog.records if r.name == logger_name]
+    assert any("origin=header" in m for m in header_lines), header_lines
+    # Produção-safe: o valor cru nunca aparece no log.
+    assert all("tpolsecret" not in m for m in header_lines), header_lines
+
+    caplog.clear()
+
+    # Caso 2: sem header, MCP_AGENT_ID setado → origin=env.
+    import os
+
+    prev = os.environ.get("MCP_AGENT_ID")
+    os.environ["MCP_AGENT_ID"] = "envbot"
+    try:
+        with caplog.at_level(logging.DEBUG, logger=logger_name):
+            res_env = resolve_agent_id(explicit=None, metadata=None, default=None)
+            log_agent_id_resolution(res_env, context="evolve_memory")
+    finally:
+        if prev is None:
+            os.environ.pop("MCP_AGENT_ID", None)
+        else:
+            os.environ["MCP_AGENT_ID"] = prev
+
+    assert res_env.origin == "env"
+    env_lines = [r.getMessage() for r in caplog.records if r.name == logger_name]
+    assert any("origin=env" in m for m in env_lines), env_lines
