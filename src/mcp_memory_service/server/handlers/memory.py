@@ -223,7 +223,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
     metadata = arguments.get("metadata", {})
 
     if not content:
-        return [types.TextContent(type="text", text="Error: Content is required")]
+        # Nothing to store: must not look like success (#1601).
+        raise ValueError("Content is required")
 
     try:
         # Initialize storage lazily when needed (also initializes memory_service)
@@ -263,6 +264,15 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             # report isError=False while nothing was stored, so automation counted
             # it as success (#1601). Raise: the SDK answers isError=True.
             raise RuntimeError(f"Error storing memory: {error_msg}")
+
+        # Partial writes are failures too: some chunks never reached the database,
+        # so reporting success lets a harvester skip them permanently (#1601).
+        failed_chunks = result.get("failed_chunks") or 0
+        if failed_chunks:
+            raise RuntimeError(
+                f"Error storing memory: {failed_chunks} of "
+                f"{result.get('total_chunks', '?')} chunks failed to store"
+            )
 
         if "memories" in result:
             # Chunked response - multiple memories created
@@ -499,7 +509,8 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         if content:
             lines.append(f"[{role}] {content}")
     if not lines:
-        return [types.TextContent(type="text", text="Error: all turns have empty content")]
+        # Nothing to store: raise so the envelope reports a failure (#1601).
+        raise ValueError("all turns have empty content")
 
     full_content = "\n".join(lines)
     base_tags = [f"session:{session_id}"] + extra_tags

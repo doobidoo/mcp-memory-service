@@ -57,3 +57,64 @@ async def test_accepted_write_keeps_iserror_false(service):
     """Guarda: gravação aceita continua com isError=False."""
     result = await _store(service.mcp_url, f"envelope ok {uuid.uuid4()}")
     assert not result.isError
+
+
+@pytest.mark.asyncio
+async def test_empty_content_reports_iserror(service):
+    """Payload vazio não grava nada, então não pode parecer sucesso (Greptile P1)."""
+    async with streamablehttp_client(service.mcp_url) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("memory_store", {"content": ""})
+    assert result.isError is True
+
+
+@pytest.mark.asyncio
+async def test_empty_session_reports_iserror(service):
+    """Sessão cujos turnos são só espaço não grava nada — e deve falhar (Greptile P1)."""
+    async with streamablehttp_client(service.mcp_url) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "memory_store_session",
+                {"turns": [{"role": "user", "content": "   "}]},
+            )
+    assert result.isError is True
+
+
+def test_wrap_tool_result_marks_error():
+    """O caminho HTTP (sem wrapper do SDK) precisa poder marcar isError (Greptile P1)."""
+    import mcp.types as types
+
+    from mcp_memory_service.web.api.mcp import _wrap_tool_result
+
+    ok = _wrap_tool_result([types.TextContent(type="text", text="stored")])
+    assert "isError" not in ok or ok["isError"] is False
+
+    failed = _wrap_tool_result([types.TextContent(type="text", text="boom")], is_error=True)
+    assert failed["isError"] is True
+    assert failed["content"][0]["text"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_partial_chunks_report_iserror():
+    """Chunks que falharam não podem sair como sucesso (Greptile P1).
+
+    ``MemoryService.store_memory`` devolve ``success: True`` com ``failed_chunks``
+    positivo quando parte dos chunks não entrou; o handler precisa tratar isso
+    como falha, senão a colheita pula conteúdo que nunca foi salvo.
+    """
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    class _FakeService:
+        async def store_memory(self, **kwargs):
+            return {"success": True, "memories": [], "total_chunks": 3, "failed_chunks": 1}
+
+    class _FakeServer:
+        memory_service = _FakeService()
+
+        async def _ensure_storage_initialized(self):
+            return None
+
+    with pytest.raises(RuntimeError, match="chunks failed to store"):
+        await handle_store_memory(_FakeServer(), {"content": "conteudo com chunks"})
