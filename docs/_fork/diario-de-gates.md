@@ -540,3 +540,15 @@ O `memory_store` devolve **erro de negócio com `isError: false`**:
 Cliente que confia em `isError` reporta gravação bem-sucedida que não aconteceu. É contrato de
 API, não autoria — precisa de issue própria. Descoberto porque a primeira sonda de `CA3` foi
 absorvida por dedup e o endpoint disse "ok".
+
+### E13.4 Publicacao upstream (19/out)
+
+- Issue **#1597** (bug, com evidencia de dois registros e enquadramento correto: o header e
+  documentado no upstream desde #1100 Fase 2 / PR #1297, mas **inerte** no transporte
+  streamable — nao e "feature inexistente", e "feature sem ponte no caminho que o servico usa").
+- Claim comentado na issue antes do PR (o `Claim Check` passou).
+- PR **#1598** — recorte limpo de `upstream/main` em worktree proprio (`~/git/mms/pr-agent-id`):
+  6 arquivos, nada fork-only, `changelog.d/1597.fixed.md` presente.
+- CI parcial no momento do registro: `Changed tests fail without the change` **pass** (56 s),
+  CodeQL pass, Analyze Python pass, changelog pass, claim pass. Pendentes: suites completas e
+  Greptile.
