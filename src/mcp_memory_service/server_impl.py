@@ -87,6 +87,7 @@ except (ImportError, AttributeError):
 # Package imports
 from .dependency_check import get_recommended_timeout
 from .utils.hashing import generate_content_hash
+from .utils.agent_context import log_agent_id_resolution, resolve_agent_id
 from .config import (
     BACKUPS_PATH,
     SERVER_NAME,
@@ -1955,7 +1956,14 @@ class MemoryServer:
 
         # §9: auto_commit — bridge harvest candidates to commit_session_legacy
         auto_commit = arguments.get("auto_commit", False)
-        auto_commit_agent_id = arguments.get("agent_id", os.getenv("MCP_AGENT_ID", "unknown"))
+        # Single shared precedence (RFC #1100 + spec-agent-id-streamable R2):
+        # explicit arg > request header > MCP_AGENT_ID env > metadata, with the
+        # auto_commit-specific fallback 'unknown' when nothing resolves.
+        _auto_commit_resolution = resolve_agent_id(
+            explicit=arguments.get("agent_id"), default="unknown"
+        )
+        log_agent_id_resolution(_auto_commit_resolution, context="auto_commit")
+        auto_commit_agent_id = _auto_commit_resolution.agent_id
         if auto_commit and not config.dry_run and results:
             auto_commit_results = []
             for r in results:
@@ -2251,6 +2259,7 @@ class MemoryServer:
                     "source": "observation",
                     "outcome": outcome,
                 },
+                agent_id=agent_id,
             )
             observations_created += 1
 
@@ -2277,6 +2286,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2293,6 +2303,7 @@ class MemoryServer:
                         "agent_id": agent_id,
                         "source": "observation",
                     },
+                    agent_id=agent_id,
                 )
                 observations_created += 1
 
@@ -2443,6 +2454,7 @@ class MemoryServer:
                     "observation_type": "session_legacy",
                     "source": "observation",
                 },
+                agent_id=agent_id,
             )
         except Exception as e:
             logger.debug("Failed to increment session counter: %s", _sanitize_log_value(e))
