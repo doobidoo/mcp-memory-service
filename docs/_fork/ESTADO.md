@@ -178,7 +178,7 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │           ├─ D1 convivência .......................... ✅ HÍBRIDO — provider desligado É o estado correto
 │           ├─ D2 provider plugin ...................... 🟡 adiado · moraria em $HERMES_HOME/plugins/mms/
 │           ├─ D3 diagnóstico e degradação ............. 🔴 `mms-doctor` (6 checks + reparo seguro, ≤10 s)
-│           ├─ D4 autoria X-Agent-ID ................... ✅ MERGED #1598 (d6d3fd47, 19/out 19:15Z) · 🔴 ausente no fork local
+│           ├─ D4 autoria X-Agent-ID ................... ✅ MERGED #1598 (d6d3fd47, 19/out 19:15Z) · ✅ integrado no fork (c675458c)
 │           ├─ D5 importer do state.db ................. 🔴 construído e NUNCA aplicado · dry-run 77/113 sessões
 │           ├─ D6 hooks TUI/CLI ........................ ✅ funciona desde 0.22.2 (3094cde513, 07/set)
 │           ├─ D7 instalador de 1ª classe .............. 🔴 a entregar · checklist 8 itens · `scripts/hermes/`

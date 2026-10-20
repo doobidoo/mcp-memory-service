@@ -775,3 +775,202 @@ que dependia do caminho silencioso.
 - Suite integracao+web: **507 passed** (base limpa `476db1c8`: 501, +6 testes novos).
 - CI do PR: 17 pass, 1 skipping, 0 fail.
 - Fork sincronizado: `be9a1636`.
+
+## E20 — Reranker com intervalo de confianca (20/out)
+
+Matriz fechada com **bootstrap pareado** (10.000 reamostragens sobre os 120 casos, IC 95%),
+script proprio `eval/rerank_ci.py` (o `onnx_rerank.py` publica so agregados).
+
+| candidatos | recall@10 | ganho | IC95 | melhoraram | pioraram | p50 |
+|---|---|---|---|---|---|---|
+| base | 0,5667 | — | — | — | — | 0,19-0,28 s |
+| **40** | **0,6667** | **+10,0 p.p.** | **[+5,0 · +15,8]** | 12 | **0** | 2,10 s |
+| **100** | **0,7333** | **+16,7 p.p.** | **[+10,0 · +23,3]** | 20 | **0** | 5,31 s |
+
+**Multilingue REJEITADO com numero:** `bge-reranker-v2-m3` int8 (545 MB) da 0,6750 @10 com 40
+candidatos = **+0,83 p.p. sobre o bge-base por 6,5x a latencia** (13,7 s vs 2,1 s) e o dobro do
+disco. Ganho concentrado em @5 (0,675 vs 0,642) — so importa se o cliente mostra 5 e nunca 10.
+
+**Propriedade mais forte que a media:** zero casos pioraram nos dois cortes, em 120 casos. O
+reranker promove, nao troca acerto por erro.
+
+**Validacao do instrumento:** o script reproduziu exatamente os valores ja conhecidos
+(0,6667 com 40; 0,7333 com 100) — nao foi ajustado para a conclusao.
+
+**Licao de metodo:** ganho de recall reportado sem intervalo e anedota. Com n=120, +10 p.p. tem
+piso de +5 p.p.; o numero so vira decisao quando o piso tambem vale a pena.
+
+Publicado na #1602 (com a pergunta ao Henry sobre onde ligar) e na #1095 (D5 do ramo UIAA/hermes).
+
+## E21 — D3 (mms-doctor): 25 testes verdes, quatro falsos positivos (20/out)
+
+Primeira rodada do doctor entregou **25/25 verdes**. Rodando no host real, ele **mentiu em quatro
+checks**. Nenhum dos 25 testes pegaria, porque as fixtures descrevem um mundo mais ideal que o host.
+
+| # | defeito | o que a fixture não tinha |
+|---|---|---|
+| B1 | `sync` com limite fixo de 300 s acusava "cursor parado" com 12 min de idade | o cron real é de 30 min |
+| B2 | `embeddings` comparava totais e acusava 6 "orfaos" que eram **tombstones legitimos** | memoria deletada com embedding |
+| B3 | porta assumida (8765 do codigo) reprovava host saudavel em 3202 | env-file do servico |
+| B4 | banco sem schema levantava `OperationalError` e derrubava o doctor | fixture sempre cria as tabelas |
+
+O B4 e o mais grave: quebrava exatamente no cenario do E2E do instalador — **banco zerado**.
+
+**Licao:** teste verde prova que o codigo faz o que o teste diz; nao prova que o teste descreve o
+mundo. Quando o instrumento mede o proprio regime, a fixture precisa vir do regime (cron, env, banco
+com tombstones), senao ele aprova a si mesmo.
+
+**Achado de processo:** o agente de implementacao travou ao encontrar um teste antigo que exigia as
+contagens "3" e "5" na evidencia — interpretou como conflito com a correcao. Nao era: o teste so
+exigia que as contagens aparecessem. Faltou a evidencia citar `vivas/com_embedding/faltando`.
+Corrigido em duas linhas. Um teste que parece congelar defeito pode apenas estar pedindo numero.
+
+**G6 medido no host real, sem `--port`:** seis checks verdes, exit 0 —
+`health OK · port declarado=3202 ouvido=3202 · version OK · sync OK · author OK · embeddings vivas=29141 com_embedding=29141 faltando=0`.
+
+## E22 — O doctor derrubou o servico tres vezes (20/out)
+
+O `mms-doctor` foi entregue com 35 testes verdes e, ao ser executado no host real, **deixou o
+`memory-service` fora do ar tres vezes**. Nao foi bug de logica: foi desenho de reparo.
+
+### Mecanismo
+
+1. O servico leva ~30 s para ficar pronto (`Dependencies missing, extending base timeout to 30.0s`).
+2. O check de `health` falhava (por porta errada ou por start em andamento).
+3. O reparo disparava `systemctl restart` **sem olhar o estado da unit**.
+4. Cada execucao somava um restart; o start nunca completava.
+5. systemd entrou em `start-limit-hit`: **40 eventos de start-limit em 3 minutos**, servico `failed`.
+
+Recuperacao: `systemctl --user reset-failed` + `start` + esperar ~25 s de readiness.
+
+### Correcao (R3-bis)
+
+- Ler `systemctl is-active` ANTES de reiniciar; nunca reiniciar em `activating`/`reloading`/`active`.
+- Porta errada nao e motivo de restart (e configuracao, nao processo).
+- Depois do restart, aguardar readiness com backoff antes de declarar falha.
+- R3-ter: o relatorio diz que houve intervencao, com estado da unit antes e depois.
+
+**Licao central:** ferramenta de diagnostico com poder de reparo e arma carregada. O padrao "se nao
+responde, reinicia" e correto para servico que sobe em 1 s e destrutivo para servico que sobe em 30 s.
+Antes de dar a uma ferramenta o poder de agir, ela precisa saber distinguir "quebrado" de "nascendo".
+
+**Licao secundaria:** os 35 testes nao pegariam — todos injetam `restart_service` como mock, entao
+nenhum deles exercita a decisao de reiniciar. O que e injetado como fronteira nao e testado; a
+decisao de chamar a fronteira precisa de teste proprio.
+
+## E23 — G5 achou o buraco da propria correcao (20/out)
+
+Depois do incidente do E22, corrigi o doctor com uma guarda: nao reiniciar unit em
+`activating`/`reloading`/`active`. Os 39 testes passaram. O G5 (tuvok) deu **NEEDS_CHANGES**.
+
+### O achado (B1.1)
+
+`main()` sempre passa `health_get`. A regra que eu chamava de "boundary hygiene" fazia
+`injected = health_get is not None or restart_service is not None` e, quando verdadeira, forcava
+`unit_state="unknown"`. Como `main()` sempre passa `health_get`, `injected` era **sempre** verdadeiro:
+a guarda dentro de `_check_health` era **codigo morto no caminho real da CLI**.
+
+Quem impedia o restart era a guarda interna de `_default_restart_service` — protecao por **acidente de
+composicao**, nao por desenho. O revisor provou o dano: com `health_get` injetado + `restart_service`
+custom + unit `active`, ocorreram **3 restarts cegos**.
+
+### O segundo achado, sobre mim
+
+Meu teste do B1.1 era **decorativo**: passava `unit_state=` explicitamente, entao reverter a correcao
+nao o derrubava. Refiz para exercitar o caminho default (patch em `_default_unit_state`) e provei
+load-bearing: reverter a guarda -> **1 failed**.
+
+**Licao:** corrigir o sintoma ("nao reinicie servico nascendo") nao basta se a **decisao** fica
+escondida atras de uma conveniencia para testes. A guarda precisa existir **e** ser alcancavel no
+caminho que a producao usa. Teste que fornece explicitamente o insumo da decisao nao testa a decisao.
+
+### Correcoes (commit 4a64010b)
+
+- `unit_state` passa a ser parametro explicito; default = `_default_unit_state` (estado real), sempre.
+- `conftest` declara o ambiente de testes patcheando `_default_unit_state` para "failed".
+- leitura de `MCP_DOCTOR_READY_TIMEOUT` tolerante a valor nao numerico (P1.2).
+- `_default_restart_service` tolerante a host sem systemd (P1.3) — verificado: retorna sem levantar.
+- 10 testes novos; 49 no total; CA5 provado por hash do banco identico antes/depois.
+
+## E24 — D3 FECHADO (20/out): G5 liberou para G6
+
+Terceira rodada do G5 (escopo de duas perguntas) fechou o item:
+
+- **P1: FECHADO** — `run_checks` tem default incondicional `unit_state = _default_unit_state`.
+  Prova de sabotagem do revisor: trocar por `lambda: "unknown"` -> `1 failed, 48 passed`
+  (`test_run_checks_does_not_restart_an_activating_unit`, "an activating unit must never be restarted").
+- **P2: NAO** — nenhum dos 49 testes passa por construcao.
+- Frase do parecer: "D3 liberado para G6".
+
+### G6 medido (09:47)
+
+`health OK · port declarado=3202 ouvido=3202 · version OK · sync OK · author OK ·
+embeddings vivas=29149 com_embedding=29149 faltando=0` -> **EXIT=0**, servico `active`, 49 testes.
+
+**Licao de metodo:** a terceira rodada funcionou porque o escopo era de DUAS perguntas com evidencia
+obrigatoria. As duas anteriores (revisao aberta, 748 s e 20 s) nao entregaram parecer. Delegacao de
+revisao precisa de pergunta fechada e criterio de resposta — senao o revisor explora e estoura.
+
+## E25 — D7: o E2E achou 5 defeitos que 20 testes verdes nao pegaram (20/out)
+
+G6 do instalador, Hermes temporario e banco zerado, SEM mock. Primeira execucao: "instalado",
+EXIT=0 — e nada registrado. Cinco defeitos reais:
+
+1. **`hermes mcp add` e interativo** e cancela sem stdin, retornando 0. O instalador reportava
+   sucesso sem registrar o servidor. `echo "Y"` tambem cancelava: precisou de `input="Y\n" * 5`.
+2. **`default_executor` rodava subprocess direto**, entao o stdin nunca chegava ao comando.
+   Dois caminhos de execucao — o mock dos testes cobria um, o CLI usava outro.
+3. **`hermes config get` nao existe** (so show/edit/set/path/env-path/check/migrate): a deteccao
+   sempre falhava e reinstalava tudo em toda execucao.
+4. **`hermes config unset` nao existe**: o undo de config falhava; corrigido para `set <chave> false`.
+5. **`verify_installation` nunca era chamado**: o R5 existia no codigo e nao no fluxo. Agora grava
+   uma sonda e busca de volta — em banco zerado, 1 memoria apos instalar.
+
+Bonus sobre o ambiente: `HERMES_HOME` estava exportado na sessao e um teste passou a escrever fora do
+`tmp_path`; a sonda de verificacao vazou para o banco de PRODUCAO (removida, e o teste agora faz
+`monkeypatch.delenv`).
+
+### E2E medido
+
+```
+1a execucao -> instalado (porta 3298) · banco 0 -> 1 memoria (sonda verificada)
+2a execucao -> "nada a fazer: instalacao ja completa"
+uninstall   -> mcp remove + skills/hooks false · mcp list: "No MCP servers configured"
+20 testes, 0.53 s
+```
+
+**Licao:** 20 testes verdes e instalador que nao instala. Os testes cobriam funcoes e o artefato e a
+COMPOSICAO. Nenhum mock, em banco zerado, foi o unico juiz honesto.
+
+## E26 — D7 APROVADO: arco UIAA/hermes FECHADO (20/out)
+
+G5 final (commit 8e99d76b) respondeu as duas perguntas:
+
+- **Q1 — B1 fechado: SIM.** `verify_mcp_registered` roda depois das acoes e antes do print de
+  sucesso; nao ha `return 0` entre execucao e checagem. Os tres cenarios (servico ja no ar,
+  execucao repetida, `mcp add` saindo 0 sem registrar) fechados.
+- **Q2 — algum teste por construcao: NAO.** 22 passed, sem skip/xfail; o teste negativo prova que
+  remover o post-check derruba a suite.
+
+### Placar do arco
+
+| item | prova |
+|---|---|
+| D1 convivencia | provider desligado (decisao) |
+| D3 doctor | 49 testes · G5 aprovado com sabotagem · G6 6/6 no host |
+| D4 autoria | #1598 mergeado · provado nesta instancia (`agent_id: tpol`) |
+| D6 hooks | medido (mms_agent_stamp, inbox_mms_hook) |
+| D7 instalador | 22 testes · E2E em Hermes limpo + banco zerado · idempotente · uninstall cirurgico |
+| D8 docs | docs/agents/hermes.md |
+
+Fora do arco por decisao: D5 (state.db), D2 (provider), D9 (upgrade, Discussion #1609),
+Windows nativo (VM depois).
+
+### Metodo que ficou
+
+1. **Delegacao de revisao precisa de pergunta fechada.** Duas rodadas abertas nao entregaram parecer
+   (748 s e 20 s); as de 2-3 perguntas com evidencia obrigatoria fecharam em 60-80 s.
+2. **Nenhum mock no teste final.** 20 testes verdes conviveram com um instalador que dizia
+   "instalado" e nao registrava nada. Cinco defeitos so apareceram no E2E real.
+3. **Achar o defeito nao e corrigir**: em tres rodadas o G5 achou o furo, e em duas delas a minha
+   primeira correcao criou outro (guarda inalcancavel; teste que injetava o proprio insumo).
