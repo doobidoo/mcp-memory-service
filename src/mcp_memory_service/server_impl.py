@@ -88,6 +88,7 @@ except (ImportError, AttributeError):
 from .dependency_check import get_recommended_timeout
 from .utils.hashing import generate_content_hash
 from .utils.agent_context import log_agent_id_resolution, resolve_agent_id
+from .utils.tool_rate_limit import ToolRateLimiter, resolve_caller_identity
 from .config import (
     BACKUPS_PATH,
     SERVER_NAME,
@@ -333,6 +334,10 @@ class MemoryServer:
         # Register handlers
         self.register_handlers()
         logger.info("Server initialization complete")
+
+        # Per-caller sliding-window limiter for MCP tool calls (#1096).
+        # Unlimited by default; configured via MCP_RATE_LIMIT_* env vars.
+        self._tool_rate_limiter = ToolRateLimiter()
         
         # Test handler registration with proper arguments
         try:
@@ -1459,7 +1464,9 @@ class MemoryServer:
             return await self.list_tools()
         
         @self.server.call_tool()
-        async def handle_call_tool(name: str, arguments: dict | None) -> List[types.TextContent]:
+        async def handle_call_tool(
+            name: str, arguments: dict | None
+        ) -> List[types.TextContent] | types.CallToolResult:
             return await self.call_tool(name, arguments)
 
 
@@ -1513,6 +1520,53 @@ class MemoryServer:
             return True
         scope = request.scope.get("mcp_auth_scope")
         return scope is None or "write" in scope.split()
+
+    def _rate_limit_caller_identity(self, explicit_identity: str | None = None) -> str:
+        """Resolve the rate-limit identity for the current tool call (#1096).
+
+        The ``/mcp`` FastAPI shim calls ``call_tool`` outside any SDK request
+        context, so it resolves the identity from its own HTTP request and
+        passes it in explicitly. On the SDK transports (SSE, Streamable
+        HTTP) the identity is resolved here from the per-request ASGI
+        request, exactly like ``_caller_has_write_scope`` does.
+
+        Never reads tool arguments: for ``memory_search``/``memory_list``
+        the ``agent_id`` argument is an author filter, not a caller identity.
+        """
+
+        if explicit_identity:
+            return explicit_identity
+        try:
+            request = self.server.request_context.request
+        except (LookupError, AttributeError):
+            request = None
+        if request is None:
+            return resolve_caller_identity(None, None)
+        header = request.headers.get("X-Agent-ID")
+        client = request.client
+        host = client.host if client is not None else None
+        return resolve_caller_identity(header, host)
+
+    @staticmethod
+    def _rate_limit_error(
+        tool_name: str, decision
+    ) -> types.CallToolResult:
+        """Build the standard MCP tool-error result for a denied call."""
+
+        payload = {
+            "error": {
+                "code": -32029,
+                "type": "rate_limit_exceeded",
+                "message": "MCP tool rate limit exceeded",
+                "tool": tool_name,
+                "limit_per_minute": decision.limit_per_minute,
+                "retry_after_seconds": decision.retry_after_seconds,
+            }
+        }
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(payload))],
+            isError=True,
+        )
 
     async def tool_requires_write(self, name: Optional[str], arguments: Optional[dict] = None) -> bool:
         """Return True if calling this tool requires the 'write' scope.
@@ -1579,11 +1633,43 @@ class MemoryServer:
             logger.error("Error in list_tools: %s", _sanitize_log_value(e))
             return []
 
-    async def call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
-        """Dispatch tool call via routing table (replaces elif chain)."""
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict | None,
+        *,
+        caller_identity: str | None = None,
+    ) -> List[types.TextContent] | types.CallToolResult:
+        """Dispatch tool call via routing table (replaces elif chain).
+
+        ``caller_identity`` is the pre-resolved per-caller rate-limit
+        identity. The ``/mcp`` FastAPI shim passes it explicitly (it has no
+        SDK request context); the SDK transports leave it ``None`` so the
+        identity is resolved here from the per-request ASGI request.
+        """
         logger.info("=== HANDLING TOOL CALL: %s ===", _sanitize_log_value(name))
         if arguments is None:
             arguments = {}
+
+        # Per-caller sliding-window rate limiting (#1096). Unlimited by
+        # default; configured via MCP_RATE_LIMIT_* env vars. A limiter
+        # failure must not take down the dispatcher: fail open and keep
+        # the error log free of caller identities.
+        try:
+            decision = self._tool_rate_limiter.check(
+                self._rate_limit_caller_identity(caller_identity),
+                name,
+            )
+        except Exception:
+            logger.exception("MCP tool rate limiter failed; allowing request")
+        else:
+            if not decision.allowed:
+                if decision.should_log:
+                    logger.warning(
+                        "MCP tool rate limit exceeded for tool %s",
+                        _sanitize_log_value(name),
+                    )
+                return self._rate_limit_error(name, decision)
 
         # Refuse before the handler resolves, so a remote caller cannot reach a
         # filesystem tool by naming it directly even though tools/list hid it.
@@ -1635,7 +1721,9 @@ class MemoryServer:
             # (#1601), so harvesters advanced their cursors over lost payloads.
             raise
 
-    async def handle_call_tool(self, name: str, arguments: dict | None) -> List[types.TextContent]:
+    async def handle_call_tool(
+        self, name: str, arguments: dict | None
+    ) -> List[types.TextContent] | types.CallToolResult:
         """Public alias for call_tool (used by tests)."""
         return await self.call_tool(name, arguments)
 
