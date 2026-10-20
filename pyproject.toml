@@ -158,6 +158,7 @@ full = [
 memory = "mcp_memory_service.cli.main:main"
 memory-server = "mcp_memory_service.cli.main:memory_server_main"
 mcp-memory-server = "mcp_memory_service.mcp_server:main"
+mms-doctor = "mcp_memory_service.cli.doctor:main"
 
 # Keep in sync with pyproject-lite.toml so both distributions link to the same place.
 [project.urls]
