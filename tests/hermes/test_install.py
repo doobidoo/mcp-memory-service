@@ -361,12 +361,19 @@ def test_install_records_the_probe_hash_in_the_manifest(tmp_path, monkeypatch):
     profile = tmp_path / "profile"
     profile.mkdir()
     monkeypatch.delenv("MCP_API_KEY", raising=False)
-    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: False)
+    # False before registration (plan), True after (effect check).
+    calls = {"n": 0}
+
+    def registered(port, runner=None):
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    monkeypatch.setattr(instalar, "mcp_is_registered", registered)
     monkeypatch.setattr(instalar, "health_ok", lambda port: (True, ""))
     monkeypatch.setattr(instalar, "default_runner", lambda argv: (0, ""))
     monkeypatch.setattr(instalar, "verify_round_trip", lambda port, token, call=None: "f" * 64)
     monkeypatch.setattr(instalar, "delete_probe", lambda port, h, call=None: None)
 
-    instalar.main(["--hermes-home", str(profile), "--port", "8000"])
+    assert instalar.main(["--hermes-home", str(profile), "--port", "8000"]) == 0
 
     assert instalar.read_manifest(profile / "mms-install.json")["probe_hash"] == "f" * 64
