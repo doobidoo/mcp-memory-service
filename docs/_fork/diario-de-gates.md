@@ -941,3 +941,36 @@ uninstall   -> mcp remove + skills/hooks false · mcp list: "No MCP servers conf
 
 **Licao:** 20 testes verdes e instalador que nao instala. Os testes cobriam funcoes e o artefato e a
 COMPOSICAO. Nenhum mock, em banco zerado, foi o unico juiz honesto.
+
+## E26 — D7 APROVADO: arco UIAA/hermes FECHADO (20/out)
+
+G5 final (commit 8e99d76b) respondeu as duas perguntas:
+
+- **Q1 — B1 fechado: SIM.** `verify_mcp_registered` roda depois das acoes e antes do print de
+  sucesso; nao ha `return 0` entre execucao e checagem. Os tres cenarios (servico ja no ar,
+  execucao repetida, `mcp add` saindo 0 sem registrar) fechados.
+- **Q2 — algum teste por construcao: NAO.** 22 passed, sem skip/xfail; o teste negativo prova que
+  remover o post-check derruba a suite.
+
+### Placar do arco
+
+| item | prova |
+|---|---|
+| D1 convivencia | provider desligado (decisao) |
+| D3 doctor | 49 testes · G5 aprovado com sabotagem · G6 6/6 no host |
+| D4 autoria | #1598 mergeado · provado nesta instancia (`agent_id: tpol`) |
+| D6 hooks | medido (mms_agent_stamp, inbox_mms_hook) |
+| D7 instalador | 22 testes · E2E em Hermes limpo + banco zerado · idempotente · uninstall cirurgico |
+| D8 docs | docs/agents/hermes.md |
+
+Fora do arco por decisao: D5 (state.db), D2 (provider), D9 (upgrade, Discussion #1609),
+Windows nativo (VM depois).
+
+### Metodo que ficou
+
+1. **Delegacao de revisao precisa de pergunta fechada.** Duas rodadas abertas nao entregaram parecer
+   (748 s e 20 s); as de 2-3 perguntas com evidencia obrigatoria fecharam em 60-80 s.
+2. **Nenhum mock no teste final.** 20 testes verdes conviveram com um instalador que dizia
+   "instalado" e nao registrava nada. Cinco defeitos so apareceram no E2E real.
+3. **Achar o defeito nao e corrigir**: em tres rodadas o G5 achou o furo, e em duas delas a minha
+   primeira correcao criou outro (guarda inalcancavel; teste que injetava o proprio insumo).
