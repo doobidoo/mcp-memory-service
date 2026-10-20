@@ -173,16 +173,16 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   ├─ wiki Memory-Portability-Map ...................... ✅ no ar (mapa por harness)
 │   ├─ "bring your memory": conversor mem0 .............. 🟡 PR #1401 (Harbor404, fecha nosso #1390)
 │   ├─ "use in any agent" — lado SERVIDOR ............... → é o arco ingestão multi-agente (acima)
-│   └─ 🟡 UIAA — lado CLIENTE (harness) ................. `rfc-hermes-first-class` v0.1 (19/out)
+│   └─ ✅ UIAA — lado CLIENTE (harness) ............... `rfc-hermes-first-class` · ARCO FECHADO 20/out (E26)
 │       └─ hermes ...................................... híbrido: MEMORY.md p/ hoje · mms p/ histórico
 │           ├─ D1 convivência .......................... ✅ HÍBRIDO — provider desligado É o estado correto
-│           ├─ D2 provider plugin ...................... 🟡 adiado · moraria em $HERMES_HOME/plugins/mms/
-│           ├─ D3 diagnóstico e degradação ............. 🔴 `mms-doctor` (6 checks + reparo seguro, ≤10 s)
-│           ├─ D4 autoria X-Agent-ID ................... ✅ MERGED #1598 (d6d3fd47, 19/out 19:15Z) · ✅ integrado no fork (c675458c)
-│           ├─ D5 importer do state.db ................. 🔴 construído e NUNCA aplicado · dry-run 77/113 sessões
+│           ├─ D2 provider plugin ...................... 🟡 fora do arco por decisão (só se sair do híbrido)
+│           ├─ D3 diagnóstico e degradação ............. ✅ mms-doctor — 49 testes · G6 6/6 neste host (12.1.1)
+│           ├─ D4 autoria X-Agent-ID ................... ✅ #1598 mergeado · integrado no fork (c675458c)
+│           ├─ D5 importer do state.db ................. 🟡 fora do arco por decisão · dry-run 77/113 medido
 │           ├─ D6 hooks TUI/CLI ........................ ✅ funciona desde 0.22.2 (3094cde513, 07/set)
-│           ├─ D7 instalador de 1ª classe .............. 🔴 a entregar · checklist 8 itens · `scripts/hermes/`
-│           └─ D8 porta/transporte ..................... 🟡 3202 (SSE legado) vs default 8000 — decisão ABERTA
+│           ├─ D7 instalador de 1ª classe .............. ✅ upstream #1611 (filhocf) · 22 testes · E2E banco zerado
+│           └─ D8 porta/transporte ..................... ✅ 3202 correto na nossa camada · docs/agents/hermes.md
 │
 └─ 🟡 ARCO HUB MULTI-AGENTE ............ agent_id feito; delta-sync 4/5 fases mergeadas
     ├─ agent_id F1/F2 (autoria no store) .............. ✅ MERGED PR #1278/#1297
