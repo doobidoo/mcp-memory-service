@@ -249,12 +249,21 @@ CI_RUN = {"id": 99, "path": ".github/workflows/ci.yml", "conclusion": "failure"}
 FAILED_CLAIM_RUN = {"id": 42, "path": claim.WORKFLOW, "conclusion": "failure"}
 
 
-def test_assignment_reruns_only_failed_checks_of_open_prs(monkeypatch):
-    fake = FakeGh(runs=[CI_RUN, FAILED_CLAIM_RUN])
+@pytest.mark.parametrize("conclusion", ["failure", "success"])
+def test_assignment_changes_rerun_completed_checks_of_open_prs(monkeypatch, conclusion):
+    fake = FakeGh(runs=[CI_RUN, {**FAILED_CLAIM_RUN, "conclusion": conclusion}])
     monkeypatch.setattr(claim, "gh", fake)
     monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN"), (8, "MERGED")))
     claim.rerun_for_issue("o/r", 1458, dry_run=False)
     assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
+
+
+def test_assignment_changes_do_not_rerun_an_active_check(monkeypatch):
+    fake = FakeGh(runs=[{**FAILED_CLAIM_RUN, "conclusion": None}])
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN")))
+    claim.rerun_for_issue("o/r", 1458, dry_run=False)
+    assert fake.writes() == []
 
 
 def test_pr_without_issue_is_labelled_and_commented_once_but_passes(monkeypatch):

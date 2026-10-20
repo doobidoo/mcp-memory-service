@@ -145,7 +145,8 @@ CI checks the maintainer's confirmation. The author must be a current assignee o
 every issue a pull request closes (`Fixes #N`); a comment alone does not count.
 Otherwise, the `Claim Check` workflow labels the PR `unclaimed` and links back
 here. Comment on the issue and wait for confirmation before starting; once a
-maintainer assigns you, the check runs again on its own and passes.
+maintainer assigns you, the check runs again on its own and passes. Removing an
+assignment also refreshes the check against the current assignees.
 
 A pull request that changes `src/` without linking any issue is labelled
 `no-issue` the same way. Link the issue, or open one. A maintainer can mark a small

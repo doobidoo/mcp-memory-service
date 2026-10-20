@@ -25,11 +25,10 @@ Unclaimed: adds the `unclaimed` label, posts one comment (found again by a
 hidden marker, so re-runs do not repeat it) and exits 1. Claimed: removes the
 label if present and exits 0. The check is informational, not required.
 
---issue N is for the `issues: assigned` trigger. Assigning the author is how a
-maintainer confirms a late claim, but an issues-event run is not the PR's check
-run, so it would leave the red check standing. Instead it re-runs the latest
-failed claim-check run of every open PR that closes the issue; the re-run reads
-the current state through the API, drops the label and passes.
+--issue N handles assignment changes. An issues-event run is not the PR's check
+run, so it re-runs the latest successful or failed claim-check run of every open
+PR that closes the issue. The re-run reads current assignments through the API:
+assigning the author clears a stale warning, and unassigning restores it.
 
 Needs the gh CLI with GH_TOKEN set. --dry-run only prints the verdict.
 Standard library only, so it runs on a bare runner with no install step.
@@ -244,7 +243,7 @@ def rerun_for_issue(repo: str, number: int, dry_run: bool) -> int:
             "api", f"repos/{repo}/actions/runs"
             f"?event=pull_request_target&head_sha={pr['headRefOid']}"
         ))["workflow_runs"] if r["path"] == WORKFLOW]
-        if runs and runs[0]["conclusion"] == "failure":
+        if runs and runs[0]["conclusion"] in ("failure", "success"):
             print(f"Issue #{number}: re-running claim check {runs[0]['id']} of PR #{pr['number']}")
             if not dry_run:
                 gh("api", "-X", "POST", f"repos/{repo}/actions/runs/{runs[0]['id']}/rerun")
