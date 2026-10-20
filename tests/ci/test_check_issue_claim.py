@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,11 +18,24 @@ _spec.loader.exec_module(claim)
 PR_OPENED = "2026-10-05T05:49:10Z"
 
 
-def issue(number=1458, assignees=(), comments=()):
+def issue(number=1458, assignees=(), comments=(), assignments=None):
+    # Default each current assignee to a maintainer assignment, so tests that
+    # only pass assignees still describe a confirming claim.
+    if assignments is None:
+        assignments = [("maintainer", person) for person in assignees]
     return {
         "number": number,
-        "assignees": {"nodes": [{"login": a} for a in assignees]},
+        "assignees": {"nodes": [{"login": person} for person in assignees]},
         "comments": {"nodes": [{"author": {"login": a}, "createdAt": t} for a, t in comments]},
+        "timelineItems": {
+            "nodes": [
+                {
+                    "actor": {"login": actor} if actor else None,
+                    "assignee": {"login": person} if person else None,
+                }
+                for actor, person in assignments
+            ]
+        },
     }
 
 
@@ -52,10 +67,136 @@ def test_comment_after_the_pr_is_not_a_claim():
     assert claim.unclaimed_issues(data) == [1458]
 
 
-def test_assignment_is_a_claim_whenever_it_happened():
+def allow_confirm(monkeypatch, allowed=()):
+    """Offline stand-in for the collaborators permission lookup."""
+    permitted = set(allowed)
+    monkeypatch.setattr(
+        claim,
+        "collaborator_can_confirm",
+        lambda repo, login: login in permitted,
+        raising=False,
+    )
+
+
+def test_maintainer_assignment_is_a_claim_whenever_it_happened(monkeypatch):
     """The maintainer confirms a late claim by assigning the author."""
-    data = pr([issue(assignees=["someone"], comments=[("someone", "2026-10-05T06:00:00Z")])])
+    allow_confirm(monkeypatch, {"maintainer"})
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("maintainer", "someone")],
+        comments=[("someone", "2026-10-05T06:00:00Z")],
+    )])
     assert claim.unclaimed_issues(data) == []
+
+
+def test_self_assignment_by_the_author_is_not_a_claim(monkeypatch):
+    """Issue #1592: the author assigned themselves. That is not confirmation."""
+    allow_confirm(monkeypatch, {"someone"})
+    data = pr([issue(assignees=["someone"], assignments=[("someone", "someone")])])
+    assert claim.unclaimed_issues(data) == [1458]
+
+
+def test_assignment_by_a_read_only_user_is_not_a_claim(monkeypatch):
+    allow_confirm(monkeypatch)
+    data = pr([issue(assignees=["someone"], assignments=[("reader", "someone")])])
+    assert claim.unclaimed_issues(data) == [1458]
+
+
+@pytest.mark.parametrize("actor", ["maintainer", "admin"])
+def test_assignment_by_a_maintainer_is_a_claim(monkeypatch, actor):
+    """A user with write or admin access confirms by assigning the author."""
+    allow_confirm(monkeypatch, {actor})
+    data = pr([issue(assignees=["someone"], assignments=[(actor, "someone")])])
+    assert claim.unclaimed_issues(data) == []
+
+
+def test_maintainer_assigning_someone_else_does_not_claim_the_author(monkeypatch):
+    allow_confirm(monkeypatch, {"maintainer"})
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("maintainer", "other"), ("someone", "someone")],
+    )])
+    assert claim.unclaimed_issues(data) == [1458]
+
+
+def test_comment_before_the_pr_claims_without_a_maintainer_assignment(monkeypatch):
+    """A comment from before the PR still claims the issue on its own."""
+    allow_confirm(monkeypatch)
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("someone", "someone")],
+        comments=[("someone", "2026-10-05T05:00:00Z")],
+    )])
+    assert claim.unclaimed_issues(data) == []
+
+
+def test_unclaimed_issues_uses_the_injected_permission_lookup():
+    denied = pr([issue(assignees=["someone"], assignments=[("reader", "someone")])])
+    assert claim.unclaimed_issues(denied, can_confirm=lambda login: False) == [1458]
+    confirmed = pr([issue(assignees=["someone"], assignments=[("maintainer", "someone")])])
+    assert claim.unclaimed_issues(confirmed, can_confirm=lambda login: True) == []
+
+
+def test_lapsed_maintainer_assignment_is_not_a_claim(monkeypatch):
+    """The author must still be an assignee. A past event alone does not count."""
+    allow_confirm(monkeypatch, {"maintainer"})
+    data = pr([issue(assignees=(), assignments=[("maintainer", "someone")])])
+    assert claim.unclaimed_issues(data) == [1458]
+
+
+@pytest.mark.parametrize(
+    ("actor", "assignee", "allowed", "code"),
+    [
+        ("someone", "someone", {"someone"}, 3),
+        ("reader", "someone", set(), 3),
+        ("maintainer", "someone", {"maintainer"}, 0),
+        ("admin", "someone", {"admin"}, 0),
+    ],
+)
+def test_cleanup_path_exit_code(monkeypatch, actor, assignee, allowed, code):
+    """--confirms is what claim-check.yml uses before dropping claim-pending."""
+    allow_confirm(monkeypatch, allowed)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["check_issue_claim.py", "--repo", "o/r", "--confirms", actor, assignee],
+    )
+    assert claim.main() == code
+
+
+def _permission_gh(login_permission):
+    def fake_gh(*args, stdin=None):
+        path = args[1]
+        login = path.split("/collaborators/")[1].split("/")[0]
+        if login not in login_permission:
+            raise subprocess.CalledProcessError(1, args, stderr="gh: HTTP 404: Not Found")
+        permission = login_permission[login]
+        if isinstance(permission, subprocess.CalledProcessError):
+            raise permission
+        return json.dumps({"permission": permission})
+
+    return fake_gh
+
+
+def test_write_and_admin_permissions_confirm(monkeypatch):
+    # The maintain role is reported in `permission` as write.
+    monkeypatch.setattr(claim, "gh", _permission_gh({
+        "writer": "write",
+        "admin": "admin",
+        "reader": "read",
+        "nobody": "none",
+    }))
+    assert claim.collaborator_can_confirm("o/r", "writer") is True
+    assert claim.collaborator_can_confirm("o/r", "admin") is True
+    assert claim.collaborator_can_confirm("o/r", "reader") is False
+    assert claim.collaborator_can_confirm("o/r", "nobody") is False
+    assert claim.collaborator_can_confirm("o/r", "stranger") is False
+
+
+def test_permission_lookup_error_is_not_treated_as_read_only(monkeypatch):
+    error = subprocess.CalledProcessError(1, ["gh"], stderr="gh: HTTP 401: Bad credentials")
+    monkeypatch.setattr(claim, "gh", _permission_gh({"maintainer": error}))
+    with pytest.raises(subprocess.CalledProcessError):
+        claim.collaborator_can_confirm("o/r", "maintainer")
 
 
 def test_each_linked_issue_is_checked():
@@ -158,6 +299,8 @@ def run_check(monkeypatch, data, dry_run=False):
     fake = FakeGh()
     monkeypatch.setattr(claim, "gh", fake)
     monkeypatch.setattr(claim, "fetch_pr", lambda repo, number: data)
+    # Offline stand-in. A maintainer assignment must not call gh for permission.
+    allow_confirm(monkeypatch, {"maintainer"})
     code = claim.check_pr("o/r", 7, dry_run)
     return code, fake
 
