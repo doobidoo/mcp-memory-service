@@ -208,7 +208,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
     metadata = arguments.get("metadata", {})
 
     if not content:
-        return [types.TextContent(type="text", text="Error: Content is required")]
+        # Nothing to store: must not look like success (#1601).
+        raise ValueError("Content is required")
 
     try:
         # Initialize storage lazily when needed (also initializes memory_service)
@@ -244,7 +245,19 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
             error_msg = result.get("error", "Unknown error")
-            return [types.TextContent(type="text", text=f"Error storing memory: {error_msg}")]
+            # A refused write is a failure. Return-as-text made the MCP envelope
+            # report isError=False while nothing was stored, so automation counted
+            # it as success (#1601). Raise: the SDK answers isError=True.
+            raise RuntimeError(f"Error storing memory: {error_msg}")
+
+        # Partial writes are failures too: some chunks never reached the database,
+        # so reporting success lets a harvester skip them permanently (#1601).
+        failed_chunks = result.get("failed_chunks") or 0
+        if failed_chunks:
+            raise RuntimeError(
+                f"Error storing memory: {failed_chunks} of "
+                f"{result.get('total_chunks', '?')} chunks failed to store"
+            )
 
         if "memories" in result:
             # Chunked response - multiple memories created
@@ -377,7 +390,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
     except Exception as e:
         logger.error("Error storing memory: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
-        return [types.TextContent(type="text", text=f"Error storing memory: {str(e)}")]
+        # Re-raise: a failed write must reach the caller as isError=True (#1601).
+        raise
 
 
 async def handle_memory_observe(server, arguments: dict) -> List[types.TextContent]:
@@ -464,7 +478,8 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         if content:
             lines.append(f"[{role}] {content}")
     if not lines:
-        return [types.TextContent(type="text", text="Error: all turns have empty content")]
+        # Nothing to store: raise so the envelope reports a failure (#1601).
+        raise ValueError("all turns have empty content")
 
     full_content = "\n".join(lines)
     base_tags = [f"session:{session_id}"] + extra_tags
@@ -485,12 +500,16 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 content=full_content,
                 tags=base_tags,
                 memory_type="session",
+                agent_id=arguments.get("agent_id"),
                 metadata=arguments.get("metadata", {}),
                 client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
-                return [types.TextContent(type="text", text=f"Error storing session: {result.get('error', 'Unknown error')}")]
+                # Refused write = failure; raise so the SDK sets isError=True (#1601).
+                raise RuntimeError(
+                    f"Error storing session: {result.get('error', 'Unknown error')}"
+                )
             memory_hash = result["memory"]["content_hash"]
             return [types.TextContent(
                 type="text",
@@ -508,16 +527,18 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 content=chunk_content,
                 tags=chunk_tags,
                 memory_type="session",
+                agent_id=arguments.get("agent_id"),
                 metadata=arguments.get("metadata", {}),
                 client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
                 error = result.get("error", "Unknown error")
-                return [types.TextContent(
-                    type="text",
-                    text=f"Error storing session chunk {i+1}/{len(chunks)}: {error} (stored {stored}/{len(chunks)} before failure)"
-                )]
+                # Partial chunk failure is still a failure for the caller: raise (#1601).
+                raise RuntimeError(
+                    f"Error storing session chunk {i+1}/{len(chunks)}: {error} "
+                    f"(stored {stored}/{len(chunks)} before failure)"
+                )
             stored += 1
 
         return [types.TextContent(
@@ -526,7 +547,9 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         )]
     except Exception as e:
         logger.error("Error storing session: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
-        return [types.TextContent(type="text", text=f"Error storing session: {str(e)}")]
+        # Re-raise: a failed write must reach the client as isError=True (#1601),
+        # not as a successful envelope carrying error text.
+        raise
 
 
 def _chunk_session_lines(lines: List[str], chunk_size: int) -> List[List[str]]:
