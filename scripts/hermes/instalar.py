@@ -327,6 +327,46 @@ def default_runner(argv: Sequence[str]) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
+def mcp_is_registered(
+    port: int, runner: Callable[[Sequence[str]], tuple[int, str]] | None = None
+) -> bool:
+    """True only if `hermes mcp list` shows the `mms` server AND its endpoint.
+
+    Substring matching on the whole output produced false positives (any line
+    mentioning "mms" counted). This parses the table by first token and requires
+    the expected URL, so a stale or unrelated entry cannot pass.
+    """
+    run = runner or default_runner
+    try:
+        rc, out = run(["hermes", "mcp", "list"])
+    except Exception:
+        return False
+    if rc != 0:
+        return False
+    expected = f":{port}/mcp"
+    for line in out.splitlines():
+        tokens = line.split()
+        if tokens and tokens[0] == "mms":
+            return expected in line
+    return False
+
+
+def verify_mcp_registered(
+    port: int, runner: Callable[[Sequence[str]], tuple[int, str]] | None = None
+) -> None:
+    """Effect check: did `hermes mcp add` actually land in the Hermes config?
+
+    Return code is not evidence — `hermes mcp add` exits 0 even when it cancels
+    its interactive prompt. Without this, the installer could report success
+    while the server was never registered (G5 B1).
+    """
+    if not mcp_is_registered(port, runner):
+        raise RuntimeError(
+            f"o servidor mms nao aparece em `hermes mcp list` apontando para a porta "
+            f"{port} apos a instalacao — o registro MCP nao foi efetivado"
+        )
+
+
 def detect_installed(
     hermes_home: Path,
     port: int,
@@ -344,8 +384,7 @@ def detect_installed(
     installed: dict[str, bool] = {}
 
     try:
-        rc, out = run(["hermes", "mcp", "list"])
-        installed["mcp"] = rc == 0 and "mms" in out
+        installed["mcp"] = mcp_is_registered(port, run)
     except Exception:
         installed["mcp"] = False
 
@@ -564,6 +603,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         [],
         [undo_for(action) for action in actions if undo_for(action)],
     )
+
+    try:
+        verify_mcp_registered(args.port)
+    except Exception as exc:  # noqa: BLE001
+        print(f"erro: {exc}", file=sys.stderr)
+        return 1
 
     try:
         verify_installation(args.port)

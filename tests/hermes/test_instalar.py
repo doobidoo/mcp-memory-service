@@ -243,6 +243,7 @@ class TestCliIsIdempotent:
         # Never let a CLI test reach a real service: verify_installation writes a
         # probe, and the port in the fixture is not the test's.
         monkeypatch.setattr(instalar, "verify_installation", lambda port: None)
+        monkeypatch.setattr(instalar, "verify_mcp_registered", lambda port, runner=None: None)
 
         rc = instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
         return rc, executed, hermes_home
@@ -316,9 +317,48 @@ def test_each_action_runs_exactly_once(tmp_path, monkeypatch):
 
     monkeypatch.setattr(instalar, "default_executor", counting_executor)
     monkeypatch.setattr(instalar, "verify_installation", lambda port: None)
+    monkeypatch.setattr(instalar, "verify_mcp_registered", lambda port, runner=None: None)
 
     instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
 
     assert len(executed) == len(set(map(tuple, executed))), (
         f"comando repetido na mesma execucao: {executed}"
     )
+
+
+class TestSuccessRequiresEffect:
+    """G5 B1: rc=0 is not evidence that the MCP was registered.
+
+    `hermes mcp add` exits 0 even when it cancels its interactive prompt. The
+    installer used to trust the return code, so it could print "instalado" with
+    the server absent from `hermes mcp list` — as long as the HTTP service was up.
+    """
+
+    def test_mcp_is_registered_requires_the_server_and_endpoint(self):
+        instalar = _mod()
+
+        ok = lambda _argv: (0, "  Name    Transport\n  mms   http://localhost:3202/mcp   all   enabled\n")
+        wrong_port = lambda _argv: (0, "  mms   http://localhost:9999/mcp   all   enabled\n")
+        unrelated = lambda _argv: (0, "  codebase-memory   /usr/bin/cbm   all   enabled\n")
+        mentions_only = lambda _argv: (0, "  info: use mms for memory\n")
+
+        assert instalar.mcp_is_registered(3202, ok) is True
+        assert instalar.mcp_is_registered(3202, wrong_port) is False
+        assert instalar.mcp_is_registered(3202, unrelated) is False
+        assert instalar.mcp_is_registered(3202, mentions_only) is False
+
+    def test_main_fails_when_the_registration_did_not_land(self, tmp_path, monkeypatch):
+        instalar = _mod()
+        (tmp_path / ".hermes").mkdir()
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.setattr(instalar, "detect_installed", lambda *a, **k: {})
+        monkeypatch.setattr(instalar, "default_health_get", lambda port: {"status": 200})
+        monkeypatch.setattr(instalar, "default_executor", lambda actions: [])
+        monkeypatch.setattr(instalar, "verify_installation", lambda port: None)
+        # The effect check is the subject here: the command "succeeded" (rc=0)
+        # but `hermes mcp list` never showed the server.
+        monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: False)
+
+        rc = instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
+
+        assert rc == 1, "instalador nao pode declarar sucesso sem registro efetivo"
