@@ -282,9 +282,48 @@ def uninstall(
 # --- R2/CA4: abort before writing when service is down ---------------------
 
 
+def _config_flag(hermes_home: Path, section: str) -> bool:
+    """True if `<section>.mms.enabled` is set to true in the Hermes config.
+
+    `hermes config get` does not exist and `config show` omits these keys, so the
+    only stdlib way to observe them is a minimal indentation-path reader. Read
+    only — the installer never writes YAML (R3/CA5).
+    """
+    try:
+        text = (hermes_home / "config.yaml").read_text()
+    except OSError:
+        return False
+
+    stack: list[tuple[int, str]] = []
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip())
+        key, _, value = raw.strip().partition(":")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key.strip()))
+        if [k for _, k in stack] == [section, "mms", "enabled"]:
+            return value.strip().lower() == "true"
+    return False
+
+
 def default_runner(argv: Sequence[str]) -> tuple[int, str]:
-    """Run one planned command; return (returncode, combined output)."""
-    proc = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    """Run one planned command; return (returncode, combined output).
+
+    `hermes mcp add` is interactive and asks more than once (tool selection and
+    occasionally a save confirmation), so stdin carries several "Y" answers.
+    A single one is consumed by the first prompt and the command cancels,
+    reporting success while registering nothing.
+    """
+    proc = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        input="Y\n" * 5,
+        check=False,
+    )
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
@@ -310,15 +349,8 @@ def detect_installed(
     except Exception:
         installed["mcp"] = False
 
-    for key, config_key in (
-        ("skill", "skills.mms.enabled"),
-        ("hooks", "hooks.mms.enabled"),
-    ):
-        try:
-            rc, out = run(["hermes", "config", "get", config_key])
-            installed[key] = rc == 0 and "true" in out.lower()
-        except Exception:
-            installed[key] = False
+    for key, section in (("skill", "skills"), ("hooks", "hooks")):
+        installed[key] = _config_flag(hermes_home, section)
 
     try:
         check_health()
@@ -335,7 +367,9 @@ def undo_for(action: Action) -> list[str]:
     if argv[:3] == ["hermes", "mcp", "add"] and len(argv) > 3:
         return ["hermes", "mcp", "remove", argv[3]]
     if argv[:3] == ["hermes", "config", "set"] and len(argv) > 3:
-        return ["hermes", "config", "unset", argv[3]]
+        # `hermes config unset` does not exist (only show/edit/set/path/...),
+        # so the reverse of "enable X" is "disable X".
+        return ["hermes", "config", "set", argv[3], "false"]
     if argv and argv[0] == "schtasks":
         task = argv[argv.index("/tn") + 1] if "/tn" in argv else DEFAULT_TASK_NAME
         return ["schtasks", "/delete", "/tn", task, "/f"]
@@ -373,14 +407,77 @@ def default_health_get(port: int) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def default_executor(actions: Sequence[Action]) -> list[str]:
-    """Run each action's argv via subprocess, returning stdout per action."""
-    outputs = []
-    for action in actions:
-        result = subprocess.run(
-            action.argv, capture_output=True, text=True, check=False
+def _mcp_call(port: int, tool: str, arguments: dict) -> dict:
+    """Call one MCP tool over streamable-http and return the parsed result."""
+    payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": arguments},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/mcp",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+    )
+    body = urllib.request.urlopen(request, timeout=20).read().decode("utf-8", "replace")
+    for line in body.splitlines():
+        if line.startswith("data:"):
+            body = line[5:].strip()
+            break
+    return json.loads(body)
+
+
+def default_search(port: int) -> list:
+    """Ask the freshly installed server for memories (R5 verification)."""
+    data = _mcp_call(port, "memory_search", {"query": "sonda de instalacao", "limit": 1})
+    content = data.get("result", {}).get("content") or []
+    return [block for block in content if block.get("type") == "text"]
+
+
+def verify_installation(port: int) -> None:
+    """Prove the service stores and retrieves before declaring success.
+
+    A zeroed database has nothing to find, so the check writes one probe and
+    reads it back — the exact path a new user takes (R8/CA1).
+    """
+    _mcp_call(
+        port,
+        "memory_store",
+        {
+            "content": f"Sonda de instalacao do mms em {port}: verificacao pos-instalacao",
+            "metadata": {"tags": "mms-install-probe"},
+        },
+    )
+    result = default_search(port)
+    if not result:
+        raise RuntimeError(
+            "Verificacao pos-instalacao falhou: a busca nao devolveu nenhuma memoria "
+            "apos gravar a sonda. O servico responde /health mas nao busca."
         )
-        outputs.append(result.stdout)
+
+
+def default_executor(actions: Sequence[Action]) -> list[str]:
+    """Run each action through `default_runner` and fail loudly on a bad exit.
+
+    It must go through `default_runner`: that is where interactive commands get
+    their stdin answers. Running subprocess directly here (the previous
+    behaviour) meant `hermes mcp add` cancelled on its prompt, returned 0, and
+    the installer reported success while registering nothing.
+    """
+    outputs: list[str] = []
+    for action in actions:
+        rc, out = default_runner(action.argv)
+        if rc != 0:
+            raise RuntimeError(
+                f"`{' '.join(action.argv)}` falhou (rc={rc}): {out.strip()[:200]}"
+            )
+        outputs.append(out)
     return outputs
 
 
@@ -467,6 +564,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         [],
         [undo_for(action) for action in actions if undo_for(action)],
     )
+
+    try:
+        verify_installation(args.port)
+    except Exception as exc:  # noqa: BLE001
+        print(f"erro: verificacao pos-instalacao falhou: {exc}", file=sys.stderr)
+        return 1
     print(f"instalado via backend={backend}, porta={args.port}")
     return 0
 

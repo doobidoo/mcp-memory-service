@@ -226,6 +226,9 @@ class TestCliIsIdempotent:
         hermes_home.mkdir()
         executed = []
 
+        # The developer's shell may export HERMES_HOME (it did), which would send
+        # every artefact outside tmp_path and make this test lie.
+        monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.setattr(
             instalar, "detect_installed", lambda *a, **k: monkeypatch_installed
         )
@@ -237,6 +240,9 @@ class TestCliIsIdempotent:
 
         monkeypatch.setattr(instalar, "default_executor", fake_executor)
         monkeypatch.setattr(instalar, "default_health_get", lambda port: {"status": 200})
+        # Never let a CLI test reach a real service: verify_installation writes a
+        # probe, and the port in the fixture is not the test's.
+        monkeypatch.setattr(instalar, "verify_installation", lambda port: None)
 
         rc = instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
         return rc, executed, hermes_home
@@ -309,6 +315,7 @@ def test_each_action_runs_exactly_once(tmp_path, monkeypatch):
         return []
 
     monkeypatch.setattr(instalar, "default_executor", counting_executor)
+    monkeypatch.setattr(instalar, "verify_installation", lambda port: None)
 
     instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
 
