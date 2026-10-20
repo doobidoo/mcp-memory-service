@@ -243,7 +243,17 @@ def test_new_window_is_never_evicted_itself(monkeypatch):
 
 def test_invalid_env_value_does_not_inject_log_lines(monkeypatch, caplog):
     _clear_env(monkeypatch)
-    monkeypatch.setenv("MCP_RATE_LIMIT_PER_MINUTE", "not-a-number")
+    monkeypatch.setenv("MCP_RATE_LIMIT_PER_MINUTE", "not-a-number\nINJECTED\r\x1b")
     with caplog.at_level("WARNING", logger="mcp_memory_service.utils.tool_rate_limit"):
-        assert resolve_limit("memory_search\nINJECTED") is None
-    assert not any("INJECTED" in r.getMessage() for r in caplog.records)
+        assert resolve_limit("memory_search") is None
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == "mcp_memory_service.utils.tool_rate_limit" and r.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].args == (
+        "MCP_RATE_LIMIT_PER_MINUTE",
+        "not-a-number\\nINJECTED\\r\\x1b",
+    )
+    assert not any(c in warnings[0].getMessage() for c in ("\n", "\r", "\x1b"))
