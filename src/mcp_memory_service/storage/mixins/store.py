@@ -40,6 +40,15 @@ class StoreMixin:
         the memories row without this leaves an orphan embedding; since memories has no
         AUTOINCREMENT, SQLite reuses that rowid later and the next store collides with a
         "UNIQUE constraint failed: memory_embeddings".
+
+        This purge runs on every re-store, regardless of the tombstone's age or the
+        `purge_deleted(older_than_days=...)` retention window. A new store of the same
+        content supersedes the old memory's metadata (tags, created_at, deleted_at);
+        those values are not preserved.
+
+        For sync this is safe: the durable tombstone consulted by conflict resolution
+        is the `sync_events` row with `op='delete'` (ADR-0009), which lives in a
+        separate table and survives this purge.
         """
         rows = self.conn.execute(
             'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
