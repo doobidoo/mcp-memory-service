@@ -8,8 +8,9 @@ comments came too late. This check runs on every pull request
 (.github/workflows/claim-check.yml) and says it up front.
 
 An issue the PR closes (closingIssuesReferences: "Fixes #N" or a manual link)
-counts as claimed when the PR author is assigned to it, or commented on it
-before the PR was opened. Owners, members, collaborators and bots are exempt.
+counts as claimed when the PR author is currently assigned to it: assignment
+is the maintainer's confirmation. A comment alone is not confirmation. Owners,
+members, collaborators and bots are exempt, as is a PR marked `skip-issue`.
 
 A PR that links no issue but changes src/ is labelled `no-issue` and gets one
 comment pointing at the same section (#1570). CONTRIBUTING.md asks for an issue
@@ -51,24 +52,22 @@ MARKER = "<!-- claim-check -->"
 NO_ISSUE_MARKER = "<!-- claim-check:no-issue -->"
 EXEMPT_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
-# ponytail: first 100 comments per issue; an issue with more would need pagination.
 QUERY = """
-query($owner: String!, $name: String!, $number: Int!) {
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login __typename }
       authorAssociation
-      createdAt
       body
       labels(first: 50) { nodes { name } }
       comments(first: 100) { nodes { body } }
       # ponytail: first 100 files; a src/ change past the 100th file goes unseen.
       files(first: 100) { nodes { path } }
-      closingIssuesReferences(first: 10) {
+      closingIssuesReferences(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           number
           assignees(first: 20) { nodes { login } }
-          comments(first: 100) { nodes { author { login } createdAt } }
         }
       }
     }
@@ -77,11 +76,16 @@ query($owner: String!, $name: String!, $number: Int!) {
 """
 
 COMMENT = f"""{MARKER}
-This pull request closes {{issues}}, but the issue was not claimed first: there is no comment from @{{author}} on it from before this PR was opened, and @{{author}} is not assigned to it.
+This pull request closes {{issues}}, but @{{author}} is not currently assigned to
+these issues. Assignment is the maintainer's confirmation that the work is
+claimed; a comment alone does not confirm it.
 
 CONTRIBUTING.md asks for a comment on the issue and a maintainer's confirmation before any code is written, so that two people do not work on the same thing: https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md#before-you-start-claim-the-issue
 
-Please comment on the issue now. Once a maintainer has confirmed and assigned you, this check runs again on its own and passes. Pull requests for issues that someone else has claimed are usually closed.
+Please comment on the issue and wait for a maintainer to assign you. Once
+assigned, this check runs again on its own and passes. A maintainer can apply
+`skip-issue` as an explicit exception for an approved contribution. Pull requests
+for issues that someone else has claimed are usually closed.
 """
 
 
@@ -128,18 +132,14 @@ def needs_issue(pr: dict) -> bool:
 
 
 def unclaimed_issues(pr: dict) -> list[int]:
-    """Numbers of the issues this PR closes that its author did not claim."""
-    if is_exempt(pr):
+    """Numbers of closing issues whose assignees do not include the PR author."""
+    if is_exempt(pr) or SKIP_ISSUE_LABEL in label_names(pr):
         return []
     login = (pr["author"] or {}).get("login")
     unclaimed = []
     for issue in pr["closingIssuesReferences"]["nodes"]:
         assigned = any(a["login"] == login for a in issue["assignees"]["nodes"])
-        commented_first = any(
-            (c["author"] or {}).get("login") == login and c["createdAt"] < pr["createdAt"]
-            for c in issue["comments"]["nodes"]
-        )
-        if not (assigned or commented_first):
+        if not assigned:
             unclaimed.append(issue["number"])
     return unclaimed
 
@@ -163,15 +163,28 @@ query($owner: String!, $name: String!, $number: Int!) {
 """
 
 
-def graphql(query: str, repo: str, number: int) -> dict:
+def graphql(query: str, repo: str, number: int, cursor: str | None = None) -> dict:
     owner, name = repo.split("/")
-    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-             "-f", f"name={name}", "-F", f"number={number}")
+    args = [
+        "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
+        "-f", f"name={name}", "-F", f"number={number}",
+    ]
+    if cursor is not None:
+        args.extend(["-f", f"cursor={cursor}"])
+    out = gh(*args)
     return json.loads(out)["data"]["repository"]
 
 
 def fetch_pr(repo: str, number: int) -> dict:
-    return graphql(QUERY, repo, number)["pullRequest"]
+    pr = graphql(QUERY, repo, number)["pullRequest"]
+    connection = pr["closingIssuesReferences"]
+    while connection["pageInfo"]["hasNextPage"]:
+        cursor = connection["pageInfo"]["endCursor"]
+        page = graphql(QUERY, repo, number, cursor=cursor)["pullRequest"]
+        connection = page["closingIssuesReferences"]
+        pr["closingIssuesReferences"]["nodes"].extend(connection["nodes"])
+    pr["closingIssuesReferences"]["pageInfo"] = connection["pageInfo"]
+    return pr
 
 
 def has_marker(pr: dict, marker: str) -> bool:
