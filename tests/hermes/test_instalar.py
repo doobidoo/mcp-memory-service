@@ -211,3 +211,79 @@ def test_mcp_action_points_at_the_mcp_endpoint(tmp_path):
 
     assert "hermes mcp add" in joined
     assert "http://localhost:3202/mcp" in joined
+
+
+class TestCliIsIdempotent:
+    """The bug the G5 found: `main()` planned everything on every run.
+
+    `plan()` was idempotent, but the CLI handed it `installed={}` unconditionally,
+    so a second run reinstalled from scratch. These tests drive `main()`.
+    """
+
+    def _run_cli(self, tmp_path, monkeypatch, monkeypatch_installed):
+        instalar = _mod()
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        executed = []
+
+        monkeypatch.setattr(
+            instalar, "detect_installed", lambda *a, **k: monkeypatch_installed
+        )
+        monkeypatch.setattr(
+            instalar, "default_runner", lambda argv: (executed.append(list(argv)), (0, ""))[1]
+        )
+        monkeypatch.setattr(instalar, "default_health_get", lambda port: {"status": 200})
+
+        rc = instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
+        return rc, executed, hermes_home
+
+    def test_second_run_does_nothing_when_already_installed(self, tmp_path, monkeypatch):
+        rc, executed, _ = self._run_cli(
+            tmp_path,
+            monkeypatch,
+            {"mcp": True, "skill": True, "service": True, "hooks": True},
+        )
+
+        assert rc == 0
+        assert executed == [], "an installed machine must not run any command again"
+
+    def test_first_run_executes_actions_and_writes_undo_commands(self, tmp_path, monkeypatch):
+        rc, executed, hermes_home = self._run_cli(tmp_path, monkeypatch, {})
+
+        assert rc == 0
+        assert any(cmd[:3] == ["hermes", "mcp", "add"] for cmd in executed)
+        manifest = hermes_home / "mms-install-manifest.json"
+        assert manifest.is_file()
+        instalar = _mod()
+        undo = instalar.read_manifest_undo(manifest)
+        assert ["hermes", "mcp", "remove", "mms"] in undo
+
+
+class TestUninstallRobustness:
+    def test_corrupted_manifest_does_not_raise(self, tmp_path):
+        instalar = _mod()
+        manifest = tmp_path / "mms-install-manifest.json"
+        manifest.write_text("{ isto nao e json valido")
+
+        assert instalar.uninstall(manifest, tmp_path) == []
+
+    def test_partial_manifest_skips_missing_files(self, tmp_path):
+        instalar = _mod()
+        gone = tmp_path / "ja-nao-existe.md"
+        manifest = tmp_path / "mms-install-manifest.json"
+        instalar.write_manifest(manifest, [str(gone)])
+
+        assert instalar.uninstall(manifest, tmp_path) == []
+
+    def test_uninstall_runs_undo_commands(self, tmp_path):
+        instalar = _mod()
+        manifest = tmp_path / "mms-install-manifest.json"
+        instalar.write_manifest(manifest, [], [["hermes", "mcp", "remove", "mms"]])
+        ran = []
+
+        removed = instalar.uninstall(
+            manifest, tmp_path, runner=lambda cmd: (ran.append(list(cmd)), (0, ""))[1]
+        )
+
+        assert ran == [["hermes", "mcp", "remove", "mms"]]
+        assert "hermes mcp remove mms" in removed

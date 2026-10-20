@@ -23,6 +23,7 @@ from typing import Callable, Sequence
 
 DEFAULT_PORT = 3202
 DEFAULT_TASK_NAME = "mms-memory-service"
+DEFAULT_UNIT_NAME = "memory-service"
 
 
 @dataclass
@@ -206,29 +207,68 @@ def verify_search(search_fn: Callable[[], list]) -> list:
 # --- R7/R9/CA3: manifest + surgical uninstall -------------------------------
 
 
-def write_manifest(path: Path, entries: list[str]) -> None:
-    """Persist the list of artefact paths this installer created."""
+def write_manifest(path: Path, entries: list[str], undo: list[list[str]] | None = None) -> None:
+    """Persist what this installer created and the commands that undo it."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"created": entries}, indent=2))
+    path.write_text(json.dumps({"created": list(entries), "undo": list(undo or [])}, indent=2))
+
+
+def _load_manifest(path: Path) -> dict:
+    """Read the manifest, tolerating a missing or corrupted file.
+
+    A truncated or hand-edited manifest must never crash `uninstall` (CA6):
+    degrade to an empty manifest and let the operator see an empty removal list.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def read_manifest(path: Path) -> list[str]:
-    """Read back the manifest entries, or [] if the manifest doesn't exist."""
-    if not path.is_file():
+    """Read back the manifest artefact paths, or [] if unusable."""
+    created = _load_manifest(path).get("created")
+    return [str(x) for x in created] if isinstance(created, list) else []
+
+
+def read_manifest_undo(path: Path) -> list[list[str]]:
+    """Read back the undo commands, or [] if unusable."""
+    undo = _load_manifest(path).get("undo")
+    if not isinstance(undo, list):
         return []
-    data = json.loads(path.read_text())
-    return list(data.get("created", []))
+    return [list(cmd) for cmd in undo if isinstance(cmd, list) and cmd]
 
 
-def uninstall(manifest_path: Path, hermes_home: Path) -> list:
+def uninstall(
+    manifest_path: Path,
+    hermes_home: Path,
+    runner: Callable[[Sequence[str]], tuple[int, str]] | None = None,
+) -> list:
     """Remove exactly what the installer created, per the manifest.
 
-    Never touches a file that is not listed in the manifest, so pre-existing
-    user files/config are left untouched.
+    Runs the recorded undo commands first (they restore the Hermes config and
+    the service), then deletes files the installer created. A file that is not
+    in the manifest is never touched, and a corrupted manifest degrades to an
+    empty one instead of raising.
     """
-    entries = read_manifest(manifest_path)
+    run = runner or default_runner
     removed: list[str] = []
-    for entry in entries:
+
+    for command in read_manifest_undo(manifest_path):
+        rc, out = run(command)
+        if rc == 0:
+            removed.append(" ".join(command))
+        else:
+            # Best effort: report, do not abort the whole uninstall.
+            print(
+                f"aviso: falha ao desfazer `{' '.join(command)}` (rc={rc}): {out.strip()[:120]}",
+                file=sys.stderr,
+            )
+
+    for entry in read_manifest(manifest_path):
         target = Path(entry)
         if target.is_file() or target.is_symlink():
             target.unlink()
@@ -240,6 +280,68 @@ def uninstall(manifest_path: Path, hermes_home: Path) -> list:
 
 
 # --- R2/CA4: abort before writing when service is down ---------------------
+
+
+def default_runner(argv: Sequence[str]) -> tuple[int, str]:
+    """Run one planned command; return (returncode, combined output)."""
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def detect_installed(
+    hermes_home: Path,
+    port: int,
+    backend: str,
+    health_get: Callable[[], object] | None = None,
+    runner: Callable[[Sequence[str]], tuple[int, str]] | None = None,
+) -> dict:
+    """Discover what is already in place, so `plan()` can be idempotent.
+
+    Without this, `main()` planned every action on every run and the installer
+    was only idempotent in unit tests that handed `installed` in by hand.
+    """
+    check_health = health_get or (lambda: default_health_get(port))
+    run = runner or default_runner
+    installed: dict[str, bool] = {}
+
+    try:
+        rc, out = run(["hermes", "mcp", "list"])
+        installed["mcp"] = rc == 0 and "mms" in out
+    except Exception:
+        installed["mcp"] = False
+
+    for key, config_key in (
+        ("skill", "skills.mms.enabled"),
+        ("hooks", "hooks.mms.enabled"),
+    ):
+        try:
+            rc, out = run(["hermes", "config", "get", config_key])
+            installed[key] = rc == 0 and "true" in out.lower()
+        except Exception:
+            installed[key] = False
+
+    try:
+        check_health()
+        installed["service"] = True
+    except Exception:
+        installed["service"] = False
+
+    return installed
+
+
+def undo_for(action: Action) -> list[str]:
+    """The command that reverses one planned action (used by `uninstall`)."""
+    argv = list(action.argv)
+    if argv[:3] == ["hermes", "mcp", "add"] and len(argv) > 3:
+        return ["hermes", "mcp", "remove", argv[3]]
+    if argv[:3] == ["hermes", "config", "set"] and len(argv) > 3:
+        return ["hermes", "config", "unset", argv[3]]
+    if argv and argv[0] == "schtasks":
+        task = argv[argv.index("/tn") + 1] if "/tn" in argv else DEFAULT_TASK_NAME
+        return ["schtasks", "/delete", "/tn", task, "/f"]
+    if argv and argv[0] == "systemctl":
+        return ["systemctl", "--user", "disable", "--now", DEFAULT_UNIT_NAME]
+    return []
 
 
 def apply_or_abort(
@@ -328,7 +430,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"erro: {exc}", file=sys.stderr)
         return 1
 
-    actions = plan(hermes_home, args.port, backend, {})
+    actions = plan(hermes_home, args.port, backend, detect_installed(hermes_home, args.port, backend))
+
+    if not actions:
+        print("nada a fazer: instalacao ja completa")
+        return 0
 
     if args.dry_run:
         for action in actions:
@@ -349,7 +455,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"erro: servico indisponivel, abortando sem escrever: {exc}", file=sys.stderr)
         return 1
 
-    write_manifest(manifest_path, [a.argv[0] for a in actions])
+    for action in actions:
+        rc, out = default_runner(action.argv)
+        if rc != 0:
+            print(
+                f"erro ao executar `{' '.join(action.argv)}` (rc={rc}): {out.strip()[:200]}",
+                file=sys.stderr,
+            )
+            return 1
+
+    write_manifest(
+        manifest_path,
+        [],
+        [undo_for(action) for action in actions if undo_for(action)],
+    )
     print(f"instalado via backend={backend}, porta={args.port}")
     return 0
 
