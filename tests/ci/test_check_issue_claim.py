@@ -42,9 +42,9 @@ def test_no_comment_and_not_assigned_is_unclaimed():
     assert claim.unclaimed_issues(data) == [1458]
 
 
-def test_comment_before_the_pr_is_a_claim():
+def test_comment_before_the_pr_without_assignment_is_unclaimed():
     data = pr([issue(comments=[("someone", "2026-10-05T05:00:00Z")])])
-    assert claim.unclaimed_issues(data) == []
+    assert claim.unclaimed_issues(data) == [1458]
 
 
 def test_comment_after_the_pr_is_not_a_claim():
@@ -60,10 +60,19 @@ def test_assignment_is_a_claim_whenever_it_happened():
 
 def test_each_linked_issue_is_checked():
     data = pr([
-        issue(1, comments=[("someone", "2026-10-05T05:00:00Z")]),
+        issue(1, assignees=["someone"]),
         issue(2),
     ])
     assert claim.unclaimed_issues(data) == [2]
+
+
+def test_assignment_to_someone_else_does_not_confirm_the_pr_author():
+    data = pr([
+        issue(1, assignees=["someone"]),
+        issue(2, assignees=["other"], comments=[("someone", "2026-10-05T05:00:00Z")]),
+        issue(3, assignees=["other"]),
+    ])
+    assert claim.unclaimed_issues(data) == [2, 3]
 
 
 def test_pr_without_linked_issue_is_not_flagged():
@@ -122,6 +131,11 @@ def test_skip_issue_label_exempts_a_small_fix():
     assert not claim.needs_issue(labelled(pr([]), "skip-issue"))
 
 
+def test_skip_issue_exempts_all_unassigned_closing_issues():
+    data = labelled(pr([issue(1), issue(2, assignees=["other"])]), "skip-issue")
+    assert claim.unclaimed_issues(data) == []
+
+
 @pytest.mark.parametrize("association", ["OWNER", "MEMBER", "COLLABORATOR"])
 def test_maintainers_and_collaborators_need_no_issue(association):
     assert not claim.needs_issue(pr([], association=association))
@@ -162,6 +176,37 @@ def run_check(monkeypatch, data, dry_run=False):
     return code, fake
 
 
+def test_fetch_pr_checks_closing_issues_beyond_the_first_page(monkeypatch):
+    first = with_state(pr([issue(n, assignees=["someone"]) for n in range(1, 101)]))
+    first["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": True, "endCursor": "next"}
+    last = with_state(pr([issue(101)]))
+    last["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": False, "endCursor": "end"}
+    calls = []
+
+    def graphql(query, repo, number, cursor=None):
+        calls.append(cursor)
+        return {"pullRequest": first if cursor is None else last}
+
+    monkeypatch.setattr(claim, "graphql", graphql)
+    data = claim.fetch_pr("o/r", 7)
+    assert claim.unclaimed_issues(data) == [101]
+    assert calls == [None, "next"]
+
+
+def test_fetch_pr_does_not_refetch_a_complete_connection(monkeypatch):
+    data = with_state(pr([issue(1, assignees=["someone"])]))
+    data["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": False, "endCursor": "end"}
+    calls = []
+
+    def graphql(query, repo, number, cursor=None):
+        calls.append(cursor)
+        return {"pullRequest": data}
+
+    monkeypatch.setattr(claim, "graphql", graphql)
+    assert claim.fetch_pr("o/r", 7) is data
+    assert calls == [None]
+
+
 def test_unclaimed_pr_is_labelled_and_commented_once(monkeypatch):
     code, fake = run_check(monkeypatch, with_state(pr([issue()])))
     assert code == 1
@@ -171,6 +216,7 @@ def test_unclaimed_pr_is_labelled_and_commented_once(monkeypatch):
     ]
     body = fake.calls[-1][1]
     assert claim.MARKER in body and "#1458" in body and "@someone" in body
+    assert "assignment" in body.lower() and "confirmation" in body.lower()
 
 
 def test_existing_label_and_marker_are_not_repeated(monkeypatch):
@@ -203,12 +249,21 @@ CI_RUN = {"id": 99, "path": ".github/workflows/ci.yml", "conclusion": "failure"}
 FAILED_CLAIM_RUN = {"id": 42, "path": claim.WORKFLOW, "conclusion": "failure"}
 
 
-def test_assignment_reruns_only_failed_checks_of_open_prs(monkeypatch):
-    fake = FakeGh(runs=[CI_RUN, FAILED_CLAIM_RUN])
+@pytest.mark.parametrize("conclusion", ["failure", "success"])
+def test_assignment_changes_rerun_completed_checks_of_open_prs(monkeypatch, conclusion):
+    fake = FakeGh(runs=[CI_RUN, {**FAILED_CLAIM_RUN, "conclusion": conclusion}])
     monkeypatch.setattr(claim, "gh", fake)
     monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN"), (8, "MERGED")))
     claim.rerun_for_issue("o/r", 1458, dry_run=False)
     assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
+
+
+def test_assignment_changes_do_not_rerun_an_active_check(monkeypatch):
+    fake = FakeGh(runs=[{**FAILED_CLAIM_RUN, "conclusion": None}])
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN")))
+    claim.rerun_for_issue("o/r", 1458, dry_run=False)
+    assert fake.writes() == []
 
 
 def test_pr_without_issue_is_labelled_and_commented_once_but_passes(monkeypatch):
@@ -234,6 +289,60 @@ def test_skip_issue_drops_the_no_issue_label(monkeypatch):
     code, fake = run_check(monkeypatch, data)
     assert code == 0
     assert fake.writes() == [("api", "-X", "DELETE", "repos/o/r/issues/7/labels/no-issue")]
+
+
+def test_skip_issue_clears_both_stale_labels_for_closing_issues(monkeypatch):
+    data = with_state(
+        pr([issue(1), issue(2)]),
+        labels=["skip-issue", "unclaimed", "no-issue"],
+        comments=[claim.MARKER],
+    )
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == [
+        ("api", "-X", "DELETE", "repos/o/r/issues/7/labels/no-issue"),
+        ("api", "-X", "DELETE", "repos/o/r/issues/7/labels/unclaimed"),
+    ]
+
+    # Removing the exception must evaluate the author against every issue again.
+    with_state(data, comments=[claim.MARKER])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 1
+    assert fake.writes() == [("api", "repos/o/r/issues/7/labels", "-f", "labels[]=unclaimed")]
+
+    # A later maintainer assignment accepts the work and clears the warning.
+    data["closingIssuesReferences"]["nodes"] = [
+        issue(1, assignees=["someone"]), issue(2, assignees=["someone"]),
+    ]
+    with_state(data, labels=["unclaimed"], comments=[claim.MARKER])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == [("api", "-X", "DELETE", "repos/o/r/issues/7/labels/unclaimed")]
+
+
+def test_removing_skip_issue_restores_no_issue_without_repeating_the_notice(monkeypatch):
+    data = with_state(
+        pr([]), labels=["skip-issue", "no-issue", "unclaimed"],
+        comments=[claim.NO_ISSUE_MARKER, claim.MARKER],
+    )
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0
+    assert fake.writes() == [
+        ("api", "-X", "DELETE", "repos/o/r/issues/7/labels/no-issue"),
+        ("api", "-X", "DELETE", "repos/o/r/issues/7/labels/unclaimed"),
+    ]
+
+    with_state(data, comments=[claim.NO_ISSUE_MARKER, claim.MARKER])
+    code, fake = run_check(monkeypatch, data)
+    assert code == 0  # No-issue stays informational, as before.
+    assert fake.writes() == [("api", "repos/o/r/issues/7/labels", "-f", "labels[]=no-issue")]
+
+
+def test_skip_issue_dry_run_does_not_remove_stale_labels(monkeypatch):
+    data = with_state(pr([issue()]), labels=["skip-issue", "unclaimed", "no-issue"])
+    code, fake = run_check(monkeypatch, data, dry_run=True)
+    assert code == 0
+    assert fake.writes() == []
 
 
 def test_unclaimed_marker_does_not_hide_the_no_issue_notice(monkeypatch):
