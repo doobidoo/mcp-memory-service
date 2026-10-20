@@ -377,3 +377,37 @@ def test_install_records_the_probe_hash_in_the_manifest(tmp_path, monkeypatch):
     assert instalar.main(["--hermes-home", str(profile), "--port", "8000"]) == 0
 
     assert instalar.read_manifest(profile / "mms-install.json")["probe_hash"] == "f" * 64
+
+
+# --- review round 4: a repeat install must still verify -----------------------
+
+
+def test_repeat_install_still_verifies_the_round_trip(tmp_path, monkeypatch):
+    """Already registered must not mean "nothing to check"."""
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    calls = []
+    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: True)
+    monkeypatch.setattr(instalar, "health_ok", lambda port: (True, ""))
+    monkeypatch.setattr(
+        instalar, "verify_round_trip", lambda port, token, call=None: calls.append(token) or "a" * 64
+    )
+    monkeypatch.setattr(instalar, "delete_probe", lambda port, h, call=None: None)
+
+    rc = instalar.main(["--hermes-home", str(profile), "--port", "8000"])
+
+    assert rc == 0
+    assert calls, "a repeat install precisa rodar a sonda de novo"
+
+
+def test_repeat_install_fails_when_the_server_is_down(tmp_path, monkeypatch):
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: True)
+    monkeypatch.setattr(instalar, "health_ok", lambda port: (False, "service not answering"))
+
+    rc = instalar.main(["--hermes-home", str(profile), "--port", "8000"])
+
+    assert rc == 1, "registro existente com servidor fora do ar nao pode sair com sucesso"

@@ -442,16 +442,35 @@ def main(argv: list[str] | None = None) -> int:
         return _uninstall(hermes_home, port, manifest)
 
     actions = plan(port, mcp_is_registered(port))
-    if not actions:
-        print("nothing to do: the server is already registered for this port")
-        return 0
-
     for action in actions:
         print(action.render())
     if args.dry_run:
         return 0
 
+    if not actions:
+        return _verify_existing(port)
+
     return _install(hermes_home, port, manifest, actions)
+
+
+def _verify_existing(port: int) -> int:
+    """Already registered is not the same as working: verify it anyway.
+
+    A stopped server or broken retrieval used to pass a repeat install as
+    "nothing to do", so the promise to verify the connection held only on the
+    first run.
+    """
+    ok, reason = health_ok(port)
+    if not ok:
+        print(f"error: {SERVER_NAME} is registered but {reason}", file=sys.stderr)
+        return 1
+
+    failure, _ = _verified_round_trip(port)
+    if failure:
+        return failure
+
+    print("nothing to register: the server is already registered and the round trip works")
+    return 0
 
 
 if __name__ == "__main__":
