@@ -18,7 +18,20 @@ documentação não é hipótese — está mapeado, e é o que confunde quem che
 ## Decisão
 
 **Manter 3202.** Migrar não entrega função nova, e o blast radius alcança 3 hosts, kit, units,
-scripts e configs de cliente. O que falta não é mudar a porta: é **declará-la em um lugar só**.
+scripts e configs de cliente.
+
+### Achado do G0 (20/out) — a fonte única já existe
+
+- O código **não** contém 3202: os defaults do projeto são `MCP_SSE_PORT=8765`
+  (`config/transport.py:26`) e `MCP_HTTP_PORT=8000` (`:30`).
+- O 3202 vive em `~/dtp/ai-configs/services/env/memory-service.env` (`MCP_SSE_PORT=3202`), e a unit
+  lê esse arquivo, mais um override por host (`memory-service.<HOST>.env`).
+- Portanto **não é preciso criar** uma fonte única: ela existe e já tem precedência por host. O que
+  falta é (a) o doctor e o instalador **lerem dela** em vez de assumirem valor, (b) a documentação
+  declarar isso, e (c) o comportamento quando a variável não existe.
+
+Consequência para o escopo: este item fica **documental + contrato de leitura**. O check operacional
+de porta pertence ao D3 (check 2), que depende desta declaração.
 
 ## Requisitos (EARS)
 

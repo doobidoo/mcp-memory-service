@@ -64,7 +64,16 @@ zerado) → G4 GREEN → G5 (tuvok) → **G6 = E2E em Hermes limpo com banco zer
 
 ## Fora de escopo
 
+- **Atualização de versão ("upgrade").** O projeto não tem esse verbo e esta spec não cria um. O que
+  existe é a operação documentada `pip install --upgrade mcp-memory-service==X` + restart do serviço.
+  Reexecutar o instalador em ambiente já instalado apenas confirma o estado (R6); não troca versão.
 - Provider de memória nativo (D2, adiado por decisão).
 - Migração de portas (D8).
 - Instalação do próprio Hermes (o alvo já tem Hermes).
 - Pacote PyPI nesta entrega; `scripts/hermes/` no repo do serviço primeiro.
+
+## Nota de escopo (20/out)
+
+`scripts/hermes/` **não existe hoje** — verificado. Este item nasce do zero, e é por isso que o D7 é
+o de maior esforço dos três: não é ajuste de algo existente, é o primeiro artefato de instalação
+reprodutível do projeto.
