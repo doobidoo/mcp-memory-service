@@ -65,35 +65,19 @@ class TestHandleStoreMemory:
 
     @pytest.mark.asyncio
     async def test_store_memory_empty_content(self):
-        """Test storing empty content returns error."""
+        """Empty content is rejected by raising, so the envelope reports isError (#1601)."""
         server = MemoryServer()
 
-        result = await server.handle_store_memory({
-            "content": "",
-            "metadata": {}
-        })
-
-        # Verify error message
-        assert isinstance(result, list)
-        assert len(result) == 1
-        text = result[0].text
-        assert "error" in text.lower()
-        assert "required" in text.lower()
+        with pytest.raises(ValueError, match="[Cc]ontent is required"):
+            await server.handle_store_memory({"content": "", "metadata": {}})
 
     @pytest.mark.asyncio
     async def test_store_memory_missing_content(self):
-        """Test storing without content parameter returns error."""
+        """Missing content is rejected by raising (#1601)."""
         server = MemoryServer()
 
-        result = await server.handle_store_memory({
-            "metadata": {"tags": ["test"]}
-        })
-
-        # Verify error message
-        assert isinstance(result, list)
-        assert len(result) == 1
-        text = result[0].text
-        assert "error" in text.lower()
+        with pytest.raises(ValueError, match="[Cc]ontent is required"):
+            await server.handle_store_memory({"metadata": {"tags": ["test"]}})
 
     @pytest.mark.asyncio
     async def test_store_memory_with_tags_string(self, unique_content):
@@ -279,18 +263,12 @@ class TestIssue198Regression:
         """Verify fix for issue #198: Errors handled without KeyError."""
         server = MemoryServer()
 
-        # Store with empty content (triggers error path)
-        result = await server.handle_store_memory({
-            "content": "",
-            "metadata": {}
-        })
-
-        # Should return error message without KeyError
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert "error" in result[0].text.lower()
-        # Should NOT be KeyError message
-        assert "'message'" not in result[0].text
+        # Empty content now raises (isError path); the guarantee under test is that
+        # the failure never surfaces as a KeyError (#198).
+        with pytest.raises(ValueError) as excinfo:
+            await server.handle_store_memory({"content": "", "metadata": {}})
+        assert not isinstance(excinfo.value, KeyError)
+        assert "'message'" not in str(excinfo.value)
 
 
 class TestGetCacheStats:

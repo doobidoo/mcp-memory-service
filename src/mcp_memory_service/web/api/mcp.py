@@ -12,10 +12,12 @@ from typing import Any, Dict, Optional, Union
 
 from fastapi import APIRouter, Depends, Response, Request
 from fastapi.responses import JSONResponse
+import mcp.types as types
 from pydantic import BaseModel, ConfigDict
 
 from ..._version import __version__
 from ...compat import _sanitize_log_value
+from ...utils.tool_rate_limit import resolve_caller_identity
 from ..oauth.middleware import require_read_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
@@ -124,14 +126,30 @@ def _tool_to_dict(tool) -> Dict[str, Any]:
     }
 
 
-def _wrap_tool_result(text_contents) -> Dict[str, Any]:
-    """Pack a `list[mcp.types.TextContent]` into an MCP `tools/call` result."""
-    return {
+def _wrap_tool_result(result, is_error: bool = False) -> Dict[str, Any]:
+    """Pack the shared dispatcher result into an MCP `tools/call` result."""
+    if isinstance(result, types.CallToolResult):
+        payload = {
+            "content": [
+                {"type": tc.type, "text": tc.text}
+                for tc in result.content
+            ],
+        }
+        if result.isError:
+            payload["isError"] = True
+        if result.structuredContent is not None:
+            payload["structuredContent"] = result.structuredContent
+        return payload
+
+    payload: Dict[str, Any] = {
         "content": [
             {"type": "text", "text": tc.text}
-            for tc in text_contents
+            for tc in result
         ]
     }
+    if is_error:
+        payload["isError"] = True
+    return payload
 
 
 @router.post("/")
@@ -228,13 +246,41 @@ async def mcp_endpoint(
                     status_code=403,
                 )
 
+            # Resolve the rate-limit identity from the transport BEFORE the
+            # arguments rewrite below: the shim copies X-Agent-ID into
+            # arguments["agent_id"] when the call has none, and the limiter
+            # must never read tool arguments (#1096).
+            caller_identity = resolve_caller_identity(
+                http_request.headers.get("X-Agent-ID"),
+                http_request.client.host if http_request.client else None,
+            )
+
             # Inject X-Agent-ID header if agent_id argument not explicitly provided
             if not arguments.get("agent_id"):
                 header_agent_id = http_request.headers.get("X-Agent-ID")
                 if header_agent_id:
                     arguments["agent_id"] = header_agent_id.strip()
 
-            text_contents = await server.call_tool(tool_name, arguments)
+            # This path bypasses the SDK wrapper, so a tool exception would surface
+            # as JSON-RPC -32603 (a request error) instead of the tool result with
+            # isError=true that MCP promises. Convert it here (#1601).
+            try:
+                text_contents = await server.call_tool(
+                    tool_name, arguments, caller_identity=caller_identity
+                )
+            except Exception as tool_error:
+                logger.warning(
+                    "Tool %s failed: %s",
+                    _sanitize_log_value(tool_name),
+                    _sanitize_log_value(tool_error),
+                )
+                text_contents = [types.TextContent(type="text", text=str(tool_error))]
+                response = MCPResponse(
+                    id=request.id,
+                    result=_wrap_tool_result(text_contents, is_error=True),
+                )
+                return JSONResponse(content=response.model_dump(exclude_none=True))
+
             response = MCPResponse(
                 id=request.id,
                 result=_wrap_tool_result(text_contents),

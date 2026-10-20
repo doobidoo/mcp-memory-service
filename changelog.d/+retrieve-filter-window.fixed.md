@@ -1,0 +1,1 @@
+- **retrieval:** `retrieve_memories` filtered by `tags`/`memory_type` only after fetching `n_results` rows, so any match outside that first window was lost — `mistake_note_search` returned `{"notes": [], "count": 0}` over a populated table. The fetch now over-fetches when a filter is present and truncates to `n_results` after filtering.
