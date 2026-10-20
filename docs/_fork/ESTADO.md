@@ -15,7 +15,7 @@
   `diario-de-gates.md` §E11–§E13 e na memória. O migrador já subiu como PR #1589.
 
 > Para você abrir e entender onde estamos sem reconstruir contexto.
-> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-19 (bloco acima); a árvore dos arcos foi medida em 2026-10-14 (fork sincronizado v12.0.0; arco novo INBOX INTER-AGENTE = RFC + discussion #1529; delta-sync reabriu 1 ponto de design = ADR-0012 v2 tombstone via auditoria #1522 do Henry. NOTA DE CURADORIA: bugs/apoio pontual ao Henry — #1522 #3/#4, #1521, #1518, PRs #1530/#1531 — NÃO entram aqui; vivem no task-orch + memória. Este mapa é só dos NOSSOS ARCOS). Antes (13/out): venv-ONNX blindado; INC2+INC6 done; INC4 reposicionado (arco 40e6ecfb). F4 upstream TRAVADA (CLIENT não 100% feliz — loop-lento+ranking+fragmentos-lixo).
+> Árvore primeiro (visão), notas depois (detalhe). Atualizado: 2026-10-19 (bloco acima); a árvore dos arcos foi medida em 2026-10-14 — exceto o ramo UIAA/hermes, medido em 19/out — (fork sincronizado v12.0.0; arco novo INBOX INTER-AGENTE = RFC + discussion #1529; delta-sync reabriu 1 ponto de design = ADR-0012 v2 tombstone via auditoria #1522 do Henry. NOTA DE CURADORIA: bugs/apoio pontual ao Henry — #1522 #3/#4, #1521, #1518, PRs #1530/#1531 — NÃO entram aqui; vivem no task-orch + memória. Este mapa é só dos NOSSOS ARCOS). Antes (13/out): venv-ONNX blindado; INC2+INC6 done; INC4 reposicionado (arco 40e6ecfb). F4 upstream TRAVADA (CLIENT não 100% feliz — loop-lento+ranking+fragmentos-lixo).
 
 ```
 mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente · 09/out)
@@ -172,7 +172,17 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │   ├─ discussion #1364 (5 camadas) ................... ✅ Henry aceitou o modelo
 │   ├─ wiki Memory-Portability-Map ...................... ✅ no ar (mapa por harness)
 │   ├─ "bring your memory": conversor mem0 .............. 🟡 PR #1401 (Harbor404, fecha nosso #1390)
-│   └─ "use in any agent" ............................... → é o arco ingestão multi-agente (acima)
+│   ├─ "use in any agent" — lado SERVIDOR ............... → é o arco ingestão multi-agente (acima)
+│   └─ 🟡 UIAA — lado CLIENTE (harness) ................. `rfc-hermes-first-class` v0.1 (19/out)
+│       └─ hermes ...................................... híbrido: MEMORY.md p/ hoje · mms p/ histórico
+│           ├─ D1 convivência .......................... ✅ HÍBRIDO — provider desligado É o estado correto
+│           ├─ D2 provider plugin ...................... 🟡 adiado · moraria em $HERMES_HOME/plugins/mms/
+│           ├─ D3 diagnóstico e degradação ............. 🔴 `mms-doctor` (6 checks + reparo seguro, ≤10 s)
+│           ├─ D4 autoria X-Agent-ID ................... ✅ MERGED #1598 (d6d3fd47, 19/out 19:15Z) · 🔴 ausente no fork local
+│           ├─ D5 importer do state.db ................. 🔴 construído e NUNCA aplicado · dry-run 77/113 sessões
+│           ├─ D6 hooks TUI/CLI ........................ ✅ funciona desde 0.22.2 (3094cde513, 07/set)
+│           ├─ D7 instalador de 1ª classe .............. 🔴 a entregar · checklist 8 itens · `scripts/hermes/`
+│           └─ D8 porta/transporte ..................... 🟡 3202 (SSE legado) vs default 8000 — decisão ABERTA
 │
 └─ 🟡 ARCO HUB MULTI-AGENTE ............ agent_id feito; delta-sync 4/5 fases mergeadas
     ├─ agent_id F1/F2 (autoria no store) .............. ✅ MERGED PR #1278/#1297
