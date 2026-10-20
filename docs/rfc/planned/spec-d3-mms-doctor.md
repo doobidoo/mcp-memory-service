@@ -35,7 +35,12 @@ Hoje "funcional" não é verificável. Três fatos medidos:
 | 3 | versão instalada == código em uso | `import mcp_memory_service; __version__` vs `pyproject.toml` do repo em execução | reportar |
 | 4 | delta-sync com o hub | última linha de `sync_cursor`/`sync_events` + erro recente no `journal` da unit | reportar |
 | 5 | autoria da última gravação | última memória: `metadata.agent_id` preenchido e ≠ valor do env quando houve header | reportar |
-| 6 | embeddings órfãos/faltantes | `COUNT(*)` de memórias vivas sem linha em `memory_embeddings` | disparar reparo existente |
+| 6 | embeddings órfãos/faltantes | `memory_embeddings_rowids` (tabela real) contra `memories` vivas | disparar reparo existente |
+
+> **Achado do G0 (20/out):** `memory_embeddings` é `vec0` virtual e o `sqlite3` do sistema **não
+> carrega o módulo** — `select count(*) from memory_embeddings` falha com "no such module: vec0".
+> O check precisa ler `memory_embeddings_rowids` (tabela normal, 29.145 linhas neste host contra
+> 29.139 memórias vivas), senão o próprio doctor quebra em máquina limpa.
 
 ## Critérios de aceitação
 
