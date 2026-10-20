@@ -195,3 +195,19 @@ def test_plan_configures_mcp_through_hermes_cli(tmp_path):
     assert mcp_actions, "an action must register the MCP server"
     joined = " ".join(str(p) for a in mcp_actions for p in getattr(a, "argv", a))
     assert "hermes" in joined and "add" in joined
+
+
+def test_mcp_action_points_at_the_mcp_endpoint(tmp_path):
+    """The MCP server lives at /mcp, not at the host root.
+
+    Regression found while inspecting the GREEN output: the plan registered
+    `http://localhost:3202` (no path), which Hermes would try to speak MCP to
+    and fail. The original test only checked `hermes mcp add`, so it stayed green.
+    """
+    instalar = _mod()
+
+    actions = instalar.plan(tmp_path, 3202, "systemd", {})
+    joined = " ".join(str(p) for a in actions for p in getattr(a, "argv", []))
+
+    assert "hermes mcp add" in joined
+    assert "http://localhost:3202/mcp" in joined
