@@ -775,3 +775,29 @@ que dependia do caminho silencioso.
 - Suite integracao+web: **507 passed** (base limpa `476db1c8`: 501, +6 testes novos).
 - CI do PR: 17 pass, 1 skipping, 0 fail.
 - Fork sincronizado: `be9a1636`.
+
+## E20 — Reranker com intervalo de confianca (20/out)
+
+Matriz fechada com **bootstrap pareado** (10.000 reamostragens sobre os 120 casos, IC 95%),
+script proprio `eval/rerank_ci.py` (o `onnx_rerank.py` publica so agregados).
+
+| candidatos | recall@10 | ganho | IC95 | melhoraram | pioraram | p50 |
+|---|---|---|---|---|---|---|
+| base | 0,5667 | — | — | — | — | 0,19-0,28 s |
+| **40** | **0,6667** | **+10,0 p.p.** | **[+5,0 · +15,8]** | 12 | **0** | 2,10 s |
+| **100** | **0,7333** | **+16,7 p.p.** | **[+10,0 · +23,3]** | 20 | **0** | 5,31 s |
+
+**Multilingue REJEITADO com numero:** `bge-reranker-v2-m3` int8 (545 MB) da 0,6750 @10 com 40
+candidatos = **+0,83 p.p. sobre o bge-base por 6,5x a latencia** (13,7 s vs 2,1 s) e o dobro do
+disco. Ganho concentrado em @5 (0,675 vs 0,642) — so importa se o cliente mostra 5 e nunca 10.
+
+**Propriedade mais forte que a media:** zero casos pioraram nos dois cortes, em 120 casos. O
+reranker promove, nao troca acerto por erro.
+
+**Validacao do instrumento:** o script reproduziu exatamente os valores ja conhecidos
+(0,6667 com 40; 0,7333 com 100) — nao foi ajustado para a conclusao.
+
+**Licao de metodo:** ganho de recall reportado sem intervalo e anedota. Com n=120, +10 p.p. tem
+piso de +5 p.p.; o numero so vira decisao quando o piso tambem vale a pena.
+
+Publicado na #1602 (com a pergunta ao Henry sobre onde ligar) e na #1095 (D5 do ramo UIAA/hermes).
