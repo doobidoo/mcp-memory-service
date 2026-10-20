@@ -8,12 +8,13 @@ comments came too late. This check runs on every pull request
 (.github/workflows/claim-check.yml) and says it up front.
 
 An issue the PR closes (closingIssuesReferences: "Fixes #N" or a manual link)
-counts as claimed when a maintainer assigned the PR author, or the author
-commented on it before the PR was opened. An assignment counts only when its
-actor is not the assignee and that actor has write access or above. The
-collaborators permission field is admin or write, and the maintain role is
-reported as write. A self-assignment, or an assignment by a read-only user,
-does not count. Owners, members, collaborators and bots are exempt.
+counts as claimed when the author commented on it before the PR was opened,
+or a maintainer made the author's latest assignment. The comment is checked
+first, so no permission lookup runs when it is present. An assignment counts
+only when its actor is not the assignee and that actor has write access or
+above. The collaborators permission field is admin or write, and the maintain
+role is reported as write. A self-assignment, or an assignment by a read-only
+user, does not count. Owners, members, collaborators and bots are exempt.
 
 A PR that links no issue but changes src/ is labelled `no-issue` and gets one
 comment pointing at the same section (#1570). CONTRIBUTING.md asks for an issue
@@ -178,24 +179,29 @@ def collaborator_can_confirm(repo: str, login: str) -> bool:
 def _author_assigned_by_maintainer(
     issue: dict, login: str | None, can_confirm: Callable[[str], bool]
 ) -> bool:
-    """True when login is a current assignee and a maintainer assigned them."""
+    """True when login is a current assignee and a maintainer made their latest assignment."""
     if not login:
         return False
     if not any(a["login"] == login for a in issue["assignees"]["nodes"]):
         return False
     events = (issue.get("timelineItems") or {}).get("nodes") or []
-    for event in events:
+    for event in reversed(events):
         assignee = ((event or {}).get("assignee") or {}).get("login")
+        if assignee != login:
+            continue
         actor = ((event or {}).get("actor") or {}).get("login")
-        if assignee == login and assignment_confirms(actor, assignee, can_confirm):
-            return True
+        return assignment_confirms(actor, assignee, can_confirm)
     return False
 
 
 def unclaimed_issues(
     pr: dict, can_confirm: Callable[[str], bool] | None = None
 ) -> list[int]:
-    """Numbers of the issues this PR closes that its author did not claim."""
+    """Numbers of the issues this PR closes that its author did not claim.
+
+    A comment from the author before the PR opened is checked first and skips
+    the permission lookup. The lookup runs only when that comment is absent.
+    """
     if is_exempt(pr):
         return []
     if can_confirm is None:
@@ -208,12 +214,13 @@ def unclaimed_issues(
     login = (pr["author"] or {}).get("login")
     unclaimed = []
     for issue in pr["closingIssuesReferences"]["nodes"]:
-        confirmed = _author_assigned_by_maintainer(issue, login, can_confirm)
         commented_first = any(
             (c["author"] or {}).get("login") == login and c["createdAt"] < pr["createdAt"]
             for c in issue["comments"]["nodes"]
         )
-        if not (confirmed or commented_first):
+        if commented_first:
+            continue
+        if not _author_assigned_by_maintainer(issue, login, can_confirm):
             unclaimed.append(issue["number"])
     return unclaimed
 
