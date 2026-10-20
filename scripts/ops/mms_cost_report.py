@@ -83,9 +83,10 @@ def main() -> int:
             f"{name:34s} {calls:6d} {size:10d} {size // CHARS_PER_TOKEN:9d} "
             f"{per_call // CHARS_PER_TOKEN:9d}{flag}"
         )
+    label = f"SUBTOTAL (top {args.top})" if args.top else "TOTAL"
     print("-" * 72)
     print(
-        f"{'TOTAL':34s} {total_calls:6d} {total_bytes:10d} "
+        f"{label:34s} {total_calls:6d} {total_bytes:10d} "
         f"{total_bytes // CHARS_PER_TOKEN:9d}"
     )
     return 0
