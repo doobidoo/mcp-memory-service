@@ -298,3 +298,58 @@ def test_api_key_is_written_to_the_profile_env(tmp_path, monkeypatch):
     env_text = (profile / ".env").read_text()
     assert "MCP_MMS_API_KEY=s3cret" in env_text
     assert "OUTRA=coisa" in env_text, "o .env existente nao pode ser reescrito"
+
+
+# --- regressions found in review round 3 -------------------------------------
+
+
+def test_health_falls_back_to_api_health(monkeypatch):
+    """`memory launch` serves /api/health; `memory server` serves /health.
+
+    Checking only one aborted installation against a healthy server.
+    """
+    import urllib.error
+
+    instalar = _mod()
+    seen = []
+
+    def fake_urlopen(request, timeout=None):
+        route = request.full_url.split("8000", 1)[1]
+        seen.append(route)
+        if route == "/health":
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+        return object()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    ok, reason = instalar.health_ok(8000)
+
+    assert ok is True, reason
+    assert seen == ["/health", "/api/health"]
+
+
+def test_remove_env_key_removes_only_our_key(tmp_path):
+    instalar = _mod()
+    env = tmp_path / ".env"
+    env.write_text("OUTRA=coisa\nMCP_MMS_API_KEY=s3cret\n")
+
+    instalar.remove_env_key(tmp_path)
+
+    text = env.read_text()
+    assert "MCP_MMS_API_KEY" not in text
+    assert "OUTRA=coisa" in text
+
+
+def test_uninstall_keeps_a_key_it_did_not_add(tmp_path, monkeypatch):
+    """A key the user already had must survive uninstall."""
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    env = profile / ".env"
+    env.write_text("MCP_MMS_API_KEY=do-usuario\n")
+    instalar.write_manifest(profile / "mms-install.json", "", added_env_key=False)
+    monkeypatch.setattr(instalar, "default_runner", lambda argv: (0, ""))
+
+    instalar.main(["--hermes-home", str(profile), "--uninstall"])
+
+    assert "MCP_MMS_API_KEY=do-usuario" in env.read_text()

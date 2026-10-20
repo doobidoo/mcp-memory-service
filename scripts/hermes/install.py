@@ -81,24 +81,35 @@ def api_key() -> str:
     return os.environ.get("MCP_API_KEY", "").strip()
 
 
+HEALTH_ROUTES = ("/health", "/api/health")
+
+
 def health_ok(port: int) -> tuple[bool, str]:
-    """Is the service reachable? Returns (ok, message) so 401 is explicit."""
-    request = urllib.request.Request(f"http://localhost:{port}/health")
+    """Is the service reachable? Tries both documented health routes.
+
+    `memory server --streamable-http` serves `/health`; the HTTP server started by
+    `memory launch` serves `/api/health`. Checking only one aborted installation
+    against a perfectly healthy server of the other kind.
+    """
     key = api_key()
-    if key:
-        request.add_header("Authorization", f"Bearer {key}")
-    try:
-        urllib.request.urlopen(request, timeout=5)
-        return True, ""
-    except urllib.error.HTTPError as exc:
-        if exc.code == 401:
-            return False, "the server requires a key: set MCP_API_KEY"
-        return False, f"/health returned {exc.code}"
-    except Exception as exc:  # noqa: BLE001
-        return False, f"service not answering on :{port} ({exc})"
+    last = ""
+    for route in HEALTH_ROUTES:
+        request = urllib.request.Request(f"http://localhost:{port}{route}")
+        if key:
+            request.add_header("Authorization", f"Bearer {key}")
+        try:
+            urllib.request.urlopen(request, timeout=5)
+            return True, ""
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                return False, "the server requires a key: set MCP_API_KEY"
+            last = f"{route} returned {exc.code}"
+        except Exception as exc:  # noqa: BLE001
+            last = f"service not answering on :{port} ({exc})"
+    return False, last
 
 
-def write_env_key(hermes_home: Path, key: str) -> None:
+def write_env_key(hermes_home: Path, key: str) -> str | None:
     """Record the key under the env var name Hermes reads for this server.
 
     `hermes mcp add` sets `headers.Authorization = Bearer ${MCP_MMS_API_KEY}` and
@@ -107,16 +118,18 @@ def write_env_key(hermes_home: Path, key: str) -> None:
     """
     env_path = hermes_home / ".env"
     name = "MCP_MMS_API_KEY"
-    lines = []
+    lines: list[str] = []
+    previous: str | None = None
     if env_path.is_file():
-        lines = [
-            line
-            for line in env_path.read_text().splitlines()
-            if not line.strip().startswith(f"{name}=")
-        ]
+        for line in env_path.read_text().splitlines():
+            if line.strip().startswith(f"{name}="):
+                previous = line.split("=", 1)[1].strip()
+                continue
+            lines.append(line)
     lines.append(f"{name}={key}")
     env_path.write_text("\n".join(lines) + "\n")
     os.environ[name] = key
+    return previous
 
 
 # --- registration ------------------------------------------------------------
@@ -261,9 +274,27 @@ def delete_probe(port: int, probe_hash: str, call: Callable[[int, str, dict], di
 # --- manifest ----------------------------------------------------------------
 
 
-def write_manifest(path: Path, probe_hash: str) -> None:
+def write_manifest(path: Path, probe_hash: str, *, added_env_key: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"server": SERVER_NAME, "probe_hash": probe_hash}, indent=2) + "\n")
+    payload = {
+        "server": SERVER_NAME,
+        "probe_hash": probe_hash,
+        "added_env_key": added_env_key,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def remove_env_key(hermes_home: Path) -> None:
+    """Undo a key this installer added, leaving later user edits alone."""
+    env_path = hermes_home / ".env"
+    if not env_path.is_file():
+        return
+    kept = [
+        line
+        for line in env_path.read_text().splitlines()
+        if not line.strip().startswith("MCP_MMS_API_KEY=")
+    ]
+    env_path.write_text("\n".join(kept) + ("\n" if kept else ""))
 
 
 def read_manifest(path: Path) -> dict:
@@ -312,8 +343,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"would remove {SERVER_NAME} and the install probe from {hermes_home}")
             return 0
         rc, out = default_runner(["hermes", "mcp", "remove", SERVER_NAME])
-        probe_hash = read_manifest(manifest).get("probe_hash") or ""
-        delete_probe(port, probe_hash)
+        recorded = read_manifest(manifest)
+        delete_probe(port, recorded.get("probe_hash") or "")
+        if recorded.get("added_env_key"):
+            remove_env_key(hermes_home)
         if manifest.is_file():
             manifest.unlink()
         if rc != 0:
@@ -337,8 +370,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {reason}; nothing was written", file=sys.stderr)
         return 1
 
+    added_env_key = False
     if api_key():
-        write_env_key(hermes_home, api_key())
+        added_env_key = write_env_key(hermes_home, api_key()) is None
 
     rc, out = default_runner(actions[0].argv)
     if rc != 0:
@@ -364,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     delete_probe(port, probe_hash)
-    write_manifest(manifest, probe_hash)
+    write_manifest(manifest, probe_hash, added_env_key=added_env_key)
     print(f"registered {SERVER_NAME} on :{port}/mcp and verified a store/read round trip")
     return 0
 
