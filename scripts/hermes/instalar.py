@@ -349,14 +349,20 @@ def apply_or_abort(
     port: int,
     health_get: Callable[[], object],
     executor: Callable[[Sequence[Action]], object],
+    actions: Sequence[Action] | None = None,
 ) -> object:
     """Check /health before writing anything; propagate failure untouched.
 
     If health_get() raises, the exception propagates before executor runs
     and before any artefact is created under hermes_home.
+
+    `actions` is the plan the caller already computed from the REAL installed
+    state. Replanning here with an empty dict (the previous behaviour) both
+    ignored what was installed and made the CLI run every command twice.
     """
     health_get()  # let any exception propagate as-is, before touching disk
-    actions = plan(hermes_home, port, detect_backend(platform.system()), {})
+    if actions is None:
+        actions = plan(hermes_home, port, detect_backend(platform.system()), {})
     return executor(actions)
 
 
@@ -450,19 +456,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             port=args.port,
             health_get=health_get,
             executor=default_executor,
+            actions=actions,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"erro: servico indisponivel, abortando sem escrever: {exc}", file=sys.stderr)
         return 1
-
-    for action in actions:
-        rc, out = default_runner(action.argv)
-        if rc != 0:
-            print(
-                f"erro ao executar `{' '.join(action.argv)}` (rc={rc}): {out.strip()[:200]}",
-                file=sys.stderr,
-            )
-            return 1
 
     write_manifest(
         manifest_path,

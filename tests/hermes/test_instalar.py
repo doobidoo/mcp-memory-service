@@ -229,9 +229,13 @@ class TestCliIsIdempotent:
         monkeypatch.setattr(
             instalar, "detect_installed", lambda *a, **k: monkeypatch_installed
         )
-        monkeypatch.setattr(
-            instalar, "default_runner", lambda argv: (executed.append(list(argv)), (0, ""))[1]
-        )
+
+        def fake_executor(actions):
+            for action in actions:
+                executed.append(list(action.argv))
+            return []
+
+        monkeypatch.setattr(instalar, "default_executor", fake_executor)
         monkeypatch.setattr(instalar, "default_health_get", lambda port: {"status": 200})
 
         rc = instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
@@ -287,3 +291,27 @@ class TestUninstallRobustness:
 
         assert ran == [["hermes", "mcp", "remove", "mms"]]
         assert "hermes mcp remove mms" in removed
+
+
+def test_each_action_runs_exactly_once(tmp_path, monkeypatch):
+    """Regression: `apply_or_abort` replanned with `{}` and executed, then
+    `main` executed the same plan again — every command ran twice."""
+    instalar = _mod()
+    hermes_home = tmp_path / ".hermes"
+    hermes_home.mkdir()
+    executed = []
+
+    monkeypatch.setattr(instalar, "detect_installed", lambda *a, **k: {})
+    monkeypatch.setattr(instalar, "default_health_get", lambda port: {"status": 200})
+
+    def counting_executor(actions):
+        executed.extend(list(a.argv) for a in actions)
+        return []
+
+    monkeypatch.setattr(instalar, "default_executor", counting_executor)
+
+    instalar.main(["--hermes-home", str(tmp_path), "--port", "3202"])
+
+    assert len(executed) == len(set(map(tuple, executed))), (
+        f"comando repetido na mesma execucao: {executed}"
+    )
