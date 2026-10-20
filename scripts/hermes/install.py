@@ -59,20 +59,30 @@ def resolve_hermes_home(env: dict, home: Path) -> Path:
     return candidate
 
 
+PORT_KEYS = {"MCP_HTTP_PORT", "MCP_SSE_PORT"}
+
+
+def _parse_env_line(raw: str) -> tuple[str, str] | None:
+    """`KEY=value` from one env-file line, or None when it is not an assignment."""
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        return None
+    key, _, value = line.partition("=")
+    return key.strip(), value.strip()
+
+
 def env_file_port(path: Path) -> int | None:
     """Port declared in a service env file (`MCP_HTTP_PORT` / `MCP_SSE_PORT`)."""
     if not path.is_file():
         return None
     for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        parsed = _parse_env_line(raw)
+        if parsed is None or parsed[0] not in PORT_KEYS:
             continue
-        key, _, value = line.partition("=")
-        if key.strip() in {"MCP_HTTP_PORT", "MCP_SSE_PORT"}:
-            try:
-                return int(value.strip())
-            except ValueError:
-                return None
+        try:
+            return int(parsed[1])
+        except ValueError:
+            return None
     return None
 
 
@@ -158,14 +168,19 @@ def mcp_is_registered(port: int, runner: Callable[[Sequence[str]], tuple[int, st
         return False
     if rc != 0:
         return False
+    return _line_matches_server(out.splitlines(), port)
+
+
+def _line_matches_server(lines: Sequence[str], port: int) -> bool:
+    """Find the `mms` row and require it to be enabled and on `port`."""
     expected = f":{port}/mcp"
-    for line in out.splitlines():
+    for line in lines:
         tokens = line.split()
-        if tokens and tokens[0] == SERVER_NAME:
-            lowered = line.lower()
-            if "disabled" in lowered or "✗" in line:
-                return False
-            return expected in line
+        if not tokens or tokens[0] != SERVER_NAME:
+            continue
+        if "disabled" in line.lower() or "✗" in line:
+            return False
+        return expected in line
     return False
 
 
@@ -232,24 +247,33 @@ def verify_round_trip(
     search would then find the PREVIOUS run's probe and never exercise this write.
     """
     do_call = call or _mcp_call
-    content = f"install probe {token}"
+    _require_store_accepted(
+        do_call(port, "memory_store", {"content": f"install probe {token}", "metadata": {"tags": PROBE_TAG}})
+    )
+    found_text = _require_search_returns_probe(
+        do_call(port, "memory_search", {"query": token, "limit": 1, "mode": "exact"}), token
+    )
+    return _extract_hash(found_text)
 
-    stored = do_call(port, "memory_store", {"content": content, "metadata": {"tags": PROBE_TAG}})
-    stored_text = _tool_text(stored).lower()
-    if stored.get("error") or "error" in stored_text or "duplicate" in stored_text:
+
+def _require_store_accepted(stored: dict) -> None:
+    """A write is only accepted when it reports neither an error nor a duplicate."""
+    text = _tool_text(stored).lower()
+    if stored.get("error") or "error" in text or "duplicate" in text:
         raise RuntimeError(f"memory_store did not accept the probe: {_tool_text(stored)[:200]}")
 
-    found = do_call(port, "memory_search", {"query": token, "limit": 1, "mode": "exact"})
-    found_text = _tool_text(found)
-    if found.get("error") or "error searching" in found_text.lower():
-        raise RuntimeError(f"memory_search failed: {found_text[:200]}")
-    if "no memories found" in found_text.lower() or token not in found_text:
+
+def _require_search_returns_probe(found: dict, token: str) -> str:
+    """The search must return THIS run's probe, not merely some text."""
+    text = _tool_text(found)
+    if found.get("error") or "error searching" in text.lower():
+        raise RuntimeError(f"memory_search failed: {text[:200]}")
+    if "no memories found" in text.lower() or token not in text:
         raise RuntimeError(
             "the probe was stored but the search did not return it; the service is "
             "reachable but not retrieving"
         )
-
-    return _extract_hash(found_text)
+    return text
 
 
 def _extract_hash(text: str) -> str:
@@ -310,50 +334,112 @@ def read_manifest(path: Path) -> dict:
 # --- main --------------------------------------------------------------------
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hermes-home", default=None, help="Hermes profile directory")
-    parser.add_argument("--port", type=int, default=None, help="service port (default: env file, else 8000)")
+    parser.add_argument("--port", type=int, default=None, help="service port (env file, else 8000)")
     parser.add_argument("--env-file", default=None, help="service env file declaring the port")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--uninstall", action="store_true")
-    args = parser.parse_args(argv)
+    return parser
 
+
+def _resolve_target(args: argparse.Namespace) -> tuple[Path, int, Path]:
+    """Profile directory, service port and manifest path for this run."""
     env = dict(os.environ)
     home = Path(args.hermes_home) if args.hermes_home else Path.home()
     if args.hermes_home:
         env["HERMES_HOME"] = args.hermes_home
-
-    try:
-        hermes_home = resolve_hermes_home(env, home)
-    except RuntimeError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+    hermes_home = resolve_hermes_home(env, home)
 
     port = args.port
     if port is None and args.env_file:
         port = env_file_port(Path(args.env_file))
-    if port is None:
-        port = DEFAULT_PORT
+    return hermes_home, port or DEFAULT_PORT, hermes_home / "mms-install.json"
 
-    manifest = hermes_home / "mms-install.json"
+
+def _uninstall(hermes_home: Path, port: int, manifest: Path) -> int:
+    rc, out = default_runner(["hermes", "mcp", "remove", SERVER_NAME])
+    recorded = read_manifest(manifest)
+    delete_probe(port, recorded.get("probe_hash") or "")
+    if recorded.get("added_env_key"):
+        remove_env_key(hermes_home)
+    if manifest.is_file():
+        manifest.unlink()
+    if rc != 0:
+        print(f"error: could not remove the registration: {out.strip()[:200]}", file=sys.stderr)
+        return 1
+    print(f"removed {SERVER_NAME} and the install probe")
+    return 0
+
+
+def _register(action: "Action") -> int:
+    """Run the registration command and require the effect to be visible."""
+    rc, out = default_runner(action.argv)
+    if rc != 0:
+        print(f"error: `{action.render()}` failed: {out.strip()[:200]}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _verified_round_trip(port: int) -> tuple[int, str]:
+    """Prove store/read works and clean the probe up. Returns (rc, probe_hash)."""
+    try:
+        probe_hash = verify_round_trip(port, token=os.urandom(6).hex())
+    except urllib.error.HTTPError as exc:
+        hint = " (the server requires a key: set MCP_API_KEY)" if exc.code == 401 else ""
+        print(f"error: round trip failed with HTTP {exc.code}{hint}", file=sys.stderr)
+        return 1, ""
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: round trip failed: {exc}", file=sys.stderr)
+        return 1, ""
+    delete_probe(port, probe_hash)
+    return 0, probe_hash
+
+
+def _install(hermes_home: Path, port: int, manifest: Path, actions: list["Action"]) -> int:
+    ok, reason = health_ok(port)
+    if not ok:
+        print(f"error: {reason}; nothing was written", file=sys.stderr)
+        return 1
+
+    added_env_key = write_env_key(hermes_home, api_key()) is None if api_key() else False
+
+    failure = _register(actions[0])
+    if failure:
+        return failure
+
+    if not mcp_is_registered(port):
+        print(
+            f"error: `hermes mcp list` does not show {SERVER_NAME} on :{port}/mcp after "
+            "registration; the command reported success without registering",
+            file=sys.stderr,
+        )
+        return 1
+
+    failure, probe_hash = _verified_round_trip(port)
+    if failure:
+        return failure
+
+    write_manifest(manifest, probe_hash, added_env_key=added_env_key)
+    print(f"registered {SERVER_NAME} on :{port}/mcp and verified a store/read round trip")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    try:
+        hermes_home, port, manifest = _resolve_target(args)
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     if args.uninstall:
         if args.dry_run:
             print(f"would remove {SERVER_NAME} and the install probe from {hermes_home}")
             return 0
-        rc, out = default_runner(["hermes", "mcp", "remove", SERVER_NAME])
-        recorded = read_manifest(manifest)
-        delete_probe(port, recorded.get("probe_hash") or "")
-        if recorded.get("added_env_key"):
-            remove_env_key(hermes_home)
-        if manifest.is_file():
-            manifest.unlink()
-        if rc != 0:
-            print(f"error: could not remove the registration: {out.strip()[:200]}", file=sys.stderr)
-            return 1
-        print(f"removed {SERVER_NAME} and the install probe")
-        return 0
+        return _uninstall(hermes_home, port, manifest)
 
     actions = plan(port, mcp_is_registered(port))
     if not actions:
@@ -365,42 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return 0
 
-    ok, reason = health_ok(port)
-    if not ok:
-        print(f"error: {reason}; nothing was written", file=sys.stderr)
-        return 1
-
-    added_env_key = False
-    if api_key():
-        added_env_key = write_env_key(hermes_home, api_key()) is None
-
-    rc, out = default_runner(actions[0].argv)
-    if rc != 0:
-        print(f"error: `{actions[0].render()}` failed: {out.strip()[:200]}", file=sys.stderr)
-        return 1
-
-    if not mcp_is_registered(port):
-        print(
-            f"error: `hermes mcp list` does not show {SERVER_NAME} on :{port}/mcp after "
-            "registration; the command reported success without registering",
-            file=sys.stderr,
-        )
-        return 1
-
-    try:
-        probe_hash = verify_round_trip(port, token=os.urandom(6).hex())
-    except urllib.error.HTTPError as exc:
-        hint = " (the server requires a key: set MCP_API_KEY)" if exc.code == 401 else ""
-        print(f"error: round trip failed with HTTP {exc.code}{hint}", file=sys.stderr)
-        return 1
-    except Exception as exc:  # noqa: BLE001
-        print(f"error: round trip failed: {exc}", file=sys.stderr)
-        return 1
-
-    delete_probe(port, probe_hash)
-    write_manifest(manifest, probe_hash, added_env_key=added_env_key)
-    print(f"registered {SERVER_NAME} on :{port}/mcp and verified a store/read round trip")
-    return 0
+    return _install(hermes_home, port, manifest, actions)
 
 
 if __name__ == "__main__":
