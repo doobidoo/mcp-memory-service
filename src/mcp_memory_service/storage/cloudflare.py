@@ -1916,6 +1916,11 @@ class CloudflareStorage(MemoryStorage):
 
         Batches are bounded by id rather than by a bound-parameter list, which
         keeps each statement to two parameters regardless of batch size.
+
+        Note: a re-store of the same content also drops the tombstone before insert,
+        regardless of `older_than_days`; see `_store_memory_metadata`. The durable
+        tombstone for sync is the `sync_events` row with `op='delete'` (ADR-0009),
+        so this early drop does not affect conflict resolution.
         """
         cutoff = time.time() - (older_than_days * 86400)
         batch_size = 1000
