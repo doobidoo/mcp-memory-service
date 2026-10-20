@@ -1,0 +1,70 @@
+# SPEC — D7: instalador de primeira classe (um comando, idempotente, reversível)
+
+**Status:** PLANNED (G1) · **Arco:** UIAA/hermes (D7) · **Autor:** T'Pol
+**RFC-mãe:** `rfc-hermes-first-class.md` §8 · **Pesquisa:** `hermes-primeira-classe.md` §1 camada 2
+**Classe:** entregável de produto — é a meta do arco
+
+## Meta
+
+**Um comando** instala o memory-service, integra-o a um Hermes existente e deixa o agente pronto para
+uso — sem edição manual de YAML, sem passo esquecido, sem estado pela metade. Aceitação final: em um
+**Hermes limpo com banco zerado**, uma execução deixa a busca funcionando de ponta a ponta.
+
+Público: colegas que já usam Hermes e não conhecem o mms.
+
+## Problema
+
+A montagem atual é artesanal e não reprodutível: cada máquina recebeu o "kit de viagem" manualmente,
+mais correções ad hoc. Não existe caminho idempotente, nem `--uninstall`, nem verificação pós-escrita.
+Consequência medida: três hosts com estados diferentes — um deles 47 commits atrás, sem o fix de
+autoria, e ninguém sabia.
+
+## Requisitos (EARS)
+
+- **R1** — WHEN executado, THE instalador SHALL resolver `$HERMES_HOME` (respeitando perfis em
+  `~/.hermes/profiles/<nome>/`) antes de escrever qualquer coisa, e SHALL recusar-se a agir se não
+  encontrar um Hermes instalado.
+- **R2** — THE instalador SHALL verificar o serviço (`GET /health`) **antes** de configurar o cliente;
+  IF o serviço não estiver no ar, THEN SHALL orientar como subir e encerrar sem deixar config parcial.
+- **R3** — THE instalador SHALL escrever pela CLI oficial (`hermes mcp add --url …`, `hermes config
+  set …`), SHALL NOT editar `config.yaml` à mão.
+- **R4** — THE instalador SHALL instalar a skill de doutrina e SHALL registrar a decisão de
+  convivência (`híbrido`) no config, de forma legível para o operador.
+- **R5** — WHEN a instalação terminar, THE instalador SHALL verificar **pós-escrita** com uma busca
+  real de um token conhecido, e SHALL falhar se a busca não devolver resultado.
+- **R6** — WHEN executado uma segunda vez em ambiente já instalado, THE instalador SHALL produzir
+  **diff zero** (idempotência provada por hash da configuração antes/depois).
+- **R7** — THE instalador SHALL suportar `--uninstall` que remove **exatamente** o que ele criou,
+  sem tocar em configuração pré-existente do usuário nem no banco de dados.
+- **R8** — IF o banco estiver zerado, THEN o serviço SHALL inicializar o schema sozinho e a busca
+  pós-instalação SHALL funcionar após a primeira gravação de teste.
+- **R9** — THE instalador SHALL marcar todo artefato criado (arquivo de manifesto), para que a
+  remoção seja cirúrgica e auditável.
+
+## Critérios de aceitação
+
+- **CA1** — Em `HERMES_HOME` temporário e **banco novo**: uma execução → `hermes mcp test` OK → busca
+  real devolve a memória de teste. Sem intervenção manual.
+- **CA2** — Segunda execução: hash de `config.yaml` e da lista de MCPs idênticos ao estado anterior;
+  saída declara "nada a fazer".
+- **CA3** — `--uninstall` remove MCP, skill e hooks criados; `config.yaml` volta ao estado anterior,
+  exceto chaves que o usuário já tinha; banco intacto (contagem de memórias inalterada).
+- **CA4** — Com o serviço parado, a instalação aborta antes de escrever config (nenhum artefato
+  criado; verificado por manifesto ausente).
+- **CA5** — Nenhum YAML editado à mão: a prova é que todo `config.yaml` foi alterado por `hermes
+  config set` (auditável pelo log de comandos do próprio instalador).
+- **CA6** — Relatório final cita: porta usada, versão instalada, caminho da skill, resultado da busca
+  de verificação.
+
+## Gate
+
+G0 (seven: mapear superfícies que o instalador toca e o que já existe em `scripts/hermes/`) →
+G1 (esta spec) → G3 RED (testes de idempotência, aborto sem serviço, uninstall cirúrgico, banco
+zerado) → G4 GREEN → G5 (tuvok) → **G6 = E2E em Hermes limpo com banco zerado**, mediado.
+
+## Fora de escopo
+
+- Provider de memória nativo (D2, adiado por decisão).
+- Migração de portas (D8).
+- Instalação do próprio Hermes (o alvo já tem Hermes).
+- Pacote PyPI nesta entrega; `scripts/hermes/` no repo do serviço primeiro.
