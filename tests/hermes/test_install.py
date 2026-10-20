@@ -241,3 +241,60 @@ def test_corrupted_manifest_degrades(tmp_path):
     path.write_text("{ not json")
 
     assert instalar.read_manifest(path) == {}
+
+
+# --- regressions found in review round 2 -------------------------------------
+
+
+def test_uninstall_dry_run_changes_nothing(tmp_path, monkeypatch):
+    """`--uninstall --dry-run` previewed by removing the registration."""
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    manifest = profile / "mms-install.json"
+    instalar.write_manifest(manifest, "d" * 64)
+    calls = []
+    monkeypatch.setattr(instalar, "default_runner", lambda argv: (calls.append(list(argv)), (0, ""))[1])
+
+    rc = instalar.main(["--hermes-home", str(profile), "--uninstall", "--dry-run"])
+
+    assert rc == 0
+    assert calls == [], "dry-run nao pode executar `hermes mcp remove`"
+    assert manifest.is_file(), "dry-run nao pode apagar o manifesto"
+
+
+def test_registration_aborts_when_health_fails(tmp_path, monkeypatch):
+    """The abort-before-writing promise: no Hermes change on a down server."""
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    calls = []
+    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: False)
+    monkeypatch.setattr(instalar, "health_ok", lambda port: (False, "service not answering"))
+    monkeypatch.setattr(instalar, "default_runner", lambda argv: (calls.append(list(argv)), (0, ""))[1])
+
+    rc = instalar.main(["--hermes-home", str(profile), "--port", "8000"])
+
+    assert rc == 1
+    assert calls == [], "nada pode ser executado antes de o servico responder"
+
+
+def test_api_key_is_written_to_the_profile_env(tmp_path, monkeypatch):
+    """Hermes reads MCP_MMS_API_KEY from the profile .env; without it the
+    registration exists but cannot authenticate."""
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / ".env").write_text("OUTRA=coisa\n")
+    monkeypatch.setenv("MCP_API_KEY", "s3cret")
+    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port, runner=None: False)
+    monkeypatch.setattr(instalar, "health_ok", lambda port: (True, ""))
+    monkeypatch.setattr(instalar, "default_runner", lambda argv: (0, ""))
+    monkeypatch.setattr(instalar, "verify_round_trip", lambda port, token, call=None: "e" * 64)
+    monkeypatch.setattr(instalar, "delete_probe", lambda port, h, call=None: None)
+
+    instalar.main(["--hermes-home", str(profile), "--port", "8000"])
+
+    env_text = (profile / ".env").read_text()
+    assert "MCP_MMS_API_KEY=s3cret" in env_text
+    assert "OUTRA=coisa" in env_text, "o .env existente nao pode ser reescrito"
