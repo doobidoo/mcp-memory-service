@@ -801,3 +801,29 @@ reranker promove, nao troca acerto por erro.
 piso de +5 p.p.; o numero so vira decisao quando o piso tambem vale a pena.
 
 Publicado na #1602 (com a pergunta ao Henry sobre onde ligar) e na #1095 (D5 do ramo UIAA/hermes).
+
+## E21 — D3 (mms-doctor): 25 testes verdes, quatro falsos positivos (20/out)
+
+Primeira rodada do doctor entregou **25/25 verdes**. Rodando no host real, ele **mentiu em quatro
+checks**. Nenhum dos 25 testes pegaria, porque as fixtures descrevem um mundo mais ideal que o host.
+
+| # | defeito | o que a fixture não tinha |
+|---|---|---|
+| B1 | `sync` com limite fixo de 300 s acusava "cursor parado" com 12 min de idade | o cron real é de 30 min |
+| B2 | `embeddings` comparava totais e acusava 6 "orfaos" que eram **tombstones legitimos** | memoria deletada com embedding |
+| B3 | porta assumida (8765 do codigo) reprovava host saudavel em 3202 | env-file do servico |
+| B4 | banco sem schema levantava `OperationalError` e derrubava o doctor | fixture sempre cria as tabelas |
+
+O B4 e o mais grave: quebrava exatamente no cenario do E2E do instalador — **banco zerado**.
+
+**Licao:** teste verde prova que o codigo faz o que o teste diz; nao prova que o teste descreve o
+mundo. Quando o instrumento mede o proprio regime, a fixture precisa vir do regime (cron, env, banco
+com tombstones), senao ele aprova a si mesmo.
+
+**Achado de processo:** o agente de implementacao travou ao encontrar um teste antigo que exigia as
+contagens "3" e "5" na evidencia — interpretou como conflito com a correcao. Nao era: o teste so
+exigia que as contagens aparecessem. Faltou a evidencia citar `vivas/com_embedding/faltando`.
+Corrigido em duas linhas. Um teste que parece congelar defeito pode apenas estar pedindo numero.
+
+**G6 medido no host real, sem `--port`:** seis checks verdes, exit 0 —
+`health OK · port declarado=3202 ouvido=3202 · version OK · sync OK · author OK · embeddings vivas=29141 com_embedding=29141 faltando=0`.
