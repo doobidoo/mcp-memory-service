@@ -77,3 +77,22 @@ zerado) → G4 GREEN → G5 (tuvok) → **G6 = E2E em Hermes limpo com banco zer
 `scripts/hermes/` **não existe hoje** — verificado. Este item nasce do zero, e é por isso que o D7 é
 o de maior esforço dos três: não é ajuste de algo existente, é o primeiro artefato de instalação
 reprodutível do projeto.
+
+### Achado do G0 (20/out): existe um protótipo, e ele cobre só metade
+
+`~/dtp/ai-configs/hermes/kit-dtp/` já traz `instalar.sh` (72 linhas) e `verificar.sh` (113 linhas).
+O `instalar.sh` é idempotente e faz backup, mas **instala apenas o lado cliente**: copia payload
+(config, skills, hooks) para `$HERMES_HOME`, corrige caminhos absolutos e marca hooks executáveis.
+Ele **não** instala o serviço, não cria unit do systemd, não registra MCP por CLI e não verifica
+busca real.
+
+Consequência para o desenho — o D7 tem duas metades:
+
+| metade | o que faz | origem |
+|---|---|---|
+| **serviço** | venv/pacote, env de porta, unit systemd, subir e checar `/health` | inexistente hoje |
+| **cliente** | `hermes mcp add`, skill, hooks, verificação pós-escrita | absorve o `kit-dtp/instalar.sh` |
+
+Requisito novo derivado: **R10** — THE instalador SHALL absorver o comportamento do
+`kit-dtp/instalar.sh` (backup antes de sobrescrever, merge que não apaga o que não veio no payload,
+correção de caminho absoluto), e SHALL NOT depender do kit estar presente na máquina.
