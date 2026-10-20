@@ -891,3 +891,22 @@ caminho que a producao usa. Teste que fornece explicitamente o insumo da decisao
 - leitura de `MCP_DOCTOR_READY_TIMEOUT` tolerante a valor nao numerico (P1.2).
 - `_default_restart_service` tolerante a host sem systemd (P1.3) — verificado: retorna sem levantar.
 - 10 testes novos; 49 no total; CA5 provado por hash do banco identico antes/depois.
+
+## E24 — D3 FECHADO (20/out): G5 liberou para G6
+
+Terceira rodada do G5 (escopo de duas perguntas) fechou o item:
+
+- **P1: FECHADO** — `run_checks` tem default incondicional `unit_state = _default_unit_state`.
+  Prova de sabotagem do revisor: trocar por `lambda: "unknown"` -> `1 failed, 48 passed`
+  (`test_run_checks_does_not_restart_an_activating_unit`, "an activating unit must never be restarted").
+- **P2: NAO** — nenhum dos 49 testes passa por construcao.
+- Frase do parecer: "D3 liberado para G6".
+
+### G6 medido (09:47)
+
+`health OK · port declarado=3202 ouvido=3202 · version OK · sync OK · author OK ·
+embeddings vivas=29149 com_embedding=29149 faltando=0` -> **EXIT=0**, servico `active`, 49 testes.
+
+**Licao de metodo:** a terceira rodada funcionou porque o escopo era de DUAS perguntas com evidencia
+obrigatoria. As duas anteriores (revisao aberta, 748 s e 20 s) nao entregaram parecer. Delegacao de
+revisao precisa de pergunta fechada e criterio de resposta — senao o revisor explora e estoura.
