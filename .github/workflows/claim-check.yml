@@ -13,11 +13,13 @@
 # checked out or run here: the checkout below is the base branch, and the
 # script reads the PR through the API alone. Keep it that way.
 #
-# issues: assigned is the other half. Assigning the author confirms a late
-# claim, and that run re-runs the PR's failed check (scripts/ci has why), so
-# the check turns green without a new push. It also drops the `claim-pending`
-# label that claim-pending.yml adds when the claim was first commented, so the
-# label never outlives the maintainer's assignment.
+# issues: assigned is the other half. A maintainer assigning the author
+# confirms a late claim, and that run re-runs the PR's failed check
+# (scripts/ci has why), so the check turns green without a new push. It also
+# drops the `claim-pending` label that claim-pending.yml adds when the claim
+# was first commented, so the label never outlives that assignment. A
+# self-assignment or one by a user without write access is not a confirmation
+# (#1596): `check_issue_claim.py --confirms` exits 3 and the label stays.
 
 name: Claim Check
 
@@ -62,7 +64,7 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: python3 scripts/ci/check_issue_claim.py "$PR_NUMBER"
 
-    - name: Drop the claim-pending label now that the issue is assigned
+    - name: Drop claim-pending when a maintainer assigned the issue
       # Independent of the re-run below (which has `if: always()`), so neither step
       # blocks the other: a cleanup failure is surfaced here but still lets the PR
       # check re-run, and a re-run failure never leaves the label behind (Greptile).
@@ -71,20 +73,33 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
+        ACTOR: ${{ github.event.sender.login }}
+        ASSIGNEE: ${{ github.event.assignee.login }}
       # Ignore only the 404 of a label that was never set (most issues); any other
       # error (network, auth) must fail so the label is not silently left behind.
+      # Exit 3 from --confirms is "do not drop", not a failure.
       run: |
-        status=$(gh api -X DELETE \
-          "repos/$REPO/issues/$ISSUE_NUMBER/labels/claim-pending" \
-          --silent 2>/tmp/err; echo "$?")
-        if [ "$status" = "0" ]; then
-          echo "Removed claim-pending from #$ISSUE_NUMBER"
-        elif grep -q "HTTP 404" /tmp/err; then
-          echo "No claim-pending label on #$ISSUE_NUMBER (nothing to remove)"
+        if python3 scripts/ci/check_issue_claim.py --repo "$REPO" --confirms "$ACTOR" "$ASSIGNEE"; then
+          status=$(gh api -X DELETE \
+            "repos/$REPO/issues/$ISSUE_NUMBER/labels/claim-pending" \
+            --silent 2>/tmp/err; echo "$?")
+          if [ "$status" = "0" ]; then
+            echo "Removed claim-pending from #$ISSUE_NUMBER"
+          elif grep -q "HTTP 404" /tmp/err; then
+            echo "No claim-pending label on #$ISSUE_NUMBER (nothing to remove)"
+          else
+            echo "Failed to remove claim-pending from #$ISSUE_NUMBER:" >&2
+            cat /tmp/err >&2
+            exit 1
+          fi
         else
-          echo "Failed to remove claim-pending from #$ISSUE_NUMBER:" >&2
-          cat /tmp/err >&2
-          exit 1
+          rc=$?
+          if [ "$rc" -eq 3 ]; then
+            echo "Assignment on #$ISSUE_NUMBER does not confirm a claim; leaving claim-pending"
+            exit 0
+          fi
+          echo "Could not decide whether the assignment on #$ISSUE_NUMBER confirms a claim" >&2
+          exit "$rc"
         fi
 
     - name: Re-run the checks of PRs closing this issue

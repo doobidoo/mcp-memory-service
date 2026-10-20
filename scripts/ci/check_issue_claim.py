@@ -8,8 +8,12 @@ comments came too late. This check runs on every pull request
 (.github/workflows/claim-check.yml) and says it up front.
 
 An issue the PR closes (closingIssuesReferences: "Fixes #N" or a manual link)
-counts as claimed when the PR author is assigned to it, or commented on it
-before the PR was opened. Owners, members, collaborators and bots are exempt.
+counts as claimed when a maintainer assigned the PR author, or the author
+commented on it before the PR was opened. An assignment counts only when its
+actor is not the assignee and that actor has write access or above. The
+collaborators permission field is admin or write, and the maintain role is
+reported as write. A self-assignment, or an assignment by a read-only user,
+does not count. Owners, members, collaborators and bots are exempt.
 
 A PR that links no issue but changes src/ is labelled `no-issue` and gets one
 comment pointing at the same section (#1570). CONTRIBUTING.md asks for an issue
@@ -24,11 +28,16 @@ Unclaimed: adds the `unclaimed` label, posts one comment (found again by a
 hidden marker, so re-runs do not repeat it) and exits 1. Claimed: removes the
 label if present and exits 0. The check is informational, not required.
 
---issue N is for the `issues: assigned` trigger. Assigning the author is how a
-maintainer confirms a late claim, but an issues-event run is not the PR's check
+--issue N is for the `issues: assigned` trigger. A maintainer assigning the
+author confirms a late claim, but an issues-event run is not the PR's check
 run, so it would leave the red check standing. Instead it re-runs the latest
 failed claim-check run of every open PR that closes the issue; the re-run reads
 the current state through the API, drops the label and passes.
+
+--confirms ACTOR ASSIGNEE is the cleanup half of that trigger. Exit 0 when the
+assignment should drop the `claim-pending` label, and exit 3 when it should not
+(the actor is the assignee, or the actor lacks write access). claim-check.yml
+uses that exit code and stays independent of the re-run.
 
 Needs the gh CLI with GH_TOKEN set. --dry-run only prints the verdict.
 Standard library only, so it runs on a bare runner with no install step.
@@ -42,6 +51,7 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 
 LABEL = "unclaimed"
 NO_ISSUE_LABEL = "no-issue"
@@ -69,6 +79,15 @@ query($owner: String!, $name: String!, $number: Int!) {
           number
           assignees(first: 20) { nodes { login } }
           comments(first: 100) { nodes { author { login } createdAt } }
+          # ponytail: last 20 assignments; an earlier confirming one past that is unseen.
+          timelineItems(itemTypes: [ASSIGNED_EVENT], last: 20) {
+            nodes {
+              ... on AssignedEvent {
+                actor { login }
+                assignee { ... on User { login } }
+              }
+            }
+          }
         }
       }
     }
@@ -77,7 +96,7 @@ query($owner: String!, $name: String!, $number: Int!) {
 """
 
 COMMENT = f"""{MARKER}
-This pull request closes {{issues}}, but the issue was not claimed first: there is no comment from @{{author}} on it from before this PR was opened, and @{{author}} is not assigned to it.
+This pull request closes {{issues}}, but the issue was not claimed first: there is no comment from @{{author}} on it from before this PR was opened, and no maintainer has assigned @{{author}} to it.
 
 CONTRIBUTING.md asks for a comment on the issue and a maintainer's confirmation before any code is written, so that two people do not work on the same thing: https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md#before-you-start-claim-the-issue
 
@@ -127,19 +146,74 @@ def needs_issue(pr: dict) -> bool:
     return any(f["path"].startswith("src/") for f in pr["files"]["nodes"])
 
 
-def unclaimed_issues(pr: dict) -> list[int]:
+def assignment_confirms(
+    actor: str | None, assignee: str | None, can_confirm: Callable[[str], bool]
+) -> bool:
+    """True when someone else with write access or above made the assignment.
+
+    A self-assignment never confirms, even when the actor has write access.
+    """
+    if not actor or not assignee or actor == assignee:
+        return False
+    return bool(can_confirm(actor))
+
+
+def collaborator_can_confirm(repo: str, login: str) -> bool:
+    """True when login has write access or above on repo.
+
+    GET repos/{repo}/collaborators/{login}/permission reports admin or write.
+    The maintain role is reported as write. A 404 means the login is not a
+    collaborator. Any other API error propagates so a lookup failure is not
+    treated as a lack of access.
+    """
+    try:
+        out = gh("api", f"repos/{repo}/collaborators/{login}/permission")
+    except subprocess.CalledProcessError as exc:
+        if "HTTP 404" in (exc.stderr or ""):
+            return False
+        raise
+    return json.loads(out).get("permission") in {"admin", "write"}
+
+
+def _author_assigned_by_maintainer(
+    issue: dict, login: str | None, can_confirm: Callable[[str], bool]
+) -> bool:
+    """True when login is a current assignee and a maintainer assigned them."""
+    if not login:
+        return False
+    if not any(a["login"] == login for a in issue["assignees"]["nodes"]):
+        return False
+    events = (issue.get("timelineItems") or {}).get("nodes") or []
+    for event in events:
+        assignee = ((event or {}).get("assignee") or {}).get("login")
+        actor = ((event or {}).get("actor") or {}).get("login")
+        if assignee == login and assignment_confirms(actor, assignee, can_confirm):
+            return True
+    return False
+
+
+def unclaimed_issues(
+    pr: dict, can_confirm: Callable[[str], bool] | None = None
+) -> list[int]:
     """Numbers of the issues this PR closes that its author did not claim."""
     if is_exempt(pr):
         return []
+    if can_confirm is None:
+        repo = os.environ.get("GITHUB_REPOSITORY", "doobidoo/mcp-memory-service")
+
+        def lookup(login: str) -> bool:
+            return collaborator_can_confirm(repo, login)
+
+        can_confirm = lookup
     login = (pr["author"] or {}).get("login")
     unclaimed = []
     for issue in pr["closingIssuesReferences"]["nodes"]:
-        assigned = any(a["login"] == login for a in issue["assignees"]["nodes"])
+        confirmed = _author_assigned_by_maintainer(issue, login, can_confirm)
         commented_first = any(
             (c["author"] or {}).get("login") == login and c["createdAt"] < pr["createdAt"]
             for c in issue["comments"]["nodes"]
         )
-        if not (assigned or commented_first):
+        if not (confirmed or commented_first):
             unclaimed.append(issue["number"])
     return unclaimed
 
@@ -202,7 +276,7 @@ def check_pr(repo: str, number: int, dry_run: bool) -> int:
     # which fails under a GITHUB_TOKEN on some gh versions.
     issue_api = f"repos/{repo}/issues/{number}"
     sync_no_issue(pr, issue_api, number, dry_run)
-    issues = unclaimed_issues(pr)
+    issues = unclaimed_issues(pr, lambda login: collaborator_can_confirm(repo, login))
     labelled = LABEL in label_names(pr)
 
     if not issues:
@@ -244,11 +318,26 @@ def main() -> int:
     parser.add_argument("--issue", type=int, help="re-run the checks of open PRs closing this issue")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "doobidoo/mcp-memory-service"))
     parser.add_argument("--dry-run", action="store_true", help="print the verdict, change nothing")
+    parser.add_argument(
+        "--confirms",
+        nargs=2,
+        metavar=("ACTOR", "ASSIGNEE"),
+        help=(
+            "exit 0 when ACTOR assigning ASSIGNEE confirms a claim "
+            "(someone else with write access or above), else 3"
+        ),
+    )
     args = parser.parse_args()
+    if args.confirms:
+        actor, assignee = args.confirms
+        confirmed = assignment_confirms(
+            actor, assignee, lambda login: collaborator_can_confirm(args.repo, login)
+        )
+        return 0 if confirmed else 3
     if args.issue:
         return rerun_for_issue(args.repo, args.issue, args.dry_run)
     if args.pr is None:
-        parser.error("a pull request number or --issue is required")
+        parser.error("a pull request number, --issue, or --confirms is required")
     return check_pr(args.repo, args.pr, args.dry_run)
 
 
