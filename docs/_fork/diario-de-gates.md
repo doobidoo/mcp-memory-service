@@ -910,3 +910,34 @@ embeddings vivas=29149 com_embedding=29149 faltando=0` -> **EXIT=0**, servico `a
 **Licao de metodo:** a terceira rodada funcionou porque o escopo era de DUAS perguntas com evidencia
 obrigatoria. As duas anteriores (revisao aberta, 748 s e 20 s) nao entregaram parecer. Delegacao de
 revisao precisa de pergunta fechada e criterio de resposta — senao o revisor explora e estoura.
+
+## E25 — D7: o E2E achou 5 defeitos que 20 testes verdes nao pegaram (20/out)
+
+G6 do instalador, Hermes temporario e banco zerado, SEM mock. Primeira execucao: "instalado",
+EXIT=0 — e nada registrado. Cinco defeitos reais:
+
+1. **`hermes mcp add` e interativo** e cancela sem stdin, retornando 0. O instalador reportava
+   sucesso sem registrar o servidor. `echo "Y"` tambem cancelava: precisou de `input="Y\n" * 5`.
+2. **`default_executor` rodava subprocess direto**, entao o stdin nunca chegava ao comando.
+   Dois caminhos de execucao — o mock dos testes cobria um, o CLI usava outro.
+3. **`hermes config get` nao existe** (so show/edit/set/path/env-path/check/migrate): a deteccao
+   sempre falhava e reinstalava tudo em toda execucao.
+4. **`hermes config unset` nao existe**: o undo de config falhava; corrigido para `set <chave> false`.
+5. **`verify_installation` nunca era chamado**: o R5 existia no codigo e nao no fluxo. Agora grava
+   uma sonda e busca de volta — em banco zerado, 1 memoria apos instalar.
+
+Bonus sobre o ambiente: `HERMES_HOME` estava exportado na sessao e um teste passou a escrever fora do
+`tmp_path`; a sonda de verificacao vazou para o banco de PRODUCAO (removida, e o teste agora faz
+`monkeypatch.delenv`).
+
+### E2E medido
+
+```
+1a execucao -> instalado (porta 3298) · banco 0 -> 1 memoria (sonda verificada)
+2a execucao -> "nada a fazer: instalacao ja completa"
+uninstall   -> mcp remove + skills/hooks false · mcp list: "No MCP servers configured"
+20 testes, 0.53 s
+```
+
+**Licao:** 20 testes verdes e instalador que nao instala. Os testes cobriam funcoes e o artefato e a
+COMPOSICAO. Nenhum mock, em banco zerado, foi o unico juiz honesto.
