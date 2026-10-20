@@ -51,8 +51,11 @@ de porta pertence ao D3 (check 2), que depende desta declaração.
   editar código.
 - **CA2** — Doctor detecta mismatch (porta declarada ≠ porta que responde) e sai com código 1,
   citando `declarado=3202 ouvido=3203`.
-- **CA3** — A documentação do harness (wiki + `docs/agents/hermes.md` quando existir) contém a frase
-  de R3 com o valor real, verificável por grep. A wiki deixa de registrar 8000 como porta do serviço.
+- **CA3** — A documentação **nossa** (`docs/agents/hermes.md`, a criar — camada 5 da pesquisa) declara
+  "3202 por escolha; 8000 é o default do projeto", verificável por grep.
+  Achado do G0: a skill `memoria-mcp-primario` e o `config.yaml` já usam 3202 corretamente; o 8000
+  aparece apenas na documentação do **upstream**, que descreve o default dele. **Não se corrige doc
+  de terceiro** — o que falta é a nossa página de harness.
 - **CA4** — Nenhum host é migrado nesta entrega; 3202 continua sendo o valor em produção.
 
 ## Gate

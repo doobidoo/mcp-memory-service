@@ -129,7 +129,13 @@ Requisitos derivados:
 
 ## Bloqueio declarado (honestidade de escopo)
 
-Não há máquina Windows nesta infraestrutura para o G6. O E2E Windows será validado por:
+Não há máquina Windows nesta infraestrutura **hoje**, mas há **VirtualBox** e a intenção de instalar
+uma VM Windows para testes. **Não é prioridade** — o E2E Windows fica para depois do E2E Linux.
+
+Até lá, a validação Windows será:
 (a) teste automatizado do **gerador de comando** `schtasks` (unidade, roda em qualquer SO, verifica a
-string gerada); (b) execução real em uma máquina de colega, com o relatório do instalador colado na
-issue. Declarar isso explicitamente — não fingir paridade de teste.
+string gerada);
+(b) quando a VM existir, execução real com o relatório do instalador anexado.
+
+Declarar isso explicitamente — não fingir paridade de teste, e não tratar Linux verde como Windows
+verde.
