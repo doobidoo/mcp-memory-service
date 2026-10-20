@@ -144,6 +144,52 @@ def test_lapsed_maintainer_assignment_is_not_a_claim(monkeypatch):
     assert claim.unclaimed_issues(data) == [1458]
 
 
+def test_later_self_assignment_replaces_an_earlier_maintainer_assignment(monkeypatch):
+    """The author's latest assignment decides. A later self-assignment does not count."""
+    allow_confirm(monkeypatch, {"maintainer"})
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("maintainer", "someone"), ("someone", "someone")],
+    )])
+    assert claim.unclaimed_issues(data) == [1458]
+
+
+def test_later_maintainer_assignment_replaces_an_earlier_self_assignment(monkeypatch):
+    """A maintainer re-assignment after a self-assignment still counts."""
+    allow_confirm(monkeypatch, {"maintainer"})
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("someone", "someone"), ("maintainer", "someone")],
+    )])
+    assert claim.unclaimed_issues(data) == []
+
+
+def test_comment_before_the_pr_skips_the_permission_lookup():
+    """A prior comment claims the issue, and the permission lookup is not called."""
+    def can_confirm(login):
+        raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: HTTP 500: Server Error")
+
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("maintainer", "someone")],
+        comments=[("someone", "2026-10-05T05:00:00Z")],
+    )])
+    assert claim.unclaimed_issues(data, can_confirm=can_confirm) == []
+
+
+def test_permission_lookup_error_propagates_without_a_prior_comment():
+    """Without a prior comment, a permission lookup error still fails the check."""
+    def can_confirm(login):
+        raise subprocess.CalledProcessError(1, ["gh"], stderr="gh: HTTP 500: Server Error")
+
+    data = pr([issue(
+        assignees=["someone"],
+        assignments=[("maintainer", "someone")],
+    )])
+    with pytest.raises(subprocess.CalledProcessError):
+        claim.unclaimed_issues(data, can_confirm=can_confirm)
+
+
 @pytest.mark.parametrize(
     ("actor", "assignee", "allowed", "code"),
     [
