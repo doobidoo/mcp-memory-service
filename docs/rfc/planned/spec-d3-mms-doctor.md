@@ -23,6 +23,16 @@ Hoje "funcional" não é verificável. Três fatos medidos:
   `arquivo:linha`, versão lida, valor esperado), nunca só "falhou".
 - **R3** — IF o check de `/health` falhar, THEN SHALL tentar **um** restart do serviço
   (`systemctl --user restart memory-service`) e re-testar uma vez; SHALL NOT reiniciar mais de uma vez.
+- **R3-bis (achado 20/out — incidente real)** — THE reparo SHALL NOT reiniciar um serviço que esteja
+  em `activating` (start em andamento): o serviço leva ~30 s para ficar pronto ("Dependencies missing,
+  extending base timeout to 30.0s"), e reiniciar durante o start impede que ele complete. Cada
+  execução do doctor somava um restart, o systemd entrou em `start-limit-hit` e **o serviço ficou
+  fora do ar**. Condições obrigatórias antes de reiniciar: (a) estado da unit é `failed`, não
+  `activating`; (b) após o restart, aguardar readiness com backoff (até o timeout declarado) antes
+  de declarar falha; (c) nunca disparar restart se o motivo for porta errada — nesse caso o
+  diagnóstico é de configuração, não de processo.
+- **R3-ter** — THE ferramenta SHALL registrar no relatório que executou um restart, com o estado da
+  unit antes e depois, para que o operador saiba que houve intervenção.
 - **R4** — THE ferramenta SHALL NOT alterar versão, porta, configuração de sync ou dados do acervo.
   Correção automática existe **apenas** para o check de `/health`.
 
