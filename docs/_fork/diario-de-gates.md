@@ -827,3 +827,33 @@ Corrigido em duas linhas. Um teste que parece congelar defeito pode apenas estar
 
 **G6 medido no host real, sem `--port`:** seis checks verdes, exit 0 —
 `health OK · port declarado=3202 ouvido=3202 · version OK · sync OK · author OK · embeddings vivas=29141 com_embedding=29141 faltando=0`.
+
+## E22 — O doctor derrubou o servico tres vezes (20/out)
+
+O `mms-doctor` foi entregue com 35 testes verdes e, ao ser executado no host real, **deixou o
+`memory-service` fora do ar tres vezes**. Nao foi bug de logica: foi desenho de reparo.
+
+### Mecanismo
+
+1. O servico leva ~30 s para ficar pronto (`Dependencies missing, extending base timeout to 30.0s`).
+2. O check de `health` falhava (por porta errada ou por start em andamento).
+3. O reparo disparava `systemctl restart` **sem olhar o estado da unit**.
+4. Cada execucao somava um restart; o start nunca completava.
+5. systemd entrou em `start-limit-hit`: **40 eventos de start-limit em 3 minutos**, servico `failed`.
+
+Recuperacao: `systemctl --user reset-failed` + `start` + esperar ~25 s de readiness.
+
+### Correcao (R3-bis)
+
+- Ler `systemctl is-active` ANTES de reiniciar; nunca reiniciar em `activating`/`reloading`/`active`.
+- Porta errada nao e motivo de restart (e configuracao, nao processo).
+- Depois do restart, aguardar readiness com backoff antes de declarar falha.
+- R3-ter: o relatorio diz que houve intervencao, com estado da unit antes e depois.
+
+**Licao central:** ferramenta de diagnostico com poder de reparo e arma carregada. O padrao "se nao
+responde, reinicia" e correto para servico que sobe em 1 s e destrutivo para servico que sobe em 30 s.
+Antes de dar a uma ferramenta o poder de agir, ela precisa saber distinguir "quebrado" de "nascendo".
+
+**Licao secundaria:** os 35 testes nao pegariam — todos injetam `restart_service` como mock, entao
+nenhum deles exercita a decisao de reiniciar. O que e injetado como fronteira nao e testado; a
+decisao de chamar a fronteira precisa de teste proprio.
