@@ -96,3 +96,40 @@ Consequência para o desenho — o D7 tem duas metades:
 Requisito novo derivado: **R10** — THE instalador SHALL absorver o comportamento do
 `kit-dtp/instalar.sh` (backup antes de sobrescrever, merge que não apaga o que não veio no payload,
 correção de caminho absoluto), e SHALL NOT depender do kit estar presente na máquina.
+
+### Achado do G0 (20/out): o público é Windows
+
+Levantamento do usuário: **95% dos colegas usam Windows**; destes, cerca de **1/3** tem WSL
+habilitado. Isso inverte a prioridade do desenho — o alvo primário não é o Linux desta máquina.
+
+O que o projeto já oferece (verificado):
+
+| plataforma | mecanismo existente | arquivo |
+|---|---|---|
+| Linux | `systemd --user` (recomendado na doc) | `docs/deployment/systemd-service.md` |
+| Windows | **Task Scheduler no logon** | `scripts/server/start_http_server.bat` (existe) |
+| ambos | health check | `scripts/server/check_server_health.py` |
+
+Requisitos derivados:
+
+- **R11** — THE instalador SHALL funcionar em **Windows nativo**, sem exigir WSL.
+- **R12** — THE instalador SHALL escolher o backend de serviço pela plataforma: `systemd --user`
+  no Linux, **Task Scheduler** no Windows (`schtasks /create /sc onlogon`), e SHALL declarar no
+  relatório final qual backend usou.
+- **R13** — WHEN a plataforma não for suportada, THE instalador SHALL abortar **antes** de escrever
+  qualquer artefato, dizendo qual plataforma detectou.
+- **R14** — THE instalador SHALL ser escrito em Python (stdlib + o próprio pacote), e SHALL NOT
+  depender de `bash`, `systemctl` ou ferramentas POSIX no caminho Windows.
+
+## Critérios de aceitação adicionais (Windows)
+
+- **CA7** — Em Windows nativo: instalação deixa o serviço respondendo em `/health` após logon, com a
+  tarefa criada e nomeada de forma identificável; `--uninstall` remove a tarefa.
+- **CA8** — O caminho Windows não usa `bash`, `systemctl` nem `chmod`.
+
+## Bloqueio declarado (honestidade de escopo)
+
+Não há máquina Windows nesta infraestrutura para o G6. O E2E Windows será validado por:
+(a) teste automatizado do **gerador de comando** `schtasks` (unidade, roda em qualquer SO, verifica a
+string gerada); (b) execução real em uma máquina de colega, com o relatório do instalador colado na
+issue. Declarar isso explicitamente — não fingir paridade de teste.
