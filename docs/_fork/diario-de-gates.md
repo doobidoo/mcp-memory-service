@@ -857,3 +857,37 @@ Antes de dar a uma ferramenta o poder de agir, ela precisa saber distinguir "que
 **Licao secundaria:** os 35 testes nao pegariam — todos injetam `restart_service` como mock, entao
 nenhum deles exercita a decisao de reiniciar. O que e injetado como fronteira nao e testado; a
 decisao de chamar a fronteira precisa de teste proprio.
+
+## E23 — G5 achou o buraco da propria correcao (20/out)
+
+Depois do incidente do E22, corrigi o doctor com uma guarda: nao reiniciar unit em
+`activating`/`reloading`/`active`. Os 39 testes passaram. O G5 (tuvok) deu **NEEDS_CHANGES**.
+
+### O achado (B1.1)
+
+`main()` sempre passa `health_get`. A regra que eu chamava de "boundary hygiene" fazia
+`injected = health_get is not None or restart_service is not None` e, quando verdadeira, forcava
+`unit_state="unknown"`. Como `main()` sempre passa `health_get`, `injected` era **sempre** verdadeiro:
+a guarda dentro de `_check_health` era **codigo morto no caminho real da CLI**.
+
+Quem impedia o restart era a guarda interna de `_default_restart_service` — protecao por **acidente de
+composicao**, nao por desenho. O revisor provou o dano: com `health_get` injetado + `restart_service`
+custom + unit `active`, ocorreram **3 restarts cegos**.
+
+### O segundo achado, sobre mim
+
+Meu teste do B1.1 era **decorativo**: passava `unit_state=` explicitamente, entao reverter a correcao
+nao o derrubava. Refiz para exercitar o caminho default (patch em `_default_unit_state`) e provei
+load-bearing: reverter a guarda -> **1 failed**.
+
+**Licao:** corrigir o sintoma ("nao reinicie servico nascendo") nao basta se a **decisao** fica
+escondida atras de uma conveniencia para testes. A guarda precisa existir **e** ser alcancavel no
+caminho que a producao usa. Teste que fornece explicitamente o insumo da decisao nao testa a decisao.
+
+### Correcoes (commit 4a64010b)
+
+- `unit_state` passa a ser parametro explicito; default = `_default_unit_state` (estado real), sempre.
+- `conftest` declara o ambiente de testes patcheando `_default_unit_state` para "failed".
+- leitura de `MCP_DOCTOR_READY_TIMEOUT` tolerante a valor nao numerico (P1.2).
+- `_default_restart_service` tolerante a host sem systemd (P1.3) — verificado: retorna sem levantar.
+- 10 testes novos; 49 no total; CA5 provado por hash do banco identico antes/depois.
