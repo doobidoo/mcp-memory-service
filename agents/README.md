@@ -38,9 +38,9 @@ is actually used well.
 | **OpenCode** | ✅ MCP | ✅ [`opencode/memory-plugin.js`](../opencode/README.md) | ✅ load, capture, session summary, harvest | 🔴 not observed | 🔴 none shipped |
 | **Codex CLI** | ✅ REST API | ✅ [`codex/`](../codex/README.md) installer | ✅ hooks for retrieval, capture and write-back | 🔴 not observed | 🔴 none shipped |
 | **Hermes** | ✅ MCP | ✅ [`scripts/hermes/install.py`](../scripts/hermes/install.py) — register, verify, uninstall | 🔴 hooks and skills are out of that installer's scope by design | 🔴 ships a native SQLite memory; adding the MCP server does not make it prefer ours ([#1364](https://github.com/doobidoo/mcp-memory-service/discussions/1364)) | 🔴 none shipped |
-| **Kiro CLI** | ✅ MCP | 🔴 no connector | 🟡 [`harvest/parser.py`](../src/mcp_memory_service/harvest/parser.py) reads the CLI session formats; no session hooks | 🔴 not observed | 🔴 none shipped |
+| **Kiro CLI** | ✅ MCP | 🔴 no connector | 🟡 [`harvest/parser.py`](../src/mcp_memory_service/harvest/parser.py) reads the CLI session formats — JSONL through `parse_file()`, and CLI v3 `data.sqlite3`/`conversations_v2` through `parse_sqlite()`; no session hooks | 🔴 not observed | 🔴 none shipped |
 | **Kiro IDE** | ✅ MCP | 🔴 no connector | 🟡 IDE sessions reach the same parser through the workspace layout | 🔴 not observed | 🔴 none shipped |
-| **Kiro Crew** | ✅ MCP | 🔴 no connector | 🟡 reads `conversations_v2` from `data.sqlite3`; no hooks | 🔴 not observed | 🔴 none shipped |
+| **Kiro Crew** | ✅ MCP | 🔴 no connector | 🔴 not observed — the SQLite reader targets CLI v3, not Crew | 🔴 not observed | 🔴 none shipped |
 | **OpenClaw / Nanobot** | ✅ REST / MCP | 🟡 no repository-shipped connector — REST/MCP connectivity is documented, but the client is community-maintained outside this repo | 🟡 `openclaw-trajectory` harvest format | 🔴 not observed | 🔴 none shipped |
 
 Layer 4 is the one most easily mistaken for done. A harness can be connected,
@@ -49,16 +49,18 @@ Code and Hermes are both in that state today.
 
 ## Client guides
 
-These have a guide and, in some cases, a bridge — connectivity and a documented
-path, nothing at the hook or skill layer.
+These have a guide and, in some cases, a bridge — connectivity plus documented
+usage patterns where the guide teaches the agent to search before answering and
+save tagged findings. None of them ships hooks or a skill, so none reaches layer 5
+in packaged form.
 
 | Client | Guide | Layers covered |
 |---|---|---|
 | iOS Shortcut | [`integrations/ios-shortcut.md`](../docs/integrations/ios-shortcut.md) | 1 |
 | Home Assistant | [`integration/home-assistant.md`](../docs/integration/home-assistant.md) | 1 |
-| LangGraph | [`agents/langgraph.md`](../docs/agents/langgraph.md) | 1 |
-| CrewAI | [`agents/crewai.md`](../docs/agents/crewai.md) | 1 |
-| AutoGen | [`agents/autogen.md`](../docs/agents/autogen.md) | 1 |
+| LangGraph | [`agents/langgraph.md`](../docs/agents/langgraph.md) | 1 + 🟡 5 |
+| CrewAI | [`agents/crewai.md`](../docs/agents/crewai.md) | 1 + 🟡 5 |
+| AutoGen | [`agents/autogen.md`](../docs/agents/autogen.md) | 1 + 🟡 5 |
 | Any HTTP client | [`agents/http-generic.md`](../docs/agents/http-generic.md) | 1 |
 | ChatGPT (Developer Mode) | [`remote-mcp-setup.md`](../docs/remote-mcp-setup.md) | 1 |
 | claude.ai (Remote MCP) | [`remote-mcp-setup.md`](../docs/remote-mcp-setup.md) | 1 |
@@ -78,6 +80,10 @@ GitHub Copilot CLI · Continue · Zed · Cody
 **Frameworks and pipelines:** any HTTP client against the REST API
 
 All of them sit at layer 1.
+
+`docs/integrations/gemini.md` is context for an agent working *inside this
+repository* — it describes how to build and run the server, not how to connect a
+Gemini client — so the Gemini clients are listed here instead of under Client guides.
 
 ## Adding an agent
 
