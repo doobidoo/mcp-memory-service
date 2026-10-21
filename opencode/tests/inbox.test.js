@@ -442,6 +442,27 @@ test("a failed refresh keeps the delivered messages available and stays retryabl
   assert.ok(retried, "the next prompt retries the check")
 })
 
+test("forgetting a deleted session releases its retained messages", async () => {
+  let searches = 0
+  const checker = createInboxChecker({
+    config: inboxConfig({ checkIntervalMinutes: 5 }),
+    now: () => new Date("2026-10-21T09:00:00.000Z"),
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async () => {},
+    search: async () => {
+      searches += 1
+      return { memories: [peerMessage("gone", "2026-10-21T08:30:00.000Z")], nextMarker: null }
+    },
+  })
+
+  await checker.check("session-1")
+  checker.forget("session-1")
+  assert.deepStrictEqual(checker.visibleFor("session-1"), [])
+
+  await checker.check("session-1")
+  assert.strictEqual(searches, 2, "a forgotten session counts as new again")
+})
+
 test("a message seen twice is shown once", async () => {
   const repeated = peerMessage("same", "2026-10-21T08:30:00.000Z")
   const checker = createInboxChecker({

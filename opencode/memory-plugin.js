@@ -794,6 +794,11 @@ function createInboxChecker({
 
   const visibleFor = (sessionID) => deliveredBySession.get(sessionID)?.memories || []
 
+  const forget = (sessionID) => {
+    checkedSessions.delete(sessionID)
+    deliveredBySession.delete(sessionID)
+  }
+
   const check = async (sessionID) => {
     if (!config.inbox?.enabled || !sessionID) return null
     if (!markerLoaded) {
@@ -836,7 +841,7 @@ function createInboxChecker({
     return { memories, visible: delivered.memories, since: delivered.since }
   }
 
-  return { check, visibleFor }
+  return { check, visibleFor, forget }
 }
 
 function formatInboxDate(value) {
@@ -1260,6 +1265,7 @@ const createPlugin = async ({ directory, client }) => {
           const sdir = event.properties.info?.directory || directory
           await handleSessionEnd(sid, sdir)
           sessionState.delete(sid)
+          inboxChecker.forget(sid)
         }
       }
 
