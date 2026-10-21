@@ -632,6 +632,27 @@ async function readInboxMarker(key, stateFile = INBOX_STATE_FILE) {
   return typeof marker === "string" && Number.isFinite(Date.parse(marker)) ? marker : null
 }
 
+async function claimStaleInboxLock(lockDirectory) {
+  try {
+    const lockAge = Date.now() - (await stat(lockDirectory)).mtimeMs
+    if (lockAge <= INBOX_LOCK_STALE_MS) return false
+  } catch (error) {
+    if (error?.code === "ENOENT") return false
+    throw error
+  }
+
+  const claimedDirectory = `${lockDirectory}.stale.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`
+  try {
+    await rename(lockDirectory, claimedDirectory)
+  } catch (error) {
+    if (error?.code === "ENOENT") return false
+    throw error
+  }
+
+  await rm(claimedDirectory, { recursive: true, force: true })
+  return true
+}
+
 async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
   await mkdir(path.dirname(stateFile), { recursive: true })
   const lockDirectory = `${stateFile}.lock`
@@ -643,16 +664,7 @@ async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
       break
     } catch (error) {
       if (error?.code !== "EEXIST") throw error
-      try {
-        const lockAge = Date.now() - (await stat(lockDirectory)).mtimeMs
-        if (lockAge > INBOX_LOCK_STALE_MS) {
-          await rm(lockDirectory, { recursive: true, force: true })
-          continue
-        }
-      } catch (lockError) {
-        if (lockError?.code !== "ENOENT") throw lockError
-        continue
-      }
+      if (await claimStaleInboxLock(lockDirectory)) continue
       if (Date.now() >= lockDeadline) {
         throw new Error(`Timed out waiting for inbox state lock: ${lockDirectory}`)
       }
@@ -785,12 +797,11 @@ function createInboxChecker({
     const suggestedMarker = Array.isArray(searchResult)
       ? null
       : searchResult?.nextMarker
-    const completedAt = now()
     const nextMarker = typeof suggestedMarker === "string"
       && Number.isFinite(Date.parse(suggestedMarker))
-      && Date.parse(suggestedMarker) <= completedAt.getTime()
+      && Date.parse(suggestedMarker) <= checkedAt.getTime()
       ? suggestedMarker
-      : completedAt.toISOString()
+      : checkedAt.toISOString()
     await writeMarker(key, nextMarker, stateFile)
     marker = nextMarker
     checkedSessions.add(sessionID)
@@ -1508,6 +1519,7 @@ export default { id: "opencode-memory", setup: v2Setup, server: createPlugin }
 export const _internal = {
   DEFAULT_CONFIG,
   applySelfSignedCertsOption,
+  claimStaleInboxLock,
   createInboxChecker,
   formatInboxBlock,
   inboxStateKey,

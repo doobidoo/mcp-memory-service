@@ -14,6 +14,7 @@ import { _internal } from "../memory-plugin.js"
 
 const {
   DEFAULT_CONFIG,
+  claimStaleInboxLock,
   createInboxChecker,
   formatInboxBlock,
   inboxStateKey,
@@ -224,6 +225,26 @@ test("an abandoned marker lock is recovered", async () => {
   }
 })
 
+test("only one writer claims an abandoned marker lock", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "opencode-inbox-stale-race-"))
+  const lockDirectory = path.join(directory, "state.json.lock")
+
+  try {
+    await mkdir(lockDirectory)
+    const staleTime = new Date(Date.now() - 60_000)
+    await utimes(lockDirectory, staleTime, staleTime)
+
+    const claims = await Promise.all([
+      claimStaleInboxLock(lockDirectory),
+      claimStaleInboxLock(lockDirectory),
+    ])
+
+    assert.strictEqual(claims.filter(Boolean).length, 1)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("backlogged peer messages are delivered oldest-first without advancing past unread rows", async () => {
   const config = inboxConfig({ maxItems: 2, checkIntervalMinutes: 5 })
   const current = new Date("2026-10-15T10:00:00.000Z")
@@ -256,6 +277,37 @@ test("backlogged peer messages are delivered oldest-first without advancing past
   assert.deepStrictEqual(first.memories.map((memory) => memory.id), ["peer-0", "peer-1"])
   assert.deepStrictEqual(second.memories.map((memory) => memory.id), ["peer-2"])
   assert.deepStrictEqual(writes, ["2026-10-15T08:40:00.000Z", current.toISOString()])
+})
+
+test("a message arriving during a successful check remains unread for the next check", async () => {
+  const checkStarted = new Date("2026-10-15T09:00:00.000Z")
+  const checkCompleted = new Date("2026-10-15T09:00:05.000Z")
+  const nextCheck = new Date("2026-10-15T09:01:00.000Z")
+  const times = [checkStarted, checkCompleted, nextCheck, nextCheck]
+  const messageCreated = new Date("2026-10-15T09:00:03.000Z")
+  const writes = []
+  let searches = 0
+  const checker = createInboxChecker({
+    config: inboxConfig(),
+    now: () => times.shift(),
+    readMarker: async () => "2026-10-15T08:00:00.000Z",
+    writeMarker: async (_key, value) => { writes.push(value) },
+    search: async (_config, since) => {
+      searches += 1
+      if (searches === 1 || messageCreated <= since) return { memories: [], nextMarker: null }
+      return {
+        memories: [{ id: "during-check", createdAt: messageCreated.toISOString(), tags: [] }],
+        nextMarker: null,
+      }
+    },
+  })
+
+  const first = await checker.check("session-1")
+  const second = await checker.check("session-2")
+
+  assert.deepStrictEqual(first.memories, [])
+  assert.deepStrictEqual(second.memories.map((memory) => memory.id), ["during-check"])
+  assert.strictEqual(writes[0], checkStarted.toISOString())
 })
 
 test("checks the first prompt per session and throttles later prompts", async () => {
