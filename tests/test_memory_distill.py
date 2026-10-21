@@ -14,6 +14,10 @@ MCP_URL = os.environ.get(
     f"http://localhost:{os.environ.get('MCP_HTTP_PORT', '8000')}/mcp",
 )
 
+# A web app exige autenticação por padrão (OAuth, esquema Bearer). O teste usa a
+# credencial do ambiente quando existe, sem precisar desligar o acesso anônimo.
+MCP_TEST_API_KEY = os.environ.get("MCP_TEST_API_KEY") or os.environ.get("MCP_API_KEY")
+
 
 class TestMemoryDistillToolExists:
     """O tool memory_distill deve existir no server_impl."""
@@ -88,9 +92,12 @@ class TestMemoryDistillIntegration:
     def test_dry_run_via_mcp(self):
         """Chamar memory_distill dry_run via MCP retorna JSON válido."""
         import httpx
+        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+        if MCP_TEST_API_KEY:
+            headers["Authorization"] = f"Bearer {MCP_TEST_API_KEY}"
         resp = httpx.post(
             MCP_URL,
-            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            headers=headers,
             json={
                 "jsonrpc": "2.0", "id": 99,
                 "method": "tools/call",
@@ -98,6 +105,11 @@ class TestMemoryDistillIntegration:
             },
             timeout=30,
         )
+        if resp.status_code in (401, 403):
+            pytest.skip(
+                "service requires authentication; export MCP_TEST_API_KEY "
+                "(or MCP_API_KEY) to run this integration test"
+            )
         # O endpoint responde em SSE (transporte streamable HTTP) ou em JSON puro,
         # dependendo de qual app serve /mcp; aceitar os dois formatos.
         payloads = []
