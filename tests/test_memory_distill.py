@@ -106,6 +106,11 @@ class TestMemoryDistillIntegration:
             timeout=30,
         )
         if resp.status_code in (401, 403):
+            if MCP_TEST_API_KEY:
+                pytest.fail(
+                    f"Service rejected the configured credentials (HTTP {resp.status_code}); "
+                    "check MCP_TEST_API_KEY before trusting a green run"
+                )
             pytest.skip(
                 "service requires authentication; export MCP_TEST_API_KEY "
                 "(or MCP_API_KEY) to run this integration test"
