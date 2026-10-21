@@ -57,6 +57,11 @@ de porta pertence ao D3 (check 2), que depende desta declaração.
   aparece apenas na documentação do **upstream**, que descreve o default dele. **Não se corrige doc
   de terceiro** — o que falta é a nossa página de harness.
 - **CA4** — Nenhum host é migrado nesta entrega; 3202 continua sendo o valor em produção.
+  **REVISTO 21/out/2026:** as três máquinas foram migradas para **8000** (MCP_SSE_PORT no env base),
+  alinhando a instância ao default que o instalador e a doc pública usam. Medido neste host:
+  `MCP_SSE_PORT=8000` no `/proc/<MainPID>/environ`, `ss -ltn` em `127.0.0.1:8000`, `/health` ok.
+  Consequência para CA3: a doc pública é `agents/hermes/README.md` (upstream #1618) e não hardcoda
+  porta de deployment — o #1627 deriva a URL no teste em vez de fixar 3202/8000.
 
 ## Gate
 

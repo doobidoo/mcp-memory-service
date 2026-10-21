@@ -182,7 +182,7 @@ mcp-memory-service (fork = linha viva · 0 atrás do upstream · 312 à frente �
 │           ├─ D5 importer do state.db ................. 🟡 fora do arco por decisão · dry-run 77/113 medido
 │           ├─ D6 hooks TUI/CLI ........................ ✅ funciona desde 0.22.2 (3094cde513, 07/set)
 │           ├─ D7 instalador de 1ª classe .............. ✅ upstream #1611 (filhocf) · 22 testes · E2E banco zerado
-│           └─ D8 porta/transporte ..................... ✅ 3202 correto na nossa camada · docs/agents/hermes.md
+│           └─ D8 porta/transporte ..................... ✅ porta 8000 nas 3 máquinas (migrada de 3202 em 21/out) · doc pública agents/hermes/README.md (#1618)
 │
 └─ 🟡 ARCO HUB MULTI-AGENTE ............ agent_id feito; delta-sync 4/5 fases mergeadas
     ├─ agent_id F1/F2 (autoria no store) .............. ✅ MERGED PR #1278/#1297

@@ -36,11 +36,11 @@ Identidade não cabe em nenhuma das cinco: atravessa 1, 3 e 4.
 
 | Camada | Estado | Evidência | Falta |
 |---|---|---|---|
-| 1. Connectivity | ✅ | `http://127.0.0.1:3202/mcp`, `MCP_STREAMABLE_HTTP_MODE=1`, `/health` ok | — (a wiki registra porta 8000; é 3202) |
+| 1. Connectivity | ✅ | `http://127.0.0.1:8000/mcp`, `MCP_STREAMABLE_HTTP_MODE=1`, `/health` ok | — (porta unificada em 8000 em 21/out, nas 3 máquinas) |
 | 2. Connector | 🔴 | nada no repo; o kit de viagem é manual e vive fora do mms | instalador com `uninstall` idempotente |
 | 3. Lifecycle hooks | 🟡 | 5 hooks shell: contexto, inbox, replay de erro, carimbo, **checkpoint periódico** | capture/injection de memória por turno |
 | 4. Preference override | 🔴 | Hermes segue gravando no `state.db` nativo em paralelo | provider nativo (`plugins/memory/` tem 8, nenhum é o mms) |
-| 5. Usage toolkit | 🟡 | 3 skills locais (`memoria-mcp-primario`, `mms-client-manager`, `memoria-atomica-checkpoint`) | nada shipped; não existe `docs/agents/hermes.md` |
+| 5. Usage toolkit | 🟡 | 3 skills locais (`memoria-mcp-primario`, `mms-client-manager`, `memoria-atomica-checkpoint`) | `agents/hermes/README.md` mergeado no upstream (#1618, 21/out); skills seguem fora do repo |
 | transversal: autoria | 🔴 | ver §5 | injeção de `agent_id` no transporte |
 
 ### C6 — colheita do `state.db`: implementada, não aplicada
@@ -91,11 +91,11 @@ as quatro linhas de `web/api/mcp.py` L259–263. Não implementado.
 
 | Camada | Critério verificável |
 |---|---|
-| 1 | `/health` ok em 3202; wiki corrigida para a porta real |
+| 1 | `/health` ok em 8000 (migrada de 3202 em 21/out, nas 3 máquinas) |
 | 2 | instalador escreve config + skill e `uninstall` remove o que criou, verificado por execução |
 | 3 | `--apply` do importador roda com `4,86%` ou menos do lido, sem duplicata em re-run; capture por turno grava ≤500 chars |
 | 4 | provider nativo listado em `plugins/memory/`; Hermes deixa de escrever no `state.db` como fonte primária |
-| 5 | `docs/agents/hermes.md` publicado, com os comandos de onboarding testados contra o produto |
+| 5 | ✅ `agents/hermes/README.md` publicado no upstream (#1618, mergeado 21/out) · corrigido no #1619 |
 | autoria | gravação com header, sem argumento, resulta em `agent_id` correto em 100% de 3 tentativas |
 
 ## 7. Próximos passos, na ordem
