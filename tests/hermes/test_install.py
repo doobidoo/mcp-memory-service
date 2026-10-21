@@ -215,6 +215,24 @@ def test_dry_run_writes_nothing(tmp_path):
     assert list(profile.rglob("*")) == []
 
 
+def test_dry_run_reports_when_already_installed(tmp_path, capsys, monkeypatch):
+    """--dry-run on an installed profile must say so, not exit silently.
+
+    `plan()` returns no actions when the server is already registered, so the
+    dry-run loop printed nothing and returned 0 before the branch that reports
+    the existing installation. Success and a hung script looked identical.
+    """
+    instalar = _mod()
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    monkeypatch.setattr(instalar, "mcp_is_registered", lambda port: True)
+
+    rc = instalar.main(["--hermes-home", str(profile), "--dry-run", "--port", "8000"])
+
+    assert rc == 0
+    assert "already registered" in capsys.readouterr().out
+
+
 def test_uninstall_failure_returns_nonzero(tmp_path, monkeypatch):
     instalar = _mod()
     profile = tmp_path / "profile"

@@ -445,6 +445,8 @@ def main(argv: list[str] | None = None) -> int:
     for action in actions:
         print(action.render())
     if args.dry_run:
+        if not actions:
+            print(f"{SERVER_NAME} is already registered on :{port}/mcp; nothing to do")
         return 0
 
     if not actions:
