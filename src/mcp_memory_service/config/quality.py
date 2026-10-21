@@ -2,6 +2,7 @@
 import os
 import logging
 
+from ..compat import _sanitize_log_value
 from .base import safe_get_int_env, safe_get_bool_env
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ MCP_QUALITY_BOOST_WEIGHT = float(os.getenv('MCP_QUALITY_BOOST_WEIGHT', '0.3'))  
 
 # Validate quality boost weight
 if not 0.0 <= MCP_QUALITY_BOOST_WEIGHT <= 1.0:
-    logger.warning(f"Invalid quality boost weight: {MCP_QUALITY_BOOST_WEIGHT}, must be 0.0-1.0. Using default 0.3")
+    logger.warning("Invalid quality boost weight: %s, must be 0.0-1.0. Using default 0.3", MCP_QUALITY_BOOST_WEIGHT)
     MCP_QUALITY_BOOST_WEIGHT = 0.3
 
 # Quality-Based Retention Policy (Consolidation)
@@ -37,10 +38,12 @@ MCP_QUALITY_RETENTION_LOW_MIN = safe_get_int_env('MCP_QUALITY_RETENTION_LOW_MIN'
 MCP_QUALITY_RETENTION_LOW_MAX = safe_get_int_env('MCP_QUALITY_RETENTION_LOW_MAX', 90, min_value=1, max_value=365)  # maximum days for quality <0.5
 
 # Log quality system configuration
-logger.info(f"Quality System: enabled={MCP_QUALITY_SYSTEM_ENABLED}, provider={MCP_QUALITY_AI_PROVIDER}")
+logger.info("Quality System: enabled=%s, provider=%s", MCP_QUALITY_SYSTEM_ENABLED, _sanitize_log_value(MCP_QUALITY_AI_PROVIDER))
 if MCP_QUALITY_SYSTEM_ENABLED:
-    logger.info(f"Quality Boost Search: enabled={MCP_QUALITY_BOOST_ENABLED}, weight={MCP_QUALITY_BOOST_WEIGHT}")
-    logger.info(f"Quality Retention: high={MCP_QUALITY_RETENTION_HIGH}d, medium={MCP_QUALITY_RETENTION_MEDIUM}d, low={MCP_QUALITY_RETENTION_LOW_MIN}-{MCP_QUALITY_RETENTION_LOW_MAX}d")
+    logger.info("Quality Boost Search: enabled=%s, weight=%s", MCP_QUALITY_BOOST_ENABLED, MCP_QUALITY_BOOST_WEIGHT)
+    logger.info("Quality Retention: high=%sd, medium=%sd, low=%s-%sd",
+                MCP_QUALITY_RETENTION_HIGH, MCP_QUALITY_RETENTION_MEDIUM,
+                MCP_QUALITY_RETENTION_LOW_MIN, MCP_QUALITY_RETENTION_LOW_MAX)
 
 # =============================================================================
 # End Quality System Configuration
