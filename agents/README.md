@@ -56,8 +56,6 @@ path, nothing at the hook or skill layer.
 |---|---|---|
 | Gemini CLI | [`integrations/gemini.md`](../docs/integrations/gemini.md) | 1 |
 | Gemini Code Assist | [`integrations/gemini.md`](../docs/integrations/gemini.md) | 1 |
-| Amp | [`amp-cli-bridge.md`](../docs/amp-cli-bridge.md) | 1 |
-| Groq bridge | [`integrations/groq-bridge.md`](../docs/integrations/groq-bridge.md) | 1 |
 | iOS Shortcut | [`integrations/ios-shortcut.md`](../docs/integrations/ios-shortcut.md) | 1 |
 | Home Assistant | [`integration/home-assistant.md`](../docs/integration/home-assistant.md) | 1 |
 | LangGraph | [`agents/langgraph.md`](../docs/agents/langgraph.md) | 1 |
