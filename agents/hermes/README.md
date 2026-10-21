@@ -21,6 +21,17 @@ With `HERMES_HOME` set it installs into that profile; without it, it uses
 `~/.hermes`. Flags: `--dry-run` prints the plan, `--hermes-home`, `--port`,
 `--env-file`, `--uninstall`.
 
+**If the service requires an API key**, export it before running the installer.
+The installer reads `MCP_API_KEY` from its own environment to answer the health
+check, and records the same value as `MCP_MMS_API_KEY` in the profile's `.env` —
+the variable the registered `Authorization` header references. `--env-file`
+supplies the port only; it does not carry credentials into the installer.
+
+```bash
+export MCP_API_KEY=...          # the key the service validates
+python scripts/hermes/install.py --port 8000
+```
+
 What it does, in order:
 
 1. resolves `HERMES_HOME` (env, then `~/.hermes`) and **aborts before writing**
@@ -107,7 +118,7 @@ distinguishing which agent wrote what requires the client to send the header.
 
 The installer does **not** create a service or a scheduled task, and it does not
 reject platforms by name. Starting the memory service is the operator's job — for
-example with `memory launch` in the foreground, or by wiring your own unit or task
+example with `memory launch --foreground`, or by wiring your own unit or task
 around it. What this installer owns is the Hermes side: registration plus the
 round-trip proof.
 
