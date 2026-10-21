@@ -282,13 +282,15 @@ class TestBackgroundBounded:
         monkeypatch.setattr(quarantine_mod, "check_beliefs_on_store", slow)
 
         with caplog.at_level("WARNING"):
-            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t1", "hash-1")
-            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t2", "hash-2")
+            aceito = quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t1", "hash-1")
+            recusado = quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t2", "hash-2")
+        assert aceito is True
+        assert recusado is False, "o caller precisa saber que o check não foi agendado"
 
         assert any("dropped" in r.getMessage().lower() for r in caplog.records), \
             "o excesso precisa ser descartado com aviso, não enfileirado sem limite"
         for _ in range(60):
-            if quarantine_mod._background_active == 0:
+            if quarantine_mod._background_state.active == 0:
                 break
             await asyncio.sleep(0.02)
 
@@ -308,7 +310,7 @@ class TestBackgroundBounded:
         with caplog.at_level("INFO"):
             quarantine_mod.schedule_on_store_checks(_FakeStorage(), "texto", "deadbeef00")
             for _ in range(60):
-                if quarantine_mod._background_active == 0:
+                if quarantine_mod._background_state.active == 0:
                     break
                 await asyncio.sleep(0.02)
 

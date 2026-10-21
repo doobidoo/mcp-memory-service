@@ -328,8 +328,13 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             try:
                 from ...consolidation.quarantine import schedule_on_store_checks
 
-                schedule_on_store_checks(server.storage, content, result["memory"]["content_hash"])
-                message += "\n(contradiction checks scheduled in the background)"
+                agendado = schedule_on_store_checks(
+                    server.storage, content, result["memory"]["content_hash"]
+                )
+                if agendado:
+                    message += "\n(contradiction checks scheduled in the background)"
+                else:
+                    message += "\n(contradiction checks skipped: background capacity is full)"
                 nli_on_store = False
             except Exception as e:
                 logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))

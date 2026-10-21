@@ -319,7 +319,16 @@ async def get_quarantined_memories(storage, limit: int = 50) -> List[dict]:
 # para que o event loop não colete a task no meio.
 
 _background_checks: set = set()
-_background_active = 0
+
+
+class _BackgroundState:
+    """Estado do trabalho de background (objeto em vez de global solta)."""
+
+    def __init__(self) -> None:
+        self.active = 0
+
+
+_background_state = _BackgroundState()
 
 
 def _background_concurrency() -> int:
@@ -332,7 +341,6 @@ def _background_concurrency() -> int:
 
 
 async def _run_on_store_checks(storage, content: str, content_hash: str) -> None:
-    global _background_active
     try:
         try:
             from ..reasoning.nli import detect_contradictions_nli
@@ -372,10 +380,10 @@ async def _run_on_store_checks(storage, content: str, content_hash: str) -> None
         except Exception as e:
             logger.warning("NLI background belief check failed: %s", _sanitize_log_value(e))
     finally:
-        _background_active -= 1
+        _background_state.active -= 1
 
 
-def schedule_on_store_checks(storage, content: str, content_hash: str) -> None:
+def schedule_on_store_checks(storage, content: str, content_hash: str) -> bool:
     """Agenda as verificações de NLI fora do caminho da escrita.
 
     Ligado por MCP_NLI_ON_STORE_ASYNC. O `store` responde sem esperar o LLM; o
@@ -385,25 +393,25 @@ def schedule_on_store_checks(storage, content: str, content_hash: str) -> None:
     limite atingido, o trabalho em excesso é **descartado com WARNING** — política
     explícita, em vez de uma fila de tasks e chamadas de LLM sem teto.
     """
-    global _background_active
     limite = _background_concurrency()
-    if _background_active >= limite:
+    if _background_state.active >= limite:
         logger.warning(
             "NLI background check dropped for %s: %d already running "
             "(MCP_NLI_BACKGROUND_CONCURRENCY=%d)",
             content_hash[:8],
-            _background_active,
+            _background_state.active,
             limite,
         )
-        return
+        return False
 
     # Reserva a vaga na admissão: create_task só roda depois, e sem isso duas
     # chamadas seguidas passariam pelo limite antes da primeira task começar.
-    _background_active += 1
+    _background_state.active += 1
     try:
         task = asyncio.create_task(_run_on_store_checks(storage, content, content_hash))
     except Exception:
-        _background_active -= 1
+        _background_state.active -= 1
         raise
     _background_checks.add(task)
     task.add_done_callback(_background_checks.discard)
+    return True
