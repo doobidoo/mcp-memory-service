@@ -54,8 +54,6 @@ path, nothing at the hook or skill layer.
 
 | Client | Guide | Layers covered |
 |---|---|---|
-| Gemini CLI | [`integrations/gemini.md`](../docs/integrations/gemini.md) | 1 |
-| Gemini Code Assist | [`integrations/gemini.md`](../docs/integrations/gemini.md) | 1 |
 | iOS Shortcut | [`integrations/ios-shortcut.md`](../docs/integrations/ios-shortcut.md) | 1 |
 | Home Assistant | [`integration/home-assistant.md`](../docs/integration/home-assistant.md) | 1 |
 | LangGraph | [`agents/langgraph.md`](../docs/agents/langgraph.md) | 1 |
@@ -74,7 +72,8 @@ and so it stays visible where a deeper integration would pay off.
 **Desktop and IDE:** Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code ·
 Raycast · JetBrains · Replit · Sourcegraph · Qodo
 
-**CLI and terminal:** Goose · Aider · GitHub Copilot CLI · Continue · Zed · Cody
+**CLI and terminal:** Gemini CLI · Gemini Code Assist · Goose · Aider ·
+GitHub Copilot CLI · Continue · Zed · Cody
 
 **Frameworks and pipelines:** any HTTP client against the REST API
 
