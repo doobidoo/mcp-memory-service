@@ -398,6 +398,50 @@ test("a session keeps only the 10 most recent delivered messages", async () => {
   assert.strictEqual(result.visible.at(-1).id, "m10")
 })
 
+test("the session cap never drops messages from the batch being delivered", async () => {
+  const batch = Array.from({ length: 20 }, (_, index) =>
+    peerMessage(`b${index}`, `2026-10-21T08:${String(10 + index).padStart(2, "0")}:00.000Z`))
+  const checker = createInboxChecker({
+    config: inboxConfig({ maxItems: 20 }),
+    now: () => new Date("2026-10-21T09:00:00.000Z"),
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async () => {},
+    search: async () => ({ memories: batch, nextMarker: null }),
+  })
+
+  const result = await checker.check("session-1")
+  assert.strictEqual(result.memories.length, 20)
+  assert.strictEqual(result.visible.length, 20, "every newly delivered message reaches the prompt")
+})
+
+test("a failed refresh keeps the delivered messages available and stays retryable", async () => {
+  let current = new Date("2026-10-21T09:00:00.000Z")
+  let fail = false
+  const writes = []
+  const checker = createInboxChecker({
+    config: inboxConfig({ checkIntervalMinutes: 5 }),
+    now: () => current,
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async (_key, value) => { writes.push(value) },
+    search: async () => {
+      if (fail) throw new Error("server unavailable")
+      return { memories: [peerMessage("kept", "2026-10-21T08:30:00.000Z")], nextMarker: null }
+    },
+  })
+
+  await checker.check("session-1")
+  fail = true
+  current = new Date("2026-10-21T09:06:00.000Z")
+  await assert.rejects(checker.check("session-1"), /server unavailable/)
+  assert.deepStrictEqual(checker.visibleFor("session-1").map((memory) => memory.id), ["kept"])
+  assert.deepStrictEqual(checker.visibleFor("session-2"), [])
+  assert.strictEqual(writes.length, 1, "the failed check did not move the marker")
+
+  fail = false
+  const retried = await checker.check("session-1")
+  assert.ok(retried, "the next prompt retries the check")
+})
+
 test("a message seen twice is shown once", async () => {
   const repeated = peerMessage("same", "2026-10-21T08:30:00.000Z")
   const checker = createInboxChecker({

@@ -786,10 +786,13 @@ function createInboxChecker({
       entry.memories.push(memory)
       seen.add(memory.id)
     }
-    entry.memories = entry.memories.slice(-INBOX_SESSION_KEEP)
+    // The cap trims older context only; a batch delivered now is always shown whole.
+    entry.memories = entry.memories.slice(-Math.max(INBOX_SESSION_KEEP, memories.length))
     deliveredBySession.set(sessionID, entry)
     return entry
   }
+
+  const visibleFor = (sessionID) => deliveredBySession.get(sessionID)?.memories || []
 
   const check = async (sessionID) => {
     if (!config.inbox?.enabled || !sessionID) return null
@@ -833,7 +836,7 @@ function createInboxChecker({
     return { memories, visible: delivered.memories, since: delivered.since }
   }
 
-  return { check }
+  return { check, visibleFor }
 }
 
 function formatInboxDate(value) {
@@ -1394,6 +1397,12 @@ const createPlugin = async ({ directory, client }) => {
         }
       } catch (error) {
         await logWarn(`Inbox check failed: ${error.message}`)
+        // Keep what this session already received; the marker did not move, so the
+        // next prompt retries the check.
+        const retained = inboxChecker.visibleFor(input.sessionID)
+        if (retained.length) {
+          output.system.push(formatInboxBlock(retained, new Date(retained[0].createdAt), config))
+        }
       }
     },
 
