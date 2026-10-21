@@ -1468,7 +1468,7 @@ wheels = [
 
 [[package]]
 name = "mcp-memory-service"
-version = "12.1.1"
+version = "12.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
