@@ -38,6 +38,25 @@ class MigrationsMixin:
         except Exception as e:
             logger.warning("Failed to run schema migrations (non-fatal): %s", _sanitize_log_value(e))
 
+    def _ensure_metadata_table(self):
+        """Create the key/value ``metadata`` table on databases that predate it.
+
+        New databases get this table from ``_apply_pragmas_and_create_tables``.
+        A database written before v8.7.0 has no ``metadata`` table, and
+        :class:`MigrationRunner` records ``schema_version`` in it, so without
+        this the first pending migration fails on its version write, the runner
+        stops, and every later migration is skipped (#1622).
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        self.conn.commit()
+
     def _ensure_fts5_initialized(self):
         """Ensure FTS5 virtual table exists for BM25 keyword search (v10.8.0+)."""
         try:
@@ -330,6 +349,11 @@ class MigrationsMixin:
                     except Exception as e:
                         logger.warning("Add store column (non-fatal): %s", _sanitize_log_value(e))
 
+                    # MigrationRunner keeps `schema_version` in `metadata`; a database
+                    # created before v8.7.0 has no such table, so the first pending
+                    # migration used to fail and everything after it was skipped (#1622).
+                    await self._run_in_thread(self._ensure_metadata_table)
+
                     await self._run_in_thread(self._run_schema_migrations)
 
                     # Seed HLC metadata after schema migrations (ADR-0011, NF1)
@@ -391,12 +415,7 @@ class MigrationsMixin:
                     except sqlite3.Error as e:
                         logger.warning("Failed to set pragma %s=%s: %s", _sanitize_log_value(pragma_name), _sanitize_log_value(pragma_value), _sanitize_log_value(e))
 
-                self.conn.execute('''
-                    CREATE TABLE IF NOT EXISTS metadata (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    )
-                ''')
+                self._ensure_metadata_table()
 
                 self.conn.execute('''
                     CREATE TABLE IF NOT EXISTS memories (
