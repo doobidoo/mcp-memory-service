@@ -63,6 +63,7 @@ test("injects inbox messages and updates toast and sidebar status", async () => 
   process.env.OPENCODE_MEMORY_INBOX_TAGS = "msg:cluster, msg:handoff"
   process.env.OPENCODE_MEMORY_INBOX_MAX_ITEMS = "7"
   process.env.OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES = "3"
+  process.env.OPENCODE_MEMORY_INBOX_OVERLAP_MINUTES = "15"
   process.env.OPENCODE_MEMORY_INBOX_AGENT_ID = "local-agent"
 
   await writeFile(configPath, JSON.stringify({
@@ -121,6 +122,8 @@ test("injects inbox messages and updates toast and sidebar status", async () => 
     const inboxState = JSON.parse(await readFile(inboxStatePath, "utf8"))
     assert.strictEqual(Object.keys(inboxState.markers).length, 1)
     assert.ok(Number.isFinite(Date.parse(Object.values(inboxState.markers)[0])))
+    const seenKey = Object.keys(inboxState.seen)[0]
+    assert.ok(inboxState.seen[seenKey]["message-1"], "the delivered message is in the seen set")
 
     const nextTurn = { system: [] }
     await plugin["experimental.chat.system.transform"](
@@ -139,6 +142,7 @@ test("injects inbox messages and updates toast and sidebar status", async () => 
     delete process.env.OPENCODE_MEMORY_INBOX_TAGS
     delete process.env.OPENCODE_MEMORY_INBOX_MAX_ITEMS
     delete process.env.OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES
+    delete process.env.OPENCODE_MEMORY_INBOX_OVERLAP_MINUTES
     delete process.env.OPENCODE_MEMORY_INBOX_AGENT_ID
     await rm(tempDirectory, { recursive: true, force: true })
   }
