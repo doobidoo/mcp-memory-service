@@ -1,9 +1,16 @@
 """Tests for memory_distill — extract insights from existing memories (TDD)."""
 
 import pytest
+import os
 import subprocess
 import json
 from pathlib import Path
+
+# Porta do serviço sob teste: o default do projeto (8000), sobreponível por env.
+MCP_URL = os.environ.get(
+    "MCP_TEST_URL",
+    f"http://localhost:{os.environ.get('MCP_SSE_PORT', '8000')}/mcp",
+)
 
 
 class TestMemoryDistillToolExists:
@@ -72,7 +79,7 @@ class TestMemoryDistillIntegration:
     """Teste de integração via MCP (requer service rodando)."""
 
     @pytest.mark.skipif(
-        subprocess.run(["curl", "-s", "--max-time", "2", "http://localhost:3202/mcp"],
+        subprocess.run(["curl", "-s", "--max-time", "2", MCP_URL],
                       capture_output=True).returncode != 0,
         reason="memory-service not running"
     )
@@ -80,7 +87,7 @@ class TestMemoryDistillIntegration:
         """Chamar memory_distill dry_run via MCP retorna JSON válido."""
         import httpx
         resp = httpx.post(
-            "http://localhost:3202/mcp",
+            MCP_URL,
             headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
             json={
                 "jsonrpc": "2.0", "id": 99,
