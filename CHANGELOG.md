@@ -17,6 +17,219 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.2.0] - 2026-10-21
+
+### Added
+
+- **OpenCode inter-agent inbox (#1527, YaoSong808).** With `inbox.enabled`, the plugin checks
+  `/api/search/by-tag` for messages other agents stored under sentinel tags such as `msg:cluster`,
+  on the first prompt of a session and then at the configured interval, and adds them to the
+  system prompt as untrusted data: one escaped JSON object per line inside
+  `<untrusted-peer-messages>`, the format the Claude Code hooks will share (#1526). The agent's
+  own `agent:<id>` messages are excluded before the display cap, backlogs arrive oldest-first,
+  and the last-check marker is written under a cross-process lock. Delivered messages stay in
+  the block for the rest of the session, up to the 10 most recent. Disabled by default.
+- **Store-scoped SSE subscriptions (#1569).** `GET /api/events` delivered every
+  store's `memory_stored` and `memory_deleted` events to every connection, so a
+  client interested in one partition still received and discarded the rest. The
+  endpoint now accepts `?store=<name>` (repeat it for several; omit it or pass `all`
+  for the firehose) and delivers only matching events plus system-wide
+  events (heartbeat, health, connection lifecycle). `Last-Event-ID` replay is scoped
+  the same way, so a reconnecting subscriber is never replayed another store's
+  buffered events. Default behaviour with no `store` parameter is unchanged.
+- **Native Codex lifecycle memory hooks (#1574).** Load project memories at session
+  start and after compaction, capture new decisions and learnings, and checkpoint
+  incremental session outcomes. The installer preserves existing hooks and memory
+  settings; offline tests cover installation, deduplication, and failure handling.
+- **Per-agent rate limiting for MCP tool calls (#1593, juliasadler; closes #1096).**
+  Callers are keyed by the client-sent `X-Agent-ID` request header — read from the
+  transport layer, never from tool arguments — falling back to the socket peer IP
+  and then one per-process bucket. Unlimited by default; configure with
+  `MCP_RATE_LIMIT_PER_MINUTE` or per-tool `MCP_RATE_LIMIT_<tool>` overrides.
+  Denied calls get an MCP error (`-32029` / `rate_limit_exceeded`) carrying
+  `retry_after_seconds`. This is fairness between cooperating agents, not abuse
+  protection: a client that rotates the header gets a fresh bucket. The denied
+  call returns a `CallToolResult`, which the SDK's `call_tool` decorator only
+  passes through from `mcp` 1.19.0 on, so the `mcp` floor moves from 1.9.2 to
+  1.19.0.
+- **`scripts/hermes/install.py`: register the MCP server with Hermes and verify the round trip.**
+  Registers `mms` through `hermes mcp add`, then refuses to report success unless
+  `hermes mcp list` shows the server on the requested port and enabled, and a tagged probe
+  memory survives a write/read cycle. `hermes mcp add` exits 0 even when it cancels its
+  interactive prompt, so the exit code is never treated as evidence. Supports `MCP_API_KEY`
+  (Bearer on `/health` and `/mcp`, with an explicit 401 message). The probe is deleted after
+  verification, `--dry-run` prints the plan, `--uninstall` removes the registration and returns
+  non-zero when it fails. Scope is registration plus round trip only: starting the server,
+  lifecycle hooks and usage skills are separate work.
+
+### Fixed
+
+- **retrieval:** `retrieve_memories` filtered by `tags`/`memory_type` only after fetching `n_results` rows, so any match outside that first window was lost — `mistake_note_search` returned `{"notes": [], "count": 0}` over a populated table. The fetch now over-fetches when a filter is present and truncates to `n_results` after filtering.
+- **maintenance:** the embedding migrator re-created the `memory_embeddings` vec0 table with a fixed DDL, dropping the `store` partition key used by current schemas — every store-scoped query then failed with `no such column: store`, `semantic`/`ranked`/`exact` returned zero results while `hybrid` kept working, and the script still reported success. It now preserves the existing DDL (substituting only the vector dimension) and re-populates the partition column from `memories.store`.
+- **maintenance:** the migrator no longer prompts when the memory service appears to be running in a non-interactive context (CI, scripts): it aborts with a clear message unless `--yes` is passed. Databases without a `memories.store` column keep the previous read path instead of failing with `no such column: store`.
+- **The dashboard stopped putting the long-lived API key in SSE URLs (#1117).**
+  `EventSource` cannot set an `Authorization` header, so the web UI authenticated
+  every live-update connection with `GET /api/events?api_key=<key>`. uvicorn's
+  access log records the whole request line, so each SSE connection — and every
+  automatic reconnect — wrote the key in cleartext into
+  `~/.local/share/mcp-memory/logs/server.log`. TLS does not help there: it
+  protects the wire, not the log. The file outlives the session and gets pasted
+  into bug reports. Access-log redaction had already landed, which hid the leak
+  without closing it.
+
+  `POST /api/events/ticket` now exchanges real credentials (Bearer or
+  `X-API-Key` header) for a ticket that is single-use and expires in 60 seconds,
+  and the browser connects with `?ticket=…`. A pasted log line now holds
+  something that is dead within a minute and cannot be replayed. The
+  `?api_key=` query parameter is **no longer accepted** — requests using it get
+  a warning naming the migration rather than a silent 401. `X-API-Key` as a
+  header is unchanged, since headers do not reach the access log.
+
+  The OAuth `?token=` query fallback still exists and has the same shape of
+  exposure; it is left alone here because those tokens are already short-lived
+  and revocable.
+- **Limit semantic duplicate checks to the target store (#1517).** Similar content in another store no longer blocks an insert; global exact-hash uniqueness remains, and cross-store conflicts name the store that already contains the content.
+- **Apply a restrictive Content Security Policy to dashboard pages (#1547).** The dashboard, API overview, and SSE test page now load behavior from external scripts instead of inline scripts and handlers. The dashboard policy allows its import map by an exact SHA-256 hash and limits scripts, connections, frames, and other resources to the required sources.
+- **Gemini custom apps rejected with HTTP 400 at /oauth/authorize due to OAuth state length limit (#1554, #1553).**
+  The hard-coded 1024-character cap on the OAuth `state` parameter was too low for some clients (Gemini custom apps send ~2400 characters). `MCP_OAUTH_MAX_STATE_LEN`, `MCP_OAUTH_MAX_SCOPE_LEN` and `MCP_OAUTH_MAX_REDIRECT_URI_LEN` are now configurable via environment variables (defaults: 4096 / 1024 / 2048). These limits are read at process startup; changing them requires a restart.
+- Delta-sync (#1564, regression from #1562): a re-create AFTER the tombstone row was
+  purged now still stamps `recreate_of`. `_recreate_of_for` elected the dominant delete
+  ONLY when a soft-deleted tombstone row was still present; once `purge_deleted` /
+  `_purge_tombstone` hard-deleted that row (hybrid does this automatically after
+  `TOMBSTONE_RETENTION_DAYS`, default 30), the re-create emitted `recreate_of=""` (EMPTY),
+  which apply treats as delete-wins — the origin went live while peers stayed deleted,
+  permanently. The tombstone guard was redundant: `sync_events` only carries `op='delete'`
+  when a live row was actually deleted, so a fresh create (never deleted) has no delete
+  rows and still returns `None`. The lookup now decides solely from the recorded delete in
+  `sync_events` (which purge never touches), independently of the tombstone row. (#1564)
+- **Hybrid search gave the strongest keyword matches the lowest keyword score (#1567, debashishthakur).**
+  `_normalize_bm25_score()` read FTS5's bm25() as if 0 were a perfect match, but FTS5
+  negates it: a better match is more negative and 0 means no match. In the default
+  `weighted_average` fusion a memory matching more of the query terms therefore scored
+  lower on keywords than one matching fewer. Ranks now map through `x / (1 + x)` on
+  `x = -rank`, which keeps the order and stays between 0 and 1.
+- **`mode="hybrid"` ran vector-only search on the hybrid backend (#1576, debashishthakur).**
+  `search_memories()` takes the hybrid path only when the backend has
+  `retrieve_hybrid()`, which lives in the SQLite-vec mixin. `HybridMemoryStorage`
+  wraps a SQLite-vec primary but did not forward the method, so on the recommended
+  backend `mode="hybrid"` silently fell through to plain vector search and BM25 never
+  ran. It now delegates to the primary, the same way `retrieve()` does.
+- **Hybrid search with RRF fusion could return memories from other stores (#1576, debashishthakur).**
+  With `MCP_HYBRID_FUSION_METHOD=rrf`, `retrieve_hybrid()` returned before the store
+  filter added in #1466, and BM25 matches every store, so a store-scoped search could
+  include other partitions. Both fusion paths now apply the store filter before
+  truncating.
+- **Discovery client logged mDNS announcements and remote errors unsanitised (#1577, part of #1146, massimiliano1991).**
+  `discovery/client.py` interpolated the name and url another host announced over mDNS, the error of a failed health check and the text of a failed capabilities fetch straight into its log lines, so a newline in any of them forged a log record. They go through `_sanitize_log_value` now; the module is in `GUARDED_MODULES`, and a runtime test covers the listing, the selection and the two error paths.
+- **Milvus `retrieve_with_quality_boost` did not take the `store` argument of the base interface (#1578, CodeQL alert 608).**
+  `MemoryStorage.retrieve_with_quality_boost` gained `store` with the multi-store work, but the Milvus override kept its old signature, so any caller passing `store` to a Milvus backend got a `TypeError`. The override now declares `store` and forwards it to `retrieve()` on both the plain and the reranking path.
+- **Memory exporter logged the output path unsanitised (#1584, part of #1146, massimiliano1991).**
+  `sync/exporter.py` interpolated the export path it was given (the `--output` argument of `scripts/sync/export_memories.py`) straight into its start and completion log lines, so a newline in the path forged a log record. The path goes through `_sanitize_log_value` now, the count and size are logged lazily, the module is in `GUARDED_MODULES`, and a runtime test forges a newline into the path.
+- **Connected memories got no decay boost on SQLite-Vec and Hybrid (#1592, debashishthakur).**
+  Decay looks connection counts up by content hash, but the SQLite
+  `get_memory_connections()` returned tag-group counts keyed `tag:<name>`, so every
+  lookup missed and `connection_boost` stayed at 1.0. It now counts graph neighbours per
+  content hash from `memory_graph`, as Milvus already did: `has_entity` rows and
+  soft-deleted memories are left out, and a symmetric edge stored as two rows counts as
+  one neighbour.
+- **A versioned memory dropped out of its own store (#1594, serhiizghama).**
+  `update_memory_versioned()` wrote the new version into the `default` store
+  whatever store the old one was in, so after `memory_update(versioned=true)` or a
+  harvest evolve the memory dropped out of searches scoped to its own store. The
+  new version now inherits the old row's store.
+- honour `X-Agent-ID` on the streamable-http transport, resolving memory authorship as explicit argument > request header > `MCP_AGENT_ID` across `store_memory`, `evolve_memory` and harvest `auto_commit`
+- **A failed tool call now answers with `isError: true` instead of a successful
+  envelope carrying error text (#1601).** The tool dispatcher caught every
+  exception, formatted it as `{"error": ...}` and returned it as ordinary content,
+  so `isError` stayed `false` for writes that were actually refused — a duplicate
+  rejected by semantic dedup, for instance. Automation that trusts `isError`
+  (harvesters, importers, integration probes) counted those writes as stored while
+  nothing reached the database. The dispatcher now logs and re-raises, which the
+  SDK maps to `isError: true`; `memory_store` and `memory_store_session` likewise
+  raise on a refused write instead of returning the error as text.
+- **Rate limiting did not apply to the `mcp-memory-server` entry point (closes #1606).**
+  Its FastMCP tools call `MemoryService` directly and never go through
+  `MemoryServer.call_tool`, where #1593 added the per-caller limiter, so
+  `MCP_RATE_LIMIT_PER_MINUTE` and the per-tool overrides had no effect there. Each of
+  its 8 tools now runs the same check first, with the caller read from `X-Agent-ID`,
+  then the peer IP. A denied call returns `isError: true` with the same
+  `rate_limit_exceeded` payload, and a limiter failure lets the call through. Per-tool
+  overrides use this server's tool names, e.g. `MCP_RATE_LIMIT_store_memory`.
+- **maintenance:** removed `scripts/maintenance/repair_memories.py` (#1613). It had not parsed since the scripts reorganisation in September 2025, and fixing the indentation would not have helped: it repaired content hashes through `ChromaMemoryStorage`, a backend the service no longer ships.
+- **Configuration modules logged environment strings unsanitised (#1616, part of #1146, massimiliano1991).**
+  `config/search.py`, `config/quality.py` and `config/backup.py` interpolated the values they read from the environment straight into their import-time log lines, so a newline in `MCP_HYBRID_FUSION_METHOD`, `MCP_QUALITY_AI_PROVIDER` or `MCP_BACKUP_INTERVAL` forged a log record. The three strings go through `_sanitize_log_value` now, the parsed numbers are logged lazily, the modules are in `GUARDED_MODULES`, and a test reloads each module under a forged value.
+- **A sqlite-vec database created before v8.7.0 now finishes its schema upgrade (#1622).**
+  `initialize()` ran the migrations without creating the `metadata` table that the
+  runner stores `schema_version` in, so migration 008 failed and every later
+  migration — including 017's `embedding_pending` — was skipped: `retrieve()` and
+  `search_by_tag()` returned nothing on intact data. The existing-database path now
+  creates the table before the runner starts.
+- **`memory migrate` now finishes the schema upgrade of a sqlite-vec database created before v8.7.0 (#1628).**
+  `#1622` fixed the service path, but `memory migrate` opens the file with a plain
+  `sqlite3.connect()` and calls `MigrationRunner.run_pending()` directly, so it never
+  went through `initialize()` and never created the `metadata` table the runner stores
+  `schema_version` in. Migration 008 applied its DDL, the `schema_version` write then
+  failed with `no such table: metadata`, and the rollback took 008 with it: every later
+  migration — including 017's `embedding_pending` column on `memories` — was skipped, and
+  `retrieve()` / `search_by_tag()` returned nothing on intact data. `MigrationRunner` now
+  creates `metadata` next to its registry table before any pending migration runs, so
+  both callers are covered; `--dry-run` still writes nothing.
+- Delta-sync (#1522 finding 2): a concurrent `create` carrying a STALE/unrelated
+  `recreate_of` (one that does not name the dominant delete for the hash) no longer
+  resurrects the tombstone on apply — in ANY arrival order. The producer stamps an
+  intentionality signal (`recreate_of` on the create payload, naming the delete's
+  `event_id`); apply now derives liveness as a deterministic fold over the WHOLE
+  `sync_events` set for the hash (not the mutable row state), so every peer with the same
+  event set converges to the same `deleted_at`. A create whose `recreate_of` names the
+  dominant delete revives; a create with a stale/unrelated `recreate_of` stays deleted;
+  and — for back-compat — the ABSENCE of `recreate_of` REVIVES (today's behavior is
+  preserved: a bare re-create or an older v1 peer's create brings the memory back), with
+  no `schema_version` bump (the signal is an additive optional payload key). The REST/MCP
+  store path is a separate case tracked in #1560. ADR-0012 updated to v2. (#1522)
+- Delta-sync (Greptile r4302312738 on #1562): a NAMED re-create now resolves
+  deterministically when a peer holds BOTH the original delete and its `bl-...` bootstrap
+  baseline copy (same HLC + agent anchor). `names_delete` scanned the unordered `deletes`
+  set and returned `d is dtop` on the first anchor match, so the outcome flipped
+  (revive vs. stay-deleted) depending on which duplicate was read first — two peers with
+  the same events could disagree. The anchor is now compared directly against the dominant
+  delete `dtop` (the unique resolver winner), so liveness converges in any order.
+- **hermes:** `--dry-run` on an already-installed profile now prints that the server is registered instead of exiting 0 with no output. `plan()` returns no actions for an installed server, so the dry-run returned before the branch that reports it — success and a hung script looked identical.
+
+### Internal
+
+- **Logging in `storage/sync/orchestrator.py` is parameterised, so the file no longer trips the log-injection gate (#1146).** Check 6.5 in `scripts/pr/pre_pr_check.sh` greps the whole file for `logger.(info|warning|error|debug|critical)(f"` and ignores lines that sanitise their values, so the pre-existing f-strings blocked any pull request that touched the file. All 15 now use lazy `%`-style formatting — the gate's single-line grep only saw 14, because one call is spread over four lines. Values that cross a trust boundary are wrapped in `_sanitize_log_value()`: `peer_id` from sync configuration; `event_id`, `event_seq` and `batch_failed` from a peer payload or response, none of which is type-checked on arrival; and the cursors, which are seeded from the peer's `next_seq`. A peer sending `"seq": "1\nFORGED"` no longer adds a log line. Levels, conditions and message text are unchanged; `result.reason` stays unwrapped because it is produced by `apply_remote_event`, not by the peer.
+
+  `tests/test_issue_1146_orchestrator_logging.py` states the intent as a test rather than leaving it to the grep: it parses the module and fails on any logger call with an f-string, and on any single argument that interpolates an external value outside the sanitiser — per argument, not per call, so one raw value cannot hide behind a sanitised sibling. Both assertions fail against the base branch.
+- **A change that only touches `site/` no longer runs the Python test matrix (#1514).**
+  `is_docs_only()` in `scripts/pr/pre_pr_check.sh` and the `push.paths-ignore` list in
+  `ci.yml` now include `site/**`, so a landing-page PR skips Tests + Coverage, the ML
+  extras and both milvus legs (the skipped required jobs still report success), and the
+  merge to `main` no longer starts CI at all. `deploy-site.yml` still deploys, and
+  `Version Drift (site/index.html)` still runs on every PR. CodeQL is unchanged: its
+  `Analyze Python Code` job is a required check and has no skip path yet.
+- **The claim check now notices a PR that links no issue at all (#1570).**
+  `scripts/ci/check_issue_claim.py` passed any PR without a `Fixes #N`, so a
+  non-trivial change could skip the issue-first rule in CONTRIBUTING.md with a
+  green check (#1569). A PR from outside the collaborators that changes `src/` and
+  neither closes nor mentions an issue is now labelled `no-issue` and gets one
+  comment pointing at the rule; the PR template's hidden `Fixes #123` hint does not
+  count as a mention. The check still passes. A maintainer marks a small fix
+  `skip-issue`, and the workflow now also runs on `labeled` and `unlabeled`, so
+  adding or withdrawing it takes effect without a new push.
+- **The pre-PR gate now catches path literals in the wrong letter case (#1573).**
+  macOS resolves file names case-insensitively, so a test that read
+  `.github/pull_request_template.md` passed locally and failed on the Linux runner,
+  where only `.github/PULL_REQUEST_TEMPLATE.md` exists (#1571). Check 6.10 of
+  `scripts/pr/pre_pr_check.sh` runs `scripts/ci/check_path_case.py` over the staged
+  Python, shell and YAML files and reports any quoted literal that matches a tracked
+  path or file name only when case is ignored. A literal meant as a label opts out
+  with a `path-case: ok` comment.
+- **iOS Shortcut guide (#1586).** New `docs/integrations/ios-shortcut.md` explains how
+  to build an Apple Shortcut that saves shared text or a URL to `POST /api/memories`,
+  how a phone reaches a server bound to `127.0.0.1` (`tailscale serve`, or LAN with the
+  mkcert CA installed on the device), and why the repository ships no `.shortcut` file.
+- **docs:** README, CONTRIBUTING.md and mcpmemory.services now link the project's Discord server, where releases, good first issues and new Discussions are announced. Claims, decisions and reviews stay on GitHub.
+
 ## [12.1.1] - 2026-10-16
 
 ### Security
