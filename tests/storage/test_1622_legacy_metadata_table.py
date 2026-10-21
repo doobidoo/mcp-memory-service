@@ -95,7 +95,14 @@ def _build_pre_v8_7_database(db_path: str) -> None:
 
 @pytest.mark.asyncio
 async def test_pre_v8_7_database_finishes_its_upgrade(temp_db_path, monkeypatch):
-    monkeypatch.setenv("MCP_MEMORY_USE_ONNX", "false")
+    # This test is about the migrations, not embeddings: pin the deterministic
+    # hash model so it never downloads one when sentence-transformers happens to
+    # be installed (conftest only disables the ONNX download).
+    monkeypatch.setattr(
+        SqliteVecMemoryStorage,
+        "_initialize_embedding_model",
+        SqliteVecMemoryStorage._initialize_hash_embedding_fallback,
+    )
     db_path = str(Path(temp_db_path) / "legacy.db")
     _build_pre_v8_7_database(db_path)
 
