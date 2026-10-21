@@ -155,7 +155,6 @@ Scripts for maintaining database integrity and performance.
 | `cleanup_memories.py` | General memory cleanup, enhanced with HTTP/HTTPS auto-detection | `python maintenance/cleanup_memories.py` |
 | `find_duplicates.py` | Find and remove duplicate memories | `python maintenance/find_duplicates.py --execute` |
 | `cleanup_corrupted_encoding.py` | Fix corrupted emoji encoding | `python maintenance/cleanup_corrupted_encoding.py --execute` |
-| `repair_memories.py` | Repair corrupted memory entries | `python maintenance/repair_memories.py` |
 | `repair_sqlite_vec_embeddings.py` | Fix embedding inconsistencies | `python maintenance/repair_sqlite_vec_embeddings.py` |
 | `repair_zero_embeddings.py` | Fix zero/null embeddings | `python maintenance/repair_zero_embeddings.py` |
 
