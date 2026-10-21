@@ -27,10 +27,6 @@ This document provides an overview of the available scripts in the `scripts/` di
   ```bash
   python scripts/validate_memories.py
   ```
-- `repair_memories.py`: Repairs corrupted or invalid memories
-  ```bash
-  python scripts/repair_memories.py
-  ```
 - `list-collections.py`: Lists all available memory collections
   ```bash
   python scripts/list-collections.py
