@@ -24,25 +24,42 @@ With `HERMES_HOME` set it installs into that profile; without it, it uses
 What it does, in order:
 
 1. resolves `HERMES_HOME` (env, then `~/.hermes`) and **aborts before writing**
-   if the service does not answer on `/health`;
-2. detects what already exists (`hermes mcp list`, the env file, health) and
-   plans only what is missing;
+   if the service does not answer on `/health` (falling back to `/api/health`,
+   which is the route the `memory launch` server serves);
+2. detects what already exists (`hermes mcp list`, health) and plans only what is
+   missing;
 3. registers the server with `hermes mcp add mms --url http://localhost:<port>/mcp`;
 4. writes a **probe** into the store and reads it back — installation is only
    reported as successful if the read returns the probe;
-5. writes a manifest with the undo commands.
+5. writes a manifest recording **state**, not undo commands: the server name, the
+   probe hash and whether this installer added `MCP_MMS_API_KEY` to the profile
+   `.env`.
 
-A second run prints that there is nothing to do and executes no command.
-`--uninstall` removes the registration and the probe, and touches nothing it did
-not create.
+A second run checks the registration and **skips adding it again**, but still
+checks health and writes, reads and deletes a fresh probe. It fails if that check
+fails, so a stopped or broken server does not pass as "nothing to do".
+
+`--uninstall` removes the `mms` registration and the probe. Be aware of the
+limit: it always runs `hermes mcp remove mms`, even if that registration existed
+before installation or no manifest is present. It removes `MCP_MMS_API_KEY` only
+when the manifest says this installer added it.
 
 ## The port
 
 The project default is **8000** (`MCP_HTTP_PORT`); the legacy SSE transport uses
-8765. The installer takes the port from `--port`, else from the env file that the
-service unit reads, else 8000 — never from a value embedded in code. If the
-declared port and the port that answers differ, that is a configuration problem,
-not something the installer should guess at.
+8765. The installer takes the port from `--port`, then from an **explicitly
+supplied** `--env-file`, then from its built-in default of 8000. It does **not**
+discover the env file a service unit reads — there is no lookup of the unit's
+`EnvironmentFile`. If your service runs on another port, pass it:
+
+```bash
+python scripts/hermes/install.py --port 8765
+# or, naming the file the unit uses:
+python scripts/hermes/install.py --env-file ~/.config/memory-service.env
+```
+
+If the declared port and the port that answers differ, that is a configuration
+problem, not something the installer should guess at.
 
 ## The memory regime
 
@@ -86,18 +103,13 @@ Over streamable HTTP the service honours the `X-Agent-ID` request header. A writ
 without an explicit agent id falls back to the process-level `MCP_AGENT_ID`, so
 distinguishing which agent wrote what requires the client to send the header.
 
-## Windows (not validated)
+## Platform surface
 
-The installer selects a backend per platform:
-
-| Platform | Backend |
-|---|---|
-| Linux | `systemd --user` |
-| Windows | `schtasks /create /sc onlogon` |
-| anything else | aborts **before** writing, naming the platform |
-
-The Windows path uses no `bash`, `systemctl` or `chmod` (enforced by test). What
-is missing is a real execution on a Windows machine.
+The installer does **not** create a service or a scheduled task, and it does not
+reject platforms by name. Starting the memory service is the operator's job — for
+example with `memory launch` in the foreground, or by wiring your own unit or task
+around it. What this installer owns is the Hermes side: registration plus the
+round-trip proof.
 
 ## What does not exist yet
 
