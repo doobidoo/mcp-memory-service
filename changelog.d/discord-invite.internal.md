@@ -1,0 +1,1 @@
+- **docs:** README and CONTRIBUTING.md now link the project's Discord server, where releases, good first issues and new Discussions are announced. Claims, decisions and reviews stay on GitHub.
