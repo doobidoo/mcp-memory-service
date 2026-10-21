@@ -42,6 +42,7 @@ dependencies = [
     "apscheduler>=3.11.0",
     "authlib>=1.6.9",
     "build>=0.10.0",
+    "certifi>=2026.10.19",
     "chardet>=5.0.0",
     "click>=8.0.0",
     "cryptography>=46.0.6",
