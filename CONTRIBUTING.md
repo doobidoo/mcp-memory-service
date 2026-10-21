@@ -558,6 +558,7 @@ For feature requests, describe:
 - **GitHub Issues**: Bug reports, feature requests, and general questions
 - **GitHub Pull Requests**: Code contributions and reviews
 - **GitHub Security Advisories**: Confidential vulnerability reports only
+- **Discord**: [MCP Memory Service server](https://discord.gg/zrsNMEzmCj) for announcements (releases, good first issues, new Discussions) and informal chat. Claims, decisions and reviews stay on GitHub.
 
 ### For AI Agents
 
