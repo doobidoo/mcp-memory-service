@@ -336,6 +336,83 @@ test("checks the first prompt per session and throttles later prompts", async ()
   assert.strictEqual(searches, 3)
 })
 
+function peerMessage(id, createdAt) {
+  return { id, content: `message ${id}`, createdAt, tags: ["msg:cluster", "agent:peer"] }
+}
+
+test("delivered messages stay visible for the rest of the session", async () => {
+  let current = new Date("2026-10-21T09:00:00.000Z")
+  const batches = [
+    [peerMessage("first", "2026-10-21T08:30:00.000Z")],
+    [peerMessage("second", "2026-10-21T09:03:00.000Z")],
+  ]
+  const checker = createInboxChecker({
+    config: inboxConfig({ checkIntervalMinutes: 5 }),
+    now: () => current,
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async () => {},
+    search: async () => ({ memories: batches.shift() || [], nextMarker: null }),
+  })
+
+  const first = await checker.check("session-1")
+  assert.deepStrictEqual(first.memories.map((memory) => memory.id), ["first"])
+  assert.deepStrictEqual(first.visible.map((memory) => memory.id), ["first"])
+
+  current = new Date("2026-10-21T09:01:00.000Z")
+  const throttled = await checker.check("session-1")
+  assert.deepStrictEqual(throttled.memories, [], "nothing new on a throttled prompt")
+  assert.deepStrictEqual(throttled.visible.map((memory) => memory.id), ["first"])
+
+  current = new Date("2026-10-21T09:06:00.000Z")
+  const later = await checker.check("session-1")
+  assert.deepStrictEqual(later.memories.map((memory) => memory.id), ["second"])
+  assert.deepStrictEqual(later.visible.map((memory) => memory.id), ["first", "second"])
+
+  const otherSession = await checker.check("session-2")
+  assert.deepStrictEqual(otherSession.visible, [], "another session does not inherit them")
+})
+
+test("a session keeps only the 10 most recent delivered messages", async () => {
+  let current = new Date("2026-10-21T09:00:00.000Z")
+  let next = 0
+  const checker = createInboxChecker({
+    config: inboxConfig({ checkIntervalMinutes: 0 }),
+    now: () => current,
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async () => {},
+    search: async () => {
+      const id = `m${next}`
+      next += 1
+      return { memories: [peerMessage(id, current.toISOString())], nextMarker: null }
+    },
+  })
+
+  let result
+  for (let index = 0; index < 11; index += 1) {
+    current = new Date(Date.parse("2026-10-21T09:00:00.000Z") + index * 60_000)
+    result = await checker.check("session-1")
+  }
+
+  assert.strictEqual(result.visible.length, 10)
+  assert.strictEqual(result.visible[0].id, "m1", "the oldest message is evicted first")
+  assert.strictEqual(result.visible.at(-1).id, "m10")
+})
+
+test("a message seen twice is shown once", async () => {
+  const repeated = peerMessage("same", "2026-10-21T08:30:00.000Z")
+  const checker = createInboxChecker({
+    config: inboxConfig({ checkIntervalMinutes: 0 }),
+    now: () => new Date("2026-10-21T09:00:00.000Z"),
+    readMarker: async () => "2026-10-21T08:00:00.000Z",
+    writeMarker: async () => {},
+    search: async () => ({ memories: [repeated], nextMarker: null }),
+  })
+
+  await checker.check("session-1")
+  const second = await checker.check("session-1")
+  assert.deepStrictEqual(second.visible.map((memory) => memory.id), ["same"])
+})
+
 test("formats the shared Claude Code and OpenCode inbox block", () => {
   const block = formatInboxBlock(
     [

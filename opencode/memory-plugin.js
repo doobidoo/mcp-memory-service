@@ -9,6 +9,9 @@ const STATUS_FILE = process.env.OPENCODE_MEMORY_STATUS_FILE
 const INBOX_STATE_FILE = process.env.OPENCODE_MEMORY_INBOX_STATE_FILE
   || path.join(path.dirname(STATUS_FILE), ".memory-inbox-state.json")
 const INBOX_LOCK_STALE_MS = 30_000
+// Delivered peer messages stay in the system block for the rest of the session,
+// since the block is not part of the chat history.
+const INBOX_SESSION_KEEP = 10
 
 // TLS certificate verification stays on by default. Setting
 // allowSelfSignedCerts disables it for that request only, with a warning —
@@ -768,9 +771,25 @@ function createInboxChecker({
   now = () => new Date(),
 }) {
   const checkedSessions = new Set()
+  // ponytail: in-process only; a session resumed after an OpenCode restart starts
+  // with an empty list. Persist per session in the state file if that matters.
+  const deliveredBySession = new Map()
   const key = inboxStateKey(config)
   let markerLoaded = false
   let marker = null
+
+  const remember = (sessionID, memories, since) => {
+    const entry = deliveredBySession.get(sessionID) || { since, memories: [] }
+    const seen = new Set(entry.memories.map((memory) => memory.id))
+    for (const memory of memories) {
+      if (seen.has(memory.id)) continue
+      entry.memories.push(memory)
+      seen.add(memory.id)
+    }
+    entry.memories = entry.memories.slice(-INBOX_SESSION_KEEP)
+    deliveredBySession.set(sessionID, entry)
+    return entry
+  }
 
   const check = async (sessionID) => {
     if (!config.inbox?.enabled || !sessionID) return null
@@ -785,7 +804,12 @@ function createInboxChecker({
       marker,
       checkedAt,
       config.inbox.checkIntervalMinutes,
-    )) return null
+    )) {
+      const delivered = deliveredBySession.get(sessionID)
+      return delivered?.memories.length
+        ? { memories: [], visible: delivered.memories, since: delivered.since }
+        : null
+    }
 
     const since = marker
       ? new Date(marker)
@@ -805,7 +829,8 @@ function createInboxChecker({
     await writeMarker(key, nextMarker, stateFile)
     marker = nextMarker
     checkedSessions.add(sessionID)
-    return { memories, since }
+    const delivered = remember(sessionID, memories, since)
+    return { memories, visible: delivered.memories, since: delivered.since }
   }
 
   return { check }
@@ -1342,13 +1367,14 @@ const createPlugin = async ({ directory, client }) => {
 
       try {
         const inboxResult = await inboxChecker.check(input.sessionID)
-        if (inboxResult?.memories?.length) {
-          const inboxBlock = formatInboxBlock(
-            inboxResult.memories,
+        if (inboxResult?.visible?.length) {
+          output.system.push(formatInboxBlock(
+            inboxResult.visible,
             inboxResult.since,
             config,
-          )
-          output.system.push(inboxBlock)
+          ))
+        }
+        if (inboxResult?.memories?.length) {
           const count = inboxResult.memories.length
           const messageLabel = count === 1 ? "message" : "messages"
           await writeStatus({

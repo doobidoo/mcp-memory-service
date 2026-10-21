@@ -121,6 +121,15 @@ test("injects inbox messages and updates toast and sidebar status", async () => 
     const inboxState = JSON.parse(await readFile(inboxStatePath, "utf8"))
     assert.strictEqual(Object.keys(inboxState.markers).length, 1)
     assert.ok(Number.isFinite(Date.parse(Object.values(inboxState.markers)[0])))
+
+    const nextTurn = { system: [] }
+    await plugin["experimental.chat.system.transform"](
+      { sessionID: "session-1" },
+      nextTurn,
+    )
+    assert.strictEqual(nextTurn.system.length, 1, "the delivered message is still in the block")
+    assert.match(nextTurn.system[0], /Rate limit on provider X is 50 RPM/)
+    assert.strictEqual(toasts.length, 1, "no second toast for a message already shown")
   } finally {
     await new Promise((resolve) => server.close(resolve))
     delete process.env.OPENCODE_MEMORY_PLUGIN_CONFIG
