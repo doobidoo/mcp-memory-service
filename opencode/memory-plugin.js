@@ -678,7 +678,13 @@ async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
   const temporaryFile = `${stateFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
   try {
     const state = await readInboxState(stateFile)
-    state.markers = { ...(state.markers || {}), [key]: marker }
+    // Another instance with the same inbox may have finished a later check first;
+    // a marker only ever moves forward.
+    const existing = state.markers?.[key]
+    const keep = typeof existing === "string" && Date.parse(existing) > Date.parse(marker)
+      ? existing
+      : marker
+    state.markers = { ...(state.markers || {}), [key]: keep }
     await writeFile(temporaryFile, JSON.stringify(state, null, 2))
     await rename(temporaryFile, stateFile)
   } finally {

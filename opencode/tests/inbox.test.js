@@ -206,6 +206,21 @@ test("concurrent marker writes preserve every inbox", async () => {
   }
 })
 
+test("a slower check cannot move a shared marker backward", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "opencode-inbox-monotonic-"))
+  const stateFile = path.join(directory, "state.json")
+
+  try {
+    await writeInboxMarker("shared", "2026-10-21T09:01:00.000Z", stateFile)
+    await writeInboxMarker("shared", "2026-10-21T09:00:00.000Z", stateFile)
+
+    const state = JSON.parse(await readFile(stateFile, "utf8"))
+    assert.strictEqual(state.markers.shared, "2026-10-21T09:01:00.000Z")
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("an abandoned marker lock is recovered", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "opencode-inbox-stale-lock-"))
   const stateFile = path.join(directory, "state.json")
