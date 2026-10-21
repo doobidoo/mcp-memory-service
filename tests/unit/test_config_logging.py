@@ -86,7 +86,7 @@ def test_quality_provider_is_logged_without_newline(reload_under):
 
 @pytest.mark.unit
 def test_invalid_backup_interval_is_logged_without_newline(reload_under):
-    messages = reload_under(backup, MCP_BACKUP_INTERVAL=f"daily\n{FORGED}")
+    messages = reload_under(backup, MCP_BACKUP_INTERVAL=f"daily\n{FORGED}", MCP_BACKUP_ENABLED="true")
     _assert_clean(messages, f"Invalid backup interval: daily\\n{FORGED}, falling back to 'daily'")
     assert backup.BACKUP_INTERVAL == "daily"
     _assert_clean(messages, "Backup configuration: enabled=True, interval=daily, retention=")
