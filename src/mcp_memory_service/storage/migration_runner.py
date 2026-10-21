@@ -46,6 +46,25 @@ class MigrationRunner:
             )
         """)
 
+    def _ensure_metadata_table(self, conn):
+        """Create the metadata table that holds schema_version (#1628).
+
+        The runner records `schema_version` there after every migration, but only
+        `SqliteVecMemoryStorage.initialize()` used to create the table. `memory
+        migrate` calls `run_pending()` on a plain `sqlite3.connect()` and never went
+        through `initialize()`, so on a database written before v8.7.0 the write
+        failed, the rollback took the migration that had just applied down with it,
+        and every later migration was skipped.
+
+        Creating it here covers both callers. Same definition the storage uses.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
     def _get_applied_versions(self, conn) -> set[int]:
         """Read migration_registry to find already-applied versions."""
         try:
@@ -218,6 +237,10 @@ class MigrationRunner:
         try:
             if not dry_run:
                 self._ensure_registry_table(conn)
+                # `schema_version` lives in `metadata`, and every migration below
+                # writes it. Create it here so callers that never initialize()
+                # — `memory migrate` — are covered too (#1628).
+                self._ensure_metadata_table(conn)
                 conn.commit()  # Ensure no open transaction before we begin
                 # Stamp pre-existing migrations on upgrade from old runner
                 self._stamp_baseline(conn)
