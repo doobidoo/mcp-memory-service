@@ -8,6 +8,9 @@ utilities that extend it.
 Anything that speaks MCP or plain HTTP works. The list below is what has actually been
 used against the service, grouped by how it connects.
 
+Per-harness coverage — how far each integration goes beyond connectivity — is in
+[`agents/README.md`](../agents/README.md).
+
 ### Agent frameworks (REST API)
 
 LangGraph · CrewAI · AutoGen · OpenClaw/Nanobot · custom pipelines · any HTTP client
