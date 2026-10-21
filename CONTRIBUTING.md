@@ -141,12 +141,19 @@ not duplicating someone else's effort:
 A PR for an issue someone else has already claimed, or one that duplicates an open
 PR, will usually be closed.
 
-CI checks the claim. When a pull request closes an issue (`Fixes #N`) that its author
-neither commented on before opening the PR nor is assigned to, the `Claim Check`
-workflow labels it `unclaimed` and links back here. Comment on the issue; once a
-maintainer assigns you, the check runs again on its own and passes. A pull request that
-changes `src/` without linking any issue is labelled `no-issue` the same way; link
-the issue, or open one, and a maintainer can mark a small fix `skip-issue`.
+CI checks the maintainer's confirmation. The author must be a current assignee of
+every issue a pull request closes (`Fixes #N`); a comment alone does not count.
+Otherwise, the `Claim Check` workflow labels the PR `unclaimed` and links back
+here. Comment on the issue and wait for confirmation before starting; once a
+maintainer assigns you, the check runs again on its own and passes. Removing an
+assignment also refreshes the check against the current assignees.
+
+A pull request that changes `src/` without linking any issue is labelled
+`no-issue` the same way. Link the issue, or open one. A maintainer can mark a small
+or otherwise approved contribution `skip-issue`: this bypasses both checks and
+clears stale `unclaimed` and `no-issue` labels. Removing the exception restores
+the normal checks. Owners, members, collaborators and bots remain exempt. The
+claim check stays informational, not a required merge check.
 
 ### 1. Create a Feature Branch
 
@@ -551,6 +558,7 @@ For feature requests, describe:
 - **GitHub Issues**: Bug reports, feature requests, and general questions
 - **GitHub Pull Requests**: Code contributions and reviews
 - **GitHub Security Advisories**: Confidential vulnerability reports only
+- **Discord**: [MCP Memory Service server](https://discord.gg/zrsNMEzmCj) for announcements (releases, good first issues, new Discussions) and informal chat. Claims, decisions and reviews stay on GitHub.
 
 ### For AI Agents
 

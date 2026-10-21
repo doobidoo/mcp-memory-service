@@ -1,0 +1,1 @@
+- **hermes:** `--dry-run` on an already-installed profile now prints that the server is registered instead of exiting 0 with no output. `plan()` returns no actions for an installed server, so the dry-run returned before the branch that reports it — success and a hung script looked identical.

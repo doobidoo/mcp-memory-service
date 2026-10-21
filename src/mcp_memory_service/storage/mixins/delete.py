@@ -268,7 +268,16 @@ class DeleteMixin:
             return False
 
     async def purge_deleted(self, older_than_days: int = 30) -> int:
-        """Permanently delete tombstones older than specified days."""
+        """Permanently delete tombstones older than specified days.
+
+        Note: `StoreMixin._purge_tombstone` also drops a tombstone on re-store of the
+        same content, regardless of `older_than_days`, so a tombstone may not survive
+        until this retention window ends. The old row's tags, metadata, created_at and
+        deleted_at are lost at that point.
+
+        For sync this is safe: the durable tombstone consulted by conflict resolution
+        is the `sync_events` row with `op='delete'` (ADR-0009), not the `memories` row.
+        """
         try:
             if not self.conn:
                 return 0

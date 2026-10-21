@@ -264,4 +264,4 @@ await store_memory(content="...", tags=["api"], agent_id="researcher")
 # Server appends "agent:researcher" automatically
 ```
 
-The same header also keys the per-caller MCP tool rate limiter (`MCP_RATE_LIMIT_PER_MINUTE`, per-tool `MCP_RATE_LIMIT_<tool>` overrides): `X-Agent-ID` is chosen by the client, so the limiter gives fairness between cooperating agents sharing one server. It is not abuse protection — a client that rotates the header gets a fresh bucket.
+The same header also keys the per-caller MCP tool rate limiter (`MCP_RATE_LIMIT_PER_MINUTE`, per-tool `MCP_RATE_LIMIT_<tool>` overrides): `X-Agent-ID` is chosen by the client, so the limiter gives fairness between cooperating agents sharing one server. It is not abuse protection — a client that rotates the header gets a fresh bucket. The `mcp-memory-server` (FastMCP) entry point applies the same limits, keyed by its own tool names, so its per-tool overrides read `MCP_RATE_LIMIT_store_memory`, not `MCP_RATE_LIMIT_memory_store`.

@@ -314,6 +314,10 @@ Every release, with upgrade notes:
 We welcome contributions! See [CONTRIBUTING.md](https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md) for guidelines
 and [SECURITY.md](https://github.com/doobidoo/mcp-memory-service/blob/main/SECURITY.md) for reporting a vulnerability.
 
+Releases, good first issues and new Discussions are announced on our
+[Discord server](https://discord.gg/zrsNMEzmCj), which is also the place for informal chat.
+Claiming an issue, decisions and reviews stay on GitHub.
+
 Who authors this project, who holds copyright, and what every change passes before
 it reaches `main`: [AUTHORSHIP.md](https://github.com/doobidoo/mcp-memory-service/blob/main/AUTHORSHIP.md).
 
