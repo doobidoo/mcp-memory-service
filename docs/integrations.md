@@ -29,6 +29,9 @@ Automatic lifecycle integrations are also available for
 [Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
 project context, capture learnings, and checkpoint session outcomes.
 
+Hermes has an installer that registers the server and verifies a round trip:
+[`agents/hermes/README.md`](../agents/hermes/README.md).
+
 ### Desktop and IDE (MCP)
 
 Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code · Raycast · JetBrains · Replit ·
