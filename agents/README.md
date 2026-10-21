@@ -34,14 +34,14 @@ is actually used well.
 
 | Harness | 1. Connectivity | 2. Connector | 3. Lifecycle hooks | 4. Preference override | 5. Usage toolkit |
 |---|---|---|---|---|---|
-| **Claude Code** | ✅ MCP | ✅ [`claude-hooks/`](../claude-hooks/README.md) plugin | ✅ session start, auto-capture, session end | 🔴 hooks inject context but the native file memory stays on ([#1364](https://github.com/doobidoo/mcp-memory-service/discussions/1364)) | 🟡 [`claude_commands/`](../claude_commands/README.md) ships commands, no skill on when to recall |
+| **Claude Code** | ✅ MCP | ✅ [`claude-hooks/`](../claude-hooks/README.md) plugin | ✅ session start, auto-capture, session end | 🔴 hooks inject context but the native file memory stays on ([#1364](https://github.com/doobidoo/mcp-memory-service/discussions/1364)) | 🟡 [`claude_commands/`](../claude_commands/README.md) ships commands; the plugin also ships the [`remember-session`](../claude-hooks/skills/remember-session/SKILL.md) skill (when to save, how to tag, how to search before writing), but nothing there overrides the native file memory |
 | **OpenCode** | ✅ MCP | ✅ [`opencode/memory-plugin.js`](../opencode/README.md) | ✅ load, capture, session summary, harvest | 🔴 not observed | 🔴 none shipped |
 | **Codex CLI** | ✅ REST API | ✅ [`codex/`](../codex/README.md) installer | ✅ hooks for retrieval, capture and write-back | 🔴 not observed | 🔴 none shipped |
 | **Hermes** | ✅ MCP | ✅ [`scripts/hermes/install.py`](../scripts/hermes/install.py) — register, verify, uninstall | 🔴 hooks and skills are out of that installer's scope by design | 🔴 ships a native SQLite memory; adding the MCP server does not make it prefer ours ([#1364](https://github.com/doobidoo/mcp-memory-service/discussions/1364)) | 🔴 none shipped |
 | **Kiro CLI** | ✅ MCP | 🔴 no connector | 🟡 [`harvest/parser.py`](../src/mcp_memory_service/harvest/parser.py) reads the CLI session formats; no session hooks | 🔴 not observed | 🔴 none shipped |
 | **Kiro IDE** | ✅ MCP | 🔴 no connector | 🟡 IDE sessions reach the same parser through the workspace layout | 🔴 not observed | 🔴 none shipped |
 | **Kiro Crew** | ✅ MCP | 🔴 no connector | 🟡 reads `conversations_v2` from `data.sqlite3`; no hooks | 🔴 not observed | 🔴 none shipped |
-| **OpenClaw / Nanobot** | ✅ REST / MCP | 🟡 community plugin, thin HTTP client | 🟡 `openclaw-trajectory` harvest format | 🔴 not observed | 🔴 none shipped |
+| **OpenClaw / Nanobot** | ✅ REST / MCP | 🟡 no repository-shipped connector — REST/MCP connectivity is documented, but the client is community-maintained outside this repo | 🟡 `openclaw-trajectory` harvest format | 🔴 not observed | 🔴 none shipped |
 
 Layer 4 is the one most easily mistaken for done. A harness can be connected,
 instrumented with hooks, and still keep its own memory authoritative — Claude
