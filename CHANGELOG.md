@@ -17,6 +17,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.2.1] - 2026-10-21
+
+### Fixed
+
+- **security:** `certifi` must now be at least 2026.10.19 (Dependabot alert #215, GHSA-6q48-6c7w-9gw2, critical). Older bundles trust the `emSign ECC Root CA - G3` root, under which eight intermediate CA keys were compromised; with one of them and an on-path position, an attacker can intercept the HTTPS calls the service makes through `httpx` and `requests` (Cloudflare sync, Hugging Face downloads, external embedding and LLM APIs). `certifi` was only a transitive dependency, so `pip install --upgrade mcp-memory-service` kept whatever version was already installed; the new floor in `pyproject.toml` makes pip upgrade it. `uv.lock` moves from 2024.12.14 to 2026.10.19. The v12.2.0 Docker images already ship 2026.10.19.
+
+- Bound the on-store belief check with `MCP_NLI_ON_STORE_BUDGET_S` (2 s default) and `MCP_QUARANTINE_MAX_BELIEFS`, log truncated checks as WARNING, and add the opt-in `MCP_NLI_ON_STORE_ASYNC` mode (#1630).
+
 ## [12.2.0] - 2026-10-21
 
 ### Added
