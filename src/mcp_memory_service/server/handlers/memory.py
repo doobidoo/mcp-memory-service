@@ -330,6 +330,25 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
         # Phase 3: NLI contradiction check on store (opt-in, single memories only)
         nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
+
+        # Modo assíncrono (MCP_NLI_ON_STORE_ASYNC, issue #1630): a escrita não
+        # espera o LLM. As duas verificações abaixo rodam em background e o
+        # resultado vai para o log, não para esta resposta.
+        if (
+            nli_on_store
+            and result.get("success")
+            and "memory" in result
+            and os.environ.get("MCP_NLI_ON_STORE_ASYNC", "").strip().lower() in {"true", "1", "yes"}
+        ):
+            try:
+                from ...consolidation.quarantine import schedule_on_store_checks
+
+                schedule_on_store_checks(server.storage, content, result["memory"]["content_hash"])
+                message += "\n(contradiction checks scheduled in the background)"
+                nli_on_store = False
+            except Exception as e:
+                logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))
+
         if nli_on_store and result.get("success") and "memory" in result:
             try:
                 from ...reasoning.nli import detect_contradictions_nli
