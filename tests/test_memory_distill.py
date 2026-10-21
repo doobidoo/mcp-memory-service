@@ -6,10 +6,11 @@ import subprocess
 import json
 from pathlib import Path
 
-# Porta do serviço sob teste: o default do projeto (8000), sobreponível por env.
+# Porta do serviço sob teste: a do transporte MCP (MCP_SSE_PORT, 8765 por padrão
+# no projeto), sobreponível por MCP_TEST_URL quando a instância usa outra porta.
 MCP_URL = os.environ.get(
     "MCP_TEST_URL",
-    f"http://localhost:{os.environ.get('MCP_SSE_PORT', '8000')}/mcp",
+    f"http://localhost:{os.environ.get('MCP_SSE_PORT', '8765')}/mcp",
 )
 
 
@@ -96,14 +97,26 @@ class TestMemoryDistillIntegration:
             },
             timeout=30,
         )
-        # Parse SSE response
+        # O endpoint responde em SSE (transporte streamable HTTP) ou em JSON puro,
+        # dependendo de qual app serve /mcp; aceitar os dois formatos.
+        payloads = []
+        try:
+            payloads.append(resp.json())
+        except ValueError:
+            pass
         for line in resp.text.split("\n"):
             if line.startswith("data:"):
-                data = json.loads(line[5:].strip())
-                if "result" in data:
-                    content = data["result"]["content"]
-                    result = json.loads(content[0]["text"])
-                    assert "candidates_found" in result
-                    assert result["dry_run"] is True
-                    return
-        pytest.fail("No valid response from MCP")
+                try:
+                    payloads.append(json.loads(line[5:].strip()))
+                except ValueError:
+                    continue
+
+        for data in payloads:
+            if not isinstance(data, dict) or "result" not in data:
+                continue
+            content = data["result"]["content"]
+            result = json.loads(content[0]["text"])
+            assert "candidates_found" in result
+            assert result["dry_run"] is True
+            return
+        pytest.fail(f"No valid response from MCP: {resp.status_code} {resp.text[:200]}")
