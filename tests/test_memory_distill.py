@@ -6,11 +6,12 @@ import subprocess
 import json
 from pathlib import Path
 
-# Porta do serviço sob teste: a do transporte MCP (MCP_SSE_PORT, 8765 por padrão
-# no projeto), sobreponível por MCP_TEST_URL quando a instância usa outra porta.
+# `memory launch` sobe a web app (uvicorn) em MCP_HTTP_PORT — 8000 por padrão — e é ela
+# que serve /mcp nesse caminho. MCP_SSE_PORT é a porta do servidor MCP standalone (8765).
+# MCP_TEST_URL sobrepõe quando a instância sob teste usa outra porta.
 MCP_URL = os.environ.get(
     "MCP_TEST_URL",
-    f"http://localhost:{os.environ.get('MCP_SSE_PORT', '8765')}/mcp",
+    f"http://localhost:{os.environ.get('MCP_HTTP_PORT', '8000')}/mcp",
 )
 
 
