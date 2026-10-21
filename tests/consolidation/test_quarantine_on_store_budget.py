@@ -233,3 +233,85 @@ class TestAsyncMode:
 
         assert chamadas == ["beliefs"], "a segunda verificação deve rodar mesmo com a primeira falhando"
         assert any("background contradiction check failed" in r.getMessage() for r in caplog.records)
+
+
+class TestStopReasonAndCap:
+    @pytest.mark.asyncio
+    async def test_completed_check_reports_completed(self, monkeypatch, caplog):
+        """Loop que termina normalmente não é 'budget-exhausted' (Greptile, #1633)."""
+        monkeypatch.setenv("MCP_NLI_ON_STORE_BUDGET_S", "30")
+        monkeypatch.setenv("MCP_QUARANTINE_MAX_BELIEFS", "20")
+        clf = _CountingClassifier(delay=0.01)
+
+        with caplog.at_level("INFO"):
+            with _patch_classifier(clf):
+                await check_beliefs_on_store(
+                    _FakeStorage(), _FakeBeliefs(_beliefs(5)), "texto novo", "h1"
+                )
+
+        linhas = [r.getMessage() for r in caplog.records if "on-store check" in r.getMessage().lower()]
+        assert linhas and "stop=completed" in linhas[0]
+
+    @pytest.mark.asyncio
+    async def test_max_beliefs_cap_warns(self, monkeypatch, caplog):
+        """Cap por contagem deixa candidatos sem exame: precisa de WARNING nomeando a variável."""
+        monkeypatch.setenv("MCP_NLI_ON_STORE_BUDGET_S", "30")
+        monkeypatch.setenv("MCP_QUARANTINE_MAX_BELIEFS", "2")
+        clf = _CountingClassifier(delay=0.01)
+
+        with caplog.at_level("WARNING"):
+            with _patch_classifier(clf):
+                await check_beliefs_on_store(
+                    _FakeStorage(), _FakeBeliefs(_beliefs(10)), "texto novo", "h1"
+                )
+
+        avisos = [r.getMessage() for r in caplog.records if "MCP_QUARANTINE_MAX_BELIEFS" in r.getMessage()]
+        assert avisos, "o cap por contagem precisa ser visível"
+
+
+class TestBackgroundBounded:
+    @pytest.mark.asyncio
+    async def test_excess_work_is_dropped_with_a_warning(self, monkeypatch, caplog):
+        """Política explícita para excesso: nada de tasks ilimitadas (Greptile, #1633)."""
+        monkeypatch.setenv("MCP_NLI_BACKGROUND_CONCURRENCY", "1")
+
+        async def slow(*args, **kwargs):
+            await asyncio.sleep(0.3)
+
+        monkeypatch.setattr("mcp_memory_service.reasoning.nli.detect_contradictions_nli", slow)
+        monkeypatch.setattr(quarantine_mod, "check_beliefs_on_store", slow)
+
+        with caplog.at_level("WARNING"):
+            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t1", "hash-1")
+            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "t2", "hash-2")
+
+        assert any("dropped" in r.getMessage().lower() for r in caplog.records), \
+            "o excesso precisa ser descartado com aviso, não enfileirado sem limite"
+        for _ in range(60):
+            if quarantine_mod._background_active == 0:
+                break
+            await asyncio.sleep(0.02)
+
+    @pytest.mark.asyncio
+    async def test_background_logs_hash_and_status(self, monkeypatch, caplog):
+        """O resultado do check em background não pode sumir (Greptile, #1633)."""
+
+        async def fake_detect(*args, **kwargs):
+            return {"pairs_detected": 0}
+
+        async def fake_beliefs(*args, **kwargs):
+            return {"status": "quarantined", "content_hash": "abc"}
+
+        monkeypatch.setattr("mcp_memory_service.reasoning.nli.detect_contradictions_nli", fake_detect)
+        monkeypatch.setattr(quarantine_mod, "check_beliefs_on_store", fake_beliefs)
+
+        with caplog.at_level("INFO"):
+            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "texto", "deadbeef00")
+            for _ in range(60):
+                if quarantine_mod._background_active == 0:
+                    break
+                await asyncio.sleep(0.02)
+
+        texto = " ".join(r.getMessage() for r in caplog.records)
+        assert "deadbeef" in texto, "o log precisa identificar a memória verificada"
+        assert "quarantined" in texto, "o log precisa dizer o desfecho"

@@ -30,6 +30,11 @@ DEFAULT_QUARANTINE_NLI_THRESHOLD = 0.7
 DEFAULT_ON_STORE_BUDGET_S = 2.0
 DEFAULT_ON_STORE_MAX_BELIEFS = 20
 
+# Quantas verificações de background podem rodar ao mesmo tempo (modo assíncrono).
+# O excesso é descartado com WARNING: sem teto, uma rajada de gravações vira uma
+# rajada de chamadas de LLM.
+DEFAULT_BACKGROUND_CONCURRENCY = 2
+
 # Backends already warned about below (one warning per backend per process).
 _gate_warned_backends: set = set()
 
@@ -196,7 +201,8 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
         classifier = NLIClassifier(backend="auto")
         threshold = _quarantine_nli_threshold()
         _warn_if_gate_unreachable(classifier, threshold)
-        stop_reason = "budget-exhausted"
+        # Distingue "olhou tudo" de "parou pelo teto de contagem" (Greptile, #1633).
+        stop_reason = "max-beliefs" if len(beliefs) > max_beliefs else "completed"
 
         for belief in beliefs[:max_beliefs]:
             remaining = budget - (time.monotonic() - started)
@@ -248,6 +254,24 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
                 compared,
                 stop_reason,
             )
+        if stop_reason == "max-beliefs":
+            logger.warning(
+                "NLI on-store check covered %d of %d belief(s) (MCP_QUARANTINE_MAX_BELIEFS=%d); "
+                "raise it to widen coverage",
+                compared,
+                len(beliefs),
+                max_beliefs,
+            )
+        # O orçamento governa a fase de comparação (rede). Uma quarentena já
+        # iniciada é concluída: abortar no meio deixaria metadata/edges
+        # inconsistentes. O estouro fica visível no log.
+        if stop_reason == "contradiction" and elapsed > budget:
+            logger.warning(
+                "NLI on-store check persisted a contradiction after %.2fs (budget %.2fs); "
+                "persistence is not aborted to keep quarantine state consistent",
+                elapsed,
+                budget,
+            )
 
 
 async def _count_quarantined_for_belief(storage, belief_hash: str) -> int:
@@ -295,27 +319,60 @@ async def get_quarantined_memories(storage, limit: int = 50) -> List[dict]:
 # para que o event loop não colete a task no meio.
 
 _background_checks: set = set()
+_background_active = 0
+
+
+def _background_concurrency() -> int:
+    """Quantas verificações de background podem rodar ao mesmo tempo."""
+    from ..config import safe_get_int_env
+    return safe_get_int_env(
+        "MCP_NLI_BACKGROUND_CONCURRENCY", DEFAULT_BACKGROUND_CONCURRENCY,
+        min_value=1, max_value=32,
+    )
 
 
 async def _run_on_store_checks(storage, content: str, content_hash: str) -> None:
+    global _background_active
     try:
-        from ..reasoning.nli import detect_contradictions_nli
+        try:
+            from ..reasoning.nli import detect_contradictions_nli
 
-        result = await detect_contradictions_nli(storage, memory_hash=content_hash, dry_run=False)
-        logger.info(
-            "NLI background check (%s): pairs_detected=%s",
-            content_hash[:8],
-            result.get("pairs_detected", 0),
-        )
-    except Exception as e:
-        logger.warning("NLI background contradiction check failed: %s", _sanitize_log_value(e))
+            result = await detect_contradictions_nli(
+                storage, memory_hash=content_hash, dry_run=False
+            )
+            logger.info(
+                "NLI background check (%s): pairs_detected=%s",
+                content_hash[:8],
+                result.get("pairs_detected", 0),
+            )
+        except Exception as e:
+            logger.warning("NLI background contradiction check failed: %s", _sanitize_log_value(e))
 
-    try:
-        from .belief_service import BeliefService
+        try:
+            from .belief_service import BeliefService
 
-        await check_beliefs_on_store(storage, BeliefService(storage), content, content_hash)
-    except Exception as e:
-        logger.warning("NLI background belief check failed: %s", _sanitize_log_value(e))
+            outcome = await check_beliefs_on_store(
+                storage, BeliefService(storage), content, content_hash
+            )
+            # O resultado não pode sumir: sem hash e status, ninguém sabe qual
+            # memória foi quarentenada nem se a escrita de metadata funcionou.
+            status = (outcome or {}).get("status", "clean")
+            if status == "error":
+                logger.warning(
+                    "NLI background belief check (%s) failed: %s",
+                    content_hash[:8],
+                    _sanitize_log_value(str((outcome or {}).get("message", ""))),
+                )
+            else:
+                logger.info(
+                    "NLI background belief check (%s): status=%s",
+                    content_hash[:8],
+                    status,
+                )
+        except Exception as e:
+            logger.warning("NLI background belief check failed: %s", _sanitize_log_value(e))
+    finally:
+        _background_active -= 1
 
 
 def schedule_on_store_checks(storage, content: str, content_hash: str) -> None:
@@ -323,7 +380,30 @@ def schedule_on_store_checks(storage, content: str, content_hash: str) -> None:
 
     Ligado por MCP_NLI_ON_STORE_ASYNC. O `store` responde sem esperar o LLM; o
     resultado das verificações vai para o log, não para a resposta.
+
+    Concorrência limitada por MCP_NLI_BACKGROUND_CONCURRENCY (default 2). Com o
+    limite atingido, o trabalho em excesso é **descartado com WARNING** — política
+    explícita, em vez de uma fila de tasks e chamadas de LLM sem teto.
     """
-    task = asyncio.create_task(_run_on_store_checks(storage, content, content_hash))
+    global _background_active
+    limite = _background_concurrency()
+    if _background_active >= limite:
+        logger.warning(
+            "NLI background check dropped for %s: %d already running "
+            "(MCP_NLI_BACKGROUND_CONCURRENCY=%d)",
+            content_hash[:8],
+            _background_active,
+            limite,
+        )
+        return
+
+    # Reserva a vaga na admissão: create_task só roda depois, e sem isso duas
+    # chamadas seguidas passariam pelo limite antes da primeira task começar.
+    _background_active += 1
+    try:
+        task = asyncio.create_task(_run_on_store_checks(storage, content, content_hash))
+    except Exception:
+        _background_active -= 1
+        raise
     _background_checks.add(task)
     task.add_done_callback(_background_checks.discard)
