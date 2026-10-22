@@ -119,8 +119,15 @@ the configured database is an embedding invariant, and it reports PASS (as
 run therefore does not verify the data you just converted.
 
 Check the converted database directly. Point `MCP_MEMORY_SQLITE_PATH` at
-`~/chroma_export.db` and compare the active row count with the old ChromaDB
-count:
+`~/chroma_export.db` and compare the row count with the old ChromaDB count:
+
+```bash
+sqlite3 ~/chroma_export.db "SELECT COUNT(*) FROM memories;"
+```
+
+The v7.6.0 schema has no `deleted_at` column; the current release adds it the
+first time it opens the file. If the current service has already opened the
+converted database, run the active count instead:
 
 ```bash
 sqlite3 ~/chroma_export.db "SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL;"
