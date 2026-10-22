@@ -99,7 +99,7 @@ Update your Claude Desktop MCP configuration:
 
 ## Migrating Legacy ChromaDB Data
 
-ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The script is preserved at the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag.
+ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The conversion script runs on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag (v7.6.0); current releases do not include it.
 
 After migration, set the environment variable and restart Claude Desktop:
 
@@ -301,21 +301,20 @@ asyncio.run(optimize())
 ### Backup and Restore
 
 ```bash
-# Create backup
-python scripts/migrate_storage.py \
-  --from sqlite_vec \
-  --to sqlite_vec \
-  --source-path memory.db \
-  --target-path backup.db
+# Create a consistent backup with SQLite itself
+sqlite3 memory.db ".backup memory_backup.db"
 
-# Or simple file copy
-cp memory.db memory_backup.db
+# Or use the project backup script (copies the database and its WAL/SHM files)
+./scripts/backup/backup_sqlite_vec.sh
+```
 
-# Restore from JSON backup
-python scripts/migrate_storage.py \
-  --restore backup.json \
-  --to sqlite_vec \
-  --target-path restored_memory.db
+To restore, stop the service first, then replace the database files with the
+backup and restart:
+
+```bash
+memory stop
+cp memory_backup.db memory.db
+memory launch
 ```
 
 ## Troubleshooting

@@ -74,7 +74,6 @@ def check_dependencies():
     required_packages = [
         "torch",
         "sentence_transformers",
-        "chromadb",
         "mcp",
         "websockets",
         "numpy"
@@ -97,9 +96,6 @@ def check_dependencies():
             elif package == "sentence_transformers":
                 # Check sentence-transformers compatibility
                 check_sentence_transformers_compatibility()
-            elif package == "chromadb":
-                # Check ChromaDB
-                check_chromadb()
                 
         except ImportError:
             print_error(f"{package} is not installed")
@@ -210,38 +206,6 @@ def check_sentence_transformers_compatibility():
         print(traceback.format_exc())
         return False
 
-def check_chromadb():
-    """Check if ChromaDB works correctly."""
-    import chromadb
-    
-    print_info(f"ChromaDB version: {chromadb.__version__}")
-    
-    # Test in-memory client
-    try:
-        print_info("Testing in-memory ChromaDB client...")
-        client = chromadb.Client()
-        collection = client.create_collection("test_collection")
-        collection.add(
-            documents=["This is a test document"],
-            metadatas=[{"source": "test"}],
-            ids=["id1"]
-        )
-        results = collection.query(
-            query_texts=["test document"],
-            n_results=1
-        )
-        
-        if results and len(results["ids"]) > 0:
-            print_success("ChromaDB in-memory test successful")
-        else:
-            print_warning("ChromaDB query returned empty results")
-            
-        return True
-    except Exception as e:
-        print_error(f"Error testing ChromaDB: {str(e)}")
-        print(traceback.format_exc())
-        return False
-
 def check_mcp_protocol():
     """Check if MCP protocol handler is working correctly."""
     try:
@@ -272,7 +236,7 @@ def check_memory_service_installation():
         print_success(f"MCP Memory Service installed at: {package_path}")
         
         # Check if important modules are importable
-        from mcp_memory_service.storage.chroma import ChromaMemoryStorage
+        from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
         from mcp_memory_service.models.memory import Memory
         from mcp_memory_service.utils.time_parser import parse_time_expression
         
@@ -309,19 +273,8 @@ def check_system_paths():
     except subprocess.SubprocessError:
         print_warning("'memory' command not found in PATH")
     
-    # Check for ChromaDB and backup paths
-    chroma_path = os.environ.get("MCP_MEMORY_CHROMA_PATH")
+    # Check for backup paths
     backups_path = os.environ.get("MCP_MEMORY_BACKUPS_PATH")
-    
-    if chroma_path:
-        print_info(f"ChromaDB path: {chroma_path}")
-        path = Path(chroma_path)
-        if path.exists():
-            print_success("ChromaDB path exists")
-        else:
-            print_warning("ChromaDB path does not exist yet")
-    else:
-        print_info("ChromaDB path not set in environment")
     
     if backups_path:
         print_info(f"Backups path: {backups_path}")

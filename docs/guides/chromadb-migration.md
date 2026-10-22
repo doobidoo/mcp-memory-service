@@ -2,77 +2,96 @@
 
 > **ChromaDB backend was removed in v8.0.0**. This guide helps you migrate to modern storage backends.
 
-## Quick Migration Path
+## Step 1: Convert the Old Database with v7.6.0
+
+Current releases cannot read a ChromaDB directory, and the conversion script was
+retired with the rest of the ChromaDB code. v7.6.0 — the last release that
+shipped the backend — is tagged `chromadb-legacy-final` and is not on PyPI, so
+install it from the tag, run the migration there, then upgrade to the current
+release. Python 3.12 is the tested interpreter for this step.
+
+```bash
+git clone https://github.com/doobidoo/mcp-memory-service.git mcp-memory-service-legacy
+cd mcp-memory-service-legacy
+git checkout chromadb-legacy-final
+
+# Python 3.12 is the tested interpreter; the chromadb extra installs the backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[chromadb]"
+
+# Convert ChromaDB to a SQLite-vec database
+python scripts/migration/migrate_chroma_to_sqlite.py \
+    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
+```
+
+Script options:
+
+| Option | Description |
+|--------|-------------|
+| `--chroma-path PATH` | Path to the ChromaDB data directory |
+| `--sqlite-path PATH` | Path for the new SQLite-vec database |
+| `--batch-size NUM` | Batch size for the migration (default: 50) |
+| `--verbose` | Enable verbose logging |
+
+Keep the original ChromaDB directory until you have verified the converted
+database. The legacy checkout is only needed for this step; the rest of the
+guide runs on the current release.
+
+## Step 2: Choose a Backend
 
 ### Option 1: Hybrid Backend (Recommended)
 
 Best choice for most users - combines fast local storage with cloud synchronization.
 
 ```bash
-# 1. Convert ChromaDB to SQLite-vec (on the chromadb-legacy-final tag)
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py \
-    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
-
-# 2. Switch back to main and configure Hybrid backend
-git checkout main
+# 1. Configure the Hybrid backend
 export MCP_MEMORY_STORAGE_BACKEND=hybrid
 export MCP_MEMORY_SQLITE_PATH=~/chroma_export.db
 
-# 3. Configure Cloudflare credentials
+# 2. Configure Cloudflare credentials
 export CLOUDFLARE_API_TOKEN="your-token"
 export CLOUDFLARE_ACCOUNT_ID="your-account"
 export CLOUDFLARE_D1_DATABASE_ID="your-d1-id"
 export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 
-# 4. Export from SQLite-vec to JSON, then import to Cloudflare
+# 3. Upload the converted database to Cloudflare
 python scripts/migration/migrate_to_cloudflare.py export \
     --source sqlite_vec --source-path ~/chroma_export.db --output ~/chromadb_backup.json
 python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_backup.json
 
-# 5. Verify configuration
+# 4. Verify configuration
 python scripts/validation/validate_configuration_complete.py
 ```
 
-The `export` lines above only last for the current shell. The validator in step 5 reads the project `.env` file and the `env` block of the memory server in `claude_desktop_config.json`, and a service started by Claude Desktop reads the latter. Put `MCP_MEMORY_STORAGE_BACKEND`, `MCP_MEMORY_SQLITE_PATH` and the four `CLOUDFLARE_*` values in both places before running it, then restart the service.
+The `export` lines above only last for the current shell. The validator in step
+4 reads the project `.env` file and the `env` block of the memory server in
+`claude_desktop_config.json`, and a service started by Claude Desktop reads the
+latter. Put `MCP_MEMORY_STORAGE_BACKEND`, `MCP_MEMORY_SQLITE_PATH` and the four
+`CLOUDFLARE_*` values in both places before running it, then restart the service.
 
 ### Option 2: SQLite-vec (Local Only)
 
 For single-device use without cloud synchronization.
 
 ```bash
-# 1. Convert ChromaDB to SQLite-vec (on the chromadb-legacy-final tag)
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py \
-    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
-
-# 2. Switch back to main and configure SQLite-vec backend
-git checkout main
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 export MCP_MEMORY_SQLITE_PATH=~/chroma_export.db
 ```
 
 ### Option 3: Cloudflare (Cloud Only)
 
-For pure cloud storage without local database.
+For pure cloud storage without a local database.
 
 ```bash
-# 1. Convert ChromaDB to SQLite-vec (on the chromadb-legacy-final tag)
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py \
-    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
-
-# 2. Switch back to main and configure Cloudflare backend
-git checkout main
+# 1. Configure Cloudflare
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
-
-# 3. Configure Cloudflare credentials
 export CLOUDFLARE_API_TOKEN="your-token"
 export CLOUDFLARE_ACCOUNT_ID="your-account"
 export CLOUDFLARE_D1_DATABASE_ID="your-d1-id"
 export CLOUDFLARE_VECTORIZE_INDEX="mcp-memory-index"
 
-# 4. Export from SQLite-vec and import into Cloudflare
+# 2. Export from SQLite-vec and import into Cloudflare
 python scripts/migration/migrate_to_cloudflare.py export \
     --source sqlite_vec --source-path ~/chroma_export.db --output ~/chromadb_backup.json
 python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_backup.json
@@ -90,102 +109,45 @@ python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_back
 | **Setup complexity** | Medium | Easy | Medium | Easy |
 | **Status** | **Recommended** | Supported | Supported | **REMOVED** |
 
-## Migration Script Details
-
-### Using the Legacy Migration Script
-
-The ChromaDB migration script is preserved in the `chromadb-legacy-final` tag:
-
-```bash
-# From chromadb-legacy-final tag
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py [OPTIONS]
-
-Options:
-  --chroma-path PATH  Path to ChromaDB data directory
-  --sqlite-path PATH  Path for SQLite-vec database
-  --batch-size NUM    Batch size for migration (default: 50)
-  --verbose           Enable verbose logging
-```
-
-### Manual Migration Steps
-
-If you prefer manual control:
-
-1. **Export from ChromaDB**:
-   ```bash
-   git checkout chromadb-legacy-final
-   python -c "
-   from mcp_memory_service.storage.chroma import ChromaMemoryStorage
-   import json
-   storage = ChromaMemoryStorage(path='./chroma_db')
-   memories = storage.get_all_memories()
-   with open('export.json', 'w') as f:
-       json.dump([m.to_dict() for m in memories], f)
-   "
-   ```
-
-2. **Import to new backend**:
-   ```bash
-   git checkout main
-   python -c "
-   from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-   import json
-   storage = SqliteVecMemoryStorage(db_path='./memory.db')
-   await storage.initialize()
-   with open('export.json') as f:
-       memories = json.load(f)
-   for mem in memories:
-       await storage.store(Memory.from_dict(mem))
-   "
-   ```
-
 ## Data Validation
 
-After migration, verify your data:
+After switching backends, check the converted database with the current release:
 
 ```bash
-# Check memory count
-python -c "
-from mcp_memory_service.storage.factory import create_storage_instance
-storage = await create_storage_instance('./memory.db')
-count = len(await storage.get_all_memories())
-print(f'Migrated {count} memories')
-"
-
-# Validate SQLite-vec database integrity
-python scripts/validation/validate_migration.py ./memory.db
+python scripts/database/db_health_check.py
 ```
+
+The health check reports the configured database path, schema and search
+results. If it cannot find the database, confirm that `MCP_MEMORY_SQLITE_PATH`
+points at `~/chroma_export.db`.
 
 ## Troubleshooting
 
 ### Issue: Migration script not found
 
-**Solution**: The migration script is only available on the `chromadb-legacy-final` tag:
-```bash
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py
-```
+**Solution**: The script only exists on the `chromadb-legacy-final` tag. Current
+releases do not ship it — rerun Step 1 from a checkout of that tag.
 
 ### Issue: Import errors for ChromaMemoryStorage
 
-**Solution**: You must be on the `chromadb-legacy-final` tag to access ChromaDB code:
-```bash
-git checkout chromadb-legacy-final  # ChromaDB code available
-git checkout main                   # ChromaDB removed (v8.0.0+)
-```
+**Solution**: Run the migration inside the v7.6.0 checkout, in the virtualenv
+where you installed it with `pip install -e ".[chromadb]"`. The current release
+has no `mcp_memory_service.storage.chroma` module.
 
 ### Issue: "ChromaDB not installed" error
 
-**Solution**: Install chromadb on the legacy tag:
+**Solution**: Install the legacy tag's ChromaDB extra, which pulls in the
+backend and its ML dependencies:
+
 ```bash
 git checkout chromadb-legacy-final
-pip install chromadb>=0.5.0 sentence-transformers>=2.2.2
+pip install -e ".[chromadb]"
 ```
 
 ### Issue: Large ChromaDB database migration is slow
 
 **Solution**: Use batch mode for faster migration:
+
 ```bash
 python scripts/migration/migrate_chroma_to_sqlite.py --batch-size 100
 ```
@@ -206,7 +168,7 @@ If you need to rollback to ChromaDB (not recommended):
 - [ ] Sample queries return expected results
 - [ ] Configuration updated (`MCP_MEMORY_STORAGE_BACKEND`)
 - [ ] Legacy ChromaDB data directory backed up
-- [ ] Validation script passes
+- [ ] Health check passes
 - [ ] Application tests pass
 - [ ] Claude Desktop/Code integration works
 

@@ -269,15 +269,21 @@ Reads from your local `.db`, writes to D1 + Vectorize. Preserves content, embedd
 ### Cloudflare → SQLite-vec
 **No dedicated script exists.** The workaround is to run the service in `hybrid` mode temporarily: set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and let the background sync populate a local SQLite-vec database from Cloudflare. Then switch `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec` once the local file is populated.
 
-If you need a fully offline migration, export memories via the REST API (`GET /api/memories`) and re-import with [`mcp-migration.py`](https://github.com/doobidoo/mcp-memory-service/blob/main/scripts/migration/mcp-migration.py) or a small custom script. Open an issue if this is a blocker — a dedicated Cloudflare → SQLite-vec script is a reasonable feature request.
+If you need a fully offline migration, export memories via the REST API (`GET /api/memories`) and re-import them with a small custom script. Open an issue if this is a blocker — a dedicated Cloudflare → SQLite-vec script is a reasonable feature request.
 
 ### SQLite-vec → Hybrid / Cloudflare → Hybrid
 Set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. Hybrid initialization reconciles the local SQLite-vec store and the Cloudflare mirror on startup — it picks whichever side is populated and syncs the other direction on the next interval. For a clean cutover from SQLite-vec, run the SQLite-vec → Cloudflare migration above first, then switch to `hybrid`.
 
 ### ChromaDB → SQLite-vec (historical)
-ChromaDB is no longer a supported backend. If you have a legacy ChromaDB store, use:
+ChromaDB is no longer a supported backend and no current release ships a conversion script. Convert the old database with the v7.6.0 release on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag, then upgrade:
 ```bash
-python scripts/migration/migrate_to_sqlite_vec.py
+git clone https://github.com/doobidoo/mcp-memory-service.git mcp-memory-service-legacy
+cd mcp-memory-service-legacy
+git checkout chromadb-legacy-final
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e ".[chromadb]"
+python scripts/migration/migrate_chroma_to_sqlite.py \
+  --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
 ```
 See [`chromadb-migration.md`](chromadb-migration.md) for the full legacy migration guide.
 
