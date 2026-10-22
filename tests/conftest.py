@@ -110,7 +110,7 @@ def _disable_plugins(request, monkeypatch):
 @pytest.fixture(autouse=True)
 def _clear_embedding_caches():
     """Reset embedding caches after each test for isolation."""
-    import mcp_memory_service.storage.mixins.embeddings as emb_mod
+    import mcp_memory_service.storage.mixins.embeddings as emb_mod  # inline import
     from mcp_memory_service.storage.mixins.embeddings import (
         _MODEL_CACHE, _DIMENSION_CACHE
     )
@@ -140,7 +140,7 @@ def _share_default_onnx_session():
     replaces this wrapper for its own duration.
     """
     try:
-        import onnxruntime as ort
+        import onnxruntime as ort  # inline import
         from mcp_memory_service.embeddings.onnx_embeddings import ONNXEmbeddingModel
     except ImportError:
         yield
@@ -254,7 +254,6 @@ def pytest_sessionfinish(session, exitstatus):
     """
     try:
         from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
-        import tempfile
 
         # Get database path based on backend
         if STORAGE_BACKEND == 'hybrid':
@@ -376,7 +375,6 @@ def pytest_sessionstart(session):
 
     try:
         from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
-        import tempfile
 
         # Check backend
         if STORAGE_BACKEND not in ['sqlite_vec', 'cloudflare']:
