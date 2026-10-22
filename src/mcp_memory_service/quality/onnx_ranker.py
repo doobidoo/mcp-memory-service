@@ -311,8 +311,15 @@ class ONNXRankerModel:
 
         # Initialize ONNX session
         logger.info("Loading ONNX ranker model with providers: %s", self._preferred_providers)
+        session_options = ort.SessionOptions()
+        # 0 = ORT default. The bench showed the service-path rerank stage costing
+        # 3x the direct-ONNX number (p50 6.53 s vs 2.10 s @40c); an explicit thread
+        # budget keeps the stage measurable and honors the machine's cores.
+        session_options.intra_op_num_threads = int(os.environ.get("MCP_ORT_THREADS", "0") or 0)
+        session_options.inter_op_num_threads = int(os.environ.get("MCP_ORT_THREADS", "0") or 0)
         self._model = ort.InferenceSession(
             str(onnx_path),
+            sess_options=session_options,
             providers=self._preferred_providers
         )
 
