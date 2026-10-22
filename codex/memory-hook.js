@@ -162,11 +162,13 @@ async function saveState(filename, state) {
 
 function contextOutput(context, count, cached) {
     if (!context) return null;
-    return {
-        systemMessage: cached ? `Memory: retrieval failed, using ${memoryCount(count, 'cached project')}.`
-            : `Memory: loaded ${memoryCount(count, 'project')}.`,
-        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context }
-    };
+    const output = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } };
+    // A context cut down to its header carries no memories to report.
+    if (count !== 0) {
+        output.systemMessage = cached ? `Memory: retrieval failed, using ${memoryCount(count, 'cached project')}.`
+            : `Memory: loaded ${memoryCount(count, 'project')}.`;
+    }
+    return output;
 }
 
 function captureOutput(saved, summary) {
@@ -205,7 +207,9 @@ async function retrieve(config, project, state, deadline) {
         if (!state.context) throw error;
         cached = true;
     }
-    return contextOutput(state.context?.slice(0, config.contextChars), state.contextCount, cached);
+    const context = state.context?.slice(0, config.contextChars);
+    // A cached context cut by a smaller budget no longer matches its stored count.
+    return contextOutput(context, context?.length === state.context?.length ? state.contextCount : undefined, cached);
 }
 
 async function capture(event, config, project, state, deadline, persist) {

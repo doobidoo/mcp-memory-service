@@ -102,6 +102,19 @@ test('the loaded count excludes memories cut off by the context budget', async t
     assert.match(result.hookSpecificOutput.additionalContext, /Use transactions/);
     assert.doesNotMatch(result.hookSpecificOutput.additionalContext, /Keep the schema/);
     assert.equal(result.systemMessage, 'Memory: loaded 1 project memory.');
+    const headerOnly = await runHook({ ...f.event, hook_event_name: 'SessionStart', session_id: 'tiny' }, { ...f.config, contextChars: 100 });
+    assert.match(headerOnly.hookSpecificOutput.additionalContext, /^Project memories: project/);
+    assert.equal(headerOnly.systemMessage, undefined);
+});
+
+test('a cached context trimmed by a smaller budget is reported without its stale count', async t => {
+    const f = await fixture(t);
+    const start = { ...f.event, hook_event_name: 'SessionStart' };
+    await runHook(start, f.config);
+    f.failSearch();
+    const result = await runHook(start, { ...f.config, contextChars: 130 });
+    assert.doesNotMatch(result.hookSpecificOutput.additionalContext, /Keep the schema/);
+    assert.equal(result.systemMessage, 'Memory: retrieval failed, using cached project memories.');
 });
 
 test('startup with no project memories stays silent', async t => {
