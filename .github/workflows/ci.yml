@@ -348,12 +348,16 @@ jobs:
       # tests/integration stays out here: it starts HTTP servers and gains nothing
       # from the ml extras, and `test` runs it. tests/consolidation is in because
       # its DBSCAN eps tests need scikit-learn, which only this job installs.
+      # --durations=25: this is the longest job, and the slowest tests and setups
+      # are printed on every run so the next speed-up starts from the log (#1644
+      # found 0.3 s per storage setup this way, but only with a local run).
       run: |
         python3 -m pytest tests/ \
           --ignore=tests/benchmarks \
           --ignore=tests/integration \
           -m "not benchmark" \
           --timeout=120 \
+          --durations=25 \
           -q
 
   milvus-tests:
