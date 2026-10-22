@@ -126,6 +126,44 @@ def _clear_embedding_caches():
     emb_mod._HASH_FALLBACK_WARNED = False
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _share_default_onnx_session():
+    """Create the default ONNX model's InferenceSession once per run.
+
+    _clear_embedding_caches empties _MODEL_CACHE after every test, so each test
+    that initializes storage builds a new ONNXEmbeddingModel, and creating its
+    InferenceSession costs about 0.3 s. With the ml extras installed that was
+    about 680 tests and close to half the job's run time. The model object stays
+    per-test; only the session for the real default model file is shared.
+    Anything else (another path, a test's own model file, extra arguments) goes
+    to the real constructor, and a test that patches ort.InferenceSession
+    replaces this wrapper for its own duration.
+    """
+    try:
+        import onnxruntime as ort
+        from mcp_memory_service.embeddings.onnx_embeddings import ONNXEmbeddingModel
+    except ImportError:
+        yield
+        return
+    default_model = str(
+        ONNXEmbeddingModel.DOWNLOAD_PATH / ONNXEmbeddingModel.EXTRACTED_FOLDER_NAME / "model.onnx"
+    )
+    create = ort.InferenceSession
+    sessions = {}
+
+    def shared(path, *args, **kwargs):
+        if str(path) != default_model or args or set(kwargs) - {"providers"}:
+            return create(path, *args, **kwargs)
+        key = tuple(kwargs.get("providers") or ())
+        if key not in sessions:
+            sessions[key] = create(path, **kwargs)
+        return sessions[key]
+
+    ort.InferenceSession = shared
+    yield
+    ort.InferenceSession = create
+
+
 @pytest.fixture
 def temp_db_path():
     '''Create a temporary directory for database testing.'''
