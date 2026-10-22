@@ -220,6 +220,7 @@ class SessionHarvester:
 
             if not config.dry_run and self.memory_service and result.candidates:
                 stored = 0
+                skipped = 0
                 for candidate in result.candidates:
                     try:
                         tags, metadata = self._provenance(candidate, result.session_id)
@@ -235,11 +236,16 @@ class SessionHarvester:
                             )
                             if isinstance(resp, dict) and resp.get("success"):
                                 stored += 1
+                            elif isinstance(resp, dict) and resp.get("refused_recreate"):
+                                # #1560: deleted on the server — skipped, not stored,
+                                # not an error.
+                                skipped += 1
                             elif hasattr(resp, "success") and resp.success:
                                 stored += 1
                     except Exception as e:
                         logger.warning("Failed to store harvest candidate: %s", _sanitize_log_value(str(e)))
                 result.stored = stored
+                result.skipped = skipped
 
             results.append(result)
 

@@ -229,6 +229,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         conversation_id = arguments.get("conversation_id")
         agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
+        restore_deleted = bool(arguments.get("restore_deleted", False))
 
         # Call shared MemoryService business logic
         result = await server.memory_service.store_memory(
@@ -240,11 +241,18 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             conversation_id=conversation_id,
             agent_id=agent_id,
             store=store,
+            restore_deleted=restore_deleted,
         )
 
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
             error_msg = result.get("error", "Unknown error")
+            if result.get("refused_recreate"):
+                # #1560: a refused re-create is the answer the caller chose by not
+                # passing restore_deleted — plain text, not isError. Unlike the
+                # failures #1601 covers, nothing was lost here: the tombstone is
+                # intact and the message says how to proceed.
+                return [types.TextContent(type="text", text=error_msg)]
             # A refused write is a failure. Return-as-text made the MCP envelope
             # report isError=False while nothing was stored, so automation counted
             # it as success (#1601). Raise: the SDK answers isError=True.

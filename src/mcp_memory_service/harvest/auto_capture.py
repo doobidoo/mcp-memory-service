@@ -22,6 +22,7 @@ class AutoCaptureResult:
     candidates: List[HarvestCandidate] = field(default_factory=list)
     stored: int = 0
     evolved: int = 0
+    skipped: int = 0  # Refused re-creates of deleted content (#1560)
     stored_hashes: List[str] = field(default_factory=list)
     parent_hash: Optional[str] = None
     dry_run: bool = True
@@ -33,6 +34,7 @@ class AutoCaptureResult:
             "found": len(self.candidates),
             "stored": self.stored,
             "evolved": self.evolved,
+            "skipped": self.skipped,
             "stored_hashes": self.stored_hashes,
             "by_type": _count_by_type(self.candidates),
             "candidates": [
@@ -133,6 +135,8 @@ class AutoCaptureService:
                 )
 
                 if not (isinstance(resp, dict) and resp.get("success")):
+                    if isinstance(resp, dict) and resp.get("refused_recreate"):
+                        result.skipped += 1  # #1560: deleted on the server, not re-created
                     continue
 
                 child_hash = _hash_from_store_response(resp)

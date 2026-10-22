@@ -887,11 +887,77 @@ def _delete_event_id(store_obj, content_hash):
     return row[0]
 
 
+def _tombstone_rows(store_obj, content_hash):
+    """(live_rows, tombstone_rows) for a hash in the memories table."""
+    live = store_obj.conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+        (content_hash,),
+    ).fetchone()[0]
+    dead = store_obj.conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL",
+        (content_hash,),
+    ).fetchone()[0]
+    return live, dead
+
+
+def _create_event_count(store_obj, content_hash):
+    return store_obj.conn.execute(
+        "SELECT COUNT(*) FROM sync_events WHERE content_hash = ? AND op = 'create'",
+        (content_hash,),
+    ).fetchone()[0]
+
+
+@pytest.mark.asyncio
+async def test_producer_store_refuses_recreate_without_flag(store):
+    """#1560: store(recreate=False) over a tombstone is REFUSED — the hub's own delete
+    must not be stamped as a deliberate revive just because a stale client re-sent the
+    content. A FRESH create still carries recreate_of == "" (v2 stamps on every create).
+    Load-bearing: on main the second store() succeeds and stamps recreate_of = delete's
+    event_id; with the fix it returns (False, RecreateRefused), the tombstone stays and no
+    create event is appended."""
+    from mcp_memory_service.storage.base import RecreateRefused
+
+    with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+        content = "producer recreate via store() -- refused"
+        h = generate_content_hash(content)
+        m = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
+        ok, _ = await store.store(m, recreate=False)
+        assert ok, "initial store must succeed (no delete on record -> nothing to refuse)"
+
+        _eid, fresh_payload = _latest_create_payload(store, h)
+        assert fresh_payload.get("recreate_of") == "", \
+            "a fresh create (no tombstone) must carry the EMPTY sentinel"
+
+        ok, _ = await store.delete(h)
+        assert ok, "delete must succeed"
+        del_eid = _delete_event_id(store, h)
+        creates_before = _create_event_count(store, h)
+
+        m2 = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
+        ok, msg = await store.store(m2, recreate=False)
+        assert not ok, "re-store without the flag must be refused (#1560)"
+        assert isinstance(msg, RecreateRefused), f"message must be a RecreateRefused, got {type(msg)}"
+        assert msg.event_id == del_eid, "the refusal must name the delete it would have overridden"
+        assert len(msg.hlc) == 3 and msg.hlc[0] > 0, f"refusal must carry the delete's HLC anchor, got {msg.hlc}"
+        assert "pass recreate=True" in str(msg)
+
+        live, dead = _tombstone_rows(store, h)
+        assert live == 0 and dead == 1, f"tombstone must survive a refused re-create (live={live}, dead={dead})"
+        assert _create_event_count(store, h) == creates_before, "a refused re-create appends no create event"
+
+        # The explicit flag revives: tombstone purged, create stamped with the delete.
+        ok, _ = await store.store(m2, recreate=True)
+        assert ok, "re-store with recreate=True must succeed"
+        _eid2, recreate_payload = _latest_create_payload(store, h)
+        assert recreate_payload.get("recreate_of") == del_eid
+        live, dead = _tombstone_rows(store, h)
+        assert live == 1 and dead == 0
+
+
 @pytest.mark.asyncio
 async def test_producer_store_stamps_recreate_of_on_recreate(store):
-    """store() (Henry 3-state): a FRESH create carries recreate_of == "" (explicit empty
-    sentinel — "stamp on every create"); a re-create over a tombstone carries the delete's
-    event_id. Load-bearing: remove the producer stamp and both assertions flip."""
+    """store() (Henry 3-state) with the explicit flag: a re-create over a tombstone carries
+    the delete's event_id. Load-bearing: remove the producer stamp and the assertion flips."""
     with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
         content = "producer recreate via store()"
         h = generate_content_hash(content)
@@ -899,27 +965,68 @@ async def test_producer_store_stamps_recreate_of_on_recreate(store):
         ok, _ = await store.store(m)
         assert ok, "initial store must succeed"
 
-        # Fresh create: key PRESENT and EMPTY (v2 stamps "" on every create).
-        _eid, fresh_payload = _latest_create_payload(store, h)
-        assert "recreate_of" in fresh_payload, \
-            "a v2 fresh create must stamp the recreate_of key (3-state model)"
-        assert fresh_payload["recreate_of"] == "", \
-            f"a fresh create (no tombstone) must carry the EMPTY sentinel, got {fresh_payload.get('recreate_of')!r}"
-
-        # Delete, then re-store the same content (re-create over the tombstone).
         ok, _ = await store.delete(h)
         assert ok, "delete must succeed"
         del_eid = _delete_event_id(store, h)
 
         m2 = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
-        ok, _ = await store.store(m2)
-        assert ok, "re-store must succeed"
+        ok, _ = await store.store(m2, recreate=True)
+        assert ok, "re-store with recreate=True must succeed"
 
         _eid2, recreate_payload = _latest_create_payload(store, h)
         assert recreate_payload.get("recreate_of") == del_eid, (
             f"re-create via store() must stamp recreate_of = delete's event_id {del_eid}, "
             f"got {recreate_payload.get('recreate_of')}"
         )
+
+
+@pytest.mark.asyncio
+async def test_producer_store_default_recreate_none_is_unchanged(store):
+    """#1560 keeps the direct storage.store() callers (consolidation, ingestion, CLI,
+    api/operations.py) untouched: with recreate left at None, a re-create over a tombstone
+    behaves exactly as before — purged and stamped with the delete's event_id."""
+    with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+        content = "producer recreate via store() -- default None"
+        h = generate_content_hash(content)
+        m = Memory(content=content, content_hash=h, tags=["p"], memory_type="note")
+        assert (await store.store(m))[0]
+        assert (await store.delete(h))[0]
+        del_eid = _delete_event_id(store, h)
+
+        ok, _ = await store.store(Memory(content=content, content_hash=h, tags=["p"], memory_type="note"))
+        assert ok, "default recreate=None must still re-create (today's behaviour)"
+        _eid2, payload = _latest_create_payload(store, h)
+        assert payload.get("recreate_of") == del_eid
+
+
+@pytest.mark.asyncio
+async def test_producer_store_batch_refuses_per_item_without_flag(store):
+    """#1560 via store_batch(recreate=False): the item whose hash has a delete on record is
+    refused on its own (tombstone kept, no create event), the fresh item in the same batch
+    is stored."""
+    from mcp_memory_service.storage.base import RecreateRefused
+
+    with patch.dict(os.environ, {"MCP_SYNC_EVENTLOG": "on"}):
+        deleted = "store_batch refused item"
+        fresh = "store_batch fresh item in the same batch"
+        hd, hf = generate_content_hash(deleted), generate_content_hash(fresh)
+        assert (await store.store(Memory(content=deleted, content_hash=hd, tags=["b"], memory_type="note")))[0]
+        assert (await store.delete(hd))[0]
+        del_eid = _delete_event_id(store, hd)
+        creates_before = _create_event_count(store, hd)
+
+        res = await store.store_batch([
+            Memory(content=deleted, content_hash=hd, tags=["b"], memory_type="note"),
+            Memory(content=fresh, content_hash=hf, tags=["b"], memory_type="note"),
+        ], recreate=False)
+        assert len(res) == 2
+        ok_d, msg_d = res[0]
+        ok_f, _ = res[1]
+        assert not ok_d and isinstance(msg_d, RecreateRefused) and msg_d.event_id == del_eid
+        assert ok_f, "the fresh item must not be dragged down by the refused one"
+        assert _tombstone_rows(store, hd) == (0, 1)
+        assert _create_event_count(store, hd) == creates_before
+        assert _tombstone_rows(store, hf) == (1, 0)
 
 
 @pytest.mark.asyncio
