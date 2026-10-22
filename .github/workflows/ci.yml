@@ -182,6 +182,16 @@ jobs:
       with:
         fetch-depth: 0
 
+    # Caches pip's downloads, one key per job (and Milvus leg) because each job
+    # installs a different set: a shared key would hand the torch jobs the small
+    # cache of whichever job saved first. Keyed on pyproject.toml, which CI
+    # installs from (not uv.lock). Only downloads are cached; the install runs.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
     - name: Install dependencies
       run: |
         python3 -m pip install --upgrade pip
@@ -211,6 +221,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     - name: Install dependencies
       run: |
@@ -256,6 +273,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # The `test` job installs `.[dev,sqlite]` only, so transformers and
     # sentence-transformers are never imported there. Everything reached through
@@ -346,6 +370,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # CPU wheels only, for the same reason as ml-extras-tests: the default index
     # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
