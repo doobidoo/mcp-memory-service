@@ -11,6 +11,14 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a PR cancels the run for the commit it replaces. Pushes to main
+# are keyed by SHA, so every merge keeps its own run: with one group per ref, a
+# third merge would drop the second one's pending run and that commit would
+# never be tested, and there is no merge queue behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -18,6 +26,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      milvus: ${{ steps.classify.outputs.milvus }}
     steps:
     # fetch-depth: 2 so the PR merge commit has its base parent: HEAD^1..HEAD is
     # exactly what the PR changes.
@@ -33,15 +42,29 @@ jobs:
     # required tests. If it cannot be read, is_docs_only is undefined, the test
     # fails, and the tests run. Pushes to main always count as code: push keeps
     # its own paths-ignore.
+    #
+    # `milvus` is false on a PR that touches nothing the Milvus suite reaches:
+    # storage/milvus*.py imports storage/base.py, shared.py, models/, utils/ and
+    # compat.py, and the tests pull in consolidation/ and reasoning/. The list is
+    # by package prefix, not by milvus* file name, so a base-class change still
+    # runs it. Pushes to main always run it, which catches what a PR skipped.
     - name: Classify the changed files
       id: classify
       run: |
         eval "$(git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\(\) \{/,/^\}/')"
+        changed=$(git diff --name-only HEAD^1 HEAD)
         code=true
-        if [ "$GITHUB_EVENT_NAME" = pull_request ] && is_docs_only "$(git diff --name-only HEAD^1 HEAD)"; then
-          code=false
+        milvus=true
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          if is_docs_only "$changed"; then
+            code=false
+          fi
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/mcp_memory_service/(storage|models|utils|consolidation|reasoning|config)|src/mcp_memory_service/compat\.py$|tests/storage/|tests/conftest\.py$|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$)'; then
+            milvus=false
+          fi
         fi
         echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+        echo "milvus=$milvus" | tee -a "$GITHUB_OUTPUT"
 
   version-drift-check:
     runs-on: ubuntu-latest
@@ -159,6 +182,16 @@ jobs:
       with:
         fetch-depth: 0
 
+    # Caches pip's downloads, one key per job (and Milvus leg) because each job
+    # installs a different set: a shared key would hand the torch jobs the small
+    # cache of whichever job saved first. Keyed on pyproject.toml, which CI
+    # installs from (not uv.lock). Only downloads are cached; the install runs.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
     - name: Install dependencies
       run: |
         python3 -m pip install --upgrade pip
@@ -188,6 +221,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     - name: Install dependencies
       run: |
@@ -233,6 +273,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # The `test` job installs `.[dev,sqlite]` only, so transformers and
     # sentence-transformers are never imported there. Everything reached through
@@ -296,9 +343,10 @@ jobs:
     name: Tests with the milvus extra (${{ matrix.leg }})
     timeout-minutes: 40
     # Not a required check: a matrix job skipped through `if:` reports under its
-    # unexpanded name, so "(pinned)" would never arrive on a docs-only PR.
+    # unexpanded name, so "(pinned)" would never arrive on a docs-only PR. For
+    # the same reason it can skip on PRs that reach no Milvus code (see `changes`).
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.milvus != 'false' }}
     # The 12 tests/storage/test_milvus*.py files run against Milvus Lite (a
     # single local file, no server), so they need no Docker at all — but they
     # importorskip pymilvus and milvus-lite, and MilvusMemoryStorage refuses to
@@ -322,6 +370,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # pip download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # CPU wheels only, for the same reason as ml-extras-tests: the default index
     # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
