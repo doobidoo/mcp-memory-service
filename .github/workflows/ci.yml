@@ -182,20 +182,32 @@ jobs:
       with:
         fetch-depth: 0
 
-    # Caches pip's downloads, one key per job (and Milvus leg) because each job
+    # Dependencies go in through uv, not pip: same packages, a fraction of the
+    # install time. The runner's site-packages is not writeable (pip fell back to
+    # a user install), so uv builds a venv from the runner's python3 (3.12) and
+    # puts it first on PATH; every later `python3` is that venv. UV_PYTHON names
+    # the venv as the install target: `python3 -m uv pip install` otherwise
+    # installs into the interpreter that launched uv, even with VIRTUAL_ENV set.
+    # uv is pinned and comes from PyPI because third-party actions are not
+    # allowed here.
+    #
+    # Caches uv's downloads, one key per job (and Milvus leg) because each job
     # installs a different set: a shared key would hand the torch jobs the small
     # cache of whichever job saved first. Keyed on pyproject.toml, which CI
     # installs from (not uv.lock). Only downloads are cached; the install runs.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
-        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     - name: Install dependencies
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -e ".[dev,sqlite]"
+        python3 -m pip install --quiet "uv==0.12.24"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install -e ".[dev,sqlite]"
 
     - name: Run the changed tests against the base branch
       env:
@@ -222,17 +234,20 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # pip download cache, per job: see tests-prove-fix.
+    # uv venv and download cache, per job: see tests-prove-fix.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
-        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     - name: Install dependencies
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -e ".[dev,sqlite]"
+        python3 -m pip install --quiet "uv==0.12.24"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install -e ".[dev,sqlite]"
 
     - name: Verify install
       run: |
@@ -274,12 +289,12 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # pip download cache, per job: see tests-prove-fix.
+    # uv venv and download cache, per job: see tests-prove-fix.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
-        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # The `test` job installs `.[dev,sqlite]` only, so transformers and
     # sentence-transformers are never imported there. Everything reached through
@@ -291,12 +306,15 @@ jobs:
     # database, so the #143 guard never fires. See issue #301.
     - name: Install dependencies (with ml + nli extras)
       run: |
-        python3 -m pip install --upgrade pip
+        python3 -m pip install --quiet "uv==0.12.24"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
         # CPU wheels only. The default index serves the CUDA build on Linux,
         # which is an order of magnitude larger and useless on this runner —
         # tools/docker/Dockerfile pins the same index for the same reason.
-        python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-        python3 -m pip install -e ".[dev,sqlite,ml,nli]"
+        python3 -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+        python3 -m uv pip install -e ".[dev,sqlite,ml,nli]"
 
     # A silent degradation here would be worse than having no job: if the extras
     # ever stop resolving, the suite would still go green while covering exactly
@@ -371,22 +389,25 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # pip download cache, per job: see tests-prove-fix.
+    # uv venv and download cache, per job: see tests-prove-fix.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/pip
-        key: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
-        restore-keys: pip-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
 
     # CPU wheels only, for the same reason as ml-extras-tests: the default index
     # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
     - name: Install dependencies (with the milvus extra)
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-        python3 -m pip install -e ".[dev,sqlite,milvus]"
+        python3 -m pip install --quiet "uv==0.12.24"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+        python3 -m uv pip install -e ".[dev,sqlite,milvus]"
         if [ -n "${{ matrix.pymilvus }}" ]; then
-          python3 -m pip install "${{ matrix.pymilvus }}"
+          python3 -m uv pip install "${{ matrix.pymilvus }}"
         fi
 
     # Same guard as ml-extras-tests: the suite skips at collection when these
