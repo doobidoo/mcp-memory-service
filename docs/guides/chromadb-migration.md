@@ -111,15 +111,23 @@ python scripts/migration/migrate_to_cloudflare.py import --input ~/chromadb_back
 
 ## Data Validation
 
-After switching backends, check the converted database with the current release:
+`python scripts/database/db_health_check.py` checks the environment, the
+dependencies and the schema/search/embedding behaviour of the backend, but it
+runs its store and search tests against temporary databases. Its only check of
+the configured database is an embedding invariant, and it reports PASS (as
+"skipping check") when that file or its `memories` table is missing. A passing
+run therefore does not verify the data you just converted.
+
+Check the converted database directly. Point `MCP_MEMORY_SQLITE_PATH` at
+`~/chroma_export.db` and compare the active row count with the old ChromaDB
+count:
 
 ```bash
-python scripts/database/db_health_check.py
+sqlite3 ~/chroma_export.db "SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL;"
 ```
 
-The health check reports the configured database path, schema and search
-results. If it cannot find the database, confirm that `MCP_MEMORY_SQLITE_PATH`
-points at `~/chroma_export.db`.
+Then start the service against it and run a few sample searches for content you
+know was in ChromaDB, checking that tags, memory types and timestamps survived.
 
 ## Troubleshooting
 

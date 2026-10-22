@@ -301,21 +301,33 @@ asyncio.run(optimize())
 ### Backup and Restore
 
 ```bash
-# Create a consistent backup with SQLite itself
+# Create a consistent backup with SQLite itself (safe while the database is open)
 sqlite3 memory.db ".backup memory_backup.db"
 
 # Or use the project backup script (copies the database and its WAL/SHM files)
 ./scripts/backup/backup_sqlite_vec.sh
 ```
 
-To restore, stop the service first, then replace the database files with the
-backup and restart:
+The shell script copies the main database, WAL and SHM in separate `cp` calls
+without a SQLite lock. A write or checkpoint between those copies can leave the
+files disagreeing, so stop every database writer before running it.
+
+Restoring needs every writer stopped, not just `memory`: stdio MCP servers
+started by Claude Desktop or another client keep the database open and would
+write to a WAL that the restored file knows nothing about. Quit those clients,
+then move the old database and sidecars aside before copying the backup:
 
 ```bash
 memory stop
+# Quit every client that uses the database, then:
+mv memory.db memory.db.before-restore
+rm -f memory.db-wal memory.db-shm
 cp memory_backup.db memory.db
 memory launch
 ```
+
+A WAL left next to the restored file can be replayed over it, losing or
+corrupting the restored rows.
 
 ## Troubleshooting
 

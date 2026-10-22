@@ -272,7 +272,7 @@ Reads from your local `.db`, writes to D1 + Vectorize. Preserves content, embedd
 If you need a fully offline migration, export memories via the REST API (`GET /api/memories`) and re-import them with a small custom script. Open an issue if this is a blocker — a dedicated Cloudflare → SQLite-vec script is a reasonable feature request.
 
 ### SQLite-vec → Hybrid / Cloudflare → Hybrid
-Set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. Hybrid initialization reconciles the local SQLite-vec store and the Cloudflare mirror on startup — it picks whichever side is populated and syncs the other direction on the next interval. For a clean cutover from SQLite-vec, run the SQLite-vec → Cloudflare migration above first, then switch to `hybrid`.
+Hybrid startup pulls Cloudflare memories that are missing from the local SQLite-vec store; it does not upload a local database that already exists. For a clean cutover from SQLite-vec, run the SQLite-vec → Cloudflare migration above first, then set `MCP_MEMORY_STORAGE_BACKEND=hybrid` and restart. From Cloudflare, just switching to `hybrid` is enough — the local database is repopulated from the cloud.
 
 ### ChromaDB → SQLite-vec (historical)
 ChromaDB is no longer a supported backend and no current release ships a conversion script. Convert the old database with the v7.6.0 release on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag, then upgrade:
