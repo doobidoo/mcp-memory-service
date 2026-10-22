@@ -11,6 +11,14 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a PR cancels the run for the commit it replaces. Pushes to main
+# are keyed by SHA, so every merge keeps its own run: with one group per ref, a
+# third merge would drop the second one's pending run and that commit would
+# never be tested, and there is no merge queue behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
