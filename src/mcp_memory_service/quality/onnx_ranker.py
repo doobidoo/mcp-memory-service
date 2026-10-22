@@ -405,6 +405,8 @@ class ONNXRankerModel:
                     "attention_mask": attention_mask,
                     "token_type_ids": token_type_ids
                 }
+                if "token_type_ids" not in self.model_config.get('inputs', ('input_ids', 'attention_mask', 'token_type_ids')):
+                    ort_inputs.pop("token_type_ids", None)
 
             else:
                 logger.error("Unsupported model type: %s", self.model_config['type'])
@@ -587,6 +589,8 @@ class ONNXRankerModel:
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
+        if "token_type_ids" not in self.model_config.get('inputs', ('input_ids', 'attention_mask', 'token_type_ids')):
+            ort_inputs.pop("token_type_ids", None)
         outputs = self._model.run(None, ort_inputs)
         logits = outputs[0]  # Shape: (batch_size, num_classes) or (batch_size,)
 
