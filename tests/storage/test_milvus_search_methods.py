@@ -216,6 +216,33 @@ class TestSearchMemories:
     """Tests for native search_memories with Milvus-pushed filters."""
 
     @pytest.mark.asyncio
+    async def test_agent_id_none_searches_normally(self):
+        """agent_id=None, which the MCP handler always passes, does not change the search (#1650)."""
+        storage = _make_storage(has_bm25=True)
+        storage._run_hybrid_search = AsyncMock(return_value=[
+            _make_hit(content_hash="h1", distance=0.9),
+        ])
+
+        result = await storage.search_memories(query="test query", agent_id=None)
+
+        assert "error" not in result
+        assert result["total"] == 1
+        storage._run_hybrid_search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_agent_id_filter_returns_error_without_querying(self):
+        """A non-None agent_id is reported as unsupported and Milvus is not queried (#1650)."""
+        storage = _make_storage(has_bm25=True)
+        storage._run_hybrid_search = AsyncMock()
+
+        result = await storage.search_memories(query="test query", agent_id="agent-a")
+
+        assert "agent_id filtering is not implemented" in result["error"]
+        assert result["memories"] == []
+        assert result["total"] == 0
+        storage._run_hybrid_search.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_invalid_mode_returns_error(self):
         """Invalid mode returns error dict."""
         storage = _make_storage()

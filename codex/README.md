@@ -107,6 +107,23 @@ when both exist, only the response messages are used.
 - `autoCapture: false` disables individual captures.
 - `sessionSummary: false` disables incremental summaries. Disable both for retrieval only.
 
+### Status messages
+
+Successful hooks report a one-line status through Codex's top-level
+`systemMessage`, which Codex shows as a warning in the UI or event stream:
+
+| Event | Message |
+| --- | --- |
+| `SessionStart` | `Memory: loaded 8 project memories.` |
+| `SessionStart`, retrieval failed | `Memory: retrieval failed, using 8 cached project memories.` |
+| `Stop`, `PreCompact` | `Memory: saved 2 memories and a session summary.`, `Memory: saved 2 memories.` or `Memory: saved a session summary.` |
+
+The loaded count includes only memories that fit in the context budget. A
+startup without project memories, a checkpoint with nothing new to save, a
+confirmed exact duplicate, and a failed write produce no status message.
+`SessionEnd` never reports one. Messages contain counts only, never memory
+contents, credentials or the endpoint.
+
 Summaries contain newly observed substantive outcomes, not another copy of the
 entire conversation. They use the ontology's `session` subtype. Successful writes
 are checkpointed immediately so subsequent `Stop`, compaction, and session-end
@@ -142,9 +159,10 @@ execution, not hosted cloud hook execution.
 
 1. Use `/hooks` to check that all four memory hooks are trusted.
 2. Start Codex in a project with memories tagged with its project name.
-3. Confirm that prior context is available, then make a substantive decision and
-   check the Memory Service dashboard for `codex` memories.
-4. Repeat a checkpoint without new messages and confirm no additional writes.
+3. Confirm the `Memory: loaded ...` status and that prior context is available,
+   then make a substantive decision and check for a `Memory: saved ...` status
+   and `codex` memories in the Memory Service dashboard.
+4. Repeat a checkpoint without new messages and confirm no additional writes or status.
 
 Disable the entries in `/hooks` to stop the integration. The installer does not
 automatically enable hooks disabled globally with `[features].hooks = false`.

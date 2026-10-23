@@ -322,18 +322,28 @@ class HybridHealthChecker(HealthCheckStrategy):
             # Collect SQLite statistics through the locked executor (primary storage)
             stats = await _run_locked(primary_storage, _collect_hybrid_sqlite_stats, primary_storage.conn)
 
-            # Check secondary (Cloudflare) status (non-SQLite operation, done outside closure)
+            # Check secondary (Cloudflare) status (non-SQLite operation, done outside closure).
+            # A running sync loop is not proof that Cloudflare calls succeed,
+            # so "syncing" also requires the service to report Cloudflare reachable.
             cloudflare_status = "not_configured"
+            sync_detail = {}
             if hasattr(storage, 'secondary') and storage.secondary:
                 sync_service = getattr(storage, 'sync_service', None)
                 if sync_service and getattr(sync_service, 'is_running', False):
-                    cloudflare_status = "syncing"
+                    sync_stats = getattr(sync_service, 'sync_stats', None) or {}
+                    cloudflare_available = bool(sync_stats.get('cloudflare_available', False))
+                    sync_detail = {
+                        "cloudflare_available": cloudflare_available,
+                        "consecutive_failures": getattr(sync_service, 'consecutive_failures', 0),
+                    }
+                    cloudflare_status = "syncing" if cloudflare_available else "sync_failing"
                 else:
                     cloudflare_status = "configured"
 
             # Add non-SQLite metadata to stats
             stats["database_path"] = getattr(primary_storage, 'db_path', SQLITE_VEC_PATH)
             stats["cloudflare_sync"] = cloudflare_status
+            stats.update(sync_detail)
 
             memory_count = stats["total_memories"]
             message = f"Hybrid storage validation successful ({memory_count} memories, Cloudflare: {cloudflare_status})"

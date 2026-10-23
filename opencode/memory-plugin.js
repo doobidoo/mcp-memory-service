@@ -108,6 +108,7 @@ const DEFAULT_CONFIG = {
     tags: ["msg:cluster"],
     maxItems: 10,
     checkIntervalMinutes: 5,
+    overlapMinutes: 30,
     agentId: null,
   },
 }
@@ -174,6 +175,11 @@ function environmentOverrides() {
   const inboxInterval = parseInteger(process.env.OPENCODE_MEMORY_INBOX_CHECK_INTERVAL_MINUTES)
   if (inboxInterval !== undefined) {
     overrides.inbox.checkIntervalMinutes = inboxInterval
+  }
+
+  const inboxOverlap = parseInteger(process.env.OPENCODE_MEMORY_INBOX_OVERLAP_MINUTES)
+  if (inboxOverlap !== undefined && inboxOverlap >= 0) {
+    overrides.inbox.overlapMinutes = inboxOverlap
   }
 
   const inboxAgentId = process.env.OPENCODE_MEMORY_INBOX_AGENT_ID
@@ -623,16 +629,27 @@ function inboxStateKey(config) {
 async function readInboxState(stateFile) {
   try {
     const parsed = JSON.parse(await readFile(stateFile, "utf8"))
-    return parsed && typeof parsed === "object" ? parsed : { markers: {} }
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : { markers: {}, seen: {}, windows: {}, checks: {} }
   } catch (_) {
-    return { markers: {} }
+    return { markers: {}, seen: {}, windows: {}, checks: {} }
   }
 }
 
-async function readInboxMarker(key, stateFile = INBOX_STATE_FILE) {
-  const state = await readInboxState(stateFile)
+function inboxStateFor(state, key) {
   const marker = state.markers?.[key]
-  return typeof marker === "string" && Number.isFinite(Date.parse(marker)) ? marker : null
+  const seen = state.seen?.[key]
+  const window = state.windows?.[key]
+  const checkedAt = state.checks?.[key]
+  return {
+    marker: typeof marker === "string" && Number.isFinite(Date.parse(marker)) ? marker : null,
+    seen: seen && typeof seen === "object" && !Array.isArray(seen) ? seen : {},
+    window: typeof window === "string" && Number.isFinite(Date.parse(window)) ? window : null,
+    checkedAt: typeof checkedAt === "string" && Number.isFinite(Date.parse(checkedAt))
+      ? checkedAt
+      : null,
+  }
 }
 
 async function claimStaleInboxLock(lockDirectory) {
@@ -656,7 +673,11 @@ async function claimStaleInboxLock(lockDirectory) {
   return true
 }
 
-async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
+async function readInboxStateFor(key, stateFile = INBOX_STATE_FILE) {
+  return inboxStateFor(await readInboxState(stateFile), key)
+}
+
+async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE, seen, window, lastCheck) {
   await mkdir(path.dirname(stateFile), { recursive: true })
   const lockDirectory = `${stateFile}.lock`
   const lockDeadline = Date.now() + 5000
@@ -679,18 +700,71 @@ async function writeInboxMarker(key, marker, stateFile = INBOX_STATE_FILE) {
   try {
     const state = await readInboxState(stateFile)
     // Another instance with the same inbox may have finished a later check first;
-    // a marker only ever moves forward.
+    // a marker only ever moves forward unless a clock rollback explicitly resets it.
+    const markerValue = marker && typeof marker === "object" ? marker.value : marker
+    const resetMarker = Boolean(marker && typeof marker === "object" && marker.reset === true)
     const existing = state.markers?.[key]
-    const keep = typeof existing === "string" && Date.parse(existing) > Date.parse(marker)
+    const keep = !resetMarker && typeof existing === "string" && Date.parse(existing) > Date.parse(markerValue)
       ? existing
-      : marker
+      : markerValue
     state.markers = { ...(state.markers || {}), [key]: keep }
+    if (seen !== undefined) {
+      const currentSeen = state.seen?.[key] && typeof state.seen[key] === "object"
+        ? state.seen[key]
+        : {}
+      state.seen = {
+        ...(state.seen || {}),
+        [key]: typeof seen === "function" ? seen(currentSeen) : seen,
+      }
+    }
+    if (window !== undefined) {
+      // A string only ever moves the bound forward; a clock jump backwards is
+      // the one case that resets it, and it says so explicitly.
+      const windowValue = window && typeof window === "object" ? window.value : window
+      const reset = Boolean(window && typeof window === "object" && window.reset === true)
+      const currentWindow = state.windows?.[key]
+      const keepCurrent = !reset
+        && typeof currentWindow === "string"
+        && Number.isFinite(Date.parse(currentWindow))
+        && Date.parse(currentWindow) >= Date.parse(windowValue)
+      state.windows = {
+        ...(state.windows || {}),
+        [key]: keepCurrent ? currentWindow : windowValue,
+      }
+    }
+    if (typeof lastCheck === "string") {
+      state.checks = { ...(state.checks || {}), [key]: lastCheck }
+    }
     await writeFile(temporaryFile, JSON.stringify(state, null, 2))
     await rename(temporaryFile, stateFile)
   } finally {
     await rm(temporaryFile, { force: true }).catch(() => {})
-    await rm(lockDirectory, { recursive: true, force: true })
+    await rm(lockDirectory, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+function inboxOverlapMs(config) {
+  const minutes = config.inbox?.overlapMinutes
+  if (typeof minutes === "number" && Number.isFinite(minutes) && minutes >= 0) {
+    return minutes * 60 * 1000
+  }
+  return DEFAULT_CONFIG.inbox.overlapMinutes * 60 * 1000
+}
+
+// Keep only seen entries at or after the query window's lower bound. Anything
+// older cannot be returned by this or a later check, since the bound never
+// moves backwards.
+function pruneInboxSeen(seen, cutoffMs) {
+  if (!Number.isFinite(cutoffMs)) return seen
+
+  // Null prototype: a memory id can be "__proto__" when the API omits
+  // content_hash and the content itself is used as the id.
+  const pruned = Object.create(null)
+  for (const [id, createdAt] of Object.entries(seen)) {
+    const time = Date.parse(createdAt)
+    if (Number.isFinite(time) && time >= cutoffMs) pruned[id] = createdAt
+  }
+  return pruned
 }
 
 function inboxLookbackDays(since, now) {
@@ -698,7 +772,7 @@ function inboxLookbackDays(since, now) {
   return Math.max(1, Math.ceil(elapsed / (24 * 60 * 60 * 1000)))
 }
 
-async function searchInboxMemories(config, since, now, request = requestJson) {
+async function searchInboxMemories(config, since, now, request = requestJson, isSeen = () => false) {
   const configuredMaxItems = Number(config.inbox.maxItems)
   const maxItems = Math.min(
     100,
@@ -736,6 +810,7 @@ async function searchInboxMemories(config, since, now, request = requestJson) {
     .filter((memory) => {
       const createdAt = memory.createdAt ? Date.parse(memory.createdAt) : Number.NaN
       if (!Number.isFinite(createdAt) || createdAt <= since.getTime()) return false
+      if (isSeen(memory)) return false
       if (!ownAgentTag) return true
       return !memory.tags.some((tag) => String(tag).toLowerCase() === ownAgentTag)
     })
@@ -772,7 +847,7 @@ function createInboxChecker({
   config,
   stateFile = INBOX_STATE_FILE,
   search = searchInboxMemories,
-  readMarker = readInboxMarker,
+  readState = readInboxStateFor,
   writeMarker = writeInboxMarker,
   now = () => new Date(),
 }) {
@@ -781,6 +856,8 @@ function createInboxChecker({
   // with an empty list. Persist per session in the state file if that matters.
   const deliveredBySession = new Map()
   const key = inboxStateKey(config)
+  // Backlog paging moves the in-memory cursor backwards, while the persisted
+  // marker only moves forward, so the cursor is loaded once per process.
   let markerLoaded = false
   let marker = null
 
@@ -807,14 +884,48 @@ function createInboxChecker({
 
   const check = async (sessionID) => {
     if (!config.inbox?.enabled || !sessionID) return null
+
+    // Read the state on every check, in one snapshot: another OpenCode
+    // instance may have delivered messages since this one last looked.
+    const state = await readState(key, stateFile)
     if (!markerLoaded) {
-      marker = await readMarker(key, stateFile)
+      marker = state.marker
       markerLoaded = true
     }
-
+    const {
+      seen,
+      window: savedWindow,
+      checkedAt: lastCheck,
+    } = state
+    const persistedMarker = state.marker
+    const persistedMarkerTime = persistedMarker ? Date.parse(persistedMarker) : Number.NaN
+    const lastCheckTime = lastCheck ? Date.parse(lastCheck) : Number.NaN
+    // Another instance can reset the marker on a clock rollback. The persisted
+    // value is monotonic otherwise, so a lower value means this process must
+    // drop its backlog cursor instead of pushing the shared window forward. A
+    // recorded check time distinguishes a shared reset from injected test state.
+    if (markerLoaded && Number.isFinite(lastCheckTime) && persistedMarker && marker
+      && Date.parse(persistedMarker) < Date.parse(marker)) {
+      marker = persistedMarker
+    }
     const checkedThisSession = checkedSessions.has(sessionID)
     const checkedAt = now()
-    if (checkedThisSession && !inboxCheckDue(
+    const overlapMs = inboxOverlapMs(config)
+    const savedWindowTime = savedWindow ? Date.parse(savedWindow) : Number.NaN
+    // Backlog pages move the marker into the server's created_at time domain,
+    // so a backward clock jump is detected against the last successful check
+    // time, which is always read from the client clock. A small step backwards
+    // during a deep backlog is not a jump past the window, though: the saved
+    // bound is still usable and resetting it would skip the queued pages.
+    // A persisted marker after the current time is also proof of a rollback,
+    // including for state files written before the check time was recorded.
+    const clockRolledBack = (
+      Number.isFinite(lastCheckTime)
+      && checkedAt.getTime() < lastCheckTime
+      && (!Number.isFinite(savedWindowTime)
+        || checkedAt.getTime() - overlapMs < savedWindowTime)
+    ) || (Number.isFinite(persistedMarkerTime) && persistedMarkerTime > checkedAt.getTime())
+    if (checkedThisSession && !clockRolledBack && !inboxCheckDue(
       marker,
       checkedAt,
       config.inbox.checkIntervalMinutes,
@@ -825,13 +936,38 @@ function createInboxChecker({
         : null
     }
 
-    const since = marker
-      ? new Date(marker)
-      : new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000)
-    const searchResult = await search(config, since, checkedAt)
-    const memories = Array.isArray(searchResult)
+    const since = clockRolledBack
+      ? new Date(checkedAt.getTime() - overlapMs)
+      : marker
+        ? new Date(marker)
+        : new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000)
+    // The 24h first run already covers the window, so only re-query around a marker.
+    const markerWindow = clockRolledBack
+      ? since
+      : marker
+        ? new Date(since.getTime() - overlapMs)
+        : since
+    // A backlog batch moves the marker backwards. If the query window followed
+    // it, rows whose seen entries were already pruned would be delivered again,
+    // so the lower bound is kept monotonic.
+    const querySince = !clockRolledBack
+      && Number.isFinite(savedWindowTime)
+      && savedWindowTime > markerWindow.getTime()
+      ? new Date(savedWindowTime)
+      : markerWindow
+    const searchResult = await search(
+      config,
+      querySince,
+      checkedAt,
+      undefined,
+      (memory) => Object.hasOwn(seen, memory.id),
+    )
+    const returned = Array.isArray(searchResult)
       ? searchResult
       : (searchResult?.memories || [])
+    // searchInboxMemories already drops seen rows before filling maxItems; repeat
+    // the check here so a custom search cannot re-deliver a row inside the window.
+    const memories = returned.filter((memory) => !Object.hasOwn(seen, memory.id))
     const suggestedMarker = Array.isArray(searchResult)
       ? null
       : searchResult?.nextMarker
@@ -840,7 +976,22 @@ function createInboxChecker({
       && Date.parse(suggestedMarker) <= checkedAt.getTime()
       ? suggestedMarker
       : checkedAt.toISOString()
-    await writeMarker(key, nextMarker, stateFile)
+    const deliveredEntries = Object.fromEntries(
+      memories.map((memory) => [memory.id, memory.createdAt]),
+    )
+    await writeMarker(
+      key,
+      clockRolledBack ? { value: nextMarker, reset: true } : nextMarker,
+      stateFile,
+      (currentSeen) => pruneInboxSeen(
+        { ...currentSeen, ...deliveredEntries },
+        querySince.getTime(),
+      ),
+      clockRolledBack
+        ? { value: querySince.toISOString(), reset: true }
+        : querySince.toISOString(),
+      checkedAt.toISOString(),
+    )
     marker = nextMarker
     checkedSessions.add(sessionID)
     const delivered = remember(sessionID, memories, since)
@@ -1580,7 +1731,9 @@ export const _internal = {
   applySelfSignedCertsOption,
   claimStaleInboxLock,
   createInboxChecker,
+  environmentOverrides,
   formatInboxBlock,
+  inboxOverlapMs,
   inboxStateKey,
   searchInboxMemories,
   writeInboxMarker,

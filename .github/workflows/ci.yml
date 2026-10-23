@@ -11,6 +11,14 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a PR cancels the run for the commit it replaces. Pushes to main
+# are keyed by SHA, so every merge keeps its own run: with one group per ref, a
+# third merge would drop the second one's pending run and that commit would
+# never be tested, and there is no merge queue behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -18,6 +26,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      milvus: ${{ steps.classify.outputs.milvus }}
+      docker: ${{ steps.classify.outputs.docker }}
     steps:
     # fetch-depth: 2 so the PR merge commit has its base parent: HEAD^1..HEAD is
     # exactly what the PR changes.
@@ -33,15 +43,59 @@ jobs:
     # required tests. If it cannot be read, is_docs_only is undefined, the test
     # fails, and the tests run. Pushes to main always count as code: push keeps
     # its own paths-ignore.
+    #
+    # `milvus` is false on a PR that touches nothing the Milvus suite reaches:
+    # storage/milvus*.py imports storage/base.py, shared.py, models/, utils/ and
+    # compat.py, and the tests pull in consolidation/ and reasoning/. The list is
+    # by package prefix, not by milvus* file name, so a base-class change still
+    # runs it. uv.lock is not on the list: the Milvus jobs resolve from
+    # pyproject.toml. Pushes to main always run it, which catches what a PR skipped.
     - name: Classify the changed files
       id: classify
       run: |
         eval "$(git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\(\) \{/,/^\}/')"
+        changed=$(git diff --name-only HEAD^1 HEAD)
         code=true
-        if [ "$GITHUB_EVENT_NAME" = pull_request ] && is_docs_only "$(git diff --name-only HEAD^1 HEAD)"; then
-          code=false
+        milvus=true
+        docker=true
+        if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          if is_docs_only "$changed"; then
+            code=false
+          fi
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/mcp_memory_service/(storage|models|utils|consolidation|reasoning|config)|src/mcp_memory_service/compat\.py$|tests/storage/|tests/conftest\.py$|pyproject\.toml$|\.github/workflows/ci\.yml$)'; then
+            milvus=false
+          fi
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/|tools/docker/|scripts/|run_server\.py$|\.dockerignore$|README\.md$|pyproject(-lite)?\.toml$|uv\.lock$|\.github/workflows/(ci|release)\.yml$)'; then
+            docker=false
+          fi
         fi
         echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+        echo "milvus=$milvus" | tee -a "$GITHUB_OUTPUT"
+        echo "docker=$docker" | tee -a "$GITHUB_OUTPUT"
+
+  docker-builds:
+    runs-on: ubuntu-latest
+    name: Docker Build (${{ matrix.image }})
+    timeout-minutes: 30
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docker != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: standard
+            dockerfile: tools/docker/Dockerfile
+          - image: slim
+            dockerfile: tools/docker/Dockerfile.slim
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # Build-time trust checks must pass before a release can publish either image.
+    # Raw Docker matches release.yml and needs no registry credentials or push.
+    - name: Build image and run its trust checks
+      run: |
+        docker build --pull --platform linux/amd64 \
+          --build-arg SKIP_MODEL_DOWNLOAD=true \
+          --file "${{ matrix.dockerfile }}" .
 
   version-drift-check:
     runs-on: ubuntu-latest
@@ -118,7 +172,11 @@ jobs:
     # tests/ci/test_check_tests_prove_fix.sh runs pytest inside a stub repo and
     # the script it covers passes --timeout, hence the two packages.
     - name: Install pytest for the prove-fix shell test
-      run: python3 -m pip install --quiet pytest pytest-timeout
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet pytest pytest-timeout
     - name: Run the shell test suites
       run: |
         status=0
@@ -159,10 +217,36 @@ jobs:
       with:
         fetch-depth: 0
 
+    # Dependencies go in through uv, not pip: same packages, a fraction of the
+    # install time. The runner's site-packages is not writeable (pip fell back to
+    # a user install), so uv builds a venv from the runner's python3 (3.12) and
+    # puts it first on PATH; every later `python3` is that venv. UV_PYTHON names
+    # the venv as the install target: `python3 -m uv pip install` otherwise
+    # installs into the interpreter that launched uv, even with VIRTUAL_ENV set.
+    # uv is pinned and comes from PyPI because third-party actions are not
+    # allowed here.
+    #
+    # Caches uv's downloads, one key per job (and Milvus leg) because each job
+    # installs a different set: a shared key would hand the torch jobs the small
+    # cache of whichever job saved first. Keyed on the file each job installs
+    # from: uv.lock here and in `test`, pyproject.toml in the extras jobs. Only
+    # downloads are cached; the install runs.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('uv.lock') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
+    # Installs from uv.lock, like `test`: see there.
     - name: Install dependencies
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -e ".[dev,sqlite]"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet "uv==0.13.4"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PROJECT_ENVIRONMENT="$HOME/venv"
+        python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
 
     - name: Run the changed tests against the base branch
       env:
@@ -189,10 +273,29 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    # uv venv and download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('uv.lock') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
+    # This job installs exactly what uv.lock pins (`uv sync --frozen`), so a PR
+    # that changes only the lock, such as a Dependabot bump, is tested on the
+    # versions it brings. The extras jobs below keep resolving from
+    # pyproject.toml, so a new upstream release that breaks us still shows up.
+    # --frozen installs the lock as is; whether it matches pyproject.toml is not
+    # checked here. UV_PROJECT_ENVIRONMENT is the venv on PATH; uv sync leaves
+    # no pip in it, and nothing in the suite runs pip.
     - name: Install dependencies
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install -e ".[dev,sqlite]"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet "uv==0.13.4"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PROJECT_ENVIRONMENT="$HOME/venv"
+        python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
 
     - name: Verify install
       run: |
@@ -214,6 +317,8 @@ jobs:
       # - coverage is report-only for now (no --cov-fail-under): re-introduce a gate
       #   once the baseline is known and stable.
       # - no -x: report all failures, not just the first.
+      # - -n auto (pytest-xdist): one worker per runner core. Each worker imports
+      #   tests/conftest.py and so gets its own temp test database.
       run: |
         python3 -m pytest tests/ \
           --ignore=tests/benchmarks \
@@ -222,6 +327,7 @@ jobs:
           --cov=mcp_memory_service \
           --cov-report=term-missing:skip-covered \
           --timeout=120 \
+          -n auto \
           -q
 
   ml-extras-tests:
@@ -234,6 +340,13 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    # uv venv and download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
     # The `test` job installs `.[dev,sqlite]` only, so transformers and
     # sentence-transformers are never imported there. Everything reached through
     # them — the quality ranker, the SentenceTransformer embedding path, and any
@@ -244,12 +357,19 @@ jobs:
     # database, so the #143 guard never fires. See issue #301.
     - name: Install dependencies (with ml + nli extras)
       run: |
-        python3 -m pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet "uv==0.13.4"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install --upgrade "pip>=26.2.2"
         # CPU wheels only. The default index serves the CUDA build on Linux,
         # which is an order of magnitude larger and useless on this runner —
         # tools/docker/Dockerfile pins the same index for the same reason.
-        python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-        python3 -m pip install -e ".[dev,sqlite,ml,nli]"
+        python3 -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+        python3 -m uv pip install -e ".[dev,sqlite,ml,nli]"
 
     # A silent degradation here would be worse than having no job: if the extras
     # ever stop resolving, the suite would still go green while covering exactly
@@ -283,12 +403,17 @@ jobs:
       # tests/integration stays out here: it starts HTTP servers and gains nothing
       # from the ml extras, and `test` runs it. tests/consolidation is in because
       # its DBSCAN eps tests need scikit-learn, which only this job installs.
+      # --durations=25: this is the longest job, and the slowest tests and setups
+      # are printed on every run so the next speed-up starts from the log (#1644
+      # found 0.3 s per storage setup this way, but only with a local run).
       run: |
         python3 -m pytest tests/ \
           --ignore=tests/benchmarks \
           --ignore=tests/integration \
           -m "not benchmark" \
           --timeout=120 \
+          --durations=25 \
+          -n auto \
           -q
 
   milvus-tests:
@@ -296,9 +421,10 @@ jobs:
     name: Tests with the milvus extra (${{ matrix.leg }})
     timeout-minutes: 40
     # Not a required check: a matrix job skipped through `if:` reports under its
-    # unexpanded name, so "(pinned)" would never arrive on a docs-only PR.
+    # unexpanded name, so "(pinned)" would never arrive on a docs-only PR. For
+    # the same reason it can skip on PRs that reach no Milvus code (see `changes`).
     needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' && needs.changes.outputs.milvus != 'false' }}
     # The 12 tests/storage/test_milvus*.py files run against Milvus Lite (a
     # single local file, no server), so they need no Docker at all — but they
     # importorskip pymilvus and milvus-lite, and MilvusMemoryStorage refuses to
@@ -323,15 +449,29 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    # uv venv and download cache, per job: see tests-prove-fix.
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-${{ hashFiles('pyproject.toml') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}${{ matrix.leg }}-
+
     # CPU wheels only, for the same reason as ml-extras-tests: the default index
     # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
     - name: Install dependencies (with the milvus extra)
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-        python3 -m pip install -e ".[dev,sqlite,milvus]"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet "uv==0.13.4"
+        python3 -m uv venv --seed --python python3 "$HOME/venv"
+        echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+        export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install --upgrade "pip>=26.2.2"
+        python3 -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+        python3 -m uv pip install -e ".[dev,sqlite,milvus]"
         if [ -n "${{ matrix.pymilvus }}" ]; then
-          python3 -m pip install "${{ matrix.pymilvus }}"
+          python3 -m uv pip install "${{ matrix.pymilvus }}"
         fi
 
     # Same guard as ml-extras-tests: the suite skips at collection when these

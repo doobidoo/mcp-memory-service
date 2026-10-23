@@ -47,6 +47,7 @@
     "tags": ["msg:cluster"],
     "maxItems": 10,
     "checkIntervalMinutes": 5,
+    "overlapMinutes": 30,
     "agentId": null
   }
 }

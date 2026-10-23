@@ -182,6 +182,7 @@ def test_read_tools_allowed_with_read_only_scope(read_only_client):
 # ---------------------------------------------------------------------------
 
 V10_WRITE_TOOLS = [
+    ("get_bootstrap_profile", {"agent_ids": ["scope-test"]}),
     ("memory_graph", {"action": "extract_entities", "hash": "deadbeef" * 8}),
     ("memory_store", {"content": "should not be stored", "metadata": {"tags": ["poc"]}}),
     ("memory_observe", {"content": "should not be observed", "dry_run": True}),

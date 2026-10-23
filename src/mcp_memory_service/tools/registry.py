@@ -1244,7 +1244,9 @@ Examples:
     ),
     ToolDef(
         name="get_bootstrap_profile",
-        description="""Generate a behavioral bootstrap profile for an ephemeral agent.""",
+        description="""Generate a behavioral bootstrap profile for an ephemeral agent.
+Requires write scope because it resets session counters when a fresh start is due.
+For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
         input_schema={
             "type": "object",
             "properties": {
@@ -1274,7 +1276,7 @@ Examples:
             },
             "required": ["agent_ids"],
         },
-        annotations={"readOnlyHint": True},
+        annotations={"readOnlyHint": False},
     ),
     ToolDef(
         name="get_onboarding_guide",
