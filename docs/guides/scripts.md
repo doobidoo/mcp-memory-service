@@ -23,10 +23,10 @@ This document provides an overview of the available scripts in the `scripts/` di
   ```
 
 ### Memory Management
-- `query_memories.py`: Queries the configured memory store from the command line
-  ```bash
-  python scripts/utils/query_memories.py --help
-  ```
+Query memories through the MCP tools, the dashboard at `http://127.0.0.1:8000`,
+or `GET /api/memories` on the HTTP server. `scripts/utils/query_memories.py`
+ignores its arguments and reads a hardcoded database path, so it is not a
+supported command-line interface.
 
 ## Migration Scripts
 Active migration scripts live in `scripts/migration/`; see the

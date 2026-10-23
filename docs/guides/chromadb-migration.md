@@ -35,8 +35,24 @@ Script options:
 | `--verbose` | Enable verbose logging |
 
 Keep the original ChromaDB directory until you have verified the converted
-database. The legacy checkout is only needed for this step; the rest of the
-guide runs on the current release.
+database.
+
+The legacy checkout is only needed for the conversion. Step 2 uses
+`migrate_to_cloudflare.py`, and the v7.6.0 copy of that script re-reads the
+newest 100 memories instead of paging, so a database with more than 100
+memories never fully reaches Cloudflare. Leave the legacy environment and run
+the rest of the guide from a current-release checkout:
+
+```bash
+deactivate
+cd ..
+
+git clone https://github.com/doobidoo/mcp-memory-service.git mcp-memory-service-current
+cd mcp-memory-service-current
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[sqlite]"
+```
 
 ## Step 2: Choose a Backend
 
