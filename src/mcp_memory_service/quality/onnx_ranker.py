@@ -417,7 +417,7 @@ class ONNXRankerModel:
                 return 0.5
 
             # Run inference
-            outputs = self._model.run(None, ort_inputs)
+            outputs = self._model.run(None, self._accepted_ort_inputs(ort_inputs))
             logits = outputs[0][0]  # Shape: (num_classes,)
 
             # Convert logits to score based on model type
@@ -447,6 +447,18 @@ class ONNXRankerModel:
         except Exception as e:
             logger.error("Error scoring quality with %s: %s", self.model_name, _sanitize_log_value(str(e)))
             return 0.5  # Return neutral score on error
+
+    def _accepted_ort_inputs(self, ort_inputs: dict) -> dict:
+        """Filter the feed to the inputs the loaded graph declares.
+
+        BERT-like exports differ: some graphs accept ``token_type_ids``, others
+        declare only ``input_ids``/``attention_mask`` (Xenova int8 exports do the
+        latter). Sending an undeclared input makes onnxruntime raise, the
+        single-item retry sends the same payload, and the rerank silently falls
+        back to the unreranked order -- measured on #1661 (Greptile P1).
+        """
+        accepted = {node.name for node in self._model.get_inputs()}
+        return {name: value for name, value in ort_inputs.items() if name in accepted}
 
     # Minimum batch size to use batched ONNX inference on GPU.
     # Below this threshold, sequential single-item GPU calls are faster
@@ -538,7 +550,7 @@ class ONNXRankerModel:
             attention_mask = inputs["attention_mask"].astype(np.int64)
 
         ort_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
-        outputs = self._model.run(None, ort_inputs)
+        outputs = self._model.run(None, self._accepted_ort_inputs(ort_inputs))
         logits = outputs[0]  # Shape: (batch_size, num_classes)
 
         # Vectorized softmax + weighted score
@@ -593,7 +605,7 @@ class ONNXRankerModel:
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
-        outputs = self._model.run(None, ort_inputs)
+        outputs = self._model.run(None, self._accepted_ort_inputs(ort_inputs))
         logits = outputs[0]  # Shape: (batch_size, num_classes) or (batch_size,)
 
         # Vectorized sigmoid

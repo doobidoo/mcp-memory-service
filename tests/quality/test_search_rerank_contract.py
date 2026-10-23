@@ -97,3 +97,26 @@ async def test_real_scores_still_rerank():
 
     assert result is not None
     assert [memory['content'] for memory in result] == ['b', 'c', 'a']
+
+
+def test_ort_input_filter_matches_graph_declaration():
+    """The graph, not the tokenizer, decides the feed (Greptile P1 on #1661).
+
+    A Xenova int8 export declares only input_ids/attention_mask; sending
+    token_type_ids makes onnxruntime raise and the rerank fail-open forever.
+    """
+    from mcp_memory_service.quality.onnx_ranker import ONNXRankerModel
+
+    class _Node:
+        def __init__(self, name):
+            self.name = name
+
+    class _Session:
+        def get_inputs(self):
+            return [_Node('input_ids'), _Node('attention_mask')]
+
+    instance = ONNXRankerModel.__new__(ONNXRankerModel)
+    instance._model = _Session()
+    feed = {'input_ids': 1, 'attention_mask': 2, 'token_type_ids': 3}
+
+    assert instance._accepted_ort_inputs(feed) == {'input_ids': 1, 'attention_mask': 2}
