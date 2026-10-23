@@ -1553,16 +1553,13 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
             return [types.TextContent(type="text", text=filter_error)]
 
         # Optional second-stage rerank (issue #1602): per-call opt-in, gated by
-        # MCP_RERANK_ENABLED. Runs after every narrowing stage, before gap
-        # detection, so callers see the final ordering. Off it is a
-        # passthrough -- byte-identical to today's response.
+        # MCP_RERANK_ENABLED. Runs after every narrowing stage, so callers see
+        # the final ordering. Off it is a passthrough -- byte-identical to
+        # today's response.
         from ...quality.search_rerank import apply_search_rerank
         memories, total = await apply_search_rerank(
             arguments, query, memories, total, result
         )
-
-        # Gap detection: record gaps when top score is below threshold (M3.1)
-        await _maybe_record_gap(server, arguments, query, memories)
         # Summarize only after retrieval, filters, and plugins. The helper keeps
         # raw results intact as a safe fallback when the provider is unavailable.
         summary_response, summary_warning = await _summarize_memory_search(

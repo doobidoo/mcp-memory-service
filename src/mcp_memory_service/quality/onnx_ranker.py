@@ -309,35 +309,12 @@ class ONNXRankerModel:
         if not onnx_path.exists():
             raise FileNotFoundError(f"ONNX model not found at {onnx_path}")
 
-        # Truncation length is the dominant cost driver of the rerank stage:
-        # attention is quadratic in sequence length, and the ORT arena is sized
-        # by batch x seq. Measured 22/out (bge-reranker-base int8, 40 pairs,
-        # 16 threads, machine solo): 512 tok = 125.7 ms/pair and +1.76 GB of
-        # arena that is never released; 256 tok = 45.2 ms/pair and +33 MB.
-        # The bench that justified the reranker ran at 256 (or less), so 512 was
-        # paying 2.8x for nothing. Default is the measured-together value.
-        raw = os.environ.get("MCP_RERANK_MAX_LENGTH", "")
-        try:
-            self._max_length = int(raw) if raw else 256
-        except ValueError:
-            logger.warning("MCP_RERANK_MAX_LENGTH=%r is not an integer; using 256", raw)
-            self._max_length = 256
-        if not 32 <= self._max_length <= 512:
-            logger.warning("MCP_RERANK_MAX_LENGTH=%d out of range [32,512]; using 256",
-                           self._max_length)
-            self._max_length = 256
-
-        # Effective value goes to the log: the bench reads the artifact, the
-        # operator reads the unit, and env files can override the command line.
-        logger.info("ONNX ranker truncation: max_length=%d (MCP_RERANK_MAX_LENGTH=%r)",
-                    self._max_length, raw)
-
         # Initialize ONNX session
         logger.info("Loading ONNX ranker model with providers: %s", self._preferred_providers)
         session_options = ort.SessionOptions()
-        # 0 = ORT default. The bench showed the service-path rerank stage costing
-        # 3x the direct-ONNX number (p50 6.53 s vs 2.10 s @40c); an explicit thread
-        # budget keeps the stage measurable and honors the machine's cores.
+        # 0 = ORT default (all physical cores). The knob exists so a deployment
+        # can cap the intra-op pool when the rerank stage shares the box with
+        # other CPU-bound work.
         session_options.intra_op_num_threads = int(os.environ.get("MCP_ORT_THREADS", "0") or 0)
         self._model = ort.InferenceSession(
             str(onnx_path),
@@ -351,7 +328,7 @@ class ONNXRankerModel:
             try:
                 from tokenizers import Tokenizer
                 self._tokenizer = Tokenizer.from_file(str(tokenizer_json_path))
-                self._tokenizer.enable_truncation(max_length=self._max_length)
+                self._tokenizer.enable_truncation(max_length=512)
                 self._use_fast_tokenizer = True
                 logger.info("Loaded tokenizer using tokenizers package (no transformers)")
             except ImportError:
@@ -399,7 +376,7 @@ class ONNXRankerModel:
                     attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
                 else:
                     # Use transformers AutoTokenizer
-                    inputs = self._tokenizer(text_input, padding=True, truncation=True, max_length=self._max_length, return_tensors="np")
+                    inputs = self._tokenizer(text_input, padding=True, truncation=True, max_length=512, return_tensors="np")
                     input_ids = inputs["input_ids"].astype(np.int64)
                     attention_mask = inputs["attention_mask"].astype(np.int64)
 
@@ -415,8 +392,8 @@ class ONNXRankerModel:
 
                 if self._use_fast_tokenizer:
                     # Use tokenizers package's ability to encode pairs, which correctly handles special tokens and token type IDs.
-                    self._tokenizer.enable_truncation(max_length=self._max_length)
-                    self._tokenizer.enable_padding(length=self._max_length)
+                    self._tokenizer.enable_truncation(max_length=512)
+                    self._tokenizer.enable_padding(length=512)
                     encoded = self._tokenizer.encode(query, pair=memory_content)
 
                     input_ids = np.array([encoded.ids], dtype=np.int64)
@@ -424,7 +401,7 @@ class ONNXRankerModel:
                     token_type_ids = np.array([encoded.type_ids], dtype=np.int64)
                 else:
                     # Use transformers AutoTokenizer
-                    inputs = self._tokenizer(query, memory_content, padding=True, truncation=True, max_length=self._max_length, return_tensors="np")
+                    inputs = self._tokenizer(query, memory_content, padding=True, truncation=True, max_length=512, return_tensors="np")
                     input_ids = inputs["input_ids"].astype(np.int64)
                     attention_mask = inputs["attention_mask"].astype(np.int64)
                     token_type_ids = inputs["token_type_ids"].astype(np.int64)
@@ -434,8 +411,6 @@ class ONNXRankerModel:
                     "attention_mask": attention_mask,
                     "token_type_ids": token_type_ids
                 }
-                if "token_type_ids" not in self.model_config.get('inputs', ('input_ids', 'attention_mask', 'token_type_ids')):
-                    ort_inputs.pop("token_type_ids", None)
 
             else:
                 logger.error("Unsupported model type: %s", self.model_config['type'])
@@ -557,7 +532,7 @@ class ONNXRankerModel:
                 attention_mask[i, :length] = enc.attention_mask
         else:
             inputs = self._tokenizer(
-                texts, padding=True, truncation=True, max_length=self._max_length, return_tensors="np"
+                texts, padding=True, truncation=True, max_length=512, return_tensors="np"
             )
             input_ids = inputs["input_ids"].astype(np.int64)
             attention_mask = inputs["attention_mask"].astype(np.int64)
@@ -581,7 +556,7 @@ class ONNXRankerModel:
             # Lock protects tokenizer state (no_padding/enable_padding) from
             # concurrent callers (e.g., interleaved single-item score_quality).
             with self._tokenizer_lock:
-                self._tokenizer.enable_truncation(max_length=self._max_length)
+                self._tokenizer.enable_truncation(max_length=512)
                 self._tokenizer.no_padding()
 
                 encoded_list = self._tokenizer.encode_batch(
@@ -589,7 +564,7 @@ class ONNXRankerModel:
                 )
 
                 # Re-enable padding before releasing lock
-                self._tokenizer.enable_padding(length=self._max_length)
+                self._tokenizer.enable_padding(length=512)
 
             max_len = max(len(enc.ids) for enc in encoded_list)
             batch_size = len(pairs)
@@ -607,7 +582,7 @@ class ONNXRankerModel:
             queries = [q if q else " " for q, _ in pairs]
             contents = [c if c else " " for _, c in pairs]
             inputs = self._tokenizer(
-                queries, contents, padding=True, truncation=True, max_length=self._max_length, return_tensors="np"
+                queries, contents, padding=True, truncation=True, max_length=512, return_tensors="np"
             )
             input_ids = inputs["input_ids"].astype(np.int64)
             attention_mask = inputs["attention_mask"].astype(np.int64)
@@ -618,8 +593,6 @@ class ONNXRankerModel:
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
-        if "token_type_ids" not in self.model_config.get('inputs', ('input_ids', 'attention_mask', 'token_type_ids')):
-            ort_inputs.pop("token_type_ids", None)
         outputs = self._model.run(None, ort_inputs)
         logits = outputs[0]  # Shape: (batch_size, num_classes) or (batch_size,)
 
