@@ -2729,13 +2729,22 @@ class MilvusMemoryStorage(MemoryStorage):
         include_superseded: bool = False,
         ranking_weights: Optional[Dict[str, float]] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Unified memory search with Milvus-native filtering.
 
         Pushes time and tag filters into Milvus filter expressions for
         server-side filtering instead of Python-side post-filtering.
         Supports all modes: semantic, exact, hybrid, ranked.
+
+        ``agent_id`` is accepted because the MCP search handler always passes
+        it (issue #1650). Filtering by agent is not implemented for Milvus, so
+        a non-None value returns an error result, like the other failures here.
         """
+        if agent_id is not None:
+            return {"memories": [], "total": 0, "query": query, "mode": mode,
+                    "error": "agent_id filtering is not implemented for the Milvus backend "
+                             "(sqlite-vec only in this phase). See PR #1297."}
         if not self._ensure_initialized():
             return {"memories": [], "total": 0, "query": query, "mode": mode,
                     "error": "Milvus storage not initialized"}
