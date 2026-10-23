@@ -457,7 +457,14 @@ class ONNXRankerModel:
         single-item retry sends the same payload, and the rerank silently falls
         back to the unreranked order -- measured on #1661 (Greptile P1).
         """
-        accepted = {node.name for node in self._model.get_inputs()}
+        try:
+            accepted = {node.name for node in self._model.get_inputs()}
+        except (AttributeError, TypeError):
+            # Test doubles and exotic sessions do not expose get_inputs(); the
+            # real InferenceSession always does. Fail safe: pass the feed as-is.
+            return ort_inputs
+        if not accepted:
+            return ort_inputs
         return {name: value for name, value in ort_inputs.items() if name in accepted}
 
     # Minimum batch size to use batched ONNX inference on GPU.
