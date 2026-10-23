@@ -77,6 +77,20 @@ For delete-vs-update of the same hash:
   backend only if it declares `supports_recreate_refusal`; any other `MemoryStorage` — a
   third-party backend or a test double written before this change — gets the same `store()`
   call as before.
+
+  *Hybrid, on the way to the secondary:* an explicit `True` travels with the queued
+  `SyncOperation` (`recreate` field) and is forwarded to the secondary by the background
+  sync; `None`/`False` never reach the queue as a flag (a refusal is never queued at all).
+  **`force_sync()` does not carry the restore**: it pushes bare `secondary.store(memory)` for
+  every primary row the secondary lacks, after skipping hashes the secondary holds a
+  tombstone for (Cloudflare D1 only — `_select_force_sync_memories`), and it has no per-row
+  record of whether a given live row was an explicit restore (that intent lives in the queued
+  operation, not in the primary row). So a restore whose queued store has exhausted its
+  retries (3) stays primary-only until it is stored again with `recreate=True`; force sync
+  will not resurrect it on the secondary, by design — the tombstone skip exists exactly to
+  stop a sync pass from reviving deleted rows. Carrying restore intent on the row
+  (e.g. a `recreate` entry in `sync_events`) is the follow-up that would let force sync
+  honour it; it is not part of #1560.
 - **Signal shape:** `recreate_of` references the **delete's `event_id`** — an `event_id`
   names exactly one delete, whereas `deleted_at` is wall-clock and carries the very skew
   this fix fights (Henry). It lives on the **payload**, is **optional**, and there is **NO
