@@ -78,6 +78,21 @@ class RecreateRefused(str):
         return {"event_id": self.event_id, "hlc": self.hlc, "deleted_at": self.deleted_at}
 
 
+def recreate_kwargs(storage: Any, recreate: Optional[bool]) -> Dict[str, bool]:
+    """Keyword arguments that forward ``recreate`` (#1560) to ``storage.store()``.
+
+    The flag is forwarded only when there is something to forward (``recreate`` is
+    not ``None``) **and** the backend says it can act on it
+    (``supports_recreate_refusal`` is ``True``). Every other backend — a third-party
+    ``MemoryStorage`` written before #1560, a test double with the previous
+    signature, a backend that keeps no delete record — receives exactly the call it
+    received before and is never handed a keyword it does not know.
+    """
+    if recreate is None or getattr(storage, "supports_recreate_refusal", False) is not True:
+        return {}
+    return {"recreate": recreate}
+
+
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
 
@@ -107,6 +122,13 @@ class MemoryStorage(ABC):
     @property
     def supports_capacity_monitoring(self) -> bool:
         """Backend monitors capacity limits (e.g. Cloudflare Vectorize). Default False."""
+        return False
+
+    @property
+    def supports_recreate_refusal(self) -> bool:
+        """Backend can refuse to re-create deleted content (``store(recreate=False)``,
+        #1560) because it keeps a delete record to refuse against. Default False: the
+        flag is then never forwarded to this backend (see ``recreate_kwargs``)."""
         return False
 
     @property
@@ -172,7 +194,7 @@ class MemoryStorage(ABC):
             return []
 
         results = await asyncio.gather(
-            *(self.store(memory, recreate=recreate) for memory in memories),
+            *(self.store(memory, **recreate_kwargs(self, recreate)) for memory in memories),
             return_exceptions=True
         )
 

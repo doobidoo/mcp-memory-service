@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 class StoreMixin:
+    #: sqlite-vec keeps tombstones and the sync event log: it can refuse a re-create (#1560).
+    supports_recreate_refusal = True
+
     """Mixin providing memory storage operations."""
 
     @staticmethod

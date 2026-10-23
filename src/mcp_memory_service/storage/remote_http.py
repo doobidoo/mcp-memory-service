@@ -37,6 +37,11 @@ class RemoteHTTPStorage(MemoryStorage):
         return None
 
     @property
+    def supports_recreate_refusal(self) -> bool:
+        """The remote server keeps the delete record and answers 409 (#1560)."""
+        return True
+
+    @property
     def supports_chunking(self) -> bool:
         """HTTP storage does not support chunking."""
         return False

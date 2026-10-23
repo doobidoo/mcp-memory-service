@@ -32,7 +32,7 @@ from ..config import (
     ENABLE_AUTO_SPLIT,
     MCP_QUALITY_BOOST_ENABLED
 )
-from ..storage.base import MemoryStorage, RecreateRefused
+from ..storage.base import MemoryStorage, RecreateRefused, recreate_kwargs
 from ..models.memory import Memory
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
@@ -494,6 +494,7 @@ class MemoryService:
                 )
                 stored_memories = []
                 failed_chunks = []
+                refused_chunks = []  # #1560: chunks that met a delete on record
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
@@ -511,7 +512,8 @@ class MemoryService:
                     )
 
                     success, message = await self.storage.store(
-                        memory, skip_semantic_dedup=skip_dedup, store=store, recreate=recreate
+                        memory, skip_semantic_dedup=skip_dedup, store=store,
+                        **recreate_kwargs(self.storage, recreate)
                     )
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
@@ -523,6 +525,8 @@ class MemoryService:
                                 logger.debug("Background quality scoring for chunk failed silently: %s", _sanitize_log_value(str(e)))
                     else:
                         failed_chunks.append({"index": i, "reason": message})
+                        if isinstance(message, RecreateRefused):
+                            refused_chunks.append({"index": i, **message.as_dict()})
 
                 # If NO chunks were stored, return failure
                 if not stored_memories:
@@ -547,7 +551,10 @@ class MemoryService:
                     "memories": stored_memories,
                     "total_chunks": len(chunks),
                     "original_hash": content_hash,
-                    "failed_chunks": len(failed_chunks)
+                    "failed_chunks": len(failed_chunks),
+                    # #1560: a partial write that skipped deleted chunks must say so — the
+                    # stored chunks alone would read as the whole content.
+                    "refused_chunks": refused_chunks,
                 }
             else:
                 # Store as single memory
@@ -560,7 +567,8 @@ class MemoryService:
                 )
 
                 success, message = await self.storage.store(
-                    memory, skip_semantic_dedup=skip_dedup, store=store, recreate=recreate
+                    memory, skip_semantic_dedup=skip_dedup, store=store,
+                    **recreate_kwargs(self.storage, recreate)
                 )
 
                 # #1560: a refused re-create is not a duplicate — nothing to re-examine.
@@ -579,8 +587,13 @@ class MemoryService:
                     contradicted_hash = await self._contradiction_behind_duplicate(memory, message)
                     if contradicted_hash:
                         success, message = await self.storage.store(
-                            memory, skip_semantic_dedup=True, store=store, recreate=recreate
+                            memory, skip_semantic_dedup=True, store=store,
+                            **recreate_kwargs(self.storage, recreate)
                         )
+                        # #1560: semantic dedup runs before the delete-record check, so
+                        # the refusal can surface only on this retry.
+                        if not success and isinstance(message, RecreateRefused):
+                            return _refused_recreate_failure(message)
                         if not success:
                             contradicted_hash = None
 

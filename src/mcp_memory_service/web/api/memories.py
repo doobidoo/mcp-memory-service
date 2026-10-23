@@ -253,6 +253,15 @@ async def store_memory(
                 # Chunked memory response
                 first_memory = result["memories"][0]
                 base_msg = f"Memory stored as {result['total_chunks']} chunks"
+                refused_chunks = result.get("refused_chunks") or []
+                if refused_chunks:
+                    # #1560: not the whole content — name the chunks a recorded delete
+                    # kept out, and how to bring them back.
+                    base_msg += (
+                        f"; {len(refused_chunks)} chunk(s) not stored: deleted on "
+                        f"{refused_chunks[0]['deleted_at']}, pass restore_deleted=true "
+                        f"to bring them back"
+                    )
                 return MemoryCreateResponse(
                     success=True,
                     message=base_msg + _coercion_warning(first_memory.get("memory_type")),

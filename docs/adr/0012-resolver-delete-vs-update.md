@@ -71,8 +71,12 @@ For delete-vs-update of the same hash:
   tool answers plain text (`success=false`, not an error); harvest and auto-capture count the
   refusal as `skipped`. The hybrid backend forwards the flag to its sqlite-vec primary; the
   remote-HTTP backend forwards only `True` (as `restore_deleted`) and maps the server's 409
-  back to a `RecreateRefused`; Cloudflare and Milvus keep no delete record and have nothing
-  to refuse.
+  back to a `RecreateRefused`; Cloudflare and Milvus keep no sync event log, which the
+  refusal is keyed to, so they accept the flag and have nothing to refuse (Cloudflare's D1
+  `deleted_at` soft-delete is unchanged: a normal store still clears it). The flag reaches a
+  backend only if it declares `supports_recreate_refusal`; any other `MemoryStorage` — a
+  third-party backend or a test double written before this change — gets the same `store()`
+  call as before.
 - **Signal shape:** `recreate_of` references the **delete's `event_id`** — an `event_id`
   names exactly one delete, whereas `deleted_at` is wall-clock and carries the very skew
   this fix fights (Henry). It lives on the **payload**, is **optional**, and there is **NO

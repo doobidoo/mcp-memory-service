@@ -34,7 +34,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from .base import MemoryStorage
+from .base import MemoryStorage, recreate_kwargs
 from .sqlite_vec import SqliteVecMemoryStorage
 from ..models.memory import Memory, MemoryQueryResult
 from ..compat import _sanitize_log_value
@@ -139,6 +139,9 @@ class SyncOperation:
     timestamp: float = None
     retries: int = 0
     max_retries: int = 3
+    # #1560: an explicit restore (``store(recreate=True)``) is carried to the secondary
+    # so a remote that deleted the same content restores it too instead of answering 409.
+    recreate: Optional[bool] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -1097,7 +1100,9 @@ class BackgroundSyncService:
                                 return  # Skip this memory permanently
                             raise RuntimeError(validation_error)
 
-                    success, message = await self.secondary.store(memory_to_sync)
+                    success, message = await self.secondary.store(
+                        memory_to_sync, **recreate_kwargs(self.secondary, operation.recreate)
+                    )
                     if not success:
                         raise RuntimeError(f"Store operation failed: {message}")
 
@@ -2158,6 +2163,11 @@ class HybridMemoryStorage(MemoryStorage):
             "progress_percentage": round((self.initial_sync_completed / max(self.initial_sync_total, 1)) * 100, 1) if self.initial_sync_total > 0 else 0
         }
 
+    @property
+    def supports_recreate_refusal(self) -> bool:
+        """Whatever the primary can refuse, the hybrid can (#1560)."""
+        return getattr(self.primary, "supports_recreate_refusal", False) is True
+
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
                     recreate: Optional[bool] = None) -> Tuple[bool, str]:
         """Store a memory in primary storage and queue for secondary sync.
@@ -2167,16 +2177,22 @@ class HybridMemoryStorage(MemoryStorage):
             skip_semantic_dedup: If True, bypass semantic similarity check on primary storage.
                 Exact hash deduplication is always enforced.
             recreate: Forwarded to the primary (sqlite-vec) store — see
-                ``MemoryStorage.store`` (#1560). A refusal never reaches the sync queue.
+                ``MemoryStorage.store`` (#1560). A refusal never reaches the sync queue;
+                an explicit restore (``True``) travels with the queued store so the
+                secondary restores too.
         """
         # Always store in primary first for immediate availability
         success, message = await self.primary.store(
-            memory, skip_semantic_dedup=skip_semantic_dedup, store=store, recreate=recreate
+            memory, skip_semantic_dedup=skip_semantic_dedup, store=store,
+            **recreate_kwargs(self.primary, recreate)
         )
 
         if success and self.sync_service:
             # Queue for background sync to secondary
-            operation = SyncOperation(operation='store', memory=memory)
+            operation = SyncOperation(
+                operation='store', memory=memory,
+                recreate=True if recreate is True else None,
+            )
             await self.sync_service.enqueue_operation(operation)
 
         return success, message
