@@ -179,7 +179,10 @@ async def rerank_candidates(
     if not memories:
         return None
     try:
-        instance = _resolve_scorer(config)
+        # The scorer build follows the loader path (session creation, and on a
+        # cold cache an export) -- never on the event loop. Greptile P1 on #1661:
+        # the first enabled search stalled every concurrent request otherwise.
+        instance = await asyncio.to_thread(_resolve_scorer, config)
         if instance is None:
             return None
         contents = [memory.get('content') or '' for memory in memories]
@@ -191,6 +194,17 @@ async def rerank_candidates(
                 'rerank scorer returned %r scores for %d candidates'
                 % (len(scores) if scores is not None else None, len(memories))
             )
+        # score_quality_batch() swallows per-item failures and supplies the
+        # neutral 0.5 sentinel (onnx_ranker.score_quality). A sentinel that slips
+        # through would reorder the top-k with fabricated ties and look like a
+        # successful rerank -- exactly the silent degradation fail-open exists to
+        # prevent. Not all 0.5s is suspicious: a single one cannot come from a
+        # sigmoid output in practice; any occurrence fails open.
+        degraded = sum(1 for score in scores if score == 0.5)
+        if degraded:
+            raise RuntimeError(
+                f'{degraded} of {len(scores)} scores came back as the neutral sentinel'
+            )
         ordered = sorted(zip(memories, scores), key=lambda pair: pair[1], reverse=True)
         return [memory for memory, _score in ordered]
     except Exception as error:
@@ -200,7 +214,7 @@ async def rerank_candidates(
 
 async def apply_search_rerank(
     arguments: dict,
-    query: str,
+    query: Optional[str],
     memories: List[dict],
     total: int,
     result: dict,
