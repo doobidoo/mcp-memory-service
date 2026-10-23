@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Migration script for moving data to Cloudflare backend.
-Supports migration from SQLite-vec and ChromaDB backends.
+Supports migration from the SQLite-vec backend.
 """
 
 import asyncio
@@ -93,47 +93,6 @@ class DataMigrator:
             logger.error(f"Failed to export from SQLite-vec: {_sanitize_log_value(e)}")
             raise
     
-    async def export_from_chroma(self, chroma_path: str) -> List[Dict[str, Any]]:
-        """Export data from ChromaDB backend."""
-        logger.info(f"Exporting data from ChromaDB: {_sanitize_log_value(chroma_path)}")
-        
-        try:
-            from mcp_memory_service.storage.chroma import ChromaMemoryStorage
-            
-            storage = ChromaMemoryStorage(chroma_path, preload_model=False)
-            await storage.initialize()
-            
-            # Get all memories
-            memories = []
-            stats = await storage.get_stats()
-            total_memories = stats.get('total_memories', 0)
-            
-            logger.info("Found %d memories to export", total_memories)
-            
-            # Get recent memories
-            recent_memories = await storage.get_recent_memories(total_memories)
-            
-            for memory in recent_memories:
-                memory_data = {
-                    'content': memory.content,
-                    'content_hash': memory.content_hash,
-                    'tags': memory.tags,
-                    'memory_type': memory.memory_type,
-                    'metadata': memory.metadata,
-                    'created_at': memory.created_at,
-                    'created_at_iso': memory.created_at_iso,
-                    'updated_at': memory.updated_at,
-                    'updated_at_iso': memory.updated_at_iso
-                }
-                memories.append(memory_data)
-            
-            logger.info("Successfully exported %d memories from ChromaDB", len(memories))
-            return memories
-            
-        except Exception as e:
-            logger.error(f"Failed to export from ChromaDB: {_sanitize_log_value(e)}")
-            raise
-    
     async def import_to_cloudflare(self, memories: List[Dict[str, Any]]) -> bool:
         """Import data to Cloudflare backend."""
         logger.info("Importing %d memories to Cloudflare backend", len(memories))
@@ -222,8 +181,6 @@ class DataMigrator:
         try:
             if source_backend == 'sqlite_vec':
                 memories = await self.export_from_sqlite_vec(source_path)
-            elif source_backend == 'chroma':
-                memories = await self.export_from_chroma(source_path)
             else:
                 raise ValueError(f"Unsupported source backend: {source_backend}")
             
@@ -267,8 +224,6 @@ class DataMigrator:
             # Export data
             if source_backend == 'sqlite_vec':
                 memories = await self.export_from_sqlite_vec(source_path)
-            elif source_backend == 'chroma':
-                memories = await self.export_from_chroma(source_path)
             else:
                 raise ValueError(f"Unsupported source backend: {source_backend}")
             
@@ -288,7 +243,7 @@ async def main():
     
     # Export command
     export_parser = subparsers.add_parser('export', help='Export data to JSON file')
-    export_parser.add_argument('--source', choices=['sqlite_vec', 'chroma'], required=True,
+    export_parser.add_argument('--source', choices=['sqlite_vec'], required=True,
                              help='Source backend type')
     export_parser.add_argument('--source-path', required=True,
                              help='Path to source database')
@@ -302,7 +257,7 @@ async def main():
     
     # Direct migration command
     migrate_parser = subparsers.add_parser('migrate', help='Direct migration to Cloudflare')
-    migrate_parser.add_argument('--source', choices=['sqlite_vec', 'chroma'], required=True,
+    migrate_parser.add_argument('--source', choices=['sqlite_vec'], required=True,
                               help='Source backend type')
     migrate_parser.add_argument('--source-path', required=True,
                               help='Path to source database')

@@ -119,12 +119,11 @@ src/mcp_memory_service/
 # Check for needed migrations
 python scripts/migration/verify_mcp_timestamps.py
 
-# Migrate legacy ChromaDB data (from the chromadb-legacy branch — see docs/guides/chromadb-migration.md)
-git checkout chromadb-legacy
-python scripts/migration/migrate_chroma_to_sqlite.py
+# Check the configured database
+python scripts/database/db_health_check.py
 
-# Validate existing memories
-python scripts/validation/validate_memories.py
+# Legacy ChromaDB data is converted on the v7.6.0 (chromadb-legacy-final)
+# tag before upgrading — see docs/guides/chromadb-migration.md
 ```
 
 ## Performance Considerations

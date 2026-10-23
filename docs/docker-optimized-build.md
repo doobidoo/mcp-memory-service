@@ -144,7 +144,7 @@ docker buildx build \
 
 ## Migrating Legacy ChromaDB Data
 
-If you still have data from a pre-v8.0 ChromaDB deployment, follow the dedicated migration guide: [guides/chromadb-migration.md](guides/chromadb-migration.md). The script lives on the `chromadb-legacy` branch; once exported you can start a sqlite_vec container and import from the JSON backup.
+If you still have data from a pre-v8.0 ChromaDB deployment, follow the dedicated migration guide: [guides/chromadb-migration.md](guides/chromadb-migration.md). Convert the database with the v7.6.0 release on the `chromadb-legacy-final` tag; once exported you can start a sqlite_vec container and import from the JSON backup.
 
 ## Troubleshooting
 

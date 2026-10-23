@@ -1221,7 +1221,13 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         store = None
 
     query = arguments.get("query")
-    limit = arguments.get("limit", 10)
+    # Rerank stage (issue #1602): with `rerank=true` on an enabled setup the
+    # candidate pool inflates to MCP_RERANK_CANDIDATES (default 40) so the
+    # cross-encoder has something to order; otherwise the fetch is
+    # byte-identical to today's.
+    from ...quality.search_rerank import resolve_fetch_limit
+
+    limit = resolve_fetch_limit(arguments, arguments.get("limit", 10))
     result = await storage.search_memories(
         query=query,
         mode=arguments.get("mode", "semantic"),
@@ -1562,6 +1568,14 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         if filter_error:
             return [types.TextContent(type="text", text=filter_error)]
 
+        # Optional second-stage rerank (issue #1602): per-call opt-in, gated by
+        # MCP_RERANK_ENABLED. Runs after every narrowing stage, so callers see
+        # the final ordering. Off it is a passthrough -- byte-identical to
+        # today's response.
+        from ...quality.search_rerank import apply_search_rerank
+        memories, total = await apply_search_rerank(
+            arguments, query, memories, total, result
+        )
         # Summarize only after retrieval, filters, and plugins. The helper keeps
         # raw results intact as a safe fallback when the provider is unavailable.
         summary_response, summary_warning = await _summarize_memory_search(

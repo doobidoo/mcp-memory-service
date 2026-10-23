@@ -335,16 +335,10 @@ python scripts/import_to_cloudflare.py --input cloudflare_export.json
 
 ### From Legacy ChromaDB Data
 
-ChromaDB was removed in v8.0.0. If you still have ChromaDB data, convert it to SQLite-vec on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)), then export that database to JSON on main and import it into Cloudflare:
+ChromaDB was removed in v8.0.0, and no current release ships a converter. Convert the old database to SQLite-vec with the v7.6.0 release on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)), then export that database to JSON on main and import it into Cloudflare:
 
 ```bash
-# On the chromadb-legacy-final tag: ChromaDB -> SQLite-vec
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py \
-    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
-
-# Back on main: SQLite-vec -> JSON -> Cloudflare (Cloudflare credentials set as above)
-git checkout main
+# On the current release: SQLite-vec -> JSON -> Cloudflare (Cloudflare credentials set as above)
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
 python scripts/migration/migrate_to_cloudflare.py export \
     --source sqlite_vec --source-path ~/chroma_export.db --output ~/chromadb_backup.json

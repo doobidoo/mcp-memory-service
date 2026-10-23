@@ -278,6 +278,16 @@ Examples:
                     "default": 0,
                     "description": "Quality weight for reranking (0.0-1.0)",
                 },
+                "rerank": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Opt-in second-stage ONNX rerank of the top "
+                        "MCP_RERANK_CANDIDATES results. Requires "
+                        "MCP_RERANK_ENABLED on the server; off by default and a "
+                        "no-op when the server flag is unset."
+                    ),
+                },
                 "ranking_weights": {
                     "type": "object",
                     "description": "Custom weights for ranked mode (keys: semantic, time_decay, access_frequency, quality). Values are normalized to sum=1.0.",
