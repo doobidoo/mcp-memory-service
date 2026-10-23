@@ -103,8 +103,11 @@ class BeliefService:
     SIMILARITY_THRESHOLD = 0.85
     """Derives and manages beliefs from observations."""
 
-    def __init__(self, storage):
+    def __init__(self, storage, graph=None):
         self.storage = storage
+        # Graph handle for contradiction lookups. It lives beside the memory
+        # storage, not on it, so callers that derive beliefs pass it in.
+        self.graph = graph
         # Parsed with the repo's fallback pattern: an invalid value logs an
         # error and keeps the default rather than raising out of __init__ and
         # disabling belief derivation.
@@ -360,26 +363,27 @@ class BeliefService:
         return groups
 
     async def _find_contradictions(self, observations) -> List[dict]:
-        """Find contradicting observations using existing graph edges."""
-        contradicting = []
-        if not hasattr(self.storage, "graph") or not self.storage.graph:
-            return contradicting
+        """Find observations linked to the group by a ``contradicts`` edge.
 
+        Contradiction detection stores ``contradicts`` edges; following them in
+        both directions finds the other side whichever memory came first.
+        """
+        if not self.graph:
+            return []
+
+        contradicting_hashes = []
         for obs in observations:
             content_hash = obs.content_hash if hasattr(obs, "content_hash") else obs.get("content_hash", "")
             if not content_hash:
                 continue
-            try:
-                edges = await self.storage.graph.get_edges(content_hash, "CONTRADICTED_BY")
-                for edge in edges:
-                    target_hash = edge.get("target") or edge.get("to_hash", "")
-                    if target_hash:
-                        mems = await self._get_observations_by_hashes([target_hash])
-                        contradicting.extend(mems)
-            except Exception:
-                continue
+            connected = await self.graph.find_connected(
+                content_hash, max_hops=1, relationship_type="contradicts"
+            )
+            for other_hash, _distance in connected:
+                if other_hash not in contradicting_hashes:
+                    contradicting_hashes.append(other_hash)
 
-        return contradicting
+        return await self._get_observations_by_hashes(contradicting_hashes)
 
     def _obs_to_dict(self, obs) -> dict:
         """Convert Memory object to dict for derive_confidence."""

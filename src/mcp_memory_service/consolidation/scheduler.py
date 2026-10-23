@@ -743,7 +743,10 @@ class ConsolidationScheduler:
             beliefs_enabled = os.getenv("MCP_BELIEFS_ENABLED", "false").lower() in ("true", "1", "yes")
             if beliefs_enabled and hasattr(self.consolidator, 'storage'):
                 try:
-                    belief_svc = BeliefService(self.consolidator.storage)
+                    belief_svc = BeliefService(
+                        self.consolidator.storage,
+                        graph=getattr(self.consolidator, "graph_storage", None),
+                    )
                     belief_stats = await belief_svc.derive_beliefs()
                 except Exception as be:
                     self.logger.warning("Belief derivation error (non-fatal): %s", _sanitize_log_value(be))
