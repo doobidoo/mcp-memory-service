@@ -322,19 +322,37 @@ class HealthChecker:
         return True
     
     def test_dependencies(self):
-        """Test that all dependencies are available."""
+        """Test that a supported embedding stack is available."""
         try:
             import sqlite_vec
             version = getattr(sqlite_vec, '__version__', 'unknown')
             print(f"      sqlite-vec version: {version}")
-            
-            import sentence_transformers
-            print(f"      sentence-transformers available")
-            
-            import torch
-            print(f"      torch available")
-            
-            return True
+
+            # Embeddings use ONNX by default and need both onnxruntime and
+            # tokenizers. The ML extras provide SentenceTransformers and torch
+            # instead, so a lightweight install is healthy with either stack —
+            # requiring both reported a dependency failure on a working
+            # `.[sqlite]` install.
+            try:
+                import onnxruntime
+                import tokenizers
+                print(f"      onnxruntime version: {onnxruntime.__version__}")
+                print(f"      tokenizers version: {tokenizers.__version__}")
+                return True
+            except ImportError as onnx_error:
+                print(f"      ONNX stack unavailable: {onnx_error}")
+
+            try:
+                import sentence_transformers
+                print(f"      sentence-transformers available")
+
+                import torch
+                print(f"      torch version: {torch.__version__}")
+
+                return True
+            except ImportError as ml_error:
+                print(f"      ML stack unavailable: {ml_error}")
+                return False
         except ImportError as e:
             print(f"      Dependency error: {e}")
             return False

@@ -23,24 +23,16 @@ This document provides an overview of the available scripts in the `scripts/` di
   ```
 
 ### Memory Management
-- `validate_memories.py`: Validates the integrity of stored memories
-  ```bash
-  python scripts/validate_memories.py
-  ```
-- `list-collections.py`: Lists all available memory collections
-  ```bash
-  python scripts/list-collections.py
-  ```
+Query memories through the MCP tools, the dashboard at `http://127.0.0.1:8000`,
+or `GET /api/memories` on the HTTP server. `scripts/utils/query_memories.py`
+ignores its arguments and reads a hardcoded database path, so it is not a
+supported command-line interface.
 
 ## Migration Scripts
-- `mcp-migration.py`: Handles migration of MCP-related data
-  ```bash
-  python scripts/mcp-migration.py
-  ```
-- `memory-migration.py`: Handles migration of memory data
-  ```bash
-  python scripts/memory-migration.py
-  ```
+Active migration scripts live in `scripts/migration/`; see the
+[`scripts/README.md`](../../scripts/README.md) migration section for the current
+list. Legacy ChromaDB data is converted on the `chromadb-legacy-final` (v7.6.0)
+tag, as described in [`chromadb-migration.md`](chromadb-migration.md).
 
 ## Troubleshooting Scripts
 - `verify_pytorch_windows.py`: Verifies PyTorch installation on Windows
