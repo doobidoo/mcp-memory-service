@@ -65,7 +65,7 @@ jobs:
           if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/mcp_memory_service/(storage|models|utils|consolidation|reasoning|config)|src/mcp_memory_service/compat\.py$|tests/storage/|tests/conftest\.py$|pyproject\.toml$|\.github/workflows/ci\.yml$)'; then
             milvus=false
           fi
-          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(tools/docker/|scripts/|pyproject(-lite)?\.toml$|uv\.lock$|\.github/workflows/(ci|release)\.yml$)'; then
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/|tools/docker/|scripts/|run_server\.py$|\.dockerignore$|README\.md$|pyproject(-lite)?\.toml$|uv\.lock$|\.github/workflows/(ci|release)\.yml$)'; then
             docker=false
           fi
         fi
