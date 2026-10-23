@@ -17,6 +17,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.3.1] - 2026-10-23
+
+### Fixed
+
+- **Refresh independent TLS trust stores after the eMudhra CA compromise.**
+  CI and Docker bootstrap now require pip 26.2.2 and uv 0.13.4 or newer. The lite
+  package and hand-curated Docker dependencies require certifi 2026.10.19, matching
+  the main package. Docker builds reject the affected root certificates before
+  bootstrapping pip and after installing application dependencies; CI builds both
+  standard and slim images. Existing installations must also update their package
+  managers, operating system certificates, and any custom trust bundles.
+
 ## [12.3.0] - 2026-10-23
 
 ### Added
