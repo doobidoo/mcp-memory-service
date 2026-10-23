@@ -8,12 +8,13 @@ from mcp_memory_service.web.api import configuration as config_api
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("eventlog_value", ["on", "1"])
 async def test_delta_sync_settings_are_listed_and_peer_credentials_are_masked(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, eventlog_value: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
     configured = {
-        "MCP_SYNC_EVENTLOG": "on",
+        "MCP_SYNC_EVENTLOG": eventlog_value,
         "MCP_SYNC_SCHEDULE": "15m",
         "MCP_SYNC_PEERS": "hub",
         "MCP_SYNC_PEER_URL": "https://hub.example.com:8443",
@@ -38,6 +39,10 @@ async def test_delta_sync_settings_are_listed_and_peer_credentials_are_masked(
     assert category is not None, "Delta-Sync settings category is missing"
     parameters = {parameter.key: parameter for parameter in category.parameters}
     assert set(parameters) == set(configured)
+    # The dashboard only treats the literal value "true" as a boolean. Keep
+    # this multi-spelling environment flag as a string so the UI shows its
+    # actual configured value (for example, "on") instead of "Disabled".
+    assert parameters["MCP_SYNC_EVENTLOG"].type == "string"
 
     for key in (
         "MCP_SYNC_EVENTLOG",

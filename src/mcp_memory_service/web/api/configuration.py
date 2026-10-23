@@ -304,7 +304,7 @@ ENV_CATEGORIES = {
         "name": "Delta-Sync / Sync Hub",
         "description": "Read-only settings for the delta-sync event log and self-hosted sync peers",
         "params": [
-            ("MCP_SYNC_EVENTLOG", "boolean", None, False),
+            ("MCP_SYNC_EVENTLOG", "string", None, False),
             ("MCP_SYNC_SCHEDULE", "string", None, False),
             ("MCP_SYNC_PEERS", "string", None, False),
             ("MCP_SYNC_PEER_URL", "string", None, False),
