@@ -229,7 +229,15 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         conversation_id = arguments.get("conversation_id")
         agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
-        restore_deleted = bool(arguments.get("restore_deleted", False))
+        restore_deleted = arguments.get("restore_deleted", False)
+        if not isinstance(restore_deleted, bool):
+            # `bool("false")` is True. The /mcp route hands tool arguments to this
+            # handler without validating them against the tool schema, so a
+            # restore must be asked for with a real boolean, never a string (#1560).
+            raise ValueError(
+                "restore_deleted must be a boolean (true/false), "
+                f"got {type(restore_deleted).__name__}"
+            )
 
         # Call shared MemoryService business logic
         result = await server.memory_service.store_memory(

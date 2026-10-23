@@ -63,7 +63,11 @@ def sessions_to_track(results) -> set:
         # #1560: candidates the server refused because they were deleted are handled,
         # not failed — a session made only of those must not be reselected every tick.
         # Any candidate that is neither stored nor skipped keeps the session pending.
-        return skipped > 0 and stored + skipped >= found
+        # `found` is counted AFTER the LLM rewrite, so a candidate the rewrite lost is
+        # not in it: `rewrite_dropped` (HarvestResult) is the evidence that rewriting
+        # completed for every candidate. Without it a skipped-only session stays pending.
+        return (skipped > 0 and _count(r, "rewrite_dropped") == 0
+                and stored + skipped >= found)
 
     return {
         r.session_id

@@ -34,6 +34,9 @@ class HarvestResult:
     by_type: Dict[str, int]
     stored: int = 0  # Only set when dry_run=False
     skipped: int = 0  # Candidates the server refused to re-create because they were deleted (#1560)
+    # Candidates the LLM rewrite returned nothing for (call failed, line omitted or
+    # unparseable). They are not in `candidates`/`found`; a later run can retry them (#1560).
+    rewrite_dropped: int = 0
     coverage: Optional[Dict] = None  # Coverage report aggregated across the run
 
 

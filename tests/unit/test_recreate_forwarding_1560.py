@@ -222,3 +222,82 @@ def test_session_with_a_candidate_neither_stored_nor_skipped_stays_pending():
 def test_skipped_zero_keeps_the_previous_rule():
     assert sch.sessions_to_track([_result("sess-A", 0, skipped=0, found=0)]) == set()
     assert sch.sessions_to_track([_result("sess-B", 1, skipped=0, found=4)]) == {"sess-B"}
+
+
+def test_skipped_only_session_stays_pending_while_the_rewrite_lost_a_candidate():
+    # 4 extracted, the LLM batch answered for 3 (one line omitted), the 3 refused as
+    # deleted. `found` is 3 and stored + skipped >= found holds — but the lost one was
+    # never offered to the server, so the session must be retried (Greptile on #1637).
+    lost = _result("sess-A", 0, skipped=3, found=3)
+    lost.rewrite_dropped = 1
+    assert sch.sessions_to_track([lost]) == set()
+    whole = _result("sess-B", 0, skipped=3, found=3)
+    whole.rewrite_dropped = 0
+    assert sch.sessions_to_track([whole]) == {"sess-B"}
+
+
+# --- MCP handler: restore_deleted must be a real boolean ----------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["false", "true", "0", 1, 0, None, [True]])
+async def test_mcp_handler_rejects_a_non_boolean_restore_deleted(bad):
+    # bool("false") is True: a client sending the string "false" over /mcp must not
+    # restore deleted content. The handler refuses anything that is not a bool.
+    from types import SimpleNamespace
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    service = AsyncMock()
+    server = SimpleNamespace(memory_service=service, _ensure_storage_initialized=AsyncMock())
+    with pytest.raises(ValueError, match="restore_deleted must be a boolean"):
+        await handle_store_memory(server, {"content": "x", "metadata": {}, "restore_deleted": bad})
+    service.store_memory.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", [True, False])
+async def test_mcp_handler_forwards_a_real_boolean_restore_deleted(flag):
+    from types import SimpleNamespace
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    service = AsyncMock()
+    service.store_memory.return_value = {
+        "success": True, "memory": {"content_hash": "h" * 64, "memory_type": "note"},
+    }
+    server = SimpleNamespace(memory_service=service, _ensure_storage_initialized=AsyncMock())
+    await handle_store_memory(server, {"content": "x", "metadata": {}, "restore_deleted": flag})
+    assert service.store_memory.call_args.kwargs["restore_deleted"] is flag
+
+
+# --- harvester: the rewrite's losses are counted ---------------------------------------
+
+def test_harvest_file_counts_candidates_the_rewrite_returned_nothing_for(tmp_path):
+    from mcp_memory_service.harvest.harvester import SessionHarvester
+    from mcp_memory_service.harvest.models import HarvestCandidate, HarvestConfig
+    from mcp_memory_service.harvest.rewriter import RewriteResult
+
+    harvester = SessionHarvester(project_dir=tmp_path)
+    cands = [
+        HarvestCandidate(content=f"We decided to use approach {i} for the parser",
+                         memory_type="decision", tags=[], confidence=0.9, source_line=str(i))
+        for i in range(3)
+    ]
+    harvester.extractor = MagicMock()
+    harvester.extractor.extract = MagicMock(side_effect=[cands, [], []])
+    harvester.parser = MagicMock()
+    harvester.parser.parse_file = MagicMock(return_value=[MagicMock(text="m", role="assistant")] * 3)
+    rewriter = MagicMock()
+    rewriter.is_configured = True
+    # The batch answer covers two of the three candidates (dissimilar, so consolidation
+    # keeps both); the line for the second one is missing.
+    rewriter.rewrite_batch_sync = MagicMock(return_value=[
+        RewriteResult(content="Use approach zero for the parser", memory_type="decision"),
+        None,
+        RewriteResult(content="Retry failed uploads with exponential backoff", memory_type="decision"),
+    ])
+    harvester._get_rewriter = lambda: rewriter
+
+    session = tmp_path / "s1.jsonl"
+    session.write_text("{}\n")
+    result = harvester._harvest_file(session, HarvestConfig(dry_run=True, use_llm=True))
+    assert result.found == 2
+    assert result.rewrite_dropped == 1
