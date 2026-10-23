@@ -108,6 +108,16 @@ PARAM_DESCRIPTIONS = {
     "MCP_HYBRID_FALLBACK_TO_PRIMARY": "Fallback to primary on secondary failure",
     "MCP_HYBRID_WARN_ON_SECONDARY_FAILURE": "Warn on secondary backend failures",
 
+    # Delta-Sync / Sync Hub
+    "MCP_SYNC_EVENTLOG": "Enable the delta-sync event log (on, true, or 1)",
+    "MCP_SYNC_SCHEDULE": "Opt-in delta-sync interval, for example 15m, 90s, or 6h; unset or disabled turns it off",
+    "MCP_SYNC_PEERS": "Comma-separated peer IDs to sync with; clients set this and the hub leaves it unset",
+    "MCP_SYNC_PEER_URL": "Base URL of the remote sync peer, such as the self-hosted hub",
+    "MCP_SYNC_PEER_API_KEY": "API key required by the remote sync peer; separate from this server's MCP_API_KEY",
+    "MCP_SYNC_BASIC_USER": "Basic-auth username for the remote sync peer",
+    "MCP_SYNC_BASIC_PASS": "Basic-auth password for the remote sync peer",
+    "MCP_SYNC_PUSH_ALLOWED_AGENTS": "Optional comma-separated allow-list of MCP_AGENT_ID values permitted to push events; unset accepts any agent",
+
     # Milvus Backend
     "MCP_MILVUS_URI": "Milvus endpoint: ./milvus.db (Milvus Lite), http://host:19530 (self-hosted), or https://xxx.zillizcloud.com (Zilliz Cloud)",
     "MCP_MILVUS_TOKEN": "Auth token for Zilliz Cloud or authenticated Milvus servers (leave blank for Milvus Lite)",
@@ -288,6 +298,20 @@ ENV_CATEGORIES = {
             ("MCP_HYBRID_MIN_CHECK_COUNT", "integer", None, False),
             ("MCP_HYBRID_FALLBACK_TO_PRIMARY", "boolean", None, False),
             ("MCP_HYBRID_WARN_ON_SECONDARY_FAILURE", "boolean", None, False),
+        ]
+    },
+    "delta_sync": {
+        "name": "Delta-Sync / Sync Hub",
+        "description": "Read-only settings for the delta-sync event log and self-hosted sync peers",
+        "params": [
+            ("MCP_SYNC_EVENTLOG", "string", None, False),
+            ("MCP_SYNC_SCHEDULE", "string", None, False),
+            ("MCP_SYNC_PEERS", "string", None, False),
+            ("MCP_SYNC_PEER_URL", "string", None, False),
+            ("MCP_SYNC_PEER_API_KEY", "string", None, True),
+            ("MCP_SYNC_BASIC_USER", "string", None, True),
+            ("MCP_SYNC_BASIC_PASS", "string", None, True),
+            ("MCP_SYNC_PUSH_ALLOWED_AGENTS", "string", None, False),
         ]
     },
     "milvus": {
