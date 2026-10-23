@@ -277,6 +277,8 @@ jobs:
       # - coverage is report-only for now (no --cov-fail-under): re-introduce a gate
       #   once the baseline is known and stable.
       # - no -x: report all failures, not just the first.
+      # - -n auto (pytest-xdist): one worker per runner core. Each worker imports
+      #   tests/conftest.py and so gets its own temp test database.
       run: |
         python3 -m pytest tests/ \
           --ignore=tests/benchmarks \
@@ -285,6 +287,7 @@ jobs:
           --cov=mcp_memory_service \
           --cov-report=term-missing:skip-covered \
           --timeout=120 \
+          -n auto \
           -q
 
   ml-extras-tests:
@@ -366,6 +369,7 @@ jobs:
           -m "not benchmark" \
           --timeout=120 \
           --durations=25 \
+          -n auto \
           -q
 
   milvus-tests:
