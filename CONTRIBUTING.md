@@ -94,10 +94,12 @@ Answer questions in Issues or help other users.
    ```
    This will automatically detect your platform and install appropriate dependencies.
 
-4. **Verify installation**:
+4. **Verify your development installation**:
    ```bash
-   python scripts/verify_environment.py
+   python scripts/validation/check_dev_setup.py
    ```
+   This checks that the package is installed in editable mode and that its version
+   matches the source checkout.
 
 5. **Run the service**:
    ```bash
