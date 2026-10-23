@@ -66,8 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --only-upgrade ca-certificates
-          python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-          python3 -m pip install --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+          python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
           python3 -m pip install --upgrade requests python-dateutil
 
       - name: Create cleanup script

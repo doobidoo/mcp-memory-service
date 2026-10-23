@@ -175,8 +175,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
-        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         python3 -m pip install --quiet pytest pytest-timeout
     - name: Run the shell test suites
       run: |
@@ -243,8 +242,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
-        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         python3 -m pip install --quiet "uv==0.13.4"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PROJECT_ENVIRONMENT="$HOME/venv"
@@ -293,8 +291,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
-        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         python3 -m pip install --quiet "uv==0.13.4"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PROJECT_ENVIRONMENT="$HOME/venv"
@@ -362,8 +359,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
-        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         python3 -m pip install --quiet "uv==0.13.4"
         python3 -m uv venv --seed --python python3 "$HOME/venv"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
@@ -466,8 +462,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
-        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
-        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         python3 -m pip install --quiet "uv==0.13.4"
         python3 -m uv venv --seed --python python3 "$HOME/venv"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"

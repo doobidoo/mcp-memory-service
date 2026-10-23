@@ -37,8 +37,8 @@ RUN apt-get update && \
 # Install UV
 COPY scripts/installation/install_uv.py .
 COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
-RUN python /usr/local/bin/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt && \
-    python -m pip install --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt --upgrade "pip>=26.2.2" && \
+COPY scripts/ci/bootstrap_pip.py /usr/local/bin/bootstrap_pip.py
+RUN python /usr/local/bin/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt && \
     python install_uv.py
 
 # Copy project files (needed to install the package in editable mode)
@@ -122,12 +122,12 @@ COPY --from=builder /root/.cache/mcp_memory/onnx_models /root/.cache/mcp_memory/
 # Install UV
 COPY scripts/installation/install_uv.py .
 COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
+COPY scripts/ci/bootstrap_pip.py /usr/local/bin/bootstrap_pip.py
 COPY pyproject.toml .
 COPY uv.lock .
 COPY README.md .
 
-RUN python /usr/local/bin/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt && \
-    python -m pip install --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt --upgrade "pip>=26.2.2" && \
+RUN python /usr/local/bin/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt && \
     python install_uv.py && \
     mkdir -p /app/sqlite_db /app/backups
 
