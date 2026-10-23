@@ -41,7 +41,10 @@ jobs:
     # false positives on the storage and web layers.
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python -m pip install --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
         pip install -e ".[sqlite]"
     
     # Create results directory for SARIF export

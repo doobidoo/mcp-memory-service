@@ -25,9 +25,12 @@ def main():
     print("Installing UV package manager...")
     
     try:
-        # Install UV using pip
+        # pip and uv carry their own CA bundles; updating certifi alone is insufficient.
         subprocess.check_call([
-            sys.executable, '-m', 'pip', 'install', 'uv'
+            sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip>=26.2.2'
+        ])
+        subprocess.check_call([
+            sys.executable, '-m', 'pip', 'install', '--upgrade', 'uv>=0.13.4'
         ])
         
         print("UV installed successfully!")

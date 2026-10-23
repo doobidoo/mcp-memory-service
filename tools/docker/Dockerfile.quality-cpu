@@ -30,12 +30,16 @@ WORKDIR /build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
+        ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install UV
 COPY scripts/installation/install_uv.py .
-RUN python install_uv.py
+COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
+RUN python /usr/local/bin/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt && \
+    python -m pip install --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt --upgrade "pip>=26.2.2" && \
+    python install_uv.py
 
 # Copy project files (needed to install the package in editable mode)
 COPY pyproject.toml .
@@ -46,6 +50,7 @@ COPY src/ /build/src/
 # Install build-time deps: CPU-only torch (smaller), transformers, onnx export stack
 # CPU torch wheel is ~750 MB vs ~2 GB for CUDA; sufficient for export.
 RUN python -m uv pip install \
+    "certifi>=2026.10.19" \
     "torch>=2.1.0" --extra-index-url https://download.pytorch.org/whl/cpu && \
     python -m uv pip install \
     "transformers>=5.5.0,<6.0.0" \
@@ -60,6 +65,8 @@ RUN python -m uv pip install \
     "mcp>=1.0.0,<2.0.0" && \
     python -m uv pip install -e . --no-deps && \
     rm -rf /root/.cache/uv /root/.cache/pip
+
+RUN python /usr/local/bin/verify_tls_trust.py --require-pip --system
 
 # Copy and run the export script
 COPY tools/docker/scripts/export_quality_models.py /build/export_quality_models.py
@@ -106,6 +113,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy pre-exported ONNX quality models from builder
@@ -113,11 +121,14 @@ COPY --from=builder /root/.cache/mcp_memory/onnx_models /root/.cache/mcp_memory/
 
 # Install UV
 COPY scripts/installation/install_uv.py .
+COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
 COPY pyproject.toml .
 COPY uv.lock .
 COPY README.md .
 
-RUN python install_uv.py && \
+RUN python /usr/local/bin/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt && \
+    python -m pip install --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt --upgrade "pip>=26.2.2" && \
+    python install_uv.py && \
     mkdir -p /app/sqlite_db /app/backups
 
 # Copy source code and utility scripts
@@ -147,6 +158,7 @@ RUN python -m uv pip install \
     "aiosqlite>=0.20.0" \
     "apscheduler>=3.11.0" \
     "authlib>=1.6.9" \
+    "certifi>=2026.10.19" \
     "chardet>=5.0.0" \
     "click>=8.0.0" \
     "cryptography>=46.0.6" \
@@ -163,6 +175,8 @@ RUN python -m uv pip install \
     "zeroconf>=0.130.0" \
     && python -m uv pip install -e . --no-deps \
     && rm -rf /root/.cache/uv /root/.cache/pip
+
+RUN python /usr/local/bin/verify_tls_trust.py --require-pip --system
 
 # Pre-download ONNX embedding model (all-MiniLM-L6-v2) via the project's ONNX
 # embedding module — no torch or sentence-transformers required.

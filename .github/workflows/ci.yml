@@ -27,6 +27,7 @@ jobs:
     outputs:
       code: ${{ steps.classify.outputs.code }}
       milvus: ${{ steps.classify.outputs.milvus }}
+      docker: ${{ steps.classify.outputs.docker }}
     steps:
     # fetch-depth: 2 so the PR merge commit has its base parent: HEAD^1..HEAD is
     # exactly what the PR changes.
@@ -56,6 +57,7 @@ jobs:
         changed=$(git diff --name-only HEAD^1 HEAD)
         code=true
         milvus=true
+        docker=true
         if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
           if is_docs_only "$changed"; then
             code=false
@@ -63,9 +65,37 @@ jobs:
           if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(src/mcp_memory_service/(storage|models|utils|consolidation|reasoning|config)|src/mcp_memory_service/compat\.py$|tests/storage/|tests/conftest\.py$|pyproject\.toml$|\.github/workflows/ci\.yml$)'; then
             milvus=false
           fi
+          if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qE '^(tools/docker/|scripts/|pyproject(-lite)?\.toml$|uv\.lock$|\.github/workflows/(ci|release)\.yml$)'; then
+            docker=false
+          fi
         fi
         echo "code=$code" | tee -a "$GITHUB_OUTPUT"
         echo "milvus=$milvus" | tee -a "$GITHUB_OUTPUT"
+        echo "docker=$docker" | tee -a "$GITHUB_OUTPUT"
+
+  docker-builds:
+    runs-on: ubuntu-latest
+    name: Docker Build (${{ matrix.image }})
+    timeout-minutes: 30
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docker != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: standard
+            dockerfile: tools/docker/Dockerfile
+          - image: slim
+            dockerfile: tools/docker/Dockerfile.slim
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # Build-time trust checks must pass before a release can publish either image.
+    # Raw Docker matches release.yml and needs no registry credentials or push.
+    - name: Build image and run its trust checks
+      run: |
+        docker build --pull --platform linux/amd64 \
+          --build-arg SKIP_MODEL_DOWNLOAD=true \
+          --file "${{ matrix.dockerfile }}" .
 
   version-drift-check:
     runs-on: ubuntu-latest
@@ -142,7 +172,12 @@ jobs:
     # tests/ci/test_check_tests_prove_fix.sh runs pytest inside a stub repo and
     # the script it covers passes --timeout, hence the two packages.
     - name: Install pytest for the prove-fix shell test
-      run: python3 -m pip install --quiet pytest pytest-timeout
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 -m pip install --quiet pytest pytest-timeout
     - name: Run the shell test suites
       run: |
         status=0
@@ -206,7 +241,11 @@ jobs:
     # Installs from uv.lock, like `test`: see there.
     - name: Install dependencies
       run: |
-        python3 -m pip install --quiet "uv==0.12.24"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 -m pip install --quiet "uv==0.13.4"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PROJECT_ENVIRONMENT="$HOME/venv"
         python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
@@ -252,7 +291,11 @@ jobs:
     # no pip in it, and nothing in the suite runs pip.
     - name: Install dependencies
       run: |
-        python3 -m pip install --quiet "uv==0.12.24"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 -m pip install --quiet "uv==0.13.4"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PROJECT_ENVIRONMENT="$HOME/venv"
         python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
@@ -317,10 +360,15 @@ jobs:
     # database, so the #143 guard never fires. See issue #301.
     - name: Install dependencies (with ml + nli extras)
       run: |
-        python3 -m pip install --quiet "uv==0.12.24"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 -m pip install --quiet "uv==0.13.4"
         python3 -m uv venv --seed --python python3 "$HOME/venv"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install --upgrade "pip>=26.2.2"
         # CPU wheels only. The default index serves the CUDA build on Linux,
         # which is an order of magnitude larger and useless on this runner —
         # tools/docker/Dockerfile pins the same index for the same reason.
@@ -416,10 +464,15 @@ jobs:
     # serves the CUDA build on Linux. The milvus extra pulls [ml] with it.
     - name: Install dependencies (with the milvus extra)
       run: |
-        python3 -m pip install --quiet "uv==0.12.24"
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/verify_tls_trust.py --bundle /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet --upgrade --use-deprecated=legacy-certs --cert /etc/ssl/certs/ca-certificates.crt "pip>=26.2.2"
+        python3 -m pip install --quiet "uv==0.13.4"
         python3 -m uv venv --seed --python python3 "$HOME/venv"
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PYTHON="$HOME/venv/bin/python"
+        python3 -m uv pip install --upgrade "pip>=26.2.2"
         python3 -m uv pip install torch --index-url https://download.pytorch.org/whl/cpu
         python3 -m uv pip install -e ".[dev,sqlite,milvus]"
         if [ -n "${{ matrix.pymilvus }}" ]; then
