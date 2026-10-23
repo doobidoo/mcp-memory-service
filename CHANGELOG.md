@@ -17,6 +17,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.3.1] - 2026-10-23
+
+### Fixed
+
+- **Refresh independent TLS trust stores after the eMudhra CA compromise.**
+  CI and Docker bootstrap now require pip 26.2.2 and uv 0.13.4 or newer. The lite
+  package and hand-curated Docker dependencies require certifi 2026.10.19, matching
+  the main package. Docker builds reject the affected root certificates before
+  bootstrapping pip and after installing application dependencies; CI builds both
+  standard and slim images. Existing installations must also update their package
+  managers, operating system certificates, and any custom trust bundles.
+
+## [12.3.0] - 2026-10-23
+
+### Added
+
+- Codex lifecycle hooks report memory load and save status through `systemMessage`, making successful hook activity visible in the session (#1648, dodoshell).
+
+### Fixed
+
+- **Bootstrap reads preserve agent session state (GHSA-xhjp-vf97-77wf).**
+  `get_bootstrap_profile` now requires write scope because it resets session
+  counters when a fresh start is due. Read-only clients can use
+  `memory://agent/{agent_id}/bootstrap`, which preserves the counter, timestamps,
+  sync events, and fresh-start signal. Counter lookup no longer writes access
+  metadata through semantic retrieval. Reported by @3099404236.
+- **Dashboard toggle, sliders and checkboxes still used the old blue (#1548, ozenyunus35).**
+  The checked toggle switch was hard-coded to `#2563eb`, and the range sliders and
+  checkboxes had no `accent-color`, so the browser drew them in its default blue.
+  `body` now sets `accent-color: var(--primary)`, and the remaining `#2563eb`,
+  `#3b82f6`, `#60a5fa` and `rgba(59, 130, 246, …)` values in `style.css` use the
+  brand variables or `rgba(25, 194, 218, …)`.
+- **OpenCode inbox delivery across polling boundaries (#1636, guamiao).** The inbox re-queries a configurable overlap window and drops previously delivered rows, so messages that arrive around a polling boundary are picked up without being shown twice.
+- **The hybrid health check said `syncing` while every Cloudflare call failed (#1638).**
+  It reported `cloudflare_sync: syncing` whenever the background sync loop was alive, so a
+  container with broken DNS synced nothing for 16 days without the health check noticing.
+  It now reports `sync_failing` when the sync service reports Cloudflare unreachable, and
+  exposes `cloudflare_available` and `consecutive_failures` next to the status.
+- **`memory_search` failed on every call with the Milvus backend (#1650).**
+  Since #1297 the MCP search handler passes `agent_id` to `storage.search_memories()`, `None`
+  included, and Milvus is the only backend that overrides that method — its signature stopped
+  at `store`, so each call raised `unexpected keyword argument 'agent_id'`. Milvus now accepts
+  the keyword: without an agent the search runs as before, and a non-None `agent_id` returns an
+  error result, as `get_all_memories` and `count_all_memories` already refuse it. The signature
+  conformance test now checks `agent_id` on every backend, alongside `store`.
+
+### Internal
+
+- **PR CI runs shorter (#1642).** A push to a PR now cancels the run for the commit it
+  replaces; pushes to main keep one run per commit. The two Milvus legs run only when a
+  PR reaches code the Milvus suite imports (by package prefix), and always on main.
+  Each pip-installing job restores its own download cache, keyed on `pyproject.toml`.
+- **CI installs dependencies with uv instead of pip (#1643).** The test jobs build a venv
+  with a pinned uv from the runner's python3 and put it first on PATH; installs took
+  18-77 s per job with pip. The per-job download cache now holds `~/.cache/uv`.
+- **Tests share the default ONNX InferenceSession across a run (#1644).** The autouse
+  fixture that empties the embedding model cache after every test made each storage
+  setup create a new ONNX session for all-MiniLM-L6-v2, about 0.3 s each. A
+  session-scoped fixture now hands out one session per provider list for that model
+  file only; everything else still reaches the real constructor. Locally the ML extras
+  suite went from 537 s to 216 s and the default suite from 686 s to 228 s.
+- **The ML extras job prints its 25 slowest tests and setups (#1645).** It is the
+  longest CI job; `--durations=25` puts the data for the next speed-up in every run's log.
+- **CI tests the default job against `uv.lock` (#1647).** No job read the lock, so a
+  Dependabot uv bump ran tests on exactly what main installed. Tests + Coverage and the
+  prove-fix job now install with `uv sync --frozen`; the ML extras and Milvus jobs keep
+  resolving from `pyproject.toml` to catch upstream breakage.
+- **Tests + Coverage and ML extras run in parallel with pytest-xdist (#1649).** Both
+  jobs use `-n auto`, one worker per runner core; each worker gets its own temp test
+  database from `tests/conftest.py`.
+
 ## [12.2.1] - 2026-10-21
 
 ### Fixed
