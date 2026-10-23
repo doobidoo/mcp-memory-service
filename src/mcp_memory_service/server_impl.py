@@ -2503,7 +2503,9 @@ class MemoryServer:
 
     async def _read_bootstrap_resource(self, agent_id: str) -> str:
         """Read bootstrap profile as resource content."""
-        result = await self.handle_get_bootstrap_profile({"agent_ids": [agent_id]})
+        result = await self.handle_get_bootstrap_profile(
+            {"agent_ids": [agent_id]}, reset_session_counters=False,
+        )
         if result and hasattr(result[0], 'text'):
             return result[0].text
         return ""
@@ -2554,10 +2556,10 @@ class MemoryServer:
         """Get current session count for an agent."""
         counter_key = f"__session_counter_{agent_id}"
         try:
-            existing = await self.memory_service.retrieve_memories(
-                query=counter_key,
-                n_results=3,
-                memory_type="observation",
+            # Semantic retrieval records access metadata. Resource reads must
+            # leave the counter and its timestamps untouched.
+            existing = await self.memory_service.search_by_tag(
+                tags=["session-counter"],
             )
             if existing.get("memories"):
                 for mem in existing["memories"]:
@@ -2598,8 +2600,14 @@ class MemoryServer:
             logger.warning("Session counter reset for %s failed: %s",
                            _sanitize_log_value(agent_id), _sanitize_log_value(e))
 
-    async def handle_get_bootstrap_profile(self, arguments: dict) -> List[types.TextContent]:
-        """Generate a behavioral bootstrap profile for ephemeral agents."""
+    async def handle_get_bootstrap_profile(
+        self, arguments: dict, *, reset_session_counters: bool = True,
+    ) -> List[types.TextContent]:
+        """Generate a profile; only write-scoped tool calls consume the sentinel.
+
+        Resource reads disable resets through an internal keyword, never through
+        client-controlled tool arguments.
+        """
         await self._ensure_storage_initialized()
 
         # Opt-in: disabled by default to avoid token budget issues on tight clients
@@ -2624,7 +2632,8 @@ class MemoryServer:
                 count = await self._get_session_count(agent_id)
                 if count >= fresh_start_interval:
                     fresh_start_recommended = True
-                    await self._reset_session_counter(agent_id)
+                    if reset_session_counters:
+                        await self._reset_session_counter(agent_id)
 
             # Query avoid-rule mistake notes
             all_mistakes = await self.memory_service.list_memories(
