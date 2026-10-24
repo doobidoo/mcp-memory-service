@@ -494,9 +494,10 @@ class SessionHarvester:
                 ]
                 batch_results = rewriter.rewrite_batch_sync(batch_items)
                 # A None here is a candidate the rewrite lost (failed call, line
-                # omitted or unparseable), not one it rejected: count it so the
-                # scheduler does not mark the session finished without it (#1560).
-                rewrite_dropped = sum(1 for result in batch_results if not result)
+                # omitted or unparseable); a deliberate SKIP comes back as the
+                # falsy SKIPPED sentinel. Count only the losses, so the scheduler
+                # does not mark the session finished without them (#1560).
+                rewrite_dropped = sum(1 for result in batch_results if result is None)
                 rewritten = []
                 for candidate, result in zip(filtered, batch_results):
                     if result:

@@ -243,7 +243,7 @@ async function capture(event, config, project, state, deadline, persist) {
             state.captured = [...captured];
             await persist(); // A later failure must not re-send successful captures.
             captures++;
-            if (!result.duplicate) saved++;
+            if (!result.duplicate && !result.refused) saved++;
         }
         if (!summarized.has(id) && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
             outcomes.set(id, { id, text });
@@ -260,7 +260,7 @@ async function capture(event, config, project, state, deadline, persist) {
         for (const item of batch) summarized.add(item.id);
         state.summarized = [...summarized];
         await persist();
-        summary = !result.duplicate;
+        summary = !result.duplicate && !result.refused;
     }
     return captureOutput(saved, summary);
 }

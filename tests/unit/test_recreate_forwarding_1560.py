@@ -301,3 +301,56 @@ def test_harvest_file_counts_candidates_the_rewrite_returned_nothing_for(tmp_pat
     result = harvester._harvest_file(session, HarvestConfig(dry_run=True, use_llm=True))
     assert result.found == 2
     assert result.rewrite_dropped == 1
+
+
+def _harvest_with_batch_answer(tmp_path, answer):
+    """Run _harvest_file with three candidates and a real batch parse of ``answer``."""
+    from mcp_memory_service.harvest.harvester import SessionHarvester
+    from mcp_memory_service.harvest.models import HarvestCandidate, HarvestConfig
+    from mcp_memory_service.harvest.rewriter import HarvestRewriter
+
+    harvester = SessionHarvester(project_dir=tmp_path)
+    cands = [
+        HarvestCandidate(content=f"We decided to use approach {i} for the parser",
+                         memory_type="decision", tags=[], confidence=0.9, source_line=str(i))
+        for i in range(3)
+    ]
+    harvester.extractor = MagicMock()
+    harvester.extractor.extract = MagicMock(side_effect=[cands, [], []])
+    harvester.parser = MagicMock()
+    harvester.parser.parse_file = MagicMock(return_value=[MagicMock(text="m", role="assistant")] * 3)
+    parser = HarvestRewriter.__new__(HarvestRewriter)
+    rewriter = MagicMock()
+    rewriter.is_configured = True
+    rewriter.rewrite_batch_sync = MagicMock(side_effect=lambda items: parser._parse_batch_response(answer, items))
+    harvester._get_rewriter = lambda: rewriter
+
+    session = tmp_path / "s1.jsonl"
+    session.write_text("{}\n")
+    result = harvester._harvest_file(session, HarvestConfig(dry_run=True, use_llm=True))
+    # Every candidate that reached the server was refused as deleted.
+    result.stored, result.skipped = 0, result.found
+    return result
+
+
+def test_session_with_a_skip_and_only_refusals_is_handled(tmp_path):
+    # A deliberate SKIP is a rejection, not a lost candidate: the session is finished
+    # once everything else was refused (Greptile P2 on harvester.py, #1637).
+    result = _harvest_with_batch_answer(tmp_path, (
+        "1. decision: Use approach zero for the parser\n"
+        "2. SKIP\n"
+        "3. decision: Retry failed uploads with exponential backoff"
+    ))
+    assert result.found == 2
+    assert result.rewrite_dropped == 0
+    assert sch.sessions_to_track([result]) == {result.session_id}
+
+
+def test_session_with_a_missing_line_and_only_refusals_stays_pending(tmp_path):
+    result = _harvest_with_batch_answer(tmp_path, (
+        "1. decision: Use approach zero for the parser\n"
+        "3. decision: Retry failed uploads with exponential backoff"
+    ))
+    assert result.found == 2
+    assert result.rewrite_dropped == 1
+    assert sch.sessions_to_track([result]) == set()

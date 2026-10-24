@@ -58,6 +58,10 @@ async function fixture(t) {
                 { memory: { content: 'Use transactions for writes.', tags: ['project'] } },
                 { memory: { content: 'Keep the schema in migrations.', tags: ['project'] } }
             ] }));
+        } else if (rejectStores === 'deleted') {
+            // Content deleted on the server and sent without restore_deleted (#1560).
+            res.statusCode = 409;
+            res.end('{"detail":{"message":"Not stored: this content was deleted"}}');
         } else if (rejectStores && typeof rejectStores === 'object') {
             res.end(JSON.stringify(rejectStores));
         } else if (rejectStores === true || requests.length === rejectStores) {
@@ -168,6 +172,17 @@ test('confirmed duplicates, failures and SessionEnd never report a save', async 
     f.reject(false);
     assert.equal(await runHook({ ...f.event, session_id: 'failing-session', hook_event_name: 'SessionEnd' }, f.config), null);
     assert.ok(f.requests.some(r => r.body.memory_type === 'learning'));
+});
+
+test('captures and summaries refused as deleted are checkpointed but never reported as saved', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    f.reject('deleted');
+    assert.equal(await runHook(f.event, f.config), null);
+    const sent = f.requests.length;
+    assert.ok(sent >= 2);
+    assert.equal(await runHook(f.event, f.config), null);
+    assert.equal(f.requests.length, sent);
 });
 
 test('capture and incremental summaries survive process restarts without duplicate writes', async t => {
