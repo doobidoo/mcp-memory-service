@@ -463,8 +463,11 @@ class QualityEvaluator:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
         }
+        # stream is sent explicitly: Apple's `fm serve` answers with SSE when it
+        # is absent, unlike OpenAI's default of false (#1666).
         payload = {
             "model": model,
+            "stream": False,
             "messages": [
                 {
                     "role": "system",
