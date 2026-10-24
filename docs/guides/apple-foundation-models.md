@@ -58,7 +58,12 @@ HARVEST_LLM_PROVIDERS=apple
 HARVEST_LLM_APPLE_BASE_URL=http://127.0.0.1:1976/v1
 HARVEST_LLM_APPLE_MODEL=system
 MCP_NLI_BACKEND=llm            # optional: LLM contradiction check
+MCP_SEARCH_SUMMARIZE_ENABLED=true  # optional: allow search summaries (off by default)
 ```
+
+Search summaries need both switches. `MCP_SEARCH_SUMMARIZE_ENABLED=true` permits them,
+and each `memory_search` call must also pass `summarize=true`. Without the second one,
+search returns ordinary results.
 
 You can list a second provider after `apple`, for example
 `HARVEST_LLM_PROVIDERS=apple,groq`. The chain falls through to it when the local
