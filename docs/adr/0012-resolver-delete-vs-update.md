@@ -1,9 +1,9 @@
 # ADR-0012: Resolver — delete-vs-update semantics (tombstone precedence by logical order)
 
-- **Date:** 2026-10-07 (**v2: 2026-10-16, rev 2026-10-17** — `recreate_of` 3-state signal, event-set liveness (#1564), anchor vs dtop (r4302312738))
+- **Date:** 2026-10-07 (**v2: 2026-10-16, rev 2026-10-17** — `recreate_of` 3-state signal, event-set liveness (#1564), anchor vs dtop (r4302312738); **rev 2026-10-22** — `recreate` tri-state on the producer, #1560)
 - **Status:** Accepted (v2 supersedes the v1 apply clause "the apply step honors the tombstone")
 - **Deciders:** Claudio (owner/client), Zero (agent). Arch input: seven (Gate 1). v2 sign-off: Henry (#1522, issuecomment-6204519097, 2026-10-16).
-- **Scope:** delta-sync (#1345) Phase 2 resolver + apply. Satisfies RFC §8.2 + consistency with §8.1c. **v2 covers the SYNC path only; the REST/force store path is tracked separately as #1560.**
+- **Scope:** delta-sync (#1345) Phase 2 resolver + apply. Satisfies RFC §8.2 + consistency with §8.1c. **v2 covered the SYNC path only; the external store path (REST / MCP tool / harvest / auto-capture) is covered by the `recreate` tri-state below (#1560, rev 2026-10-22).**
 
 ## Context
 
@@ -48,6 +48,49 @@ For delete-vs-update of the same hash:
   **empty sentinel** `recreate_of = ""` (EMPTY), NOT the absence of the key — only a v1 peer
   omits the key entirely (ABSENT). The three states are distinguished by PRESENCE (`in`), not
   `.get()`.
+- **Producer intent — the `recreate` tri-state (#1560, rev 2026-10-22):** stamping
+  `recreate_of` says *a re-create happened*; it cannot say *whether anyone meant it*. A stale
+  client that re-sends content the hub deleted was getting the hub's own delete stamped as
+  `recreate_of` — a deliberate revive, by construction, that the sync layer then honoured.
+  `store()` / `store_batch()` therefore take `recreate: Optional[bool] = None`:
+  - `None` (default) — today's behaviour: purge the tombstone, stamp `recreate_of`. **Every
+    direct `storage.store()` caller keeps this** and is unchanged: `consolidation/consolidator.py`,
+    `consolidation/insights.py`, `cli/ingestion.py`, `cli/main.py`, `api/operations.py`,
+    `sync/importer.py`, `server/handlers/documents.py`, `server/handlers/consolidation.py`,
+    `utils/document_processing.py`, `web/api/documents.py`, `server_impl.py`.
+  - `False` — refuse when `_recreate_of_for` finds a delete on record: no tombstone purge, no
+    create event, and the `(False, message)` message is a `RecreateRefused` (`storage/base.py`)
+    naming the delete's `event_id` and `[hlc_physical, hlc_logical, agent_id]`. The refusal is
+    keyed to `sync_events`, like the stamp itself: with the event log off there is no delete on
+    record and the write proceeds as before.
+  - `True` — purge and stamp, as `None` does, but said explicitly.
+
+  `MemoryService.store_memory()` — the one external entry point behind REST, the MCP
+  `store_memory` tool, harvest and auto-capture — passes `False` unless its caller set
+  `restore_deleted`. REST answers **409** with `{message, event_id, hlc, deleted_at}`; the MCP
+  tool answers plain text (`success=false`, not an error); harvest and auto-capture count the
+  refusal as `skipped`. The hybrid backend forwards the flag to its sqlite-vec primary; the
+  remote-HTTP backend forwards only `True` (as `restore_deleted`) and maps the server's 409
+  back to a `RecreateRefused`; Cloudflare and Milvus keep no sync event log, which the
+  refusal is keyed to, so they accept the flag and have nothing to refuse (Cloudflare's D1
+  `deleted_at` soft-delete is unchanged: a normal store still clears it). The flag reaches a
+  backend only if it declares `supports_recreate_refusal`; any other `MemoryStorage` — a
+  third-party backend or a test double written before this change — gets the same `store()`
+  call as before.
+
+  *Hybrid, on the way to the secondary:* an explicit `True` travels with the queued
+  `SyncOperation` (`recreate` field) and is forwarded to the secondary by the background
+  sync; `None`/`False` never reach the queue as a flag (a refusal is never queued at all).
+  **`force_sync()` does not carry the restore**: it pushes bare `secondary.store(memory)` for
+  every primary row the secondary lacks, after skipping hashes the secondary holds a
+  tombstone for (Cloudflare D1 only — `_select_force_sync_memories`), and it has no per-row
+  record of whether a given live row was an explicit restore (that intent lives in the queued
+  operation, not in the primary row). So a restore whose queued store has exhausted its
+  retries (3) stays primary-only until it is stored again with `recreate=True`; force sync
+  will not resurrect it on the secondary, by design — the tombstone skip exists exactly to
+  stop a sync pass from reviving deleted rows. Carrying restore intent on the row
+  (e.g. a `recreate` entry in `sync_events`) is the follow-up that would let force sync
+  honour it; it is not part of #1560.
 - **Signal shape:** `recreate_of` references the **delete's `event_id`** — an `event_id`
   names exactly one delete, whereas `deleted_at` is wall-clock and carries the very skew
   this fix fights (Henry). It lives on the **payload**, is **optional**, and there is **NO

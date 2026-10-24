@@ -32,7 +32,7 @@ from ..config import (
     ENABLE_AUTO_SPLIT,
     MCP_QUALITY_BOOST_ENABLED
 )
-from ..storage.base import MemoryStorage
+from ..storage.base import MemoryStorage, RecreateRefused, recreate_kwargs
 from ..models.memory import Memory
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
@@ -181,6 +181,22 @@ class StoreMemoryFailure(TypedDict):
     """Return type for failed memory storage."""
     success: bool
     error: str
+    # #1560: present only when the write was refused because the content has a delete
+    # on record and the caller did not pass restore_deleted. Keys: event_id, hlc
+    # ([hlc_physical, hlc_logical, agent_id]), deleted_at (ISO-8601 UTC).
+    refused_recreate: NotRequired[Dict[str, Any]]
+
+
+def _refused_recreate_failure(message: RecreateRefused) -> StoreMemoryFailure:
+    """Turn the storage layer's refusal into the entry points' answer (#1560)."""
+    return {
+        "success": False,
+        "error": (
+            f"Not stored: this content was deleted on {message.deleted_at}; "
+            f"pass restore_deleted=true to bring it back"
+        ),
+        "refused_recreate": message.as_dict(),
+    }
 
 
 # List Memories Return Types
@@ -388,6 +404,7 @@ class MemoryService:
         conversation_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         store: str = "default",
+        restore_deleted: bool = False,
     ) -> Union[StoreMemorySingleSuccess, StoreMemoryChunkedSuccess, StoreMemoryFailure]:
         """
         Store a new memory with validation and content processing.
@@ -407,10 +424,20 @@ class MemoryService:
             conversation_id: Optional conversation identifier. When supplied, semantic
                 deduplication is skipped so all turns of the same conversation
                 can be saved independently. Exact hash dedup is always preserved.
+            restore_deleted: #1560. This method is the external entry point (REST,
+                MCP tool, harvest, auto-capture), so by default it asks the storage
+                NOT to bring back content that has a delete on record
+                (``recreate=False``): a stale client re-sending what the server
+                deleted gets ``{"success": False, "error": ..., "refused_recreate":
+                {event_id, hlc, deleted_at}}`` and the tombstone stays. ``True``
+                purges the tombstone and stamps the create as a deliberate re-create
+                (ADR-0012 v2 ``recreate_of``). Direct ``storage.store()`` callers are
+                untouched: they keep ``recreate=None``, today's behaviour.
 
         Returns:
             Dictionary with operation result
         """
+        recreate = True if restore_deleted else False
         try:
             # Normalize tags from parameter (handles all formats)
             final_tags = normalize_tags(tags)
@@ -467,6 +494,7 @@ class MemoryService:
                 )
                 stored_memories = []
                 failed_chunks = []
+                refused_chunks = []  # #1560: chunks that met a delete on record
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
@@ -483,7 +511,10 @@ class MemoryService:
                         metadata=chunk_metadata
                     )
 
-                    success, message = await self.storage.store(memory, skip_semantic_dedup=skip_dedup, store=store)
+                    success, message = await self.storage.store(
+                        memory, skip_semantic_dedup=skip_dedup, store=store,
+                        **recreate_kwargs(self.storage, recreate)
+                    )
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
                         # Queue chunk for AI quality scoring if enabled
@@ -494,9 +525,17 @@ class MemoryService:
                                 logger.debug("Background quality scoring for chunk failed silently: %s", _sanitize_log_value(str(e)))
                     else:
                         failed_chunks.append({"index": i, "reason": message})
+                        if isinstance(message, RecreateRefused):
+                            refused_chunks.append({"index": i, **message.as_dict()})
 
                 # If NO chunks were stored, return failure
                 if not stored_memories:
+                    refusals = [fc["reason"] for fc in failed_chunks
+                                if isinstance(fc["reason"], RecreateRefused)]
+                    if len(refusals) == len(failed_chunks):
+                        # #1560: every chunk met a delete on record — one refusal, not
+                        # a generic failure, so REST can answer 409 for the whole write.
+                        return _refused_recreate_failure(refusals[0])
                     reasons = ", ".join(set(fc["reason"] for fc in failed_chunks))
                     return {
                         "success": False,
@@ -512,7 +551,10 @@ class MemoryService:
                     "memories": stored_memories,
                     "total_chunks": len(chunks),
                     "original_hash": content_hash,
-                    "failed_chunks": len(failed_chunks)
+                    "failed_chunks": len(failed_chunks),
+                    # #1560: a partial write that skipped deleted chunks must say so — the
+                    # stored chunks alone would read as the whole content.
+                    "refused_chunks": refused_chunks,
                 }
             else:
                 # Store as single memory
@@ -524,7 +566,14 @@ class MemoryService:
                     metadata=final_metadata
                 )
 
-                success, message = await self.storage.store(memory, skip_semantic_dedup=skip_dedup, store=store)
+                success, message = await self.storage.store(
+                    memory, skip_semantic_dedup=skip_dedup, store=store,
+                    **recreate_kwargs(self.storage, recreate)
+                )
+
+                # #1560: a refused re-create is not a duplicate — nothing to re-examine.
+                if not success and isinstance(message, RecreateRefused):
+                    return _refused_recreate_failure(message)
 
                 # Issue #1216 (1b): a value-swap ("X is A" then "X is B") is
                 # near-identical text to what it contradicts, so semantic dedup
@@ -538,8 +587,13 @@ class MemoryService:
                     contradicted_hash = await self._contradiction_behind_duplicate(memory, message)
                     if contradicted_hash:
                         success, message = await self.storage.store(
-                            memory, skip_semantic_dedup=True, store=store
+                            memory, skip_semantic_dedup=True, store=store,
+                            **recreate_kwargs(self.storage, recreate)
                         )
+                        # #1560: semantic dedup runs before the delete-record check, so
+                        # the refusal can surface only on this retry.
+                        if not success and isinstance(message, RecreateRefused):
+                            return _refused_recreate_failure(message)
                         if not success:
                             contradicted_hash = None
 

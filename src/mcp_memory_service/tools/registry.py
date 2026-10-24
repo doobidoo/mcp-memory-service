@@ -67,6 +67,10 @@ TOOL_REGISTRY: list[ToolDef] = [
                     "type": "string",
                     "description": "The memory content to store, such as a fact, note, or piece of information.",
                 },
+                "restore_deleted": {
+                    "type": "boolean",
+                    "description": "Bring back content that was deleted on this server. Default false: re-sending deleted content is refused with 'Not stored: this content was deleted on <date>; pass restore_deleted=true to bring it back'. Set true only when the user deliberately wants the deleted memory back.",
+                },
                 "conversation_id": {
                     "type": "string",
                     "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected.",

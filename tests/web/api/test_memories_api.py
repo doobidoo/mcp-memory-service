@@ -528,3 +528,34 @@ def test_by_time_search_selects_candidates_with_the_window(test_app, initialized
         "the window must be applied while selecting candidates, not after a "
         "windowless retrieve()"
     )
+
+
+def test_store_memory_refuses_deleted_content_with_409_until_restore_deleted(test_app, monkeypatch):
+    """#1560: POST /api/memories re-sending content this server deleted answers 409 — naming
+    the delete's event_id, HLC and date — instead of silently reviving it. With
+    restore_deleted=true the memory comes back as a deliberate re-create."""
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "on")
+    body = {"content": "REST re-create of deleted content (#1560)", "tags": ["t1560"]}
+
+    first = test_app.post("/api/memories", json=body)
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is True
+    content_hash = first.json()["content_hash"]
+
+    deleted = test_app.delete(f"/api/memories/{content_hash}")
+    assert deleted.status_code == 200, deleted.text
+
+    again = test_app.post("/api/memories", json=body)
+    assert again.status_code == 409, again.text
+    detail = again.json()["detail"]
+    assert detail["event_id"], "the 409 must name the delete it would have overridden"
+    assert len(detail["hlc"]) == 3
+    assert detail["deleted_at"].endswith("Z")
+    assert "restore_deleted=true" in detail["message"]
+    # Still gone: the tombstone was not purged.
+    assert test_app.get(f"/api/memories/{content_hash}").status_code == 404
+
+    restored = test_app.post("/api/memories", json={**body, "restore_deleted": True})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["success"] is True
+    assert test_app.get(f"/api/memories/{content_hash}").status_code == 200

@@ -601,8 +601,15 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"R2 bucket '{self.r2_bucket}' not found")
             raise
     
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default") -> Tuple[bool, str]:
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
         """Store a memory in Cloudflare storage.
+
+        ``recreate`` is accepted for ``MemoryStorage`` parity (#1560) and intentionally
+        unused: the refusal is keyed to the sync event log (``sync_events``), which this
+        backend does not keep. D1 does soft-delete (``deleted_at``) and a normal store
+        clears that tombstone before inserting again — that is unchanged here.
+        ``supports_recreate_refusal`` stays False, so the flag is never forwarded.
 
         Args:
             memory: The Memory object to store.

@@ -21,7 +21,7 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional, Set
 import httpx
 
-from mcp_memory_service.storage.base import MemoryStorage
+from mcp_memory_service.storage.base import MemoryStorage, RecreateRefused
 from mcp_memory_service.models.memory import Memory, MemoryQueryResult
 from mcp_memory_service.compat import _sanitize_log_value
 
@@ -35,6 +35,11 @@ class RemoteHTTPStorage(MemoryStorage):
     def max_content_length(self) -> Optional[int]:
         """No local content limit for HTTP storage."""
         return None
+
+    @property
+    def supports_recreate_refusal(self) -> bool:
+        """The remote server keeps the delete record and answers 409 (#1560)."""
+        return True
 
     @property
     def supports_chunking(self) -> bool:
@@ -201,8 +206,15 @@ class RemoteHTTPStorage(MemoryStorage):
 
     # Serviceable methods (8 methods as per Gate 1 decisions)
 
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default") -> Tuple[bool, str]:
-        """Store a memory via HTTP POST."""
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default",
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
+        """Store a memory via HTTP POST.
+
+        ``recreate`` (#1560): the remote server decides from its own delete record. The
+        REST entry point refuses by default, so only ``True`` is forwarded (as
+        ``restore_deleted``); a 409 from the server comes back as a ``RecreateRefused``
+        message carrying the delete's event_id and HLC, like the local backend's.
+        """
         try:
             payload = {
                 "content": memory.content,
@@ -211,6 +223,8 @@ class RemoteHTTPStorage(MemoryStorage):
                 "memory_type": memory.memory_type,
                 "metadata": memory.metadata or {}
             }
+            if recreate is True:
+                payload["restore_deleted"] = True
             # TODO Bug #5: POST /api/memories endpoint (MemoryCreateRequest) does not accept 
             # created_at/updated_at fields. Server always assigns current timestamp.
             # This means pulled memories lose their original timestamps on re-store.
@@ -224,6 +238,15 @@ class RemoteHTTPStorage(MemoryStorage):
                     return True, "Memory stored successfully"
                 else:
                     return False, f"Server reported failure: {result}"
+            elif response.status_code == 409:
+                # #1560: the server has a delete on record for this content.
+                detail = response.json().get("detail") or {}
+                if not isinstance(detail, dict):
+                    detail = {}
+                return False, RecreateRefused(
+                    str(detail.get("event_id") or ""), detail.get("hlc") or [],
+                    flag_name="recreate=True",
+                )
             else:
                 response.raise_for_status()
                 return False, f"Unexpected status code: {response.status_code}"

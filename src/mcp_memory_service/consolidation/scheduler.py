@@ -52,10 +52,27 @@ def sessions_to_track(results) -> set:
     HarvestResult; tracked as a separate follow-up. Re-processing an empty
     session is cheaper than losing data, so this stays conservative.
     """
+    def _count(r, name) -> int:
+        value = getattr(r, name, 0)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    def _handled(r) -> bool:
+        stored, skipped, found = _count(r, "stored"), _count(r, "skipped"), _count(r, "found")
+        if stored > 0:
+            return True
+        # #1560: candidates the server refused because they were deleted are handled,
+        # not failed — a session made only of those must not be reselected every tick.
+        # Any candidate that is neither stored nor skipped keeps the session pending.
+        # `found` is counted AFTER the LLM rewrite, so a candidate the rewrite lost is
+        # not in it: `rewrite_dropped` (HarvestResult) is the evidence that rewriting
+        # completed for every candidate. Without it a skipped-only session stays pending.
+        return (skipped > 0 and _count(r, "rewrite_dropped") == 0
+                and stored + skipped >= found)
+
     return {
         r.session_id
         for r in results
-        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
+        if getattr(r, "session_id", None) and _handled(r)
     }
 
 

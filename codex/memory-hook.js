@@ -112,6 +112,7 @@ function request(config, route, payload, deadline) {
             });
             res.on('error', reject);
             res.on('end', () => {
+                if (res.statusCode === 409) return resolve({ success: false, refused: true }); // deleted on the server (#1560): handled, do not re-send
                 if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`HTTP ${res.statusCode}`));
                 try {
                     const result = JSON.parse(data);
@@ -242,7 +243,7 @@ async function capture(event, config, project, state, deadline, persist) {
             state.captured = [...captured];
             await persist(); // A later failure must not re-send successful captures.
             captures++;
-            if (!result.duplicate) saved++;
+            if (!result.duplicate && !result.refused) saved++;
         }
         if (!summarized.has(id) && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
             outcomes.set(id, { id, text });
@@ -259,7 +260,7 @@ async function capture(event, config, project, state, deadline, persist) {
         for (const item of batch) summarized.add(item.id);
         state.summarized = [...summarized];
         await persist();
-        summary = !result.duplicate;
+        summary = !result.duplicate && !result.refused;
     }
     return captureOutput(saved, summary);
 }

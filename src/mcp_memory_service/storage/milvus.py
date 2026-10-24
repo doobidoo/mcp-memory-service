@@ -1377,7 +1377,10 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Store ---------------------------------------------------------------
 
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default") -> Tuple[bool, str]:
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
+        # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
+        # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # The Milvus backend is single-collection and does not partition by
         # store yet, so the value is intentionally not used (matches
@@ -1474,8 +1477,9 @@ class MilvusMemoryStorage(MemoryStorage):
             results[idx] = outcome
 
     async def store_batch(
-        self, memories: List[Memory], store: str = "default"
+        self, memories: List[Memory], store: str = "default", recreate: Optional[bool] = None
     ) -> List[Tuple[bool, str]]:
+        # `recreate` accepted for BaseStorage parity (#1560), unused — see store().
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # Single-collection backend — see store() for the full rationale.
         if not memories:

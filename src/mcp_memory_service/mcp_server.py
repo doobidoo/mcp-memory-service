@@ -430,7 +430,8 @@ async def store_memory(
     tags: Union[str, List[str], None] = None,
     memory_type: str = "note",
     metadata: Optional[Dict[str, Any]] = None,
-    client_hostname: Optional[str] = None
+    client_hostname: Optional[str] = None,
+    restore_deleted: bool = False
 ) -> Union[StoreMemorySuccess, StoreMemorySplitSuccess, StoreMemoryFailure]:
     """Store new information in persistent memory with semantic search capabilities and optional categorization.
 
@@ -458,6 +459,12 @@ TAG FORMATS (all supported):
 - String: "tag1,tag2"
 - Single: "single-tag"
 - Both tags parameter AND metadata.tags are merged automatically
+
+DELETED CONTENT (restore_deleted):
+- Content that was deleted on this server is NOT silently re-created: the tool answers
+  success=false with "Not stored: this content was deleted on <date>; pass
+  restore_deleted=true to bring it back". That is a refusal, not an error.
+- Pass restore_deleted=true only when the user deliberately wants the deleted memory back.
 
 RETURNS:
 - success: Boolean indicating storage status
@@ -494,7 +501,8 @@ Examples:
         tags=tags,
         memory_type=memory_type,
         metadata=metadata,
-        client_hostname=_resolve_hostname(client_hostname)
+        client_hostname=_resolve_hostname(client_hostname),
+        restore_deleted=restore_deleted,
     )
 
     # Transform MemoryService response to MCP tool format

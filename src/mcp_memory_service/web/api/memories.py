@@ -52,6 +52,7 @@ class MemoryCreateRequest(BaseModel):
     client_hostname: Optional[str] = Field(None, description="Client machine hostname for source tracking")
     conversation_id: Optional[str] = Field(None, description="Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar.")
     store: str = Field("default", description="Target store partition (default: 'default'). Use 'all' only for read scopes.")
+    restore_deleted: bool = Field(False, description="Bring back content that has a delete on record. Default false: re-sending content this server deleted is refused with status 409 (the delete's event_id, HLC and date are in the detail) instead of silently reviving it. Set true to purge the tombstone and store it again as a deliberate re-create.")
 
 
 class MemoryUpdateRequest(BaseModel):
@@ -190,6 +191,7 @@ async def store_memory(
             client_hostname=client_hostname,
             conversation_id=request.conversation_id,
             store=request.store,
+            restore_deleted=request.restore_deleted,
         )
 
         if result["success"]:
@@ -251,6 +253,15 @@ async def store_memory(
                 # Chunked memory response
                 first_memory = result["memories"][0]
                 base_msg = f"Memory stored as {result['total_chunks']} chunks"
+                refused_chunks = result.get("refused_chunks") or []
+                if refused_chunks:
+                    # #1560: not the whole content — name the chunks a recorded delete
+                    # kept out, and how to bring them back.
+                    base_msg += (
+                        f"; {len(refused_chunks)} chunk(s) not stored: deleted on "
+                        f"{refused_chunks[0]['deleted_at']}, pass restore_deleted=true "
+                        f"to bring them back"
+                    )
                 return MemoryCreateResponse(
                     success=True,
                     message=base_msg + _coercion_warning(first_memory.get("memory_type")),
@@ -258,6 +269,17 @@ async def store_memory(
                     memory=first_memory
                 )
         else:
+            refused = result.get("refused_recreate")
+            if refused:
+                # #1560: re-sending content this server deleted conflicts with the
+                # recorded delete — 409, naming the delete, until the client says
+                # restore_deleted=true. Not a 200/success=false: bundled clients
+                # would log and move on, and the memory would quietly come back
+                # on the next sync.
+                raise HTTPException(
+                    status_code=409,
+                    detail={"message": result.get("error", "Not stored"), **refused},
+                )
             return MemoryCreateResponse(
                 success=False,
                 message=result.get("error", "Failed to store memory"),
