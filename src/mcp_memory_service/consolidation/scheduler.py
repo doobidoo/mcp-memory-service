@@ -77,6 +77,34 @@ def sessions_to_track(results) -> set:
     }
 
 
+def _classify_sync_failure(
+    exc: Exception,
+    handshake_complete: bool,
+    event_failure_message: str | None = None,
+    probe: bool = False,
+) -> tuple[str, str]:
+    """Map sync exceptions to the stable status and user-facing message."""
+    if event_failure_message is not None:
+        return "error", event_failure_message
+
+    from ..storage.base import EmbeddingModelMismatchError
+    from ..storage.sync.protocol import SyncProtocolCompatibilityError
+
+    if isinstance(exc, (EmbeddingModelMismatchError, SyncProtocolCompatibilityError)):
+        return "incompatible", str(exc)
+    if handshake_complete:
+        return "error", "Sync cycle failed after capability negotiation."
+    if probe:
+        return (
+            "unavailable",
+            "Capability probe failed; check peer connectivity and credentials.",
+        )
+    return (
+        "unavailable",
+        "Capability negotiation failed; check peer connectivity and credentials.",
+    )
+
+
 class ConsolidationScheduler:
     """
     Scheduler for autonomous consolidation operations.
@@ -358,14 +386,9 @@ class ConsolidationScheduler:
                     operation_version=operation_version,
                 )
             except Exception as exc:
-                from ..storage.base import EmbeddingModelMismatchError
-                from ..storage.sync.protocol import SyncProtocolCompatibilityError
-
-                if isinstance(exc, (EmbeddingModelMismatchError, SyncProtocolCompatibilityError)):
-                    status, message = "incompatible", str(exc)
-                else:
-                    status = "unavailable"
-                    message = "Capability probe failed; check peer connectivity and credentials."
+                status, message = _classify_sync_failure(
+                    exc, handshake_complete=False, probe=True
+                )
                 self._set_sync_peer_status(
                     peer_id,
                     status,
@@ -429,77 +452,84 @@ class ConsolidationScheduler:
             return
         from ..storage.sync.orchestrator import push_to_peer, sync_from_peer
         for peer_id, peer in peers:
-            operation_version = self._begin_sync_peer_operation(peer_id)
-            handshake_complete = False
-            compatibility = None
-            event_failure_message = None
-            try:
-                await peer.initialize()
-                compatibility = await peer.check_sync_compatibility(storage)
-                handshake_complete = True
-                self._set_sync_peer_status(
-                    peer_id,
-                    "compatible",
-                    "Peer capabilities are compatible",
-                    compatibility,
-                    operation_version=operation_version,
-                )
-                pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
-                push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
-                pull_failed = getattr(pull, "events_failed", 0) or 0
-                push_failed = getattr(push, "events_failed", 0) or 0
-                if pull_failed or push_failed:
-                    event_failure_message = (
-                        "Peer sync reported failed events "
-                        f"(pull={pull_failed}, push={push_failed})."
-                    )
-                    raise RuntimeError(event_failure_message)
-                self._set_sync_peer_status(
-                    peer_id,
-                    "compatible",
-                    "Peer sync cycle completed",
-                    compatibility,
-                    last_sync_at=datetime.now(timezone.utc).isoformat(),
-                    operation_version=operation_version,
-                )
-                self.logger.info(
-                    "Delta-sync %s: pulled %s applied, pushed %s",
-                    _sanitize_log_value(peer_id),
-                    getattr(pull, "events_applied", "?"),
-                    getattr(push, "events_pushed", "?"),
-                )
-            except Exception as e:
-                self.execution_stats['failed_jobs'] += 1
-                from ..storage.base import EmbeddingModelMismatchError
-                from ..storage.sync.protocol import SyncProtocolCompatibilityError
+            await self._run_sync_peer_cycle(
+                storage, peer_id, peer, sync_from_peer, push_to_peer
+            )
 
-                if isinstance(e, (EmbeddingModelMismatchError, SyncProtocolCompatibilityError)):
-                    status, message = "incompatible", str(e)
-                elif handshake_complete:
-                    status, message = "error", "Sync cycle failed after capability negotiation."
-                else:
-                    status = "unavailable"
-                    message = "Capability negotiation failed; check peer connectivity and credentials."
-                if event_failure_message is not None:
-                    status, message = "error", event_failure_message
-                self._set_sync_peer_status(
-                    peer_id,
-                    status,
-                    message,
-                    compatibility,
-                    operation_version=operation_version,
+    async def _run_sync_peer_cycle(
+        self,
+        storage: Any,
+        peer_id: str,
+        peer: Any,
+        sync_from_peer: Any,
+        push_to_peer: Any,
+    ) -> None:
+        """Negotiate, exchange events, and record one peer's cycle result."""
+        operation_version = self._begin_sync_peer_operation(peer_id)
+        handshake_complete = False
+        compatibility = None
+        event_failure_message = None
+        try:
+            await peer.initialize()
+            compatibility = await peer.check_sync_compatibility(storage)
+            handshake_complete = True
+            self._set_sync_peer_status(
+                peer_id,
+                "compatible",
+                "Peer capabilities are compatible",
+                compatibility,
+                operation_version=operation_version,
+            )
+            pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
+            push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
+            pull_failed = getattr(pull, "events_failed", 0) or 0
+            push_failed = getattr(push, "events_failed", 0) or 0
+            if pull_failed or push_failed:
+                event_failure_message = (
+                    "Peer sync reported failed events "
+                    f"(pull={pull_failed}, push={push_failed})."
                 )
-                self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), _sanitize_log_value(e))
-            finally:
-                try:
-                    await peer.close()
-                except Exception as e:
-                    # Best-effort cleanup: a failing close() must not mask the cycle result
-                    # or abort the remaining peers. Nothing actionable to recover here.
-                    self.logger.debug(
-                        "Could not close sync peer %s after cycle: %s",
-                        _sanitize_log_value(peer_id), _sanitize_log_value(e),
-                    )
+                raise RuntimeError(event_failure_message)
+            self._set_sync_peer_status(
+                peer_id,
+                "compatible",
+                "Peer sync cycle completed",
+                compatibility,
+                last_sync_at=datetime.now(timezone.utc).isoformat(),
+                operation_version=operation_version,
+            )
+            self.logger.info(
+                "Delta-sync %s: pulled %s applied, pushed %s",
+                _sanitize_log_value(peer_id),
+                getattr(pull, "events_applied", "?"),
+                getattr(push, "events_pushed", "?"),
+            )
+        except Exception as exc:
+            self.execution_stats['failed_jobs'] += 1
+            status, message = _classify_sync_failure(
+                exc, handshake_complete, event_failure_message
+            )
+            self._set_sync_peer_status(
+                peer_id,
+                status,
+                message,
+                compatibility,
+                operation_version=operation_version,
+            )
+            self.logger.error(
+                "Delta-sync cycle failed for peer %s: %s",
+                _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+            )
+        finally:
+            try:
+                await peer.close()
+            except Exception as exc:
+                # Best-effort cleanup: a failing close() must not mask the cycle result
+                # or abort the remaining peers. Nothing actionable to recover here.
+                self.logger.debug(
+                    "Could not close sync peer %s after cycle: %s",
+                    _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                )
 
     @staticmethod
     def _parse_interval_seconds(spec: str) -> Optional[int]:

@@ -18,20 +18,34 @@ class SyncProtocolCompatibilityError(ValueError):
     """Raised when a peer cannot safely exchange delta-sync events."""
 
 
-def resolve_embedding_identity(storage: Any) -> tuple[str, int]:
-    """Return the model and dimension used by the storage's actual vector source."""
-    model_source = storage
+def _is_integer_dimension(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _resolve_embedding_dimension(model_source: Any, storage: Any) -> int:
+    """Resolve dimension metadata, retaining the legacy 384 fallback."""
+    dimension = getattr(model_source, "embedding_dimension", None)
+    if not _is_integer_dimension(dimension):
+        dimension = getattr(storage, "embedding_dimension", None)
+    if not _is_integer_dimension(dimension) or dimension <= 0:
+        return 384
+    return dimension
+
+
+def _select_embedding_model_source(storage: Any) -> Any:
+    """Use a hybrid storage's primary backend for embedding identity metadata."""
     if (
         "hybrid" in type(storage).__name__.lower()
         and getattr(storage, "primary", None) is not None
     ):
-        model_source = storage.primary
+        return storage.primary
+    return storage
 
-    dimension = getattr(model_source, "embedding_dimension", None)
-    if not isinstance(dimension, int) or isinstance(dimension, bool):
-        dimension = getattr(storage, "embedding_dimension", None)
-    if not isinstance(dimension, int) or isinstance(dimension, bool) or dimension <= 0:
-        dimension = 384
+
+def resolve_embedding_identity(storage: Any) -> tuple[str, int]:
+    """Return the model and dimension used by the storage's actual vector source."""
+    model_source = _select_embedding_model_source(storage)
+    dimension = _resolve_embedding_dimension(model_source, storage)
 
     backend_degraded = (
         getattr(model_source, "embedding_backend_degraded", False) is True
