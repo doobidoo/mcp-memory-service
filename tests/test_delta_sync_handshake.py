@@ -4,8 +4,10 @@ Exercise the real SQLite-vec storage and orchestrator. Only the remote HTTP tran
 is simulated, so these tests fail if the scheduler bypasses the compatibility check.
 """
 
+import asyncio
 import os
 import time
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -13,6 +15,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import mcp_memory_service.storage.sync.orchestrator as orchestrator
 from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
 from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -143,6 +146,82 @@ async def test_startup_probe_checks_capabilities_without_syncing(local_storage):
     assert requested == [("GET", "/api/sync/capabilities")]
     status = scheduler.get_sync_peer_status()[0]
     assert status["status"] == "compatible"
+    assert status["last_sync_at"] is None
+
+
+@pytest.mark.parametrize("pull_failed,push_failed", [(1, 0), (0, 2)])
+@pytest.mark.asyncio
+async def test_cycle_reports_event_failures_and_preserves_last_success(
+    local_storage, monkeypatch, pull_failed, push_failed
+):
+    peer, _ = await _remote_peer(_capabilities(local_storage))
+    scheduler = _scheduler(local_storage, peer)
+    previous_success = "2026-10-24T00:00:00+00:00"
+    scheduler._set_sync_peer_status(
+        "peer-test",
+        "compatible",
+        "previous successful cycle",
+        {"negotiated_sync_protocol": 1, "event_schema_version": 1, "version": "11.14.0"},
+        last_sync_at=previous_success,
+    )
+
+    async def fake_pull(*args, **kwargs):
+        return SimpleNamespace(events_applied=0, events_failed=pull_failed)
+
+    async def fake_push(*args, **kwargs):
+        return SimpleNamespace(events_pushed=0, events_failed=push_failed)
+
+    monkeypatch.setattr(orchestrator, "sync_from_peer", fake_pull)
+    monkeypatch.setattr(orchestrator, "push_to_peer", fake_push)
+
+    await scheduler._run_sync_cycle()
+
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["status"] == "error"
+    assert "failed events" in status["message"]
+    assert status["last_sync_at"] == previous_success
+
+
+@pytest.mark.asyncio
+async def test_slow_startup_probe_cannot_overwrite_newer_cycle_result(
+    local_storage, monkeypatch
+):
+    peer, _ = await _remote_peer(_capabilities(local_storage))
+    scheduler = _scheduler(local_storage, peer)
+    probe_started = asyncio.Event()
+    release_probe = asyncio.Event()
+    check_calls = 0
+
+    async def check_compatibility(storage):
+        nonlocal check_calls
+        check_calls += 1
+        if check_calls == 1:
+            probe_started.set()
+            await release_probe.wait()
+        return {
+            "negotiated_sync_protocol": 1,
+            "event_schema_version": KNOWN_SCHEMA_VERSION,
+            "version": "11.14.0",
+        }
+
+    async def fake_pull(*args, **kwargs):
+        raise RuntimeError("network down during sync cycle")
+
+    peer.check_sync_compatibility = check_compatibility
+    monkeypatch.setattr(orchestrator, "sync_from_peer", fake_pull)
+
+    probe = asyncio.create_task(scheduler._probe_sync_peers())
+    await probe_started.wait()
+    await scheduler._run_sync_cycle()
+    cycle_status = scheduler.get_sync_peer_status()[0]
+    assert cycle_status["status"] == "error"
+    assert cycle_status["message"] == "Sync cycle failed after capability negotiation."
+    release_probe.set()
+    await probe
+
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["status"] == "error"
+    assert status["message"] == cycle_status["message"]
     assert status["last_sync_at"] is None
 
 

@@ -105,6 +105,7 @@ class ConsolidationScheduler:
             'failed_jobs': 0
         }
         self._sync_peer_status: Dict[str, Dict[str, Any]] = {}
+        self._sync_peer_operation_versions: dict[str, int] = {}
         
         # Initialize scheduler if APScheduler is available
         if APSCHEDULER_AVAILABLE and enabled:
@@ -292,6 +293,12 @@ class ConsolidationScheduler:
         except Exception as e:
             self.logger.error("Error scheduling delta-sync: %s", _sanitize_log_value(e))
 
+    def _begin_sync_peer_operation(self, peer_id: str) -> int:
+        """Return a token that lets newer probe/cycle results supersede older ones."""
+        operation_version = self._sync_peer_operation_versions.get(peer_id, 0) + 1
+        self._sync_peer_operation_versions[peer_id] = operation_version
+        return operation_version
+
     def _set_sync_peer_status(
         self,
         peer_id: str,
@@ -300,8 +307,14 @@ class ConsolidationScheduler:
         compatibility: dict[str, Any] | None = None,
         *,
         last_sync_at: str | None = None,
+        operation_version: int | None = None,
     ) -> None:
         """Store the latest safe-to-expose delta-sync result for one peer."""
+        if (
+            operation_version is not None
+            and operation_version != self._sync_peer_operation_versions.get(peer_id)
+        ):
+            return
         previous = self._sync_peer_status.get(peer_id, {})
         result = {
             "peer_id": peer_id,
@@ -333,11 +346,16 @@ class ConsolidationScheduler:
             return
 
         for peer_id, peer in self._resolve_sync_peers():
+            operation_version = self._begin_sync_peer_operation(peer_id)
             try:
                 await peer.initialize()
                 compatibility = await peer.check_sync_compatibility(storage)
                 self._set_sync_peer_status(
-                    peer_id, "compatible", "Peer capabilities are compatible", compatibility
+                    peer_id,
+                    "compatible",
+                    "Peer capabilities are compatible",
+                    compatibility,
+                    operation_version=operation_version,
                 )
             except Exception as exc:
                 from ..storage.base import EmbeddingModelMismatchError
@@ -348,7 +366,12 @@ class ConsolidationScheduler:
                 else:
                     status = "unavailable"
                     message = "Capability probe failed; check peer connectivity and credentials."
-                self._set_sync_peer_status(peer_id, status, message)
+                self._set_sync_peer_status(
+                    peer_id,
+                    status,
+                    message,
+                    operation_version=operation_version,
+                )
                 self.logger.warning(
                     "Delta-sync capability probe failed for peer %s: %s",
                     _sanitize_log_value(peer_id), _sanitize_log_value(exc),
@@ -406,23 +429,38 @@ class ConsolidationScheduler:
             return
         from ..storage.sync.orchestrator import push_to_peer, sync_from_peer
         for peer_id, peer in peers:
+            operation_version = self._begin_sync_peer_operation(peer_id)
             handshake_complete = False
             compatibility = None
+            event_failure_message = None
             try:
                 await peer.initialize()
                 compatibility = await peer.check_sync_compatibility(storage)
                 handshake_complete = True
                 self._set_sync_peer_status(
-                    peer_id, "compatible", "Peer capabilities are compatible", compatibility
+                    peer_id,
+                    "compatible",
+                    "Peer capabilities are compatible",
+                    compatibility,
+                    operation_version=operation_version,
                 )
                 pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
                 push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
+                pull_failed = getattr(pull, "events_failed", 0) or 0
+                push_failed = getattr(push, "events_failed", 0) or 0
+                if pull_failed or push_failed:
+                    event_failure_message = (
+                        "Peer sync reported failed events "
+                        f"(pull={pull_failed}, push={push_failed})."
+                    )
+                    raise RuntimeError(event_failure_message)
                 self._set_sync_peer_status(
                     peer_id,
                     "compatible",
                     "Peer sync cycle completed",
                     compatibility,
                     last_sync_at=datetime.now(timezone.utc).isoformat(),
+                    operation_version=operation_version,
                 )
                 self.logger.info(
                     "Delta-sync %s: pulled %s applied, pushed %s",
@@ -442,7 +480,15 @@ class ConsolidationScheduler:
                 else:
                     status = "unavailable"
                     message = "Capability negotiation failed; check peer connectivity and credentials."
-                self._set_sync_peer_status(peer_id, status, message, compatibility)
+                if event_failure_message is not None:
+                    status, message = "error", event_failure_message
+                self._set_sync_peer_status(
+                    peer_id,
+                    status,
+                    message,
+                    compatibility,
+                    operation_version=operation_version,
+                )
                 self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), _sanitize_log_value(e))
             finally:
                 try:
