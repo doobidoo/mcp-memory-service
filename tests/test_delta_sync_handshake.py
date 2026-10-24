@@ -20,6 +20,7 @@ from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
 from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.storage.sync.apply import KNOWN_SCHEMA_VERSION
+from mcp_memory_service.storage.sync.protocol import resolve_embedding_identity
 from mcp_memory_service.web.api.health import router as health_router
 from mcp_memory_service.web.api.sync import router as sync_router
 from mcp_memory_service.web.dependencies import get_storage
@@ -44,12 +45,13 @@ async def local_storage(temp_db_path, monkeypatch):
 
 
 def _capabilities(storage, **overrides):
+    embedding_model, embedding_dimension = resolve_embedding_identity(storage)
     data = {
         "sync_protocol": 2,
         "sync_protocol_min": 1,
         "event_schema_version": KNOWN_SCHEMA_VERSION,
-        "embedding_model": storage.embedding_model_name,
-        "embedding_dimension": storage.embedding_dimension,
+        "embedding_model": embedding_model,
+        "embedding_dimension": embedding_dimension,
         "version": "11.14.0",
     }
     data.update(overrides)
@@ -278,6 +280,28 @@ async def test_embedding_model_mismatch_refuses_delta_sync(local_storage):
 
 
 @pytest.mark.asyncio
+async def test_hash_fallback_identity_does_not_match_configured_model_peer(local_storage):
+    local_storage.embedding_backend_degraded = True
+    peer, requested = await _remote_peer(
+        _capabilities(local_storage, embedding_model=local_storage.embedding_model_name)
+    )
+    scheduler = _scheduler(local_storage, peer)
+
+    await scheduler._run_sync_cycle()
+
+    assert resolve_embedding_identity(local_storage) == (
+        f"__hash_fallback__::{local_storage.embedding_dimension}",
+        local_storage.embedding_dimension,
+    )
+    assert not any(
+        path in {"/api/sync/baseline", "/api/sync/events"} for _, path in requested
+    )
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["status"] == "incompatible"
+    assert "embedding model mismatch" in status["message"].lower()
+
+
+@pytest.mark.asyncio
 async def test_embedding_dimension_mismatch_refuses_delta_sync(local_storage):
     peer, requested = await _remote_peer(
         _capabilities(
@@ -343,10 +367,13 @@ async def test_capabilities_endpoint_and_sync_status_expose_versions_and_peer_re
 
     assert response.status_code == 200
     data = response.json()
+    expected_embedding_model, expected_embedding_dimension = resolve_embedding_identity(
+        local_storage
+    )
     assert data["sync_protocol"] == data["sync_protocol_min"] == 1
     assert data["event_schema_version"] == KNOWN_SCHEMA_VERSION
-    assert data["embedding_model"] == local_storage.embedding_model_name
-    assert data["embedding_dimension"] == local_storage.embedding_dimension
+    assert data["embedding_model"] == expected_embedding_model
+    assert data["embedding_dimension"] == expected_embedding_dimension
     assert data["version"]
     assert status_response.status_code == 200
     status = status_response.json()

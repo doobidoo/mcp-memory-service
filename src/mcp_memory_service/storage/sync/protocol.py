@@ -27,15 +27,24 @@ def resolve_embedding_identity(storage: Any) -> tuple[str, int]:
     ):
         model_source = storage.primary
 
-    model = getattr(model_source, "embedding_model_name", None) or EMBEDDING_MODEL_NAME
-    if not isinstance(model, str) or not model:
-        raise SyncProtocolCompatibilityError("Local embedding model is unavailable")
-
     dimension = getattr(model_source, "embedding_dimension", None)
     if not isinstance(dimension, int) or isinstance(dimension, bool):
         dimension = getattr(storage, "embedding_dimension", None)
     if not isinstance(dimension, int) or isinstance(dimension, bool) or dimension <= 0:
         dimension = 384
+
+    backend_degraded = (
+        getattr(model_source, "embedding_backend_degraded", False) is True
+        or getattr(storage, "embedding_backend_degraded", False) is True
+    )
+    if backend_degraded:
+        # Match the event provenance written by the storage mixin; hash vectors
+        # must never advertise the configured semantic model's identity.
+        return f"__hash_fallback__::{dimension}", dimension
+
+    model = getattr(model_source, "embedding_model_name", None) or EMBEDDING_MODEL_NAME
+    if not isinstance(model, str) or not model:
+        raise SyncProtocolCompatibilityError("Local embedding model is unavailable")
     return model, dimension
 
 
