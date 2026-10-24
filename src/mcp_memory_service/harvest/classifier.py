@@ -240,7 +240,9 @@ class HarvestClassifier:
             resp = client.post(
                 f"{base_url}/chat/completions",
                 headers=headers,
-                json={"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+                # stream is explicit: fm serve streams SSE when it is absent (#1666)
+                json={"model": model, "stream": False, "messages": messages,
+                      "temperature": temperature, "max_tokens": max_tokens},
             )
             if resp.status_code == 429:
                 raise Exception(f"Rate limit exceeded: {resp.text[:100]}")

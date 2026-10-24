@@ -519,6 +519,7 @@ class HarvestRewriter:
                 headers=headers,
                 json={
                     "model": model,
+                    "stream": False,  # fm serve streams SSE when this is absent (#1666)
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.3,
                     "max_tokens": 200,

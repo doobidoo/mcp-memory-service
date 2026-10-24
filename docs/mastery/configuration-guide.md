@@ -117,7 +117,7 @@ TLS:
 - `MCP_QUALITY_SYSTEM_ENABLED`: `true|false` (default `true`).
 - `MCP_QUALITY_AI_PROVIDER`: `local` (ONNX, default), `openai-compatible`, `groq`, `gemini`, `auto`, `none`.
 - `MCP_QUALITY_LOCAL_MODEL` (default `ms-marco-MiniLM-L-6-v2`), `MCP_QUALITY_LOCAL_DEVICE` (`auto|cpu|cuda|mps|directml`).
-- `openai-compatible` requires `MCP_QUALITY_AI_BASE_URL` and `MCP_QUALITY_AI_MODEL`; `MCP_QUALITY_AI_API_KEY` is optional.
+- `openai-compatible` requires `MCP_QUALITY_AI_BASE_URL` and `MCP_QUALITY_AI_MODEL`; `MCP_QUALITY_AI_API_KEY` is optional. On macOS 27 this can point at Apple's built-in `fm serve`, see [Apple Foundation Models](../guides/apple-foundation-models.md).
 - Cloud providers read `GROQ_API_KEY` and `GEMINI_API_KEY`.
 - Search and storage weighting: `MCP_QUALITY_BOOST_ENABLED`, `MCP_QUALITY_BOOST_WEIGHT`, `MCP_QUALITY_IMPLICIT_BLEND_ENABLED`, `MCP_QUALITY_IMPLICIT_WEIGHT`.
 - Retention by tier: `MCP_QUALITY_RETENTION_HIGH`, `MCP_QUALITY_RETENTION_MEDIUM`, `MCP_QUALITY_RETENTION_LOW_MIN`, `MCP_QUALITY_RETENTION_LOW_MAX`.
