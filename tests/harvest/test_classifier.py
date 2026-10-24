@@ -358,3 +358,20 @@ class TestHarvesterLLMIntegration:
         from mcp_memory_service.harvest.models import HarvestConfig
         config = HarvestConfig()
         assert config.use_llm is False
+
+
+class TestOpenAICompatiblePayload:
+    def test_payload_disables_streaming_explicitly(self):
+        """fm serve streams SSE unless told otherwise; resp.json() would fail (#1666)."""
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        client = MagicMock()
+        client.__enter__.return_value.post.return_value = resp
+
+        with patch("httpx.Client", return_value=client):
+            _classifier_without_groq_key()._call_openai_compatible(
+                "http://127.0.0.1:1976/v1", "system", "", "prompt", "system msg", 50, 0.0
+            )
+
+        payload = client.__enter__.return_value.post.call_args.kwargs["json"]
+        assert payload["stream"] is False

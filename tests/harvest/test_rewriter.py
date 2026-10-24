@@ -327,3 +327,33 @@ class TestRewriterProviderChainDeepDive:
             rewriter.rewrite_batch_sync([{"content": "text", "memory_type": "decision"}])
             batch_timeout = mock_future.result.call_args.kwargs['timeout']
             assert batch_timeout == 3 * HarvestRewriter._CALL_TIMEOUT_BATCH + HarvestRewriter._WRAPPER_MARGIN
+
+
+class TestOpenAICompatiblePayload:
+    @pytest.mark.asyncio
+    async def test_payload_disables_streaming_explicitly(self, monkeypatch):
+        """fm serve streams SSE unless told otherwise; resp.json() would fail (#1666)."""
+        captured = {}
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def post(self, *args, **kwargs):
+                captured.update(kwargs["json"])
+                resp = MagicMock(status_code=200)
+                resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+                return resp
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+
+        await HarvestRewriter()._call_openai_compatible(
+            "http://127.0.0.1:1976/v1", "system", "", "prompt", 5.0
+        )
+        assert captured["stream"] is False
