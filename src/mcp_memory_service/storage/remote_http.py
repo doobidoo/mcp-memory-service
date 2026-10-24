@@ -18,12 +18,13 @@ Provides HTTP-based storage using REST API calls to remote MCP Memory Service in
 """
 
 import logging
-from typing import List, Dict, Any, Tuple, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 import httpx
 
-from mcp_memory_service.storage.base import MemoryStorage, RecreateRefused
-from mcp_memory_service.models.memory import Memory, MemoryQueryResult
 from mcp_memory_service.compat import _sanitize_log_value
+from mcp_memory_service.models.memory import Memory, MemoryQueryResult
+from mcp_memory_service.storage.base import MemoryStorage, RecreateRefused
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +200,88 @@ class RemoteHTTPStorage(MemoryStorage):
                 local_model=self.expected_embedding_model,
                 remote_model="unknown"
             )
+
+    async def check_sync_compatibility(self, local_storage: MemoryStorage) -> dict[str, Any]:
+        """Negotiate protocol and event compatibility before delta-sync I/O.
+
+        A capabilities 404 is the only response treated as a legacy peer. Other
+        HTTP failures are surfaced so the scheduler can report connectivity or
+        authentication problems instead of silently downgrading the protocol.
+        """
+        from .base import EmbeddingModelMismatchError
+        from .sync.protocol import (
+            SyncProtocolCompatibilityError,
+            negotiate_sync_protocol,
+            resolve_embedding_identity,
+            validate_event_schema,
+        )
+
+        response = await self._request("GET", "/api/sync/capabilities")
+        if response.status_code == 404:
+            raise SyncProtocolCompatibilityError(
+                "peer does not advertise a sync protocol, upgrade it to a version "
+                "that supports /api/sync/capabilities."
+            )
+        response.raise_for_status()
+        if response.status_code != 200:
+            raise SyncProtocolCompatibilityError(
+                f"Peer capabilities endpoint returned HTTP {response.status_code}"
+            )
+
+        try:
+            capabilities = response.json()
+        except (ValueError, TypeError) as exc:
+            raise SyncProtocolCompatibilityError(
+                "Peer returned invalid JSON from /api/sync/capabilities"
+            ) from exc
+        if not isinstance(capabilities, dict):
+            raise SyncProtocolCompatibilityError(
+                "Peer capabilities response must be a JSON object"
+            )
+        peer_version = capabilities.get("version")
+        if not isinstance(peer_version, str) or not peer_version:
+            raise SyncProtocolCompatibilityError(
+                "Peer advertises an invalid version value"
+            )
+
+        negotiated_protocol = negotiate_sync_protocol(capabilities)
+        event_schema_version = validate_event_schema(capabilities)
+        remote_model = capabilities.get("embedding_model")
+        remote_dimension = capabilities.get("embedding_dimension")
+        if not isinstance(remote_model, str) or not remote_model:
+            raise SyncProtocolCompatibilityError(
+                "Peer advertises an invalid embedding_model value"
+            )
+        if (
+            isinstance(remote_dimension, bool)
+            or not isinstance(remote_dimension, int)
+            or remote_dimension <= 0
+        ):
+            raise SyncProtocolCompatibilityError(
+                "Peer advertises an invalid embedding_dimension value"
+            )
+
+        local_model, local_dimension = resolve_embedding_identity(local_storage)
+        if remote_model != local_model:
+            raise EmbeddingModelMismatchError(
+                f"Embedding model mismatch: local peer uses '{local_model}' but "
+                f"remote peer uses '{remote_model}'",
+                local_model=local_model,
+                remote_model=remote_model,
+            )
+        if remote_dimension != local_dimension:
+            raise SyncProtocolCompatibilityError(
+                "Embedding dimension mismatch: local peer uses "
+                f"{local_dimension}, remote peer uses {remote_dimension}"
+            )
+
+        return {
+            "negotiated_sync_protocol": negotiated_protocol,
+            "event_schema_version": event_schema_version,
+            "embedding_model": remote_model,
+            "embedding_dimension": remote_dimension,
+            "version": peer_version,
+        }
 
     async def close(self) -> None:
         """Close the HTTP client."""
