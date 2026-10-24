@@ -218,9 +218,12 @@ class RemoteHTTPStorage(MemoryStorage):
 
         response = await self._request("GET", "/api/sync/capabilities")
         if response.status_code == 404:
+            probed_url = response.request.url.copy_with(
+                username="", password="", query=None, fragment=None
+            )
             raise SyncProtocolCompatibilityError(
-                "peer does not advertise a sync protocol, upgrade it to a version "
-                "that supports /api/sync/capabilities."
+                f"peer at {probed_url} does not advertise a sync protocol; "
+                "upgrade it to a version that supports /api/sync/capabilities."
             )
         response.raise_for_status()
         if response.status_code != 200:

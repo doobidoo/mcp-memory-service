@@ -75,7 +75,9 @@ def _delete_event():
     }
 
 
-async def _remote_peer(capabilities, *, capability_status=200):
+async def _remote_peer(
+    capabilities, *, capability_status=200, base_url="https://peer.test"
+):
     requested = []
     event = _delete_event()
 
@@ -108,7 +110,7 @@ async def _remote_peer(capabilities, *, capability_status=200):
             )
         return httpx.Response(404, json={"detail": "not found"}, request=request)
 
-    peer = RemoteHTTPStorage("https://peer.test")
+    peer = RemoteHTTPStorage(base_url)
     await peer.client.aclose()
     peer.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return peer, requested
@@ -248,7 +250,11 @@ async def test_non_overlapping_protocol_ranges_stop_before_event_requests(
 
 @pytest.mark.asyncio
 async def test_legacy_peer_404_stops_with_upgrade_message(local_storage):
-    peer, requested = await _remote_peer({}, capability_status=404)
+    peer, requested = await _remote_peer(
+        {},
+        capability_status=404,
+        base_url="https://user:secret@peer.test/tenant",
+    )
     scheduler = _scheduler(local_storage, peer)
 
     await scheduler._run_sync_cycle()
@@ -258,8 +264,10 @@ async def test_legacy_peer_404_stops_with_upgrade_message(local_storage):
     )
     status = scheduler.get_sync_peer_status()[0]
     assert status["status"] == "incompatible"
-    assert "peer does not advertise a sync protocol" in status["message"]
+    assert "does not advertise a sync protocol" in status["message"]
     assert "upgrade it" in status["message"]
+    assert "https://peer.test/tenant/api/sync/capabilities" in status["message"]
+    assert "secret" not in status["message"]
 
 
 @pytest.mark.asyncio
