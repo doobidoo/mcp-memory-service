@@ -59,6 +59,11 @@ def forged_path():
     return Path("docs", f"report\n{FORGED}.ext")
 
 
+def _shown(path):
+    """The path as the sanitised log line shows it: the OS separator, the newline escaped."""
+    return str(path).replace("\n", "\\n")
+
+
 @pytest.mark.asyncio
 async def test_json_loader_logs_do_not_carry_newlines(monkeypatch, caplog, forged_path):
     loader = JSONLoader()
@@ -70,8 +75,8 @@ async def test_json_loader_logs_do_not_carry_newlines(monkeypatch, caplog, forge
 
     _assert_clean(
         caplog,
-        f"Extracting chunks from JSON file: docs/report\\n{FORGED}.ext",
-        f"Error extracting from JSON file docs/report\\n{FORGED}.ext: ValueError - parser said\\n{FORGED}",
+        f"Extracting chunks from JSON file: {_shown(forged_path)}",
+        f"Error extracting from JSON file {_shown(forged_path)}: ValueError - parser said\\n{FORGED}",
     )
 
 
@@ -86,8 +91,8 @@ async def test_csv_loader_logs_do_not_carry_newlines(monkeypatch, caplog, forged
 
     _assert_clean(
         caplog,
-        f"Extracting chunks from CSV file: docs/report\\n{FORGED}.ext",
-        f"Error extracting from CSV file docs/report\\n{FORGED}.ext: ValueError - parser said\\n{FORGED}",
+        f"Extracting chunks from CSV file: {_shown(forged_path)}",
+        f"Error extracting from CSV file {_shown(forged_path)}: ValueError - parser said\\n{FORGED}",
     )
 
 
@@ -102,8 +107,8 @@ async def test_text_loader_logs_do_not_carry_newlines(monkeypatch, caplog, forge
 
     _assert_clean(
         caplog,
-        f"Extracting chunks from text file: docs/report\\n{FORGED}.ext",
-        f"Error extracting from text file docs/report\\n{FORGED}.ext: parser said\\n{FORGED}",
+        f"Extracting chunks from text file: {_shown(forged_path)}",
+        f"Error extracting from text file {_shown(forged_path)}: parser said\\n{FORGED}",
     )
 
 
@@ -125,8 +130,8 @@ async def test_pdf_loader_logs_do_not_carry_newlines(monkeypatch, caplog, forged
 
     _assert_clean(
         caplog,
-        f"Extracting chunks from PDF: docs/report\\n{FORGED}.ext using pdfplumber",
-        f"Error extracting from PDF docs/report\\n{FORGED}.ext: parser said\\n{FORGED}",
+        f"Extracting chunks from PDF: {_shown(forged_path)} using pdfplumber",
+        f"Error extracting from PDF {_shown(forged_path)}: parser said\\n{FORGED}",
     )
 
 
@@ -154,8 +159,8 @@ async def test_semtools_loader_logs_do_not_carry_newlines(monkeypatch, caplog, f
     _assert_clean(
         caplog,
         f"Semtools found at: /opt/bin/semtools\\n{FORGED}",
-        f"Extracting chunks from docs/report\\n{FORGED}.ext using semtools",
+        f"Extracting chunks from {_shown(forged_path)} using semtools",
         f"Semtools parsing failed: semtools said\\n{FORGED}",
         f"Error running semtools: Semtools returned error: semtools said\\n{FORGED}",
-        f"Error processing docs/report\\n{FORGED}.ext with semtools: Semtools returned error: semtools said\\n{FORGED}",
+        f"Error processing {_shown(forged_path)} with semtools: Semtools returned error: semtools said\\n{FORGED}",
     )
