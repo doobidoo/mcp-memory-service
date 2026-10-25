@@ -84,6 +84,11 @@ GUARDED_MODULES = [
     "mcp_memory_service/config/search.py",
     "mcp_memory_service/config/quality.py",
     "mcp_memory_service/config/backup.py",
+    "mcp_memory_service/ingestion/semtools_loader.py",
+    "mcp_memory_service/ingestion/json_loader.py",
+    "mcp_memory_service/ingestion/csv_loader.py",
+    "mcp_memory_service/ingestion/text_loader.py",
+    "mcp_memory_service/ingestion/pdf_loader.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -178,6 +183,11 @@ EXTERNAL_NAMES = frozenset({
     "MCP_HYBRID_FUSION_METHOD",
     "MCP_QUALITY_AI_PROVIDER",
     "BACKUP_INTERVAL",
+    # The document a caller asks the ingestion/ loaders to read: every loader
+    # logs it when it starts and when the parser fails. No guarded module logs
+    # the name bare in a %-style call, so listing it decides for nobody else.
+    # `error_msg` above already covers the stderr of the semtools subprocess.
+    "file_path",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -584,3 +594,19 @@ def test_lazy_scan_flags_config_environment_strings():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("Backup configuration: retention=%s days", BACKUP_RETENTION)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_ingestion_file_path():
+    """The path the ingestion/ loaders are handed, logged at start and on failure.
+
+    Every guarded logger call in the five loaders already wraps it, so the module
+    scans stay green whether or not the name is listed. This is the sample that
+    fails if `file_path` is dropped from EXTERNAL_NAMES; the character count and
+    the PDF backend name logged next to it stay unlisted on purpose.
+    """
+    bare = 'logger.info("Extracting chunks from JSON file: %s", file_path)\n'
+    wrapped = 'logger.info("Extracting chunks from JSON file: %s", _sanitize_log_value(file_path))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.debug("Successfully parsed %s, extracted %d characters", _sanitize_log_value(file_path), len(markdown_content))\n')
