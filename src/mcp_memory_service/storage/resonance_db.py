@@ -25,11 +25,9 @@ Key property that solves the "happy" vs "not happy" problem:
 from __future__ import annotations
 
 import math
-import struct
 import logging
-import asyncio
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +90,8 @@ def _phase_shift_score(psi_a: List[complex], psi_b: List[complex]) -> float:
     """
     Detect phase-shift patterns (negation, modality inversion).
     
-    Returns positive score when waves are significantly out-of-phase,
-    indicating semantic contrast/negation.
+    Returns the mean phase difference normalized to [0, 1]:
+    0 = in phase (aligned), 1 = shifted by π (contrast/negation).
     """
     if not psi_a or not psi_b:
         return 0.0
@@ -117,10 +115,8 @@ def _phase_shift_score(psi_a: List[complex], psi_b: List[complex]) -> float:
     
     mean_phase_diff = sum(phase_diffs) / len(phase_diffs) if phase_diffs else 0.0
     
-    # π shift → strong negation
-    # 0 → strong alignment  
-    # Use linear mapping where 1 = high phase diff
-    return 1.0 - (2.0 / math.pi) * abs(mean_phase_diff)
+    # 0 → aligned, π → negation; callers rank by (1 - this value)
+    return abs(mean_phase_diff) / math.pi
 
 
 def _constructive_interference(psi_a: List[complex], psi_b: List[complex]) -> float:
@@ -400,58 +396,3 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
         return 0.0
     
     return dot / (mag_a * mag_b)
-
-
-# ---------------------------------------------------------------------------
-# Quick test
-# ---------------------------------------------------------------------------
-
-def _quick_test():
-    """Run a quick test to verify ResonanceDB works."""
-    print("=== ResonanceDB Quick Test ===\n")
-    
-    db = ResonanceDB(dimension=384)
-    
-    # Mock embeddings for testing
-    # "happy" - positive sentiment
-    happy_embedding = [0.3, 0.5, 0.2, 0.1, 0.4] + [0.0] * 379
-    # "not happy" - negated positive
-    not_happy_embedding = [-0.1, -0.2, -0.3, -0.15, -0.25] + [0.0] * 379
-    # "sad" - different negative
-    sad_embedding = [-0.4, -0.6, -0.3, -0.5, -0.45] + [0.0] * 379
-    
-    db.add("happy", happy_embedding)
-    db.add("not_happy", not_happy_embedding)
-    db.add("sad", sad_embedding)
-    
-    print(f"Stored {len(db)} entries\n")
-    
-    # Test: query with "positive" (should match "happy")
-    positive_query = [0.2, 0.4, 0.1, 0.2, 0.3] + [0.0] * 379
-    
-    print("Query: positive sentiment")
-    print("-" * 40)
-    results = db.search(positive_query, top_k=3)
-    for r in results:
-        print(f"  {r['content_hash']:15s} score={r['score']:.4f} "
-              f"resonance={r['details'].get('resonance', 0):.4f} "
-              f"phase_shift={r['details'].get('phase_shift', 0):.4f}")
-    
-    print()
-    
-    # Compare pairs
-    print("Pair comparisons:")
-    print("-" * 40)
-    for ha, hb in [("happy", "not_happy"), ("happy", "sad"), ("not_happy", "sad")]:
-        comp = db.compare_pair(ha, hb)
-        print(f"  {ha} vs {hb}:")
-        print(f"    resonance={comp['resonance_score']:.4f}  "
-              f"cosine={comp['cosine_similarity']:.4f}  "
-              f"phase_shift={comp['phase_shift_score']:.4f}  "
-              f"hybrid={comp['hybrid_score']:.4f}")
-    
-    print("\n=== Test Complete ===")
-
-
-if __name__ == "__main__":
-    _quick_test()
