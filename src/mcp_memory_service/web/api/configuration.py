@@ -513,8 +513,8 @@ async def get_env_configuration(user = Depends(require_read_access)):
             choices = param_def[2] if len(param_def) > 2 else None
             sensitive = param_def[3] if len(param_def) > 3 else False
 
-            # Get current value (environment > .env)
-            value = os.getenv(key) or env_vars.get(key)
+            # Get current value (environment > .env, even when empty, as at startup)
+            value = os.environ[key] if key in os.environ else env_vars.get(key)
 
             # Determine source
             source = "default"

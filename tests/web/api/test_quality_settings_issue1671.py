@@ -42,6 +42,22 @@ def _client(scope: str) -> TestClient:
     return TestClient(app)
 
 
+def _reader_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(config_api.router, prefix="/api")
+
+    async def reader():
+        return AuthenticationResult(
+            authenticated=True,
+            client_id="test-client",
+            scope="read",
+            auth_method="test",
+        )
+
+    app.dependency_overrides[config_api.require_read_access] = reader
+    return TestClient(app)
+
+
 @pytest.fixture
 def env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.chdir(tmp_path)
@@ -206,6 +222,27 @@ def test_empty_key_in_process_environment_wins_over_env_file(
     assert "GROQ_API_KEY" in response.json()["detail"]
     assert env_file.read_text(encoding="utf-8") == before
     assert restarts == []
+
+
+def test_tab_reads_an_empty_process_value_over_env_file(
+    env_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The running server sees the empty value and keeps boost off, so the tab
+    # must too, otherwise saving a provider change would switch boost on
+    monkeypatch.setenv("MCP_QUALITY_BOOST_ENABLED", "")
+    with env_file.open("a", encoding="utf-8") as f:
+        f.write("MCP_QUALITY_BOOST_ENABLED=true\n")
+
+    response = _reader_client().get("/api/config/env")
+
+    assert response.status_code == 200
+    params = {
+        param["key"]: param
+        for category in response.json()["categories"]
+        for param in category["parameters"]
+    }
+    assert params["MCP_QUALITY_BOOST_ENABLED"]["value"] == ""
+    assert params["MCP_QUALITY_BOOST_ENABLED"]["source"] == "environment"
 
 
 def test_control_characters_cannot_add_lines_to_env(env_file: Path, restarts: list) -> None:
