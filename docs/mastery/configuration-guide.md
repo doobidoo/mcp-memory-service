@@ -125,6 +125,36 @@ TLS:
 Scoring tiers, the homelab setup against your own LLM, and what each score component
 measures: [Memory Quality Guide](../guides/memory-quality-guide.md).
 
+### Rerank (optional, second stage)
+
+`memory_search` can re-order its results with a cross-encoder before truncating to `limit`.
+It is off by default and takes **two** switches:
+
+- `MCP_RERANK_ENABLED=true` on the server, and
+- `rerank=true` on the individual `memory_search` call.
+
+With either one missing, nothing happens: no model is downloaded or loaded, and the response
+order is unchanged.
+
+- `MCP_RERANK_CANDIDATES` (default `40`): the floor of the candidate pool. The pool the
+  cross-encoder scores is `max(limit, MCP_RERANK_CANDIDATES)`, so a call that asks for more
+  than 40 results scores all of them — this setting is not a cost cap on a large `limit`.
+- `MCP_RERANK_MODEL` (default `Xenova/bge-reranker-base`): the cross-encoder, int8 ONNX, about
+  266 MB on disk.
+
+Cost, from the measurements in [#1661](https://github.com/doobidoo/mcp-memory-service/pull/1661):
+about 6 s p50 per call at 40 candidates and about 3.9 GB peak RSS, against about 0.5 s and 1 GB
+without rerank.
+
+Gain: +9.2 p.p. recall@10 on a multilingual 120-case set. The English-only
+`cross-encoder/ms-marco-MiniLM-L-6-v2` scored worse there (-8.3 p.p.), so it is not a cheap
+substitute on non-English content.
+
+Two limits worth knowing. It is fail-open: if the model cannot be loaded, search returns the
+normal order and logs one warning per process. And it can only reorder what the pool holds. The
+benchmark in #1661 saw recall@30 unchanged, but that is an observation, not a guarantee: with
+`limit=30` the pool is still 40 by default, so a result ranked 31-40 can enter the returned 30.
+
 ## mDNS Service Discovery
 
 - `MCP_MDNS_ENABLED`: `true|false` (default `true`).
