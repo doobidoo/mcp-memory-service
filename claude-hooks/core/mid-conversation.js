@@ -486,6 +486,46 @@ async function onMidConversation(context) {
     }
 }
 
+/**
+ * Prompt-time inbox delivery (issue #1526).
+ *
+ * `hooks.json` runs this file as the UserPromptSubmit hook command, so the CLI
+ * entry below is the only code that runs on a prompt. It polls the inter-agent
+ * inbox and prints the block; nothing is printed when there is nothing new.
+ *
+ * Throttling lives in the inbox state file, not in `cooldownPeriod`: every hook
+ * invocation is a fresh process, so in-memory timers never survive to the next
+ * prompt.
+ *
+ * @returns {Promise<void>}
+ */
+async function runPromptInboxHook() {
+    const fs = require('fs').promises;
+    const { resolveConfigPath } = require('../utilities/config-loader');
+    const { collectInboxBlock } = require('../utilities/inbox');
+
+    let config;
+    try {
+        config = JSON.parse(await fs.readFile(resolveConfigPath(__dirname), 'utf8'));
+    } catch (error) {
+        // No readable config means no inbox: the feature is opt-in.
+        return;
+    }
+
+    const { block, error } = await collectInboxBlock({ config });
+
+    if (error) {
+        if (config.output?.verbose !== false && config.output?.cleanMode !== true) {
+            console.warn(`[Mid-Conversation Hook] Inbox check failed: ${error} (marker kept)`);
+        }
+        return;
+    }
+
+    if (block) {
+        process.stdout.write(`${block}\n`);
+    }
+}
+
 module.exports = {
     MidConversationHook,
     onMidConversation,
@@ -502,3 +542,12 @@ module.exports = {
         priority: 'high'
     }
 };
+
+// Direct execution: this is the UserPromptSubmit hook command in hooks.json.
+if (require.main === module) {
+    runPromptInboxHook()
+        .catch((error) => {
+            console.error(`[Mid-Conversation Hook] Inbox hook failed: ${error.message}`);
+            process.exitCode = 1;
+        });
+}
