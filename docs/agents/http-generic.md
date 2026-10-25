@@ -75,8 +75,9 @@ curl -X POST http://localhost:8000/api/memories/resonance-search \
 | `store` | `default` | Store partition, `all` for every store, as in `/api/search` |
 
 Results carry `content_hash`, `score` and `details` (`resonance`, `phase_shift`), not
-the memory content; fetch that with `GET /api/memories/{hash}`. Superseded memories are
-left out. `total_stored` counts the memories that were actually scored.
+the memory content; fetch that with `GET /api/memories/{hash}?store=<name>`, using the
+same `store` you searched (`all` included), since that endpoint defaults to `default`.
+Superseded memories are left out. `total_stored` counts the memories that were actually scored.
 
 Limits worth knowing before you build on it:
 
