@@ -129,6 +129,21 @@ def test_boost_alone_leaves_the_provider_line_alone(env_file: Path, restarts: li
     )
 
 
+def test_env_file_without_trailing_newline_keeps_its_last_line(env_file: Path, restarts: list) -> None:
+    env_file.write_text("MCP_MEMORY_STORAGE_BACKEND=sqlite_vec", encoding="utf-8")
+
+    response = _client("read write admin").post(
+        "/api/config/quality",
+        json={"settings": {"MCP_QUALITY_BOOST_ENABLED": "true"}},
+    )
+
+    assert response.status_code == 200
+    assert env_file.read_text(encoding="utf-8") == (
+        "MCP_MEMORY_STORAGE_BACKEND=sqlite_vec\n"
+        "MCP_QUALITY_BOOST_ENABLED=true\n"
+    )
+
+
 def test_saved_values_reach_the_restarted_process(env_file: Path, restarts: list) -> None:
     # load_dotenv already put the old .env value into os.environ, which the restart inherits
     assert os.environ["MCP_QUALITY_AI_PROVIDER"] == "groq"

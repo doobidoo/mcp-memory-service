@@ -643,6 +643,9 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
             new_lines.append(line)
 
     if not found:
+        # A file that ends without a newline would otherwise get the key glued to its last line
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
         new_lines.append(f"{key}={value}\n")
 
     with open(env_path, 'w', encoding='utf-8') as f:
