@@ -136,8 +136,9 @@ It is off by default and takes **two** switches:
 With either one missing, nothing happens: no model is downloaded or loaded, and the response
 order is unchanged.
 
-- `MCP_RERANK_CANDIDATES` (default `40`): how many results are scored before truncation to the
-  caller's `limit`.
+- `MCP_RERANK_CANDIDATES` (default `40`): the floor of the candidate pool. The pool the
+  cross-encoder scores is `max(limit, MCP_RERANK_CANDIDATES)`, so a call that asks for more
+  than 40 results scores all of them — this setting is not a cost cap on a large `limit`.
 - `MCP_RERANK_MODEL` (default `Xenova/bge-reranker-base`): the cross-encoder, int8 ONNX, about
   266 MB on disk.
 
@@ -150,8 +151,9 @@ Gain: +9.2 p.p. recall@10 on a multilingual 120-case set. The English-only
 substitute on non-English content.
 
 Two limits worth knowing. It is fail-open: if the model cannot be loaded, search returns the
-normal order and logs one warning per process. And it cannot reorder what the pool does not
-hold — recall@30 is unchanged.
+normal order and logs one warning per process. And it can only reorder what the pool holds. The
+benchmark in #1661 saw recall@30 unchanged, but that is an observation, not a guarantee: with
+`limit=30` the pool is still 40 by default, so a result ranked 31-40 can enter the returned 30.
 
 ## mDNS Service Discovery
 
