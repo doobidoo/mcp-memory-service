@@ -55,6 +55,40 @@ This table is the subset agents reach for. The authoritative, always-current lis
 > that body with `.get("results", [])` turns a rejected request into "no memories
 > found". Both endpoints return their hits under `results`, not `memories`.
 
+### Experimental: resonance search
+
+`POST /api/memories/resonance-search` ranks memories by wave interference instead of
+cosine similarity, after the ResonanceDB idea in arXiv:2509.09691. It turns the stored
+embeddings into complex waveforms at query time. No schema change, no extra model.
+
+```bash
+curl -X POST http://localhost:8000/api/memories/resonance-search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deploy target", "top_k": 10, "mode": "hybrid", "store": "default"}'
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `query` | required | Search text |
+| `top_k` | `10` | 1-100 results |
+| `mode` | `hybrid` | `resonance` (interference only), `phase` (phase alignment only), `hybrid` (70/30 mix) |
+| `store` | `default` | Store partition, `all` for every store, as in `/api/search` |
+
+Results carry `content_hash`, `score` and `details` (`resonance`, `phase_shift`), not
+the memory content; fetch that with `GET /api/memories/{hash}?store=<name>`, using the
+same `store` you searched (`all` included), since that endpoint defaults to `default`.
+Superseded memories are left out. `total_stored` counts the memories that were actually scored.
+
+Limits worth knowing before you build on it:
+
+- Only `sqlite_vec` and `hybrid` (via its local SQLite) work. Cloudflare and Milvus get a 501.
+- Every request scans and scores every eligible memory in the store in pure Python.
+  Fine at a few thousand memories, slow well before 50k.
+- Nobody has shown yet that it ranks better than `/api/search`. The phase is derived from
+  the same embedding values, so it cannot add information the embedding model did not
+  encode, and that includes negation. Treat it as a research endpoint until the
+  measurement in #1674 says otherwise.
+
 ## Authentication Patterns
 
 ```bash

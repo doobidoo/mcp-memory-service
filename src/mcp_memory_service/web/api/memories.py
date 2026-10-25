@@ -16,15 +16,19 @@
 Memory CRUD endpoints for the HTTP interface.
 """
 
+import asyncio
+import heapq
 import logging
 import socket
 from collections import Counter
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
+from ...storage.mixins.base import deserialize_embedding
+from ...storage.resonance_db import ResonanceDB
 from ...models.memory import Memory
 from ...models.ontology import get_all_types
 from ...services.memory_service import MemoryService
@@ -586,7 +590,7 @@ async def store_session(
     All turns are concatenated into '[role] content' lines and stored as
     memory_type='session' with a 'session:<id>' tag for reliable session-level retrieval.
     """
-    import uuid as _uuid
+    import uuid as _uuid  # inline import
 
     session_id = request.session_id or str(_uuid.uuid4())
     lines = [f"[{t.role}] {t.content.strip()}" for t in request.turns if t.content.strip()]
@@ -632,3 +636,108 @@ async def get_memory_types(
 ) -> List[str]:
     """Return all valid memory types (built-in + custom from MCP_CUSTOM_MEMORY_TYPES)."""
     return sorted(get_all_types())
+
+
+# ── ResonanceDB — Wave-Based Semantic Search ──────────────────────────────────
+
+class ResonanceSearchRequest(BaseModel):
+    """Request model for ResonanceDB wave-based semantic search."""
+    query: str = Field(..., description="Search query text")
+    top_k: int = Field(default=10, ge=1, le=100, description="Max results to return")
+    mode: Literal["resonance", "phase", "hybrid"] = Field("hybrid", description="Search mode: 'resonance' (pure constructive interference), 'phase' (phase alignment only), 'hybrid' (default)")
+    store: str = Field(default="default", description="Target store partition (default: 'default'). Use 'all' for every store.")
+
+
+class ResonanceSearchResult(BaseModel):
+    """Single result from ResonanceDB search."""
+    content_hash: str
+    score: float
+    details: Dict[str, float]
+
+
+class ResonanceSearchResponse(BaseModel):
+    """Response model for ResonanceDB wave-based search."""
+    query: str
+    mode: str
+    results: List[ResonanceSearchResult]
+    total_stored: int
+    backend: str = "resonance"
+
+
+def _fetch_resonance_candidates(conn, store: Optional[str]) -> list:
+    """Read (content_hash, embedding blob) for every current, searchable memory."""
+    sql = """
+        SELECT m.content_hash, e.content_embedding
+        FROM memories m
+        JOIN memory_embeddings e ON m.id = e.rowid
+        WHERE m.deleted_at IS NULL
+          AND (m.embedding_pending IS NULL OR m.embedding_pending = 0)
+          AND (m.superseded_by IS NULL OR m.superseded_by = '')
+    """
+    params: tuple = ()
+    if store is not None:
+        sql += " AND m.store = ?"
+        params = (store,)
+    return conn.execute(sql, params).fetchall()
+
+
+def _score_resonance_candidates(rows: list, query_embedding: List[float], dimension: int, top_k: int, mode: str):
+    """Score all rows in batches and keep the overall top_k. Returns (results, scored_count)."""
+    best: list = []
+    scored = 0
+    batch_size = 1000
+    for start in range(0, len(rows), batch_size):
+        db = ResonanceDB(dimension=dimension)
+        for content_hash, blob in rows[start:start + batch_size]:
+            values = deserialize_embedding(blob)
+            if values is None or len(values) != dimension:
+                continue
+            db.add(content_hash, values)
+        scored += len(db)
+        best = heapq.nlargest(top_k, best + db.search(query_embedding, top_k=top_k, mode=mode), key=lambda r: r["score"])
+    return best, scored
+
+
+@router.post("/memories/resonance-search", response_model=ResonanceSearchResponse, tags=["memories", "resonance"])
+async def resonance_search(
+    request: ResonanceSearchRequest,
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access),
+):
+    """
+    Wave-based semantic search using ResonanceDB (experimental).
+
+    Converts the stored real-valued embeddings to complex waveforms
+    ψ(x) = A(x) · exp(i · φ(x)) at query time and ranks them by
+    constructive interference and phase alignment with the query.
+
+    Requires a SQLite-backed storage (sqlite_vec, or hybrid via its local
+    primary). Scans every eligible memory in the selected store.
+
+    See: arXiv:2509.09691
+    """
+    # Hybrid keeps its SQLite backend in `primary`; Cloudflare and Milvus have no local table to scan.
+    backend = getattr(storage, "primary", storage)
+    if getattr(backend, "conn", None) is None or not hasattr(backend, "_execute_with_retry"):
+        raise HTTPException(status_code=501, detail="Resonance search requires the sqlite_vec or hybrid storage backend.")
+    if not getattr(backend, "embedding_model", None):
+        raise HTTPException(status_code=503, detail="Resonance search requires an embedding model.")
+
+    try:
+        store = resolve_store(request.store)
+        # ponytail: full scan in pure Python per request, O(n·dim); cache waveforms if stores grow past ~50k.
+        rows = await backend._execute_with_retry(lambda: _fetch_resonance_candidates(backend.conn, store))
+        query_embedding = await asyncio.to_thread(backend._generate_embedding, request.query)
+        results, scored = await asyncio.to_thread(
+            _score_resonance_candidates, rows, query_embedding, backend.embedding_dimension, request.top_k, request.mode
+        )
+    except Exception as e:
+        logger.error("Resonance search failed: %s", _sanitize_log_value(e))
+        raise HTTPException(status_code=500, detail="Resonance search failed")
+
+    return ResonanceSearchResponse(
+        query=request.query,
+        mode=request.mode,
+        results=[ResonanceSearchResult(**r) for r in results],
+        total_stored=scored,
+    )
