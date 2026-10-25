@@ -28,6 +28,7 @@ import shutil
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ class SemtoolsLoader(DocumentLoader):
         """
         semtools_path = shutil.which('semtools')
         if semtools_path:
-            logger.info(f"Semtools found at: {semtools_path}")
+            logger.info("Semtools found at: %s", _sanitize_log_value(semtools_path))
             return True
         else:
             logger.debug(
@@ -128,7 +129,7 @@ class SemtoolsLoader(DocumentLoader):
                 "Semtools is not available. Install with: npm i -g @llamaindex/semtools"
             )
 
-        logger.info(f"Extracting chunks from {file_path} using semtools")
+        logger.info("Extracting chunks from %s using semtools", _sanitize_log_value(file_path))
 
         try:
             # Parse document to markdown using semtools
@@ -157,7 +158,7 @@ class SemtoolsLoader(DocumentLoader):
                 chunk_index += 1
 
         except Exception as e:
-            logger.error(f"Error processing {file_path} with semtools: {e}")
+            logger.error("Error processing %s with semtools: %s", _sanitize_log_value(file_path), _sanitize_log_value(e))
             raise ValueError(f"Failed to parse document: {str(e)}") from e
 
     async def _parse_with_semtools(self, file_path: Path) -> str:
@@ -198,24 +199,24 @@ class SemtoolsLoader(DocumentLoader):
 
             if process.returncode != 0:
                 error_msg = stderr.decode('utf-8', errors='replace')
-                logger.error(f"Semtools parsing failed: {error_msg}")
+                logger.error("Semtools parsing failed: %s", _sanitize_log_value(error_msg))
                 raise RuntimeError(f"Semtools returned error: {error_msg}")
 
             # Parse markdown output
             markdown_content = stdout.decode('utf-8', errors='replace')
 
             if not markdown_content.strip():
-                logger.warning(f"Semtools returned empty content for {file_path}")
+                logger.warning("Semtools returned empty content for %s", _sanitize_log_value(file_path))
                 raise RuntimeError("Semtools returned empty content")
 
-            logger.debug(f"Successfully parsed {file_path}, extracted {len(markdown_content)} characters")
+            logger.debug("Successfully parsed %s, extracted %d characters", _sanitize_log_value(file_path), len(markdown_content))
             return markdown_content
 
         except asyncio.TimeoutError:
-            logger.error(f"Semtools parsing timed out for {file_path}")
+            logger.error("Semtools parsing timed out for %s", _sanitize_log_value(file_path))
             raise RuntimeError("Document parsing timed out after 5 minutes")
         except Exception as e:
-            logger.error(f"Error running semtools: {e}")
+            logger.error("Error running semtools: %s", _sanitize_log_value(e))
             raise
 
 
