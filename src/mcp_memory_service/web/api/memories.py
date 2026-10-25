@@ -19,7 +19,7 @@ Memory CRUD endpoints for the HTTP interface.
 import logging
 import socket
 from collections import Counter
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
@@ -632,3 +632,134 @@ async def get_memory_types(
 ) -> List[str]:
     """Return all valid memory types (built-in + custom from MCP_CUSTOM_MEMORY_TYPES)."""
     return sorted(get_all_types())
+
+
+# ── ResonanceDB — Wave-Based Semantic Search ──────────────────────────────────
+
+class ResonanceSearchRequest(BaseModel):
+    """Request model for ResonanceDB wave-based semantic search."""
+    query: str = Field(..., description="Search query text")
+    top_k: int = Field(default=10, ge=1, le=100, description="Max results to return")
+    mode: str = Field("hybrid", description="Search mode: 'resonance' (pure constructive interference), 'phase' (negation detection), 'hybrid' (default)")
+
+
+class ResonanceSearchResult(BaseModel):
+    """Single result from ResonanceDB search."""
+    content_hash: str
+    score: float
+    details: Dict[str, float]
+
+
+class ResonanceSearchResponse(BaseModel):
+    """Response model for ResonanceDB wave-based search."""
+    query: str
+    mode: str
+    results: List[ResonanceSearchResult]
+    total_stored: int
+    backend: str = "resonance"
+
+
+@router.post("/memories/resonance-search", response_model=ResonanceSearchResponse, tags=["memories", "resonance"])
+async def resonance_search(
+    request: ResonanceSearchRequest,
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access),
+):
+    """
+    Wave-based semantic search using ResonanceDB.
+
+    Alternative to standard cosine similarity — models memories as complex
+    waveforms ψ(x) = A(x) · exp(i · φ(x)) and measures similarity via
+    constructive/destructive interference.
+
+    Addresses the "happy" vs "not happy" problem: negation patterns produce
+    phase shifts → anti-resonance (low score) instead of misleadingly high
+    cosine similarity.
+
+    See: arXiv:2509.09691
+    """
+    try:
+        # Generate query embedding using the storage's embedding model
+        if not storage.embedding_model:
+            raise HTTPException(
+                status_code=503,
+                detail="ResonanceDB requires embedding model (sentence-transformers). MCP_EMBEDDING_MODEL must be configured.",
+            )
+
+        from ...storage.resonance_db import ResonanceDB
+
+        dimension = storage.embedding_dimension  # e.g. 384 for all-MiniLM
+        resonance_db = ResonanceDB(dimension=dimension)
+
+        # Load all memories with embeddings into ResonanceDB
+        import asyncio
+
+        def get_all_with_embeddings():
+            """Fetch memories with embeddings via SQL-vec KNN."""
+            cursor = storage.conn.execute(
+                """
+                SELECT m.content_hash, m.content, m.tags, m.memory_type,
+                       m.metadata, e.content_embedding
+                FROM memories m
+                JOIN memory_embeddings e ON m.id = e.rowid
+                WHERE m.deleted_at IS NULL
+                  AND (m.embedding_pending IS NULL OR m.embedding_pending = 0)
+                ORDER BY m.created_at DESC
+                LIMIT 5000
+                """
+            )
+            return cursor.fetchall()
+
+        rows = await storage._execute_with_retry(get_all_with_embeddings)
+
+        # The embedding is stored as a varint-prefixed float32 blob in SQLite
+        # Format: [1-byte count] [count × 4 bytes float32 LE]
+        for content_hash, content, tags_str, memory_type, metadata_str, embedding_raw in rows:
+            if embedding_raw is None:
+                continue
+            try:
+                if isinstance(embedding_raw, bytes):
+                    import struct
+                    count = embedding_raw[0]
+                    if count > 0 and count < 4096:  # Sanity check
+                        blob = embedding_raw[1:1+count*4]
+                        if len(blob) == count * 4:  # Correct size
+                            values = struct.unpack(f'{count}f', blob)
+                            # Filter out obviously invalid values
+                            values = [v for v in values if v == v and abs(v) < 1e6]  # NaN/infinity filter
+                            if values:  # Only add if we got valid data
+                                resonance_db.add(content_hash, values)
+                elif isinstance(embedding_raw, (list, tuple)):
+                    resonance_db.add(content_hash, list(embedding_raw))
+                else:
+                    logger.debug("Unknown embedding type for %s: %s", content_hash, type(embedding_raw))
+            except Exception:
+                logger.debug("Failed to decode embedding for %s", content_hash)
+
+        # Generate query embedding
+        query_embedding = storage._generate_embedding(request.query)
+
+        # Run resonance search
+        results = resonance_db.search(query_embedding, top_k=request.top_k, mode=request.mode)
+
+        # Convert to response format
+        response_results = []
+        for r in results:
+            response_results.append(ResonanceSearchResult(
+                content_hash=r["content_hash"],
+                score=r["score"],
+                details=r["details"],
+            ))
+
+        return ResonanceSearchResponse(
+            query=request.query,
+            mode=request.mode,
+            results=response_results,
+            total_stored=len(resonance_db),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Resonance search failed: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Resonance search failed: {str(e)}")
