@@ -847,9 +847,11 @@ def _normalize_quality_value(key: str, raw: str) -> str:
 def _check_quality_provider_requirements(provider: Optional[str], env_path: Path) -> None:
     """Refuse a provider whose required variables are not set."""
     env_vars = _read_env_file_dict(env_path)
+    # Same precedence as load_dotenv(override=False) at startup: a variable present in
+    # the process environment wins over .env even when it is empty.
     missing = [
         key for key in QUALITY_PROVIDER_REQUIREMENTS.get(provider, ())
-        if not (os.getenv(key) or env_vars.get(key))
+        if not (os.environ[key] if key in os.environ else env_vars.get(key))
     ]
     if missing:
         raise HTTPException(
@@ -893,7 +895,7 @@ async def save_quality_settings(
 
     logger.warning(
         "AUDIT: Quality settings (%s) updated by %s (auth: %s)",
-        ", ".join(values), user.client_id, user.auth_method
+        _sanitize_log_value(", ".join(values)), user.client_id, user.auth_method
     )
 
     from .server import _restart_server_delayed

@@ -4847,6 +4847,13 @@ class MemoryDashboard {
         const resultEl = document.getElementById('qualitySaveResult');
         if (resultEl) resultEl.style.display = 'none';
 
+        // Nothing can be edited or saved until the configured values are in,
+        // otherwise Save would write the HTML defaults over them
+        const providerSelect = document.getElementById('quality-provider');
+        const boostCheckbox = document.getElementById('quality-boost-enabled');
+        const saveBtn = document.getElementById('qualitySaveBtn');
+        [providerSelect, boostCheckbox, saveBtn].forEach(el => { if (el) el.disabled = true; });
+
         try {
             const config = await this.apiCall('/config/env');
             const params = Object.fromEntries(
@@ -4855,7 +4862,6 @@ class MemoryDashboard {
             const provider = params.MCP_QUALITY_AI_PROVIDER;
             const boost = params.MCP_QUALITY_BOOST_ENABLED;
 
-            const providerSelect = document.getElementById('quality-provider');
             const providerValue = (provider?.value || 'local').toLowerCase();
             const option = Array.from(providerSelect?.options || []).find(opt => opt.value === providerValue);
             if (providerSelect) {
@@ -4864,14 +4870,23 @@ class MemoryDashboard {
                 providerSelect.value = providerValue;
             }
 
-            // Unset means off, the server default
-            const boostCheckbox = document.getElementById('quality-boost-enabled');
-            if (boostCheckbox) boostCheckbox.checked = (boost?.value || '').toLowerCase() === 'true';
+            // Same spellings as safe_get_bool_env(); unset means off, the server default
+            if (boostCheckbox) {
+                boostCheckbox.checked = ['true', '1', 'yes', 'on', 'enabled']
+                    .includes((boost?.value || '').toLowerCase().trim());
+                boostCheckbox.disabled = false;
+            }
+            if (saveBtn) saveBtn.disabled = false;
 
             const info = document.getElementById('current-provider-info');
             if (info) info.textContent = option ? option.textContent : providerValue;
         } catch (e) {
             console.warn('Failed to load quality settings:', e);
+            this._showQualityResult('error', this.t(
+                'settings.quality.loadFailed',
+                '✗ Could not load the current settings: {error}. Reopen this tab to retry.',
+                { error: e.message }
+            ));
         }
     }
 

@@ -172,6 +172,27 @@ def test_provider_without_its_api_key_is_rejected(
     assert restarts == [True]
 
 
+def test_empty_key_in_process_environment_wins_over_env_file(
+    env_file: Path, restarts: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Startup loads .env with override=False, so an empty GROQ_API_KEY in the
+    # environment hides the one in .env and QualityConfig.validate() refuses groq
+    monkeypatch.setenv("GROQ_API_KEY", "")
+    with env_file.open("a", encoding="utf-8") as f:
+        f.write("GROQ_API_KEY=gsk-test-key\n")
+    before = env_file.read_text(encoding="utf-8")
+
+    response = _client("read write admin").post(
+        "/api/config/quality",
+        json={"settings": {"MCP_QUALITY_AI_PROVIDER": "groq"}},
+    )
+
+    assert response.status_code == 400
+    assert "GROQ_API_KEY" in response.json()["detail"]
+    assert env_file.read_text(encoding="utf-8") == before
+    assert restarts == []
+
+
 def test_control_characters_cannot_add_lines_to_env(env_file: Path, restarts: list) -> None:
     response = _client("read write admin").post(
         "/api/config/quality",

@@ -332,6 +332,7 @@
   "settings.quality.save": "保存并重启",
   "settings.quality.saving": "保存中…",
   "settings.quality.saveFailed": "✗ 保存失败：{error}",
+  "settings.quality.loadFailed": "✗ 无法加载当前设置：{error}。请重新打开此标签页重试。",
   "settings.quality.saveHint": "保存到 .env。服务器将重启以应用更改。",
   "manage.bulk.title": "🧹 批量操作",
   "manage.bulk.deleteTag.title": "按标签删除",

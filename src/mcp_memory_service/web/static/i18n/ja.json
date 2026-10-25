@@ -326,6 +326,7 @@
   "settings.quality.boost.help": "検索結果を再ランク付けして高品質メモリを優先表示",
   "settings.quality.boost.label": "品質ブースト検索を有効化",
   "settings.quality.current.label": "現在のプロバイダー:",
+  "settings.quality.loadFailed": "✗ 現在の設定を読み込めませんでした: {error}。このタブを開き直して再試行してください。",
   "settings.quality.provider.auto": "自動 (利用可能なすべて)",
   "settings.quality.provider.gemini": "Gemini API",
   "settings.quality.provider.groq": "Groq API",

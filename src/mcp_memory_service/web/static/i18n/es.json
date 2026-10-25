@@ -326,6 +326,7 @@
   "settings.quality.boost.help": "Reordena los resultados de búsqueda para priorizar memorias de alta calidad",
   "settings.quality.boost.label": "Habilitar Búsqueda con Mejora de Calidad",
   "settings.quality.current.label": "Proveedor Actual:",
+  "settings.quality.loadFailed": "✗ No se pudo cargar la configuración actual: {error}. Vuelve a abrir esta pestaña para reintentarlo.",
   "settings.quality.provider.auto": "Automático (Todos Disponibles)",
   "settings.quality.provider.gemini": "API Gemini",
   "settings.quality.provider.groq": "API Groq",

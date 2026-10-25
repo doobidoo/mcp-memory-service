@@ -326,6 +326,7 @@
   "settings.quality.boost.help": "검색 결과를 재정렬하여 고품질 메모리 우선 표시",
   "settings.quality.boost.label": "품질 부스트 검색 활성화",
   "settings.quality.current.label": "현재 제공자:",
+  "settings.quality.loadFailed": "✗ 현재 설정을 불러오지 못했습니다: {error}. 이 탭을 다시 열어 재시도하세요.",
   "settings.quality.provider.auto": "자동 (사용 가능한 모두)",
   "settings.quality.provider.gemini": "Gemini API",
   "settings.quality.provider.groq": "Groq API",
