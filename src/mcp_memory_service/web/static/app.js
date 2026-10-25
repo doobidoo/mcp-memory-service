@@ -4630,6 +4630,11 @@ class MemoryDashboard {
             this.loadCredentials();
         }
 
+        // Load the configured quality settings when switching to quality tab
+        if (tabName === 'quality') {
+            this.loadQualitySettings();
+        }
+
         // Load server status + auto-check for updates when switching to server tab
         // (runs once per modal open to avoid repeated git fetches)
         if (tabName === 'server') {
@@ -4734,6 +4739,11 @@ class MemoryDashboard {
         if (saveBtn) {
             saveBtn.addEventListener('click', () => this.saveCloudflareCredentials());
         }
+
+        // Quality tab Save & Restart button
+        document.getElementById('qualitySaveBtn')?.addEventListener('click', () => {
+            this.saveQualitySettings();
+        });
     }
 
     /**
@@ -4823,6 +4833,82 @@ class MemoryDashboard {
 
     _showCredResult(type, message) {
         const el = document.getElementById('credTestResult');
+        if (!el) return;
+        el.className = `cred-test-result cred-test-${type}`;
+        el.textContent = message;
+        el.style.display = 'block';
+    }
+
+    /**
+     * Load the configured quality provider and boost flag into the Quality tab.
+     * Values come from GET /api/config/env, so the tab shows what the server runs with.
+     */
+    async loadQualitySettings() {
+        const resultEl = document.getElementById('qualitySaveResult');
+        if (resultEl) resultEl.style.display = 'none';
+
+        try {
+            const config = await this.apiCall('/config/env');
+            const params = Object.fromEntries(
+                config.categories.flatMap(category => category.parameters).map(param => [param.key, param])
+            );
+            const provider = params.MCP_QUALITY_AI_PROVIDER;
+            const boost = params.MCP_QUALITY_BOOST_ENABLED;
+
+            const providerSelect = document.getElementById('quality-provider');
+            const providerValue = (provider?.value || 'local').toLowerCase();
+            const option = Array.from(providerSelect?.options || []).find(opt => opt.value === providerValue);
+            if (providerSelect) {
+                // A provider the dropdown does not offer (e.g. openai-compatible) is left as it is on save
+                providerSelect.disabled = !option;
+                providerSelect.value = providerValue;
+            }
+
+            // Unset means off, the server default
+            const boostCheckbox = document.getElementById('quality-boost-enabled');
+            if (boostCheckbox) boostCheckbox.checked = (boost?.value || '').toLowerCase() === 'true';
+
+            const info = document.getElementById('current-provider-info');
+            if (info) info.textContent = option ? option.textContent : providerValue;
+        } catch (e) {
+            console.warn('Failed to load quality settings:', e);
+        }
+    }
+
+    /**
+     * POST /api/config/quality — persist the Quality tab and restart.
+     */
+    async saveQualitySettings() {
+        const saveBtn = document.getElementById('qualitySaveBtn');
+        const providerSelect = document.getElementById('quality-provider');
+        const settings = {
+            MCP_QUALITY_BOOST_ENABLED: document.getElementById('quality-boost-enabled')?.checked ? 'true' : 'false',
+        };
+        if (providerSelect && !providerSelect.disabled) {
+            settings.MCP_QUALITY_AI_PROVIDER = providerSelect.value || 'local';
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = this.t('settings.quality.saving', 'Saving…');
+
+        try {
+            await this.apiCall('/config/quality', 'POST', { settings });
+            this.closeModal(document.getElementById('settingsModal'));
+            this.showRestartOverlay();
+        } catch (e) {
+            this._showQualityResult('error', this.t(
+                'settings.quality.saveFailed',
+                '✗ Save failed: {error}',
+                { error: e.message }
+            ));
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = this.t('settings.quality.save', 'Save & Restart');
+        }
+    }
+
+    _showQualityResult(type, message) {
+        const el = document.getElementById('qualitySaveResult');
         if (!el) return;
         el.className = `cred-test-result cred-test-${type}`;
         el.textContent = message;

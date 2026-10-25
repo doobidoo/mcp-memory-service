@@ -1514,19 +1514,22 @@
                             </div>
                             <div class="setting-item">
                                 <label class="checkbox-label">
-                                    <input type="checkbox" id="quality-boost-enabled" checked>
+                                    <input type="checkbox" id="quality-boost-enabled">
                                     <span data-i18n="settings.quality.boost.label">Enable Quality-Boosted Search</span>
                                 </label>
                                 <small class="form-text" data-i18n="settings.quality.boost.help">Rerank search results to prioritize high-quality memories</small>
                             </div>
                             <div class="setting-info">
                                 <div data-i18n="settings.quality.current.label">Current Provider:</div>
-                                <div id="current-provider-info" class="info-value">
-                                    <strong>Local SLM</strong> (ms-marco-MiniLM-L-6-v2)<br>
-                                    <span class="text-muted">Zero cost &bull; Full privacy &bull; 50-100ms latency</span>
-                                </div>
+                                <div id="current-provider-info" class="info-value"></div>
                             </div>
                         </div>
+
+                        <div id="qualitySaveResult" class="cred-test-result" style="display:none;"></div>
+                        <div class="credentials-actions">
+                            <button type="button" id="qualitySaveBtn" class="btn btn-primary" data-i18n="settings.quality.save">Save &amp; Restart</button>
+                        </div>
+                        <p class="settings-hint" data-i18n="settings.quality.saveHint">Saved to .env. The server restarts to apply the change.</p>
                     </div>
 
                     <!-- Backup Tab -->
