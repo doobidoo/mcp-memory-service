@@ -1885,9 +1885,9 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
         # Parse natural language time expressions
         cleaned_query, (start_timestamp, end_timestamp) = extract_time_expression(query)
 
-        # Log the parsed timestamps and clean query
-        logger.info("Original query: %s", _sanitize_log_value(query))
-        logger.info("Cleaned query for semantic search: %s", _sanitize_log_value(cleaned_query))
+        # Log the parsed timestamps and clean query (query text at DEBUG: it is the user's prompt)
+        logger.debug("Original query: %s", _sanitize_log_value(query))
+        logger.debug("Cleaned query for semantic search: %s", _sanitize_log_value(cleaned_query))
         logger.info("Parsed time range: %s to %s", start_timestamp, end_timestamp)
 
         # Log more detailed timestamp information for debugging
