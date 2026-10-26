@@ -67,9 +67,18 @@ def _event_in_scope(event: "SSEEvent", stores: Optional[Set[str]]) -> bool:
     ``stores`` is ``None`` for a firehose connection (receives everything).
     A system-wide event (``event.store is None``) always passes. Otherwise the
     event passes only when its store is in the subscription set.
+
+    ``search_completed`` is the exception: it carries a raw query string and has
+    no reliable store attribution, so it is delivered only to the firehose. A
+    store-restricted subscriber never receives it — otherwise it would see other
+    stores' search queries (it still gets its own search *results* over HTTP).
     """
-    if stores is None or event.store is None:
-        return True
+    if stores is None:
+        return True  # firehose connection receives everything
+    if event.event_type == "search_completed":
+        return False  # never leak search queries to a store-restricted subscriber
+    if event.store is None:
+        return True  # genuine system-wide event (heartbeat/health/lifecycle)
     return event.store in stores
 
 

@@ -96,6 +96,25 @@ async def test_firehose_subscription_receives_all_stores():
 
 
 @pytest.mark.asyncio
+async def test_search_completed_not_delivered_to_store_scoped_subscriber():
+    """search_completed carries a raw query and has no reliable store, so a
+    store-restricted subscriber must not receive it (it would leak other
+    stores' queries); the firehose still does."""
+    manager = SSEManager(replay_buffer_size=10)
+    scoped = await manager.add_connection("c1", _FakeRequest(), stores={"default"})
+    firehose = await manager.add_connection("c2", _FakeRequest())  # stores=None
+
+    await manager.broadcast_event(
+        SSEEvent("search_completed", {"query": "secret phrase in projectB"})
+    )
+
+    scoped_types = [e.event_type for e in await _drain(scoped)]
+    firehose_types = [e.event_type for e in await _drain(firehose)]
+    assert "search_completed" not in scoped_types
+    assert "search_completed" in firehose_types
+
+
+@pytest.mark.asyncio
 async def test_system_events_bypass_store_filter():
     """A store-less event (store=None, e.g. a heartbeat) reaches even a
     store-scoped connection."""
