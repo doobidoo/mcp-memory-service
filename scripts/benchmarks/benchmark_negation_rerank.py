@@ -34,9 +34,9 @@ Usage::
     python scripts/benchmarks/benchmark_negation_rerank.py --embedding-model all-MiniLM-L6-v2 \\
         --candidates 40 100 --json-out /tmp/negation-rerank.json
 
-The embedding model is read at import time by the package, so it is parsed from
-``argv`` before the package is imported. Pass ``--embedding-model`` to pin the
-index the published baseline used.
+Pass ``--embedding-model`` to choose the index: it is handed to
+``SqliteVecMemoryStorage`` as a constructor argument, so two runs with different
+models really do build different indexes.
 """
 
 import argparse
@@ -56,25 +56,10 @@ from collections import defaultdict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 
-def _preparse_embedding_model(argv):
-    """Read ``--embedding-model`` before the package imports its config.
-
-    ``config/embedding.py`` snapshots ``MCP_EMBEDDING_MODEL`` at module import,
-    so setting it after the import would silently measure the previous model.
-    """
-    for index, token in enumerate(argv):
-        if token == "--embedding-model" and index + 1 < len(argv):
-            return argv[index + 1]
-        if token.startswith("--embedding-model="):
-            return token.split("=", 1)[1]
-    return None
-
-
-_PINNED_MODEL = _preparse_embedding_model(sys.argv)
-if _PINNED_MODEL:
-    os.environ["MCP_EMBEDDING_MODEL"] = _PINNED_MODEL
-# The stage is gated by the operator flag; this script is the opt-in.
-os.environ["MCP_RERANK_ENABLED"] = "true"
+#: The index model to build, because ``SqliteVecMemoryStorage`` takes it as a
+#: constructor argument and defaults to the English model regardless of
+#: ``MCP_EMBEDDING_MODEL``. Reading the environment here is a fallback only.
+DEFAULT_EMBEDDING_MODEL = os.getenv("MCP_EMBEDDING_MODEL") or "all-MiniLM-L6-v2"
 
 from mcp_memory_service.models.memory import Memory  # noqa: E402
 from mcp_memory_service.quality.search_rerank import (  # noqa: E402
@@ -128,9 +113,12 @@ def load_pairs(path=_NEGATION_PATH):
         return json.load(handle)
 
 
-async def isolated_storage(prefix):
+async def isolated_storage(prefix, embedding_model=DEFAULT_EMBEDDING_MODEL):
     directory = tempfile.mkdtemp(prefix=prefix)
-    storage = SqliteVecMemoryStorage(os.path.join(directory, "memories.db"))
+    # The model must be passed here: the default is the English encoder, so
+    # setting an environment variable and omitting the argument silently builds
+    # the wrong index and makes a cross-model comparison compare nothing.
+    storage = SqliteVecMemoryStorage(os.path.join(directory, "memories.db"), embedding_model=embedding_model)
     await storage.initialize()
     # The hash fallback produces vectors with no semantics: every score would
     # look normal while measuring nothing.
@@ -274,9 +262,9 @@ def paired_bootstrap(baseline, treatment, resamples=_BOOTSTRAP_RESAMPLES, seed=2
     }
 
 
-async def run_negation(candidate_sizes):
+async def run_negation(candidate_sizes, embedding_model=DEFAULT_EMBEDDING_MODEL):
     data = load_pairs()
-    storage, directory = await isolated_storage("negation-rerank-")
+    storage, directory = await isolated_storage("negation-rerank-", embedding_model)
     try:
         members = await seed_corpus(storage, data)
         vectors, contents = read_corpus(storage)
@@ -336,18 +324,15 @@ def _print_table(title, info, results, bootstrap, corpus_size):
 
 async def main(argv):
     parser = argparse.ArgumentParser(description=_SUMMARY)
-    parser.add_argument("--embedding-model", default=None,
-                        help="pin the index model (default: MCP_EMBEDDING_MODEL of the process)")
+    parser.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL,
+                        help=f"index model to build (default: {DEFAULT_EMBEDDING_MODEL}; "
+                             "it is passed to the storage constructor, not exported as an env var)")
     parser.add_argument("--candidates", nargs="+", default=[str(DEFAULT_RERANK_CANDIDATES)],
                         help="candidate pool sizes to rerank (use 'all' for the whole corpus)")
     parser.add_argument("--json-out", default=None, help="write the full result to this path")
     args = parser.parse_args(argv)
-    if args.embedding_model and args.embedding_model != os.getenv("MCP_EMBEDDING_MODEL"):
-        print("--embedding-model must be passed before import; use "
-              "MCP_EMBEDDING_MODEL=<model> to switch the index", file=sys.stderr)
-        return 2
 
-    info, results, bootstrap = await run_negation(args.candidates)
+    info, results, bootstrap = await run_negation(args.candidates, args.embedding_model)
     _print_table("Negation minimal pairs (cosine vs second-stage rerank)",
                  info, results, bootstrap, info["corpus_size"])
 

@@ -9,6 +9,7 @@ import asyncio
 import json
 import math
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "benchmarks"))
@@ -141,10 +142,70 @@ def test_rerank_order_keeps_the_tail_in_baseline_order(monkeypatch):
     assert order[2:] == ["c"]
 
 
-def test_json_out_shape(tmp_path):
-    """The written payload must be consumable without the decision matrix."""
-    payload = {"info": {"corpus_size": 2}, "results": {"cosine": {"pairwise_all": 0.5}, "rerank@40": {"pairwise_all": 0.9}},
-               "bootstrap": {"rerank@40": {"delta": 0.4, "ci95": [0.1, 0.7], "improved": 1, "regressed": 0, "queries": 2}}}
+def _scored(**overrides):
+    base = {column: 0.0 for column in (
+        "pairwise_all", "pairwise_pos", "pairwise_neg", "neg_explicit", "neg_implicit",
+        "top1_pos", "top1_neg", "decisions_in_pool", "p50_ms", "p95_ms",
+    )}
+    base["decisions"] = {}
+    base.update(overrides)
+    return base
+
+
+def test_storage_is_built_with_the_requested_model(monkeypatch):
+    """P1 guard: the model must reach the constructor, not just the environment.
+
+    ``SqliteVecMemoryStorage`` defaults to the English encoder, so a benchmark
+    that only exports ``MCP_EMBEDDING_MODEL`` measures that default twice and
+    calls it a cross-model result.
+    """
+    captured = {}
+
+    class FakeStorage:
+        def __init__(self, db_path, embedding_model="all-MiniLM-L6-v2"):
+            captured["model"] = embedding_model
+            captured["path"] = db_path
+            self.embedding_backend_degraded = False
+
+        async def initialize(self):
+            return None
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr(bench, "SqliteVecMemoryStorage", FakeStorage)
+    _storage, directory = asyncio.run(
+        bench.isolated_storage("probe-", "paraphrase-multilingual-MiniLM-L12-v2")
+    )
+    try:
+        assert captured["model"] == "paraphrase-multilingual-MiniLM-L12-v2"
+        assert captured["path"].endswith("memories.db")
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def test_json_out_goes_through_the_cli_writer(tmp_path, monkeypatch):
+    """P2 guard: exercise the real ``--json-out`` path, not a hand-built dict."""
+    async def fake_run_negation(candidates, embedding_model):
+        info = {"embedding_model": embedding_model, "rerank_model": "probe",
+                "corpus_size": 3, "queries": 2}
+        results = {
+            "cosine": _scored(pairwise_all=0.5, decisions={("p", "pos"): 0.0}),
+            "rerank@40": _scored(pairwise_all=1.0, decisions={("p", "pos"): 1.0}),
+        }
+        bootstrap = {"rerank@40": {"delta": 0.5, "ci95": [0.1, 0.9],
+                                   "improved": 1, "regressed": 0, "queries": 1}}
+        return info, results, bootstrap
+
+    monkeypatch.setattr(bench, "run_negation", fake_run_negation)
     target = tmp_path / "out.json"
-    target.write_text(json.dumps(payload), encoding="utf-8")
-    assert json.loads(target.read_text(encoding="utf-8"))["results"]["rerank@40"]["pairwise_all"] == 0.9
+    code = asyncio.run(bench.main(["--embedding-model", "probe-model", "--json-out", str(target)]))
+    assert code == 0
+
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["info"]["embedding_model"] == "probe-model"
+    assert payload["results"]["rerank@40"]["pairwise_all"] == 1.0
+    assert payload["bootstrap"]["rerank@40"]["delta"] == 0.5
+    # The decision matrix is internal bookkeeping and must not be serialised.
+    assert "decisions" not in payload["results"]["cosine"]
+    assert "decisions" not in payload["results"]["rerank@40"]
