@@ -424,6 +424,46 @@ class ConsolidationScheduler:
                             else "synced")
         return result
 
+    async def _broadcast_delta_sync_event(
+        self,
+        peer_id: str,
+        pulled: Optional[int],
+        pushed: Optional[int],
+        time_taken_seconds: float,
+        success: bool,
+    ) -> None:
+        """Best-effort notification; web failures must not stop scheduled sync."""
+        try:
+            # Lazy import: web imports consolidation, so consolidation must not
+            # import web at module level (same pattern as storage/hybrid.py).
+            from ..web.sse import sse_manager, create_sync_delta_completed_event
+        except ImportError:
+            self.logger.debug(
+                "SSE unavailable; skipping sync_delta_completed broadcast"
+            )
+            return
+        try:
+            event = create_sync_delta_completed_event(
+                peer_id=str(peer_id),
+                pulled=int(pulled) if pulled is not None else None,
+                pushed=int(pushed) if pushed is not None else None,
+                time_taken_seconds=float(time_taken_seconds or 0.0),
+                success=success,
+            )
+            await sse_manager.broadcast_event(event)
+            self.logger.debug(
+                "Broadcast sync_delta_completed for peer %s (pulled=%s, pushed=%s, success=%s)",
+                _sanitize_log_value(peer_id),
+                pulled,
+                pushed,
+                success,
+            )
+        except Exception as exc:
+            self.logger.debug(
+                "Failed to broadcast sync_delta_completed for peer %s: %s",
+                _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+            )
+
     async def _probe_sync_peers(self) -> None:
         """Best-effort startup capability probe; never blocks application startup."""
         storage = getattr(self.consolidator, "storage", None)
@@ -593,6 +633,19 @@ class ConsolidationScheduler:
             if operation_version == self._sync_peer_operation_versions.get(peer_id):
                 cycle["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
                 self._sync_peer_status[peer_id].update(cycle)
+                # A direction that raised may have committed earlier pages;
+                # without a returned summary its count is unknown, not zero.
+                pull_result = cycle["pull"] or {}
+                push_result = cycle["push"] or {}
+                await self._broadcast_delta_sync_event(
+                    peer_id=peer_id,
+                    pulled=pull_result.get("received"),
+                    pushed=push_result.get("pushed"),
+                    time_taken_seconds=(
+                        datetime.now(timezone.utc) - datetime.fromisoformat(cycle_start)
+                    ).total_seconds(),
+                    success=cycle["cycle_status"] == "synced",
+                )
             try:
                 await peer.close()
             except Exception as exc:
@@ -878,7 +931,18 @@ class ConsolidationScheduler:
             
             self.logger.error("Failed %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             raise
-    
+        finally:
+            # Consolidation can change counts even if a later step fails.
+            try:
+                from ..web.sse import SSEEvent, sse_manager
+
+                await sse_manager.broadcast_event(SSEEvent(
+                    event_type="consolidation_completed",
+                    data={"time_horizon": time_horizon, "success": job_record["status"] == "success"},
+                ))
+            except Exception as exc:
+                self.logger.debug("Unable to notify dashboard of consolidation: %s", _sanitize_log_value(exc))
+
     def _add_job_to_history(self, job_record: Dict[str, Any]):
         """Add job record to history with size limit."""
         self.job_history.append(job_record)
