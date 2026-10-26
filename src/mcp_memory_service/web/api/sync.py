@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-Sync management endpoints for hybrid backend.
+Sync management endpoints for hybrid and event-log sync.
 
-Provides status monitoring and manual sync triggering for hybrid storage mode.
+Provides delta-sync monitoring for any backend and hybrid sync controls.
 """
 
 import time
@@ -152,10 +152,11 @@ async def get_sync_status(
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
-    Get current sync status for hybrid backend.
+    Get hybrid sync status and scheduled delta-sync peer results.
 
     Returns sync state, pending operations, last sync time, and health metrics.
-    Only available when using hybrid storage backend.
+    Delta-sync information is available for any storage backend. Hybrid control
+    fields are inactive when the storage does not support hybrid sync.
     """
     # Check if storage supports sync (hybrid mode only)
     if not hasattr(storage, 'get_sync_status'):

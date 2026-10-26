@@ -1801,7 +1801,7 @@ class MemoryDashboard {
         document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
-            ? `Every ${this.formatTimeDelta(delta.interval_seconds)} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
+            ? `Every ${this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '')} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
             : `Automatic sync disabled · Schedule: ${delta.schedule}`;
         const container = document.getElementById('deltaSyncPeers');
         container.replaceChildren();
@@ -1819,7 +1819,7 @@ class MemoryDashboard {
             line(row, `Status: ${peer.health || peer.status}`);
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             line(row, completed
-                ? `Last cycle: ${completed.toLocaleString()} (${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))} ago)`
+                ? `Last cycle: ${completed.toLocaleString()} (${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))})`
                 : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle');
             if (peer.pull) line(row, `Pull: ${peer.pull.received ?? 'unknown'} received · ${peer.pull.applied} applied · cursor ${peer.pull.cursor}`);
             if (peer.push) line(row, `Push: ${peer.push.pushed} pushed · cursor ${peer.push.cursor}`);
