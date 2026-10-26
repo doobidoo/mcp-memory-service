@@ -179,6 +179,18 @@ check "J5 ceiling token enforced at resource: GET projectB (403)" "403" "$(code 
 UNL=$(mint 'read:projectZ')
 check "J6 unlimited client (no declared scope) back-compat" "present" "$([ -n "$UNL" ] && echo present || echo empty)"
 
+# --- K: SSE ticket inherits the minting credential's store scope ---
+# POST /api/events/ticket exchanges a real credential for a single-use ticket
+# (issue #1117). The ticket must carry only the caller's read scope, else a
+# store-restricted token could mint a ticket and open the firehose. Each GET
+# mints a FRESH ticket ($(tkt ...)) because tickets are single-use.
+tkt(){ curl -s -X POST "$B/api/events/ticket" -H "$1" | jget ticket; }
+check "K0 narrow token mints an SSE ticket"        "present" "$([ -n "$(tkt "$HN")" ] && echo present || echo empty)"
+check "K1 narrow ticket SSE ?store=projectA (200)" "200" "$(code --max-time 2 "$B/api/events?store=projectA&ticket=$(tkt "$HN")")"
+check "K2 narrow ticket SSE ?store=projectB (403)" "403" "$(code --max-time 2 "$B/api/events?store=projectB&ticket=$(tkt "$HN")")"
+check "K3 narrow ticket SSE firehose        (403)" "403" "$(code --max-time 2 "$B/api/events?ticket=$(tkt "$HN")")"
+check "K4 global ticket SSE firehose        (200)" "200" "$(code --max-time 2 "$B/api/events?ticket=$(tkt "$HG")")"
+
 # ---------------------------------------------------------------------------
 echo; echo "### Scenario oauth-strict — anon off => no-token lockout (F12, H) ###"
 start_instance -e MCP_ALLOW_ANONYMOUS_ACCESS=false -e MCP_OAUTH_ENABLED=true -e MCP_DCR_REGISTRATION_KEY="$DCR" || exit 1
