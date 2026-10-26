@@ -140,6 +140,13 @@ class ClientRegistrationResponse(BaseModel):
         default=None,
         description="Human-readable string name of the client"
     )
+    scope: Optional[str] = Field(
+        default=None,
+        description=(
+            "Space-separated scope ceiling this client is registered for "
+            "(RFC 7591); omitted/None means unbounded (any non-admin scope)."
+        )
+    )
 
 
 class AuthorizationRequest(BaseModel):
