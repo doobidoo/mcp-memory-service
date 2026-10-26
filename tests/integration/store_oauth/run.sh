@@ -191,6 +191,37 @@ check "K2 narrow ticket SSE ?store=projectB (403)" "403" "$(code --max-time 2 "$
 check "K3 narrow ticket SSE firehose        (403)" "403" "$(code --max-time 2 "$B/api/events?ticket=$(tkt "$HN")")"
 check "K4 global ticket SSE firehose        (200)" "200" "$(code --max-time 2 "$B/api/events?ticket=$(tkt "$HG")")"
 
+# --- L: channel-authorization semantics (noggin cluster model) ---------------
+# commons = the `default` store (public / cluster-wide); private channels are
+# chanA/chanB/chanC. This scenario's anon scope is read:default, so anonymous =
+# read-only commons. These assert the three required access rules directly.
+#
+# (1) An anonymous agent SEES the public / cluster-wide messages, nothing private.
+check "L1  anon reads cluster-wide commons    (200)" "200" "$(code "$B/api/memories?store=default")"
+check "L2  anon SSE  cluster-wide commons      (200)" "200" "$(code --max-time 2 "$B/api/events?store=default")"
+check "L3  anon CANNOT read private chanA      (403)" "403" "$(code "$B/api/memories?store=chanA")"
+check "L4  anon CANNOT write commons           (403)" "403" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"default","tags":["t"]}')"
+#
+# (2) An authorized agent reads & writes BOTH cluster-wide AND its private
+#     channel chanA — and only chanA among the private channels.
+AUTH=$(mint 'read:default%20write:default%20read:chanA%20write:chanA')
+HA="Authorization: Bearer $AUTH"
+check "L5  authorized reads commons            (200)" "200" "$(code -H "$HA" "$B/api/memories?store=default")"
+check "L6  authorized writes commons           (200)" "200" "$(code -H "$HA" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"default","tags":["t"]}')"
+check "L7  authorized reads private chanA       (200)" "200" "$(code -H "$HA" "$B/api/memories?store=chanA")"
+check "L8  authorized writes private chanA      (200)" "200" "$(code -H "$HA" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"chanA","tags":["t"]}')"
+check "L9  authorized SSE private chanA         (200)" "200" "$(code -H "$HA" --max-time 2 "$B/api/events?store=chanA")"
+check "L10 authorized DENIED other chanB read   (403)" "403" "$(code -H "$HA" "$B/api/memories?store=chanB")"
+check "L11 authorized DENIED other chanB write  (403)" "403" "$(code -H "$HA" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"chanB","tags":["t"]}')"
+#
+# (3) One agent authorized for MULTIPLE private channels (chanA + chanB), not chanC.
+MULTI=$(mint 'read:default%20write:default%20read:chanA%20write:chanA%20read:chanB%20write:chanB')
+HU="Authorization: Bearer $MULTI"
+check "L12 multi-channel reads chanA            (200)" "200" "$(code -H "$HU" "$B/api/memories?store=chanA")"
+check "L13 multi-channel writes chanB           (200)" "200" "$(code -H "$HU" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"chanB","tags":["t"]}')"
+check "L14 multi-channel reads commons          (200)" "200" "$(code -H "$HU" "$B/api/memories?store=default")"
+check "L15 multi-channel DENIED chanC           (403)" "403" "$(code -H "$HU" "$B/api/memories?store=chanC")"
+
 # ---------------------------------------------------------------------------
 echo; echo "### Scenario oauth-strict — anon off => no-token lockout (F12, H) ###"
 start_instance -e MCP_ALLOW_ANONYMOUS_ACCESS=false -e MCP_OAUTH_ENABLED=true -e MCP_DCR_REGISTRATION_KEY="$DCR" || exit 1
