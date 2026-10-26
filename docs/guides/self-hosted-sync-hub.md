@@ -11,9 +11,7 @@ The client-side variables are summarised here and detailed in
 
 Tracking issue: [#1482](https://github.com/doobidoo/mcp-memory-service/issues/1482).
 
-## Topology
-
-### Delta-sync status in the Web GUI
+## Delta-sync status in the Web GUI
 
 For event-log sync (`MCP_SYNC_*`), the dashboard shows a separate **Delta sync** panel
 when peers or an active schedule are configured, including with `sqlite_vec` storage.
@@ -27,6 +25,8 @@ The same information is available to authenticated readers in
 `GET /api/sync/status`, under `delta_sync`. An unset/disabled schedule shows automatic
 sync as disabled; no peers and no schedule hides the panel. Existing Cloudflare/hybrid
 sync controls remain separate.
+
+## Topology
 
 ```
  laptop  (hybrid, secondary=http) ──┐
