@@ -229,6 +229,45 @@ async def test_slow_startup_probe_cannot_overwrite_newer_cycle_result(
     assert status["last_sync_at"] is None
 
 
+@pytest.mark.parametrize("fail_pull", [False, True])
+@pytest.mark.asyncio
+async def test_late_probe_cannot_discard_running_cycle_results(local_storage, fail_pull):
+    """A probe reaching a peer after its cycle starts cannot supersede the cycle."""
+    cycle_peer, _ = await _remote_peer(_capabilities(local_storage))
+    probe_peer, _ = await _remote_peer(_capabilities(local_storage))
+    scheduler = _scheduler(local_storage, probe_peer)
+    pull_started = asyncio.Event()
+    release_pull = asyncio.Event()
+    original_get_events = cycle_peer.get_events_since
+
+    async def delayed_get_events(*args, **kwargs):
+        pull_started.set()
+        await release_pull.wait()
+        if fail_pull:
+            raise RuntimeError("peer unavailable")
+        return await original_get_events(*args, **kwargs)
+
+    cycle_peer.get_events_since = delayed_get_events
+    cycle = asyncio.create_task(scheduler._run_sync_peer_cycle(
+        local_storage, "peer-test", cycle_peer,
+        orchestrator.sync_from_peer, orchestrator.push_to_peer,
+    ))
+    try:
+        await asyncio.wait_for(pull_started.wait(), timeout=5)
+        await scheduler._probe_sync_peers()
+    finally:
+        release_pull.set()
+        await cycle
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["cycle_status"] == ("error" if fail_pull else "synced")
+    assert status["last_cycle_at"]
+    if fail_pull:
+        assert status["last_error"]
+    else:
+        assert status["pull"]["received"] == 1
+        assert status["push"]["pushed"] == 1
+
+
 @pytest.mark.asyncio
 async def test_non_overlapping_protocol_ranges_stop_before_event_requests(
     local_storage,

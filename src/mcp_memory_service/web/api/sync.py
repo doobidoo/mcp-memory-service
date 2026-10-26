@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-Sync management endpoints for hybrid backend.
+Sync management endpoints for hybrid and event-log sync.
 
-Provides status monitoring and manual sync triggering for hybrid storage mode.
+Provides delta-sync monitoring for any backend and hybrid sync controls.
 """
 
 import time
@@ -95,6 +95,16 @@ class SyncStatusResponse(BaseModel):
     next_sync_eta_seconds: float
     status: str  # 'synced', 'syncing', 'pending', 'error' — reflects current health only
     delta_sync_peers: list[dict[str, Any]] = Field(default_factory=list)
+    delta_sync: dict[str, Any] = Field(default_factory=dict)
+
+
+def _get_delta_sync_status() -> dict[str, Any]:
+    from ...api.client import get_scheduler
+    from ...consolidation.scheduler import ConsolidationScheduler
+
+    scheduler = get_scheduler()
+    return (scheduler.get_delta_sync_status() if scheduler is not None
+            else ConsolidationScheduler.delta_sync_configuration())
 
 
 def _get_delta_sync_peer_status() -> list[dict[str, Any]]:
@@ -142,10 +152,11 @@ async def get_sync_status(
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
-    Get current sync status for hybrid backend.
+    Get hybrid sync status and scheduled delta-sync peer results.
 
     Returns sync state, pending operations, last sync time, and health metrics.
-    Only available when using hybrid storage backend.
+    Delta-sync information is available for any storage backend. Hybrid control
+    fields are inactive when the storage does not support hybrid sync.
     """
     # Check if storage supports sync (hybrid mode only)
     if not hasattr(storage, 'get_sync_status'):
@@ -162,6 +173,7 @@ async def get_sync_status(
             next_sync_eta_seconds=0,
             status='not_hybrid',
             delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     try:
@@ -208,6 +220,7 @@ async def get_sync_status(
             next_sync_eta_seconds=next_sync_eta,
             status=status,
             delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     except Exception as e:

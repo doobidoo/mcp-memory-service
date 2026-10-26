@@ -58,6 +58,33 @@ async def _seed(storage, n=3):
     return hashes
 
 
+@pytest.mark.asyncio
+async def test_baseline_only_first_pull_reports_downloaded_events(source, target):
+    """A baseline-only first cycle must not report zero transferred memories."""
+    from mcp_memory_service.storage.sync.bootstrap import generate_baseline
+    from mcp_memory_service.storage.sync.orchestrator import sync_from_peer
+
+    await _seed(source, 3)
+    events, watermark = generate_baseline(source)
+
+    class Peer:
+        async def get_baseline(self):
+            return events, watermark
+
+        async def get_events_since(self, since_seq, limit):
+            assert since_seq == watermark
+            return [], watermark, False
+
+    result = await sync_from_peer(target, Peer(), peer_id="alpha")
+    assert len(await target.get_all_memories(exclude_pending=False)) == 3
+    assert result.events_received == 3
+    assert result.events_applied == 3
+    assert result.events_failed == 0
+    assert result.final_cursor == watermark
+    resumed = await sync_from_peer(target, Peer(), peer_id="alpha")
+    assert resumed.events_received == resumed.events_applied == 0
+
+
 # ─────────────────────────── Bootstrap ───────────────────────────
 
 @pytest.mark.asyncio
