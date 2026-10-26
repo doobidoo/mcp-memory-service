@@ -67,6 +67,9 @@ async def sync_from_peer(
         SyncResult with events_applied, pages_processed, and final_cursor
     """
     logger.info("Starting sync from peer %s", _sanitize_log_value(peer_id))
+    # A first sync can receive the entire corpus through the baseline, with no
+    # subsequent event pages. Include that work in this cycle's transfer totals.
+    events_applied = events_received = events_failed = 0
 
     # Step 1: Read current cursor (default to 0 if not exists)
     cursor_result = _sqlite(local_storage).conn.execute(
@@ -81,7 +84,10 @@ async def sync_from_peer(
     if cursor_result is None and hasattr(peer, "get_baseline"):
         logger.info("First sync with peer %s: bootstrapping from baseline", _sanitize_log_value(peer_id))
         try:
-            await bootstrap_from_peer(local_storage, peer, peer_id)
+            baseline = await bootstrap_from_peer(local_storage, peer, peer_id)
+            events_applied += baseline["applied"]
+            events_failed += baseline["failed"]
+            events_received += baseline["applied"] + baseline["failed"]
         except Exception as e:
             logger.warning("Bootstrap from peer %s failed, falling back to pull from 0: %s",
                            _sanitize_log_value(peer_id), _sanitize_log_value(e))
@@ -97,10 +103,7 @@ async def sync_from_peer(
     logger.debug("Starting sync from cursor %s", _sanitize_log_value(cursor))
 
     # Initialize result counters
-    events_applied = 0
     pages_processed = 0
-    events_received = 0
-    events_failed = 0
 
     # Step 2: Loop through pages until no more events
     while True:
