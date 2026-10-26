@@ -137,6 +137,7 @@ class ConsolidationScheduler:
         }
         self._sync_peer_status: Dict[str, Dict[str, Any]] = {}
         self._sync_peer_operation_versions: dict[str, int] = {}
+        self._sync_peer_probe_versions: dict[str, int] = {}
         
         # Initialize scheduler if APScheduler is available
         if APSCHEDULER_AVAILABLE and enabled:
@@ -339,8 +340,16 @@ class ConsolidationScheduler:
         *,
         last_sync_at: str | None = None,
         operation_version: int | None = None,
+        probe_version: int | None = None,
     ) -> None:
         """Store the latest safe-to-expose delta-sync result for one peer."""
+        # Startup probes have their own generation. Once a cycle has started,
+        # its result owns the peer status, even if a slow probe reaches it later.
+        if probe_version is not None and (
+            probe_version != self._sync_peer_probe_versions.get(peer_id)
+            or self._sync_peer_operation_versions.get(peer_id, 0) > 0
+        ):
+            return
         if (
             operation_version is not None
             and operation_version != self._sync_peer_operation_versions.get(peer_id)
@@ -463,7 +472,8 @@ class ConsolidationScheduler:
             return
 
         for peer_id, peer in self._resolve_sync_peers():
-            operation_version = self._begin_sync_peer_operation(peer_id)
+            probe_version = self._sync_peer_probe_versions.get(peer_id, 0) + 1
+            self._sync_peer_probe_versions[peer_id] = probe_version
             try:
                 await peer.initialize()
                 compatibility = await peer.check_sync_compatibility(storage)
@@ -472,7 +482,7 @@ class ConsolidationScheduler:
                     "compatible",
                     "Peer capabilities are compatible",
                     compatibility,
-                    operation_version=operation_version,
+                    probe_version=probe_version,
                 )
             except Exception as exc:
                 status, message = _classify_sync_failure(
@@ -482,7 +492,7 @@ class ConsolidationScheduler:
                     peer_id,
                     status,
                     message,
-                    operation_version=operation_version,
+                    probe_version=probe_version,
                 )
                 self.logger.warning(
                     "Delta-sync capability probe failed for peer %s: %s",
