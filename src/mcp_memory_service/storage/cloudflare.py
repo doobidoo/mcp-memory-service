@@ -2253,7 +2253,8 @@ class CloudflareStorage(MemoryStorage):
             # Determine search strategy
             if query and query.strip():
                 # Combined semantic search with time filtering
-                logger.info("Recall - Using semantic search with query: '%s'", _sanitize_log_value(query))
+                # DEBUG: the query is the user's search text
+                logger.debug("Recall - Using semantic search with query: '%s'", _sanitize_log_value(query))
 
                 try:
                     # Generate query embedding

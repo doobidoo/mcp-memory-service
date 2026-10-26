@@ -89,15 +89,17 @@ class Memory:
                 namespace, value = TagTaxonomy.parse_tag(tag)
                 if namespace is not None:  # Has namespace
                     # Direct check using exposed VALID_NAMESPACES (avoids re-parsing)
-                    if namespace not in TagTaxonomy.VALID_NAMESPACES:
+                    if not TagTaxonomy.is_valid_namespace(namespace):
                         invalid_tags.append(tag)
 
             if invalid_tags:
-                logger.info(
+                # DEBUG: __post_init__ runs on every load, so INFO repeated this per read
+                logger.debug(
                     "Tags with invalid namespaces: %s. "
-                    "Valid namespaces: sys:, q:, proj:, topic:, t:, user:. "
+                    "Valid namespaces: %s (add more via MCP_CUSTOM_TAG_NAMESPACES). "
                     "Legacy tags (no namespace) are still supported.",
                     _sanitize_log_value(', '.join(invalid_tags)),
+                    ', '.join(sorted(TagTaxonomy.VALID_NAMESPACES)),
                 )
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
