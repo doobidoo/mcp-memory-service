@@ -230,6 +230,45 @@ are rejected `400 invalid_scope` (not downscoped). Unit coverage: `tests/web/tes
 | I5 | `Last-Event-ID` resume used to fetch another store's buffered events | blocked (scoped replay) | U |
 | I6 | `admin` requested via `client_credentials` | never issued (400) | E |
 
+### K. SSE-ticket store-scope propagation (reconciliation: upstream `/events/ticket`, issue #1117)
+
+A single-use SSE ticket must inherit only the minting credential's **read** scope, so a store-restricted
+token cannot exchange it for firehose access.
+
+| ID | Scenario (`commons-ro`) | Exp | Type |
+| --- | --- | --- | --- |
+| K0 | `read:projectA` token `POST /api/events/ticket` | ticket issued (a store-scoped token may mint) | E |
+| K1 | narrow ticket SSE `?store=projectA` | 200 | E |
+| K2 | narrow ticket SSE `?store=projectB` | 403 (ticket confined to its channel) | E |
+| K3 | narrow ticket SSE firehose | 403 | E |
+| K4 | global `read write` token's ticket, firehose | 200 (back-compat) | E |
+
+### L. Channel-authorization semantics (cluster model: commons=`default`, private=`chanA/B/C`)
+
+| ID | Actor | Action | Exp | Type |
+| --- | --- | --- | --- | --- |
+| L1/L2 | anonymous | read commons (HTTP + SSE) | 200 (sees cluster-wide) | E |
+| L3 | anonymous | read private `chanA` | 403 | E |
+| L4 | anonymous | write commons | 403 (read-only commons) | E |
+| L5–L9 | authorized (`read:default write:default read:chanA write:chanA`) | read+write commons; read+write+SSE `chanA` | 200 | E |
+| L10/L11 | authorized | read/write other `chanB` | 403 (own channel only) | E |
+| L12–L14 | multi-channel (`…read:chanA write:chanA read:chanB write:chanB`) | read/write `chanA`+`chanB`, read commons | 200 (multiple channels) | E |
+| L15 | multi-channel | read unauthorized `chanC` | 403 | E |
+
+### M. Anonymous commons-write feature flag (`MCP_ANONYMOUS_SCOPE`)
+
+The allow/disallow-anonymous-commons-write control **is** `MCP_ANONYMOUS_SCOPE`: `read:default` disallows
+anon writes (area F), `read:default write:default` allows them — confined to the commons either way.
+
+| ID | Scenario (`commons-rw`: anon scope `read:default write:default`) | Exp | Type |
+| --- | --- | --- | --- |
+| M1 | anon `GET ?store=default` | 200 | E |
+| M2 | anon `POST ?store=default` | 200 (**write allowed** by the flag) | E |
+| M3 | anon MCP `memory_store` `store=default` | ok | E |
+| M4/M5 | anon read/write private `chanA` | 403 (flag opens only the commons) | E |
+| M6 | anon write `store=all` | 403 | E |
+| M7 | anon firehose SSE | 403 | E |
+
 ---
 
 ## 6. Coverage summary

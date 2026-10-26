@@ -235,6 +235,22 @@ check "H4 anon(full) GET  ?store=projectA (200)" "200" "$(code "$B/api/memories?
 check "H4 anon(full) POST ?store=projectA (200)" "200" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"x","store":"projectA","tags":["t"]}')"
 check "H4 anon(full) SSE  firehose        (200)" "200" "$(code --max-time 2 "$B/api/events")"
 
+# ---------------------------------------------------------------------------
+echo; echo "### Scenario commons-rw — anonymous commons WRITES allowed via MCP_ANONYMOUS_SCOPE (M) ###"
+# The allow/disallow-anonymous-commons-write control IS MCP_ANONYMOUS_SCOPE:
+# 'read:default' (see commons-ro) disallows anon writes; adding 'write:default'
+# here allows them. The flag must open ONLY the commons, never private channels
+# or the firehose.
+start_instance -e MCP_ALLOW_ANONYMOUS_ACCESS=true -e MCP_ANONYMOUS_SCOPE='read:default write:default' \
+               -e MCP_OAUTH_ENABLED=true -e MCP_DCR_REGISTRATION_KEY="$DCR" || exit 1
+check "M1 anon reads commons             (200)" "200" "$(code "$B/api/memories?store=default")"
+check "M2 anon WRITES commons            (200)" "200" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"default","tags":["t"]}')"
+check "M3 anon MCP memory_store commons  (ok)"  "ok"  "$(mcp "" '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"memory_store","arguments":{"content":"z","store":"default"}}}')"
+check "M4 anon still CANNOT read chanA   (403)" "403" "$(code "$B/api/memories?store=chanA")"
+check "M5 anon still CANNOT write chanA  (403)" "403" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"chanA","tags":["t"]}')"
+check "M6 anon still CANNOT write store=all (403)" "403" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"all","tags":["t"]}')"
+check "M7 anon still CANNOT firehose SSE (403)" "403" "$(code --max-time 2 "$B/api/events")"
+
 ###############################################################################
 # summary + cleanup handled by the EXIT trap (finish)
 [ "$FAIL" -eq 0 ]
