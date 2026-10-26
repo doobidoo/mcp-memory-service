@@ -178,10 +178,10 @@ class TestBurst26TagTaxonomyClass:
         """VALID_NAMESPACES class attribute should be exposed for efficient access"""
         assert hasattr(TagTaxonomy, 'VALID_NAMESPACES')
         assert isinstance(TagTaxonomy.VALID_NAMESPACES, set)
-        assert len(TagTaxonomy.VALID_NAMESPACES) == 7
+        assert len(TagTaxonomy.VALID_NAMESPACES) == 11
 
     def test_valid_namespaces_contains_all_namespaces(self):
-        """VALID_NAMESPACES should contain all 7 namespace constants"""
+        """VALID_NAMESPACES should contain all 11 built-in namespace constants"""
         expected_namespaces = {
             NAMESPACE_SYSTEM,
             NAMESPACE_QUALITY,
@@ -189,7 +189,11 @@ class TestBurst26TagTaxonomyClass:
             NAMESPACE_TOPIC,
             NAMESPACE_TEMPORAL,
             NAMESPACE_USER,
-            NAMESPACE_AGENT
+            NAMESPACE_AGENT,
+            tag_taxonomy.NAMESPACE_HARVEST,
+            tag_taxonomy.NAMESPACE_SOURCE,
+            tag_taxonomy.NAMESPACE_CONFLICT,
+            tag_taxonomy.NAMESPACE_CONFIDENCE,
         }
         assert TagTaxonomy.VALID_NAMESPACES == expected_namespaces
 

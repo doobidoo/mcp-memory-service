@@ -16,7 +16,13 @@ Usage:
     tag = TagTaxonomy.add_namespace("high", "q:")  # "q:high"
 """
 
+import logging
+import os
+import re
 from typing import Final, Tuple, Optional, List, Set
+
+# No package imports: tests load this module standalone (see tests/test_tag_taxonomy.py).
+logger = logging.getLogger(__name__)
 
 
 # Namespace constants - each ends with ":" for easy concatenation
@@ -27,6 +33,15 @@ NAMESPACE_TOPIC: Final[str] = "topic:"      # Subject matter topics
 NAMESPACE_TEMPORAL: Final[str] = "t:"       # Time-based tags (t:2024-01, t:sprint-3)
 NAMESPACE_USER: Final[str] = "user:"        # User-defined custom tags
 NAMESPACE_AGENT: Final[str] = "agent:"      # Agent identity tags (agent:<id>, crew:<name>)
+# Namespaces the server's own code writes
+NAMESPACE_HARVEST: Final[str] = "harvest:"        # Session harvest (harvest:<type>, harvest:method:<m>)
+NAMESPACE_SOURCE: Final[str] = "source:"          # Origin of a memory (source:<hostname>, source:<parent hash>)
+NAMESPACE_CONFLICT: Final[str] = "conflict:"      # Conflict state (conflict:unresolved)
+NAMESPACE_CONFIDENCE: Final[str] = "confidence:"  # Confidence stamp from session analysis (confidence:<0-100>)
+
+# Operator-registered namespaces, comma-separated: MCP_CUSTOM_TAG_NAMESPACES="project,cleanup"
+CUSTOM_NAMESPACES_ENV: Final[str] = "MCP_CUSTOM_TAG_NAMESPACES"
+_NAMESPACE_NAME = re.compile(r"^[a-z0-9_-]+$")
 
 
 def parse_tag(tag: str) -> Tuple[Optional[str], str]:
@@ -65,8 +80,39 @@ VALID_NAMESPACES: Final[List[str]] = [
     NAMESPACE_TOPIC,
     NAMESPACE_TEMPORAL,
     NAMESPACE_USER,
-    NAMESPACE_AGENT
+    NAMESPACE_AGENT,
+    NAMESPACE_HARVEST,
+    NAMESPACE_SOURCE,
+    NAMESPACE_CONFLICT,
+    NAMESPACE_CONFIDENCE,
 ]
+
+
+def parse_custom_namespaces(raw: Optional[str]) -> Set[str]:
+    """Namespaces from a comma-separated list such as ``"project, cleanup:"``.
+
+    Names are lowercased and given a trailing ``:``; an entry that is not a plain
+    name (letters, digits, ``_``, ``-``) is skipped with a warning.
+    """
+    found: Set[str] = set()
+    for entry in (raw or "").split(","):
+        name = entry.strip().lower().removesuffix(":")
+        if not name:
+            continue
+        if _NAMESPACE_NAME.match(name):
+            found.add(f"{name}:")
+        else:
+            # %r escapes newlines and control characters in the operator's value
+            logger.warning("Ignoring invalid tag namespace in %s: %r", CUSTOM_NAMESPACES_ENV, entry)
+    return found
+
+
+def register_custom_namespaces(raw: Optional[str]) -> Set[str]:
+    """Add namespaces to the valid set at runtime; returns the ones added."""
+    added = parse_custom_namespaces(raw) - set(VALID_NAMESPACES)
+    VALID_NAMESPACES.extend(sorted(added))
+    TagTaxonomy.VALID_NAMESPACES.update(added)
+    return added
 
 
 def validate_tag(tag: str) -> bool:
@@ -158,8 +204,7 @@ class TagTaxonomy:
         namespace, value = TagTaxonomy.parse_tag("q:high")
 
         # Validate tag
-        if TagTaxonomy.validate_tag("q:high"):
-            print("Valid tag")
+        is_valid = TagTaxonomy.validate_tag("q:high")  # True
 
         # Add namespace
         tag = TagTaxonomy.add_namespace("high", "q:")
@@ -168,16 +213,9 @@ class TagTaxonomy:
         quality_tags = TagTaxonomy.filter_by_namespace(tags, "q:")
     """
 
-    # Expose valid namespaces for efficient external access
-    VALID_NAMESPACES: Final[Set[str]] = {
-        NAMESPACE_SYSTEM,
-        NAMESPACE_QUALITY,
-        NAMESPACE_PROJECT,
-        NAMESPACE_TOPIC,
-        NAMESPACE_TEMPORAL,
-        NAMESPACE_USER,
-        NAMESPACE_AGENT
-    }
+    # Expose valid namespaces for efficient external access (same members as the
+    # module-level list, including operator-registered ones)
+    VALID_NAMESPACES: Final[Set[str]] = set(VALID_NAMESPACES)
 
     @classmethod
     def parse_tag(cls, tag: str) -> Tuple[Optional[str], str]:
@@ -198,3 +236,6 @@ class TagTaxonomy:
     def filter_by_namespace(cls, tags: List[str], namespace: str) -> List[str]:
         """Filter tags to only those matching namespace."""
         return filter_by_namespace(tags, namespace)
+
+
+register_custom_namespaces(os.getenv(CUSTOM_NAMESPACES_ENV))

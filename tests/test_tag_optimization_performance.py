@@ -26,7 +26,7 @@ class TestTagValidationOptimization:
         assert isinstance(TagTaxonomy.VALID_NAMESPACES, set)
 
         # Verify all namespaces are present
-        assert len(TagTaxonomy.VALID_NAMESPACES) == 7
+        assert len(TagTaxonomy.VALID_NAMESPACES) == 11
 
         # Verify fast membership testing works
         assert "q:" in TagTaxonomy.VALID_NAMESPACES
