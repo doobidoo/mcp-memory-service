@@ -1776,9 +1776,9 @@ class MemoryServer:
                     "Refused %s tool for a scope lacking the store grant: %s",
                     operation, _sanitize_log_value(name),
                 )
+                required = "'%s' (global)" % operation if target is None else "'%s:%s'" % (operation, target)
                 raise PermissionError(
-                    "insufficient_scope: tool '%s' requires '%s%s' access"
-                    % (name, operation, "" if target is None else ":" + target)
+                    "insufficient_scope: tool '%s' requires %s access" % (name, required)
                 )
 
         # Resolve handler from routing table

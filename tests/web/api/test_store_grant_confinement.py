@@ -63,6 +63,9 @@ def make_client(storage, monkeypatch):
     monkeypatch.setattr(middleware, "API_KEY", None)
     monkeypatch.setattr(middleware, "OAUTH_ENABLED", False)
     monkeypatch.setattr(middleware, "ALLOW_ANONYMOUS_ACCESS", True)
+    from mcp_memory_service.web import dependencies
+    # Restored on teardown, so this storage cannot answer later tests' lookups.
+    monkeypatch.setattr(dependencies, "_storage", None)
     set_storage(storage)
     monkeypatch.setattr(mcp, "_memory_server", None)
 
