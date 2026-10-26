@@ -246,10 +246,12 @@ print((cs[0].get('text','') if cs else '').lower())" 2>/dev/null
 }
 BHASH=$(curl -s -H "$HG" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"b-secret-for-update","store":"projectB","tags":["t"]}' | jget content_hash)
 check "N0 seeded a projectB memory (hash captured)" "present" "$([ -n "$BHASH" ] && echo present || echo empty)"
-N1=$(mcp_text "$HN" "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_update\",\"arguments\":{\"content_hash\":\"$BHASH\",\"store\":\"projectA\",\"updates\":{\"tags\":[\"pwned\"]}}}}")
-case "$N1" in *"not found in the requested store"*) pass "N1 write:projectA cannot update a projectB hash (confined)";; *) fail "N1 cross-store memory_update confined" "not found in the requested store" "$N1";; esac
+# N1: refusal must be a tool error (isError), not a success-looking result.
+check "N1 write:projectA cannot update a projectB hash (isError)" "errresult" "$(mcp "$HN" "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_update\",\"arguments\":{\"content_hash\":\"$BHASH\",\"store\":\"projectA\",\"updates\":{\"tags\":[\"pwned\"]}}}}")"
+# N2: the authorized update must actually succeed (explicit success text, not
+# merely the absence of "not found").
 N2=$(mcp_text "$HG" "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_update\",\"arguments\":{\"content_hash\":\"$BHASH\",\"store\":\"projectB\",\"updates\":{\"tags\":[\"oknow\"]}}}}")
-case "$N2" in *"not found"*) fail "N2 global token updates the projectB hash" "success" "$N2";; *) pass "N2 global token updates the projectB hash (authorized + found)";; esac
+case "$N2" in *"successfully updated"*) pass "N2 global token updates the projectB hash (authorized + found)";; *) fail "N2 global token updates the projectB hash" "successfully updated memory metadata" "$N2";; esac
 
 # ---------------------------------------------------------------------------
 echo; echo "### Scenario oauth-strict — anon off => no-token lockout (F12, H) ###"

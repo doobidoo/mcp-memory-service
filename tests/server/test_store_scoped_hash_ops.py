@@ -35,31 +35,28 @@ class _Server:
         return self.storage
 
 
-def _text(result):
-    return result[0].text.lower()
-
-
 @pytest.mark.asyncio
 async def test_update_fails_closed_on_store_ignoring_backend():
     """A store-scoped update is refused on a backend whose get_by_hash ignores
-    store — it cannot prove the hash is confined to the claimed partition."""
+    store — it cannot prove the hash is confined to the claimed partition. The
+    refusal raises (-> isError), so it cannot look like a completed write."""
     storage = _Storage(scoped=False, found=True)
-    out = await handle_update_memory_metadata(
-        _Server(storage),
-        {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
-    )
-    assert "not supported on this storage backend" in _text(out)
+    with pytest.raises(PermissionError, match="not supported on this storage backend"):
+        await handle_update_memory_metadata(
+            _Server(storage),
+            {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
+        )
     assert storage.updated is False
 
 
 @pytest.mark.asyncio
 async def test_update_not_found_when_hash_absent_from_claimed_store():
-    """On a store-honoring backend, a hash absent from the claimed store is
-    reported not-found before any write happens."""
+    """On a store-honoring backend, a hash absent from the claimed store raises
+    not-found before any write happens (surfaces as a tool error, not success)."""
     storage = _Storage(scoped=True, found=False)
-    out = await handle_update_memory_metadata(
-        _Server(storage),
-        {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
-    )
-    assert "not found in the requested store" in _text(out)
+    with pytest.raises(PermissionError, match="not found in the requested store"):
+        await handle_update_memory_metadata(
+            _Server(storage),
+            {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
+        )
     assert storage.updated is False
