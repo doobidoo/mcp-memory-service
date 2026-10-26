@@ -30,6 +30,15 @@ from mcp_memory_service.web.oauth.middleware import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _confining_backend(monkeypatch):
+    """These test the scope grammar, so the backend counts as one that confines
+    get_by_hash to a store. The refusal on a backend that cannot is covered in
+    tests/web/api/test_store_grant_confinement.py."""
+    from mcp_memory_service.web.oauth import middleware
+    monkeypatch.setattr(middleware, "_storage_confines_store", lambda: True)
+
+
 def _auth(scope):
     return AuthenticationResult(authenticated=True, client_id="c", scope=scope, auth_method="oauth")
 

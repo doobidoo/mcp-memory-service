@@ -1613,6 +1613,40 @@ class MemoryServer:
             isError=True,
         )
 
+    # Tools whose handlers keep reads and writes inside the claimed ``store``
+    # on a backend whose get_by_hash honours it. A per-store grant
+    # (read:<s>/write:<s>) authorizes only these: every other tool acts on all
+    # partitions, so naming a store there must not unlock it. memory_explore
+    # and memory_detail are left out: the entity graph is not partitioned, so
+    # their entity names and related entities span every store (#1683).
+    STORE_CONFINED_TOOLS = frozenset({
+        "memory_store", "memory_store_session", "memory_search", "memory_list",
+        "memory_delete", "memory_update",
+    })
+    # memory_search arguments that read outside the claimed store: beliefs are
+    # not partitioned, and the exact/tag fallback queries ignore ``store``.
+    CROSS_STORE_ARGUMENTS = ("include_beliefs", "fallback")
+
+    async def store_grant_target(self, name: Optional[str], arguments: Optional[dict] = None) -> Optional[str]:
+        """Return the store a per-store grant may authorize this call for.
+
+        ``None`` means only the global grant will do: the call names no store
+        (or ``all``), the tool ignores ``store``, the call reaches across
+        partitions, or the backend's get_by_hash ignores ``store`` and so cannot
+        prove confinement (storage-layer enforcement is #1683). The SDK dispatch
+        gate and the /mcp shim both ask this, so the transports cannot disagree.
+        """
+        arguments = arguments or {}
+        store = arguments.get("store")
+        if store in (None, "all") or name not in self.STORE_CONFINED_TOOLS:
+            return None
+        if any(arguments.get(key) for key in self.CROSS_STORE_ARGUMENTS):
+            return None
+        storage = await self._ensure_storage_initialized()
+        if not getattr(storage, "get_by_hash_is_store_scoped", False):
+            return None
+        return store
+
     async def tool_requires_write(self, name: Optional[str], arguments: Optional[dict] = None) -> bool:
         """Return True if calling this tool requires the 'write' scope.
 
@@ -1738,16 +1772,15 @@ class MemoryServer:
         scope_str = self._caller_scope_str()
         if scope_str is not None:
             operation = "write" if await self.tool_requires_write(name, arguments) else "read"
-            store_arg = (arguments or {}).get("store")
-            target = None if store_arg in (None, "all") else store_arg
+            target = await self.store_grant_target(name, arguments)
             if not self._scope_grants(scope_str, operation, target):
                 logger.warning(
                     "Refused %s tool for a scope lacking the store grant: %s",
                     operation, _sanitize_log_value(name),
                 )
+                required = "'%s' (global)" % operation if target is None else "'%s:%s'" % (operation, target)
                 raise PermissionError(
-                    "insufficient_scope: tool '%s' requires '%s%s' access"
-                    % (name, operation, "" if target is None else ":" + target)
+                    "insufficient_scope: tool '%s' requires %s access" % (name, required)
                 )
 
         # Resolve handler from routing table

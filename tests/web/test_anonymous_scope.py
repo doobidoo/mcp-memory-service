@@ -29,6 +29,15 @@ from mcp_memory_service.config import _resolve_anonymous_scope
 from mcp_memory_service.web.oauth.middleware import AuthenticationResult
 
 
+@pytest.fixture(autouse=True)
+def _confining_backend(monkeypatch):
+    """The commons store only works on a backend that confines get_by_hash to a
+    store; the refusal elsewhere is covered in
+    tests/web/api/test_store_grant_confinement.py."""
+    from mcp_memory_service.web.oauth import middleware
+    monkeypatch.setattr(middleware, "_storage_confines_store", lambda: True)
+
+
 # --------------------------------------------------------------------------
 # config resolution: unset -> full default, set-empty -> nothing, value kept
 # --------------------------------------------------------------------------
