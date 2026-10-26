@@ -106,10 +106,21 @@ class Ranker:
         return results
 
 
+_EMBEDDING_INFO = {}
+
+
 async def _isolated_storage(prefix):
     tmp_dir = tempfile.mkdtemp(prefix=prefix)
     storage = SqliteVecMemoryStorage(os.path.join(tmp_dir, "memories.db"))
     await storage.initialize()
+    # An empty database lets the hash fallback through; its vectors carry no
+    # semantics, so every score would look normal and measure nothing.
+    if getattr(storage, "embedding_backend_degraded", False):
+        await storage.close()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise RuntimeError("embedding model unavailable (hash fallback); install the ML extras")
+    _EMBEDDING_INFO.update(model=storage.embedding_model_name, backend=type(storage.embedding_model).__name__,
+                           dimension=storage.embedding_dimension)
     return storage, tmp_dir
 
 
@@ -346,6 +357,8 @@ async def main(args):
         print("| mode @ memories | p50 | p95 |\n|---|---|---|")
         for row, values in results["latency"].items():
             print(f"| {row} | {values['p50_ms']:.1f} | {values['p95_ms']:.1f} |")
+    results["embedding"] = dict(_EMBEDDING_INFO)
+    print(f"\nEmbedding: {results['embedding']}")
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             json.dump(results, fh, indent=2)

@@ -8,7 +8,10 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "benchmarks"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from benchmark_resonance import _NEGATION_PATH, _pair_hits, _percentile
+import pytest
+
+import benchmark_resonance
+from benchmark_resonance import _NEGATION_PATH, _isolated_storage, _pair_hits, _percentile
 
 
 class _FakeRanker:
@@ -39,6 +42,22 @@ def test_pair_hits_compares_ranks_and_top1():
     assert asyncio.run(_pair_hits(ranker, "cosine", "q", "b", "a")) == (0.0, 0.0)
     # A member missing from the ranking counts as ranked last.
     assert asyncio.run(_pair_hits(ranker, "cosine", "q", "b", "missing")) == (1.0, 0.0)
+
+
+def test_hash_fallback_is_refused(monkeypatch):
+    class _DegradedStorage:
+        def __init__(self, path):
+            self.embedding_backend_degraded = False
+
+        async def initialize(self):
+            self.embedding_backend_degraded = True
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(benchmark_resonance, "SqliteVecMemoryStorage", _DegradedStorage)
+    with pytest.raises(RuntimeError, match="hash fallback"):
+        asyncio.run(_isolated_storage("resonance-test-"))
 
 
 def test_percentile_picks_nearest_rank():

@@ -88,9 +88,10 @@ Limits worth knowing before you build on it:
   more), against 17-31 ms for `/api/search` at the same sizes.
 - It does not rank better than `/api/search`. The phase is derived from the same
   embedding values, so it cannot add information the embedding model did not encode, and
-  the measurement in #1674 bears that out: on DevBench, LoCoMo (1,986 questions) and a
-  set of 50 negation pairs, none of the three modes beats cosine, including on the
-  negation pairs it was meant to separate. Treat it as a research endpoint.
+  the measurement in #1674 bears that out: on a set of 50 negation pairs, the case it was
+  meant to separate, none of the three modes beats cosine. On DevBench `resonance` and
+  `hybrid` gain a single query, on LoCoMo (1,986 questions) all three lose about ten,
+  both within noise. Treat it as a research endpoint.
   `scripts/benchmarks/benchmark_resonance.py` repeats the measurement.
 
 ## Authentication Patterns
