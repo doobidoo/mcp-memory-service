@@ -151,7 +151,7 @@ async def run_devbench(top_k):
         rows = defaultdict(lambda: defaultdict(list))
         for mode in MODES:
             for query in data["queries"]:
-                results = await ranker.search(query["question"], max(top_k), mode)
+                results = await ranker.search(query["question"], max(5, max(top_k)), mode)
                 if query["category"] == "negative":
                     rows[mode]["fpr@5"].append(false_positive_rate(results, 5))
                     continue
