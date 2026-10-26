@@ -607,7 +607,10 @@ async function withRetry(fn, maxAttempts = 4, initialDelayMs = 2000, verbose = t
 async function deliverInbox(config, context, { verbose = false, cleanMode = false } = {}) {
     let result;
     try {
-        result = await collectInboxBlock({ config });
+        // Session start always checks: only prompt-time checks are throttled by
+        // checkIntervalMinutes, and a session that starts 30 seconds after
+        // another one must still see messages that arrived in between.
+        result = await collectInboxBlock({ config, bypassInterval: true });
     } catch (error) {
         // The inbox is additive: never fail the session start over it.
         if (verbose && !cleanMode) {
@@ -1444,6 +1447,9 @@ module.exports = {
     description: 'Automatically inject relevant memories at session start with git-aware repository context',
     trigger: 'session-start',
     handler: onSessionStart,
+    // Exported for tests: this is the only place that decides whether session
+    // start bypasses checkIntervalMinutes.
+    deliverInbox,
     config: {
         async: true,
         timeout: 15000, // Increased timeout for git analysis

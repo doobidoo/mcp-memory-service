@@ -220,14 +220,17 @@ async function claimStaleLock(lockDirectory) {
 }
 
 /**
- * Write one state entry under a lock. The marker and the query window only ever
- * move forward, except when a clock rollback explicitly resets them.
+ * Run `fn` while holding the state-file lock.
+ *
+ * Every hook invocation is its own process, so the only shared thing they can
+ * serialise on is the filesystem: a directory next to the state file, with a
+ * stale lock taken over so a killed hook cannot wedge the inbox forever.
  *
  * @param {string} stateFile
- * @param {string} key
- * @param {{marker?: string|{value: string, reset: boolean}, seen?: object|Function, window?: string|{value: string, reset: boolean}, checkedAt?: string}} update
+ * @param {(helpers: {read: () => Promise<object>, write: (state: object) => Promise<void>}) => Promise<any>} fn
+ * @returns {Promise<any>} Whatever `fn` returns.
  */
-async function writeStateEntry(stateFile, key, update = {}) {
+async function withStateLock(stateFile, fn) {
     await fsp.mkdir(path.dirname(stateFile), { recursive: true });
     const lockDirectory = `${stateFile}.lock`;
     const deadline = Date.now() + LOCK_TIMEOUT_MS;
@@ -246,9 +249,34 @@ async function writeStateEntry(stateFile, key, update = {}) {
         }
     }
 
+    // Written through a temp file + rename so a reader never sees a half-written
+    // state file: the rename is atomic on the same volume.
     const temporaryFile = `${stateFile}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
     try {
-        const state = await readStateFile(stateFile);
+        return await fn({
+            read: () => readStateFile(stateFile),
+            write: async (state) => {
+                await fsp.writeFile(temporaryFile, JSON.stringify(state, null, 2));
+                await fsp.rename(temporaryFile, stateFile);
+            }
+        });
+    } finally {
+        await fsp.rm(temporaryFile, { force: true }).catch(() => {});
+        await fsp.rm(lockDirectory, { recursive: true, force: true }).catch(() => {});
+    }
+}
+
+/**
+ * Write one state entry under a lock. The marker and the query window only ever
+ * move forward, except when a clock rollback explicitly resets them.
+ *
+ * @param {string} stateFile
+ * @param {string} key
+ * @param {{marker?: string|{value: string, reset: boolean}, seen?: object|Function, window?: string|{value: string, reset: boolean}, checkedAt?: string}} update
+ */
+async function writeStateEntry(stateFile, key, update = {}) {
+    await withStateLock(stateFile, async ({ read, write }) => {
+        const state = await read();
         state.markers = asRecord(state.markers);
         state.seen = asRecord(state.seen);
         state.windows = asRecord(state.windows);
@@ -280,12 +308,66 @@ async function writeStateEntry(stateFile, key, update = {}) {
             state.checks[key] = update.checkedAt;
         }
 
-        await fsp.writeFile(temporaryFile, JSON.stringify(state, null, 2));
-        await fsp.rename(temporaryFile, stateFile);
-    } finally {
-        await fsp.rm(temporaryFile, { force: true }).catch(() => {});
-        await fsp.rm(lockDirectory, { recursive: true, force: true }).catch(() => {});
-    }
+        await write(state);
+    });
+}
+
+/**
+ * Claim a queried batch as delivered, under the lock, and return only the rows
+ * this process actually owns.
+ *
+ * Without this, two sessions polling at the same moment both read the same seen
+ * set, both query, and both hand the same peer message to their own context —
+ * the lock used to start only after selection. Selection is check-then-act; the
+ * claim makes it a single critical section. The query itself stays outside the
+ * lock on purpose: holding it across a 10s network round trip would make every
+ * concurrent hook wait that long, which is worse than the race.
+ *
+ * The trade-off is at-most-once instead of at-least-once: a process that dies
+ * between claiming and injecting loses the batch. Messages are coordination
+ * notes, and a duplicate in the agent's context is the louder failure.
+ *
+ * @param {string} stateFile
+ * @param {string} key
+ * @param {{candidates: object[], querySince: Date, nextMarker: string, checkedAt: string, reset?: boolean}} claim
+ * @returns {Promise<object[]>} The candidates no other process had claimed.
+ */
+async function claimStateEntry(stateFile, key, { candidates, querySince, nextMarker, checkedAt, reset = false }) {
+    return withStateLock(stateFile, async ({ read, write }) => {
+        const state = await read();
+        state.markers = asRecord(state.markers);
+        state.seen = asRecord(state.seen);
+        state.windows = asRecord(state.windows);
+        state.checks = asRecord(state.checks);
+
+        const current = asRecord(state.seen[key]);
+        // A concurrent hook may have claimed part or all of this batch while we
+        // were querying.
+        const claimed = candidates.filter((memory) => !Object.hasOwn(current, memory.id));
+
+        const delivered = {};
+        for (const memory of claimed) {
+            delivered[memory.id] = memory.createdAt;
+        }
+
+        const existingMarker = asIsoOrNull(state.markers[key]);
+        state.markers[key] = !reset && existingMarker && Date.parse(existingMarker) > Date.parse(nextMarker)
+            ? existingMarker
+            : nextMarker;
+
+        state.seen[key] = pruneSeen({ ...current, ...delivered }, querySince.getTime());
+
+        const window = querySince.toISOString();
+        const existingWindow = asIsoOrNull(state.windows[key]);
+        state.windows[key] = !reset && existingWindow && Date.parse(existingWindow) >= Date.parse(window)
+            ? existingWindow
+            : window;
+
+        state.checks[key] = checkedAt;
+
+        await write(state);
+        return claimed;
+    });
 }
 
 /**
@@ -518,15 +600,18 @@ function createInboxChecker({
     stateFile = defaultStateFile(),
     search = searchInboxMemories,
     readState = readStateFile,
-    writeState = writeStateEntry,
+    claim = claimStateEntry,
     now = () => new Date()
 } = {}) {
     const stateKey = inboxStateKey(config, inbox);
 
     /**
+     * @param {{bypassInterval?: boolean}} [options] - Session start passes
+     *   `bypassInterval: true`: the issue asks for a check on every session
+     *   start, and only prompt-time checks are throttled.
      * @returns {Promise<{memories: object[], since: Date, marker: string}|{error: string}|null>}
      */
-    const check = async () => {
+    const check = async ({ bypassInterval = false } = {}) => {
         if (!inbox.enabled) return null;
 
         const checkedAt = now();
@@ -541,7 +626,8 @@ function createInboxChecker({
         const clockRolledBack = (Number.isFinite(lastCheckTime) && checkedAt.getTime() < lastCheckTime)
             || (Number.isFinite(markerTime) && markerTime > checkedAt.getTime());
 
-        if (!clockRolledBack && !checkDue(checkedAt, inbox.checkIntervalMinutes, Number.isFinite(lastCheckTime) ? lastCheck : marker)) {
+        if (!bypassInterval && !clockRolledBack
+            && !checkDue(checkedAt, inbox.checkIntervalMinutes, Number.isFinite(lastCheckTime) ? lastCheck : marker)) {
             return null;
         }
 
@@ -575,9 +661,11 @@ function createInboxChecker({
         }
 
         const returned = Array.isArray(result) ? result : (result && Array.isArray(result.memories) ? result.memories : []);
-        // Repeat the seen check: the query already drops them, but a custom
-        // search implementation might not.
-        const memories = returned.filter((memory) => !Object.hasOwn(seen, memory.id));
+        // Drop what this snapshot already knew about before asking for the lock;
+        // claimStateEntry then re-checks against the state as it is *now*, so a
+        // concurrent hook that delivered these rows first wins and we return
+        // nothing instead of injecting the same message twice.
+        const candidates = returned.filter((memory) => !Object.hasOwn(seen, memory.id));
 
         const suggested = Array.isArray(result) ? null : result && result.nextMarker;
         const nextMarker = typeof suggested === 'string'
@@ -586,19 +674,20 @@ function createInboxChecker({
             ? suggested
             : checkedAt.toISOString();
 
-        const delivered = {};
-        for (const memory of memories) {
-            delivered[memory.id] = memory.createdAt;
+        let memories;
+        try {
+            memories = await claim(stateFile, stateKey, {
+                candidates,
+                querySince,
+                nextMarker,
+                checkedAt: checkedAt.toISOString(),
+                reset: clockRolledBack
+            });
+        } catch (error) {
+            // The query succeeded but the state could not be written. Report it
+            // rather than pretending the batch was delivered.
+            return { error: error.message };
         }
-
-        await writeState(stateFile, stateKey, {
-            marker: clockRolledBack ? { value: nextMarker, reset: true } : nextMarker,
-            seen: (current) => pruneSeen({ ...current, ...delivered }, querySince.getTime()),
-            window: clockRolledBack
-                ? { value: querySince.toISOString(), reset: true }
-                : querySince.toISOString(),
-            checkedAt: checkedAt.toISOString()
-        });
 
         return { memories, since: deliveredSince, marker: nextMarker };
     };
@@ -679,9 +768,11 @@ function formatInboxBlock(memories, since, options = {}) {
  * @param {string} [options.stateFile]
  * @param {Function} [options.search]
  * @param {Function} [options.now]
+ * @param {boolean} [options.bypassInterval] - Session start: ignore
+ *   `checkIntervalMinutes` and always check.
  * @returns {Promise<{block: string, error: string|null, delivered: number}>}
  */
-async function collectInboxBlock({ config, stateFile, search, now } = {}) {
+async function collectInboxBlock({ config, stateFile, search, now, bypassInterval = false } = {}) {
     const inbox = inboxConfig(config);
     if (!inbox.enabled) {
         return { block: '', error: null, delivered: 0 };
@@ -690,7 +781,7 @@ async function collectInboxBlock({ config, stateFile, search, now } = {}) {
     const checker = createInboxChecker({ config, inbox, stateFile, search, now });
     let result;
     try {
-        result = await checker.check();
+        result = await checker.check({ bypassInterval });
     } catch (error) {
         return { block: '', error: error.message, delivered: 0 };
     }
@@ -715,7 +806,9 @@ module.exports = {
     inboxStateKey,
     readStateFile,
     stateFor,
+    withStateLock,
     writeStateEntry,
+    claimStateEntry,
     pruneSeen,
     lookbackDays,
     normalizeMemory,
