@@ -1377,6 +1377,7 @@ class HookInstaller:
             "utilities/project-detector.js",
             "utilities/memory-scorer.js",
             "utilities/context-formatter.js",
+            "utilities/inbox.js",
             "config.json"
         ]
 
