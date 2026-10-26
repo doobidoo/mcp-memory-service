@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
     <title data-i18n="meta.title">MCP Memory Service - Dashboard</title>
-    <link rel="stylesheet" href="static/style.css">
+    <link rel="stylesheet" href="static/style.css?v=delta-sync-ui-1">
     <link rel="icon" type="image/png" href="static/brain-icon.png">
     <!-- Chart.js for quality analytics visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -234,13 +234,17 @@
                             </button>
                         </div>
 
-                        <section id="deltaSyncControl" class="sync-control-compact" style="display: none" aria-label="Delta sync">
-                            <div class="sync-status">
-                                <span class="sync-dot" aria-hidden="true"></span>
-                                <strong>Delta sync</strong>
-                                <span id="deltaSyncStatus" role="status"></span>
+                        <section id="deltaSyncControl" class="sync-control-compact delta-sync-control" style="display: none" aria-label="Delta sync">
+                            <div class="delta-sync-header">
+                                <div class="delta-sync-heading">
+                                    <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                                    </svg>
+                                    <span>Delta sync</span>
+                                </div>
+                                <span class="delta-sync-badge"><span class="sync-dot" aria-hidden="true"></span><span id="deltaSyncStatus" role="status"></span></span>
                             </div>
-                            <p id="deltaSyncSchedule" class="delta-sync-meta"></p>
+                            <p id="deltaSyncSchedule" class="delta-sync-meta delta-sync-schedule"></p>
                             <div id="deltaSyncPeers"></div>
                         </section>
 
@@ -1699,7 +1703,7 @@
         </div>
     </div>
 
-    <script src="static/app.js?v=orrery-3d-poc12"></script>
-    <link rel="stylesheet" href="static/style.css?v=orrery-3d-poc12">
+    <script src="static/app.js?v=delta-sync-ui-1"></script>
+    <link rel="stylesheet" href="static/style.css?v=delta-sync-ui-1">
 </body>
 </html>

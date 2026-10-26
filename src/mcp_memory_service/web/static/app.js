@@ -1863,7 +1863,7 @@ class MemoryDashboard {
             console.error('Error checking sync status:', error);
             const deltaControl = document.getElementById('deltaSyncControl');
             if (deltaControl && deltaControl.style.display !== 'none') {
-                deltaControl.className = 'sync-control-compact error';
+                deltaControl.className = 'sync-control-compact delta-sync-control error';
                 document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
             }
             // Hide sync control on error (likely not hybrid mode)
@@ -1882,7 +1882,7 @@ class MemoryDashboard {
         panel.style.display = delta?.configured ? 'block' : 'none';
         if (!delta?.configured) return;
         const state = delta.status || 'disabled';
-        panel.className = `sync-control-compact ${state === 'disabled' ? 'paused' : state}`;
+        panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
         document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
@@ -1893,30 +1893,76 @@ class MemoryDashboard {
             this._startSyncCountdown(delta.next_run_at, `Every ${cadence} · `);
         }
         const container = document.getElementById('deltaSyncPeers');
+        // Keep the disclosure open across live refreshes, including keyboard focus.
+        const openPeers = new Set([...container.querySelectorAll('details[open]')]
+            .map(details => details.dataset.peerId));
+        const focusedPeer = document.activeElement?.closest('details')?.dataset.peerId;
         container.replaceChildren();
-        const line = (parent, text, className) => {
-            const el = document.createElement('div');
-            el.className = className || 'delta-sync-meta';
-            el.textContent = text;
+        const text = (parent, tag, value, className) => {
+            const el = document.createElement(tag);
+            if (className) el.className = className;
+            el.textContent = value;
             parent.appendChild(el);
+            return el;
         };
-        if (!delta.peers?.length) line(container, 'No peers configured');
-        for (const peer of delta.peers || []) {
+        const peers = delta.peers || [];
+        if (!peers.length) text(container, 'p', 'No peers configured', 'delta-sync-meta');
+        for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
-            line(row, `${peer.peer_id} · ${peer.url || 'URL not configured'}`, 'delta-sync-destination');
-            line(row, `Status: ${peer.health || peer.status}`);
-            const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
-            line(row, completed
-                ? `Last cycle: ${completed.toLocaleString()} (${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))})`
-                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle');
-            if (peer.pull) line(row, `Pull: ${peer.pull.received ?? 'unknown'} received · ${peer.pull.applied} applied · cursor ${peer.pull.cursor}`);
-            if (peer.push) line(row, `Push: ${peer.push.pushed} pushed · cursor ${peer.push.cursor}`);
-            line(row, `Backlog: ${peer.backlog ?? 'unknown'}`);
-            if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
-                line(row, peer.last_error || peer.message, 'delta-sync-error');
+            const heading = document.createElement('div');
+            heading.className = 'delta-sync-peer-heading';
+            row.appendChild(heading);
+            text(heading, 'span', peer.peer_id, 'delta-sync-destination');
+            if (peers.length > 1) {
+                text(heading, 'span', peer.health || peer.status, 'delta-sync-meta');
             }
+            text(row, 'p', peer.url || 'URL not configured', 'delta-sync-url');
+
+            const metrics = document.createElement('dl');
+            metrics.className = 'delta-sync-metrics';
+            row.appendChild(metrics);
+            const metric = (label, value, note) => {
+                const group = document.createElement('div');
+                text(group, 'dt', label);
+                const result = text(group, 'dd', value);
+                text(result, 'span', note, 'delta-sync-meta');
+                metrics.appendChild(group);
+            };
+            metric('Pull', peer.pull ? String(peer.pull.received ?? 'Unknown') : '—',
+                peer.pull ? `received · ${peer.pull.applied} applied` : 'No cycle yet');
+            metric('Push', peer.push ? String(peer.push.pushed) : '—',
+                peer.push ? 'sent to peer' : 'No cycle yet');
+
+            const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
+            const lastCycle = text(row, 'p', completed
+                ? `Last cycle ${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))}`
+                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle', 'delta-sync-meta');
+            if (completed) lastCycle.title = completed.toLocaleString();
+            if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
+                text(row, 'p', peer.last_error || peer.message, 'delta-sync-error');
+            }
+
+            const details = document.createElement('details');
+            details.className = 'delta-sync-details';
+            details.dataset.peerId = peer.peer_id;
+            details.open = openPeers.has(peer.peer_id);
+            const summary = text(details, 'summary', 'Sync details');
+            const diagnostics = document.createElement('dl');
+            for (const [label, value] of [
+                ['Pull cursor', peer.pull?.cursor ?? 'Not available'],
+                ['Push cursor', peer.push?.cursor ?? 'Not available'],
+                ['Backlog', peer.backlog ?? 'Unknown']
+            ]) {
+                const group = document.createElement('div');
+                text(group, 'dt', label);
+                text(group, 'dd', String(value));
+                diagnostics.appendChild(group);
+            }
+            details.appendChild(diagnostics);
+            row.appendChild(details);
             container.appendChild(row);
+            if (focusedPeer === peer.peer_id) summary.focus({ preventScroll: true });
         }
     }
 
