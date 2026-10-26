@@ -109,7 +109,7 @@ test_selection_matches_ci() {
 # checks, and a workflow that never starts never reports them.
 test_docs_only_matches_ci_paths_ignore() {
   local ci="$REPO_ROOT/.github/workflows/ci.yml"
-  local expected="paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore', 'site/**']"
+  local expected="paths-ignore: ['docs/**', '*.md', 'changelog.d/**', '.github/**/*.md', 'LICENSE', 'NOTICE', '.gitignore', 'site/**', '.github/CODEOWNERS']"
   local n
   n=$(grep -cF -- "$expected" "$ci")
   [ "$n" -eq 1 ] || { echo "   ci.yml paths-ignore changed (push only, none on pull_request); update is_docs_only()"; return 1; }
@@ -133,10 +133,10 @@ test_docs_only_matches_ci_paths_ignore() {
   declare -F is_docs_only >/dev/null || { echo "   is_docs_only() not found in gate"; return 1; }
 
   local f
-  for f in SPONSORS.md docs/a/b.md docs/x.png changelog.d/1.md .github/ISSUE_TEMPLATE/bug.md LICENSE NOTICE .gitignore site/index.html site/img/card.png; do
+  for f in SPONSORS.md docs/a/b.md docs/x.png changelog.d/1.md .github/ISSUE_TEMPLATE/bug.md LICENSE NOTICE .gitignore site/index.html site/img/card.png .github/CODEOWNERS; do
     is_docs_only "$f" || { echo "   '$f' should count as docs-only"; return 1; }
   done
-  for f in src/x.py claude-hooks/README.md tests/README.md .github/workflows/ci.yml pyproject.toml; do
+  for f in src/x.py claude-hooks/README.md tests/README.md .github/workflows/ci.yml pyproject.toml CODEOWNERS .github/CODEOWNERS.bak; do
     is_docs_only "$f" && { echo "   '$f' must not count as docs-only"; return 1; }
   done
   is_docs_only $'README.md\nsrc/x.py' && { echo "   mixed change must not count as docs-only"; return 1; }

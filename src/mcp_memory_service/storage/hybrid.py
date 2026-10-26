@@ -1402,6 +1402,9 @@ class HybridMemoryStorage(MemoryStorage):
     - Full compatibility with the MemoryStorage interface
     """
 
+    # Delegates get_by_hash to the SQLite-vec primary, which scopes by ``store``.
+    get_by_hash_is_store_scoped = True
+
     @property
     def max_content_length(self) -> Optional[int]:
         """

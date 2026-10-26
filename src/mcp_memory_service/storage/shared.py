@@ -66,13 +66,21 @@ def _sanitize_log_value(value: object) -> str:
 
 
 def _escape_like(value: str) -> str:
-    """Strip Milvus ``like`` wildcard characters from a user-supplied tag.
+    """Escape Milvus ``like`` wildcards so a user-supplied value matches literally.
 
-    Milvus uses ``%`` and ``_`` as wildcards in ``like`` expressions and does
-    not support escape characters. We drop these so that a malicious or noisy
-    tag like ``"a%b"`` cannot cause unintended cross-matches.
+    Milvus treats ``%`` and ``_`` as wildcards in ``like`` patterns, and ``\\%``
+    and ``\\_`` as the literal characters. Escaping them, instead of dropping
+    them, keeps values such as ``upload_id:abc`` matchable: dropping ``_``
+    searched for ``uploadid:abc``, which never matched (#1684).
+
+    Backslashes are left alone on purpose. Inside a ``%...%`` pattern, Milvus
+    Lite 3.2.2 keeps a backslash before any other character as a literal, while
+    newer servers collapse ``\\\\`` to one (milvus-io/milvus#43864), so doubling
+    it would break the existing match for tags such as ``foo\\`` (#1107). The
+    result still goes through ``escape_expr_value`` before it is placed inside
+    a ``"..."`` literal, which handles the expression parser's own unescaping.
     """
-    return value.replace("%", "").replace("_", "")
+    return value.replace("%", "\\%").replace("_", "\\_")
 
 
 def _tags_to_string(tags: Optional[List[str]]) -> str:

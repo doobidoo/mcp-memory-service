@@ -201,6 +201,11 @@ async def register_client(
         is_public_client = token_endpoint_auth_method == "none"
         client_secret = "" if is_public_client else get_oauth_storage().generate_client_secret()
 
+        # Capture the requested scope as this client's permanent ceiling. An
+        # omitted or empty scope leaves it unbounded (None) — unchanged from the
+        # pre-ceiling behaviour — so existing clients and callers are unaffected.
+        allowed_scope = (request.scope or "").strip() or None
+
         # Create registered client
         registered_client = RegisteredClient(
             client_id=client_id,
@@ -210,7 +215,8 @@ async def register_client(
             response_types=response_types,
             token_endpoint_auth_method=token_endpoint_auth_method,
             client_name=request.client_name,
-            created_at=time.time()
+            created_at=time.time(),
+            allowed_scope=allowed_scope
         )
 
         # Store the client
@@ -224,10 +230,11 @@ async def register_client(
             grant_types=grant_types,
             response_types=response_types,
             token_endpoint_auth_method=token_endpoint_auth_method,
-            client_name=request.client_name
+            client_name=request.client_name,
+            scope=allowed_scope
         )
 
-        logger.info(f"OAuth client registered successfully: client_id={_sanitize_log_value(client_id)}, name={_sanitize_log_value(request.client_name)}")
+        logger.info(f"OAuth client registered successfully: client_id={_sanitize_log_value(client_id)}, name={_sanitize_log_value(request.client_name)}, scope={_sanitize_log_value(allowed_scope)}")
         return response
 
     except ValidationError as e:
@@ -281,5 +288,6 @@ async def get_client_info(client_id: str) -> ClientRegistrationResponse:
         grant_types=client.grant_types,
         response_types=client.response_types,
         token_endpoint_auth_method=client.token_endpoint_auth_method,
-        client_name=client.client_name
+        client_name=client.client_name,
+        scope=client.allowed_scope
     )

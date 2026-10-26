@@ -13,6 +13,11 @@ import pytest
 from fastapi import HTTPException
 
 from mcp_memory_service.web.api import memories
+from mcp_memory_service.web.oauth.middleware import AuthenticationResult
+
+# The store endpoint now enforces write scope in-body (user.require_store_scope),
+# so a direct call must pass an authenticated writer rather than None.
+_WRITER = AuthenticationResult(authenticated=True, client_id="test", scope="read write")
 
 FORGED = "FORGED admin authenticated"
 LOGGER = "mcp_memory_service.web.api.memories"
@@ -81,7 +86,7 @@ async def test_store_error_log_does_not_carry_newlines(caplog):
                 request=_store_request(),
                 http_request=SimpleNamespace(headers={}),
                 memory_service=Service(),
-                user=None,
+                user=_WRITER,
             )
 
     assert err.value.status_code == 500
@@ -118,7 +123,7 @@ async def test_store_broadcast_failure_log_does_not_carry_newlines(caplog, monke
             request=_store_request(),
             http_request=SimpleNamespace(headers={}),
             memory_service=Service(),
-            user=None,
+            user=_WRITER,
         )
 
     assert response.success

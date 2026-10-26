@@ -40,7 +40,13 @@ from .store_scope import resolve_store
 from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted_event
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
+from ..oauth.middleware import (
+    require_read_access,
+    require_store_read,
+    require_store_write,
+    get_current_user,
+    AuthenticationResult,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -149,7 +155,7 @@ async def store_memory(
     request: MemoryCreateRequest,
     http_request: Request,
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_write_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
     """
     Store a new memory.
@@ -185,6 +191,10 @@ async def store_memory(
                 status_code=400,
                 detail="store='all' is only valid for read scopes",
             )
+
+        # Store write is gated per-store (store is in the body, so the check is
+        # here rather than in a dependency).
+        user.require_store_scope("write", request.store)
 
         # Use injected MemoryService for consistent business logic (hostname tagging handled internally)
         result = await memory_service.store_memory(
@@ -308,7 +318,7 @@ async def list_memories(
     tag_match: Optional[str] = Query("any", description="Tag matching mode: 'any' (OR) or 'all' (AND)"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     List memories with pagination and optional filtering.
@@ -367,7 +377,7 @@ async def get_memory(
     content_hash: str,
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get a specific memory by its content hash.
@@ -395,7 +405,7 @@ async def delete_memory(
     content_hash: str,
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access)
+    user: AuthenticationResult = Depends(require_store_write)
 ):
     """
     Delete a memory by its content hash.
@@ -444,7 +454,7 @@ async def update_memory(
     request: MemoryUpdateRequest,
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_write_access)
+    user: AuthenticationResult = Depends(require_store_write)
 ):
     """
     Update memory metadata (tags, type, metadata) without changing content or timestamps.
@@ -516,7 +526,7 @@ async def update_memory(
 async def get_tags(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get all tags with their usage counts.
@@ -583,7 +593,7 @@ class SessionCreateResponse(BaseModel):
 async def store_session(
     request: SessionCreateRequest,
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_write_access),
+    user: AuthenticationResult = Depends(get_current_user),
 ):
     """Store a conversation session as a single memory unit.
 
@@ -602,6 +612,9 @@ async def store_session(
             status_code=400,
             detail="store='all' is only valid for read scopes",
         )
+
+    # Session write is gated per-store (store arrives in the body).
+    user.require_store_scope("write", request.store)
 
     content = "\n".join(lines)
     tags = [f"session:{session_id}"] + request.tags

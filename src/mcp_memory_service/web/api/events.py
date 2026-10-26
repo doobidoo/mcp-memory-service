@@ -11,11 +11,16 @@ from typing import List, Optional
 from mcp_memory_service.compat import _sanitize_log_value
 
 # OAuth config no longer needed - auth is always enabled
-from ..sse import create_event_stream, sse_manager
+from ..sse import create_event_stream, sse_manager, parse_store_subscription
 from ..sse_ticket import sse_tickets
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, require_real_credential, AuthenticationResult
+from ..oauth.middleware import (
+    require_read_access,
+    require_real_credential,
+    get_current_user,
+    AuthenticationResult,
+)
 
 router = APIRouter()
 
@@ -44,6 +49,22 @@ class TicketResponse(BaseModel):
     param_name: str = "ticket"
 
 
+def _ticket_read_scope(user: AuthenticationResult) -> str:
+    """The read portion of the caller's scope, stamped onto the SSE ticket.
+
+    A ticket must not grant more than the credential that minted it: a
+    ``read:projectA`` token has to yield a ticket confined to ``projectA``, not
+    the firehose. We copy through only the caller's read grants (global
+    ``read`` or ``read:<store>``); the ``/events`` handler then enforces them
+    via ``require_store_scope`` exactly as it would for the original token. A
+    caller with no read grant gets an empty scope — a ticket that authenticates
+    but authorizes nothing, which ``/events`` rejects.
+    """
+    tokens = (user.scope or "").split()
+    read = [t for t in tokens if t == "read" or t.startswith("read:")]
+    return " ".join(read)
+
+
 @router.post("/events/ticket")
 async def issue_event_ticket(
     user: AuthenticationResult = Depends(require_real_credential),
@@ -63,7 +84,7 @@ async def issue_event_ticket(
     token that is single-use and dead within a minute.
     """
     try:
-        ticket = sse_tickets.issue(scope="read")
+        ticket = sse_tickets.issue(scope=_ticket_read_scope(user))
     except RuntimeError:
         # Saturation is a client problem, not a server fault, and must not
         # look like an auth failure.
@@ -91,7 +112,7 @@ async def events_endpoint(
             "regardless of this filter."
         ),
     ),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
     """
     Server-Sent Events endpoint for real-time updates.
@@ -105,13 +126,23 @@ async def events_endpoint(
     - connection_established: Welcome message
 
     memory_stored / memory_deleted events carry the store partition they
-    belong to and can be filtered with the ``store`` query parameter. This is
-    an opt-in convenience filter, not an access control boundary: any caller
-    with read access may subscribe to any store or to the firehose.
+    belong to and are filtered with the ``store`` query parameter. The filter
+    is scope-enforced: a caller may subscribe only to stores it has read
+    access to. A caller with a global ``read`` scope may use the firehose
+    (every store); a store-restricted caller (e.g. ``read:projectA``) must name
+    its stores and cannot subscribe to the firehose. System events (heartbeat,
+    health, connection lifecycle) are always delivered.
     """
-    # `store` is declared for OpenAPI/validation; create_event_stream reads it
-    # back off request.query_params so repeated and comma-separated forms are
-    # parsed in one place.
+    # Enforce read scope against the requested subscription. `store` is also
+    # declared above for OpenAPI; create_event_stream re-reads it off
+    # request.query_params so parsing lives in one place.
+    requested = parse_store_subscription(request.query_params)
+    if requested is None:
+        # Firehose (no store / "all"): spans every partition -> needs global read.
+        user.require_store_scope("read", None)
+    else:
+        for name in requested:
+            user.require_store_scope("read", name)
     return await create_event_stream(request)
 
 
