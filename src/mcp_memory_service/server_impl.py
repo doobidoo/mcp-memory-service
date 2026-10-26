@@ -1616,10 +1616,12 @@ class MemoryServer:
     # Tools whose handlers keep reads and writes inside the claimed ``store``
     # on a backend whose get_by_hash honours it. A per-store grant
     # (read:<s>/write:<s>) authorizes only these: every other tool acts on all
-    # partitions, so naming a store there must not unlock it.
+    # partitions, so naming a store there must not unlock it. memory_explore
+    # and memory_detail are left out: the entity graph is not partitioned, so
+    # their entity names and related entities span every store (#1683).
     STORE_CONFINED_TOOLS = frozenset({
         "memory_store", "memory_store_session", "memory_search", "memory_list",
-        "memory_delete", "memory_update", "memory_explore", "memory_detail",
+        "memory_delete", "memory_update",
     })
     # memory_search arguments that read outside the claimed store: beliefs are
     # not partitioned, and the exact/tag fallback queries ignore ``store``.

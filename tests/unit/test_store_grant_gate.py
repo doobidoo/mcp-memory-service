@@ -71,6 +71,19 @@ async def test_store_grant_cannot_search_across_partitions(server, flag):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tool, arguments", [
+    ("memory_explore", {"query": "x", "store": "projectA"}),
+    ("memory_detail", {"entity_id": "e", "store": "projectA"}),
+])
+async def test_store_grant_cannot_read_the_unpartitioned_graph(server, tool, arguments):
+    """Entity names and related entities come from a graph with no store, so
+    a per-store grant would see other stores' entities."""
+    result = await _call(server, tool, arguments, "read:projectA")
+    assert result.isError
+    assert server.handled == []
+
+
+@pytest.mark.asyncio
 async def test_store_grant_refused_on_a_backend_that_cannot_confine(server):
     server.storage.get_by_hash_is_store_scoped = False
     result = await _call(server, "memory_delete", {"content_hash": "h", "store": "projectA"},
