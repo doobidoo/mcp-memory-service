@@ -39,6 +39,7 @@ import os
 import shutil
 import statistics
 import sys
+import tempfile
 import time
 from collections import defaultdict
 
@@ -48,6 +49,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from mcp_memory_service.models.memory import Memory, MemoryQueryResult
 from mcp_memory_service.storage.mixins.base import deserialize_embedding
 from mcp_memory_service.storage.resonance_db import ResonanceDB, _cosine_similarity
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 from locomo_evaluator import mrr, recall_at_k
 
@@ -105,8 +107,6 @@ class Ranker:
 
 
 async def _isolated_storage(prefix):
-    import tempfile
-    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
     tmp_dir = tempfile.mkdtemp(prefix=prefix)
     storage = SqliteVecMemoryStorage(os.path.join(tmp_dir, "memories.db"))
     await storage.initialize()
@@ -159,6 +159,38 @@ async def run_devbench(top_k):
 # Negation minimal pairs
 # --------------------------------------------------------------------------
 
+async def _pair_hits(ranker, mode, query, want, other):
+    """(want outranks other, want is top-1) for one query over the whole store."""
+    n_all = len(ranker.vectors)
+    ranked = [r.memory.content_hash for r in await ranker.search(query, n_all, mode)]
+    rank_want = ranked.index(want) if want in ranked else n_all
+    rank_other = ranked.index(other) if other in ranked else n_all
+    return float(rank_want < rank_other), float(ranked[:1] == [want])
+
+
+async def _score_negation_mode(ranker, mode, pairs, members):
+    hits = defaultdict(list)
+    for pair in pairs:
+        pos_hash, neg_hash = members[pair["id"]]
+        pos_hit, pos_top1 = await _pair_hits(ranker, mode, pair["q_pos"], pos_hash, neg_hash)
+        neg_hit, neg_top1 = await _pair_hits(ranker, mode, pair["q_neg"], neg_hash, pos_hash)
+        hits["pos"].append(pos_hit)
+        hits["neg"].append(neg_hit)
+        hits[f"neg_{pair.get('style', 'explicit')}"].append(neg_hit)
+        hits["top1_pos"].append(pos_top1)
+        hits["top1_neg"].append(neg_top1)
+    return {
+        "pairwise_pos": _mean(hits["pos"]),
+        "pairwise_neg": _mean(hits["neg"]),
+        "pairwise_neg_explicit": _mean(hits["neg_explicit"]),
+        "pairwise_neg_implicit": _mean(hits["neg_implicit"]),
+        "pairwise_all": _mean(hits["pos"] + hits["neg"]),
+        "top1_pos": _mean(hits["top1_pos"]),
+        "top1_neg": _mean(hits["top1_neg"]),
+        "ms/query": _mean(ranker.latency_ms[mode]),
+    }
+
+
 async def run_negation():
     with open(_NEGATION_PATH, encoding="utf-8") as fh:
         data = json.load(fh)
@@ -173,38 +205,7 @@ async def run_negation():
         for i, text in enumerate(data["distractors"]):
             await _store(storage, text, ["neg-bench", f"distractor:{i}"])
         ranker = Ranker(storage)
-        n_all = len(ranker.vectors)
-
-        out = {}
-        for mode in MODES:
-            pairwise = defaultdict(list)
-            top1 = defaultdict(list)
-            for pair in data["pairs"]:
-                pos_hash, neg_hash = members[pair["id"]]
-                style = pair.get("style", "explicit")
-                for direction, query, want, other in (
-                    ("pos", pair["q_pos"], pos_hash, neg_hash),
-                    ("neg", pair["q_neg"], neg_hash, pos_hash),
-                ):
-                    ranked = [r.memory.content_hash for r in await ranker.search(query, n_all, mode)]
-                    rank_want = ranked.index(want) if want in ranked else n_all
-                    rank_other = ranked.index(other) if other in ranked else n_all
-                    hit = 1.0 if rank_want < rank_other else 0.0
-                    pairwise[direction].append(hit)
-                    if direction == "neg":
-                        pairwise[f"neg_{style}"].append(hit)
-                    top1[direction].append(1.0 if ranked[:1] == [want] else 0.0)
-            out[mode] = {
-                "pairwise_pos": _mean(pairwise["pos"]),
-                "pairwise_neg": _mean(pairwise["neg"]),
-                "pairwise_neg_explicit": _mean(pairwise["neg_explicit"]),
-                "pairwise_neg_implicit": _mean(pairwise["neg_implicit"]),
-                "pairwise_all": _mean(pairwise["pos"] + pairwise["neg"]),
-                "top1_pos": _mean(top1["pos"]),
-                "top1_neg": _mean(top1["neg"]),
-                "ms/query": _mean(ranker.latency_ms[mode]),
-            }
-        return out
+        return {mode: await _score_negation_mode(ranker, mode, data["pairs"], members) for mode in MODES}
     finally:
         await storage.close()
         shutil.rmtree(tmp_dir, ignore_errors=True)
