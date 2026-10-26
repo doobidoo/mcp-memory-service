@@ -291,14 +291,14 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
         <span class="tag">Storage</span>
         <div>
           <h3>Deleted content stays deleted</h3>
-          <p>Re-sending content the server deleted is refused with a 409 unless <code>restore_deleted</code> is set.</p>
+          <p>On sqlite-vec, hybrid and the HTTP client, re-sending content that was deleted is refused (REST answers HTTP 409) unless <code>restore_deleted</code> is set. Other backends keep their previous behavior.</p>
         </div>
       </li>
       <li>
         <span class="tag">Dashboard</span>
         <div>
           <h3>Quality tab and delta-sync settings</h3>
-          <p>The dashboard gains a Quality tab, and the Environment tab lists the delta-sync settings with credentials masked.</p>
+          <p>The Quality tab now saves its settings with a Save &amp; Restart button, and the Environment tab lists the delta-sync settings with credentials masked.</p>
         </div>
       </li>
     </ul>
