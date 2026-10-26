@@ -248,7 +248,7 @@ check "M2 anon WRITES commons            (200)" "200" "$(code -H 'Content-Type: 
 check "M3 anon MCP memory_store commons  (ok)"  "ok"  "$(mcp "" '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"memory_store","arguments":{"content":"z","store":"default"}}}')"
 check "M4 anon still CANNOT read chanA   (403)" "403" "$(code "$B/api/memories?store=chanA")"
 check "M5 anon still CANNOT write chanA  (403)" "403" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"chanA","tags":["t"]}')"
-check "M6 anon still CANNOT write store=all (403)" "403" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"all","tags":["t"]}')"
+check "M6 anon write store=all rejected  (400)" "400" "$(code -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"m","store":"all","tags":["t"]}')"
 check "M7 anon still CANNOT firehose SSE (403)" "403" "$(code --max-time 2 "$B/api/events")"
 
 ###############################################################################

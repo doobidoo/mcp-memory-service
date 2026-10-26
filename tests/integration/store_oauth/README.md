@@ -266,7 +266,7 @@ anon writes (area F), `read:default write:default` allows them — confined to t
 | M2 | anon `POST ?store=default` | 200 (**write allowed** by the flag) | E |
 | M3 | anon MCP `memory_store` `store=default` | ok | E |
 | M4/M5 | anon read/write private `chanA` | 403 (flag opens only the commons) | E |
-| M6 | anon write `store=all` | 403 | E |
+| M6 | anon write `store=all` | 400 (the cross-partition pseudo-store is not a valid write target) | E |
 | M7 | anon firehose SSE | 403 | E |
 
 ---
