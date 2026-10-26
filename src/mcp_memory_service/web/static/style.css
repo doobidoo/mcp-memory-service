@@ -690,6 +690,30 @@ h3 { font-size: var(--text-xl); }
 }
 
 /* Compact Sync Control Styles */
+.delta-sync-peer {
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--neutral-200);
+    overflow-wrap: anywhere;
+}
+
+.delta-sync-meta {
+    margin: var(--space-1) 0;
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+}
+
+.delta-sync-destination {
+    font-weight: 600;
+    font-size: var(--text-sm);
+}
+
+.delta-sync-error {
+    margin-top: var(--space-2);
+    color: var(--error);
+    font-size: var(--text-sm);
+}
+
 .sync-control-compact {
     margin-top: var(--space-4);
     padding: var(--space-3);

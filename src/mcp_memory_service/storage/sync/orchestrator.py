@@ -27,6 +27,7 @@ class SyncResult:
     pages_processed: int
     final_cursor: int
     events_failed: int = 0
+    events_received: int = 0
 
 
 class PeerAdapter(Protocol):
@@ -98,6 +99,7 @@ async def sync_from_peer(
     # Initialize result counters
     events_applied = 0
     pages_processed = 0
+    events_received = 0
     events_failed = 0
 
     # Step 2: Loop through pages until no more events
@@ -119,6 +121,7 @@ async def sync_from_peer(
             break
 
         pages_processed += 1
+        events_received += len(events)
         logger.debug("Processing page %s with %s events", pages_processed, len(events))
 
         # Step 3: Apply each event in the page. FAIL-STOP (§8.5): on the first event
@@ -201,7 +204,8 @@ async def sync_from_peer(
         events_applied=events_applied,
         pages_processed=pages_processed,
         final_cursor=final_cursor,
-        events_failed=events_failed
+        events_failed=events_failed,
+        events_received=events_received,
     )
 
 

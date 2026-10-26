@@ -13,6 +13,21 @@ Tracking issue: [#1482](https://github.com/doobidoo/mcp-memory-service/issues/14
 
 ## Topology
 
+### Delta-sync status in the Web GUI
+
+For event-log sync (`MCP_SYNC_*`), the dashboard shows a separate **Delta sync** panel
+when peers or an active schedule are configured, including with `sqlite_vec` storage.
+It displays the peer IDs and URLs, whether automatic sync is running, the scheduler's
+next tick, and each peer's latest cycle time, received/applied/pushed counts, cursors,
+and last error. URLs omit embedded credentials and query strings. Cycle results are
+in memory and reset when the service restarts; backlog is shown as unknown because
+the protocol does not currently report it.
+
+The same information is available to authenticated readers in
+`GET /api/sync/status`, under `delta_sync`. An unset/disabled schedule shows automatic
+sync as disabled; no peers and no schedule hides the panel. Existing Cloudflare/hybrid
+sync controls remain separate.
+
 ```
  laptop  (hybrid, secondary=http) ──┐
  desktop (hybrid, secondary=http) ──┼──► hub (sqlite_vec, HTTP server on :8443)

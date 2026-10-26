@@ -234,6 +234,16 @@
                             </button>
                         </div>
 
+                        <section id="deltaSyncControl" class="sync-control-compact" style="display: none" aria-label="Delta sync">
+                            <div class="sync-status">
+                                <span class="sync-dot" aria-hidden="true"></span>
+                                <strong>Delta sync</strong>
+                                <span id="deltaSyncStatus" role="status"></span>
+                            </div>
+                            <p id="deltaSyncSchedule" class="delta-sync-meta"></p>
+                            <div id="deltaSyncPeers"></div>
+                        </section>
+
                         <!-- Compact Sync Control (Hybrid Mode Only) -->
                         <div id="syncControl" class="sync-control-compact">
                             <div class="sync-row">

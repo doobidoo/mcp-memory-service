@@ -1692,6 +1692,7 @@ class MemoryDashboard {
 
         try {
             const syncStatus = await this.apiCall('/sync/status');
+            this.updateDeltaSyncStatus(syncStatus.delta_sync);
 
             // Get compact sync control element
             const syncControl = document.getElementById('syncControl');
@@ -1776,6 +1777,11 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error checking sync status:', error);
+            const deltaControl = document.getElementById('deltaSyncControl');
+            if (deltaControl && deltaControl.style.display !== 'none') {
+                deltaControl.className = 'sync-control-compact error';
+                document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
+            }
             // Hide sync control on error (likely not hybrid mode)
             const syncControl = document.getElementById('syncControl');
             if (syncControl) syncControl.style.display = 'none';
@@ -1785,6 +1791,46 @@ class MemoryDashboard {
     /**
      * Format time delta in human readable format
      */
+    updateDeltaSyncStatus(delta) {
+        const panel = document.getElementById('deltaSyncControl');
+        if (!panel) return;
+        panel.style.display = delta?.configured ? 'block' : 'none';
+        if (!delta?.configured) return;
+        const state = delta.status || 'disabled';
+        panel.className = `sync-control-compact ${state === 'disabled' ? 'paused' : state}`;
+        document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
+        document.getElementById('deltaSyncSchedule').textContent = delta.enabled
+            ? `Every ${this.formatTimeDelta(delta.interval_seconds)} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
+            : `Automatic sync disabled · Schedule: ${delta.schedule}`;
+        const container = document.getElementById('deltaSyncPeers');
+        container.replaceChildren();
+        const line = (parent, text, className) => {
+            const el = document.createElement('div');
+            el.className = className || 'delta-sync-meta';
+            el.textContent = text;
+            parent.appendChild(el);
+        };
+        if (!delta.peers?.length) line(container, 'No peers configured');
+        for (const peer of delta.peers || []) {
+            const row = document.createElement('div');
+            row.className = 'delta-sync-peer';
+            line(row, `${peer.peer_id} · ${peer.url || 'URL not configured'}`, 'delta-sync-destination');
+            line(row, `Status: ${peer.health || peer.status}`);
+            const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
+            line(row, completed
+                ? `Last cycle: ${completed.toLocaleString()} (${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))} ago)`
+                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle');
+            if (peer.pull) line(row, `Pull: ${peer.pull.received ?? 'unknown'} received · ${peer.pull.applied} applied · cursor ${peer.pull.cursor}`);
+            if (peer.push) line(row, `Push: ${peer.push.pushed} pushed · cursor ${peer.push.cursor}`);
+            line(row, `Backlog: ${peer.backlog ?? 'unknown'}`);
+            if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
+                line(row, peer.last_error || peer.message, 'delta-sync-error');
+            }
+            container.appendChild(row);
+        }
+    }
+
     formatTimeDelta(seconds) {
         if (seconds < 60) return `${seconds}s ago`;
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;

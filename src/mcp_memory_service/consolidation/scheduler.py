@@ -16,14 +16,17 @@
 
 import logging
 import os
+from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 try:
     from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
     from apscheduler.executors.asyncio import AsyncIOExecutor
     from apscheduler.jobstores.memory import MemoryJobStore
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.schedulers.base import STATE_RUNNING
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.date import DateTrigger
     from apscheduler.triggers.interval import IntervalTrigger
@@ -345,6 +348,7 @@ class ConsolidationScheduler:
             return
         previous = self._sync_peer_status.get(peer_id, {})
         result = {
+            **previous,
             "peer_id": peer_id,
             "status": status,
             "message": message,
@@ -364,7 +368,52 @@ class ConsolidationScheduler:
 
     def get_sync_peer_status(self) -> list[dict[str, Any]]:
         """Return the most recent startup/cycle result for each delta-sync peer."""
-        return [dict(self._sync_peer_status[key]) for key in sorted(self._sync_peer_status)]
+        return [deepcopy(self._sync_peer_status[key]) for key in sorted(self._sync_peer_status)]
+
+    @staticmethod
+    def delta_sync_configuration() -> dict[str, Any]:
+        """Describe configured peers without creating clients or exposing credentials."""
+        schedule = os.getenv("MCP_SYNC_SCHEDULE", "").strip()
+        peer_ids = sorted({p.strip() for p in os.getenv("MCP_SYNC_PEERS", "").split(",") if p.strip()})
+        raw_url = os.getenv("MCP_SYNC_PEER_URL", "").strip()
+        try:
+            parts = urlsplit(raw_url)
+            valid_url = parts.scheme in ("http", "https") and bool(parts.hostname)
+            # Remove userinfo, query credentials, and fragments from the display URL.
+            url = urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", "")) if valid_url else ""
+        except ValueError:
+            url = ""
+        return {
+            "configured": bool(peer_ids or schedule.lower() not in ("", "disabled")),
+            "schedule": schedule or "disabled",
+            "enabled": False,
+            "next_run_at": None,
+            "interval_seconds": None,
+            "status": "disabled",
+            "peers": [{"peer_id": peer_id, "url": url, "status": "pending" if url else "error",
+                       "message": "Waiting for first cycle" if url else "MCP_SYNC_PEER_URL is missing or invalid"}
+                      for peer_id in peer_ids],
+        }
+
+    def get_delta_sync_status(self) -> dict[str, Any]:
+        """Expose actual scheduling and the latest in-memory cycle snapshots."""
+        result = self.delta_sync_configuration()
+        job = self.scheduler.get_job("delta_sync") if self.scheduler else None
+        next_run = getattr(job, "next_run_time", None)
+        result["enabled"] = bool(job and next_run and self.scheduler.state == STATE_RUNNING)
+        result["next_run_at"] = next_run.isoformat() if result["enabled"] else None
+        if job is not None:
+            result["interval_seconds"] = int(job.trigger.interval.total_seconds())
+        for peer in result["peers"]:
+            peer.update(deepcopy(self._sync_peer_status.get(peer["peer_id"], {})))
+            peer["health"] = peer.get("cycle_status", "pending")
+            if peer["status"] in ("error", "incompatible", "unavailable"):
+                peer["health"] = "error"
+        states = {peer["health"] for peer in result["peers"]}
+        result["status"] = ("syncing" if "syncing" in states else "error" if "error" in states
+                            else "disabled" if not result["enabled"] else "pending" if not states or "pending" in states
+                            else "synced")
+        return result
 
     async def _probe_sync_peers(self) -> None:
         """Best-effort startup capability probe; never blocks application startup."""
@@ -469,6 +518,11 @@ class ConsolidationScheduler:
         handshake_complete = False
         compatibility = None
         event_failure_message = None
+        cycle_start = datetime.now(timezone.utc).isoformat()
+        cycle = {"cycle_status": "syncing", "last_cycle_started_at": cycle_start,
+                 "last_cycle_at": None, "last_error": None, "pull": None, "push": None,
+                 "backlog": None}
+        self._sync_peer_status.setdefault(peer_id, {"peer_id": peer_id}).update(cycle)
         try:
             await peer.initialize()
             compatibility = await peer.check_sync_compatibility(storage)
@@ -481,7 +535,10 @@ class ConsolidationScheduler:
                 operation_version=operation_version,
             )
             pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
+            cycle["pull"] = {"received": getattr(pull, "events_received", None),
+                             "applied": pull.events_applied, "cursor": getattr(pull, "final_cursor", None)}
             push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
+            cycle["push"] = {"pushed": push.events_pushed, "cursor": getattr(push, "final_seq", None)}
             pull_failed = getattr(pull, "events_failed", 0) or 0
             push_failed = getattr(push, "events_failed", 0) or 0
             if pull_failed or push_failed:
@@ -504,11 +561,13 @@ class ConsolidationScheduler:
                 getattr(pull, "events_applied", "?"),
                 getattr(push, "events_pushed", "?"),
             )
+            cycle["cycle_status"] = "synced"
         except Exception as exc:
             self.execution_stats['failed_jobs'] += 1
             status, message = _classify_sync_failure(
                 exc, handshake_complete, event_failure_message
             )
+            cycle.update(cycle_status="error", last_error=message)
             self._set_sync_peer_status(
                 peer_id,
                 status,
@@ -521,6 +580,9 @@ class ConsolidationScheduler:
                 _sanitize_log_value(peer_id), _sanitize_log_value(exc),
             )
         finally:
+            if operation_version == self._sync_peer_operation_versions.get(peer_id):
+                cycle["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
+                self._sync_peer_status[peer_id].update(cycle)
             try:
                 await peer.close()
             except Exception as exc:

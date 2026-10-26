@@ -95,6 +95,16 @@ class SyncStatusResponse(BaseModel):
     next_sync_eta_seconds: float
     status: str  # 'synced', 'syncing', 'pending', 'error' — reflects current health only
     delta_sync_peers: list[dict[str, Any]] = Field(default_factory=list)
+    delta_sync: dict[str, Any] = Field(default_factory=dict)
+
+
+def _get_delta_sync_status() -> dict[str, Any]:
+    from ...api.client import get_scheduler
+    from ...consolidation.scheduler import ConsolidationScheduler
+
+    scheduler = get_scheduler()
+    return (scheduler.get_delta_sync_status() if scheduler is not None
+            else ConsolidationScheduler.delta_sync_configuration())
 
 
 def _get_delta_sync_peer_status() -> list[dict[str, Any]]:
@@ -162,6 +172,7 @@ async def get_sync_status(
             next_sync_eta_seconds=0,
             status='not_hybrid',
             delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     try:
@@ -208,6 +219,7 @@ async def get_sync_status(
             next_sync_eta_seconds=next_sync_eta,
             status=status,
             delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     except Exception as e:
