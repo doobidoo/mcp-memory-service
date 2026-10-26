@@ -109,7 +109,27 @@ class AuthenticationResult:
         return f"{operation}:{store}" in scopes
 
     def require_store_scope(self, operation: str, store: Optional[str]) -> None:
-        """Raise 403 if ``operation`` on ``store`` is not permitted."""
+        """Raise 403 if ``operation`` on ``store`` is not permitted.
+
+        A grant that holds only through ``operation:<store>`` additionally needs
+        a backend that confines hash lookups to the store. cloudflare, milvus
+        and remote_http accept ``store`` on get_by_hash and ignore it, so there
+        a store-restricted credential would read or delete another partition's
+        memory by hash; it is refused until the storage layer enforces
+        ``store`` (#1683). Global grants are unaffected.
+        """
+        if self.has_store_scope(operation, store) and not self.has_scope(operation):
+            if not _storage_confines_store():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "insufficient_scope",
+                        "error_description": (
+                            "Store-restricted credentials are not supported on this "
+                            f"storage backend; use a global '{operation}' scope"
+                        ),
+                    }
+                )
         if not self.has_store_scope(operation, store):
             if store is None:
                 needed = f"'{operation}' (global, for cross-store access)"
@@ -122,6 +142,19 @@ class AuthenticationResult:
                     "error_description": f"Access to store requires scope {needed}",
                 }
             )
+
+
+def _storage_confines_store() -> bool:
+    """Whether the active backend's get_by_hash honours ``store``.
+
+    Fails closed: no initialized storage counts as not confining.
+    """
+    from ..dependencies import get_storage  # inline import: keeps the storage stack out of OAuth module import
+    try:
+        storage = get_storage()
+    except HTTPException:
+        return False
+    return bool(getattr(storage, "get_by_hash_is_store_scoped", False))
 
 
 def scope_within_ceiling(requested: Optional[str], ceiling: Optional[str]) -> bool:

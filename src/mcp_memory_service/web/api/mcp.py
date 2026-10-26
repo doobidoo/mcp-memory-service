@@ -47,6 +47,36 @@ async def _requires_write(server, tool_name: Optional[str], arguments: Optional[
     """
     return await server.tool_requires_write(tool_name, arguments)
 
+
+async def _scope_refusal(server, user, request_id, tool_name: str, arguments: dict) -> Optional[JSONResponse]:
+    """Return the 403 for a tool call the caller's scope does not cover, else None.
+
+    Mutating tools require 'write', read-only tools require 'read'
+    (GHSA-2r68-g678-7qr3). A global 'read'/'write' grants every store.
+    'read:<store>'/'write:<store>' grants exactly that store, and only where
+    MemoryServer.store_grant_target says the call stays inside it (the same rule
+    the SDK transports apply); anything else, including a call with no `store`,
+    requires the global operation scope.
+    """
+    operation = "write" if await _requires_write(server, tool_name, arguments) else "read"
+    target = await server.store_grant_target(tool_name, arguments)
+    if user.has_store_scope(operation, target):
+        return None
+    required = (
+        f"'{operation}' (global)" if target is None
+        else f"'{operation}' or '{operation}:{target}'"
+    )
+    response = MCPResponse(
+        id=request_id,
+        error={
+            "code": -32003,
+            "message": f"Insufficient scope: tool requires {required} access",
+            "data": {"required_scope": operation, "tool": tool_name, "store": arguments.get("store")},
+        },
+    )
+    return JSONResponse(content=response.model_dump(exclude_none=True), status_code=403)
+
+
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
@@ -235,38 +265,9 @@ async def mcp_endpoint(
                 )
                 return JSONResponse(content=response.model_dump(exclude_none=True))
 
-            # Scope enforcement, per tool call. Mutating tools require 'write',
-            # read-only tools require 'read' (GHSA-2r68-g678-7qr3). When the
-            # call names a `store`, the check is per-store: a global
-            # 'read'/'write' grants every store, else 'read:<store>'/
-            # 'write:<store>' grants exactly that store ('all' -> global). A
-            # call with no `store` targets the implicit default and requires
-            # the global operation scope.
-            operation = "write" if await _requires_write(server, tool_name, arguments) else "read"
-            store_arg = arguments.get("store")
-            if store_arg is not None:
-                resolved_store = None if store_arg == "all" else store_arg
-                authorized = user.has_store_scope(operation, resolved_store)
-                required = (
-                    f"'{operation}' (global)" if resolved_store is None
-                    else f"'{operation}' or '{operation}:{store_arg}'"
-                )
-            else:
-                authorized = user.has_scope(operation)
-                required = f"'{operation}'"
-            if not authorized:
-                response = MCPResponse(
-                    id=request.id,
-                    error={
-                        "code": -32003,
-                        "message": f"Insufficient scope: tool requires {required} access",
-                        "data": {"required_scope": operation, "tool": tool_name, "store": store_arg},
-                    },
-                )
-                return JSONResponse(
-                    content=response.model_dump(exclude_none=True),
-                    status_code=403,
-                )
+            refusal = await _scope_refusal(server, user, request.id, tool_name, arguments)
+            if refusal is not None:
+                return refusal
 
             # Resolve the rate-limit identity from the transport BEFORE the
             # arguments rewrite below: the shim copies X-Agent-ID into
