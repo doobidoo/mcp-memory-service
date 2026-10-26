@@ -25,7 +25,7 @@ async def test_job_record_carries_belief_stats(monkeypatch):
 
     fake_service = MagicMock()
     fake_service.derive_beliefs = AsyncMock(return_value={"beliefs_derived": 3})
-    monkeypatch.setattr(sched_mod, "BeliefService", lambda storage: fake_service)
+    monkeypatch.setattr(sched_mod, "BeliefService", lambda storage, graph=None: fake_service)
     monkeypatch.setenv("MCP_BELIEFS_ENABLED", "true")
 
     scheduler = sched_mod.ConsolidationScheduler(consolidator, schedule_config={}, enabled=False)
