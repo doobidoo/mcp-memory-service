@@ -82,12 +82,16 @@ Superseded memories are left out. `total_stored` counts the memories that were a
 Limits worth knowing before you build on it:
 
 - Only `sqlite_vec` and `hybrid` (via its local SQLite) work. Cloudflare and Milvus get a 501.
-- Every request scans and scores every eligible memory in the store in pure Python.
-  Fine at a few thousand memories, slow well before 50k.
-- Nobody has shown yet that it ranks better than `/api/search`. The phase is derived from
-  the same embedding values, so it cannot add information the embedding model did not
-  encode, and that includes negation. Treat it as a research endpoint until the
-  measurement in #1674 says otherwise.
+- Every request scans and scores every eligible memory in the store in pure Python, so
+  latency grows linearly with the store: measured in #1674 at about 170 ms per request
+  for 1,000 memories, 0.9 s for 5,000 and 3.4 s for 20,000 (`hybrid` about a third
+  more), against 17-31 ms for `/api/search` at the same sizes.
+- It does not rank better than `/api/search`. The phase is derived from the same
+  embedding values, so it cannot add information the embedding model did not encode, and
+  the measurement in #1674 bears that out: on DevBench, LoCoMo (1,986 questions) and a
+  set of 50 negation pairs, none of the three modes beats cosine, including on the
+  negation pairs it was meant to separate. Treat it as a research endpoint.
+  `scripts/benchmarks/benchmark_resonance.py` repeats the measurement.
 
 ## Authentication Patterns
 

@@ -16,6 +16,8 @@ Suites:
   an explicit negation. Headline metric: pairwise accuracy, i.e. whether the
   intended member outranks the other, split by query direction.
 - ``locomo``: LoCoMo retrieval (Recall@K, MRR), per conversation.
+- ``latency``: p50/p95 per request at growing store sizes, ``retrieve`` against
+  the resonance endpoint's own per-request path (#1674).
 
 Decision rule, fixed before the first run: resonance or hybrid is worth
 promoting only if it is not worse than ``cosine`` on DevBench Recall@5 and MRR,
@@ -175,10 +177,11 @@ async def run_negation():
 
         out = {}
         for mode in MODES:
-            pairwise = {"pos": [], "neg": []}
-            top1 = {"pos": [], "neg": []}
+            pairwise = defaultdict(list)
+            top1 = defaultdict(list)
             for pair in data["pairs"]:
                 pos_hash, neg_hash = members[pair["id"]]
+                style = pair.get("style", "explicit")
                 for direction, query, want, other in (
                     ("pos", pair["q_pos"], pos_hash, neg_hash),
                     ("neg", pair["q_neg"], neg_hash, pos_hash),
@@ -186,16 +189,78 @@ async def run_negation():
                     ranked = [r.memory.content_hash for r in await ranker.search(query, n_all, mode)]
                     rank_want = ranked.index(want) if want in ranked else n_all
                     rank_other = ranked.index(other) if other in ranked else n_all
-                    pairwise[direction].append(1.0 if rank_want < rank_other else 0.0)
+                    hit = 1.0 if rank_want < rank_other else 0.0
+                    pairwise[direction].append(hit)
+                    if direction == "neg":
+                        pairwise[f"neg_{style}"].append(hit)
                     top1[direction].append(1.0 if ranked[:1] == [want] else 0.0)
             out[mode] = {
                 "pairwise_pos": _mean(pairwise["pos"]),
                 "pairwise_neg": _mean(pairwise["neg"]),
+                "pairwise_neg_explicit": _mean(pairwise["neg_explicit"]),
+                "pairwise_neg_implicit": _mean(pairwise["neg_implicit"]),
                 "pairwise_all": _mean(pairwise["pos"] + pairwise["neg"]),
                 "top1_pos": _mean(top1["pos"]),
                 "top1_neg": _mean(top1["neg"]),
                 "ms/query": _mean(ranker.latency_ms[mode]),
             }
+        return out
+    finally:
+        await storage.close()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Latency of the real endpoint path
+# --------------------------------------------------------------------------
+
+_SUBJECTS = ["the sync job", "the dashboard", "the HTTP server", "consolidation", "the hooks",
+             "the release workflow", "the quality scorer", "the graph store", "the exporter", "OAuth"]
+_VERBS = ["failed after", "was fixed by", "depends on", "was moved behind", "now logs",
+          "was measured against", "times out on", "replaced", "caches", "validates"]
+_OBJECTS = ["a database lock", "the Cloudflare token", "the delta cursor", "a missing index",
+            "the ONNX session", "a stale manifest", "the WAL pragma", "a retry budget",
+            "the SSE ticket", "an unpartitioned table"]
+
+
+def _synthetic(i):
+    return (f"Note {i}: {_SUBJECTS[i % 10]} {_VERBS[(i // 10) % 10]} "
+            f"{_OBJECTS[(i // 100) % 10]} during run {i // 1000}.")
+
+
+def _percentile(values, pct):
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(round(pct / 100 * (len(ordered) - 1))))]
+
+
+async def run_latency(sizes, requests):
+    """p50/p95 per request: storage.retrieve() against the resonance endpoint's own
+    path, which reads every row, rebuilds the waveforms and scores them per request."""
+    from mcp_memory_service.web.api.memories import _fetch_resonance_candidates, _score_resonance_candidates
+
+    queries = [f"{_SUBJECTS[i % 10]} {_VERBS[i % 7]} {_OBJECTS[i % 9]}" for i in range(requests)]
+    storage, tmp_dir = await _isolated_storage("resonance-latency-")
+    out = {}
+    try:
+        stored = 0
+        for size in sorted(sizes):
+            while stored < size:
+                await _store(storage, _synthetic(stored), ["latency"])
+                stored += 1
+            timings = defaultdict(list)
+            for query in queries:
+                start = time.perf_counter()
+                await storage.retrieve(query, n_results=10)
+                timings["retrieve"].append((time.perf_counter() - start) * 1000)
+                for mode in ("resonance", "phase", "hybrid"):
+                    start = time.perf_counter()
+                    rows = _fetch_resonance_candidates(storage.conn, None)
+                    query_embedding = storage._generate_embedding(query)
+                    _score_resonance_candidates(rows, query_embedding, storage.embedding_dimension, 10, mode)
+                    timings[mode].append((time.perf_counter() - start) * 1000)
+            for mode, values in timings.items():
+                out[f"{mode} @{size}"] = {"p50_ms": _percentile(values, 50), "p95_ms": _percentile(values, 95)}
+            print(f"  latency: {size} memories measured", file=sys.stderr)
         return out
     finally:
         await storage.close()
@@ -260,6 +325,12 @@ async def main(args):
     if "locomo" in args.suite:
         results["locomo"] = await run_locomo(args.top_k, args.conversations)
         _print_table("LoCoMo", results["locomo"])
+    if "latency" in args.suite:
+        results["latency"] = await run_latency(args.sizes, args.requests)
+        print("\n### Latency per request (ms)\n")
+        print("| mode @ memories | p50 | p95 |\n|---|---|---|")
+        for row, values in results["latency"].items():
+            print(f"| {row} | {values['p50_ms']:.1f} | {values['p95_ms']:.1f} |")
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             json.dump(results, fh, indent=2)
@@ -267,9 +338,12 @@ async def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--suite", nargs="+", choices=["devbench", "negation", "locomo"],
+    parser.add_argument("--suite", nargs="+", choices=["devbench", "negation", "locomo", "latency"],
                         default=["devbench", "negation"])
     parser.add_argument("--top-k", type=int, nargs="+", default=[5])
     parser.add_argument("--conversations", type=int, default=0, help="LoCoMo: first N conversations (0 = all)")
+    parser.add_argument("--sizes", type=int, nargs="+", default=[1000, 5000, 20000],
+                        help="Latency: store sizes to measure at")
+    parser.add_argument("--requests", type=int, default=30, help="Latency: requests per mode and size")
     parser.add_argument("--output", help="Write the result tables as JSON")
     asyncio.run(main(parser.parse_args()))
