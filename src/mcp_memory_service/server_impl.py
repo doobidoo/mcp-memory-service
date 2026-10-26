@@ -1028,6 +1028,19 @@ class MemoryServer:
             """Read a specific memory resource."""
             await self._ensure_storage_initialized()
 
+            # Resources (tags, recent, search, stats) span every store and carry
+            # no store selector, so a store-restricted caller — a token with a
+            # read:<store> scope but no global `read` — can't be confined here
+            # and is refused. A global-read caller, or stdio / a no-auth loopback
+            # (no recorded scope), is unaffected. Per-store resource filtering is
+            # the follow-up issue; until then this fails closed.
+            _scope = self._caller_scope_str()
+            if _scope is not None and "read" not in _scope.split():
+                raise PermissionError(
+                    "insufficient_scope: MCP resources require a global 'read' scope; "
+                    "a store-restricted token cannot read cross-store resources"
+                )
+
             from urllib.parse import unquote
 
             # Convert AnyUrl to string if necessary (fix for issue #254)

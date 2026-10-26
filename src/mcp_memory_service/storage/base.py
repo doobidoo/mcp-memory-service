@@ -510,6 +510,13 @@ class MemoryStorage(ABC):
         """
         raise NotImplementedError("Subclasses must implement get_by_exact_content")
 
+    # Whether get_by_hash honors ``store`` (confines the lookup to that
+    # partition). Backends that accept ``store`` but ignore it leave this
+    # False, so a store-scoped hash-addressed operation must fail closed on
+    # them until the storage layer enforces ``store`` everywhere (follow-up
+    # issue). Overridden True on sqlite_vec and hybrid.
+    get_by_hash_is_store_scoped: bool = False
+
     @abstractmethod
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """

@@ -1629,6 +1629,27 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
+        # Per-store confinement for this hash-addressed update. The transport
+        # gate authorizes the *claimed* store, but the update resolves by
+        # content_hash and would otherwise ignore it — so a token scoped to one
+        # store could update another store's memory. When a store is claimed,
+        # resolve the hash within it first: on backends whose get_by_hash honors
+        # ``store`` a hash from another store comes back missing -> not found;
+        # backends that ignore ``store`` can't prove confinement, so a
+        # store-scoped update fails closed there (real storage-layer enforcement
+        # is the follow-up issue, after which this pre-check can be removed).
+        claimed_store = arguments.get("store")
+        if claimed_store is not None and claimed_store != "all":
+            if not getattr(storage, "get_by_hash_is_store_scoped", False):
+                return [types.TextContent(type="text", text=(
+                    "Error: store-scoped updates are not supported on this storage "
+                    "backend; omit 'store' or use a globally-scoped credential."
+                ))]
+            if await storage.get_by_hash(content_hash, store=claimed_store) is None:
+                return [types.TextContent(
+                    type="text", text="Error: memory not found in the requested store."
+                )]
+
         versioned = arguments.get("versioned", False)
 
         if versioned:

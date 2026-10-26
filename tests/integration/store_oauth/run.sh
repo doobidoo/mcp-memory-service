@@ -233,6 +233,24 @@ check "L13 multi-channel writes chanB           (200)" "200" "$(code -H "$HU" -H
 check "L14 multi-channel reads commons          (200)" "200" "$(code -H "$HU" "$B/api/memories?store=default")"
 check "L15 multi-channel DENIED chanC           (403)" "403" "$(code -H "$HU" "$B/api/memories?store=chanC")"
 
+# --- N: hash-addressed memory_update is confined to the claimed store --------
+# The dispatcher authorizes the claimed store, but memory_update resolves by
+# content_hash; the handler now pre-resolves the hash within the claimed store
+# (sqlite_vec honors it) and returns not-found when it belongs to another store.
+mcp_text(){ # $1=auth header (may be empty), $2=json body -> first result text (lowercased)
+  local h=(); [ -n "$1" ] && h=(-H "$1")
+  curl -s "${h[@]}" -H 'Content-Type: application/json' -X POST "$B/mcp" -d "$2" \
+    | python3 -c "import sys,json
+d=json.load(sys.stdin); r=d.get('result') or {}; cs=r.get('content') or []
+print((cs[0].get('text','') if cs else '').lower())" 2>/dev/null
+}
+BHASH=$(curl -s -H "$HG" -H 'Content-Type: application/json' -X POST "$B/api/memories" -d '{"content":"b-secret-for-update","store":"projectB","tags":["t"]}' | jget content_hash)
+check "N0 seeded a projectB memory (hash captured)" "present" "$([ -n "$BHASH" ] && echo present || echo empty)"
+N1=$(mcp_text "$HN" "{\"jsonrpc\":\"2.0\",\"id\":21,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_update\",\"arguments\":{\"content_hash\":\"$BHASH\",\"store\":\"projectA\",\"updates\":{\"tags\":[\"pwned\"]}}}}")
+case "$N1" in *"not found in the requested store"*) pass "N1 write:projectA cannot update a projectB hash (confined)";; *) fail "N1 cross-store memory_update confined" "not found in the requested store" "$N1";; esac
+N2=$(mcp_text "$HG" "{\"jsonrpc\":\"2.0\",\"id\":22,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_update\",\"arguments\":{\"content_hash\":\"$BHASH\",\"store\":\"projectB\",\"updates\":{\"tags\":[\"oknow\"]}}}}")
+case "$N2" in *"not found"*) fail "N2 global token updates the projectB hash" "success" "$N2";; *) pass "N2 global token updates the projectB hash (authorized + found)";; esac
+
 # ---------------------------------------------------------------------------
 echo; echo "### Scenario oauth-strict — anon off => no-token lockout (F12, H) ###"
 start_instance -e MCP_ALLOW_ANONYMOUS_ACCESS=false -e MCP_OAUTH_ENABLED=true -e MCP_DCR_REGISTRATION_KEY="$DCR" || exit 1
