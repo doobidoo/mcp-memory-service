@@ -222,7 +222,8 @@ class RetrieveMixin:
                 ][:n_results]
                 logger.debug("min_confidence=%s filtered %s stale memories", _sanitize_log_value(min_confidence), before - len(results))
 
-            logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
+            # DEBUG: the query is the user's prompt text, and this runs on every recall
+            logger.debug(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
 
         except Exception as e:

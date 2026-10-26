@@ -6,6 +6,7 @@ Tests the complete ontology validation workflow in Memory creation.
 
 import pytest
 import hashlib
+import logging
 
 from mcp_memory_service.models.memory import Memory
 
@@ -104,8 +105,7 @@ class TestBurstI2TagValidation:
 
     def test_invalid_namespaced_tags_logged(self, caplog):
         """Invalid namespaced tags should be logged but preserved"""
-        import logging
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -126,8 +126,7 @@ class TestBurstI2TagValidation:
 
     def test_mixed_tags_only_invalid_logged(self, caplog):
         """Mix of valid, invalid, and legacy tags"""
-        import logging
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
