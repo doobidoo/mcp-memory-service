@@ -148,10 +148,10 @@ Token = **narrow** `read:projectA write:projectA` unless noted.
 | D10 | MCP `tools/call` `memory_search` `store=projectA` | ok result | E |
 | D11 | MCP `tools/call` `memory_store` `store=projectB` | JSON-RPC error `-32003` | E |
 | D12 | MCP `tools/call` `store=all` with narrow token | denied (`-32003`) | E |
-| D13 | search routes (semantic/tag/time) `store=projectB` | 403 | E |
-| D14 | analytics store-carrying route `store=projectB` | 403 | E |
+| D13 | search routes (semantic/tag/time) `store=projectB` | 403 | pending (not yet exercised by run.sh) |
+| D14 | analytics store-carrying route `store=projectB` | 403 | pending (not yet exercised by run.sh) |
 | D15 | **global** token `read write` → D1–D12 equivalents | all succeed (full access) | E |
-| D16 | **API key** → representative read+write across stores | all succeed (full access) | E |
+| D16 | **API key** → representative read+write across stores | all succeed (full access) | pending (needs an API-key-configured instance) |
 
 ### E. Token issuance — `client_credentials` (PR #2)
 

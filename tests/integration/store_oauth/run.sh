@@ -20,9 +20,9 @@ set -uo pipefail
 IMAGE="${IMAGE:-mcp-memory-service:storescope-test}"
 PORT="${PORT:-8091}"
 DCR="${DCR:-test-dcr-key-123}"
-CTR="storescope-e2e"
+CTR="storescope-e2e-${PORT}"
 B="http://127.0.0.1:${PORT}"
-DATADIR="/tmp/storescope-e2e-data"   # per-run data dir (reset each scenario)
+DATADIR="/tmp/storescope-e2e-data-${PORT}"   # keyed by PORT so concurrent runs never clobber each other
 
 PASS=0; FAIL=0
 pass(){ PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
@@ -178,6 +178,11 @@ ATC=$(echo "$TOKW" | jget access_token)
 check "J5 ceiling token enforced at resource: GET projectB (403)" "403" "$(code -H "Authorization: Bearer $ATC" "$B/api/memories?store=projectB")"
 UNL=$(mint 'read:projectZ')
 check "J6 unlimited client (no declared scope) back-compat" "present" "$([ -n "$UNL" ] && echo present || echo empty)"
+# J7: a ceiling that includes admin must NOT confer admin when scope is omitted
+REGADM=$(curl -s -X POST "$B/oauth/register" -H "Authorization: Bearer $DCR" -H 'Content-Type: application/json' \
+  -d '{"client_name":"ceiladm","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic","redirect_uris":[],"scope":"read:projectA admin"}')
+ACID=$(echo "$REGADM" | jget client_id); ACSEC=$(echo "$REGADM" | jget client_secret)
+check "J7 CC no-scope default strips admin from ceiling" "read:projectA" "$(curl -s -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$ACID&client_secret=$ACSEC" | jget scope)"
 
 # --- K: SSE ticket inherits the minting credential's store scope ---
 # POST /api/events/ticket exchanges a real credential for a single-use ticket
