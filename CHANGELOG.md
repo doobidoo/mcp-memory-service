@@ -17,6 +17,140 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.4.0] - 2026-10-26
+
+
+### Added
+
+- **Negotiate peer compatibility before scheduled delta-sync (#1505).** A read-authenticated
+  capabilities endpoint advertises the delta-sync protocol range, event-envelope schema,
+  embedding identity, and package version. Scheduled peers stop before exchanging events
+  when they have no common protocol, a different event schema or embedding identity, or
+  do not advertise capabilities; `/api/sync/status` exposes each peer's latest result.
+  `/api/health/model` identifies hash-fallback embeddings so an HTTP hybrid secondary
+  refuses to start against a degraded hub instead of mistaking it for the configured
+  model.
+- **Claude Code hooks: an opt-in inter-agent inbox (#1526, Forest537).**
+  `docs/agents/README.md` documents agents using one memory service as a message bus via a sentinel tag (`msg:cluster`), but the reading side was entirely manual — nothing polled, nothing remembered what had been read. The hooks now poll the configured tags on session start and on prompts (throttled by `inbox.checkIntervalMinutes`, and by the state file rather than an in-memory cooldown, since every hook invocation is a fresh process) and inject the new messages as their own block. The last-seen marker advances only after a successful query. Per #1599 the marker throttles but does not gate delivery: each check queries from `marker - inbox.overlapMinutes` and drops rows already delivered by `content_hash`, so a message that reaches the store after a check while carrying an older `created_at` — the normal case under delta sync, and the clock-skew case — is still delivered, exactly once. Off by default; the config keys and the output format match the OpenCode client (#1527/#1541/#1636).
+- **Expose Delta-Sync settings in the Environment tab (#1556).** The web configuration now lists the sync event log, schedule, peers, and push allow-list while masking peer API and basic-auth credentials.
+- Add an opt-in `rerank` flag to `memory_search`: a second-stage ONNX cross-encoder reorders the top `MCP_RERANK_CANDIDATES` results when `MCP_RERANK_ENABLED` is set, fails open to the unreranked order, and never touches the default path.
+- Apple Foundation Models work as a local LLM provider on macOS 27: point the OpenAI-compatible quality scorer or the harvest provider chain at `fm serve`. The three OpenAI-compatible call sites (quality scorer, harvest rewriter, harvest classifier) now send `"stream": false` explicitly, because `fm serve` streams by default and the requests used to fall through to the next provider. New guide: `docs/guides/apple-foundation-models.md` (#1666).
+- Experimental `POST /api/memories/resonance-search`: ranks memories by wave interference instead of cosine similarity, after the ResonanceDB approach in arXiv:2509.09691. It converts the stored embeddings to complex waveforms at query time, so no schema change. Modes `resonance`, `phase` and `hybrid` (default), a `store` field like `/api/search`, and superseded memories stay hidden. Works on `sqlite_vec` and `hybrid`, and answers 501 on other backends (#1673).
+- **Per-store OAuth scope enforcement (#1681).** OAuth scopes were global
+  (`read`/`write`/`admin`) regardless of which store partition a request targeted, so any
+  read-scoped token could read or subscribe to every store. Tokens may now carry
+  parameterized `read:<store>` / `write:<store>` scopes; a global `read`/`write` still grants
+  every store, so existing tokens (and anonymous/API-key access) are unchanged. Enforced on
+  the store-carrying HTTP routes (memories, search, analytics), on the `/api/events` SSE
+  subscription (a store-restricted token may subscribe only to its stores, never the
+  firehose), and on the MCP `tools/call` transport. Cross-partition access (`store=all`)
+  requires the global scope. The `client_credentials` grant now honors a requested narrow
+  scope — including store-scoped grants — while never issuing `admin`, so store-restricted
+  machine tokens are issuable. A new `MCP_ANONYMOUS_SCOPE` setting makes the scope granted to
+  anonymous callers configurable (default `read write`, unchanged): narrowing it to, e.g.,
+  `read:default` lets authenticated per-store agents and read-only anonymous callers share one
+  instance without an all-or-nothing switch, and is the control for whether anonymous callers
+  may write the shared commons.
+- **Per-client OAuth scope ceiling (#1681).** A client's `scope` declared at Dynamic Client
+  Registration is now persisted (`allowed_scope`) and enforced as a permanent ceiling: a later
+  `client_credentials` token request or `/authorize` request may narrow within it but a request that
+  exceeds it is rejected with `400 invalid_scope` (rather than silently downscoped), and a
+  `client_credentials` request with no scope now defaults to the client's ceiling. A client that
+  declares no scope at registration remains unbounded (may request any non-admin scope), so existing
+  clients — and any already stored with a NULL `scope` column — are unchanged. This closes the gap
+  where any registered client could request any (non-admin) scope regardless of what it registered
+  for; combined with per-store scopes, a client can be pinned to exactly its partition at
+  registration time.
+- **SSE tickets inherit the minting credential's store scope (#1681).** The single-use SSE ticket
+  (issue #1117) was issued with a fixed global `read` scope; combined with per-store scopes that
+  would let a store-restricted token exchange it for a firehose connection. A ticket now carries only
+  the caller's `read` / `read:<store>` grant, and `/api/events` enforces it exactly as it enforces a
+  bearer token, so a per-channel agent's SSE connection stays confined to its own partition.
+
+### Fixed
+
+- **Re-sending deleted content no longer revives it silently (#1560, also #1468, massimiliano1991).**
+  A stale client that POSTed content the server had deleted got the server's own delete
+  stamped as `recreate_of` — a deliberate re-create by construction — and the tombstone was
+  purged. `storage.store()` / `store_batch()` take a tri-state `recreate` (`None` keeps
+  today's behaviour for every direct caller; `False` refuses when a delete is on record,
+  leaving the tombstone and appending no create event; `True` revives explicitly).
+  `MemoryService.store_memory()` passes `False` unless `restore_deleted` is set: REST answers
+  **409** naming the delete's `event_id`, HLC and date, the MCP `store_memory` tool answers
+  `success=false` with "pass restore_deleted=true to bring it back", harvest and auto-capture
+  report the refusal as `skipped`. The bundled Codex hook treats a 409 as handled instead of
+  re-sending the same capture every run, and does not report it as saved. A harvest session
+  whose remaining candidates were all refused counts as finished when the LLM rewrite skipped
+  one on purpose, and stays pending only when the rewrite lost one.
+  Backends advertise the refusal with `supports_recreate_refusal` (sqlite-vec, the HTTP client,
+  hybrid when its primary does); `recreate_kwargs()` forwards the flag only to those, so a
+  backend or test double that still has the previous `store()` signature keeps getting the
+  pre-#1560 call. An explicit restore through hybrid is carried to the secondary with the
+  queued sync operation; a chunked write that had some chunks refused names them in its reply.
+- **The dashboard's Quality tab now saves its settings (#1671).**
+  The AI provider dropdown and the quality-boost toggle were never read by anything, the
+  toggle rendered checked although the boost is off by default, and the "Current Provider"
+  box was hardcoded. A new admin-only `POST /api/config/quality` writes
+  `MCP_QUALITY_AI_PROVIDER` and `MCP_QUALITY_BOOST_ENABLED` to `.env` and restarts the
+  server; the tab loads both from `/api/config/env` and gets a "Save & Restart" button.
+  Values are checked against the choices the Environment tab already lists, and a provider
+  whose API key is missing (groq, gemini) is refused up front, because
+  `QualityConfig.validate()` would otherwise stop the server from coming back. Saved values
+  also apply after the restart when the old value had already been loaded from `.env`.
+- **Document loaders logged caller-provided paths and parser errors unsanitised (#1146, #1677, massimiliano1991).**
+  `ingestion/semtools_loader.py`, `json_loader.py`, `csv_loader.py`, `text_loader.py` and
+  `pdf_loader.py` put the path of the file being ingested, the parser's error text and the
+  `semtools` stderr into the log through f-strings, so a newline in any of them forged a log
+  line. They go through `_sanitize_log_value` now; the five modules are in the guard's
+  `GUARDED_MODULES` list and a test per loader fails if the newline comes back.
+- **`LOG_LEVEL` was ignored once the HTTP server handled its first MCP request (#1679).**
+  `client_detection` falls back to strict `claude_desktop` mode whenever no known client
+  is the parent process, as in Docker or under systemd, and in that mode
+  `DualStreamHandler` dropped every record below WARNING. The first MCP-over-HTTP request
+  installs that handler, so `LOG_LEVEL=INFO` (the Docker default) had no effect from then
+  on. Strict mode now only keeps output off stdout and follows `LOG_LEVEL`, which still
+  defaults to WARNING. The per-load "Tags with invalid namespaces" line moves to DEBUG, and
+  so do the lines that logged the user's search text: the sqlite-vec `retrieve()` query,
+  the `recall_memory` handler's original and cleaned query, and Cloudflare `recall()`'s
+  semantic query.
+- **The tag taxonomy rejected namespaces the server writes itself (#1680).** `harvest:`,
+  `source:`, `conflict:` and `confidence:` tags, written by harvest, hostname tagging, sync
+  import, conflict detection and the session-end hook, were reported as invalid on every
+  load. They are now built-in namespaces, and `MCP_CUSTOM_TAG_NAMESPACES` registers more
+  (comma-separated), the way `MCP_CUSTOM_MEMORY_TYPES` extends the memory-type ontology.
+  The "invalid namespaces" message lists the live set; it had named six namespaces after
+  `agent:` became the seventh.
+- **Milvus never matched a tag or exact-content query containing `_` (#1684, henry201605).**
+  The `like` helper removed `%` and `_` from the value instead of escaping them, so
+  `upload_id:abc123` was searched as `uploadid:abc123`. Every tag lookup, count and
+  tag-based delete on Milvus found nothing for such tags, including the `upload_id:`
+  tag that the dashboard's document delete and chunk-view endpoints look uploads up
+  by. Exact-content search for text such as `my_package` failed the same way. Both
+  characters are now escaped, and tag-based deletes re-check each row's tags before
+  deleting it.
+- **Per-store scopes no longer reach outside their store (#1690).** A `read:<store>` /
+  `write:<store>` grant authorized any MCP tool call that named the store, including tools
+  that ignore `store` (`memory_quality`, `memory_cleanup`, `memory_resolve`,
+  `memory_consolidate`, the mistake-note tools) and `memory_search` with `include_beliefs` or
+  `fallback`, which read every partition. A per-store grant now covers only the tools that
+  confine themselves to the store (`memory_store`, `memory_store_session`, `memory_search`,
+  `memory_list`, `memory_delete`, `memory_update`) and only without those two arguments;
+  everything else needs the global scope, including `memory_explore` and `memory_detail`,
+  whose entity names come from a graph that has no store partition. The SDK
+  transports and the `/mcp` shim share one rule. Store-restricted credentials are also
+  refused, over MCP and REST, on backends whose `get_by_hash` ignores `store` (cloudflare,
+  milvus, remote_http), where `GET /api/memories/{hash}` returned another store's memory.
+  They work on sqlite_vec and hybrid until the storage layer enforces `store` (#1683).
+
+### Removed
+
+- **Retired the remaining ChromaDB-era scripts that imported the removed backend (#1621, Parth-Jadhav-2004).**
+  Eleven validation, migration and testing scripts failed at runtime with `ModuleNotFoundError` on
+  `mcp_memory_service.storage.chroma` or `chromadb`; they, and the doc references pointing at them, are
+  gone. Legacy ChromaDB data is converted with the v7.6.0 `chromadb-legacy-final` release instead, as
+  `docs/guides/chromadb-migration.md` now describes. The dead ChromaDB branches also left
+  `migrate_to_cloudflare.py` and `test_installation.py`.
+
 ## [12.3.1] - 2026-10-23
 
 ### Fixed
