@@ -398,6 +398,11 @@ async def test_exact_content_search_matches_underscore_literally(storage):
     result = await storage.search_memories(query="my_package", mode="exact")
     assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
 
+    # A tag or time filter sends exact mode down a separate path that builds
+    # its own content_lower pattern; it must escape the query the same way.
+    result = await storage.search_memories(query="my_package", mode="exact", tags=["plain"])
+    assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
+
 
 @pytest.mark.asyncio
 async def test_search_by_tags_and_or(storage):

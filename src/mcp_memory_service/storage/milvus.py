@@ -2843,7 +2843,9 @@ class MilvusMemoryStorage(MemoryStorage):
 
             if self._has_content_lower and combined_filter:
                 # Push all filters (content + time + tags) to Milvus in one query
-                needle = escape_expr_value(query.lower())
+                # Escape like wildcards first, as get_by_exact_content does, so
+                # "_" and "%" in the query match literally (#1684).
+                needle = escape_expr_value(_escape_like(query.lower()))
                 content_filter = f'content_lower like "%{needle}%"'
                 final_filter = (
                     f"({combined_filter}) and ({content_filter})"
