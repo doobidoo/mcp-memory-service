@@ -1539,18 +1539,19 @@ class MemoryServer:
     @staticmethod
     def _scope_grants(scope_str: str, operation: str, store: Optional[str]) -> bool:
         """Whether ``scope_str`` grants ``operation`` ('read'/'write') on ``store``
-        (``None`` = global / cross-partition / store-less, which needs the bare
-        global grant). Global ``read``/``write`` cover every store; ``read:<s>`` /
-        ``write:<s>`` cover exactly ``<s>``; ``admin`` covers everything. Mirrors
-        the HTTP layer's ``AuthenticationResult.has_store_scope`` deliberately —
-        kept here so every transport (SSE, Streamable HTTP, the shim) enforces
-        identically without the core importing the web OAuth module."""
-        tokens = (scope_str or "").split()
-        if "admin" in tokens:
+        (``None`` = cross-partition / store-less, which needs the global grant).
+        A global ``read``/``write`` grants every store; ``read:<s>``/``write:<s>``
+        grants exactly ``<s>``. ``admin`` is an administrative scope, not a data
+        grant, so it confers nothing here on its own. Mirrors the HTTP layer's
+        ``AuthenticationResult.has_store_scope`` exactly, so every transport (SSE,
+        Streamable HTTP, the shim) enforces identically without the core
+        importing the web OAuth module."""
+        scopes = (scope_str or "").split()
+        if operation in scopes:
             return True
         if store is None:
-            return operation in tokens
-        return operation in tokens or f"{operation}:{store}" in tokens
+            return False
+        return f"{operation}:{store}" in scopes
 
     def _rate_limit_caller_identity(self, explicit_identity: str | None = None) -> str:
         """Resolve the rate-limit identity for the current tool call (#1096).
