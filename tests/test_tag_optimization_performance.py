@@ -8,6 +8,8 @@ import importlib.util
 from pathlib import Path
 import time
 
+import pytest
+
 # Load tag_taxonomy module directly (standalone module, no dependencies)
 tag_taxonomy_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "tag_taxonomy.py"
 spec = importlib.util.spec_from_file_location("tag_taxonomy", tag_taxonomy_path)
@@ -15,6 +17,12 @@ tag_taxonomy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tag_taxonomy)
 
 TagTaxonomy = tag_taxonomy.TagTaxonomy
+
+
+@pytest.fixture(autouse=True)
+def _no_host_tag_namespaces(monkeypatch):
+    """Keep the developer's own MCP_CUSTOM_TAG_NAMESPACES out of these counts."""
+    monkeypatch.delenv(tag_taxonomy.CUSTOM_NAMESPACES_ENV, raising=False)
 
 
 class TestTagValidationOptimization:

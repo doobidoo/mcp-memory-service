@@ -107,6 +107,22 @@ def parse_custom_namespaces(raw: Optional[str]) -> Set[str]:
     return found
 
 
+_env_namespaces_registered = False
+
+
+def ensure_env_namespaces() -> None:
+    """Register MCP_CUSTOM_TAG_NAMESPACES once, on first use.
+
+    Read lazily rather than at import: importing the package loads Memory, and
+    with it this module, before config.base loads .env, so a value set only in
+    .env would be missed.
+    """
+    global _env_namespaces_registered
+    if not _env_namespaces_registered:
+        _env_namespaces_registered = True
+        register_custom_namespaces(os.getenv(CUSTOM_NAMESPACES_ENV))
+
+
 def register_custom_namespaces(raw: Optional[str]) -> Set[str]:
     """Add namespaces to the valid set at runtime; returns the ones added."""
     added = parse_custom_namespaces(raw) - set(VALID_NAMESPACES)
@@ -133,6 +149,7 @@ def validate_tag(tag: str) -> bool:
         >>> validate_tag("invalid:tag")  # Invalid namespace
         False
     """
+    ensure_env_namespaces()
     namespace, _ = parse_tag(tag)
 
     # Legacy tags (no namespace) are valid for backward compatibility
@@ -223,6 +240,12 @@ class TagTaxonomy:
         return parse_tag(tag)
 
     @classmethod
+    def is_valid_namespace(cls, namespace: str) -> bool:
+        """Whether a parsed namespace (with trailing ':') is registered."""
+        ensure_env_namespaces()
+        return namespace in cls.VALID_NAMESPACES
+
+    @classmethod
     def validate_tag(cls, tag: str) -> bool:
         """Validate if tag has valid namespace or is legacy format."""
         return validate_tag(tag)
@@ -237,5 +260,3 @@ class TagTaxonomy:
         """Filter tags to only those matching namespace."""
         return filter_by_namespace(tags, namespace)
 
-
-register_custom_namespaces(os.getenv(CUSTOM_NAMESPACES_ENV))

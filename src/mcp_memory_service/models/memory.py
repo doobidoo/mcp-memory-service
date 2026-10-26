@@ -89,7 +89,7 @@ class Memory:
                 namespace, value = TagTaxonomy.parse_tag(tag)
                 if namespace is not None:  # Has namespace
                     # Direct check using exposed VALID_NAMESPACES (avoids re-parsing)
-                    if namespace not in TagTaxonomy.VALID_NAMESPACES:
+                    if not TagTaxonomy.is_valid_namespace(namespace):
                         invalid_tags.append(tag)
 
             if invalid_tags:

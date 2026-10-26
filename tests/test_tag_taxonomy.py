@@ -7,6 +7,8 @@ Tests the namespace-based tag organization system.
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 # Load tag_taxonomy module directly without importing the package
 tag_taxonomy_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "tag_taxonomy.py"
 spec = importlib.util.spec_from_file_location("tag_taxonomy", tag_taxonomy_path)
@@ -25,6 +27,12 @@ validate_tag = tag_taxonomy.validate_tag
 add_namespace = tag_taxonomy.add_namespace
 filter_by_namespace = tag_taxonomy.filter_by_namespace
 TagTaxonomy = tag_taxonomy.TagTaxonomy
+
+
+@pytest.fixture(autouse=True)
+def _no_host_tag_namespaces(monkeypatch):
+    """Keep the developer's own MCP_CUSTOM_TAG_NAMESPACES out of these counts."""
+    monkeypatch.delenv(tag_taxonomy.CUSTOM_NAMESPACES_ENV, raising=False)
 
 
 class TestBurst21NamespaceConstants:
