@@ -577,7 +577,13 @@ async def require_real_credential(user: AuthenticationResult = Depends(get_curre
             },
             headers={"WWW-Authenticate": _www_authenticate_header()},
         )
-    user.require_scope("read")
+    # Require some read capability — global ``read`` or any ``read:<store>``.
+    # The ticket is a read credential and inherits exactly the caller's read
+    # scope (see events._ticket_read_scope), so a store-scoped agent (e.g.
+    # ``read:projectA``) qualifies and receives a ticket confined to its
+    # channel. A credential with no read grant at all is refused.
+    if not any(t == "read" or t.startswith("read:") for t in (user.scope or "").split()):
+        user.require_scope("read")  # no read anywhere -> standard 403 insufficient_scope
     return user
 
 
