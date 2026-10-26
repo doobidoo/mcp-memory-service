@@ -530,8 +530,8 @@ def create_sync_progress_event(
 
 def create_sync_delta_completed_event(
     peer_id: str,
-    pulled: int,
-    pushed: int,
+    pulled: Optional[int],
+    pushed: Optional[int],
     time_taken_seconds: float = 0.0,
     success: bool = True,
     message: str = None,
@@ -541,13 +541,15 @@ def create_sync_delta_completed_event(
     Emitted by the scheduled delta-sync cycle (MCP_SYNC_SCHEDULE) after it has
     finished exchanging events with a single peer. ``pulled``/``pushed`` carry
     the per-peer transfer counts so the Web GUI can refresh the dashboard and
-    the sync panel without waiting for its next poll.
+    the sync panel without waiting for its next poll. A null count means the
+    direction did not return a summary (possibly after committing some pages).
     """
     if message is None:
         if success:
             message = (
                 f"Delta-sync with {peer_id} completed: "
-                f"pulled {pulled}, pushed {pushed}"
+                f"pulled {pulled if pulled is not None else 'unknown'}, "
+                f"pushed {pushed if pushed is not None else 'unknown'}"
             )
         else:
             message = f"Delta-sync with {peer_id} failed"

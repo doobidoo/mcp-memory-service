@@ -9,6 +9,7 @@ Covers the backend half of the issue proposal:
 - Consolidation completion notifies the dashboard as well.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -153,7 +154,7 @@ async def test_partial_pull_counts_survive_push_failure(monkeypatch, capture_sse
     event = capture_sse.events[0]
     assert event.data['success'] is False
     assert event.data['pulled'] == 7
-    assert event.data['pushed'] == 0
+    assert event.data['pushed'] is None
 
 
 @pytest.mark.asyncio
@@ -184,3 +185,68 @@ async def test_sse_failure_does_not_change_successful_sync(monkeypatch):
     assert sched.get_sync_peer_status()[0]['cycle_status'] == 'synced'
     assert sched.execution_stats['failed_jobs'] == 0
     peer.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failed_direction', ['pull', 'push'])
+async def test_paginated_transport_failure_reports_unknown_counts(
+    failed_direction, temp_db_path, monkeypatch, capture_sse
+):
+    """Run real exchanges: page one commits, then the peer fails page two."""
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.setenv('MCP_SYNC_EVENTLOG', 'on')
+    storage = SqliteVecMemoryStorage(str(Path(temp_db_path) / "sync.db"))
+    await storage.initialize()
+    try:
+        for index in range(2):
+            content = f'Paginated SSE regression {index}'
+            await storage.store(Memory(content=content, content_hash=generate_content_hash(content)))
+        events = orch._read_local_events_since(storage, 0, 100)
+        assert len(events) == 2
+
+        class FailingPeer:
+            calls = 0
+
+            async def initialize(self): pass
+            async def close(self): pass
+            async def check_sync_compatibility(self, local): return {}
+
+            async def get_events_since(self, since_seq, limit):
+                if failed_direction != 'pull':
+                    return [], since_seq, False
+                self.calls += 1
+                if self.calls == 1:
+                    return events[:1], events[0]['seq'], True
+                raise RuntimeError('second pull page unavailable')
+
+            async def push_events(self, batch):
+                self.calls += 1
+                if self.calls == 1:
+                    return {'failed': 0}
+                raise RuntimeError('second push page unavailable')
+
+        async def pull(local, peer, peer_id, limit):
+            return await orch.sync_from_peer(local, peer, peer_id, limit=1)
+
+        async def push(local, peer, peer_id, limit):
+            return await orch.push_to_peer(local, peer, peer_id, limit=1)
+
+        sched = _make_scheduler()
+        await sched._run_sync_peer_cycle(storage, 'hub', FailingPeer(), pull, push)
+        # The durable cursor proves the first page succeeded before the error.
+        if failed_direction == 'pull':
+            cursor = storage.conn.execute(
+                'SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?', ('hub',)
+            ).fetchone()[0]
+        else:
+            cursor = orch.get_push_cursor(storage, 'hub')
+        assert cursor == events[0]['seq']
+        event = capture_sse.events[0]
+        assert event.data['success'] is False
+        assert event.data['pushed'] is None
+        assert event.data['pulled'] == (None if failed_direction == 'pull' else 0)
+    finally:
+        await storage.close()

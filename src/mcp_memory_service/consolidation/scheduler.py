@@ -418,8 +418,8 @@ class ConsolidationScheduler:
     async def _broadcast_delta_sync_event(
         self,
         peer_id: str,
-        pulled: int,
-        pushed: int,
+        pulled: Optional[int],
+        pushed: Optional[int],
         time_taken_seconds: float,
         success: bool,
     ) -> None:
@@ -436,8 +436,8 @@ class ConsolidationScheduler:
         try:
             event = create_sync_delta_completed_event(
                 peer_id=str(peer_id),
-                pulled=int(pulled or 0),
-                pushed=int(pushed or 0),
+                pulled=int(pulled) if pulled is not None else None,
+                pushed=int(pushed) if pushed is not None else None,
                 time_taken_seconds=float(time_taken_seconds or 0.0),
                 success=success,
             )
@@ -623,12 +623,14 @@ class ConsolidationScheduler:
             if operation_version == self._sync_peer_operation_versions.get(peer_id):
                 cycle["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
                 self._sync_peer_status[peer_id].update(cycle)
+                # A direction that raised may have committed earlier pages;
+                # without a returned summary its count is unknown, not zero.
                 pull_result = cycle["pull"] or {}
                 push_result = cycle["push"] or {}
                 await self._broadcast_delta_sync_event(
                     peer_id=peer_id,
-                    pulled=pull_result.get("received") or 0,
-                    pushed=push_result.get("pushed") or 0,
+                    pulled=pull_result.get("received"),
+                    pushed=push_result.get("pushed"),
                     time_taken_seconds=(
                         datetime.now(timezone.utc) - datetime.fromisoformat(cycle_start)
                     ).total_seconds(),
