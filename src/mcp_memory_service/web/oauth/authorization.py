@@ -885,7 +885,19 @@ def _client_credentials_scope(
     # "read write"), but client_credentials must never confer admin even when
     # the registered ceiling includes it — same rule as the requested branch.
     default = ceiling if ceiling else "read write"
-    return " ".join(t for t in default.split() if t != "admin")
+    granted = " ".join(t for t in default.split() if t != "admin")
+    if not granted:
+        # Ceiling was admin-only: there is nothing non-admin to grant, and an
+        # empty string would be expanded back to the global "read write" default
+        # by create_access_token(). Refuse rather than silently grant everything.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "This client has no client_credentials-issuable (non-admin) scope",
+            },
+        )
+    return granted
 
 
 async def _handle_client_credentials_grant(

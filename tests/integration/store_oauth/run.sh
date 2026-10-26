@@ -183,6 +183,12 @@ REGADM=$(curl -s -X POST "$B/oauth/register" -H "Authorization: Bearer $DCR" -H 
   -d '{"client_name":"ceiladm","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic","redirect_uris":[],"scope":"read:projectA admin"}')
 ACID=$(echo "$REGADM" | jget client_id); ACSEC=$(echo "$REGADM" | jget client_secret)
 check "J7 CC no-scope default strips admin from ceiling" "read:projectA" "$(curl -s -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$ACID&client_secret=$ACSEC" | jget scope)"
+# J8: an admin-only ceiling must yield NO client_credentials token — stripping admin
+# leaves nothing, and an empty grant must NOT fall through to the global "read write".
+REGAO=$(curl -s -X POST "$B/oauth/register" -H "Authorization: Bearer $DCR" -H 'Content-Type: application/json' \
+  -d '{"client_name":"adminonly","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic","redirect_uris":[],"scope":"admin"}')
+AOID=$(echo "$REGAO" | jget client_id); AOSEC=$(echo "$REGAO" | jget client_secret)
+check "J8 admin-only ceiling CC no-scope rejected (400, not global)" "400" "$(code -X POST "$B/oauth/token" -d "grant_type=client_credentials&client_id=$AOID&client_secret=$AOSEC")"
 
 # --- K: SSE ticket inherits the minting credential's store scope ---
 # POST /api/events/ticket exchanges a real credential for a single-use ticket
