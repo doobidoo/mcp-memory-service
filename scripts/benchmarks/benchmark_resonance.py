@@ -234,33 +234,47 @@ def _percentile(values, pct):
     return ordered[min(len(ordered) - 1, int(round(pct / 100 * (len(ordered) - 1))))]
 
 
-async def run_latency(sizes, requests):
-    """p50/p95 per request: storage.retrieve() against the resonance endpoint's own
-    path, which reads every row, rebuilds the waveforms and scores them per request."""
+async def _time_requests(storage, queries):
+    """ms per request: storage.retrieve() against the resonance endpoint's own path,
+    which reads every row, rebuilds the waveforms and scores them per request."""
     from mcp_memory_service.web.api.memories import _fetch_resonance_candidates, _score_resonance_candidates
 
+    timings = defaultdict(list)
+    for query in queries:
+        start = time.perf_counter()
+        await storage.retrieve(query, n_results=10)
+        timings["retrieve"].append((time.perf_counter() - start) * 1000)
+        for mode in ("resonance", "phase", "hybrid"):
+            start = time.perf_counter()
+            rows = _fetch_resonance_candidates(storage.conn, None)
+            query_embedding = storage._generate_embedding(query)
+            _score_resonance_candidates(rows, query_embedding, storage.embedding_dimension, 10, mode)
+            timings[mode].append((time.perf_counter() - start) * 1000)
+    return timings
+
+
+async def _grow(storage, start, size):
+    """Store synthetic memories start..size-1, so each size extends the last one."""
+    for i in range(start, size):
+        await _store(storage, _synthetic(i), ["latency"])
+
+
+def _summarize(timings, size):
+    return {f"{mode} @{size}": {"p50_ms": _percentile(values, 50), "p95_ms": _percentile(values, 95)}
+            for mode, values in timings.items()}
+
+
+async def run_latency(sizes, requests):
+    """p50/p95 per request at each store size; the store grows between sizes."""
     queries = [f"{_SUBJECTS[i % 10]} {_VERBS[i % 7]} {_OBJECTS[i % 9]}" for i in range(requests)]
     storage, tmp_dir = await _isolated_storage("resonance-latency-")
     out = {}
     try:
-        stored = 0
+        previous = 0
         for size in sorted(sizes):
-            while stored < size:
-                await _store(storage, _synthetic(stored), ["latency"])
-                stored += 1
-            timings = defaultdict(list)
-            for query in queries:
-                start = time.perf_counter()
-                await storage.retrieve(query, n_results=10)
-                timings["retrieve"].append((time.perf_counter() - start) * 1000)
-                for mode in ("resonance", "phase", "hybrid"):
-                    start = time.perf_counter()
-                    rows = _fetch_resonance_candidates(storage.conn, None)
-                    query_embedding = storage._generate_embedding(query)
-                    _score_resonance_candidates(rows, query_embedding, storage.embedding_dimension, 10, mode)
-                    timings[mode].append((time.perf_counter() - start) * 1000)
-            for mode, values in timings.items():
-                out[f"{mode} @{size}"] = {"p50_ms": _percentile(values, 50), "p95_ms": _percentile(values, 95)}
+            await _grow(storage, previous, size)
+            previous = size
+            out |= _summarize(await _time_requests(storage, queries), size)
             print(f"  latency: {size} memories measured", file=sys.stderr)
         return out
     finally:
