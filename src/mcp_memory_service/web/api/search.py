@@ -41,7 +41,6 @@ _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for t
 # OAuth authentication imports
 from ..oauth.middleware import (
     AuthenticationResult,
-    require_read_access,
     require_store_read,
     get_current_user,
 )

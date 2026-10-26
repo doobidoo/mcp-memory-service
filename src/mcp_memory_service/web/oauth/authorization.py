@@ -437,10 +437,21 @@ async def authorize_post(
         # (allowed_scope is None) is unaffected.
         client = await get_oauth_storage().get_client(client_id)
         if client and client.allowed_scope is not None:
-            data_scope = " ".join(
-                t for t in (scope or "").split() if t != OFFLINE_ACCESS_SCOPE
-            )
-            if not scope_within_ceiling(data_scope, client.allowed_scope):
+            tokens = (scope or "").split()
+            data_scope = " ".join(t for t in tokens if t != OFFLINE_ACCESS_SCOPE)
+            deny = False
+            if not data_scope:
+                # No data scope requested. create_access_token() defaults an
+                # empty scope to the global "read write", which would ESCAPE a
+                # store-scoped ceiling. Bind the grant to the ceiling instead
+                # (never conferring admin), preserving an explicit offline_access.
+                ceil = " ".join(t for t in client.allowed_scope.split() if t != "admin")
+                offline = [t for t in tokens if t == OFFLINE_ACCESS_SCOPE]
+                scope = " ".join(([ceil] if ceil else []) + offline).strip() or None
+                deny = not ceil  # an admin-only ceiling has nothing to grant here
+            elif not scope_within_ceiling(data_scope, client.allowed_scope):
+                deny = True
+            if deny:
                 logger.warning("Authorization denied: requested scope exceeds client ceiling")
                 error_params = {
                     "error": "invalid_scope",
@@ -870,7 +881,11 @@ def _client_credentials_scope(
                 },
             )
         return requested
-    return ceiling if ceiling else "read write"
+    # No requested scope: default to the client's ceiling (else the historical
+    # "read write"), but client_credentials must never confer admin even when
+    # the registered ceiling includes it — same rule as the requested branch.
+    default = ceiling if ceiling else "read write"
+    return " ".join(t for t in default.split() if t != "admin")
 
 
 async def _handle_client_credentials_grant(

@@ -42,7 +42,6 @@ from ..sse import sse_manager, create_memory_stored_event, create_memory_deleted
 # OAuth authentication imports
 from ..oauth.middleware import (
     require_read_access,
-    require_write_access,
     require_store_read,
     require_store_write,
     get_current_user,
