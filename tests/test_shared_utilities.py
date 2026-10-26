@@ -41,11 +41,23 @@ class TestTagsToStringAndBack:
 
 
 class TestEscapeLikeSpecialChars:
-    def test_removes_percent(self):
-        assert _escape_like("a%b") == "ab"
+    """Wildcards are escaped, not dropped (#1684).
 
-    def test_removes_underscore(self):
-        assert _escape_like("a_b") == "ab"
+    Dropping ``_`` turned the needle ``upload_id:abc`` into ``uploadid:abc``,
+    so a tag with an underscore could never be matched on Milvus.
+    """
+
+    def test_escapes_percent(self):
+        assert _escape_like("a%b") == "a\\%b"
+
+    def test_escapes_underscore(self):
+        assert _escape_like("upload_id:abc") == "upload\\_id:abc"
+
+    def test_leaves_backslash_alone(self):
+        # Milvus server versions disagree on a backslash before a non-wildcard
+        # inside a like pattern (milvus-io/milvus#43864); doubling it broke the
+        # #1107 trailing-backslash tag match on Milvus Lite.
+        assert _escape_like("foo\\") == "foo\\"
 
     def test_clean_value_unchanged(self):
         assert _escape_like("hello") == "hello"

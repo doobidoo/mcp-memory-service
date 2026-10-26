@@ -281,6 +281,124 @@ async def test_search_by_tag_with_trailing_backslash(storage):
     assert hits == {mem_plain.content_hash}
 
 
+def _tagged(content, tags):
+    return Memory(content=content, content_hash=generate_content_hash(content), tags=tags)
+
+
+# Tags as the dashboard upload writes them, plus one with a literal "%". Each
+# decoy differs only where a wildcard sits, so an unescaped "_" (any single
+# character) or "%" (any run) in the like pattern would match it too.
+_WILDCARD_TAGS = ["upload_id:abc123", "file_type:md", "progress:100%"]
+_WILDCARD_DECOYS = ["uploadXid:abc123", "fileXtype:md", "progress:100%-ish"]
+
+
+async def _store_wildcard_pair(storage, label):
+    real = _tagged(f"{label}: chunk of an uploaded document", list(_WILDCARD_TAGS))
+    decoy = _tagged(f"{label}: unrelated note with lookalike tags", list(_WILDCARD_DECOYS))
+    for m in (real, decoy):
+        ok, msg = await storage.store(m, skip_semantic_dedup=True)
+        assert ok, msg
+    return real, decoy
+
+
+@pytest.mark.asyncio
+async def test_tag_reads_match_underscore_and_percent_literally(storage):
+    """Regression for #1684: "_" and "%" in a tag are matched literally.
+
+    ``_escape_like`` used to drop both characters, so ``upload_id:abc123`` was
+    searched as ``uploadid:abc123`` and no tag containing an underscore ever
+    matched. Escaping them must find the tag and still skip the decoys.
+    """
+    real, _decoy = await _store_wildcard_pair(storage, "reads")
+    expected = {real.content_hash}
+
+    for tag in _WILDCARD_TAGS:
+        assert {m.content_hash for m in await storage.search_by_tag([tag])} == expected, tag
+        assert {m.content_hash for m in await storage.search_by_tags([tag])} == expected, tag
+        assert {
+            m.content_hash for m in await storage.search_by_tag_chronological([tag])
+        } == expected, tag
+        assert {m.content_hash for m in await storage.get_all_memories(tags=[tag])} == expected, tag
+        assert await storage.count_memories_by_tag([tag]) == 1, tag
+        assert await storage.count_all_memories(tags=[tag]) == 1, tag
+        result = await storage.search_memories(query="chunk of an uploaded document", tags=[tag])
+        assert {m["content_hash"] for m in result["memories"]} == expected, tag
+
+
+@pytest.mark.asyncio
+async def test_tag_deletes_match_underscore_and_spare_decoys(storage):
+    """Regression for #1684: every tag-based delete path finds an underscore tag
+    and leaves the lookalike decoy in place."""
+    from datetime import date, timedelta
+
+    yesterday = date.today() - timedelta(days=1)
+    tomorrow = date.today() + timedelta(days=1)
+    tag = "upload_id:abc123"
+
+    real, decoy = await _store_wildcard_pair(storage, "delete_by_tags")
+    count, _msg, deleted = await storage.delete_by_tags([tag])
+    assert (count, deleted) == (1, [real.content_hash])
+    assert await storage.get_by_hash(decoy.content_hash) is not None
+    await storage.delete(decoy.content_hash)
+
+    real, decoy = await _store_wildcard_pair(storage, "delete_by_tag")
+    count, _msg = await storage.delete_by_tag(tag)
+    assert count == 1
+    assert await storage.get_by_hash(real.content_hash) is None
+    assert await storage.get_by_hash(decoy.content_hash) is not None
+    await storage.delete(decoy.content_hash)
+
+    real, decoy = await _store_wildcard_pair(storage, "delete_by_timeframe")
+    count, _msg = await storage.delete_by_timeframe(yesterday, tomorrow, tag=tag)
+    assert count == 1
+    assert await storage.get_by_hash(real.content_hash) is None
+    assert await storage.get_by_hash(decoy.content_hash) is not None
+    await storage.delete(decoy.content_hash)
+
+    real, decoy = await _store_wildcard_pair(storage, "delete_before_date")
+    count, _msg = await storage.delete_before_date(tomorrow, tag=tag)
+    assert count == 1
+    assert await storage.get_by_hash(real.content_hash) is None
+    assert await storage.get_by_hash(decoy.content_hash) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_rechecks_tags_when_the_like_filter_over_matches(storage):
+    """The delete paths re-check tags before deleting by id (#1684).
+
+    Milvus server versions have not all handled escaped wildcards in ``like``
+    the same way (milvus-io/milvus#43864). Feed ``_collect_hashes`` the
+    unescaped pattern, where "_" matches any character, to stand in for a server
+    that ignores the escape: the filter alone selects the decoy, and the tag
+    re-check must drop it before anything is deleted.
+    """
+    real, decoy = await _store_wildcard_pair(storage, "guard")
+    over_matching = 'tags like "%,upload_id:abc123,%"'
+
+    assert set(await storage._collect_hashes(over_matching)) == {
+        real.content_hash, decoy.content_hash,
+    }
+    assert await storage._collect_hashes(
+        over_matching, any_of_tags=["upload_id:abc123"],
+    ) == [real.content_hash]
+
+
+@pytest.mark.asyncio
+async def test_exact_content_search_matches_underscore_literally(storage):
+    """Regression for #1684: exact-content search escapes "_" instead of dropping it."""
+    real = _tagged("Run pip install my_package before the tests", ["plain"])
+    decoy = _tagged("Run pip install myXpackage before the tests", ["plain"])
+    for m in (real, decoy):
+        ok, msg = await storage.store(m, skip_semantic_dedup=True)
+        assert ok, msg
+
+    hits = {m.content_hash for m in await storage.get_by_exact_content("my_package")}
+    assert hits == {real.content_hash}
+
+    result = await storage.search_memories(query="my_package", mode="exact")
+    assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
+
+
 @pytest.mark.asyncio
 async def test_search_by_tags_and_or(storage):
     a = Memory(
