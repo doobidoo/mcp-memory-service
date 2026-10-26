@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from ..._version import __version__
 from ...compat import _sanitize_log_value
 from ...utils.tool_rate_limit import resolve_caller_identity
-from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..oauth.middleware import require_read_access, get_current_user, AuthenticationResult
 
 logger = logging.getLogger(__name__)
 
@@ -157,9 +157,14 @@ def _wrap_tool_result(result, is_error: bool = False) -> Dict[str, Any]:
 async def mcp_endpoint(
     request: MCPRequest,
     http_request: Request,
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
-    """Main MCP protocol endpoint. Delegates to the shared MemoryServer."""
+    """Main MCP protocol endpoint. Delegates to the shared MemoryServer.
+
+    Scope is enforced per tool call (see tools/call below), not at the route,
+    so a store-restricted token (e.g. ``read:projectA``) can still initialize
+    and list tools but may only invoke tools within its stores.
+    """
     try:
         # JSON-RPC 2.0: a message without `id` is a Notification; the server
         # MUST NOT reply. MCP Streamable HTTP requires HTTP 202 Accepted with
@@ -230,15 +235,32 @@ async def mcp_endpoint(
                 )
                 return JSONResponse(content=response.model_dump(exclude_none=True))
 
-            # Mutating tools require 'write' scope even through MCP. Read-only
-            # tools remain accessible with 'read' scope (GHSA-2r68-g678-7qr3).
-            if await _requires_write(server, tool_name, arguments) and not user.has_scope("write"):
+            # Scope enforcement, per tool call. Mutating tools require 'write',
+            # read-only tools require 'read' (GHSA-2r68-g678-7qr3). When the
+            # call names a `store`, the check is per-store: a global
+            # 'read'/'write' grants every store, else 'read:<store>'/
+            # 'write:<store>' grants exactly that store ('all' -> global). A
+            # call with no `store` targets the implicit default and requires
+            # the global operation scope.
+            operation = "write" if await _requires_write(server, tool_name, arguments) else "read"
+            store_arg = arguments.get("store")
+            if store_arg is not None:
+                resolved_store = None if store_arg == "all" else store_arg
+                authorized = user.has_store_scope(operation, resolved_store)
+                required = (
+                    f"'{operation}' (global)" if resolved_store is None
+                    else f"'{operation}' or '{operation}:{store_arg}'"
+                )
+            else:
+                authorized = user.has_scope(operation)
+                required = f"'{operation}'"
+            if not authorized:
                 response = MCPResponse(
                     id=request.id,
                     error={
                         "code": -32003,
-                        "message": "Insufficient scope: tool requires 'write' access",
-                        "data": {"required_scope": "write", "tool": tool_name},
+                        "message": f"Insufficient scope: tool requires {required} access",
+                        "data": {"required_scope": operation, "tool": tool_name, "store": store_arg},
                     },
                 )
                 return JSONResponse(

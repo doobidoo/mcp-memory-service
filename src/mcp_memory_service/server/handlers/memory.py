@@ -1629,6 +1629,31 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
+        # Per-store confinement for this hash-addressed update. The transport
+        # gate authorizes the *claimed* store, but the update resolves by
+        # content_hash and would otherwise ignore it — so a token scoped to one
+        # store could update another store's memory. When a store is claimed,
+        # resolve the hash within it first: on backends whose get_by_hash honors
+        # ``store`` a hash from another store comes back missing -> not found;
+        # backends that ignore ``store`` can't prove confinement, so a
+        # store-scoped update fails closed there (real storage-layer enforcement
+        # is the follow-up issue, after which this pre-check can be removed).
+        claimed_store = arguments.get("store")
+        if claimed_store is not None and claimed_store != "all":
+            # Raise rather than return: a refused update must surface as a tool
+            # error (isError=true), so a client checking the MCP success flag
+            # cannot mistake it for a completed write. The /mcp shim and the SDK
+            # both map a raised exception to isError; the broad except below
+            # re-raises PermissionError so it is not flattened into a
+            # success-looking TextContent.
+            if not getattr(storage, "get_by_hash_is_store_scoped", False):
+                raise PermissionError(
+                    "store-scoped updates are not supported on this storage backend; "
+                    "omit 'store' or use a globally-scoped credential"
+                )
+            if await storage.get_by_hash(content_hash, store=claimed_store) is None:
+                raise PermissionError("memory not found in the requested store")
+
         versioned = arguments.get("versioned", False)
 
         if versioned:
@@ -1723,6 +1748,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             logger.warning("Failed to update metadata for memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(message))
             return [types.TextContent(type="text", text=f"Failed to update memory metadata: {message}")]
 
+    except PermissionError:
+        # A store-scope refusal must propagate as a tool error (isError), not be
+        # flattened into a success-looking TextContent by the handler below.
+        raise
     except Exception as e:
         error_msg = f"Error updating memory metadata: {str(e)}"
         logger.error("%s\n%s", _sanitize_log_value(error_msg), traceback.format_exc())
