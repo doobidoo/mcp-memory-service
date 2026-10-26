@@ -29,9 +29,11 @@ from .client_detection import MCP_CLIENT
 class DualStreamHandler(logging.Handler):
     """Client-aware handler that adjusts logging behavior based on MCP client."""
 
-    def __init__(self, client_type='claude_desktop'):
+    def __init__(self, client_type='claude_desktop', strict_level=logging.WARNING):
         super().__init__()
         self.client_type = client_type
+        # Lowest level emitted in strict mode; configure_logging() passes LOG_LEVEL.
+        self.strict_level = strict_level
         self.stdout_handler = logging.StreamHandler(sys.stdout)
         self.stderr_handler = logging.StreamHandler(sys.stderr)
 
@@ -42,12 +44,13 @@ class DualStreamHandler(logging.Handler):
 
     def emit(self, record):
         """Route log records based on client type and level."""
-        # For Claude Desktop: strict JSON mode - suppress most output, route everything to stderr
+        # For Claude Desktop: strict JSON mode - stdout carries the protocol, so
+        # everything goes to stderr. Strict mode is also the fallback when no known
+        # client is the parent (e.g. the HTTP server under systemd), so the level
+        # follows LOG_LEVEL instead of being pinned to WARNING.
         if self.client_type == 'claude_desktop':
-            # Only emit WARNING and above to stderr to maintain JSON protocol
-            if record.levelno >= logging.WARNING:
+            if record.levelno >= self.strict_level:
                 self.stderr_handler.emit(record)
-            # Suppress INFO/DEBUG for Claude Desktop to prevent JSON parsing errors
             return
 
         # For LM Studio: enhanced mode with dual-stream
@@ -60,15 +63,18 @@ def configure_logging():
     """Configure root logger with client-aware handler."""
     # Configure logging with client-aware handler BEFORE any imports that use logging
     log_level = os.getenv('LOG_LEVEL', 'WARNING').upper()  # Default to WARNING for performance
+    level = getattr(logging, log_level, None)
+    if not isinstance(level, int):
+        level = logging.WARNING
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_level, logging.WARNING))
+    root_logger.setLevel(level)
 
     # Remove any existing handlers to avoid duplicates
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
     # Add our custom client-aware handler
-    client_aware_handler = DualStreamHandler(client_type=MCP_CLIENT)
+    client_aware_handler = DualStreamHandler(client_type=MCP_CLIENT, strict_level=level)
     root_logger.addHandler(client_aware_handler)
 
     return logging.getLogger(__name__)

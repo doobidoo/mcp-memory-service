@@ -93,7 +93,8 @@ class Memory:
                         invalid_tags.append(tag)
 
             if invalid_tags:
-                logger.info(
+                # DEBUG: __post_init__ runs on every load, so INFO repeated this per read
+                logger.debug(
                     "Tags with invalid namespaces: %s. "
                     "Valid namespaces: sys:, q:, proj:, topic:, t:, user:. "
                     "Legacy tags (no namespace) are still supported.",
