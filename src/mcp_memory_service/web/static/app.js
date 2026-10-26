@@ -4630,6 +4630,11 @@ class MemoryDashboard {
             this.loadCredentials();
         }
 
+        // Load the configured quality settings when switching to quality tab
+        if (tabName === 'quality') {
+            this.loadQualitySettings();
+        }
+
         // Load server status + auto-check for updates when switching to server tab
         // (runs once per modal open to avoid repeated git fetches)
         if (tabName === 'server') {
@@ -4734,6 +4739,11 @@ class MemoryDashboard {
         if (saveBtn) {
             saveBtn.addEventListener('click', () => this.saveCloudflareCredentials());
         }
+
+        // Quality tab Save & Restart button
+        document.getElementById('qualitySaveBtn')?.addEventListener('click', () => {
+            this.saveQualitySettings();
+        });
     }
 
     /**
@@ -4823,6 +4833,97 @@ class MemoryDashboard {
 
     _showCredResult(type, message) {
         const el = document.getElementById('credTestResult');
+        if (!el) return;
+        el.className = `cred-test-result cred-test-${type}`;
+        el.textContent = message;
+        el.style.display = 'block';
+    }
+
+    /**
+     * Load the configured quality provider and boost flag into the Quality tab.
+     * Values come from GET /api/config/env, so the tab shows what the server runs with.
+     */
+    async loadQualitySettings() {
+        const resultEl = document.getElementById('qualitySaveResult');
+        if (resultEl) resultEl.style.display = 'none';
+
+        // Nothing can be edited or saved until the configured values are in,
+        // otherwise Save would write the HTML defaults over them
+        const providerSelect = document.getElementById('quality-provider');
+        const boostCheckbox = document.getElementById('quality-boost-enabled');
+        const saveBtn = document.getElementById('qualitySaveBtn');
+        [providerSelect, boostCheckbox, saveBtn].forEach(el => { if (el) el.disabled = true; });
+
+        try {
+            const config = await this.apiCall('/config/env');
+            const params = Object.fromEntries(
+                config.categories.flatMap(category => category.parameters).map(param => [param.key, param])
+            );
+            const provider = params.MCP_QUALITY_AI_PROVIDER;
+            const boost = params.MCP_QUALITY_BOOST_ENABLED;
+
+            const providerValue = (provider?.value || 'local').toLowerCase();
+            const option = Array.from(providerSelect?.options || []).find(opt => opt.value === providerValue);
+            if (providerSelect) {
+                // A provider the dropdown does not offer (e.g. openai-compatible) is left as it is on save
+                providerSelect.disabled = !option;
+                providerSelect.value = providerValue;
+            }
+
+            // Same spellings as safe_get_bool_env(); unset means off, the server default
+            if (boostCheckbox) {
+                boostCheckbox.checked = ['true', '1', 'yes', 'on', 'enabled']
+                    .includes((boost?.value || '').toLowerCase().trim());
+                boostCheckbox.disabled = false;
+            }
+            if (saveBtn) saveBtn.disabled = false;
+
+            const info = document.getElementById('current-provider-info');
+            if (info) info.textContent = option ? option.textContent : providerValue;
+        } catch (e) {
+            console.warn('Failed to load quality settings:', e);
+            this._showQualityResult('error', this.t(
+                'settings.quality.loadFailed',
+                '✗ Could not load the current settings: {error}. Reopen this tab to retry.',
+                { error: e.message }
+            ));
+        }
+    }
+
+    /**
+     * POST /api/config/quality — persist the Quality tab and restart.
+     */
+    async saveQualitySettings() {
+        const saveBtn = document.getElementById('qualitySaveBtn');
+        const providerSelect = document.getElementById('quality-provider');
+        const settings = {
+            MCP_QUALITY_BOOST_ENABLED: document.getElementById('quality-boost-enabled')?.checked ? 'true' : 'false',
+        };
+        if (providerSelect && !providerSelect.disabled) {
+            settings.MCP_QUALITY_AI_PROVIDER = providerSelect.value || 'local';
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = this.t('settings.quality.saving', 'Saving…');
+
+        try {
+            await this.apiCall('/config/quality', 'POST', { settings });
+            this.closeModal(document.getElementById('settingsModal'));
+            this.showRestartOverlay();
+        } catch (e) {
+            this._showQualityResult('error', this.t(
+                'settings.quality.saveFailed',
+                '✗ Save failed: {error}',
+                { error: e.message }
+            ));
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = this.t('settings.quality.save', 'Save & Restart');
+        }
+    }
+
+    _showQualityResult(type, message) {
+        const el = document.getElementById('qualitySaveResult');
         if (!el) return;
         el.className = `cred-test-result cred-test-${type}`;
         el.textContent = message;

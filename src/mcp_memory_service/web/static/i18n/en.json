@@ -414,5 +414,10 @@
   "settings.quality.provider.help": "Local SLM provides zero-cost, privacy-preserving quality scoring",
   "settings.quality.boost.label": "Enable Quality-Boosted Search",
   "settings.quality.boost.help": "Rerank search results to prioritize high-quality memories",
-  "settings.quality.current.label": "Current Provider:"
+  "settings.quality.current.label": "Current Provider:",
+  "settings.quality.save": "Save & Restart",
+  "settings.quality.saving": "Saving…",
+  "settings.quality.saveFailed": "✗ Save failed: {error}",
+  "settings.quality.loadFailed": "✗ Could not load the current settings: {error}. Reopen this tab to retry.",
+  "settings.quality.saveHint": "Saved to .env. The server restarts to apply the change."
 }
