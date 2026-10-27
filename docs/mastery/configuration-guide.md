@@ -160,11 +160,12 @@ this stage is the only measured answer: cosine scores 0.63 pairwise accuracy, re
 40 lifts it to 0.87 (+24.0 p.p., paired 95% CI [+14.0, +34.0]; 27 of 100 queries improved, 3
 regressed; 0.27 s p50 on that corpus, which is 115 short memories). Explicit negation goes
 0.88 → 1.00. Implicit negation — a query about the negated fact with no "not" to match on —
-moves 0.32 → 0.48 and stays below chance: reranking narrows the gap that motivated the
+moves 0.32 → 0.48 and lands at chance level (12 of 25 decisions): reranking narrows the gap that
+motivated the
 resonance experiment without closing it. On a multilingual index (`paraphrase-multilingual-MiniLM-L12-v2`)
 the baseline is already stronger on this corpus (0.77) and the stage takes it to 0.89 (+12.0 p.p.,
-95% CI [+5.0, +19.0], 13 improved / 1 regressed); implicit negation then crosses chance
-(0.28 → 0.56). `scripts/benchmarks/benchmark_negation_rerank.py`
+95% CI [+5.0, +19.0], 13 improved / 1 regressed); implicit negation then lands at chance level
+(0.28 → 0.56, 14 of 25 decisions). `scripts/benchmarks/benchmark_negation_rerank.py`
 repeats the comparison and refuses to score a stage that degraded to fail-open.
 
 ## mDNS Service Discovery

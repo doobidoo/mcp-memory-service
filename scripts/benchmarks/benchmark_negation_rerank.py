@@ -129,13 +129,13 @@ async def isolated_storage(prefix, embedding_model=DEFAULT_EMBEDDING_MODEL):
     return storage, directory
 
 
-async def _store(checkpoint, content, tags):
+async def _store(storage, content, tags):
     memory = Memory(
         content=content,
         content_hash=hashlib.sha256(content.encode()).hexdigest(),
         tags=tags,
     )
-    stored, message = await checkpoint.store(memory, skip_semantic_dedup=True)
+    stored, message = await storage.store(memory, skip_semantic_dedup=True)
     if not stored:
         raise RuntimeError(f"store failed: {message}")
     return memory.content_hash
@@ -303,7 +303,7 @@ async def run_negation(candidate_sizes, embedding_model=DEFAULT_EMBEDDING_MODEL)
         shutil.rmtree(directory, ignore_errors=True)
 
 
-def _print_table(title, info, results, bootstrap, corpus_size):
+def _print_table(title, info, results, bootstrap):
     print(f"\n{title}")
     print(f"embedding={info['embedding_model']}  rerank={info['rerank_model']}  "
           f"corpus={info['corpus_size']}  queries={info['queries']}")
@@ -334,7 +334,7 @@ async def main(argv):
 
     info, results, bootstrap = await run_negation(args.candidates, args.embedding_model)
     _print_table("Negation minimal pairs (cosine vs second-stage rerank)",
-                 info, results, bootstrap, info["corpus_size"])
+                 info, results, bootstrap)
 
     if args.json_out:
         payload = {"info": info,
