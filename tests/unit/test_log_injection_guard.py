@@ -89,6 +89,10 @@ GUARDED_MODULES = [
     "mcp_memory_service/ingestion/csv_loader.py",
     "mcp_memory_service/ingestion/text_loader.py",
     "mcp_memory_service/ingestion/pdf_loader.py",
+    "mcp_memory_service/reasoning/inference.py",
+    "mcp_memory_service/reasoning/entity_linker.py",
+    "mcp_memory_service/reasoning/nli.py",
+    "mcp_memory_service/reasoning/multi_strategy.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -188,6 +192,11 @@ EXTERNAL_NAMES = frozenset({
     # the name bare in a %-style call, so listing it decides for nobody else.
     # `error_msg` above already covers the stderr of the semtools subprocess.
     "file_path",
+    # An entity name EntityExtractor pulled out of a memory's content or tags
+    # (reasoning/entity_linker.py logs it when the lookup fails and when the
+    # per-entity link cap is hit). No guarded module logs the name bare in a
+    # %-style call, so listing it decides for nobody else.
+    "entity_name",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -610,3 +619,19 @@ def test_lazy_scan_flags_ingestion_file_path():
     assert _lazy_findings(bare)
     assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("Successfully parsed %s, extracted %d characters", _sanitize_log_value(file_path), len(markdown_content))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_reasoning_entity_name():
+    """An entity name pulled out of memory content, logged by reasoning/entity_linker.py.
+
+    Both guarded logger calls that carry it already wrap it, so the module scans
+    stay green whether or not the name is listed. This is the sample that fails
+    if `entity_name` is dropped from EXTERNAL_NAMES; the link cap and the edge
+    count logged next to it stay unlisted on purpose.
+    """
+    bare = 'logger.debug("EntityLinker: hit cap (%s) for entity \'%s\'", MAX_LINKS_PER_ENTITY, entity_name)\n'
+    wrapped = 'logger.debug("EntityLinker: hit cap (%s) for entity \'%s\'", MAX_LINKS_PER_ENTITY, _sanitize_log_value(entity_name))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("EntityLinker: created %s shares_entity edges for %s", edges_created, memory_hash)\n')

@@ -356,6 +356,6 @@ async def detect_contradictions_nli(
                 )
                 result["conflicts_registered"] += 1
             except Exception as e:
-                logger.debug(f"Failed to register conflict: {e}")
+                logger.debug("Failed to register conflict: %s", _sanitize_log_value(e))
 
     return result
