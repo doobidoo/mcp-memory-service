@@ -11,6 +11,8 @@ import logging
 import os
 from typing import List
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Cap to prevent O(N²) edge explosion for common entities
@@ -54,7 +56,7 @@ class EntityLinker:
             try:
                 existing_hashes = await graph_storage.find_memories_by_entity(entity_name)
             except Exception as e:
-                logger.debug(f"Failed to query entity '{entity_name}': {e}")
+                logger.debug("Failed to query entity '%s': %s", _sanitize_log_value(entity_name), _sanitize_log_value(e))
                 continue
 
             # Defensive: handle None or non-iterable return
@@ -68,7 +70,7 @@ class EntityLinker:
                     continue
                 if linked_count >= MAX_LINKS_PER_ENTITY:
                     logger.debug(
-                        f"EntityLinker: hit cap ({MAX_LINKS_PER_ENTITY}) for entity '{entity_name}'"
+                        "EntityLinker: hit cap (%s) for entity '%s'", MAX_LINKS_PER_ENTITY, _sanitize_log_value(entity_name)
                     )
                     break
 
@@ -91,10 +93,10 @@ class EntityLinker:
                         edges_created += 1
                         linked_count += 1
                 except Exception as e:
-                    logger.debug(f"Failed to create shares_entity edge: {e}")
+                    logger.debug("Failed to create shares_entity edge: %s", _sanitize_log_value(e))
 
         if edges_created:
             logger.info(
-                f"EntityLinker: created {edges_created} shares_entity edges for {memory_hash}"
+                "EntityLinker: created %s shares_entity edges for %s", edges_created, memory_hash
             )
         return edges_created
