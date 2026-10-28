@@ -32,6 +32,7 @@ host services flip the flags without a process reload.
 """
 
 import asyncio
+import time
 import logging
 import os
 import threading
@@ -171,24 +172,62 @@ def _resolve_scorer(config: SearchRerankConfig) -> Optional[Any]:
     return _scorer
 
 
+def _on_worker(fn, *args, **kwargs):
+    """Run ``fn`` on the worker and return (started_at, result): the gap between
+    scheduling the hop and ``started_at`` is the executor's queueing delay."""
+    started = time.perf_counter()
+    return started, fn(*args, **kwargs)
+
+
+async def _timed_hop(record: Optional[dict], key: str, fn, *args, **kwargs):
+    """``asyncio.to_thread`` with, when ``record`` is given, ``<key>_hop_ms``
+    (scheduling delay) and ``<key>_ms`` (time inside ``fn``) written to it.
+    ``kwargs`` go to ``fn`` untouched (it may take a ``timing`` of its own)."""
+    if record is None:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    scheduled = time.perf_counter()
+    started, result = await asyncio.to_thread(_on_worker, fn, *args, **kwargs)
+    done = time.perf_counter()
+    record[f'{key}_hop_ms'] = round((started - scheduled) * 1000, 1)
+    record[f'{key}_ms'] = round((done - started) * 1000, 1)
+    return result
+
+
 async def rerank_candidates(
-    query: Optional[str], memories: List[dict], config: SearchRerankConfig
+    query: Optional[str], memories: List[dict], config: SearchRerankConfig,
+    timing: Optional[dict] = None,
 ) -> Optional[List[dict]]:
     """Score candidates and return them reranked best-first, or ``None`` on
-    any failure so the caller can fall back to the unreranked order."""
+    any failure so the caller can fall back to the unreranked order.
+
+    ``timing`` (issue #1669): when a dict is given it is filled with the
+    per-stage wall-clock of this call -- ``scorer_cold`` (whether this call
+    built the scorer), ``resolve_hop_ms``/``resolve_ms``, ``score_hop_ms``/
+    ``score_ms`` and ``chunks`` (one entry per ONNX inference call, from the
+    ranker). Ordering and scores are the same with or without it.
+    """
     if not memories:
         return None
     try:
         # The scorer build follows the loader path (session creation, and on a
         # cold cache an export) -- never on the event loop. Greptile P1 on #1661:
         # the first enabled search stalled every concurrent request otherwise.
-        instance = await asyncio.to_thread(_resolve_scorer, config)
+        if timing is not None:
+            timing['candidates'] = len(memories)
+            timing['scorer_cold'] = _scorer is None
+        instance = await _timed_hop(timing, 'resolve', _resolve_scorer, config)
         if instance is None:
             return None
         contents = [memory.get('content') or '' for memory in memories]
-        scores = await asyncio.to_thread(
-            instance.score_quality_batch, [(query, content) for content in contents]
-        )
+        pairs = [(query, content) for content in contents]
+        if timing is None:
+            scores = await asyncio.to_thread(instance.score_quality_batch, pairs)
+        else:
+            chunks: List[dict] = []
+            scores = await _timed_hop(
+                timing, 'score', instance.score_quality_batch, pairs, timing=chunks
+            )
+            timing['chunks'] = chunks
         if scores is None or len(scores) != len(memories):
             raise RuntimeError(
                 'rerank scorer returned %r scores for %d candidates'
@@ -231,8 +270,14 @@ async def apply_search_rerank(
     if not rerank_active(arguments, config):
         return memories, total
     limit = arguments.get('limit', 10)
-    ordered = await rerank_candidates(query, memories, config)
+    # Stage timing (issue #1669) rides on the existing include_debug output:
+    # without it nothing is measured and the response is unchanged.
+    timing: Optional[dict] = {} if arguments.get('include_debug') else None
+    ordered = await rerank_candidates(query, memories, config, timing)
     final = (ordered or memories)[:limit]
     result['memories'] = final
     result['total'] = len(final)
+    if timing is not None:
+        timing['applied'] = ordered is not None
+        result.setdefault('debug', {})['rerank_timing'] = timing
     return final, len(final)
