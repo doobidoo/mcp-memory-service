@@ -17,21 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### Added
-
-- **Per-stage timing of the `memory_search` rerank path (#1669, #1701).** With `rerank=true` and
-  `include_debug=true`, `debug.rerank_timing` carries the wall-clock of each stage of the call —
-  search and pool size, filters, scorer resolve (cold or warm, with the `to_thread` hop), scoring
-  with one line per ONNX inference chunk (items, padded length, tokenize and run time) — and the
-  debug block prints it. Without `include_debug` nothing is measured and the response is unchanged.
-
-### Fixed
-
-- **The search reranker now honors `MCP_QUALITY_LOCAL_DEVICE` (#1669, #1701).** It resolved its
-  scorer with `device='auto'` regardless of the setting the quality evaluator already uses; on
-  Apple Silicon `auto` selects the CoreML provider, which runs the int8 cross-encoder an order of
-  magnitude slower than the CPU provider. Default behaviour (`auto`) is unchanged.
-
 ## [12.4.0] - 2026-10-26
 
 
