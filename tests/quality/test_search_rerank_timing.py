@@ -13,8 +13,10 @@ Contract:
 - Scores and ordering are the same with or without timing.
 """
 
+import asyncio
 import logging
 import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -173,6 +175,40 @@ async def test_scorer_cold_then_warm():
     loader.assert_called_once()
     assert first['scorer_cold'] is True
     assert second['scorer_cold'] is False
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_calls_report_one_cold_build():
+    """Two searches during the first load: the lock lets one build, and only
+    that one says scorer_cold (Greptile P2 on #1701)."""
+    stub = _StubModel(scores=[0.2, 0.8])
+
+    def slow_loader(**_kwargs):
+        time.sleep(0.05)
+        return stub
+
+    first, second = {}, {}
+    with patch(LOADER, side_effect=slow_loader) as loader:
+        await asyncio.gather(
+            rerank_candidates('q', _memories(2), _config(), first),
+            rerank_candidates('q', _memories(2), _config(), second),
+        )
+    loader.assert_called_once()
+    assert sorted([first['scorer_cold'], second['scorer_cold']]) == [False, True]
+
+
+def test_worker_clock_is_taken_on_the_worker():
+    started, finished, result = search_rerank._on_worker(lambda: (time.sleep(0.01), 7)[1])
+    assert result == 7
+    assert finished - started >= 0.01
+
+
+@pytest.mark.asyncio
+async def test_hop_excludes_the_time_inside_fn():
+    record = {}
+    await search_rerank._timed_hop(record, 'x', time.sleep, 0.03)
+    assert record['x_ms'] >= 30.0
+    assert record['x_hop_ms'] < record['x_ms']
 
 
 # --- fail-open keeps the timing it has ---------------------------------------
@@ -337,6 +373,28 @@ async def test_handler_without_include_debug_prints_no_timing(monkeypatch):
             'query': 'q', 'limit': 3, 'rerank': True,
         })
     assert 'Rerank timing' not in response[0].text
+
+
+@pytest.mark.asyncio
+async def test_handler_bounded_response_keeps_the_timing(monkeypatch):
+    """With max_response_chars the bounded formatter is used; include_debug
+    must still show the timing there (Greptile P2 on #1701)."""
+    monkeypatch.setenv('MCP_RERANK_ENABLED', 'true')
+    memories = [
+        {'content': f'memory-{i}', 'content_hash': f'hash-{i}', 'similarity_score': 0.5,
+         'tags': [], 'created_at_iso': '2026-01-01T00:00:00Z'}
+        for i in range(5)
+    ]
+    server, _storage = _handler_server(memories)
+    stub = _StubModel(scores=[0.9 - 0.01 * i for i in range(5)])
+    with patch(LOADER, return_value=stub):
+        response = await memory_handlers.handle_memory_search(server, {
+            'query': 'q', 'limit': 3, 'rerank': True, 'include_debug': True,
+            'max_response_chars': 4000,
+        })
+    text = response[0].text
+    assert 'Debug Info:' in text
+    assert 'Rerank timing (ms):' in text and '(pool 5)' in text
 
 
 def test_format_rerank_timing_handles_partial_and_fallback():

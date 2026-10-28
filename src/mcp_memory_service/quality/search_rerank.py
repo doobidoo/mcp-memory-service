@@ -162,19 +162,28 @@ def _log_failure_once(error: Exception) -> None:
 
 def _resolve_scorer(config: SearchRerankConfig) -> Optional[Any]:
     """Build once; a load failure latches for the process lifetime so callers
-    neither pay for a re-download nor re-log (EARS 4).
+    neither pay for a re-download nor re-log (EARS 4)."""
+    return _resolve_scorer_built(config)[0]
+
+
+def _resolve_scorer_built(config: SearchRerankConfig) -> tuple:
+    """``_resolve_scorer`` plus whether THIS call built the scorer, decided
+    inside the lock: of several searches arriving during the first load only
+    the one that ran ``_build_scorer`` reports ``True`` (issue #1669 timing).
 
     The once-log runs OUTSIDE ``_scorer_lock``: ``threading.Lock`` is not
     reentrant, so logging inside the critical section deadlocked every
     first-failure caller.
     """
     global _scorer
+    built = False
     if _load_failed.is_set():
-        return None
+        return None, built
     if _scorer is None:
         failure: Optional[Exception] = None
         with _scorer_lock:
             if _scorer is None:
+                built = True
                 try:
                     _scorer = _build_scorer(config)
                 except Exception as error:
@@ -182,28 +191,32 @@ def _resolve_scorer(config: SearchRerankConfig) -> Optional[Any]:
                     failure = error
         if failure is not None:
             _log_failure_once(failure)
-            return None
-    return _scorer
+            return None, built
+    return _scorer, built
 
 
 def _on_worker(fn, *args, **kwargs):
-    """Run ``fn`` on the worker and return (started_at, result): the gap between
-    scheduling the hop and ``started_at`` is the executor's queueing delay."""
+    """Run ``fn`` on the worker and return (started_at, finished_at, result),
+    both clocks taken on the worker itself so the caller can tell the time
+    inside ``fn`` from the time spent waiting for the executor or the loop."""
     started = time.perf_counter()
-    return started, fn(*args, **kwargs)
+    result = fn(*args, **kwargs)
+    return started, time.perf_counter(), result
 
 
 async def _timed_hop(record: Optional[dict], key: str, fn, *args, **kwargs):
-    """``asyncio.to_thread`` with, when ``record`` is given, ``<key>_hop_ms``
-    (scheduling delay) and ``<key>_ms`` (time inside ``fn``) written to it.
-    ``kwargs`` go to ``fn`` untouched (it may take a ``timing`` of its own)."""
+    """``asyncio.to_thread`` with, when ``record`` is given, ``<key>_ms`` (time
+    inside ``fn``, measured on the worker) and ``<key>_hop_ms`` (everything
+    else: the executor's queueing delay plus the wait for the event loop to
+    resume after ``fn`` returned) written to it. ``kwargs`` go to ``fn``
+    untouched (it may take a ``timing`` of its own)."""
     if record is None:
         return await asyncio.to_thread(fn, *args, **kwargs)
     scheduled = time.perf_counter()
-    started, result = await asyncio.to_thread(_on_worker, fn, *args, **kwargs)
+    started, finished, result = await asyncio.to_thread(_on_worker, fn, *args, **kwargs)
     done = time.perf_counter()
-    record[f'{key}_hop_ms'] = round((started - scheduled) * 1000, 1)
-    record[f'{key}_ms'] = round((done - started) * 1000, 1)
+    record[f'{key}_hop_ms'] = round(((started - scheduled) + (done - finished)) * 1000, 1)
+    record[f'{key}_ms'] = round((finished - started) * 1000, 1)
     return result
 
 
@@ -216,9 +229,11 @@ async def rerank_candidates(
 
     ``timing`` (issue #1669): when a dict is given it is filled with the
     per-stage wall-clock of this call -- ``scorer_cold`` (whether this call
-    built the scorer), ``resolve_hop_ms``/``resolve_ms``, ``score_hop_ms``/
-    ``score_ms`` and ``chunks`` (one entry per ONNX inference call, from the
-    ranker). Ordering and scores are the same with or without it.
+    built the scorer, decided inside the build lock), ``resolve_ms``/
+    ``score_ms`` (time on the worker) with ``resolve_hop_ms``/``score_hop_ms``
+    (time waiting for the executor and for the loop to resume), and ``chunks``
+    (one entry per ONNX inference call, from the ranker). Ordering and scores
+    are the same with or without it.
     """
     if not memories:
         return None
@@ -226,10 +241,12 @@ async def rerank_candidates(
         # The scorer build follows the loader path (session creation, and on a
         # cold cache an export) -- never on the event loop. Greptile P1 on #1661:
         # the first enabled search stalled every concurrent request otherwise.
-        if timing is not None:
+        if timing is None:
+            instance = await asyncio.to_thread(_resolve_scorer, config)
+        else:
             timing['candidates'] = len(memories)
-            timing['scorer_cold'] = _scorer is None
-        instance = await _timed_hop(timing, 'resolve', _resolve_scorer, config)
+            instance, built = await _timed_hop(timing, 'resolve', _resolve_scorer_built, config)
+            timing['scorer_cold'] = built
         if instance is None:
             return None
         contents = [memory.get('content') or '' for memory in memories]

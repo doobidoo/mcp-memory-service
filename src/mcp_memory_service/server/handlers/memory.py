@@ -1513,7 +1513,13 @@ async def _format_truncated_memory_search(
         }
         for memory in memories
     ]
-    header = _build_memory_search_header(result, total, fallback_used) + "\n\n"
+    # The bounded response keeps the diagnostics the caller asked for with
+    # include_debug (Greptile on #1701: the timing was lost under a limit).
+    header = (
+        _build_memory_search_header(result, total, fallback_used)
+        + _format_memory_search_debug(result)
+        + "\n\n"
+    )
     beliefs_section = await _format_beliefs_section(arguments, storage)
     if summary_warning:
         response_text = format_bounded_response(
