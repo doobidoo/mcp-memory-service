@@ -138,6 +138,28 @@ async def test_order_identical_with_and_without_timing():
     assert timing['candidates'] == 4
 
 
+# --- device knob (found by the timing: CoreML on Apple Silicon) ---------------
+
+
+def test_from_env_reads_the_shared_quality_device(monkeypatch):
+    monkeypatch.setenv('MCP_QUALITY_LOCAL_DEVICE', 'cpu')
+    assert SearchRerankConfig.from_env().device == 'cpu'
+    monkeypatch.delenv('MCP_QUALITY_LOCAL_DEVICE')
+    assert SearchRerankConfig.from_env().device == 'auto'
+    monkeypatch.setenv('MCP_QUALITY_LOCAL_DEVICE', 'gpu-please')
+    assert SearchRerankConfig.from_env().device == 'auto'
+
+
+@pytest.mark.asyncio
+async def test_device_reaches_the_loader(monkeypatch):
+    stub = _StubModel(scores=[0.2, 0.8])
+    config = SearchRerankConfig(enabled=True, candidates=40,
+                                model='Xenova/bge-reranker-base', device='cpu')
+    with patch(LOADER, return_value=stub) as loader:
+        await rerank_candidates('q', _memories(2), config)
+    loader.assert_called_once_with(model_name='Xenova/bge-reranker-base', device='cpu')
+
+
 # --- cold vs warm ------------------------------------------------------------
 
 

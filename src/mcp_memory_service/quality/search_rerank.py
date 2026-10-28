@@ -52,6 +52,7 @@ DEFAULT_RERANK_MODEL = 'Xenova/bge-reranker-base'
 DEFAULT_RERANK_CANDIDATES = 40
 
 _TRUTHY = frozenset(('true', '1', 'yes', 'on', 'enabled'))
+_DEVICES = ('auto', 'cpu', 'cuda', 'mps', 'directml')
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,12 @@ class SearchRerankConfig:
     enabled: bool = False
     candidates: int = DEFAULT_RERANK_CANDIDATES
     model: str = DEFAULT_RERANK_MODEL
+    device: str = 'auto'
 
     @classmethod
     def from_env(cls) -> 'SearchRerankConfig':
-        """Read the three flags. Junk falls back to defaults, never raises."""
+        """Read the three flags and the shared quality device. Junk falls back
+        to defaults, never raises."""
         raw_candidates = (os.getenv('MCP_RERANK_CANDIDATES') or '').strip()
         candidates = DEFAULT_RERANK_CANDIDATES
         if raw_candidates:
@@ -76,10 +79,21 @@ class SearchRerankConfig:
                     _sanitize_log_value(raw_candidates),
                     DEFAULT_RERANK_CANDIDATES,
                 )
+        # Same knob as the quality evaluator (MCP_QUALITY_LOCAL_DEVICE): the
+        # reranker went through the loader with device='auto' regardless, so on
+        # Apple Silicon it always took the CoreML provider (issue #1669).
+        device = (os.getenv('MCP_QUALITY_LOCAL_DEVICE') or '').strip().lower() or 'auto'
+        if device not in _DEVICES:
+            logger.warning(
+                'Invalid MCP_QUALITY_LOCAL_DEVICE=%s for the reranker. Using auto',
+                _sanitize_log_value(device),
+            )
+            device = 'auto'
         return cls(
             enabled=(os.getenv('MCP_RERANK_ENABLED') or '').strip().lower() in _TRUTHY,
             candidates=candidates,
             model=(os.getenv('MCP_RERANK_MODEL') or '').strip() or DEFAULT_RERANK_MODEL,
+            device=device,
         )
 
 
@@ -114,7 +128,7 @@ _failure_logged = threading.Event()
 
 def _build_scorer(config: SearchRerankConfig) -> Any:
     """Resolve through the existing loader -- the single ONNX path."""
-    model = get_onnx_ranker_model(model_name=config.model)
+    model = get_onnx_ranker_model(model_name=config.model, device=config.device)
     if model is None:
         raise RuntimeError(
             f"ONNX ranker '{config.model}' could not be resolved through the existing loader"
