@@ -110,6 +110,12 @@ printf 'def extra():\n    return 1\n' > "$d/src/mcp_memory_service/extra.py"
 printf 'from mcp_memory_service.extra import extra\n\n\ndef test_extra():\n    assert extra() == 1\n' > "$d/tests/test_extra.py"
 run_case "new module with new test passes via collection error" 0 "$d"
 
+# A space in a test path must not split it into two pytest arguments.
+d="$TMP/spaced"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'from mcp_memory_service import answer\n\n\ndef test_answer():\n    assert answer() == 42\n' > "$d/tests/test_spaced answer.py"
+run_case "test path with a space is passed whole" 0 "$d"
+
 # Interpreter that does not import this tree: refuse rather than report a verdict.
 d="$TMP/wrongenv"; new_repo "$d"
 sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"

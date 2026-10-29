@@ -256,8 +256,8 @@ jobs:
         # constraints: their dependencies land at the uv.lock versions too, and
         # the cap and setuptools<82 stay defined in pyproject.toml alone. Tests
         # that importorskip sentence_transformers still skip here.
-        changed_tests="$(git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" -- tests/ | grep -E '(^|/)test_[^/]*\.py$' || true)"
-        if [ -n "$changed_tests" ] && grep -lq -e pymilvus -- $changed_tests; then
+        mapfile -t changed_tests < <(git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" -- tests/ | grep -E '(^|/)test_[^/]*\.py$' || true)
+        if [ "${#changed_tests[@]}" -gt 0 ] && grep -lq -e pymilvus -- "${changed_tests[@]}"; then
           python3 -m uv export --frozen --extra milvus --no-hashes --no-emit-project > "$RUNNER_TEMP/milvus-lock.txt"
           grep -E '^(pymilvus|milvus-lite|setuptools)==' "$RUNNER_TEMP/milvus-lock.txt" > "$RUNNER_TEMP/milvus-reqs.txt"
           python3 -m uv pip install --python "$HOME/venv/bin/python" \
