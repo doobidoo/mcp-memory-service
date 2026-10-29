@@ -265,17 +265,43 @@ class BeliefService:
         }
 
     async def get_beliefs(
-        self, status: str = "active", min_confidence: float = CONFIDENCE_FLOOR
-    ) -> List[dict]:
-        """Get beliefs filtered by status and confidence."""
+        self,
+        status: str = "active",
+        min_confidence: float = CONFIDENCE_FLOOR,
+        store: str | None = None,
+    ) -> list[dict]:
+        """Get beliefs filtered by status, confidence, and optionally provenance store."""
         try:
             conn = self.storage.conn
-            cursor = conn.execute(
+            sql = (
                 "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
                 "derived_from, contradicted_by, metadata FROM beliefs "
-                "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
-                (status, min_confidence),
+                "WHERE status = ? AND confidence >= ?"
             )
+            params: list[str | float] = [status, min_confidence]
+            if store is not None:
+                sql += """
+                    AND json_array_length(derived_from) > 0
+                    AND NOT EXISTS (
+                        SELECT 1 FROM json_each(beliefs.derived_from) source
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM memories m
+                            WHERE m.content_hash = source.value AND m.store = ?
+                              AND m.deleted_at IS NULL
+                        )
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM json_each(beliefs.contradicted_by) contrary
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM memories m
+                            WHERE m.content_hash = contrary.value AND m.store = ?
+                              AND m.deleted_at IS NULL
+                        )
+                    )
+                """
+                params.extend((store, store))
+            sql += " ORDER BY confidence DESC"
+            cursor = conn.execute(sql, tuple(params))
             rows = cursor.fetchall()
             return [
                 {

@@ -1095,7 +1095,10 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
         from ...consolidation.belief_service import BeliefService
 
         svc = BeliefService(storage)
-        beliefs = await svc.get_beliefs()
+        store = arguments.get("store", "default")
+        if store == "all":
+            store = None
+        beliefs = await svc.get_beliefs(store=store)
 
         if not beliefs:
             return ""
@@ -1147,20 +1150,25 @@ def _append_unique_fallback_memories(
 
 
 async def _collect_cascading_fallback_memories(
-    storage, arguments: dict, query: str, memories: list[dict], limit: int
+    storage,
+    arguments: dict,
+    query: str,
+    memories: list[dict],
+    limit: int,
+    store: str | None,
 ) -> list[dict]:
     """Combine exact and tag fallback results while preserving their labels."""
     seen_hashes = {memory.get("content_hash") for memory in memories}
     include_superseded = arguments.get("include_superseded", False)
     exact_memories = await _search_exact_fallback(
-        storage, query, limit, include_superseded
+        storage, query, limit, include_superseded, store=store
     )
     _append_unique_fallback_memories(
         memories, exact_memories, seen_hashes, "exact_fallback"
     )
     if len(memories) < limit:
         tag_memories = await _search_tag_fallback(
-            storage, query, limit, include_superseded
+            storage, query, limit, include_superseded, store=store
         )
         _append_unique_fallback_memories(
             memories, tag_memories, seen_hashes, "tag_fallback"
@@ -1173,7 +1181,11 @@ async def _collect_cascading_fallback_memories(
 
 
 async def _search_exact_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage,
+    query: str,
+    limit: int,
+    include_superseded: bool,
+    store: str | None = None,
 ) -> list[dict]:
     """Return exact-search candidates, treating a backend error as no matches."""
     result = await storage.search_memories(
@@ -1181,6 +1193,7 @@ async def _search_exact_fallback(
         mode="exact",
         limit=limit,
         include_superseded=include_superseded,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1188,7 +1201,11 @@ async def _search_exact_fallback(
 
 
 async def _search_tag_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage,
+    query: str,
+    limit: int,
+    include_superseded: bool,
+    store: str | None = None,
 ) -> list[dict]:
     """Return tag-search candidates for tokens extracted from the query."""
     query_tokens = [
@@ -1204,6 +1221,7 @@ async def _search_tag_fallback(
         tags=query_tokens,
         limit=limit,
         include_superseded=include_superseded,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1251,7 +1269,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
     fallback_used = None
     if _should_use_cascading_fallback(arguments, query, memories):
         memories = await _collect_cascading_fallback_memories(
-            storage, arguments, query, memories, limit
+            storage, arguments, query, memories, limit, store=store
         )
         result["memories"] = memories
         result["total"] = len(memories)
