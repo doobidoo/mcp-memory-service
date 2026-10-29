@@ -454,3 +454,25 @@ def test_all_backends_accept_include_superseded_kwarg(method_name):
         f"{method_name}() is missing the `include_superseded` keyword on: "
         f"{offenders}. MemoryService and the REST tag search pass it (issue #1803)."
     )
+
+@pytest.mark.parametrize(
+    ("method_name", "args", "expected"),
+    [
+        ("list_entities", (), []),
+        ("find_memories_by_entity", ("Private",), []),
+        ("get_entities_for_memory", ("private-hash",), []),
+        ("get_entity_profile", ("Private",), {}),
+        ("common_neighbors", ("private-hash",), []),
+    ],
+)
+@pytest.mark.asyncio
+async def test_milvus_graph_store_queries_fail_closed(method_name, args, expected):
+    """Milvus has no per-edge store ownership, so scoped graph reads return none."""
+    milvus_graph = _backend_class(
+        "mcp_memory_service.storage.milvus_graph", "MilvusGraphStorage"
+    )
+    graph = milvus_graph.__new__(milvus_graph)
+
+    result = await getattr(graph, method_name)(*args, store="private")
+
+    assert result == expected
