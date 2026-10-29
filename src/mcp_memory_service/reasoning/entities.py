@@ -9,6 +9,7 @@ Supports pluggable domain-specific extractors via MCP_ENTITY_EXTRACTOR_MODULES e
 
 import re
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from typing import List, Dict, Any, Protocol, runtime_checkable
 
 @dataclass
@@ -32,6 +33,19 @@ _MENTION_RE = re.compile(r'@([\w.-]+)')
 _HASHTAG_RE = re.compile(r'#([\w-]+)')
 _URL_RE = re.compile(r'https?://[^\s<>\"\']+')
 _PATH_RE = re.compile(r'(?:^|[\s(])(/[\w./-]+|[\w./]*[a-zA-Z][\w./]*\.\w{1,5})(?=[\s),:;]|$)', re.MULTILINE)
+
+
+def _tag_patterns(raw: str) -> list[str]:
+    return [p.strip().lower() for p in raw.split(',') if p.strip()]
+
+
+def _tag_allowed(tag: str, include: list[str], exclude: list[str]) -> bool:
+    """Apply MCP_ENTITY_TAG_INCLUDE, then MCP_ENTITY_TAG_EXCLUDE (#1704)."""
+    key = tag.lower()
+    if include and not any(fnmatchcase(key, p) for p in include):
+        return False
+    return not any(fnmatchcase(key, p) for p in exclude)
+
 
 # Module-level cache for domain extractors (loaded once on first use)
 _DOMAIN_EXTRACTOR_CACHE: list | None = None
@@ -78,8 +92,12 @@ class EntityExtractor:
         tags = metadata.get('tags', [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(',') if t.strip()]
+        from ..config import MCP_ENTITY_TAG_INCLUDE, MCP_ENTITY_TAG_EXCLUDE
+        include = _tag_patterns(MCP_ENTITY_TAG_INCLUDE)
+        exclude = _tag_patterns(MCP_ENTITY_TAG_EXCLUDE)
         for tag in tags:
-            _add(tag, 'tag', 'metadata')
+            if _tag_allowed(tag, include, exclude):
+                _add(tag, 'tag', 'metadata')
 
         # Custom terms matching from config
         from ..config import MCP_ENTITY_CUSTOM_TERMS
