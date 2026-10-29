@@ -162,11 +162,17 @@ async def test_env_backend_reaches_pipeline(monkeypatch):
     storage = MagicMock()
     storage.get_by_hash = AsyncMock(return_value=mem_a)
     storage.search_memories = AsyncMock(return_value={
-        "memories": [{"content_hash": hb, "content": "the feature is disabled",
-                      "similarity_score": 0.6}]
+        "memories": [
+            {"content_hash": hb, "content": "the feature is disabled",
+             "similarity_score": 0.6, "store": "work"},
+            {"content_hash": "other-store-hash", "content": "the feature is disabled",
+             "similarity_score": 0.6, "store": "private"},
+        ]
     })
     graph = MagicMock()
-    graph.find_memories_by_entity = AsyncMock(return_value=[ha, hb])
+    graph.find_memories_by_entity = AsyncMock(
+        return_value=[ha, hb, "other-store-hash"]
+    )
     graph.store_association = AsyncMock()
 
     import sys, types  # inline import
@@ -178,9 +184,16 @@ async def test_env_backend_reaches_pipeline(monkeypatch):
 
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         MockRewriter.return_value._call_llm = AsyncMock(side_effect=fake_call_llm)
-        res = await nli_mod.detect_contradictions_nli(storage, memory_hash=ha, dry_run=True)
+        res = await nli_mod.detect_contradictions_nli(
+            storage, memory_hash=ha, dry_run=True, store="work"
+        )
 
     assert res["nli_calls"] >= 1, "pipeline never reached NLI classification"
+    assert res["nli_calls"] == 1, "NLI compared a candidate outside the requested store"
+    storage.get_by_hash.assert_awaited_once_with(ha, store="work")
+    storage.search_memories.assert_awaited_once_with(
+        query=mem_a.content, limit=20, store="work"
+    )
     assert called["llm"] >= 1, "env backend did not reach the pipeline (LLM never called)"
 
 
@@ -214,9 +227,13 @@ async def test_env_backend_reaches_quarantine_call_site(monkeypatch):
     with patch("mcp_memory_service.harvest.rewriter.HarvestRewriter") as MockRewriter:
         MockRewriter.return_value._call_llm = AsyncMock(side_effect=fake_call_llm)
         res = await q_mod.check_beliefs_on_store(
-            storage, belief_service, "the feature is disabled", "hashNew"
+            storage, belief_service, "the feature is disabled", "hashNew",
+            store="work",
         )
 
+    belief_service.get_beliefs.assert_awaited_once_with(
+        status="active", min_confidence=0.35, store="work"
+    )
     assert called["llm"] >= 1, "env backend did not reach the quarantine call site (LLM never called)"
     assert res is not None and res.get("status") == "quarantined", \
         "contradiction@0.9 from cascade should have quarantined the memory"

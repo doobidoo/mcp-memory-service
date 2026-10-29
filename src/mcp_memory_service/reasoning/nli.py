@@ -13,7 +13,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
@@ -256,7 +256,10 @@ async def _classify_band(
 
 
 async def detect_contradictions_nli(
-    storage, memory_hash: str = None, dry_run: bool = True
+    storage,
+    memory_hash: str = None,
+    dry_run: bool = True,
+    store: Optional[str] = None,
 ) -> dict:
     """
     NLI-enhanced contradiction detection — 4-stage pipeline.
@@ -269,6 +272,7 @@ async def detect_contradictions_nli(
     Args:
         storage: MemoryStorage instance (has get_by_hash, search_memories).
                  Graph ops accessed via get_graph_storage() helper.
+        store: Optional store boundary for the source and candidate memories.
 
     Security: This function writes to the graph (store_association) when dry_run=False.
     It must only be called from write-scoped contexts (e.g., handle_store_memory).
@@ -282,8 +286,13 @@ async def detect_contradictions_nli(
     if memory_hash is None:
         return result
 
+    # "all" is the explicit global scope; every other store value must remain
+    # confined to that partition throughout the read pipeline.
+    store_filter = None if store in (None, "all") else store
+    store_kwargs = {"store": store_filter} if store_filter is not None else {}
+
     # Get the source memory
-    mem_a = await storage.get_by_hash(memory_hash)
+    mem_a = await storage.get_by_hash(memory_hash, **store_kwargs)
     if mem_a is None:
         return result
 
@@ -317,7 +326,9 @@ async def detect_contradictions_nli(
 
     # Stage 2: Embedding pre-filter — get candidates in similarity band
     try:
-        search_result = await storage.search_memories(query=mem_a.content, limit=20)
+        search_result = await storage.search_memories(
+            query=mem_a.content, limit=20, **store_kwargs
+        )
     except Exception:
         search_result = {}
 
@@ -325,6 +336,15 @@ async def detect_contradictions_nli(
     band_memories = {}
     memories_list = search_result.get("memories", []) if isinstance(search_result, dict) else []
     for m in memories_list:
+        # Backends must honor the store filter above. Keep this defensive check
+        # as well when a backend returns store provenance in its result rows.
+        candidate_store = m.get("store")
+        if (
+            store_filter is not None
+            and candidate_store is not None
+            and candidate_store != store_filter
+        ):
+            continue
         h = m.get("content_hash")
         score = m.get("similarity_score", 0)
         if h in candidate_hashes and 0.4 <= score <= 0.75:
