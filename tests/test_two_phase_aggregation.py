@@ -258,6 +258,78 @@ class TestMemoryExploreEntitySelection:
         assert payload["entities"][0]["top_chunks"][0]["hash"] == "query-hash"
         graph.list_entities.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_handler_scopes_entity_reads_and_profiles(self, monkeypatch):
+        from mcp_memory_service.server.handlers import graph as graph_handlers
+
+        candidate = MagicMock()
+        candidate.memory.content_hash = "store-hash"
+        candidate.memory.content = "A store-local memory."
+        candidate.relevance_score = 0.9
+        server = MagicMock()
+        server.storage.retrieve = AsyncMock(return_value=[candidate])
+
+        graph = AsyncMock()
+        graph.get_entities_for_memory = AsyncMock(return_value=["Project"])
+        graph.find_memories_by_entity = AsyncMock(return_value=["store-hash"])
+        graph.get_entity_profile = AsyncMock(
+            return_value={"memory_count": 1, "entity_types": ["topic"]}
+        )
+        monkeypatch.setattr(
+            graph_handlers, "get_graph_storage", AsyncMock(return_value=graph)
+        )
+
+        response = await graph_handlers.handle_memory_explore(
+            server, {"query": "project", "store": "projectA"}
+        )
+        payload = json.loads(response[0].text)
+
+        assert payload["entities"][0]["name"] == "Project"
+        assert payload["entities"][0]["relation_count"] == 1
+        graph.get_entities_for_memory.assert_awaited_once_with(
+            "store-hash", store="projectA"
+        )
+        graph.find_memories_by_entity.assert_awaited_once_with(
+            "Project", store="projectA"
+        )
+        graph.get_entity_profile.assert_awaited_once_with(
+            "Project", store="projectA"
+        )
+
+    @pytest.mark.asyncio
+    async def test_memory_detail_scopes_resolution_hashes_and_hydration(self, monkeypatch):
+        from mcp_memory_service.server.handlers import graph as graph_handlers
+
+        memory = MagicMock()
+        memory.content = "project-local detail"
+        memory.quality_score = 0.8
+        server = MagicMock()
+        server.storage.supports_store_scoped_access = True
+        server.storage.get_by_hash = AsyncMock(return_value=memory)
+
+        graph = AsyncMock()
+        graph.list_entities = AsyncMock(return_value=[{"entity_name": "Python"}])
+        graph.find_memories_by_entity = AsyncMock(return_value=["project-hash"])
+        monkeypatch.setattr(
+            graph_handlers, "get_graph_storage", AsyncMock(return_value=graph)
+        )
+
+        response = await graph_handlers.handle_memory_detail(
+            server,
+            {"entity_id": "python", "store": "projectA", "include_related": False},
+        )
+        payload = json.loads(response[0].text)
+
+        assert payload["name"] == "Python"
+        assert payload["chunks"][0]["content"] == "project-local detail"
+        graph.list_entities.assert_awaited_once_with(limit=None, store="projectA")
+        graph.find_memories_by_entity.assert_awaited_once_with(
+            "Python", limit=50, store="projectA"
+        )
+        server.storage.get_by_hash.assert_awaited_once_with(
+            "project-hash", store="projectA"
+        )
+
 
 class TestHydrateChunks:
     @pytest.mark.asyncio
@@ -291,3 +363,18 @@ class TestHydrateChunks:
         result = await _hydrate_chunks(storage, ["h1"])
         assert len(result) == 1
         assert result[0]["relevance"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_scoped_hydration_passes_store_to_hash_lookup(self):
+        from mcp_memory_service.server.handlers.graph import _hydrate_chunks
+
+        mem = MagicMock()
+        mem.content = "store-local"
+        mem.quality_score = 0.7
+        storage = AsyncMock()
+        storage.get_by_hash = AsyncMock(return_value=mem)
+
+        result = await _hydrate_chunks(storage, ["h1"], store="projectA")
+
+        assert result[0]["content"] == "store-local"
+        storage.get_by_hash.assert_awaited_once_with("h1", store="projectA")
