@@ -127,6 +127,44 @@ async def test_delete_by_tags_removes_graph_edges(service):
     assert any(e["relationship_type"] == "has_entity" for e in await _edges_touching(graph, hash_k))
 
 
+@pytest.mark.parametrize(
+    "bulk_delete",
+    [lambda s: s.delete_by_tags(["drop-p"]), lambda s: s.delete_by_tag("drop-p")],
+    ids=["delete_by_tags", "delete_by_tag"],
+)
+async def test_partial_bulk_delete_cleans_only_deleted_edges(service, monkeypatch, bulk_delete):
+    svc, storage = service
+    graph = await storage._get_graph_storage()
+
+    a = await svc.store_memory("alpha note about module-p", tags=["shared-p", "drop-p"])
+    b = await svc.store_memory("beta note about module-p", tags=["shared-p", "drop-p"])
+    assert a["success"] and b["success"], (a, b)
+    hashes = {a["memory"]["content_hash"], b["memory"]["content_hash"]}
+
+    # One hash per chunk; the second memory-collection delete fails.
+    monkeypatch.setattr(storage, "_GET_BY_ID_CHUNK", 1)
+    original_call = storage._call_client
+    deletes = 0
+
+    async def _fail_second_delete(method_name, *args, **kwargs):
+        nonlocal deletes
+        if method_name == "delete" and kwargs.get("collection_name") == storage.collection_name:
+            deletes += 1
+            if deletes == 2:
+                raise RuntimeError("injected failure")
+        return await original_call(method_name, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "_call_client", _fail_second_delete)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        await bulk_delete(storage)
+
+    deleted = {h for h in hashes if await storage.get_by_hash(h) is None}
+    assert len(deleted) == 1, deleted
+    (gone,), (kept,) = deleted, hashes - deleted
+    assert await _edges_touching(graph, gone) == []
+    assert any(e["relationship_type"] == "has_entity" for e in await _edges_touching(graph, kept))
+
+
 async def test_delete_succeeds_when_graph_cleanup_fails(service, monkeypatch):
     svc, storage = service
     graph = await storage._get_graph_storage()
