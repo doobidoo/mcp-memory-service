@@ -1471,7 +1471,9 @@ def _format_rerank_timing(timing) -> str:
             )
     if "rerank_ms" in timing:
         text += f"\n    rerank stage total: {timing['rerank_ms']}"
-        if not timing.get("applied", True):
+        # The fallback note means the scorer was asked and the baseline order
+        # was kept; an empty pool never asked it, so it says nothing.
+        if "candidates" in timing and not timing.get("applied", True):
             text += " (fell back to the unreranked order)"
     return text
 
@@ -1513,26 +1515,27 @@ async def _format_truncated_memory_search(
         }
         for memory in memories
     ]
-    # The bounded response keeps the diagnostics the caller asked for with
-    # include_debug (Greptile on #1701: the timing was lost under a limit).
-    header = (
-        _build_memory_search_header(result, total, fallback_used)
-        + _format_memory_search_debug(result)
-        + "\n\n"
+    # Under a limit the diagnostics asked for with include_debug ride after
+    # the results as the optional section, never in the required header: the
+    # limiter drops an optional section before it drops a memory (Greptile
+    # on #1701: in the header a long debug block could leave only the header).
+    header = _build_memory_search_header(result, total, fallback_used) + "\n\n"
+    optional_section = (
+        _format_memory_search_debug(result)
+        + await _format_beliefs_section(arguments, storage)
     )
-    beliefs_section = await _format_beliefs_section(arguments, storage)
     if summary_warning:
         response_text = format_bounded_response(
             memory_dicts,
             max_response_chars,
             header=summary_warning + header,
-            footer=beliefs_section,
+            footer=optional_section,
         )
         return types.TextContent(type="text", text=response_text)
 
     truncated, meta = truncate_memories(memory_dicts, max_response_chars)
     response_text = (
-        header + format_truncated_response(truncated, meta) + beliefs_section
+        header + format_truncated_response(truncated, meta) + optional_section
     )
     return types.TextContent(type="text", text=response_text)
 
@@ -1547,17 +1550,23 @@ async def _format_empty_memory_search(
     response = "No memories found"
     if result.get("query"):
         response += f" for query: '{result['query']}'"
-    beliefs_section = await _format_beliefs_section(arguments, storage)
+    # A zero-hit search still carries the diagnostics the caller asked for
+    # (filter counts, and the search/filter timing of #1669): a slow empty
+    # search is the one that needs them (Greptile on #1701).
+    optional_section = (
+        _format_memory_search_debug(result)
+        + await _format_beliefs_section(arguments, storage)
+    )
     if summary_warning and max_response_chars > 0:
         response = format_bounded_response(
             [],
             max_response_chars,
             header=summary_warning + response,
-            footer=beliefs_section,
+            footer=optional_section,
         )
         return types.TextContent(type="text", text=response)
     return types.TextContent(
-        type="text", text=summary_warning + response + beliefs_section
+        type="text", text=summary_warning + response + optional_section
     )
 
 

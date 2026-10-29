@@ -408,3 +408,115 @@ def test_format_rerank_timing_handles_partial_and_fallback():
     assert '(warm, hop 0.1)' in text
     assert 'score:' not in text  # failure before scoring: no score stage
     assert 'rerank stage total: 1.5 (fell back to the unreranked order)' in text
+
+
+# --- Greptile on #1701, second pass: a limit must drop the diagnostics before
+# a memory, and a zero-hit search must still show them -----------------------
+
+
+def _timed_result(n):
+    return {
+        'query': 'q', 'mode': 'semantic',
+        'debug': {
+            'pre_filter_count': n, 'post_filter_count': n,
+            'rerank_timing': {
+                'search_ms': 2.0, 'pool': n, 'filters_ms': 0.3, 'candidates': n,
+                'scorer_cold': False, 'resolve_hop_ms': 0.1, 'resolve_ms': 0.0,
+                'score_hop_ms': 0.1, 'score_ms': 5.0, 'applied': True, 'rerank_ms': 6.0,
+                'chunks': [{'items': n, 'max_len': 7, 'tokenize_ms': 0.1, 'run_ms': 0.2}],
+            },
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_bounded_response_drops_the_debug_block_before_a_memory():
+    """Greptile P1 on #1701: diagnostics in the required header could leave
+    only the header. They ride as the optional section instead."""
+    from mcp_memory_service.server.utils.response_limiter import _format_memory
+
+    memory = {'content': 'memory-0', 'content_hash': 'hash-0', 'tags': [],
+              'created_at_iso': '2026-01-01T00:00:00Z'}
+    result = _timed_result(1)
+    header = memory_handlers._build_memory_search_header(result, 1, False) + "\n\n"
+    warning = "Summarization unavailable: disabled. Returning raw results.\n\n"
+    block = _format_memory({'content': 'memory-0', 'content_hash': 'hash-0',
+                            'created_at': '2026-01-01T00:00:00Z', 'tags': []}, 1)
+    cap = len(warning) + len(header) + len(block) + 2  # the memory fits, nothing else
+    assert len(memory_handlers._format_memory_search_debug(result)) > cap
+
+    tight = await memory_handlers._format_truncated_memory_search(
+        {}, None, [memory], 1, result, False, cap, warning,
+    )
+    assert 'memory-0' in tight.text and 'hash-0' in tight.text
+    assert 'Debug Info:' not in tight.text
+    assert len(tight.text) <= cap
+
+    roomy = await memory_handlers._format_truncated_memory_search(
+        {}, None, [memory], 1, result, False, cap + 2000, warning,
+    )
+    assert 'memory-0' in roomy.text
+    assert 'Rerank timing (ms):' in roomy.text and '(pool 1)' in roomy.text
+    assert roomy.text.index('hash-0') < roomy.text.index('Debug Info:')
+
+
+@pytest.mark.asyncio
+async def test_truncated_response_prints_the_debug_block_after_the_results():
+    """The non-summary limited path keeps the same layout as the bounded one."""
+    memory = {'content': 'memory-0', 'content_hash': 'hash-0', 'tags': [],
+              'created_at_iso': '2026-01-01T00:00:00Z'}
+    out = await memory_handlers._format_truncated_memory_search(
+        {}, None, [memory], 1, _timed_result(1), False, 4000, "",
+    )
+    assert out.text.startswith('Found 1 memories')
+    assert out.text.index('hash-0') < out.text.index('Rerank timing (ms):')
+
+
+@pytest.mark.asyncio
+async def test_handler_empty_search_prints_the_timing(monkeypatch):
+    """Greptile P2 on #1701: a zero-hit search records the search and filter
+    stages but printed nothing. Now it prints them, without a fallback note
+    (the scorer was never asked)."""
+    monkeypatch.setenv('MCP_RERANK_ENABLED', 'true')
+    server, _storage = _handler_server([])
+    stub = _StubModel(scores=[])
+    with patch(LOADER, return_value=stub):
+        response = await memory_handlers.handle_memory_search(server, {
+            'query': 'q', 'limit': 3, 'rerank': True, 'include_debug': True,
+        })
+    text = response[0].text
+    assert text.startswith("No memories found for query: 'q'")
+    assert 'Debug Info:' in text
+    assert 'Rerank timing (ms):' in text and 'search:' in text and '(pool 0)' in text
+    assert 'filters:' in text and 'rerank stage total:' in text
+    assert 'fell back' not in text
+    assert stub.calls == []
+
+
+@pytest.mark.asyncio
+async def test_handler_empty_search_without_include_debug_is_unchanged(monkeypatch):
+    monkeypatch.setenv('MCP_RERANK_ENABLED', 'true')
+    server, storage = _handler_server([])
+    storage.search_memories.return_value.pop('debug')
+    with patch(LOADER, return_value=_StubModel(scores=[])):
+        response = await memory_handlers.handle_memory_search(server, {
+            'query': 'q', 'limit': 3, 'rerank': True,
+        })
+    assert response[0].text == "No memories found for query: 'q'"
+
+
+@pytest.mark.asyncio
+async def test_empty_bounded_response_keeps_the_timing():
+    result = _timed_result(0)
+    out = await memory_handlers._format_empty_memory_search(
+        {}, None, result, 4000, "Summarization unavailable: disabled. Returning raw results.\n\n",
+    )
+    assert 'No memories found' in out.text
+    assert 'Rerank timing (ms):' in out.text and '(pool 0)' in out.text
+
+
+def test_format_rerank_timing_fallback_note_needs_a_scorer_call():
+    unasked = {'search_ms': 1.0, 'pool': 0, 'filters_ms': 0.1, 'applied': False, 'rerank_ms': 0.2}
+    assert 'fell back' not in memory_handlers._format_rerank_timing(unasked)
+    asked = dict(unasked, candidates=3)
+    assert 'fell back' in memory_handlers._format_rerank_timing(asked)
