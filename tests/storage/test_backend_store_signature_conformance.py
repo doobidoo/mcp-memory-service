@@ -423,3 +423,26 @@ def test_milvus_graph_storage_matches_graph_storage_signature(method_name):
         f"MilvusGraphStorage.{method_name}{inspect.signature(milvus_method)} "
         f"does not match GraphStorage.{method_name}{inspect.signature(sqlite_method)}"
     )
+
+
+@pytest.mark.parametrize(
+    ("method_name", "args", "expected"),
+    [
+        ("list_entities", (), []),
+        ("find_memories_by_entity", ("Private",), []),
+        ("get_entities_for_memory", ("private-hash",), []),
+        ("get_entity_profile", ("Private",), {}),
+        ("common_neighbors", ("private-hash",), []),
+    ],
+)
+@pytest.mark.asyncio
+async def test_milvus_graph_store_queries_fail_closed(method_name, args, expected):
+    """Milvus has no per-edge store ownership, so scoped graph reads return none."""
+    milvus_graph = _backend_class(
+        "mcp_memory_service.storage.milvus_graph", "MilvusGraphStorage"
+    )
+    graph = milvus_graph.__new__(milvus_graph)
+
+    result = await getattr(graph, method_name)(*args, store="private")
+
+    assert result == expected
