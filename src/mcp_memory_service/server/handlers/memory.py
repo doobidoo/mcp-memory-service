@@ -345,7 +345,10 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...consolidation.quarantine import schedule_on_store_checks
 
                 agendado = schedule_on_store_checks(
-                    server.storage, content, result["memory"]["content_hash"]
+                    server.storage,
+                    content,
+                    result["memory"]["content_hash"],
+                    store=store,
                 )
                 if agendado:
                     message += "\n(contradiction checks scheduled in the background)"
@@ -360,7 +363,12 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...reasoning.nli import detect_contradictions_nli
                 mem_hash = result["memory"].get("content_hash")
                 if mem_hash:
-                    nli_result = await detect_contradictions_nli(server.storage, memory_hash=mem_hash, dry_run=False)
+                    nli_result = await detect_contradictions_nli(
+                        server.storage,
+                        memory_hash=mem_hash,
+                        dry_run=False,
+                        store=store,
+                    )
                     if nli_result.get("pairs_detected", 0) > 0:
                         message += f"\n⚠️ Contradiction detected: {nli_result['pairs_detected']} conflict(s) registered."
             except Exception as e:
@@ -376,6 +384,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 quarantine_result = await check_beliefs_on_store(
                     server.storage, belief_svc,
                     content, result["memory"]["content_hash"],
+                    store=store,
                 )
                 if quarantine_result and quarantine_result.get("status") == "quarantined":
                     result["quarantine_warning"] = quarantine_result
