@@ -143,6 +143,22 @@ else
     failures=$((failures + 1))
 fi
 
+# Same, with importorskip(reason=...): the module name is gone from the skip line,
+# so the failure quotes the reason instead of claiming nothing was collected.
+d="$TMP/modskipreason"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'import pytest\n\npytest.importorskip("no_such_module_1709", reason="needs the 1709 extra")\n\n\ndef test_answer():\n    assert True\n' > "$d/tests/test_answer.py"
+git_c -C "$d" add -A && git_c -C "$d" commit -q -m pr
+out="$(cd "$d" && env PYTHONPATH="$d/src" PYTHON="$PY" bash "$SCRIPT" main 2>&1)"
+actual=$?
+if [ "$actual" -eq 1 ] && grep -q "needs the 1709 extra" <<<"$out" && ! grep -q "no tests collected" <<<"$out"; then
+    echo "PASS - module skipped with a custom reason fails and quotes the reason"
+else
+    echo "FAIL - module skipped with a custom reason fails and quotes the reason (got exit $actual)"
+    echo "$out" | sed 's/^/    /'
+    failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1

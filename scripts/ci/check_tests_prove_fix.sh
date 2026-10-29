@@ -108,9 +108,17 @@ case "$rc" in
         # An importorskip at module top skips the whole file at collection, which
         # pytest reports as nothing collected. Say which module was missing: the
         # test is not wrong, this job lacks the optional extra it needs (#1709).
-        missing="$(printf '%s\n' "$out" | sed -n "s/^SKIPPED .*could not import '\([^']*\)'.*/\1/p" | sort -u | paste -sd ' ' -)"
-        if [ -n "$missing" ]; then
-            echo "FAIL - the changed tests skipped at collection; not installed in this job: $missing"
+        # importorskip(..., reason=...) replaces the module name with the reason,
+        # so fall back to listing the skip reasons themselves.
+        skips="$(printf '%s\n' "$out" | grep '^SKIPPED ')"
+        missing="$(printf '%s\n' "$skips" | sed -n "s/^SKIPPED .*could not import '\([^']*\)'.*/\1/p" | sort -u | paste -sd ' ' -)"
+        if [ -n "$skips" ]; then
+            if [ -n "$missing" ]; then
+                echo "FAIL - the changed tests skipped at collection; not installed in this job: $missing"
+            else
+                echo "FAIL - the changed tests skipped at collection:"
+                printf '%s\n' "$skips" | sed 's/^/  /'
+            fi
             echo "Paste your local red/green runs into the PR. A maintainer can exempt it with"
             echo "the skip-prove-fix label (push a commit afterwards; a re-run keeps the old labels)."
         else

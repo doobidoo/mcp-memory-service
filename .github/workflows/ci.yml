@@ -251,14 +251,17 @@ jobs:
         python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
         # Milvus tests importorskip pymilvus, so without it they skip at collection
         # and the check cannot give a verdict (#1709). Add the Milvus client only
-        # when a changed test needs it, at the versions uv.lock pins (the cap and
-        # setuptools<82 live in pyproject.toml). The full extra also pulls torch,
-        # so tests that importorskip sentence_transformers still skip here.
+        # when a changed test needs it. The full extra also pulls torch, so only
+        # three packages are installed, and the whole locked export is passed as
+        # constraints: their dependencies land at the uv.lock versions too, and
+        # the cap and setuptools<82 stay defined in pyproject.toml alone. Tests
+        # that importorskip sentence_transformers still skip here.
         changed_tests="$(git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" -- tests/ | grep -E '(^|/)test_[^/]*\.py$' || true)"
         if [ -n "$changed_tests" ] && grep -lq -e pymilvus -- $changed_tests; then
-          python3 -m uv export --frozen --extra milvus --no-hashes --no-emit-project \
-            | grep -E '^(pymilvus|milvus-lite|setuptools)==' > "$RUNNER_TEMP/milvus-reqs.txt"
-          python3 -m uv pip install --python "$HOME/venv/bin/python" -r "$RUNNER_TEMP/milvus-reqs.txt"
+          python3 -m uv export --frozen --extra milvus --no-hashes --no-emit-project > "$RUNNER_TEMP/milvus-lock.txt"
+          grep -E '^(pymilvus|milvus-lite|setuptools)==' "$RUNNER_TEMP/milvus-lock.txt" > "$RUNNER_TEMP/milvus-reqs.txt"
+          python3 -m uv pip install --python "$HOME/venv/bin/python" \
+            -r "$RUNNER_TEMP/milvus-reqs.txt" -c "$RUNNER_TEMP/milvus-lock.txt"
         fi
 
     - name: Run the changed tests against the base branch
