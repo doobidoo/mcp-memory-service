@@ -58,20 +58,31 @@ class MetadataMixin:
 
         await self._execute_with_retry(batch_update)
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """Update memory metadata without recreating the entire memory entry."""
         try:
             if not self.conn:
                 return False, "Database not initialized"
 
             def _read_current():
+                where = "content_hash = ? AND deleted_at IS NULL"
+                params = [content_hash]
+                if store is not None:
+                    where += " AND store = ?"
+                    params.append(store)
                 cursor = self.conn.execute(
-                    """
+                    f"""
                     SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
                            updated_at, updated_at_iso
-                    FROM memories WHERE content_hash = ? AND deleted_at IS NULL
+                    FROM memories WHERE {where}
                 """,
-                    (content_hash,),
+                    tuple(params),
                 )
                 return cursor.fetchone()
 
@@ -163,7 +174,11 @@ class MetadataMixin:
                 if update_superseded_by:
                     set_clauses.append("superseded_by = ?")
                     params.append(new_superseded_by)
+                where = "content_hash = ? AND deleted_at IS NULL"
                 params.append(content_hash)
+                if store is not None:
+                    where += " AND store = ?"
+                    params.append(store)
                 # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
                 # WITHIN this serialized operation — never with a bare rollback outside the
                 # lock, which could discard another worker's transaction (greptile P1).
@@ -172,7 +187,7 @@ class MetadataMixin:
                 try:
                     cur = self.conn.execute(
                         f"UPDATE memories SET {', '.join(set_clauses)} "
-                        "WHERE content_hash = ? AND deleted_at IS NULL",
+                        f"WHERE {where}",
                         tuple(params),
                     )
                     # Only emit an event if a live row was actually updated — if the memory
@@ -185,6 +200,7 @@ class MetadataMixin:
                             'updated_at': updated_at,
                         }
                         self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
+                    rowcount = cur.rowcount
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
                     # Fail-closed (ADR-0008): discard the UPDATE and the event together.
@@ -199,8 +215,11 @@ class MetadataMixin:
                     # does not linger pending and leak into a later write (greptile P1).
                     self.conn.rollback()
                     raise
+                return rowcount
 
-            await self._execute_with_retry(_do_update)
+            rowcount = await self._execute_with_retry(_do_update)
+            if rowcount == 0:
+                return False, f"Memory with hash {content_hash} not found"
 
             updated_fields = []
             if "tags" in updates:
@@ -615,6 +634,7 @@ class MetadataMixin:
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """Non-destructive versioned update using existing store/update infrastructure."""
         try:
@@ -622,9 +642,15 @@ class MetadataMixin:
                 return False, "Database not initialized", None
 
             def _check_exists():
+                where = "content_hash = ? AND deleted_at IS NULL"
+                params = [content_hash]
+                if store is not None:
+                    where += " AND store = ?"
+                    params.append(store)
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                    (content_hash,),
+                    "SELECT content_hash, tags, memory_type, version, metadata, store "
+                    f"FROM memories WHERE {where}",
+                    tuple(params),
                 )
                 return cursor.fetchone()
 
@@ -679,16 +705,18 @@ class MetadataMixin:
                 try:
                     # new row: parent + version
                     self.conn.execute(
-                        "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
-                        (old_hash, new_version, new_hash),
+                        "UPDATE memories SET parent_id = ?, version = ? "
+                        "WHERE content_hash = ? AND store = ?",
+                        (old_hash, new_version, new_hash, old_store or "default"),
                     )
                     # old row: superseded_by column (drops it from default search) +
                     # metadata trace, in the same transaction. Conditional on the old
                     # row still being current (superseded_by IS NULL) so concurrent
                     # versioned updates of the same memory don't fork history silently.
                     mcur = self.conn.execute(
-                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                        (old_hash,),
+                        "SELECT metadata FROM memories WHERE content_hash = ? "
+                        "AND deleted_at IS NULL AND store = ?",
+                        (old_hash, old_store or "default"),
                     )
                     mrow = mcur.fetchone()
                     old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
@@ -697,8 +725,9 @@ class MetadataMixin:
                         old_meta["evolution_reason"] = reason
                     cur = self.conn.execute(
                         "UPDATE memories SET superseded_by = ?, metadata = ? "
-                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
-                        (new_hash, json.dumps(old_meta), old_hash),
+                        "WHERE content_hash = ? AND deleted_at IS NULL "
+                        "AND superseded_by IS NULL AND store = ?",
+                        (new_hash, json.dumps(old_meta), old_hash, old_store or "default"),
                     )
                     if cur.rowcount == 0:
                         # Another versioned update already superseded this row (or it
@@ -716,7 +745,7 @@ class MetadataMixin:
             except Exception as link_err:
                 # Compensate the already-committed store(): drop the orphan new row.
                 try:
-                    await self.delete(new_hash)
+                    await self.delete(new_hash, store=old_store or "default")
                 except Exception:
                     logger.error("Failed to clean up orphan version %s after link failure",
                                  _sanitize_log_value(new_hash[:8]))

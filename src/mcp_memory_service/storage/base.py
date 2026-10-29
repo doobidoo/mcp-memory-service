@@ -96,6 +96,10 @@ def recreate_kwargs(storage: Any, recreate: Optional[bool]) -> Dict[str, bool]:
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
 
+    # True only when every store-aware API on the backend confines data to a
+    # requested partition. This is stricter than the hash-only capability below.
+    supports_store_scoped_access: bool = False
+
     @property
     @abstractmethod
     def max_content_length(self) -> Optional[int]:
@@ -863,7 +867,13 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """
         Update memory metadata without recreating the entire memory entry.
 
@@ -871,6 +881,7 @@ class MemoryStorage(ABC):
             content_hash: Hash of the memory to update
             updates: Dictionary of metadata fields to update
             preserve_timestamps: Whether to preserve original created_at timestamp
+            store: Optional partition to confine the hash lookup and update to
 
         Returns:
             Tuple of (success, message)

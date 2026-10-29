@@ -985,7 +985,9 @@ class MemoryService:
                 "error": f"Failed to get memory: {str(e)}"
             }
 
-    async def delete_memory(self, content_hash: str) -> Union[DeleteMemorySuccess, DeleteMemoryFailure]:
+    async def delete_memory(
+        self, content_hash: str, store: Optional[str] = None
+    ) -> Union[DeleteMemorySuccess, DeleteMemoryFailure]:
         """
         Delete a memory by its content hash.
 
@@ -996,7 +998,8 @@ class MemoryService:
             Dictionary with operation result
         """
         try:
-            success, message = await self.storage.delete(content_hash)
+            delete_kwargs = {"store": store} if store is not None else {}
+            success, message = await self.storage.delete(content_hash, **delete_kwargs)
             if success:
                 await self._plugin_registry.fire('on_delete', content_hash)
                 return {

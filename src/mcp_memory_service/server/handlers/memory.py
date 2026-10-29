@@ -938,13 +938,19 @@ async def handle_delete_memory(server, arguments: dict) -> List[types.TextConten
         await server._ensure_storage_initialized()
 
         # Call shared MemoryService business logic
-        result = await server.memory_service.delete_memory(content_hash)
+        delete_store = arguments.get("store")
+        if delete_store == "all":
+            raise PermissionError("store='all' is only valid for read scopes")
+        delete_kwargs = {"store": delete_store} if delete_store is not None else {}
+        result = await server.memory_service.delete_memory(content_hash, **delete_kwargs)
 
         # Handle response based on success/failure format
         if result["success"]:
             return [types.TextContent(type="text", text=f"Memory deleted successfully: {result['content_hash']}")]
         else:
             return [types.TextContent(type="text", text=f"Failed to delete memory: {result.get('error', 'Unknown error')}")]
+    except PermissionError:
+        raise
     except Exception as e:
         logger.error("Error deleting memory: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
         return [types.TextContent(type="text", text=f"Error deleting memory: {str(e)}")]
@@ -1662,11 +1668,14 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # store could update another store's memory. When a store is claimed,
         # resolve the hash within it first: on backends whose get_by_hash honors
         # ``store`` a hash from another store comes back missing -> not found;
-        # backends that ignore ``store`` can't prove confinement, so a
-        # store-scoped update fails closed there (real storage-layer enforcement
-        # is the follow-up issue, after which this pre-check can be removed).
+        # backends that cannot prove confinement fail closed. The storage update
+        # also receives the same scope and enforces it in the write predicate.
         claimed_store = arguments.get("store")
-        if claimed_store is not None and claimed_store != "all":
+        if claimed_store == "all":
+            raise PermissionError("store='all' is only valid for read scopes")
+        storage_store = claimed_store
+        storage_scope_kwargs = {"store": storage_store} if storage_store is not None else {}
+        if claimed_store is not None:
             # Raise rather than return: a refused update must surface as a tool
             # error (isError=true), so a client checking the MCP success flag
             # cannot mistake it for a completed write. The /mcp shim and the SDK
@@ -1713,6 +1722,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 new_tags=updates.get("tags"),
                 new_memory_type=updates.get("memory_type"),
                 reason=updates.get("reason"),
+                **storage_scope_kwargs,
             )
 
             if success:
@@ -1733,7 +1743,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 overrides_applied = True
                 if final_metadata:
                     meta_ok, meta_msg = await storage.update_memory_metadata(
-                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                        new_hash,
+                        {"metadata": final_metadata},
+                        preserve_timestamps=True,
+                        **storage_scope_kwargs,
                     )
                     overrides_applied = meta_ok
                     if not meta_ok:
@@ -1762,7 +1775,8 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=preserve_timestamps
+            preserve_timestamps=preserve_timestamps,
+            **storage_scope_kwargs,
         )
 
         if success:

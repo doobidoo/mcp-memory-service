@@ -90,6 +90,7 @@ def _ignore_store_like_cloudflare(storage, monkeypatch):
 
     monkeypatch.setattr(storage, "get_by_hash", get_by_hash)
     monkeypatch.setattr(storage, "get_by_hash_is_store_scoped", False)
+    monkeypatch.setattr(storage, "supports_store_scoped_access", False)
 
 
 def _call(client, name, arguments):
@@ -286,6 +287,7 @@ def test_global_grant_is_unchanged_for_store_ignoring_tools(make_client, other_s
 @pytest.mark.integration
 def test_store_grant_refused_on_a_backend_that_cannot_confine(make_client, storage, monkeypatch):
     monkeypatch.setattr(storage, "get_by_hash_is_store_scoped", False)
+    monkeypatch.setattr(storage, "supports_store_scoped_access", False)
     client = make_client("read:projectA write:projectA")
     response = _call(client, "memory_delete", {"content_hash": "deadbeef" * 8, "store": "projectA"})
     assert _refused(response)

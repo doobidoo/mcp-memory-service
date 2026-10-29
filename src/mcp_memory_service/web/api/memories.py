@@ -425,7 +425,7 @@ async def delete_memory(
         if not existing:
             raise HTTPException(status_code=404, detail="Memory not found")
 
-        success, message = await storage.delete(content_hash)
+        success, message = await storage.delete(content_hash, store=resolve_store(store))
         
         # Broadcast SSE event for memory deletion
         try:
@@ -496,12 +496,15 @@ async def update_memory(
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=True
+            preserve_timestamps=True,
+            store=resolve_store(store),
         )
 
         if success:
             # Get the updated memory
-            updated_memory = await storage.get_by_hash(content_hash)
+            updated_memory = await storage.get_by_hash(
+                content_hash, store=resolve_store(store)
+            )
 
             return MemoryUpdateResponse(
                 success=True,

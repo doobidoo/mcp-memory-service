@@ -986,7 +986,7 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
         # per-store graph partitioning is the follow-up issue (#1683).
         detail_store = arguments.get("store")
         if detail_store is not None and detail_store != "all":
-            if not getattr(server.storage, "get_by_hash_is_store_scoped", False):
+            if not getattr(server.storage, "supports_store_scoped_access", False):
                 return [types.TextContent(type="text", text=json.dumps({
                     "success": False,
                     "error": "store-scoped memory_detail is not supported on this backend",

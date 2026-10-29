@@ -170,6 +170,8 @@ def build_tag_search_query(tags: List[str], operation: str,
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
+    get_by_hash_is_store_scoped = True
+
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
 
@@ -363,6 +365,7 @@ class CloudflareStorage(MemoryStorage):
         Adds missing columns to databases created before v8.72.0:
         - tags TEXT (added in v8.72.0)
         - deleted_at REAL (added in v8.72.0)
+        - store TEXT (added for per-store hash-addressed operations)
 
         This fixes the reboot loop issue for users upgrading from v8.69.0.
         """
@@ -406,6 +409,10 @@ class CloudflareStorage(MemoryStorage):
             if "deleted_at" not in columns:
                 migrations_needed.append("deleted_at")
                 logger.info("Migration needed: Adding 'deleted_at' column to memories table")
+
+            if "store" not in columns:
+                migrations_needed.append("store")
+                logger.info("Migration needed: Adding 'store' column to memories table")
 
             if not migrations_needed:
                 logger.debug("Schema migration check: All columns present, no migration needed")
@@ -451,7 +458,8 @@ class CloudflareStorage(MemoryStorage):
         """
         column_spec = {
             "tags": "ALTER TABLE memories ADD COLUMN tags TEXT",
-            "deleted_at": "ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL"
+            "deleted_at": "ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL",
+            "store": "ALTER TABLE memories ADD COLUMN store TEXT NOT NULL DEFAULT 'default'",
         }
 
         if column not in column_spec:
@@ -540,8 +548,11 @@ class CloudflareStorage(MemoryStorage):
             content_size INTEGER DEFAULT 0,
             r2_key TEXT,
             tags TEXT,
-            deleted_at REAL DEFAULT NULL
+            deleted_at REAL DEFAULT NULL,
+            store TEXT NOT NULL DEFAULT 'default'
         );
+
+        CREATE INDEX IF NOT EXISTS idx_memories_store ON memories(store);
 
         -- Tags table
         CREATE TABLE IF NOT EXISTS tags (
@@ -617,15 +628,15 @@ class CloudflareStorage(MemoryStorage):
                 storage does not implement semantic deduplication, so this flag
                 has no effect.
         """
-        success, message = await self._store_memory(memory)
+        success, message = await self._store_memory(memory, store=store)
         return success is True, message
 
     async def store_if_tombstone_matches(
-        self, memory: Memory, expected_deleted_at: float
+        self, memory: Memory, expected_deleted_at: float, store: str = "default"
     ) -> Tuple[Optional[bool], str]:
         """Store only if the D1 tombstone still matches the observed timestamp."""
         return await self._store_memory(
-            memory, expected_deleted_at=expected_deleted_at
+            memory, store=store, expected_deleted_at=expected_deleted_at
         )
 
     def _memory_r2_key(
@@ -685,7 +696,10 @@ class CloudflareStorage(MemoryStorage):
         return restore_id, vector_id
 
     async def _store_memory(
-        self, memory: Memory, expected_deleted_at: Optional[float] = None
+        self,
+        memory: Memory,
+        store: str = "default",
+        expected_deleted_at: Optional[float] = None,
     ) -> Tuple[Optional[bool], str]:
         restore_id, vector_id = self._memory_storage_ids(
             memory, expected_deleted_at
@@ -701,6 +715,7 @@ class CloudflareStorage(MemoryStorage):
                 content_size,
                 r2_key,
                 stored_content,
+                store=store,
                 expected_deleted_at=expected_deleted_at,
             )
             if not stored:
@@ -808,11 +823,12 @@ class CloudflareStorage(MemoryStorage):
         content_size: int,
         r2_key: Optional[str],
         stored_content: str,
+        store: str = "default",
         expected_deleted_at: Optional[float] = None,
     ) -> bool:
         """Store memory metadata in D1, replacing only a matching tombstone."""
         values = self._d1_memory_values(
-            memory, vector_id, content_size, r2_key, stored_content
+            memory, vector_id, content_size, r2_key, stored_content, store=store
         )
         if expected_deleted_at is None:
             memory_id = await self._insert_d1_memory_row(values)
@@ -833,6 +849,7 @@ class CloudflareStorage(MemoryStorage):
         content_size: int,
         r2_key: Optional[str],
         stored_content: str,
+        store: str = "default",
     ) -> list[Any]:
         """Build a stable parameter list for inserting or restoring a D1 row."""
         tags_str = ",".join(filter(None, memory.tags)) if memory.tags else None
@@ -852,6 +869,7 @@ class CloudflareStorage(MemoryStorage):
             content_size,
             r2_key,
             tags_str,
+            store,
         ]
 
     async def _insert_d1_memory_row(self, values: list[Any]) -> int:
@@ -876,8 +894,9 @@ class CloudflareStorage(MemoryStorage):
         insert_sql = """
         INSERT INTO memories (
             content_hash, content, memory_type, created_at, created_at_iso,
-            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags,
+            store
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         payload = {"sql": insert_sql, "params": values}
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
@@ -898,8 +917,8 @@ class CloudflareStorage(MemoryStorage):
         UPDATE memories SET
             content = ?, memory_type = ?, created_at = ?, created_at_iso = ?,
             updated_at = ?, updated_at_iso = ?, metadata_json = ?, vector_id = ?,
-            content_size = ?, r2_key = ?, tags = ?, deleted_at = NULL
-        WHERE content_hash = ? AND deleted_at = ?
+            content_size = ?, r2_key = ?, tags = ?, store = ?, deleted_at = NULL
+        WHERE content_hash = ? AND deleted_at = ? AND store = ?
           AND NOT EXISTS (
             SELECT 1 FROM json_each(?) AS expected_tag
             WHERE NOT EXISTS (
@@ -919,14 +938,14 @@ class CloudflareStorage(MemoryStorage):
         identity = self._d1_memory_identity()
         delete_tags_sql = """
         DELETE FROM memory_tags WHERE memory_id = (
-            SELECT id FROM memories WHERE content_hash = ? AND deleted_at = ?
+            SELECT id FROM memories WHERE content_hash = ? AND deleted_at = ? AND store = ?
         )
         """
         insert_tags_sql = """
         INSERT OR IGNORE INTO tags (name)
         SELECT value FROM json_each(?)
         WHERE EXISTS (
-            SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at = ?
+            SELECT 1 FROM memories WHERE content_hash = ? AND deleted_at = ? AND store = ?
         )
         """
         link_tags_sql = """
@@ -935,6 +954,7 @@ class CloudflareStorage(MemoryStorage):
         FROM memories JOIN tags
           ON tags.name IN (SELECT value FROM json_each(?))
         WHERE memories.content_hash = ? AND memories.deleted_at = ?
+          AND memories.store = ?
         """
         select_id_sql = f"SELECT id FROM memories WHERE {identity} LIMIT 1"
         tag_names_json = json.dumps([tag for tag in tags if tag])
@@ -942,22 +962,22 @@ class CloudflareStorage(MemoryStorage):
             "batch": [
                 {
                     "sql": delete_tags_sql,
-                    "params": [values[0], expected_deleted_at],
+                    "params": [values[0], expected_deleted_at, values[12]],
                 },
                 {
                     "sql": insert_tags_sql,
-                    "params": [tag_names_json, values[0], expected_deleted_at],
+                    "params": [tag_names_json, values[0], expected_deleted_at, values[12]],
                 },
                 {
                     "sql": link_tags_sql,
-                    "params": [tag_names_json, values[0], expected_deleted_at],
+                    "params": [tag_names_json, values[0], expected_deleted_at, values[12]],
                 },
                 {
                     "sql": update_sql,
                     "params": values[1:]
-                    + [values[0], expected_deleted_at, tag_names_json, tag_names_json],
+                    + [values[0], expected_deleted_at, values[12], tag_names_json, tag_names_json],
                 },
-                {"sql": select_id_sql, "params": [values[0], values[8], values[10]]},
+                {"sql": select_id_sql, "params": [values[0], values[8], values[10], values[12]]},
             ]
         }
         response = await self._retry_request(
@@ -969,7 +989,7 @@ class CloudflareStorage(MemoryStorage):
     def _d1_memory_identity() -> str:
         """Match a committed restore by its unique staged resources on retry."""
         return (
-            "content_hash IS ? AND vector_id IS ? AND r2_key IS ? "
+            "content_hash IS ? AND vector_id IS ? AND r2_key IS ? AND store = ? "
             "AND deleted_at IS NULL"
         )
 
@@ -1335,7 +1355,11 @@ class CloudflareStorage(MemoryStorage):
         try:
             # Find memory in D1
             sql = "SELECT * FROM memories WHERE content_hash = ?"
-            payload = {"sql": sql, "params": [content_hash]}
+            params = [content_hash]
+            if store is not None:
+                sql += " AND store = ?"
+                params.append(store)
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
             
@@ -1357,7 +1381,11 @@ class CloudflareStorage(MemoryStorage):
             
             # Soft-delete from D1: set deleted_at timestamp instead of DELETE
             delete_sql = "UPDATE memories SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL"
-            payload = {"sql": delete_sql, "params": [time.time(), memory_id]}
+            delete_params = [time.time(), memory_id]
+            if store is not None:
+                delete_sql += " AND store = ?"
+                delete_params.append(store)
+            payload = {"sql": delete_sql, "params": delete_params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
             
@@ -1466,7 +1494,11 @@ class CloudflareStorage(MemoryStorage):
             # the Memory model carries no deleted_at field, so callers cannot tell
             # a deleted row from a live one after construction.
             sql = "SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
-            payload = {"sql": sql, "params": [content_hash]}
+            params = [content_hash]
+            if store is not None:
+                sql += " AND store = ?"
+                params.append(store)
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -1771,7 +1803,13 @@ class CloudflareStorage(MemoryStorage):
         }
         await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """Update memory metadata without recreating the entry."""
         try:
             # Build update SQL
@@ -1844,11 +1882,18 @@ class CloudflareStorage(MemoryStorage):
                     params.extend(condition_params + [value])
             
             if not update_fields:
+                if store is not None and await self.get_by_hash(content_hash, store=store) is None:
+                    return False, "Memory not found"
                 return True, "No updates needed"
             
             # Update memory record
-            sql = f"UPDATE memories SET {', '.join(update_fields)} WHERE content_hash = ? AND deleted_at IS NULL RETURNING id"
+            where = "content_hash = ? AND deleted_at IS NULL"
+            if store is not None:
+                where += " AND store = ?"
+            sql = f"UPDATE memories SET {', '.join(update_fields)} WHERE {where} RETURNING id"
             params.append(content_hash)
+            if store is not None:
+                params.append(store)
             if "tags" in updates:
                 sql += f", ({tag_change_sql}) AS tags_changed"
                 params.extend(tag_params)
@@ -1867,7 +1912,7 @@ class CloudflareStorage(MemoryStorage):
             
             # Handle tag updates if provided
             if "tags" in updates and rows[0]["tags_changed"]:
-                await self._update_memory_tags(content_hash, updates["tags"])
+                await self._update_memory_tags(rows[0]["id"], updates["tags"])
             
             logger.info("Successfully updated memory metadata: %s", _sanitize_log_value(content_hash))
             return True, "Memory metadata updated successfully"
@@ -1876,18 +1921,8 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to update memory metadata %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return False, f"Update failed: {str(e)}"
     
-    async def _update_memory_tags(self, content_hash: str, new_tags: List[str]) -> None:
-        """Update tags for a memory."""
-        # Get memory ID
-        sql = "SELECT id FROM memories WHERE content_hash = ?"
-        payload = {"sql": sql, "params": [content_hash]}
-        response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
-        result = response.json()
-        
-        if not result.get("success") or not result.get("result", [{}])[0].get("results"):
-            raise ValueError(f"Memory not found: {content_hash}")
-        
-        memory_id = result["result"][0]["results"][0]["id"]
+    async def _update_memory_tags(self, memory_id: int, new_tags: List[str]) -> None:
+        """Update tag relationships for a previously scoped memory row."""
         
         # Delete existing tag relationships
         delete_sql = "DELETE FROM memory_tags WHERE memory_id = ?"
