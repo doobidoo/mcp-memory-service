@@ -12,9 +12,12 @@ const { parseTranscript, runHook, request } = require('../memory-hook');
 
 const decision = 'We decided to use SQLite for local storage because it keeps deployment simple and supports the required transactions.';
 const learning = 'We discovered that the timeout must cover the entire request, including a server that keeps sending partial responses.';
-const message = (role, text, phase) => ({ type: 'response_item', payload: {
-    type: 'message', role, phase, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }]
-} });
+const message = (role, text, phase, timestamp) => ({
+    ...(timestamp ? { timestamp } : {}),
+    type: 'response_item', payload: {
+        type: 'message', role, phase, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }]
+    }
+});
 
 test('transcript parser reads Codex messages, excludes instructions, tools and reasoning, tolerates partial JSONL', () => {
     const rows = [message('developer', 'secret instruction'),
@@ -34,6 +37,158 @@ test('event-only transcripts are supported without capturing tool output', () =>
         { type: 'event_msg', payload: { type: 'exec_command_end', aggregated_output: 'secret' } }
     ].map(JSON.stringify).join('\n'));
     assert.deepEqual(result.map(m => m.content), ['hello', learning]);
+});
+
+test('opt-in contextual capture stores a short reply with its immediately preceding assistant turn', async t => {
+    const f = await fixture(t);
+    const assistantTimestamp = '2026-10-30T00:01:00.000Z';
+    const userTimestamp = '2026-10-30T00:01:05.000Z';
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.',
+            'final_answer', assistantTimestamp),
+        message('user', 'Ok go.', undefined, userTimestamp),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    const config = { ...f.config, contextualCapture: true, minCaptureLength: 100 };
+    await runHook(f.event, config);
+    const writes = f.requests.filter(request => request.url === '/api/memories');
+
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].body.content, /Assistant: We decided to keep the index in SQLite/);
+    assert.match(writes[0].body.content, /User: Ok go\./);
+    assert.match(writes[0].body.content, /session="\.\.\/\.\.\/untrusted-session"/);
+    assert.match(writes[0].body.content, /assistant_turn_index=1/);
+    assert.match(writes[0].body.content, /user_turn_index=2/);
+    assert.match(writes[0].body.content, new RegExp(assistantTimestamp));
+    assert.match(writes[0].body.content, new RegExp(userTimestamp));
+    assert.equal(writes[0].body.metadata.capture_mode, 'assistant_user_pair');
+    assert.deepEqual(f.requests.map(request => request.url), ['/api/memories']);
+
+    await runHook(f.event, config);
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 1);
+
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.',
+            'final_answer', assistantTimestamp),
+        message('user', 'Change it now.', undefined, userTimestamp),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+    await runHook(f.event, config);
+    const updatedWrites = f.requests.filter(request => request.url === '/api/memories');
+    assert.equal(updatedWrites.length, 2);
+    assert.match(updatedWrites[1].body.content, /User: Change it now\./);
+});
+
+test('contextual capture omits malformed or oversized source timestamps', async t => {
+    const f = await fixture(t);
+    const oversizedTimestamp = `2026-10-30T00:01:00.000Z${'x'.repeat(4096)}`;
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.',
+            'final_answer', oversizedTimestamp),
+        message('user', 'Ok go.', undefined, '2026-99-99T99:99:99Z'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook(f.event, { ...f.config, contextualCapture: true, minCaptureLength: 100, sessionSummary: false });
+    const write = f.requests.find(request => request.url === '/api/memories');
+
+    assert.ok(write);
+    assert.doesNotMatch(write.body.content, /x{100}/);
+    assert.match(write.body.content, /assistant_timestamp=null/);
+    assert.match(write.body.content, /user_timestamp=null/);
+    assert.equal(write.body.metadata.source_turns.assistant.timestamp, null);
+    assert.equal(write.body.metadata.source_turns.user.timestamp, null);
+});
+
+test('contextual capture skips an oversized session ID instead of expanding the locator', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.', 'final_answer'),
+        message('user', 'Ok go.'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook({ ...f.event, session_id: 's'.repeat(257) }, {
+        ...f.config,
+        contextualCapture: true,
+        minCaptureLength: 100,
+        sessionSummary: false
+    });
+
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 0);
+});
+
+test('contextual capture does not pair a short reply when an assistant turn is not immediately before it', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.', 'final_answer'),
+        message('user', 'The display has several neutral properties and navigation was visible during an ordinary page review. This sentence only adds descriptive context and does not state a decision or ask for a change.'),
+        message('user', 'Ok go.'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook(f.event, { ...f.config, contextualCapture: true, minCaptureLength: 100, sessionSummary: false });
+
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 0);
+});
+
+test('contextual capture refuses a pair when truncation removes the detected signal', async t => {
+    const f = await fixture(t);
+    const longAssistant = 'Neutral point. '.repeat(16)
+        + 'We decided to keep the index in SQLite because it supports the required transactions.';
+    await f.write([
+        message('assistant', longAssistant, 'final_answer'),
+        message('user', 'Ok go.'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook(f.event, {
+        ...f.config,
+        contextualCapture: true,
+        minCaptureLength: 330,
+        maxCaptureLength: 100,
+        sessionSummary: false
+    });
+
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 0);
+});
+
+test('contextual capture does not carry a #skip assistant turn into the next reply', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('user', '#skip private proposal'),
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.', 'final_answer'),
+        message('user', 'Ok go.'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook(f.event, { ...f.config, contextualCapture: true, minCaptureLength: 100, sessionSummary: false });
+
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 0);
+});
+
+test('short-reply context remains disabled by default', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('assistant', 'We decided to keep the index in SQLite because it supports the required transactions.', 'final_answer'),
+        message('user', 'Ok go.'),
+        message('assistant', 'Understood.', 'final_answer')
+    ]);
+
+    await runHook(f.event, { ...f.config, minCaptureLength: 100, sessionSummary: false });
+
+    assert.equal(f.requests.filter(request => request.url === '/api/memories').length, 0);
+});
+
+test('contextualCapture configuration must be explicitly boolean', async t => {
+    const f = await fixture(t);
+
+    await assert.rejects(
+        runHook(f.event, { ...f.config, contextualCapture: 'true' }),
+        /Invalid memory configuration/
+    );
+    assert.equal(f.requests.length, 0);
 });
 
 async function fixture(t) {

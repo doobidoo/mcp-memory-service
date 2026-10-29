@@ -15,7 +15,7 @@ const DEFAULTS = {
     endpoint: 'http://127.0.0.1:8000', apiKey: '', timeoutMs: 1500,
     maxMemories: 8, contextChars: 6000, minCaptureLength: 300,
     maxCaptureLength: 4000, maxCapturesPerRun: 3,
-    autoCapture: true, sessionSummary: true, projectName: ''
+    autoCapture: true, contextualCapture: false, sessionSummary: true, projectName: ''
 };
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const codexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -42,15 +42,31 @@ function parseTranscript(text) {
                     .map(part => part.text).join('\n');
             // Codex records workspace instructions/environment as synthetic user messages.
             if (item.role === 'user' && /^(?:# AGENTS\.md instructions for |<environment_context>)/.test(content.trim())) continue;
-            if (content.trim()) messages.push({ role: item.role, content });
+            if (content.trim()) messages.push({
+                role: item.role,
+                content,
+                turnIndex: messages.length + 1,
+                ...sourceTimestamp(row.timestamp, item.timestamp)
+            });
         } else if (row.type === 'event_msg' && ['user_message', 'agent_message'].includes(item.type)) {
             if (typeof item.message === 'string') events.push({
-                role: item.type === 'user_message' ? 'user' : 'assistant', content: item.message
+                role: item.type === 'user_message' ? 'user' : 'assistant',
+                content: item.message,
+                turnIndex: events.length + 1,
+                ...sourceTimestamp(row.timestamp, item.timestamp)
             });
         }
     }
     // Rollouts may contain both representations of the same conversation.
     return hasResponseMessages ? messages : events;
+}
+
+function sourceTimestamp(...values) {
+    const value = values.find(candidate => typeof candidate === 'string'
+        && candidate.length <= 40
+        && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(candidate)
+        && Number.isFinite(Date.parse(candidate)));
+    return value ? { timestamp: value } : {};
 }
 
 async function loadConfig() {
@@ -81,6 +97,7 @@ function validateConfig(input) {
     config.contextChars = Math.min(config.contextChars, 12000);
     config.maxCaptureLength = Math.min(config.maxCaptureLength, 8000);
     config.maxCapturesPerRun = Math.min(config.maxCapturesPerRun, 10);
+    if (typeof config.contextualCapture !== 'boolean') throw new Error('Invalid memory configuration');
     if (typeof config.apiKey !== 'string' || /[\r\n]/.test(config.apiKey)) throw new Error('Invalid memory configuration');
     return config;
 }
@@ -213,31 +230,120 @@ async function retrieve(config, project, state, deadline) {
     return contextOutput(context, context?.length === state.context?.length ? state.contextCount : undefined, cached);
 }
 
+function contextualReplyPairs(messages, event, config) {
+    const pairsByUserTurn = new Map();
+    const pairedAssistantTurns = new Set();
+    if (!config.autoCapture || !config.contextualCapture) {
+        return { pairsByUserTurn, pairedAssistantTurns };
+    }
+    const sessionId = typeof event.session_id === 'string' ? event.session_id : '';
+    if (sessionId.length > 256) return { pairsByUserTurn, pairedAssistantTurns };
+    const sourceSessionId = sessionId || 'unknown';
+
+    const skippedTurns = new Set();
+    let skipCurrentTurn = false;
+    for (const message of messages) {
+        if (message.role === 'user') skipCurrentTurn = hasUserOverride(message.content).forceSkip;
+        if (skipCurrentTurn) skippedTurns.add(message.turnIndex);
+    }
+
+    for (let index = 1; index < messages.length; index++) {
+        const assistant = messages[index - 1];
+        const user = messages[index];
+        if (assistant.role !== 'assistant' || user.role !== 'user'
+            || skippedTurns.has(assistant.turnIndex) || skippedTurns.has(user.turnIndex)) continue;
+
+        const overrides = hasUserOverride(user.content);
+        if (overrides.forceRemember || overrides.forceSkip) continue;
+        const userContent = stripCode(user.content).trim();
+        if (!userContent || userContent.length >= config.minCaptureLength) continue;
+        const assistantContent = stripCode(assistant.content).trim();
+        if (!assistantContent) continue;
+
+        const candidate = `Assistant: ${assistantContent}\n\nUser: ${userContent}`;
+        const detection = detectPatterns(candidate, { minLength: config.minCaptureLength });
+        if (!detection.isValuable) continue;
+
+        const userLine = `User: ${userContent}`;
+        const assistantPrefix = 'Assistant: ';
+        const assistantBudget = config.maxCaptureLength - assistantPrefix.length - 1 - userLine.length;
+        if (assistantBudget < 1) continue;
+        const truncationMarker = ' [assistant response truncated]';
+        let boundedAssistant = assistantContent;
+        if (assistantContent.length > assistantBudget) {
+            if (assistantBudget > truncationMarker.length) {
+                boundedAssistant = assistantContent.slice(0, assistantBudget - truncationMarker.length)
+                    + truncationMarker;
+            } else {
+                boundedAssistant = assistantContent.slice(0, assistantBudget);
+            }
+        }
+        const captureText = `${assistantPrefix}${boundedAssistant}\n${userLine}`;
+        if (!captureText.toLowerCase().includes(detection.matchedText)) continue;
+        const id = hash([
+            'codex-context-pair', sourceSessionId,
+            `assistant:${assistant.turnIndex}`, assistant.content,
+            `user:${user.turnIndex}`, user.content
+        ].join('\n'));
+        const sourceLocator = [
+            `session=${JSON.stringify(sourceSessionId)}`,
+            `assistant_turn_index=${assistant.turnIndex}`,
+            `user_turn_index=${user.turnIndex}`,
+            `assistant_timestamp=${JSON.stringify(assistant.timestamp ?? null)}`,
+            `user_timestamp=${JSON.stringify(user.timestamp ?? null)}`
+        ].join('; ');
+        pairsByUserTurn.set(user.turnIndex, {
+            assistant,
+            captureText,
+            detection,
+            id,
+            sourceLocator
+        });
+        pairedAssistantTurns.add(assistant.turnIndex);
+    }
+    return { pairsByUserTurn, pairedAssistantTurns };
+}
+
 async function capture(event, config, project, state, deadline, persist) {
     if (!event.transcript_path || (!config.autoCapture && !config.sessionSummary)) return null;
     const stat = await fs.stat(event.transcript_path);
     if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('Transcript unavailable or too large');
     const messages = parseTranscript(await fs.readFile(event.transcript_path, 'utf8'));
+    const { pairsByUserTurn, pairedAssistantTurns } = contextualReplyPairs(messages, event, config);
     const captured = new Set(state.captured || []), summarized = new Set(state.summarized || []);
     const outcomes = new Map();
     let overrides = {}, captures = 0, saved = 0, summary = false;
     for (const message of messages) {
         if (message.role === 'user') overrides = hasUserOverride(message.content);
         if (overrides.forceSkip) continue;
-        const content = stripCode(message.content).replace(/#remember\b/gi, '').trim();
+        if (message.role === 'assistant' && pairedAssistantTurns.has(message.turnIndex)) continue;
+        const pair = message.role === 'user' ? pairsByUserTurn.get(message.turnIndex) : undefined;
+        const content = pair?.captureText
+            || stripCode(message.content).replace(/#remember\b/gi, '').trim();
         if (!content) continue;
-        const id = hash(`${message.role}\n${content}`);
-        const detection = detectPatterns(content, { minLength: config.minCaptureLength });
+        const id = pair?.id || hash(`${message.role}\n${content}`);
+        const detection = pair?.detection || detectPatterns(content, { minLength: config.minCaptureLength });
         const forced = overrides.forceRemember && message.role === 'user';
         const valuable = detection.isValuable || forced;
         if (!valuable) continue;
         const text = truncateContent(content, config.maxCaptureLength);
         if (config.autoCapture && !captured.has(id) && captures < config.maxCapturesPerRun) {
             const result = await storeMemory(config, {
-                content: `Project: ${project}\n\n${text}`,
+                content: `Project: ${project}\n\n${pair ? `${pair.sourceLocator}\n\n` : ''}${text}`,
                 memory_type: detection.memoryType || 'note',
                 tags: [project, 'codex', 'auto-captured', detection.matchedPattern || 'explicit'],
-                metadata: { session_id: event.session_id, role: message.role }, conversation_id: event.session_id
+                metadata: {
+                    session_id: event.session_id,
+                    role: pair ? 'assistant_user_pair' : message.role,
+                    ...(pair ? {
+                        capture_mode: 'assistant_user_pair',
+                        source_turns: {
+                            assistant: { index: pair.assistant.turnIndex, timestamp: pair.assistant.timestamp ?? null },
+                            user: { index: message.turnIndex, timestamp: message.timestamp ?? null }
+                        }
+                    } : {})
+                },
+                conversation_id: event.session_id
             }, deadline);
             captured.add(id);
             state.captured = [...captured];
@@ -245,7 +351,8 @@ async function capture(event, config, project, state, deadline, persist) {
             captures++;
             if (!result.duplicate && !result.refused) saved++;
         }
-        if (!summarized.has(id) && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
+        if (!pair && !summarized.has(id)
+            && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
             outcomes.set(id, { id, text });
         }
     }
