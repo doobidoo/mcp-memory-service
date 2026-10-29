@@ -1557,7 +1557,9 @@ async def _format_empty_memory_search(
         _format_memory_search_debug(result)
         + await _format_beliefs_section(arguments, storage)
     )
-    if summary_warning and max_response_chars > 0:
+    # Every positive limit goes through the limiter, with or without a
+    # summarization warning in front (doobidoo and ducanhnguyen223 on #1701).
+    if max_response_chars > 0:
         response = format_bounded_response(
             [],
             max_response_chars,

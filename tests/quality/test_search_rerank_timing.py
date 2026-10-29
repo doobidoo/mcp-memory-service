@@ -515,6 +515,20 @@ async def test_empty_bounded_response_keeps_the_timing():
     assert 'Rerank timing (ms):' in out.text and '(pool 0)' in out.text
 
 
+@pytest.mark.asyncio
+async def test_empty_response_respects_the_limit_without_a_warning():
+    """#1701 review: with no summarization warning the empty-result path
+    skipped the limiter, so the debug block could exceed max_response_chars."""
+    result = _timed_result(0)
+    out = await memory_handlers._format_empty_memory_search({}, None, result, 120, "")
+    assert len(out.text) <= 120
+    assert out.text.startswith("No memories found for query: 'q'")
+    assert 'Optional section omitted' in out.text and 'Debug Info' not in out.text
+    roomy = await memory_handlers._format_empty_memory_search({}, None, result, 4000, "")
+    assert roomy.text.startswith("No memories found for query: 'q'")
+    assert 'Rerank timing (ms):' in roomy.text and len(roomy.text) <= 4000
+
+
 def test_format_rerank_timing_fallback_note_needs_a_scorer_call():
     unasked = {'search_ms': 1.0, 'pool': 0, 'filters_ms': 0.1, 'applied': False, 'rerank_ms': 0.2}
     assert 'fell back' not in memory_handlers._format_rerank_timing(unasked)
