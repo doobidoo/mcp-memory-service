@@ -51,7 +51,7 @@ except (ImportError, AttributeError):
 
 
 class SyncCapabilitiesResponse(BaseModel):
-    """Versions and vector identity required before exchanging sync events."""
+    """Versions and storage capabilities required before remote sync operations."""
 
     sync_protocol: int = Field(description="Highest delta-sync wire protocol version supported")
     sync_protocol_min: int = Field(description="Lowest delta-sync wire protocol version supported")
@@ -61,6 +61,14 @@ class SyncCapabilitiesResponse(BaseModel):
     embedding_model: str = Field(description="Embedding model used by the vector storage")
     embedding_dimension: int = Field(description="Vector dimension used by the storage")
     version: str = Field(description="Installed MCP Memory Service package version")
+    store_scoped_hash_ops: bool = Field(
+        default=False,
+        description="Whether get, update, and delete by hash enforce the store parameter",
+    )
+    store_scoped_access: bool = Field(
+        default=False,
+        description="Whether all supported store-aware reads and writes are partitioned",
+    )
 
 
 @router.get("/sync/capabilities", response_model=SyncCapabilitiesResponse)
@@ -77,6 +85,12 @@ async def get_sync_capabilities(
         embedding_model=embedding_model,
         embedding_dimension=embedding_dimension,
         version=__version__,
+        store_scoped_hash_ops=bool(
+            getattr(storage, "get_by_hash_is_store_scoped", False)
+        ),
+        store_scoped_access=bool(
+            getattr(storage, "supports_store_scoped_access", False)
+        ),
     )
 
 

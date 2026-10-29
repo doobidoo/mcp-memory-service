@@ -1,16 +1,10 @@
-"""Per-store confinement of hash-addressed updates (memory_update).
-
-The transport gate authorizes the *claimed* store, but the update resolves by
-content_hash. The handler pre-resolves the hash within the claimed store:
-
-- backends whose get_by_hash honors ``store`` (get_by_hash_is_store_scoped=True)
-  report a hash from another store as not-found, before any write;
-- backends that accept but ignore ``store`` can't prove confinement, so a
-  store-scoped update fails closed (refused).
-"""
+"""Per-store confinement of hash-addressed updates (memory_update)."""
 import pytest
 
-from mcp_memory_service.server.handlers.memory import handle_update_memory_metadata
+from mcp_memory_service.server.handlers.memory import (
+    handle_delete_memory,
+    handle_update_memory_metadata,
+)
 
 
 class _Storage:
@@ -18,12 +12,14 @@ class _Storage:
         self.get_by_hash_is_store_scoped = scoped
         self._found = found
         self.updated = False
+        self.update_kwargs = None
 
     async def get_by_hash(self, content_hash, store=None):
         return object() if self._found else None
 
     async def update_memory_metadata(self, **_kwargs):
         self.updated = True
+        self.update_kwargs = _kwargs
         return (True, "updated")
 
 
@@ -33,6 +29,23 @@ class _Server:
 
     async def _ensure_storage_initialized(self):
         return self.storage
+
+
+class _DeleteService:
+    def __init__(self):
+        self.kwargs = None
+
+    async def delete_memory(self, content_hash, **kwargs):
+        self.kwargs = kwargs
+        return {"success": True, "content_hash": content_hash}
+
+
+class _DeleteServer:
+    def __init__(self):
+        self.memory_service = _DeleteService()
+
+    async def _ensure_storage_initialized(self):
+        return None
 
 
 @pytest.mark.asyncio
@@ -46,6 +59,41 @@ async def test_update_fails_closed_on_store_ignoring_backend():
             _Server(storage),
             {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
         )
+    assert storage.updated is False
+
+
+@pytest.mark.asyncio
+async def test_update_forwards_claimed_store_to_storage_write():
+    storage = _Storage(scoped=True, found=True)
+    await handle_update_memory_metadata(
+        _Server(storage),
+        {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
+    )
+
+    assert storage.updated is True
+    assert storage.update_kwargs["store"] == "projectA"
+
+
+@pytest.mark.asyncio
+async def test_delete_all_store_is_rejected_as_non_read_scope():
+    server = _DeleteServer()
+
+    with pytest.raises(PermissionError, match="only valid for read scopes"):
+        await handle_delete_memory(server, {"content_hash": "abc", "store": "all"})
+
+    assert server.memory_service.kwargs is None
+
+
+@pytest.mark.asyncio
+async def test_update_all_store_is_rejected_as_non_read_scope():
+    storage = _Storage(scoped=True, found=True)
+
+    with pytest.raises(PermissionError, match="only valid for read scopes"):
+        await handle_update_memory_metadata(
+            _Server(storage),
+            {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "all"},
+        )
+
     assert storage.updated is False
 
 
