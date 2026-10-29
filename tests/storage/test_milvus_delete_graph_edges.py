@@ -10,6 +10,7 @@ Run: pytest tests/storage/test_milvus_delete_graph_edges.py -v
 """
 
 import hashlib
+import time
 import uuid
 
 import numpy as np
@@ -179,3 +180,22 @@ async def test_delete_succeeds_when_graph_cleanup_fails(service, monkeypatch):
     monkeypatch.setattr(graph, "delete_edges_for_memories", _fail)
     assert await storage.delete(hash_a) == (True, f"Successfully deleted memory {hash_a}")
     assert await storage.get_by_hash(hash_a) is None
+
+
+async def test_purge_deleted_removes_graph_edges(service):
+    svc, storage = service
+    graph = await storage._get_graph_storage()
+
+    a = await svc.store_memory("alpha note about module-q", tags=["shared-q"])
+    b = await svc.store_memory("beta note about module-q", tags=["shared-q"])
+    assert a["success"] and b["success"], (a, b)
+    hash_a, hash_b = a["memory"]["content_hash"], b["memory"]["content_hash"]
+    assert await _edges_touching(graph, hash_a)
+
+    # A tombstone exists on Milvus only when deleted_at is written explicitly (#1708).
+    ok, msg = await storage.update_memory_metadata(hash_a, {"metadata": {"deleted_at": time.time()}})
+    assert ok, msg
+    assert await storage.purge_deleted(older_than_days=0) == 1
+
+    assert await _edges_touching(graph, hash_a) == []
+    assert any(e["relationship_type"] == "has_entity" for e in await _edges_touching(graph, hash_b))
