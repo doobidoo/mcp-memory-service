@@ -51,7 +51,7 @@ async def test_delete_broadcast_failure_log_does_not_carry_newlines(caplog, monk
         async def get_by_hash(self, *_args, **_kwargs):
             return SimpleNamespace(content_hash="abc")
 
-        async def delete(self, _content_hash):
+        async def delete(self, _content_hash, store=None):
             return True, "deleted"
 
     async def broadcast_event(_event):
