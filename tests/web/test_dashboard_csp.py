@@ -105,3 +105,32 @@ def test_static_dashboard_scripts_are_externalized():
     assert '<script src="sse_test.js" defer></script>' in sse_html
     assert not INLINE_HANDLER_RE.search(index_html)
     assert not INLINE_HANDLER_RE.search(sse_html)
+
+
+def test_theme_initializer_is_first_body_script_before_app_js():
+    client = TestClient(app_module.create_app())
+    response = client.get("/")
+
+    body = re.search(r"<body\b[^>]*>(.*)", response.text, re.IGNORECASE | re.DOTALL)
+    assert body
+    first_element = re.search(r"<([a-z][a-z0-9-]*)\b", body.group(1), re.IGNORECASE)
+    scripts = list(re.finditer(
+        r'<script\b[^>]*\bsrc="([^"]+)"[^>]*>',
+        body.group(1),
+        re.IGNORECASE,
+    ))
+
+    assert first_element and first_element.group(1).lower() == "script"
+    assert scripts, "dashboard body should load its scripts"
+    assert scripts[0].group(1) == "static/theme-init.js"
+    assert not re.search(
+        r"\b(?:async|defer)\b|\btype=\"module\"",
+        scripts[0].group(0),
+        re.IGNORECASE,
+    )
+    app_script = next(
+        (script for script in scripts if script.group(1).startswith("static/app.js")),
+        None,
+    )
+    assert app_script is not None
+    assert scripts[0].start() < app_script.start()
