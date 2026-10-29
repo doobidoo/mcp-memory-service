@@ -76,6 +76,11 @@ MAINTAIN_SCAN_LIMIT = safe_get_int_env('MCP_MAINTAIN_SCAN_LIMIT', 2000, min_valu
 # Example: MCP_ENTITY_CUSTOM_TERMS=roma-connect,kiro,api-gateway
 MCP_ENTITY_CUSTOM_TERMS = os.environ.get("MCP_ENTITY_CUSTOM_TERMS", "")
 
+# Tag filters for entities: comma-separated fnmatch patterns, include then exclude.
+# Example: MCP_ENTITY_TAG_INCLUDE=task:*
+MCP_ENTITY_TAG_INCLUDE = os.environ.get("MCP_ENTITY_TAG_INCLUDE", "")
+MCP_ENTITY_TAG_EXCLUDE = os.environ.get("MCP_ENTITY_TAG_EXCLUDE", "")
+
 # =============================================================================
 # Auto-capture (RFC #1008 §3) — inline extraction on memory_store / memory_observe
 # =============================================================================
