@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mcp_memory_service.web.oauth import registration
+from mcp_memory_service.web.oauth.rate_limit import auth_rate_limit
 from mcp_memory_service.web.oauth.storage.memory import MemoryOAuthStorage
 
 
@@ -27,6 +28,7 @@ from mcp_memory_service.web.oauth.storage.memory import MemoryOAuthStorage
 def client():
     app = FastAPI()
     app.include_router(registration.router, prefix="/oauth")
+    app.dependency_overrides[auth_rate_limit] = lambda: None
     with patch.object(registration, "get_oauth_storage", return_value=MemoryOAuthStorage()), \
          patch.object(registration, "DCR_REGISTRATION_KEY", None):
         yield TestClient(app)
