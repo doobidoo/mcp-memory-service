@@ -542,7 +542,7 @@ async def test_cloudflare_conditional_store_does_not_insert_after_tombstone_chan
     assert len(calls) == 1
     batch = calls[0]["batch"]
     assert "deleted_at = ?" in batch[3]["sql"]
-    assert batch[3]["params"][-4:-2] == ["hash-123", 99.0]
+    assert batch[3]["params"][-5:-2] == ["hash-123", 99.0, "default"]
     assert len(batch) == 5
     assert "json_each" in batch[1]["sql"]
     assert "json_each" in batch[2]["sql"]
@@ -632,7 +632,8 @@ async def test_cloudflare_restore_keeps_tombstone_when_tag_link_step_fails(
             content_size INTEGER DEFAULT 0,
             r2_key TEXT,
             tags TEXT,
-            deleted_at REAL DEFAULT NULL
+            deleted_at REAL DEFAULT NULL,
+            store TEXT NOT NULL DEFAULT 'default'
         );
         CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);
         CREATE TABLE memory_tags (
@@ -737,7 +738,8 @@ async def test_cloudflare_tombstone_restore_survives_retry_after_d1_commit(
             content_size INTEGER DEFAULT 0,
             r2_key TEXT,
             tags TEXT,
-            deleted_at REAL DEFAULT NULL
+            deleted_at REAL DEFAULT NULL,
+            store TEXT NOT NULL DEFAULT 'default'
         );
         CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);
         CREATE TABLE memory_tags (
