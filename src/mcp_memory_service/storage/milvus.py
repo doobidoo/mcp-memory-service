@@ -3261,6 +3261,10 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("purge_deleted: delete failed: %s", _sanitize_log_value(exc))
             return 0
 
+        # The edges live in a separate collection and would otherwise survive the purge, the same leak
+        # #1703 fixed for the other delete paths (#1708). Best-effort, like every other delete path.
+        await self._delete_graph_edges(to_purge)
+
         logger.info("purge_deleted: permanently removed %d tombstones", len(to_purge))
         return len(to_purge)
 
