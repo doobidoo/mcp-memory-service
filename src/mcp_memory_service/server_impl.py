@@ -1623,10 +1623,6 @@ class MemoryServer:
         "memory_store", "memory_store_session", "memory_search", "memory_list",
         "memory_delete", "memory_update",
     })
-    # memory_search arguments that read outside the claimed store: beliefs are
-    # not partitioned, and the exact/tag fallback queries ignore ``store``.
-    CROSS_STORE_ARGUMENTS = ("include_beliefs", "fallback")
-
     async def store_grant_target(self, name: Optional[str], arguments: Optional[dict] = None) -> Optional[str]:
         """Return the store a per-store grant may authorize this call for.
 
@@ -1639,8 +1635,6 @@ class MemoryServer:
         arguments = arguments or {}
         store = arguments.get("store")
         if store in (None, "all") or name not in self.STORE_CONFINED_TOOLS:
-            return None
-        if any(arguments.get(key) for key in self.CROSS_STORE_ARGUMENTS):
             return None
         storage = await self._ensure_storage_initialized()
         if not getattr(storage, "get_by_hash_is_store_scoped", False):

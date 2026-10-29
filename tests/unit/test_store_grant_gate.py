@@ -63,11 +63,15 @@ async def test_store_grant_cannot_reach_a_tool_that_ignores_store(server):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("flag", ["include_beliefs", "fallback"])
-async def test_store_grant_cannot_search_across_partitions(server, flag):
-    result = await _call(server, "memory_search", {"query": "x", "store": "projectA", flag: True},
-                         "read:projectA")
-    assert result.isError
-    assert server.handled == []
+async def test_store_grant_can_search_with_store_scoped_options(server, flag):
+    result = await _call(
+        server,
+        "memory_search",
+        {"query": "x", "store": "projectA", flag: True},
+        "read:projectA",
+    )
+    assert not result.isError
+    assert server.handled == [{"query": "x", "store": "projectA", flag: True}]
 
 
 @pytest.mark.asyncio

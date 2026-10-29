@@ -362,27 +362,49 @@ class BeliefService:
         }
 
     async def get_beliefs(
-        self, status: str = "active", min_confidence: float = CONFIDENCE_FLOOR
+        self,
+        status: str = "active",
+        min_confidence: float = CONFIDENCE_FLOOR,
+        store: str | None = None,
     ) -> List[dict]:
         """Get beliefs without waiting for the connection lock on the event loop."""
-        return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence)
+        return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence, store)
 
-    def _get_beliefs_sync(self, status, min_confidence):
+    def _get_beliefs_sync(self, status, min_confidence, store):
         """Read and decode beliefs under the shared connection lock in a worker."""
         try:
             with self._conn_lock_cm():
                 conn = self.storage.conn
-                cursor = conn.execute(
+                sql = (
                     "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
                     "derived_from, contradicted_by, metadata FROM beliefs "
-                    "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
-                    (status, min_confidence),
+                    "WHERE status = ? AND confidence >= ?"
                 )
+                params: list[str | float] = [status, min_confidence]
+                if store is not None:
+                    sql += """
+                        AND json_array_length(derived_from) > 0
+                        AND NOT EXISTS (
+                            SELECT 1 FROM json_each(beliefs.derived_from) source
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM memories m
+                                WHERE m.content_hash = source.value AND m.store = ?
+                                  AND m.deleted_at IS NULL
+                            )
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM json_each(beliefs.contradicted_by) contrary
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM memories m
+                                WHERE m.content_hash = contrary.value AND m.store = ?
+                                  AND m.deleted_at IS NULL
+                            )
+                        )
+                    """
+                    params.extend((store, store))
+                sql += " ORDER BY confidence DESC"
+                cursor = conn.execute(sql, tuple(params))
                 rows = cursor.fetchall()
-            # Greptile P1 (#1727): beliefs stored BEFORE this filter existed stay
-            # in the table — derive_beliefs no longer reaches them to supersede,
-            # so exclude meta-statistics noise at read time too. Keeps existing
-            # stores clean without a data migration.
             return [
                 {
                     "belief_hash": r[0],

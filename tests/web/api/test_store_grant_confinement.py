@@ -17,7 +17,6 @@ with the authenticated user replaced by one holding exactly the given scope.
 """
 
 import os
-import tempfile
 
 import pytest
 import pytest_asyncio
@@ -29,16 +28,10 @@ from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.web.dependencies import set_storage
 
 
-@pytest.fixture
-def temp_db():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield os.path.join(tmpdir, "test.db")
-
-
 @pytest_asyncio.fixture
-async def storage(temp_db, monkeypatch):
+async def storage(temp_db_path, monkeypatch):
     monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
-    s = SqliteVecMemoryStorage(temp_db)
+    s = SqliteVecMemoryStorage(os.path.join(temp_db_path, "test.db"))
     await s.initialize()
     yield s
     await s.close()
@@ -48,7 +41,11 @@ async def storage(temp_db, monkeypatch):
 async def other_store_hash(storage):
     """A memory that lives in projectB, which a projectA credential must not reach."""
     content = "belongs to projectB only"
-    memory = Memory(content=content, content_hash=generate_content_hash(content), tags=["b"])
+    memory = Memory(
+        content=content,
+        content_hash=generate_content_hash(content),
+        tags=["b", "privateprojectb"],
+    )
     ok, _ = await storage.store(memory, store="projectB")
     assert ok
     return memory.content_hash
@@ -122,18 +119,159 @@ def test_store_grant_cannot_reach_a_tool_that_ignores_store(make_client, other_s
 
 @pytest.mark.integration
 @pytest.mark.parametrize("flag", ["include_beliefs", "fallback"])
-def test_store_grant_cannot_search_across_partitions(make_client, flag):
+@pytest.mark.asyncio
+async def test_store_grant_search_options_do_not_cross_partitions(
+    make_client, storage, other_store_hash, flag
+):
     client = make_client("read:projectA")
-    response = _call(client, "memory_search", {"query": "x", "store": "projectA", flag: True})
-    assert _refused(response)
+    if flag == "include_beliefs":
+        storage.conn.execute(
+            "INSERT INTO beliefs "
+            "(belief_hash, content, confidence, status, created_at, updated_at, "
+            "derived_from, contradicted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "b" * 64,
+                "belief based on projectB only",
+                0.9,
+                "active",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+                f'["{other_store_hash}"]',
+                "[]",
+            ),
+        )
+        storage.conn.commit()
+        arguments = {
+            "query": "no matching memories",
+            "store": "projectA",
+            "include_beliefs": True,
+        }
+    else:
+        arguments = {
+            "query": "belongs to projectB only",
+            "store": "projectA",
+            "fallback": True,
+        }
+
+    response = _call(client, "memory_search", arguments)
+    assert response.status_code == 200
+    assert "error" not in response.json()
+    rendered = " ".join(
+        item.get("text", "")
+        for item in response.json().get("result", {}).get("content", [])
+    )
+    assert other_store_hash not in rendered
+    if flag == "include_beliefs":
+        assert "belief based on projectB only" not in rendered
+    else:
+        assert "No memories found for query" in rendered
 
 
 @pytest.mark.integration
-def test_store_grant_still_searches_its_own_store(make_client):
+@pytest.mark.asyncio
+async def test_store_grant_still_searches_its_own_store(make_client, storage):
+    memory = Memory(
+        content="belongs to projectA only",
+        content_hash=generate_content_hash("belongs to projectA only"),
+        tags=["privateprojecta"],
+    )
+    ok, _ = await storage.store(memory, store="projectA")
+    assert ok
     client = make_client("read:projectA")
-    response = _call(client, "memory_search", {"query": "x", "store": "projectA"})
+    response = _call(
+        client,
+        "memory_search",
+        {
+            "query": "belongs to projectA only",
+            "store": "projectA",
+            "fallback": True,
+        },
+    )
     assert response.status_code == 200
     assert "error" not in response.json()
+    rendered = " ".join(
+        item.get("text", "")
+        for item in response.json().get("result", {}).get("content", [])
+    )
+    assert memory.content_hash in rendered
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_store_grant_tag_fallback_does_not_cross_partitions(
+    make_client, other_store_hash
+):
+    response = _call(
+        make_client("read:projectA"),
+        "memory_search",
+        {
+            "query": "privateprojectb",
+            "store": "projectA",
+            "fallback": True,
+        },
+    )
+    assert response.status_code == 200
+    rendered = " ".join(
+        item.get("text", "")
+        for item in response.json().get("result", {}).get("content", [])
+    )
+    assert other_store_hash not in rendered
+    assert "No memories found for query" in rendered
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_default_search_does_not_append_other_store_beliefs(
+    make_client, storage, other_store_hash
+):
+    default_memory = Memory(
+        content="belongs to the default store",
+        content_hash=generate_content_hash("belongs to the default store"),
+        tags=["default"],
+    )
+    ok, _ = await storage.store(default_memory, store="default")
+    assert ok
+    for belief_hash, content, source_hash in (
+        (
+            "d" * 64,
+            "belief based on the default store",
+            default_memory.content_hash,
+        ),
+        (
+            "e" * 64,
+            "belief based on projectB only",
+            other_store_hash,
+        ),
+    ):
+        storage.conn.execute(
+            "INSERT INTO beliefs "
+            "(belief_hash, content, confidence, status, created_at, updated_at, "
+            "derived_from, contradicted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                belief_hash,
+                content,
+                0.9,
+                "active",
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:00+00:00",
+                f'["{source_hash}"]',
+                "[]",
+            ),
+        )
+    storage.conn.commit()
+
+    response = _call(
+        make_client("read"),
+        "memory_search",
+        {"query": "no matching memories", "include_beliefs": True},
+    )
+    assert response.status_code == 200
+    rendered = " ".join(
+        item.get("text", "")
+        for item in response.json().get("result", {}).get("content", [])
+    )
+    assert "belief based on the default store" in rendered
+    assert "belief based on projectB only" not in rendered
 
 
 @pytest.mark.integration
