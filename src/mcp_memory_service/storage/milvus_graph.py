@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 # Milvus per-call result limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
 
+# Hashes per delete_edges_for_memories() filter; each hash appears in it twice.
+_DELETE_EDGES_CHUNK = 200
+
 # Dimension for the dummy vector field required by Zilliz Cloud / remote Milvus.
 # Zilliz Cloud rejects collections without at least one vector field.
 _DUMMY_VEC_DIM = 2
@@ -837,6 +840,23 @@ class MilvusGraphStorage:
         except Exception as exc:
             logger.error("Failed to delete association: %s", exc)
             return False
+
+    async def delete_edges_for_memories(self, memory_hashes: List[str]) -> None:
+        """Delete every edge from or to ``memory_hashes``. Errors propagate."""
+        if not self._ensure_ready():
+            return
+
+        hashes = [h for h in memory_hashes if h]
+        for start in range(0, len(hashes), _DELETE_EDGES_CHUNK):
+            quoted = ", ".join(
+                f'"{escape_expr_value(h)}"'
+                for h in hashes[start:start + _DELETE_EDGES_CHUNK]
+            )
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                filter=f"source_hash in [{quoted}] or target_hash in [{quoted}]",
+            )
 
     async def get_association_count(self, memory_hash: str) -> int:
         """Get count of direct associations for a memory."""

@@ -979,6 +979,25 @@ class MilvusMemoryStorage(MemoryStorage):
             self._graph_storage = graph
             return graph
 
+    async def _delete_graph_edges(self, content_hashes: List[str]) -> None:
+        """Best-effort removal of graph edges touching deleted memories (#1703).
+
+        SQLite cascades these on delete; here the edges live in a separate
+        collection and would otherwise survive, so entity linking kept
+        linking new memories to deleted ones. A failure is logged and does
+        not fail the delete, which has already happened.
+        """
+        if not content_hashes:
+            return
+        try:
+            graph = await self._get_graph_storage()
+            await graph.delete_edges_for_memories(content_hashes)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to delete graph edges for %d deleted memories (non-fatal): %s",
+                len(content_hashes), _sanitize_log_value(exc),
+            )
+
     async def _detect_conflicts(
         self, new_hash: str, new_content: str, embedding: List[float]
     ) -> List[Dict[str, Any]]:
@@ -1832,6 +1851,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 )
             except Exception:  # noqa: BLE001
                 pass  # non-fatal
+        await self._delete_graph_edges([content_hash])
         return True, f"Successfully deleted memory {content_hash}"
 
     async def delete_memory(self, content_hash: str) -> bool:
@@ -1874,32 +1894,35 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
         deleted_hashes: List[str] = []
-        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
-            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
-            try:
-                await self._call_client(
-                    "delete",
-                    collection_name=self.collection_name,
-                    ids=chunk,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "delete_by_tags failed after %d/%d memories: %s",
-                    len(deleted_hashes),
-                    len(hashes),
-                    _sanitize_log_value(exc),
-                )
-                if deleted_hashes:
+        try:
+            for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+                chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+                try:
+                    await self._call_client(
+                        "delete",
+                        collection_name=self.collection_name,
+                        ids=chunk,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "delete_by_tags failed after %d/%d memories: %s",
+                        len(deleted_hashes),
+                        len(hashes),
+                        _sanitize_log_value(exc),
+                    )
+                    if deleted_hashes:
+                        raise MilvusDeleteError(
+                            f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
+                            f"before deletion failed: {_sanitize_log_value(exc)}",
+                            deleted_count=len(deleted_hashes),
+                            deleted_hashes=deleted_hashes,
+                        ) from exc
                     raise MilvusDeleteError(
-                        f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
-                        f"before deletion failed: {_sanitize_log_value(exc)}",
-                        deleted_count=len(deleted_hashes),
-                        deleted_hashes=deleted_hashes,
+                        f"Deletion failed: {_sanitize_log_value(exc)}",
                     ) from exc
-                raise MilvusDeleteError(
-                    f"Deletion failed: {_sanitize_log_value(exc)}",
-                ) from exc
-            deleted_hashes.extend(chunk)
+                deleted_hashes.extend(chunk)
+        finally:
+            await self._delete_graph_edges(deleted_hashes)
 
         return (
             len(deleted_hashes),
@@ -1992,12 +2015,18 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         if not hashes:
             return 0, []
-        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
-            await self._call_client(
-                "delete",
-                collection_name=self.collection_name,
-                ids=hashes[start:start + self._GET_BY_ID_CHUNK],
-            )
+        deleted: List[str] = []
+        try:
+            for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+                chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+                await self._call_client(
+                    "delete",
+                    collection_name=self.collection_name,
+                    ids=chunk,
+                )
+                deleted.extend(chunk)
+        finally:
+            await self._delete_graph_edges(deleted)
         return len(hashes), hashes
 
     async def _collect_hashes(
