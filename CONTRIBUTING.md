@@ -313,6 +313,11 @@ except StorageError as e:
   git stash -- src/ && .venv/bin/pytest tests/<your file> -q; git stash pop   # must fail
   .venv/bin/pytest tests/<your file> -q                                        # must pass
   ```
+  The check installs `pymilvus` and Milvus Lite when a changed test imports
+  `pymilvus`, but no other optional extra. A test that skips itself without one
+  (`pytest.importorskip("sentence_transformers")`, for example) gets a failure
+  naming the missing module; paste your local runs and a maintainer sets
+  `skip-prove-fix`.
 - Drive the real code path. Use the sqlite-vec storage through the `temp_db_path`
   fixture, the real tool registry, the real handler. Mock only network and
   external services (Cloudflare, Groq, Gemini). A mock of the function under test

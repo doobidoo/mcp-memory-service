@@ -125,6 +125,24 @@ else
     failures=$((failures + 1))
 fi
 
+# A test module that skips itself at collection (importorskip of an optional extra
+# the job does not install): still a failure, but the message names the module
+# instead of claiming nothing was collected. The exit code is 1 either way, so the
+# case checks the output (#1709).
+d="$TMP/modskip"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'import pytest\n\npytest.importorskip("no_such_module_1709")\n\n\ndef test_answer():\n    assert True\n' > "$d/tests/test_answer.py"
+git_c -C "$d" add -A && git_c -C "$d" commit -q -m pr
+out="$(cd "$d" && env PYTHONPATH="$d/src" PYTHON="$PY" bash "$SCRIPT" main 2>&1)"
+actual=$?
+if [ "$actual" -eq 1 ] && grep -q "not installed in this job: no_such_module_1709" <<<"$out"; then
+    echo "PASS - module skipped at collection fails and names the module"
+else
+    echo "FAIL - module skipped at collection fails and names the module (got exit $actual)"
+    echo "$out" | sed 's/^/    /'
+    failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1
