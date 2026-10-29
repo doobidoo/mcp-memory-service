@@ -3261,6 +3261,7 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("purge_deleted: delete failed: %s", _sanitize_log_value(exc))
             return 0
 
+        await self._delete_graph_edges(to_purge)
         logger.info("purge_deleted: permanently removed %d tombstones", len(to_purge))
         return len(to_purge)
 
