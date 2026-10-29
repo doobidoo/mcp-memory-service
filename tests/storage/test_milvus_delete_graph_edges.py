@@ -91,14 +91,53 @@ async def test_new_memory_is_not_linked_to_deleted(service):
     graph = await storage._get_graph_storage()
 
     a = await svc.store_memory("alpha note about module-y", tags=["shared-y"])
-    assert a["success"], a
+    b = await svc.store_memory("beta note about module-y", tags=["shared-y"])
+    assert a["success"] and b["success"], (a, b)
     hash_a = a["memory"]["content_hash"]
+    hash_b = b["memory"]["content_hash"]
     assert (await svc.delete_memory(hash_a))["success"]
 
     c = await svc.store_memory("gamma note about module-y", tags=["shared-y"])
     assert c["success"], c
-    to_deleted = [
-        e for e in await _edges_touching(graph, c["memory"]["content_hash"])
-        if hash_a in (e["source_hash"], e["target_hash"])
-    ]
-    assert to_deleted == []
+    hash_c = c["memory"]["content_hash"]
+    linked = {
+        e["target_hash"] if e["source_hash"] == hash_c else e["source_hash"]
+        for e in await _edges_touching(graph, hash_c)
+        if e["relationship_type"] == "shares_entity"
+    }
+    assert linked == {hash_b}
+
+
+async def test_delete_by_tags_removes_graph_edges(service):
+    svc, storage = service
+    graph = await storage._get_graph_storage()
+
+    a = await svc.store_memory("alpha note about module-z", tags=["shared-z", "drop-me"])
+    b = await svc.store_memory("beta note about module-z", tags=["shared-z", "drop-me"])
+    k = await svc.store_memory("kappa note about module-z", tags=["shared-z"])
+    assert a["success"] and b["success"] and k["success"], (a, b, k)
+    hash_a, hash_b, hash_k = (r["memory"]["content_hash"] for r in (a, b, k))
+    assert await _edges_touching(graph, hash_a)
+
+    count, _, deleted = await storage.delete_by_tags(["drop-me"])
+    assert count == 2 and set(deleted) == {hash_a, hash_b}
+
+    assert await _edges_touching(graph, hash_a) == []
+    assert await _edges_touching(graph, hash_b) == []
+    assert any(e["relationship_type"] == "has_entity" for e in await _edges_touching(graph, hash_k))
+
+
+async def test_delete_succeeds_when_graph_cleanup_fails(service, monkeypatch):
+    svc, storage = service
+    graph = await storage._get_graph_storage()
+
+    a = await svc.store_memory("alpha note about module-w", tags=["shared-w"])
+    assert a["success"], a
+    hash_a = a["memory"]["content_hash"]
+
+    async def _fail(_hashes):
+        raise RuntimeError("graph collection unavailable")
+
+    monkeypatch.setattr(graph, "delete_edges_for_memories", _fail)
+    assert await storage.delete(hash_a) == (True, f"Successfully deleted memory {hash_a}")
+    assert await storage.get_by_hash(hash_a) is None
