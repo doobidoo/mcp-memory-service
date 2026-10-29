@@ -239,6 +239,8 @@ jobs:
 
     # Installs from uv.lock, like `test`: see there.
     - name: Install dependencies
+      env:
+        BASE_REF: ${{ github.base_ref }}
       run: |
         sudo apt-get update
         sudo apt-get install -y --only-upgrade ca-certificates
@@ -247,6 +249,20 @@ jobs:
         echo "$HOME/venv/bin" >> "$GITHUB_PATH"
         export UV_PROJECT_ENVIRONMENT="$HOME/venv"
         python3 -m uv sync --frozen --python python3 --extra dev --extra sqlite
+        # Milvus tests importorskip pymilvus, so without it they skip at collection
+        # and the check cannot give a verdict (#1709). Add the Milvus client only
+        # when a changed test needs it. The full extra also pulls torch, so only
+        # three packages are installed, and the whole locked export is passed as
+        # constraints: their dependencies land at the uv.lock versions too, and
+        # the cap and setuptools<82 stay defined in pyproject.toml alone. Tests
+        # that importorskip sentence_transformers still skip here.
+        mapfile -t changed_tests < <(git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" -- tests/ | grep -E '(^|/)test_[^/]*\.py$' || true)
+        if [ "${#changed_tests[@]}" -gt 0 ] && grep -lq -e pymilvus -- "${changed_tests[@]}"; then
+          python3 -m uv export --frozen --extra milvus --no-hashes --no-emit-project > "$RUNNER_TEMP/milvus-lock.txt"
+          grep -E '^(pymilvus|milvus-lite|setuptools)==' "$RUNNER_TEMP/milvus-lock.txt" > "$RUNNER_TEMP/milvus-reqs.txt"
+          python3 -m uv pip install --python "$HOME/venv/bin/python" \
+            -r "$RUNNER_TEMP/milvus-reqs.txt" -c "$RUNNER_TEMP/milvus-lock.txt"
+        fi
 
     - name: Run the changed tests against the base branch
       env:
