@@ -24,6 +24,7 @@ def server(monkeypatch):
     srv.remote_transport = True
     srv.storage = AsyncMock()
     srv.storage.get_by_hash_is_store_scoped = True
+    srv.storage.supports_store_scoped_access = True
     monkeypatch.setattr(srv, "_ensure_storage_initialized", AsyncMock(return_value=srv.storage))
     srv.handled = []
 
@@ -79,9 +80,22 @@ async def test_store_grant_can_search_with_store_scoped_options(server, flag):
     ("memory_explore", {"query": "x", "store": "projectA"}),
     ("memory_detail", {"entity_id": "e", "store": "projectA"}),
 ])
-async def test_store_grant_cannot_read_the_unpartitioned_graph(server, tool, arguments):
-    """Entity names and related entities come from a graph with no store, so
-    a per-store grant would see other stores' entities."""
+async def test_store_grant_can_read_the_scoped_entity_graph(server, tool, arguments):
+    """Graph tools are eligible only when they explicitly name a store."""
+    result = await _call(server, tool, arguments, "read:projectA")
+    assert not result.isError
+    assert server.handled == [arguments]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, arguments", [
+    ("memory_explore", {"query": "x", "store": "projectA"}),
+    ("memory_detail", {"entity_id": "e", "store": "projectA"}),
+])
+async def test_graph_store_grant_requires_store_scoped_backend_capability(
+    server, tool, arguments
+):
+    server.storage.supports_store_scoped_access = False
     result = await _call(server, tool, arguments, "read:projectA")
     assert result.isError
     assert server.handled == []

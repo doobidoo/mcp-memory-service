@@ -800,17 +800,37 @@ class GraphStorage:
             logger.error(f"Failed to store entity link: {_sanitize_log_value(e)}")
             return False
 
-    async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """List all known entities with count and types."""
+    async def list_entities(
+        self, limit: Optional[int] = 50, store: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List entities, optionally limited to memories in one store."""
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
-                    SELECT target_hash as entity_name, COUNT(*) as count, MAX(created_at) as last_activity
-                    FROM memory_graph WHERE relationship_type = 'has_entity'
-                    GROUP BY target_hash ORDER BY count DESC LIMIT ?
-                """, (limit,))
+                if store is None:
+                    query = """
+                        SELECT mg.target_hash as entity_name, COUNT(*) as count,
+                               MAX(mg.created_at) as last_activity
+                        FROM memory_graph mg
+                        WHERE mg.relationship_type = 'has_entity'
+                    """
+                    params = []
+                else:
+                    query = """
+                        SELECT mg.target_hash as entity_name, COUNT(*) as count,
+                               MAX(mg.created_at) as last_activity
+                        FROM memory_graph mg
+                        JOIN memories m ON m.content_hash = mg.source_hash
+                        WHERE mg.relationship_type = 'has_entity'
+                          AND m.store = ? AND m.deleted_at IS NULL
+                    """
+                    params = [store]
+                query += " GROUP BY mg.target_hash ORDER BY count DESC"
+                if limit is not None:
+                    query += " LIMIT ?"
+                    params.append(limit)
+                cursor.execute(query, params)
                 return [{"entity_name": row['entity_name'], "count": row['count'],
                          "last_activity": row['last_activity']} for row in cursor.fetchall()]
             finally:
@@ -819,19 +839,30 @@ class GraphStorage:
             logger.error(f"Failed to list entities: {_sanitize_log_value(e)}")
             return []
 
-    async def find_memories_by_entity(self, entity_name: str, limit: int = 20) -> List[str]:
-        """Find memory hashes linked to a given entity name."""
+    async def find_memories_by_entity(
+        self, entity_name: str, limit: int = 20, store: Optional[str] = None
+    ) -> List[str]:
+        """Find memory hashes linked to an entity, optionally in one store."""
         if not entity_name:
             return []
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
-                    SELECT source_hash FROM memory_graph
-                    WHERE target_hash = ? AND relationship_type = 'has_entity'
-                    ORDER BY created_at DESC LIMIT ?
-                """, (entity_name, limit))
+                if store is None:
+                    cursor.execute("""
+                        SELECT source_hash FROM memory_graph
+                        WHERE target_hash = ? AND relationship_type = 'has_entity'
+                        ORDER BY created_at DESC LIMIT ?
+                    """, (entity_name, limit))
+                else:
+                    cursor.execute("""
+                        SELECT mg.source_hash FROM memory_graph mg
+                        JOIN memories m ON m.content_hash = mg.source_hash
+                        WHERE mg.target_hash = ? AND mg.relationship_type = 'has_entity'
+                          AND m.store = ? AND m.deleted_at IS NULL
+                        ORDER BY mg.created_at DESC LIMIT ?
+                    """, (entity_name, store, limit))
                 return [row['source_hash'] for row in cursor.fetchall()]
             finally:
                 cursor.close()
@@ -839,45 +870,74 @@ class GraphStorage:
             logger.error(f"Failed to find memories by entity: {_sanitize_log_value(e)}")
             return []
 
-    async def get_entities_for_memory(self, memory_hash: str) -> List[str]:
-        """Get entity names linked to a memory hash."""
+    async def get_entities_for_memory(
+        self, memory_hash: str, store: Optional[str] = None
+    ) -> List[str]:
+        """Get entity names linked to a memory, optionally verifying its store."""
         if not memory_hash:
             return []
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute(
-                    "SELECT target_hash FROM memory_graph WHERE source_hash = ? AND relationship_type = 'has_entity'",
-                    (memory_hash,)
-                )
+                if store is None:
+                    cursor.execute(
+                        "SELECT target_hash FROM memory_graph WHERE source_hash = ? AND relationship_type = 'has_entity'",
+                        (memory_hash,)
+                    )
+                else:
+                    cursor.execute("""
+                        SELECT mg.target_hash FROM memory_graph mg
+                        JOIN memories m ON m.content_hash = mg.source_hash
+                        WHERE mg.source_hash = ? AND mg.relationship_type = 'has_entity'
+                          AND m.store = ? AND m.deleted_at IS NULL
+                    """, (memory_hash, store))
                 return [row['target_hash'] for row in cursor.fetchall()]
             finally:
                 cursor.close()
         except Exception:
             return []
 
-    async def get_entity_profile(self, entity_name: str) -> Dict[str, Any]:
-        """Get entity profile: memory count, entity types, last activity."""
+    async def get_entity_profile(
+        self, entity_name: str, store: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get an entity profile, optionally limited to one store."""
         if not entity_name:
             return {}
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
-                    SELECT COUNT(*) as count, MAX(created_at) as last_activity
-                    FROM memory_graph
-                    WHERE target_hash = ? AND relationship_type = 'has_entity'
-                """, (entity_name,))
+                if store is None:
+                    cursor.execute("""
+                        SELECT COUNT(*) as count, MAX(created_at) as last_activity
+                        FROM memory_graph
+                        WHERE target_hash = ? AND relationship_type = 'has_entity'
+                    """, (entity_name,))
+                else:
+                    cursor.execute("""
+                        SELECT COUNT(*) as count, MAX(mg.created_at) as last_activity
+                        FROM memory_graph mg
+                        JOIN memories m ON m.content_hash = mg.source_hash
+                        WHERE mg.target_hash = ? AND mg.relationship_type = 'has_entity'
+                          AND m.store = ? AND m.deleted_at IS NULL
+                    """, (entity_name, store))
                 row = cursor.fetchone()
                 if not row or row['count'] == 0:
                     return {}
                 # Gather distinct entity_types
-                cursor.execute("""
-                    SELECT DISTINCT metadata FROM memory_graph
-                    WHERE target_hash = ? AND relationship_type = 'has_entity'
-                """, (entity_name,))
+                if store is None:
+                    cursor.execute("""
+                        SELECT DISTINCT metadata FROM memory_graph
+                        WHERE target_hash = ? AND relationship_type = 'has_entity'
+                    """, (entity_name,))
+                else:
+                    cursor.execute("""
+                        SELECT DISTINCT mg.metadata FROM memory_graph mg
+                        JOIN memories m ON m.content_hash = mg.source_hash
+                        WHERE mg.target_hash = ? AND mg.relationship_type = 'has_entity'
+                          AND m.store = ? AND m.deleted_at IS NULL
+                    """, (entity_name, store))
                 types = set()
                 for r in cursor.fetchall():
                     try:
@@ -971,7 +1031,8 @@ class GraphStorage:
     async def common_neighbors(
         self,
         memory_hash: str,
-        min_shared: int = 1
+        min_shared: int = 1,
+        store: Optional[str] = None,
     ) -> List[Tuple[str, int, int]]:
         """
         Find memories that share neighbors with the given memory.
@@ -990,7 +1051,8 @@ class GraphStorage:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                if store is None:
+                    query = """
                     WITH my_neighbors AS (
                         -- All direct neighbors of the source (both directions)
                         SELECT CASE WHEN source_hash = ? THEN target_hash ELSE source_hash END as neighbor
@@ -1015,7 +1077,62 @@ class GraphStorage:
                     HAVING COUNT(*) >= ?
                     ORDER BY shared_count DESC
                     LIMIT 10
-                """, (memory_hash, memory_hash, memory_hash, memory_hash, min_shared))
+                    """
+                    params = (memory_hash, memory_hash, memory_hash, memory_hash, min_shared)
+                else:
+                    # Entity edges are memory -> entity-name; semantic graph edges
+                    # connect two memory hashes. Keep only edges whose source is
+                    # live in the requested store, and require memory targets to
+                    # be live in that same store before they can participate.
+                    query = """
+                    WITH scoped_graph AS (
+                        SELECT mg.source_hash, mg.target_hash
+                        FROM memory_graph mg
+                        JOIN memories source_memory
+                          ON source_memory.content_hash = mg.source_hash
+                        WHERE source_memory.store = ?
+                          AND source_memory.deleted_at IS NULL
+                          AND (
+                              mg.relationship_type = 'has_entity'
+                              OR EXISTS (
+                                  SELECT 1 FROM memories target_memory
+                                  WHERE target_memory.content_hash = mg.target_hash
+                                    AND target_memory.store = ?
+                                    AND target_memory.deleted_at IS NULL
+                              )
+                          )
+                    ),
+                    my_neighbors AS (
+                        SELECT CASE WHEN source_hash = ? THEN target_hash ELSE source_hash END as neighbor
+                        FROM scoped_graph
+                        WHERE source_hash = ? OR target_hash = ?
+                    ),
+                    my_degree AS (
+                        SELECT COUNT(*) as deg FROM my_neighbors
+                    ),
+                    candidates AS (
+                        SELECT CASE WHEN mg.source_hash = mn.neighbor
+                                    THEN mg.target_hash ELSE mg.source_hash END as candidate
+                        FROM my_neighbors mn
+                        JOIN scoped_graph mg
+                          ON (mg.source_hash = mn.neighbor OR mg.target_hash = mn.neighbor)
+                        WHERE CASE WHEN mg.source_hash = mn.neighbor
+                                   THEN mg.target_hash ELSE mg.source_hash END != ?
+                    )
+                    SELECT c.candidate, COUNT(*) as shared_count,
+                           (SELECT deg FROM my_degree) as source_degree
+                    FROM candidates c
+                    WHERE c.candidate NOT IN (SELECT neighbor FROM my_neighbors)
+                    GROUP BY c.candidate
+                    HAVING COUNT(*) >= ?
+                    ORDER BY shared_count DESC
+                    LIMIT 10
+                    """
+                    params = (
+                        store, store, memory_hash, memory_hash, memory_hash,
+                        memory_hash, min_shared,
+                    )
+                cursor.execute(query, params)
 
                 return [(row['candidate'], row['shared_count'], row['source_degree'])
                         for row in cursor.fetchall()]
