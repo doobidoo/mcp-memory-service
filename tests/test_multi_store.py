@@ -214,7 +214,11 @@ class TestMultiStoreToolWiring:
             "query": query,
             "store": "default"
         })
-        assert marker not in result[0].text
+        text = result[0].text
+        # An "Error: ..." reply would not contain the marker either, so the
+        # search itself has to have succeeded before absence means anything.
+        assert text.startswith(("Found ", "No memories found")), text
+        assert marker not in text
         # Control: the same search in its own store does find it, so the
         # absence above is not just a search that matched nothing.
         result = await server.call_tool("memory_search", {
