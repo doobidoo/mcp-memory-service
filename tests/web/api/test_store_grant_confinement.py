@@ -11,6 +11,7 @@ caller *claims*. Three holes were left behind it:
   even when the main search is store-scoped;
 - on backends whose ``get_by_hash`` ignores ``store`` (cloudflare, milvus,
   remote_http), hash-addressed REST routes returned another store's memory.
+- analytics returned a shared SQLite database-file size to a store-scoped reader.
 
 These drive the real /mcp shim and the real REST routes against sqlite-vec,
 with the authenticated user replaced by one holding exactly the given scope.
@@ -195,6 +196,25 @@ async def test_store_grant_still_searches_its_own_store(make_client, storage):
         for item in response.json().get("result", {}).get("content", [])
     )
     assert memory.content_hash in rendered
+
+
+@pytest.mark.integration
+def test_store_grant_does_not_expose_shared_database_size(
+    make_client, other_store_hash
+):
+    scoped = make_client("read:projectA")
+    scoped_response = scoped.get(
+        "/api/analytics/overview", params={"store": "projectA"}
+    )
+
+    assert scoped_response.status_code == 200, scoped_response.text
+    assert scoped_response.json()["database_size_mb"] is None
+
+    global_response = make_client("read").get(
+        "/api/analytics/overview", params={"store": "all"}
+    )
+    assert global_response.status_code == 200, global_response.text
+    assert global_response.json()["database_size_mb"] is not None
 
 
 @pytest.mark.integration
