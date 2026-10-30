@@ -624,35 +624,45 @@ async def test_t9_field_winner_above_watermark_blocks_compaction(store):
 
 @pytest.mark.asyncio
 async def test_t10_dead_edit_above_frontier_does_not_block(store):
-    """T10 — a DEAD-incarnation edit above the frontier must NOT block compaction of the LIVE
-    incarnation below it (otherwise B would be needlessly timid). Build: incarnation 1 (create +
-    edit) + delete + incarnation 2 (bare create) + a live edit below frontier; then a DEAD edit
-    (belongs to incarnation 1, i.e. not strictly before the winning create) placed above frontier.
-    The live chain below the frontier must still collapse."""
-    content = "recreated partial memory"
+    """T10 — the variant-B guard must fire on a LIVE edit above the frontier but NOT on a DEAD
+    (old-incarnation) one. Tested directly on `_has_live_update_above_frontier` because the guard's
+    decision is masked at the materialized-state level (the resolver excludes dead edits anyway,
+    so the end state cannot distinguish 'guard skipped it' from 'resolver dropped it' — Greptile
+    review on f11d0164). We assert the guard's own boolean.
+
+    Build two incarnations of one hash with an explicit frontier between the live edits (below)
+    and two probe edits above: one LIVE (strictly before the winning create) and one DEAD."""
+    from mcp_memory_service.storage.sync.compaction import _has_live_update_above_frontier
+    from mcp_memory_service.storage.sync.apply import _load_live_events
+
+    content = "guard probe memory"
     h = generate_content_hash(content)
     apply_remote_event(store, _create_event(h, content=content, tags=["v1"],
                                             memory_type="note", event_id="c1", hlc_physical=10))
     apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
-    # incarnation 2 — winning create (latest)
     apply_remote_event(store, _create_event(h, content=content, tags=["v2"],
                                             memory_type="reference", event_id="c2", hlc_physical=50))
-    # live edits on incarnation 2, below the frontier
     apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["v2", "a"]},
                                                      event_id="liveA", hlc_physical=60))
-    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["v2", "b"]},
-                                                     event_id="liveB", hlc_physical=70))
     s = _sqlite(store)
+    frontier = [r[0] for r in _all_events(s, h)][-1]  # at the live edit
+    _parsed, create_key = _load_live_events(s, h)
 
-    before = _materialized_fields(s, h)
-    # frontier above the live edits (so they are collapsible) — the only thing that could sit
-    # "above" would be a dead-incarnation edit; here all live edits are below, so B compacts.
-    result = compact_update_metadata(store, watermark=None)
-    after = _materialized_fields(s, h)
+    # Case 1: a DEAD edit (incarnation 1: hlc 15, NOT strictly before the winning create c2@50)
+    # above the frontier must NOT make the guard fire.
+    apply_remote_event(store, _update_metadata_event(h, updates={"memory_type": "ZOMBIE"},
+                                                     event_id="dead-late", hlc_physical=15))
+    _parsed, create_key = _load_live_events(s, h)
+    assert _has_live_update_above_frontier(s, h, create_key, frontier) is False, (
+        "a dead-incarnation edit above the frontier must NOT block compaction")
 
-    assert result["events_removed"] >= 1, "live incarnation below frontier must compact"
-    assert after["best"].get("tags") == before["best"].get("tags"), "live tags preserved"
-    assert after["best"].get("memory_type") == "reference", "live type preserved"
+    # Case 2: a LIVE edit (hlc 70 > c2@50 → strictly before the winning create key) above the
+    # frontier MUST make the guard fire.
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["v2", "late"]},
+                                                     event_id="liveLate", hlc_physical=70))
+    _parsed, create_key = _load_live_events(s, h)
+    assert _has_live_update_above_frontier(s, h, create_key, frontier) is True, (
+        "a live edit above the frontier MUST block compaction (variant B)")
 
 
 # ───────────────────── T11 (Greptile P1#2 — divergent payloads must not collide) ─────────────────────
@@ -680,8 +690,11 @@ async def test_t11_divergent_payloads_get_distinct_ids(store):
 @pytest.mark.asyncio
 async def test_t12_large_chain_compacts_without_param_limit(store):
     """T12 — Greptile P2. A chain larger than SQLite's host-variable limit must still compact: the
-    DELETE is chunked. Build > 999 update_metadata events on one hash (all below the watermark) and
-    assert compaction collapses them to a single consolidated event without raising."""
+    DELETE is chunked. We FORCE the connection's variable limit down to 999 (SQLITE_LIMIT_VARIABLE_NUMBER)
+    so a chain of 1100 would overflow an unbounded `DELETE ... IN (?,?,...)` — proving the bounded
+    delete is actually exercised (without this cap, a build allowing >1100 params would pass even
+    with the original unbounded delete; Greptile review on f11d0164)."""
+    import sqlite3
     content = "large chain memory"
     h = generate_content_hash(content)
     apply_remote_event(store, _create_event(h, content=content, event_id="c1", hlc_physical=5))
@@ -692,7 +705,16 @@ async def test_t12_large_chain_compacts_without_param_limit(store):
     s = _sqlite(store)
     assert _count_update_metadata(s, h) == n, "precondition: full chain present"
 
-    result = compact_update_metadata(store, watermark=None)
+    # Cap the per-statement variable limit at 999 so an unbounded IN (...) over 1100 seqs would
+    # raise "too many SQL variables"; the chunked delete (<=500 per statement) stays under it.
+    had_setlimit = hasattr(s.conn, "setlimit")
+    if had_setlimit:
+        prev = s.conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 999)
+    try:
+        result = compact_update_metadata(store, watermark=None)
+    finally:
+        if had_setlimit:
+            s.conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, prev)
 
     assert result["events_removed"] == n - 1, f"chunked delete must collapse all {n} to 1"
     assert _count_update_metadata(s, h) == 1, "exactly one consolidated event remains"
