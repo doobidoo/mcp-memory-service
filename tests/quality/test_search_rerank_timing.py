@@ -473,6 +473,53 @@ async def test_truncated_response_prints_the_debug_block_after_the_results():
 
 
 @pytest.mark.asyncio
+async def test_truncated_response_respects_the_limit_without_a_warning():
+    """#1701 review (ducanhnguyen223, doobidoo): with no summarization warning
+    the non-empty limited path budgeted only the memories, then appended the
+    header, the truncation notice and the debug block uncounted. Every
+    positive limit now goes through the bounded formatter: a tight cap keeps
+    a memory and drops the optional section, and the total stays under it."""
+    from mcp_memory_service.server.utils.response_limiter import _format_memory
+
+    # Long enough that one record outweighs the truncation notice, so a cap
+    # of header + notice + one record cannot hold both records.
+    memories = [
+        {'content': f'memory-{i} ' + 'x' * 300, 'content_hash': f'hash-{i}',
+         'tags': [], 'created_at_iso': '2026-01-01T00:00:00Z'}
+        for i in range(2)
+    ]
+    result = _timed_result(2)
+    header = memory_handlers._build_memory_search_header(result, 2, False) + "\n\n"
+    block = _format_memory({'content': memories[0]['content'], 'content_hash': 'hash-0',
+                            'created_at': '2026-01-01T00:00:00Z', 'tags': []}, 1)
+    notice = ("[!] RESPONSE TRUNCATED: Showing 1 of 2 results.\n"
+              "1 result(s) omitted. Use a narrower query or hash-based retrieval.\n\n")
+    cap = len(header) + len(notice) + len(block) + 2  # one memory fits, nothing else
+    assert len(block) > len(notice)
+    debug = memory_handlers._format_memory_search_debug(result)
+    assert len(header) + len(notice) + len(block) + len(debug) > cap
+
+    tight = await memory_handlers._format_truncated_memory_search(
+        {}, None, memories, 2, result, False, cap, "",
+    )
+    assert len(tight.text) <= cap
+    assert tight.text.startswith('Found 2 memories')
+    assert 'Showing 1 of 2' in tight.text
+    assert 'memory-0' in tight.text and 'hash-0' in tight.text
+    assert 'memory-1' not in tight.text
+    assert 'Debug Info:' not in tight.text
+
+    roomy = await memory_handlers._format_truncated_memory_search(
+        {}, None, memories, 2, result, False, cap + 4000, "",
+    )
+    assert len(roomy.text) <= cap + 4000
+    assert 'RESPONSE TRUNCATED' not in roomy.text
+    assert 'hash-1' in roomy.text
+    assert 'Rerank timing (ms):' in roomy.text and '(pool 2)' in roomy.text
+    assert roomy.text.index('hash-1') < roomy.text.index('Debug Info:')
+
+
+@pytest.mark.asyncio
 async def test_handler_empty_search_prints_the_timing(monkeypatch):
     """Greptile P2 on #1701: a zero-hit search records the search and filter
     stages but printed nothing. Now it prints them, without a fallback note

@@ -1499,11 +1499,7 @@ async def _format_truncated_memory_search(
     fallback_used: bool, max_response_chars: int, summary_warning: str,
 ) -> types.TextContent:
     """Format search results through the configured response-length limiter."""
-    from ..utils.response_limiter import (
-        format_bounded_response,
-        format_truncated_response,
-        truncate_memories,
-    )
+    from ..utils.response_limiter import format_bounded_response
 
     memory_dicts = [
         {
@@ -1524,18 +1520,16 @@ async def _format_truncated_memory_search(
         _format_memory_search_debug(result)
         + await _format_beliefs_section(arguments, storage)
     )
-    if summary_warning:
-        response_text = format_bounded_response(
-            memory_dicts,
-            max_response_chars,
-            header=summary_warning + header,
-            footer=optional_section,
-        )
-        return types.TextContent(type="text", text=response_text)
-
-    truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-    response_text = (
-        header + format_truncated_response(truncated, meta) + optional_section
+    # Every positive limit goes through the bounded formatter, with or
+    # without a summarization warning in front: the no-warning branch used to
+    # budget only the memories and append the header, the truncation notice
+    # and the optional section uncounted (doobidoo and ducanhnguyen223 on
+    # #1701), so a response could exceed the limit by the whole debug block.
+    response_text = format_bounded_response(
+        memory_dicts,
+        max_response_chars,
+        header=summary_warning + header,
+        footer=optional_section,
     )
     return types.TextContent(type="text", text=response_text)
 
