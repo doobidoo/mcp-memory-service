@@ -111,6 +111,28 @@ async def test_store_grant_refused_on_a_backend_that_cannot_confine(server):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "arguments", "scope"),
+    [
+        ("memory_search", {"query": "x", "store": "projectA"}, "read:projectA"),
+        ("memory_list", {"store": "projectA"}, "read:projectA"),
+        ("memory_store", {"content": "x", "store": "projectA"}, "write:projectA"),
+    ],
+)
+async def test_store_grant_requires_backend_wide_store_scoping(
+    server, tool, arguments, scope
+):
+    """Hash lookup confinement alone cannot authorize other store-aware APIs."""
+    server.storage.get_by_hash_is_store_scoped = True
+    server.storage.supports_store_scoped_access = False
+
+    result = await _call(server, tool, arguments, scope)
+
+    assert result.isError
+    assert server.handled == []
+
+
+@pytest.mark.asyncio
 async def test_store_grant_still_works_for_a_confined_tool(server):
     result = await _call(server, "memory_delete", {"content_hash": "h", "store": "projectA"},
                          "read:projectA write:projectA")
