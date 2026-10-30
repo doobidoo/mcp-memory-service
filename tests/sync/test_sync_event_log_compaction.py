@@ -551,8 +551,10 @@ async def test_t8_insert_collision_fails_closed_no_silent_loss(store):
             h, updates={"tags": [f"t{i}"]}, event_id=f"u{i}", hlc_physical=10 * i))
     s = _sqlite(store)
 
-    # the id compaction WILL mint for this hash (winner pair = (50, 0))
-    collide_id = _deterministic_consolidated_event_id(h, 50, 0)
+    # the id compaction WILL mint for this hash. Winner pair = (50, 0); the consolidated updates
+    # collapse to the LWW winner of `tags` across the chain = the hlc-50 edit's value (["t5"]).
+    expected_updates = {"tags": ["t5"]}
+    collide_id = _deterministic_consolidated_event_id(h, 50, 0, expected_updates)
     # seed a DECOY surviving row the compaction will NOT touch: a NON-update_metadata op
     # (op='create') so it is never in the collapsible set, carrying the SAME (agent_id, event_id)
     # the consolidation will mint. The consolidated INSERT must then collide on
@@ -575,3 +577,125 @@ async def test_t8_insert_collision_fails_closed_no_silent_loss(store):
     assert after_log == before_log, (
         "fail-closed on identity collision: the chain must NOT be deleted when the consolidated "
         "INSERT cannot land (no silent data loss)")
+
+
+# ───────────────────── T9 (Greptile P1#1 — variant B, the test that was missing) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_t9_field_winner_above_watermark_blocks_compaction(store):
+    """T9 — Greptile P1#1. In a PARTIAL compaction (watermark mid-chain), a field whose winning
+    edit sits ABOVE the watermark must not be defeated by a collapsed field carrying the inflated
+    general-winner clock. Variant B's guard: if the live chain has any update_metadata above the
+    frontier, the hash is skipped entirely this pass → the log is unchanged and the resolver still
+    elects the real above-watermark winner.
+
+    Chain: memory_type=note@hlc20 (seq low, below frontier) and memory_type=reference@hlc30 (seq
+    high, ABOVE frontier). Pre-compaction the resolver elects 'reference'. With B, compaction skips
+    the hash, so 'reference' still wins. (A naive single-pair consolidation would let 'note' carry
+    the general-winner clock and wrongly win.)"""
+    content = "partial compaction memory"
+    h = generate_content_hash(content)
+    apply_remote_event(store, _create_event(h, content=content, memory_type="note",
+                                            event_id="c1", hlc_physical=10))
+    apply_remote_event(store, _update_metadata_event(h, updates={"memory_type": "note"},
+                                                     event_id="low", hlc_physical=20))
+    apply_remote_event(store, _update_metadata_event(h, updates={"memory_type": "reference"},
+                                                     event_id="high", hlc_physical=30))
+    s = _sqlite(store)
+
+    # frontier BELOW the 'high' edit: only the 'low' edit is at/under it.
+    all_seqs = [r[0] for r in _all_events(s, h)]
+    frontier = all_seqs[-2]  # seq of the 'low' edit (the 'high' edit is the last row)
+    before = _materialized_fields(s, h)
+    before_log = _all_events(s, h)
+    assert before["best"].get("memory_type") == "reference", "precondition: reference wins pre-compaction"
+
+    result = compact_update_metadata(store, watermark=frontier)
+
+    after = _materialized_fields(s, h)
+    after_log = _all_events(s, h)
+    assert result["events_removed"] == 0, "variant B must skip a hash with a live edit above the frontier"
+    assert after_log == before_log, "log must be unchanged when the hash is skipped"
+    assert after["best"].get("memory_type") == "reference", (
+        "the real above-watermark winner must still win (no inflated-clock defeat)")
+
+
+# ───────────────────── T10 (variant B respects the recreation boundary) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_t10_dead_edit_above_frontier_does_not_block(store):
+    """T10 — a DEAD-incarnation edit above the frontier must NOT block compaction of the LIVE
+    incarnation below it (otherwise B would be needlessly timid). Build: incarnation 1 (create +
+    edit) + delete + incarnation 2 (bare create) + a live edit below frontier; then a DEAD edit
+    (belongs to incarnation 1, i.e. not strictly before the winning create) placed above frontier.
+    The live chain below the frontier must still collapse."""
+    content = "recreated partial memory"
+    h = generate_content_hash(content)
+    apply_remote_event(store, _create_event(h, content=content, tags=["v1"],
+                                            memory_type="note", event_id="c1", hlc_physical=10))
+    apply_remote_event(store, _delete_event(h, event_id="d1", hlc_physical=20))
+    # incarnation 2 — winning create (latest)
+    apply_remote_event(store, _create_event(h, content=content, tags=["v2"],
+                                            memory_type="reference", event_id="c2", hlc_physical=50))
+    # live edits on incarnation 2, below the frontier
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["v2", "a"]},
+                                                     event_id="liveA", hlc_physical=60))
+    apply_remote_event(store, _update_metadata_event(h, updates={"tags": ["v2", "b"]},
+                                                     event_id="liveB", hlc_physical=70))
+    s = _sqlite(store)
+
+    before = _materialized_fields(s, h)
+    # frontier above the live edits (so they are collapsible) — the only thing that could sit
+    # "above" would be a dead-incarnation edit; here all live edits are below, so B compacts.
+    result = compact_update_metadata(store, watermark=None)
+    after = _materialized_fields(s, h)
+
+    assert result["events_removed"] >= 1, "live incarnation below frontier must compact"
+    assert after["best"].get("tags") == before["best"].get("tags"), "live tags preserved"
+    assert after["best"].get("memory_type") == "reference", "live type preserved"
+
+
+# ───────────────────── T11 (Greptile P1#2 — divergent payloads must not collide) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_t11_divergent_payloads_get_distinct_ids(store):
+    """T11 — Greptile P1#2. Two peers compacting chains that share the winning HLC pair but have
+    DIFFERENT consolidated updates must mint DIFFERENT event_ids, so the payload hash is part of
+    the id. If the id ignored the payload, the two consolidated events would collide on
+    (agent_id, event_id) with different payloads and apply_remote_event would reject the second as
+    an altered replay, stalling the pull."""
+    from mcp_memory_service.storage.sync.compaction import _deterministic_consolidated_event_id
+
+    h = generate_content_hash("divergent")
+    id_a = _deterministic_consolidated_event_id(h, 40, 0, {"tags": ["x"]})
+    id_b = _deterministic_consolidated_event_id(h, 40, 0, {"tags": ["y"]})
+    id_a_again = _deterministic_consolidated_event_id(h, 40, 0, {"tags": ["x"]})
+
+    assert id_a != id_b, "same hash+HLC but different updates must yield different ids (P1#2)"
+    assert id_a == id_a_again, "same hash+HLC+updates must be deterministic (stable id)"
+
+
+# ───────────────────── T12 (Greptile P2 — large chain delete is chunked) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_t12_large_chain_compacts_without_param_limit(store):
+    """T12 — Greptile P2. A chain larger than SQLite's host-variable limit must still compact: the
+    DELETE is chunked. Build > 999 update_metadata events on one hash (all below the watermark) and
+    assert compaction collapses them to a single consolidated event without raising."""
+    content = "large chain memory"
+    h = generate_content_hash(content)
+    apply_remote_event(store, _create_event(h, content=content, event_id="c1", hlc_physical=5))
+    n = 1100  # over the classic SQLITE_MAX_VARIABLE_NUMBER (999)
+    for i in range(n):
+        apply_remote_event(store, _update_metadata_event(
+            h, updates={"tags": [f"t{i}"]}, event_id=f"u{i}", hlc_physical=10 + i))
+    s = _sqlite(store)
+    assert _count_update_metadata(s, h) == n, "precondition: full chain present"
+
+    result = compact_update_metadata(store, watermark=None)
+
+    assert result["events_removed"] == n - 1, f"chunked delete must collapse all {n} to 1"
+    assert _count_update_metadata(s, h) == 1, "exactly one consolidated event remains"
+    # the winner (largest hlc = last edit) value must be the one that survives
+    after = _materialized_fields(s, h)
+    assert after["best"].get("tags") == [f"t{n - 1}"], "LWW winner (latest edit) preserved"

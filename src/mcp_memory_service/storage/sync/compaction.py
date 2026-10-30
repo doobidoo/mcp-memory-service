@@ -59,14 +59,22 @@ def _compaction_agent_id() -> str:
     return "compaction"
 
 
-def _deterministic_consolidated_event_id(content_hash: str, hlc_physical: int, hlc_logical: int) -> str:
+def _deterministic_consolidated_event_id(content_hash: str, hlc_physical: int, hlc_logical: int,
+                                         updates: Dict) -> str:
     """Stable id for the consolidated update_metadata event (T6b).
 
-    Keyed on (content_hash, winning HLC pair, op). Same inputs → same id, so a second run on an
-    unchanged chain produces the identical identity and is recognised as already-consolidated.
-    Mirrors bootstrap._deterministic_event_id's shape ('prefix-' + sha256[:32]).
+    Keyed on (content_hash, winning HLC pair, op, AND a canonical hash of the consolidated
+    `updates`). Same inputs → same id, so a second run on an unchanged chain produces the
+    identical identity and is recognised as already-consolidated. Including the payload hash
+    (Greptile P1#2) ensures two peers that compact DIVERGENT chains sharing the same winning
+    HLC pair mint DIFFERENT ids — otherwise identical ids with different payloads would be
+    rejected by apply_remote_event as an altered replay, silently dropping the event and
+    stalling the pull. Mirrors bootstrap._deterministic_event_id's shape ('prefix-' + sha256[:32]).
     """
-    raw = f"compact:{_CONSOLIDATED_OP}:{content_hash}:{hlc_physical}:{hlc_logical}".encode("utf-8")
+    payload_digest = hashlib.sha256(
+        json.dumps(updates, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    raw = f"compact:{_CONSOLIDATED_OP}:{content_hash}:{hlc_physical}:{hlc_logical}:{payload_digest}".encode("utf-8")
     return "cmp-" + hashlib.sha256(raw).hexdigest()[:32]
 
 
@@ -125,6 +133,30 @@ def _collapsible_update_rows(s, content_hash: str, create_key, frontier: int):
     return out
 
 
+def _has_live_update_above_frontier(s, content_hash: str, create_key, frontier: int) -> bool:
+    """True if the LIVE incarnation of `content_hash` has any update_metadata event with
+    seq > frontier. Variant B (all-or-nothing): when such an event exists, the chain must NOT
+    be compacted this pass — a field whose winning edit sits above the watermark would otherwise
+    lose to a collapsed field carrying the inflated general-winner clock (Greptile P1#1). The
+    hash is compacted on a later pass, once the watermark advances past that edit.
+    Dead-incarnation edits above the frontier do NOT block (they are not part of the live state).
+    """
+    rows = s.conn.execute(
+        """
+        SELECT hlc_physical, hlc_logical, agent_id, event_id
+        FROM sync_events
+        WHERE content_hash = ? AND op = 'update_metadata' AND seq > ?
+        """,
+        (content_hash, frontier),
+    ).fetchall()
+    for phys, log, agent, eid in rows:
+        k = _ev_winner_key(content_hash, phys, log, agent, eid, "update_metadata")
+        live = create_key is None or k < create_key
+        if live:
+            return True
+    return False
+
+
 def _winning_row(collapsible):
     """Pick the winning update_metadata row (smallest _winner_key) — same order as the resolver."""
     return min(collapsible, key=lambda r: r[1])
@@ -176,20 +208,21 @@ def _latest_updated_at(collapsible) -> Optional[float]:
 def _plan_for_hash(s, content_hash: str, frontier: int) -> Optional[Tuple[List[int], Dict]]:
     """Return (seqs_to_remove, consolidated_event) for one hash, or None if nothing to do.
 
-    None when: fewer than 1 collapsible live edit, or the chain is ALREADY consolidated (a single
-    collapsible edit whose event_id equals the deterministic consolidated id — T6a idempotence).
+    None when: no collapsible live edit; the live chain has an update_metadata event ABOVE the
+    frontier (variant B all-or-nothing — see _has_live_update_above_frontier, Greptile P1#1); or
+    the chain is ALREADY consolidated (a single collapsible edit whose event_id equals the
+    deterministic consolidated id — T6a idempotence).
     """
     _parsed, create_key = _load_live_events(s, content_hash)
     collapsible = _collapsible_update_rows(s, content_hash, create_key, frontier)
     if not collapsible:
         return None
 
-    win = _winning_row(collapsible)
-    _seq, _k, _win_agent, _win_eid, win_phys, win_log, _pl = win
-    consolidated_id = _deterministic_consolidated_event_id(content_hash, win_phys, win_log)
-
-    # Already consolidated: exactly one collapsible edit and it is the consolidated event itself.
-    if len(collapsible) == 1 and collapsible[0][3] == consolidated_id:
+    # Variant B: if any LIVE update_metadata edit sits above the frontier, skip this hash — a
+    # field's winning edit could be above the watermark and a collapsed field would otherwise
+    # carry the inflated general-winner clock and win incorrectly (Greptile P1#1). Compacted on
+    # a later pass once the watermark advances past it.
+    if _has_live_update_above_frontier(s, content_hash, create_key, frontier):
         return None
 
     updates = _consolidated_updates(content_hash, collapsible)
@@ -197,6 +230,15 @@ def _plan_for_hash(s, content_hash: str, frontier: int) -> Optional[Tuple[List[i
     uat = _latest_updated_at(collapsible)
     if uat is not None:
         payload["updated_at"] = uat
+
+    win = _winning_row(collapsible)
+    _seq, _k, _win_agent, _win_eid, win_phys, win_log, _pl = win
+    consolidated_id = _deterministic_consolidated_event_id(
+        content_hash, win_phys, win_log, updates)
+
+    # Already consolidated: exactly one collapsible edit and it is the consolidated event itself.
+    if len(collapsible) == 1 and collapsible[0][3] == consolidated_id:
+        return None
 
     seqs_to_remove = [r[0] for r in collapsible]
     consolidated_event = {
@@ -219,6 +261,23 @@ def _plan_for_hash(s, content_hash: str, frontier: int) -> Optional[Tuple[List[i
     return seqs_to_remove, consolidated_event
 
 
+_DELETE_CHUNK = 500  # well under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999 on old builds)
+
+
+def _delete_seqs_chunked(s, seqs: List[int]) -> None:
+    """DELETE the given seqs in bounded chunks (Greptile P2). A single memory's update_metadata
+    chain can exceed SQLite's host-variable limit; one oversized IN (...) would raise and roll
+    back the whole compaction batch, so a job meant to drain an unbounded backlog must bound its
+    own query. All chunks run in the caller's SAVEPOINT (still fail-closed as one unit)."""
+    for i in range(0, len(seqs), _DELETE_CHUNK):
+        chunk = seqs[i:i + _DELETE_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        s.conn.execute(
+            f"DELETE FROM sync_events WHERE seq IN ({placeholders})",
+            tuple(chunk),
+        )
+
+
 def _apply_plan(s, plans: List[Tuple[List[int], Dict]]) -> int:
     """Delete collapsed rows and insert the consolidated events for every planned hash, inside a
     SINGLE savepoint. Fail-closed: any error rolls the whole batch back (T6c). Returns the number
@@ -228,11 +287,7 @@ def _apply_plan(s, plans: List[Tuple[List[int], Dict]]) -> int:
     s.conn.execute(f"SAVEPOINT {sp}")
     try:
         for seqs_to_remove, event in plans:
-            placeholders = ",".join("?" for _ in seqs_to_remove)
-            s.conn.execute(
-                f"DELETE FROM sync_events WHERE seq IN ({placeholders})",
-                tuple(seqs_to_remove),
-            )
+            _delete_seqs_chunked(s, seqs_to_remove)
             removed += len(seqs_to_remove)
             # INSERT (not OR IGNORE): a collision on the deterministic (agent_id,event_id) or
             # the reused seq PK must NOT be silenced. OR IGNORE after the DELETE would drop the
@@ -264,6 +319,8 @@ def _apply_plan(s, plans: List[Tuple[List[int], Dict]]) -> int:
             s.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
             s.conn.execute(f"RELEASE SAVEPOINT {sp}")
         except Exception:
+            # Rollback itself failed (e.g. connection already dropped). Nothing left to undo
+            # here; re-raise the ORIGINAL error below so the caller sees the real failure.
             pass
         raise
     return removed
