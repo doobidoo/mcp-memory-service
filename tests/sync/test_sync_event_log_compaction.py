@@ -387,12 +387,10 @@ async def test_t5_recreation_boundary_not_merged_across_incarnations(store):
 # ───────────────────────────────────── T6 ─────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_t6_idempotent_failclosed_deterministic_id(store):
+async def test_t6_idempotent_deterministic_id(store):
     """T6 — (a) a 2nd immediate compaction is a no-op (events_removed == 0); (b) the
-    consolidated event_id is DETERMINISTIC (same inputs → same id); (c) fail-closed: if the
-    transaction fails mid-way the log is byte-IDENTICAL (no partial removal).
-
-    RED: compaction.py missing. After G4 all three properties must hold."""
+    consolidated event_id is DETERMINISTIC (same inputs → same id). Fail-closed (rollback after a
+    partial DELETE) is proven by test_t8 via a real identity collision — see note (c) below."""
     content = "idempotent memory"
     h = generate_content_hash(content)
     apply_remote_event(store, _create_event(h, content=content, event_id="c1", hlc_physical=10))
@@ -417,39 +415,10 @@ async def test_t6_idempotent_failclosed_deterministic_id(store):
         "ORDER BY seq", (h,)).fetchall()
     assert consolidated_2 == consolidated_1, "consolidated event_id must be deterministic/stable"
 
-    # (c) fail-closed: force the commit to blow up mid-transaction and assert nothing changed.
-    content2 = "failclosed memory"
-    h2 = generate_content_hash(content2)
-    apply_remote_event(store, _create_event(h2, content=content2, event_id="c1b", hlc_physical=10))
-    for i in range(2, 6):
-        apply_remote_event(store, _update_metadata_event(
-            h2, updates={"tags": [f"q{i}"]}, event_id=f"v{i}", hlc_physical=10 * i))
-    before_log = _all_events(s)
-
-    # Inject a failure in the MIDDLE of the REAL _apply_plan transaction: patch json.dumps (used
-    # to serialize the consolidated payload for the INSERT, which runs AFTER the DELETE) so the
-    # real function performs its DELETE, then raises during the INSERT. This exercises the REAL
-    # fail-closed path (the function's own SAVEPOINT/ROLLBACK), not a mock of it. We patch
-    # json.dumps rather than sqlite3.Connection.commit, which is a read-only C attribute on
-    # Python 3.11 and cannot be monkeypatched on a raw connection.
-    import mcp_memory_service.storage.sync.compaction as _compaction_mod
-
-    orig_dumps = _compaction_mod.json.dumps
-
-    def _boom_dumps(*a, **k):
-        raise RuntimeError("injected failure during consolidated INSERT serialization")
-
-    _compaction_mod.json.dumps = _boom_dumps
-    try:
-        with pytest.raises(Exception):
-            compact_update_metadata(store, watermark=None)
-    finally:
-        _compaction_mod.json.dumps = orig_dumps
-
-    after_log = _all_events(s)
-    assert after_log == before_log, (
-        "fail-closed: a failed compaction must leave the event log byte-identical "
-        "(no partial removal)")
+    # (c) fail-closed is proven by test_t8 (identity collision): it drives the REAL _apply_plan
+    # through DELETE → failing INSERT and asserts the log is byte-identical, WITHOUT monkeypatching
+    # (conn.execute/commit are read-only C attributes on Python 3.11, and patching json.dumps would
+    # now raise during planning — before any delete — so neither is a valid rollback probe here).
 
 
 # ───────────────────────────────────── T7 ─────────────────────────────────────
