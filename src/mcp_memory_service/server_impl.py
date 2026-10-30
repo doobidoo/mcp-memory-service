@@ -1752,8 +1752,9 @@ class MemoryServer:
 
         ``None`` means only the global grant will do: the call names no store
         (or ``all``), the tool ignores ``store``, the call reaches across
-        partitions, or the backend's get_by_hash ignores ``store`` and so cannot
-        prove confinement (storage-layer enforcement is #1683). The SDK dispatch
+        partitions, or the backend cannot prove that every store-aware API is
+        confined. Hash lookup confinement alone is insufficient here because
+        this set also includes list/search/write operations. The SDK dispatch
         gate and the /mcp shim both ask this, so the transports cannot disagree.
         """
         arguments = arguments or {}
@@ -1763,9 +1764,7 @@ class MemoryServer:
         storage = await self._ensure_storage_initialized()
         if not getattr(storage, "get_by_hash_is_store_scoped", False):
             return None
-        if name in {"memory_explore", "memory_detail"} and not getattr(
-            storage, "supports_store_scoped_access", False
-        ):
+        if not getattr(storage, "supports_store_scoped_access", False):
             return None
         return store
 
