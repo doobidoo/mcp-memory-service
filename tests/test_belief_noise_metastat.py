@@ -38,6 +38,15 @@ NOBRACKET_CASE = (
     "6 memories share tags ['injecao', 'learning-loop'], indicating a recurring theme."
 )
 
+# Greptile P2 (#1727): _detect_patterns prints the FULL sorted tag list with no
+# length cap, so a handful of long tags puts >80 chars inside the brackets. The
+# pattern must match the list STRUCTURE, not a char budget.
+LONGLIST_CASE = (
+    "12 memories share tags "
+    + str([f"tag-de-nome-bem-longo-{i:02d}" for i in range(8)])
+    + ", indicating a recurring theme."
+)
+
 
 # ── Legit knowledge that MUST keep passing the filter (False = not noise) ──
 
@@ -73,6 +82,11 @@ class TestMetaStatNoiseRejected:
     def test_bracketless_share_tags_is_noise(self):
         # "N memories share tags ... recurring theme" sans bracket. FAILS today: False.
         assert _is_noise(NOBRACKET_CASE) is True
+
+    def test_long_tag_list_is_noise(self):
+        # Greptile P2 #1727: unbounded tag list (>80 chars inside brackets) must
+        # still be rejected — the pattern matches list structure, not length.
+        assert _is_noise(LONGLIST_CASE) is True
 
 
 class TestLegitBeliefsNotNoise:
@@ -119,3 +133,51 @@ class TestOverReachBoundaries:
             "Beliefs onde memories share tags demais são suspeitos de over-tagging.\n\n"
             "Isso pode indicar um recurring theme de disciplina de tags fraca."
         ) is False
+
+
+class TestGetBeliefsExcludesStoredNoise:
+    """Greptile P1 (#1727): beliefs stored before the filter existed must not
+    leak through get_beliefs — exclude meta-statistics at read time too."""
+
+    @staticmethod
+    def _make_storage():
+        import sqlite3
+        from pathlib import Path
+        from unittest.mock import MagicMock
+        conn = sqlite3.connect(":memory:")
+        migration = (
+            Path(__file__).parent.parent / "src" / "mcp_memory_service"
+            / "storage" / "migrations" / "012_add_belief_store.sql"
+        )
+        conn.executescript(migration.read_text())
+        storage = MagicMock()
+        storage.conn = conn
+        return storage
+
+    @staticmethod
+    def _store_raw_belief(storage, content, confidence=0.9):
+        import json, hashlib, time
+        h = hashlib.sha256(content.encode()).hexdigest()
+        now = time.time()
+        storage.conn.execute(
+            "INSERT INTO beliefs (belief_hash, content, confidence, status, "
+            "created_at, updated_at, derived_from, contradicted_by, metadata) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (h, content, confidence, "active", now, now, json.dumps(["x"]),
+             json.dumps([]), json.dumps({})),
+        )
+        storage.conn.commit()
+        return h
+
+    async def test_stored_meta_noise_not_returned(self):
+        from mcp_memory_service.consolidation.belief_service import BeliefService
+        storage = self._make_storage()
+        svc = BeliefService(storage)
+        noise = "[GAP] Decision gap: 'legacy'\n\nTag 'legacy' has 50 memories but no decisions recorded."
+        legit = "Antes de abrir PR, rodar o gate G5 com o reviewer independente."
+        self._store_raw_belief(storage, noise)
+        self._store_raw_belief(storage, legit)
+        out = await svc.get_beliefs(status="active", min_confidence=0.0)
+        contents = [b["content"] for b in out]
+        assert legit in contents
+        assert noise not in contents
