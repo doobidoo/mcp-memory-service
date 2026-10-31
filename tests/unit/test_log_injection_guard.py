@@ -93,6 +93,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/reasoning/entity_linker.py",
     "mcp_memory_service/reasoning/nli.py",
     "mcp_memory_service/reasoning/multi_strategy.py",
+    "mcp_memory_service/harvest/parser.py",
+    "mcp_memory_service/harvest/patterns/__init__.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
