@@ -89,15 +89,17 @@ class Memory:
                 namespace, value = TagTaxonomy.parse_tag(tag)
                 if namespace is not None:  # Has namespace
                     # Direct check using exposed VALID_NAMESPACES (avoids re-parsing)
-                    if namespace not in TagTaxonomy.VALID_NAMESPACES:
+                    if not TagTaxonomy.is_valid_namespace(namespace):
                         invalid_tags.append(tag)
 
             if invalid_tags:
-                logger.info(
+                # DEBUG: __post_init__ runs on every load, so INFO repeated this per read
+                logger.debug(
                     "Tags with invalid namespaces: %s. "
-                    "Valid namespaces: sys:, q:, proj:, topic:, t:, user:. "
+                    "Valid namespaces: %s (add more via MCP_CUSTOM_TAG_NAMESPACES). "
                     "Legacy tags (no namespace) are still supported.",
                     _sanitize_log_value(', '.join(invalid_tags)),
+                    ', '.join(sorted(TagTaxonomy.VALID_NAMESPACES)),
                 )
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
@@ -458,12 +460,18 @@ class MemoryQueryResult:
     memory: Memory
     relevance_score: float
     debug_info: Dict[str, Any] = field(default_factory=dict)
-    
+    # Issue #1724: supersession lineage, populated by backends that track it
+    # (sqlite_vec / hybrid). superseded_at is the exact replacement moment for
+    # rows superseded after migration 020; for older rows it is approximated
+    # with the successor's created_at (see RetrieveMixin.retrieve).
+    superseded_by: Optional[str] = None
+    superseded_at: Optional[float] = None
+
     @property
     def similarity_score(self) -> float:
         """Alias for relevance_score for backward compatibility."""
         return self.relevance_score
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
         return {

@@ -163,6 +163,10 @@ class MetadataMixin:
                 if update_superseded_by:
                     set_clauses.append("superseded_by = ?")
                     params.append(new_superseded_by)
+                    # Issue #1724: record when the supersede happened in the same
+                    # UPDATE. Clearing superseded_by (None) clears the timestamp.
+                    set_clauses.append("superseded_at = ?")
+                    params.append(now if new_superseded_by is not None else None)
                 params.append(content_hash)
                 # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
                 # WITHIN this serialized operation — never with a bare rollback outside the
@@ -328,9 +332,13 @@ class MetadataMixin:
             return 0
 
         def _batch_mark():
+            # Issue #1724: record WHEN the supersede happened in the same UPDATE
+            # that sets superseded_by, so point-in-time queries can tell whether
+            # the supersede had happened at as_of.
+            now = time.time()
             self.conn.executemany(
-                "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                [(winner, loser) for winner, loser in pairs],
+                "UPDATE memories SET superseded_by = ?, superseded_at = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                [(winner, now, loser) for winner, loser in pairs],
             )
             self.conn.commit()
             return len(pairs)
@@ -516,8 +524,9 @@ class MetadataMixin:
 
             def _do_resolve():
                 self.conn.execute(
-                    "UPDATE memories SET superseded_by = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                    (winner_hash, loser_hash),
+                    # Issue #1724: superseded_at rides along in the same UPDATE.
+                    "UPDATE memories SET superseded_by = ?, superseded_at = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                    (winner_hash, now, loser_hash),
                 )
 
                 self.conn.execute(
@@ -623,7 +632,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -632,7 +641,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type, old_version, old_metadata_str = row
+            old_hash, old_tags_str, old_type, old_version, old_metadata_str, old_store = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
@@ -657,7 +666,11 @@ class MetadataMixin:
                 memory_type=resolved_type,
                 metadata=inherited_metadata,
             )
-            store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
+            # The new version lives in the old one's store partition, or it drops
+            # out of that store's searches once the old row is superseded.
+            store_ok, store_msg = await self.store(
+                new_memory, skip_semantic_dedup=True, store=old_store or "default"
+            )
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
@@ -692,9 +705,12 @@ class MetadataMixin:
                     if reason:
                         old_meta["evolution_reason"] = reason
                     cur = self.conn.execute(
-                        "UPDATE memories SET superseded_by = ?, metadata = ? "
+                        # Issue #1724: superseded_at in the same UPDATE. For
+                        # update_memory_versioned this is exact: the new row is
+                        # written in the same call, so now == its created_at.
+                        "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
                         "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
-                        (new_hash, json.dumps(old_meta), old_hash),
+                        (new_hash, time.time(), json.dumps(old_meta), old_hash),
                     )
                     if cur.rowcount == 0:
                         # Another versioned update already superseded this row (or it

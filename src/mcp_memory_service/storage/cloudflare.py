@@ -601,8 +601,15 @@ class CloudflareStorage(MemoryStorage):
                 raise ValueError(f"R2 bucket '{self.r2_bucket}' not found")
             raise
     
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default") -> Tuple[bool, str]:
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
         """Store a memory in Cloudflare storage.
+
+        ``recreate`` is accepted for ``MemoryStorage`` parity (#1560) and intentionally
+        unused: the refusal is keyed to the sync event log (``sync_events``), which this
+        backend does not keep. D1 does soft-delete (``deleted_at``) and a normal store
+        clears that tombstone before inserting again — that is unchanged here.
+        ``supports_recreate_refusal`` stays False, so the flag is never forwarded.
 
         Args:
             memory: The Memory object to store.
@@ -1032,7 +1039,7 @@ class CloudflareStorage(MemoryStorage):
         if response.status_code not in [200, 201]:
             raise ValueError(f"Failed to store content in R2: {response.status_code}")
     
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default") -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search."""
         try:
             # Generate query embedding
@@ -1119,9 +1126,15 @@ class CloudflareStorage(MemoryStorage):
                 except Exception as e:
                     logger.warning("Failed to persist access metadata: %s", _sanitize_log_value(e))
 
+            # Issue #1724: best-effort point-in-time filter. The Cloudflare
+            # backend has no superseded_at; superseded rows are conservatively
+            # excluded from as_of queries.
+            if as_of is not None:
+                results = self._post_filter_as_of(results, as_of)
+
             logger.info("Retrieved %s memories for query", len(results))
             return results
-            
+
         except Exception as e:
             logger.error("Failed to retrieve memories: %s", _sanitize_log_value(e))
             return []
@@ -1916,6 +1929,13 @@ class CloudflareStorage(MemoryStorage):
 
         Batches are bounded by id rather than by a bound-parameter list, which
         keeps each statement to two parameters regardless of batch size.
+
+        Note: a re-store of the same content bypasses the `older_than_days` window —
+        the tombstone either is dropped before insert (`_insert_d1_memory_row`) or is
+        restored in place (`_restore_d1_tombstone`). In both cases the D1 row stops
+        being a tombstone immediately. The durable tombstone for sync is the
+        `sync_events` row with `op='delete'` (ADR-0009), so this does not affect
+        conflict resolution.
         """
         cutoff = time.time() - (older_than_days * 86400)
         batch_size = 1000
@@ -2239,7 +2259,8 @@ class CloudflareStorage(MemoryStorage):
             # Determine search strategy
             if query and query.strip():
                 # Combined semantic search with time filtering
-                logger.info("Recall - Using semantic search with query: '%s'", _sanitize_log_value(query))
+                # DEBUG: the query is the user's search text
+                logger.debug("Recall - Using semantic search with query: '%s'", _sanitize_log_value(query))
 
                 try:
                     # Generate query embedding

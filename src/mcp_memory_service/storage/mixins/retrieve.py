@@ -60,8 +60,15 @@ def _escape_like(value: str) -> str:
 class RetrieveMixin:
     """Mixin providing memory retrieval and search operations."""
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = 'default') -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search."""
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = 'default', as_of: Optional[float] = None) -> List[MemoryQueryResult]:
+        """Retrieve memories using semantic search.
+
+        as_of (epoch seconds, issue #1724): point-in-time query with
+        knowledge-time semantics — return memories with created_at <= as_of
+        that had not yet been superseded at as_of. Rows superseded before
+        migration 020 have no superseded_at; their replacement moment is
+        approximated with the successor's created_at.
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -99,6 +106,7 @@ class RetrieveMixin:
 
             def search_memories():
                 tag_conditions = ""
+                tag_params: list = []
                 params = [serialize_float32(query_embedding), k_value]
 
                 # Add store filter to vec0 query
@@ -117,7 +125,7 @@ class RetrieveMixin:
                         tag_clauses.append(
                             "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         )
-                        params.append(f"%,{_escape_like(stripped)},%")
+                        tag_params.append(f"%,{_escape_like(stripped)},%")
 
                     if not tag_clauses:
                         logger.warning("Tag filter provided but contained no valid tags. Returning empty results.")
@@ -125,20 +133,50 @@ class RetrieveMixin:
 
                     tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
 
-                superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+                # Issue #1724: point-in-time predicate. A memory is visible at
+                # as_of when it already existed (created_at <= as_of) and its
+                # supersede — if any — happened strictly after as_of. The
+                # supersede moment is superseded_at when known (migration 020),
+                # otherwise approximated by the successor's created_at. When
+                # as_of is given it subsumes the plain superseded_filter: rows
+                # superseded after as_of were still current then.
+                as_of_params: list = []
+                as_of_filter = ""
+                if as_of is not None:
+                    as_of_filter = (
+                        " AND m.created_at <= ?"
+                        " AND (m.superseded_by IS NULL OR m.superseded_by = ''"
+                        " OR COALESCE(m.superseded_at,"
+                        " (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)) > ?)"
+                    )
+                    as_of_params = [as_of, as_of]
+
+                superseded_filter = ""
+                if as_of is None and not include_superseded:
+                    superseded_filter = " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
 
                 time_conditions = ""
+                time_params: list = []
                 if start_time is not None:
                     time_conditions += " AND m.created_at >= ?"
-                    params.append(start_time)
+                    time_params.append(start_time)
                 if end_time is not None:
                     time_conditions += " AND m.created_at <= ?"
-                    params.append(end_time)
+                    time_params.append(end_time)
+
+                # Params must follow the placeholder order in the SQL below:
+                # MATCH, k, store, as_of..., tags..., time...
+                params.extend(as_of_params)
+                params.extend(tag_params)
+                params.extend(time_params)
 
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
-                           e.distance
+                           e.distance, m.superseded_by, m.superseded_at,
+                           COALESCE(m.superseded_at,
+                                    (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)
+                           ) AS eff_superseded_at
                     FROM memories m
                     INNER JOIN (
                         SELECT rowid, distance
@@ -146,7 +184,7 @@ class RetrieveMixin:
                         WHERE content_embedding MATCH ? AND k = ?{store_condition}
                           AND rowid IN (
                               SELECT m.id FROM memories m
-                              WHERE m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}{tag_conditions}{time_conditions}
+                              WHERE m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}{as_of_filter}{tag_conditions}{time_conditions}
                           )
                     ) e ON m.id = e.rowid
                     ORDER BY e.distance
@@ -169,7 +207,13 @@ class RetrieveMixin:
             for row in search_results:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:]
+                    created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:10]
+                    # Issue #1724: supersession lineage for status flags. The
+                    # effective replacement moment is exact for rows superseded
+                    # after migration 020, approximated via the successor's
+                    # created_at for older rows.
+                    superseded_by, _superseded_at_raw, eff_superseded_at = row[10:13]
+                    superseded_by = superseded_by or None
 
                     tags_list = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
@@ -198,6 +242,8 @@ class RetrieveMixin:
                     results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=relevance_score,
+                        superseded_by=superseded_by,
+                        superseded_at=eff_superseded_at,
                         debug_info={
                             "distance": distance,
                             "backend": "sqlite-vec",
@@ -222,7 +268,8 @@ class RetrieveMixin:
                 ][:n_results]
                 logger.debug("min_confidence=%s filtered %s stale memories", _sanitize_log_value(min_confidence), before - len(results))
 
-            logger.info(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
+            # DEBUG: the query is the user's prompt text, and this runs on every recall
+            logger.debug(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
             return results
 
         except Exception as e:
@@ -1372,28 +1419,38 @@ class RetrieveMixin:
             return []
 
     async def get_memory_connections(self) -> Dict[str, int]:
-        """Get memory connection statistics."""
+        """Count graph neighbours per memory, keyed by content hash.
+
+        Decay looks connections up by ``memory.content_hash``, so the keys
+        must be hashes. Each neighbour counts once: symmetric relationships
+        (``related``, ``contradicts``) are stored as two rows and would
+        otherwise count twice. ``has_entity`` rows point at entity keys, not
+        memories, and both ends must be live (not soft-deleted) memories.
+        """
         try:
             await self.initialize()
 
             def _get_connections():
                 cursor = self.conn.execute("""
-                    SELECT tags, COUNT(*) as count
-                    FROM memories
-                    WHERE tags IS NOT NULL AND tags != '' AND deleted_at IS NULL
-                    GROUP BY tags
+                    WITH edges AS (
+                        SELECT source_hash AS node, target_hash AS neighbour
+                        FROM memory_graph
+                        WHERE relationship_type IS NULL OR relationship_type != 'has_entity'
+                        UNION
+                        SELECT target_hash, source_hash
+                        FROM memory_graph
+                        WHERE relationship_type IS NULL OR relationship_type != 'has_entity'
+                    )
+                    SELECT e.node, COUNT(DISTINCT e.neighbour)
+                    FROM edges e
+                    JOIN memories a ON a.content_hash = e.node AND a.deleted_at IS NULL
+                    JOIN memories b ON b.content_hash = e.neighbour AND b.deleted_at IS NULL
+                    WHERE e.node != e.neighbour
+                    GROUP BY e.node
                 """)
                 return cursor.fetchall()
 
-            connections = {}
-            for row in await self._execute_with_retry(_get_connections):
-                tags_str, count = row
-                if tags_str:
-                    tags_list = [tag.strip() for tag in tags_str.split(",") if tag.strip()]
-                    for tag in tags_list:
-                        connections[f"tag:{tag}"] = connections.get(f"tag:{tag}", 0) + count
-
-            return connections
+            return dict(await self._execute_with_retry(_get_connections))
 
         except Exception as e:
             logger.error("Error getting memory connections: %s", _sanitize_log_value(e))

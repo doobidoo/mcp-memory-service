@@ -213,7 +213,8 @@ class HybridMixin:
         keyword_weight: Optional[float] = None,
         semantic_weight: Optional[float] = None,
         include_superseded: bool = False,
-        store: Optional[str] = "default"
+        store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         """Hybrid search combining BM25 keyword matching and vector similarity.
 
@@ -223,7 +224,7 @@ class HybridMixin:
         """
         try:
             bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded))
-            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded, store=store))
+            vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded, store=store, as_of=as_of))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
 
@@ -248,6 +249,8 @@ class HybridMixin:
 
             bm25_only_hashes = [h for h in all_hashes if h not in vector_memories]
             fetched_memories = {}
+            # Issue #1724: (superseded_by, eff_superseded_at) per BM25-only hash.
+            bm25_supersession = {}
             if bm25_only_hashes:
                 try:
                     for batch_start in range(0, len(bm25_only_hashes), 999):
@@ -259,7 +262,9 @@ class HybridMixin:
                         def fetch_batch(ph=placeholders, b=batch, sf=superseded_filter):
                             cursor = self.conn.execute(
                                 f"SELECT content_hash, content, tags, memory_type, metadata, "
-                                f"created_at, updated_at, created_at_iso, updated_at_iso "
+                                f"created_at, updated_at, created_at_iso, updated_at_iso, "
+                                f"m.superseded_by, "
+                                f"COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)) "
                                 f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){sf}",
                                 b,
                             )
@@ -270,6 +275,12 @@ class HybridMixin:
                             memory = self._row_to_memory(row)
                             if memory:
                                 fetched_memories[memory.content_hash] = memory
+                                # Issue #1724: keep supersession lineage for the
+                                # as_of post-filter below (_row_to_memory ignores
+                                # the trailing columns).
+                                bm25_supersession[memory.content_hash] = (
+                                    row[9] or None, row[10],
+                                )
                 except Exception as e:
                     logger.warning(
                         "Batch fetch for BM25-only hashes failed, some results may be missing: %s",
@@ -277,6 +288,7 @@ class HybridMixin:
                     )
 
             merged_results = []
+            vector_results_by_hash = {r.memory.content_hash: r for r in vector_results}
             for content_hash in all_hashes:
                 keyword_score = bm25_scores.get(content_hash, 0.0)
                 semantic_score = semantic_scores.get(content_hash, 0.0)
@@ -293,9 +305,19 @@ class HybridMixin:
                 )
 
                 if memory:
+                    # Issue #1724: carry supersession lineage so the as_of
+                    # post-filter below works for BM25-only hits too. Vector
+                    # hits already carry it from retrieve().
+                    vresult = vector_results_by_hash.get(content_hash)
+                    if vresult is not None:
+                        sup_by, sup_at = vresult.superseded_by, vresult.superseded_at
+                    else:
+                        sup_by, sup_at = bm25_supersession.get(content_hash, (None, None))
                     merged_results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=final_score,
+                        superseded_by=sup_by,
+                        superseded_at=sup_at,
                         debug_info={
                             "keyword_score": keyword_score,
                             "semantic_score": semantic_score,
@@ -304,6 +326,11 @@ class HybridMixin:
                     ))
 
             merged_results.sort(key=lambda r: r.relevance_score, reverse=True)
+
+            # Issue #1724: the BM25 half has no SQL-level as_of support; filter
+            # the fused set here (no-op when as_of is None).
+            if as_of is not None:
+                merged_results = self._post_filter_as_of(merged_results, as_of)
 
             results = self._only_in_store(merged_results, store)[:n_results]
 
