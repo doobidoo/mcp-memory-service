@@ -423,6 +423,25 @@ def pytest_sessionstart(session):
         print("="*80 + "\n")
 
 
+def pytest_collection_modifyitems(config, items):
+    """Keep only this CI shard's test files when MCP_TEST_SHARD is set (see tests/ci_shard.py)."""
+    from tests.ci_shard import parse_shard, shard_of  # inline import: only needed in sharded CI runs
+
+    try:
+        shard = parse_shard(os.environ.get("MCP_TEST_SHARD"))
+    except ValueError as e:
+        raise pytest.UsageError(str(e))
+    if shard is None:
+        return
+    index, total = shard
+    keep, drop = [], []
+    for item in items:
+        (keep if shard_of(item.nodeid, total) == index else drop).append(item)
+    if drop:
+        config.hook.pytest_deselected(items=drop)
+        items[:] = keep
+
+
 # Cleanup temp test database directory at session end
 def pytest_unconfigure(config):
     """Clean up global test database directory."""

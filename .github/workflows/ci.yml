@@ -348,10 +348,19 @@ jobs:
 
   ml-extras-tests:
     runs-on: ubuntu-latest
-    name: Tests with ML Extras (transformers paths)
+    name: Tests with ML Extras (shard ${{ matrix.shard }}/2)
     timeout-minutes: 40
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    # Two shards on two runners: this job was the longest path of the workflow.
+    # tests/conftest.py keeps only the files tests/ci_shard.py assigns to
+    # MCP_TEST_SHARD, so files stay whole and the shards never share a test.
+    # The required check is `ml-extras-result` below, under this job's old name;
+    # a matrix job cannot be required (see milvus-tests).
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -412,6 +421,7 @@ jobs:
         MCP_API_KEY: ""
         MCP_OAUTH_ENABLED: "false"
         MCP_ALLOW_ANONYMOUS_ACCESS: "true"
+        MCP_TEST_SHARD: ${{ matrix.shard }}/2
       # Same selection as `test`, deliberately: the three failures this job was
       # built for live in tests/unit/, not in tests/quality/, so narrowing this to
       # the quality suite would have missed every one of them. No coverage flags —
@@ -431,6 +441,26 @@ jobs:
           --durations=25 \
           -n auto \
           -q
+
+  # The required check `Tests with ML Extras (transformers paths)`, now reported by
+  # this job instead of the sharded one above, so ProtectMain needs no change.
+  # Green when every shard passed, or when the shards skipped because `changes`
+  # classified the PR as docs-only. Anything else, a failed or cancelled shard, or
+  # shards that skipped for another reason, is red.
+  ml-extras-result:
+    runs-on: ubuntu-latest
+    name: Tests with ML Extras (transformers paths)
+    timeout-minutes: 5
+    needs: [changes, ml-extras-tests]
+    if: ${{ always() }}
+    steps:
+    - name: Check the shard results
+      env:
+        SHARDS: ${{ needs.ml-extras-tests.result }}
+        CODE: ${{ needs.changes.outputs.code }}
+      run: |
+        echo "shards: $SHARDS, code changed: $CODE"
+        [ "$SHARDS" = success ] || { [ "$SHARDS" = skipped ] && [ "$CODE" = false ]; }
 
   milvus-tests:
     runs-on: ubuntu-latest
