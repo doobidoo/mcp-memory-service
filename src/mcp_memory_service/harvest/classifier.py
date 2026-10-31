@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from ..compat import _sanitize_log_value
 from .models import HarvestCandidate
-from .rewriter import load_llm_providers, is_usable_provider
+from .rewriter import build_openai_compatible_payload, load_llm_providers, is_usable_provider
 
 logger = logging.getLogger(__name__)
 
@@ -241,8 +241,7 @@ class HarvestClassifier:
                 f"{base_url}/chat/completions",
                 headers=headers,
                 # stream is explicit: fm serve streams SSE when it is absent (#1666)
-                json={"model": model, "stream": False, "messages": messages,
-                      "temperature": temperature, "max_tokens": max_tokens},
+                json=build_openai_compatible_payload(model, messages, max_tokens, temperature),
             )
             if resp.status_code == 429:
                 raise Exception(f"Rate limit exceeded: {resp.text[:100]}")
