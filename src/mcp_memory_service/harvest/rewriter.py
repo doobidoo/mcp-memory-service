@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 VALID_TYPES = {"decision", "bug", "convention", "learning", "context"}
 
+
+def build_openai_compatible_payload(model: str, messages: list, max_tokens: int, temperature: float) -> dict:
+    """Build a chat-completions payload compatible with GPT-5 reasoning models."""
+    payload = {"model": model, "stream": False, "messages": messages}
+    if model.startswith("gpt-5"):
+        payload["max_completion_tokens"] = max_tokens + 800
+    else:
+        payload["temperature"] = temperature
+        payload["max_tokens"] = max_tokens
+    return payload
+
 # Models sometimes echo the literal placeholder word "TYPE" or "<type>" from the prompt
 # instead of substituting the real type, e.g. "TYPE: convention — <text>" or "<type>: text".
 # This strips that leaked wrapper and recovers the real type + content.
@@ -517,13 +528,9 @@ class HarvestRewriter:
             resp = await client.post(
                 f"{base_url}/chat/completions",
                 headers=headers,
-                json={
-                    "model": model,
-                    "stream": False,  # fm serve streams SSE when this is absent (#1666)
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 200,
-                },
+                json=build_openai_compatible_payload(
+                    model, [{"role": "user", "content": prompt}], 200, 0.3
+                ),
             )
             if resp.status_code == 429:
                 raise Exception(f"Rate limit exceeded: {resp.text[:100]}")

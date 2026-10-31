@@ -154,6 +154,9 @@ def _refuse_client_credentials_while_open(grant_types) -> None:
 @router.post(
     "/register",
     response_model=ClientRegistrationResponse,
+    # RFC 7591 omits optional members that have no value. Without this a public
+    # client gets a null client_secret, which strict clients such as Claude Code reject.
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(auth_rate_limit)],
 )
