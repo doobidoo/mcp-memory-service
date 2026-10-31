@@ -59,11 +59,24 @@ def _make_memory(content: str, created_at: float) -> Memory:
 
 @pytest_asyncio.fixture
 async def storage(tmp_path):
-    """SqliteVec storage with a stub embedding model (all vectors identical)."""
+    """SqliteVec storage with a stub embedding model (all vectors identical).
+
+    The embedding-model init is no-op'd so the fixture is hermetic with and
+    without the ML extras installed: otherwise initialize() loads a real
+    384-dim SentenceTransformer in the ML CI job (vec table sized FLOAT[384],
+    embedding_dimension overwritten to 384) while the stub below returns
+    8-dim vectors — every store() then fails with a dimension mismatch and
+    all tests fail. With the no-op, the table is FLOAT[8] everywhere.
+    """
     db_path = tmp_path / "test_1724.db"
     s = SqliteVecMemoryStorage(str(db_path))
     s.enable_cache = False
     s.embedding_dimension = 8  # must precede initialize(): the vec table is sized here
+
+    async def _noop_model_init():
+        return None
+
+    s._initialize_embedding_model = _noop_model_init
     await s.initialize()
     mock_model = MagicMock()
 
