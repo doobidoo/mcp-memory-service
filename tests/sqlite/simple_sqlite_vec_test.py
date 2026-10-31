@@ -118,7 +118,8 @@ async def show_next_steps():
     print("   \"")
     
     print("\n5. 🔄 Migration (if you have existing ChromaDB data):")
-    print("   python migrate_to_sqlite_vec.py")
+    print("   # Convert with the v7.6.0 legacy release:")
+    print("   # docs/guides/chromadb-migration.md")
     
     print("\n✨ Benefits of SQLite-vec:")
     print("   • 75% less memory usage")

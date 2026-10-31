@@ -44,6 +44,7 @@ LEARNING_ARGS = {"topic": "scope-test", "key_points": "a, b", "questions": "c"}
 # Valid arguments, so the SDK's schema validation passes and the request
 # reaches the scope check, as a real attack would.
 TOOL_ARGS = {
+    "get_bootstrap_profile": {"agent_ids": ["scope-test"]},
     "memory_graph": {"action": "extract_entities", "hash": "deadbeef" * 8},
     "memory_store": {"content": "x"},
     "memory_update": {"content_hash": "h", "updates": {"tags": ["t"]}},
@@ -116,7 +117,7 @@ async def _get_prompt(server, scope, arguments=LEARNING_ARGS):
 class TestToolCallScope:
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("tool", ["memory_store", "memory_update", "memory_delete"])
+    @pytest.mark.parametrize("tool", ["memory_store", "memory_update", "memory_delete", "get_bootstrap_profile"])
     async def test_read_token_cannot_write(self, server, tool):
         result = await _call_tool(server, tool, "read")
         assert result.isError is True

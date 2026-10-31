@@ -94,10 +94,12 @@ Answer questions in Issues or help other users.
    ```
    This will automatically detect your platform and install appropriate dependencies.
 
-4. **Verify installation**:
+4. **Verify your development installation**:
    ```bash
-   python scripts/verify_environment.py
+   python scripts/validation/check_dev_setup.py
    ```
+   This checks that the package is installed in editable mode and that its version
+   matches the source checkout.
 
 5. **Run the service**:
    ```bash
@@ -141,12 +143,19 @@ not duplicating someone else's effort:
 A PR for an issue someone else has already claimed, or one that duplicates an open
 PR, will usually be closed.
 
-CI checks the claim. When a pull request closes an issue (`Fixes #N`) that its author
-neither commented on before opening the PR nor is assigned to, the `Claim Check`
-workflow labels it `unclaimed` and links back here. Comment on the issue; once a
-maintainer assigns you, the check runs again on its own and passes. A pull request that
-changes `src/` without linking any issue is labelled `no-issue` the same way; link
-the issue, or open one, and a maintainer can mark a small fix `skip-issue`.
+CI checks the maintainer's confirmation. The author must be a current assignee of
+every issue a pull request closes (`Fixes #N`); a comment alone does not count.
+Otherwise, the `Claim Check` workflow labels the PR `unclaimed` and links back
+here. Comment on the issue and wait for confirmation before starting; once a
+maintainer assigns you, the check runs again on its own and passes. Removing an
+assignment also refreshes the check against the current assignees.
+
+A pull request that changes `src/` without linking any issue is labelled
+`no-issue` the same way. Link the issue, or open one. A maintainer can mark a small
+or otherwise approved contribution `skip-issue`: this bypasses both checks and
+clears stale `unclaimed` and `no-issue` labels. Removing the exception restores
+the normal checks. Owners, members, collaborators and bots remain exempt. The
+claim check stays informational, not a required merge check.
 
 ### 1. Create a Feature Branch
 
@@ -304,6 +313,11 @@ except StorageError as e:
   git stash -- src/ && .venv/bin/pytest tests/<your file> -q; git stash pop   # must fail
   .venv/bin/pytest tests/<your file> -q                                        # must pass
   ```
+  The check installs `pymilvus` and Milvus Lite when a changed test imports
+  `pymilvus`, but no other optional extra. A test that skips itself without one
+  (`pytest.importorskip("sentence_transformers")`, for example) gets a failure
+  naming the missing module; paste your local runs and a maintainer sets
+  `skip-prove-fix`.
 - Drive the real code path. Use the sqlite-vec storage through the `temp_db_path`
   fixture, the real tool registry, the real handler. Mock only network and
   external services (Cloudflare, Groq, Gemini). A mock of the function under test
@@ -551,6 +565,7 @@ For feature requests, describe:
 - **GitHub Issues**: Bug reports, feature requests, and general questions
 - **GitHub Pull Requests**: Code contributions and reviews
 - **GitHub Security Advisories**: Confidential vulnerability reports only
+- **Discord**: [MCP Memory Service server](https://discord.gg/zrsNMEzmCj) for announcements (releases, good first issues, new Discussions) and informal chat. Claims, decisions and reviews stay on GitHub.
 
 ### For AI Agents
 

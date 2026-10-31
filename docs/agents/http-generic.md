@@ -55,6 +55,45 @@ This table is the subset agents reach for. The authoritative, always-current lis
 > that body with `.get("results", [])` turns a rejected request into "no memories
 > found". Both endpoints return their hits under `results`, not `memories`.
 
+### Experimental: resonance search
+
+`POST /api/memories/resonance-search` ranks memories by wave interference instead of
+cosine similarity, after the ResonanceDB idea in arXiv:2509.09691. It turns the stored
+embeddings into complex waveforms at query time. No schema change, no extra model.
+
+```bash
+curl -X POST http://localhost:8000/api/memories/resonance-search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "deploy target", "top_k": 10, "mode": "hybrid", "store": "default"}'
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `query` | required | Search text |
+| `top_k` | `10` | 1-100 results |
+| `mode` | `hybrid` | `resonance` (interference only), `phase` (phase alignment only), `hybrid` (70/30 mix) |
+| `store` | `default` | Store partition, `all` for every store, as in `/api/search` |
+
+Results carry `content_hash`, `score` and `details` (`resonance`, `phase_shift`), not
+the memory content; fetch that with `GET /api/memories/{hash}?store=<name>`, using the
+same `store` you searched (`all` included), since that endpoint defaults to `default`.
+Superseded memories are left out. `total_stored` counts the memories that were actually scored.
+
+Limits worth knowing before you build on it:
+
+- Only `sqlite_vec` and `hybrid` (via its local SQLite) work. Cloudflare and Milvus get a 501.
+- Every request scans and scores every eligible memory in the store in pure Python, so
+  latency grows linearly with the store: measured in #1674 at about 170 ms per request
+  for 1,000 memories, 0.9 s for 5,000 and 3.4 s for 20,000 (`hybrid` about a third
+  more), against 17-31 ms for `/api/search` at the same sizes.
+- It does not rank better than `/api/search`. The phase is derived from the same
+  embedding values, so it cannot add information the embedding model did not encode, and
+  the measurement in #1674 bears that out: on a set of 50 negation pairs, the case it was
+  meant to separate, none of the three modes beats cosine. On DevBench `resonance` and
+  `hybrid` gain a single query, on LoCoMo (1,986 questions) all three lose about ten,
+  both within noise. Treat it as a research endpoint.
+  `scripts/benchmarks/benchmark_resonance.py` repeats the measurement.
+
 ## Authentication Patterns
 
 ```bash
@@ -263,3 +302,5 @@ await store_memory(content="...", tags=["agent:researcher", "api"])
 await store_memory(content="...", tags=["api"], agent_id="researcher")
 # Server appends "agent:researcher" automatically
 ```
+
+The same header also keys the per-caller MCP tool rate limiter (`MCP_RATE_LIMIT_PER_MINUTE`, per-tool `MCP_RATE_LIMIT_<tool>` overrides): `X-Agent-ID` is chosen by the client, so the limiter gives fairness between cooperating agents sharing one server. It is not abuse protection — a client that rotates the header gets a fresh bucket. The `mcp-memory-server` (FastMCP) entry point applies the same limits, keyed by its own tool names, so its per-tool overrides read `MCP_RATE_LIMIT_store_memory`, not `MCP_RATE_LIMIT_memory_store`.

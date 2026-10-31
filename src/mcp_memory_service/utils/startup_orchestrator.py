@@ -435,6 +435,7 @@ class ServerRunManager:
         from starlette.responses import Response as StarletteResponse
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
         from ..config import OAUTH_ENABLED, API_KEY
+        from ..utils.agent_context import set_current_agent_id, reset_current_agent_id
 
         # Remote transport: filesystem tools are filtered out of tools/list and
         # refused on tools/call. See MemoryServer.local_only_tools().
@@ -532,7 +533,19 @@ class ServerRunManager:
                 if OAUTH_ENABLED or API_KEY:
                     if not await _check_auth_from_scope(scope, receive, send):
                         return
-                await session_manager.handle_request(scope, receive, send)
+                # X-Agent-ID is authorship ATTRIBUTION, not authentication: it
+                # names the writer and grants no permission. Bind it per-request
+                # into a ContextVar so the single resolution point in
+                # memory_service.store_memory can honor it (precedence
+                # arg > header > MCP_AGENT_ID env). Reset in finally so identity
+                # never leaks between concurrent requests on the same worker.
+                _agent_header = dict(scope.get("headers", [])).get(b"x-agent-id")
+                _agent_id = _agent_header.decode("latin-1").strip() if _agent_header else None
+                _agent_token = set_current_agent_id(_agent_id or None)
+                try:
+                    await session_manager.handle_request(scope, receive, send)
+                finally:
+                    reset_current_agent_id(_agent_token)
             elif oauth_app and (
                 path.startswith("/.well-known/") or
                 path.startswith("/oauth/")

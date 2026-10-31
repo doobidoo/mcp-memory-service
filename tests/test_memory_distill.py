@@ -1,9 +1,22 @@
 """Tests for memory_distill — extract insights from existing memories (TDD)."""
 
 import pytest
+import os
 import subprocess
 import json
 from pathlib import Path
+
+# `memory launch` sobe a web app (uvicorn) em MCP_HTTP_PORT — 8000 por padrão — e é ela
+# que serve /mcp nesse caminho. MCP_SSE_PORT é a porta do servidor MCP standalone (8765).
+# MCP_TEST_URL sobrepõe quando a instância sob teste usa outra porta.
+MCP_URL = os.environ.get(
+    "MCP_TEST_URL",
+    f"http://localhost:{os.environ.get('MCP_HTTP_PORT', '8000')}/mcp",
+)
+
+# A web app exige autenticação por padrão (OAuth, esquema Bearer). O teste usa a
+# credencial do ambiente quando existe, sem precisar desligar o acesso anônimo.
+MCP_TEST_API_KEY = os.environ.get("MCP_TEST_API_KEY") or os.environ.get("MCP_API_KEY")
 
 
 class TestMemoryDistillToolExists:
@@ -72,16 +85,19 @@ class TestMemoryDistillIntegration:
     """Teste de integração via MCP (requer service rodando)."""
 
     @pytest.mark.skipif(
-        subprocess.run(["curl", "-s", "--max-time", "2", "http://localhost:3202/mcp"],
+        subprocess.run(["curl", "-s", "--max-time", "2", MCP_URL],
                       capture_output=True).returncode != 0,
         reason="memory-service not running"
     )
     def test_dry_run_via_mcp(self):
         """Chamar memory_distill dry_run via MCP retorna JSON válido."""
         import httpx
+        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+        if MCP_TEST_API_KEY:
+            headers["Authorization"] = f"Bearer {MCP_TEST_API_KEY}"
         resp = httpx.post(
-            "http://localhost:3202/mcp",
-            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            MCP_URL,
+            headers=headers,
             json={
                 "jsonrpc": "2.0", "id": 99,
                 "method": "tools/call",
@@ -89,14 +105,36 @@ class TestMemoryDistillIntegration:
             },
             timeout=30,
         )
-        # Parse SSE response
+        if resp.status_code in (401, 403):
+            if MCP_TEST_API_KEY:
+                pytest.fail(
+                    f"Service rejected the configured credentials (HTTP {resp.status_code}); "
+                    "check MCP_TEST_API_KEY before trusting a green run"
+                )
+            pytest.skip(
+                "service requires authentication; export MCP_TEST_API_KEY "
+                "(or MCP_API_KEY) to run this integration test"
+            )
+        # O endpoint responde em SSE (transporte streamable HTTP) ou em JSON puro,
+        # dependendo de qual app serve /mcp; aceitar os dois formatos.
+        payloads = []
+        try:
+            payloads.append(resp.json())
+        except ValueError:
+            pass
         for line in resp.text.split("\n"):
             if line.startswith("data:"):
-                data = json.loads(line[5:].strip())
-                if "result" in data:
-                    content = data["result"]["content"]
-                    result = json.loads(content[0]["text"])
-                    assert "candidates_found" in result
-                    assert result["dry_run"] is True
-                    return
-        pytest.fail("No valid response from MCP")
+                try:
+                    payloads.append(json.loads(line[5:].strip()))
+                except ValueError:
+                    continue
+
+        for data in payloads:
+            if not isinstance(data, dict) or "result" not in data:
+                continue
+            content = data["result"]["content"]
+            result = json.loads(content[0]["text"])
+            assert "candidates_found" in result
+            assert result["dry_run"] is True
+            return
+        pytest.fail(f"No valid response from MCP: {resp.status_code} {resp.text[:200]}")

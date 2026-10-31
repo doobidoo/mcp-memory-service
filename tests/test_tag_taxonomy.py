@@ -7,6 +7,8 @@ Tests the namespace-based tag organization system.
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 # Load tag_taxonomy module directly without importing the package
 tag_taxonomy_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "models" / "tag_taxonomy.py"
 spec = importlib.util.spec_from_file_location("tag_taxonomy", tag_taxonomy_path)
@@ -25,6 +27,12 @@ validate_tag = tag_taxonomy.validate_tag
 add_namespace = tag_taxonomy.add_namespace
 filter_by_namespace = tag_taxonomy.filter_by_namespace
 TagTaxonomy = tag_taxonomy.TagTaxonomy
+
+
+@pytest.fixture(autouse=True)
+def _no_host_tag_namespaces(monkeypatch):
+    """Keep the developer's own MCP_CUSTOM_TAG_NAMESPACES out of these counts."""
+    monkeypatch.delenv(tag_taxonomy.CUSTOM_NAMESPACES_ENV, raising=False)
 
 
 class TestBurst21NamespaceConstants:
@@ -178,10 +186,10 @@ class TestBurst26TagTaxonomyClass:
         """VALID_NAMESPACES class attribute should be exposed for efficient access"""
         assert hasattr(TagTaxonomy, 'VALID_NAMESPACES')
         assert isinstance(TagTaxonomy.VALID_NAMESPACES, set)
-        assert len(TagTaxonomy.VALID_NAMESPACES) == 7
+        assert len(TagTaxonomy.VALID_NAMESPACES) == 11
 
     def test_valid_namespaces_contains_all_namespaces(self):
-        """VALID_NAMESPACES should contain all 7 namespace constants"""
+        """VALID_NAMESPACES should contain all 11 built-in namespace constants"""
         expected_namespaces = {
             NAMESPACE_SYSTEM,
             NAMESPACE_QUALITY,
@@ -189,7 +197,11 @@ class TestBurst26TagTaxonomyClass:
             NAMESPACE_TOPIC,
             NAMESPACE_TEMPORAL,
             NAMESPACE_USER,
-            NAMESPACE_AGENT
+            NAMESPACE_AGENT,
+            tag_taxonomy.NAMESPACE_HARVEST,
+            tag_taxonomy.NAMESPACE_SOURCE,
+            tag_taxonomy.NAMESPACE_CONFLICT,
+            tag_taxonomy.NAMESPACE_CONFIDENCE,
         }
         assert TagTaxonomy.VALID_NAMESPACES == expected_namespaces
 

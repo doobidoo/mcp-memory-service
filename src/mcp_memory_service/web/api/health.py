@@ -18,9 +18,10 @@ Health check endpoints for the HTTP interface.
 
 import logging
 import time
-import psutil
 from datetime import datetime, timezone
-from typing import Dict, Any
+from typing import Any, Dict
+
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
+from ...storage.sync.protocol import resolve_embedding_identity
 from ..dependencies import get_storage
-from ...config.embedding import EMBEDDING_MODEL_NAME
 
 try:
     from ... import __version__
@@ -39,7 +40,11 @@ except (ImportError, AttributeError):
 # OAuth config no longer needed - auth is always enabled
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
+from ..oauth.middleware import (
+    AuthenticationResult,
+    require_read_access,
+    require_write_access,
+)
 
 router = APIRouter()
 
@@ -125,29 +130,9 @@ async def model_health_check(
     Returns embedding model information for model matching validation.
     Requires read access.
     """
-    from fastapi import HTTPException
-
-    # Prefer the model the STORAGE actually embeds with (source of truth for the
-    # vectors) over the global config value — a hub whose storage was built with a
-    # different model must advertise the real one, or a client would pass the
-    # startup check against an incompatible hub (greptile P1 #1476).
-    # For hybrid, the primary (sqlite-vec) owns the embedding; fall through to it.
-    model_source = storage
-    is_hybrid = 'hybrid' in type(storage).__name__.lower()
-    if is_hybrid and getattr(storage, 'primary', None) is not None:
-        model_source = storage.primary
-
-    embedding_model = getattr(model_source, 'embedding_model_name', None) or EMBEDDING_MODEL_NAME
-    if not isinstance(embedding_model, str) or not embedding_model:
-        raise HTTPException(status_code=503, detail="Embedding model configuration not available")
-
-    # Dimension: read from the real embedding source (primary for hybrid), not a
-    # hardcoded 384 (greptile P2 #1476). Only fall back when genuinely unknown.
-    embedding_dimension = getattr(model_source, 'embedding_dimension', None)
-    if not isinstance(embedding_dimension, int):
-        embedding_dimension = getattr(storage, 'embedding_dimension', None)
-    if not isinstance(embedding_dimension, int):
-        embedding_dimension = 384
+    # Keep the health/model and delta-sync capability endpoints on one source of
+    # truth, especially when the configured storage is hybrid.
+    embedding_model, embedding_dimension = resolve_embedding_identity(storage)
 
     backend = getattr(storage, 'backend', 'sqlite-vec')
     if hasattr(storage, '__class__'):
@@ -388,7 +373,7 @@ async def get_memory_stats(
 
     Useful for monitoring memory pressure and diagnosing memory issues.
     """
-    from ...server.cache_manager import get_memory_usage, get_cache_stats
+    from ...server.cache_manager import get_cache_stats, get_memory_usage
     from ...storage.sqlite_vec import get_model_cache_stats
 
     # Get process memory info

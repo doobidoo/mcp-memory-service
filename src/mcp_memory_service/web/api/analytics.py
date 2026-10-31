@@ -37,7 +37,7 @@ from ..dependencies import get_storage
 from .store_scope import resolve_store
 
 # OAuth authentication imports
-from ..oauth.middleware import require_read_access, AuthenticationResult
+from ..oauth.middleware import require_read_access, require_store_read, AuthenticationResult
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -374,7 +374,7 @@ class StorageStats(BaseModel):
 async def get_analytics_overview(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get overview analytics for the memory system.
@@ -466,7 +466,7 @@ async def get_memory_growth(
     period: PeriodType = Query(PeriodType.MONTH, description="Time period: week, month, quarter, year"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get memory growth data over time.
@@ -561,7 +561,7 @@ async def get_tag_usage_analytics(
     limit: int = Query(20, description="Maximum number of tags to return"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get tag usage analytics.
@@ -598,7 +598,7 @@ async def get_tag_usage_analytics(
 async def get_memory_type_distribution(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get distribution of memories by type.
@@ -685,7 +685,7 @@ async def get_memory_type_distribution(
 async def get_relationship_type_distribution(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get distribution of relationship types in the knowledge graph.
@@ -756,7 +756,7 @@ async def get_graph_visualization(
     min_connections: int = Query(1, description="Minimum connections per node", ge=1),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get knowledge graph data for interactive visualization.
@@ -826,7 +826,7 @@ async def get_activity_heatmap(
     days: int = Query(365, description="Number of days to include in heatmap"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get activity heatmap data for calendar view.
@@ -901,7 +901,7 @@ async def get_top_tags_report(
     limit: int = Query(20, description="Maximum number of tags to return"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get enhanced top tags report with trends and co-occurrence patterns.
@@ -974,7 +974,7 @@ async def get_activity_breakdown(
     granularity: str = Query("daily", description="Time granularity: hourly, daily, weekly"),
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get activity breakdown and patterns.
@@ -1045,7 +1045,7 @@ async def get_activity_breakdown(
 async def get_storage_stats(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Get storage statistics and largest memories.

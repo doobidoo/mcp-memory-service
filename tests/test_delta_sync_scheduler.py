@@ -6,10 +6,11 @@ Tests exercise the scheduler's sync methods in isolation with fakes — no real 
 timing, no network.
 """
 
-import pytest
-import os
 from unittest.mock import MagicMock
 
+import pytest
+
+import mcp_memory_service.storage.sync.orchestrator as orch
 from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
 
 
@@ -35,6 +36,8 @@ def test_ca1_schedule_registers_when_env_set(monkeypatch):
     sch._schedule_sync_job()
     job = sch.scheduler.get_job("delta_sync")
     assert job is not None, "delta_sync job must be registered when MCP_SYNC_SCHEDULE set"
+    assert sch.scheduler.get_job("delta_sync_probe") is not None, \
+        "a non-blocking capability probe must be registered at startup"
 
 
 def test_ca1_no_job_when_env_unset(monkeypatch):
@@ -44,6 +47,7 @@ def test_ca1_no_job_when_env_unset(monkeypatch):
         pytest.skip("APScheduler not available")
     sch._schedule_sync_job()
     assert sch.scheduler.get_job("delta_sync") is None, "no job when env unset (default off)"
+    assert sch.scheduler.get_job("delta_sync_probe") is None
 
 
 def test_ca1_no_job_when_disabled(monkeypatch):
@@ -53,6 +57,7 @@ def test_ca1_no_job_when_disabled(monkeypatch):
         pytest.skip("APScheduler not available")
     sch._schedule_sync_job()
     assert sch.scheduler.get_job("delta_sync") is None
+    assert sch.scheduler.get_job("delta_sync_probe") is None
 
 
 # CA2 — invalid interval is safe
@@ -65,18 +70,19 @@ def test_ca2_invalid_interval_no_job_no_crash(monkeypatch):
     assert sch.scheduler.get_job("delta_sync") is None
 
 
-# CA3 — cycle calls pull before push, per peer
+# CA3 — cycle negotiates capabilities before pull, then pushes per peer
 @pytest.mark.asyncio
 async def test_ca3_cycle_pull_before_push(monkeypatch):
     calls = []
 
     async def fake_sync_from_peer(storage, peer, peer_id, limit):
-        calls.append(("pull", peer_id)); return MagicMock(events_applied=1)
+        calls.append(("pull", peer_id))
+        return MagicMock(events_applied=1)
 
     async def fake_push_to_peer(storage, peer, peer_id, limit):
-        calls.append(("push", peer_id)); return MagicMock(events_pushed=1)
+        calls.append(("push", peer_id))
+        return MagicMock(events_pushed=1)
 
-    import mcp_memory_service.storage.sync.orchestrator as orch
     monkeypatch.setattr(orch, "sync_from_peer", fake_sync_from_peer)
     monkeypatch.setattr(orch, "push_to_peer", fake_push_to_peer)
 
@@ -85,12 +91,20 @@ async def test_ca3_cycle_pull_before_push(monkeypatch):
     fake_peer = MagicMock()
     async def _init(): return None
     async def _close(): return None
+    async def _check(storage):
+        calls.append(("compatibility", "hub-vps"))
+        return {"negotiated_sync_protocol": 1}
     fake_peer.initialize = _init
     fake_peer.close = _close
+    fake_peer.check_sync_compatibility = _check
     monkeypatch.setattr(sch, "_resolve_sync_peers", lambda: [("hub-vps", fake_peer)])
 
     await sch._run_sync_cycle()
-    assert calls == [("pull", "hub-vps"), ("push", "hub-vps")], f"got {calls}"
+    assert calls == [
+        ("compatibility", "hub-vps"),
+        ("pull", "hub-vps"),
+        ("push", "hub-vps"),
+    ], f"got {calls}"
 
 
 # CA4 — peers from env; unset = zero peers
@@ -110,15 +124,16 @@ def test_ca4_peers_from_env(monkeypatch):
 async def test_ca5_peer_error_does_not_propagate(monkeypatch):
     async def boom(storage, peer, peer_id, limit):
         raise RuntimeError("network down")
-    import mcp_memory_service.storage.sync.orchestrator as orch
     monkeypatch.setattr(orch, "sync_from_peer", boom)
 
     sch = _make_scheduler()
     fake_peer = MagicMock()
     async def _init(): return None
     async def _close(): return None
+    async def _check(storage): return {"negotiated_sync_protocol": 1}
     fake_peer.initialize = _init
     fake_peer.close = _close
+    fake_peer.check_sync_compatibility = _check
     monkeypatch.setattr(sch, "_resolve_sync_peers", lambda: [("hub-vps", fake_peer)])
 
     # must NOT raise

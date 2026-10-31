@@ -62,7 +62,7 @@ tests_changed="$(git diff --name-only --diff-filter=AM "$base" HEAD -- 'tests/' 
 if [ -z "$tests_changed" ]; then
     echo "FAIL - src/ changed but no test was added or modified"
     echo "Changed under src/:"
-    printf '  %s\n' $src_changed
+    printf '%s\n' "$src_changed" | sed 's/^/  /'
     echo "A behavior change needs a test that fails without it. See CONTRIBUTING.md,"
     echo "'Testing Requirements'. Maintainers can exempt a PR with the skip-prove-fix label."
     exit 1
@@ -86,10 +86,19 @@ done
 git checkout -q "$base" -- 'src/'
 find src -type d -name __pycache__ -prune -exec rm -rf {} +
 
+# One array element per path, so a space or a glob character in a file name
+# stays part of that name (bash 3.2 has no mapfile).
+test_files=()
+while IFS= read -r t; do
+    test_files+=("$t")
+done <<<"$tests_changed"
+
 echo "Running the changed tests against src/ at ${base:0:8}:"
-printf '  %s\n' $tests_changed
-"$PYTHON" -m pytest $tests_changed -q -p no:cacheprovider -m "not benchmark" --timeout=120
+printf '  %s\n' "${test_files[@]}"
+# -rs lists skip reasons, so a module that skipped itself at collection can be named.
+out="$("$PYTHON" -m pytest "${test_files[@]}" -q -rs -p no:cacheprovider -m "not benchmark" --timeout=120 2>&1)"
 rc=$?
+printf '%s\n' "$out"
 
 case "$rc" in
     1|2)
@@ -103,7 +112,25 @@ case "$rc" in
         exit 1
         ;;
     5)
-        echo "FAIL - no tests collected from the changed files"
+        # An importorskip at module top skips the whole file at collection, which
+        # pytest reports as nothing collected. Say which module was missing: the
+        # test is not wrong, this job lacks the optional extra it needs (#1709).
+        # importorskip(..., reason=...) replaces the module name with the reason,
+        # so fall back to listing the skip reasons themselves.
+        skips="$(printf '%s\n' "$out" | grep '^SKIPPED ')"
+        missing="$(printf '%s\n' "$skips" | sed -n "s/^SKIPPED .*could not import '\([^']*\)'.*/\1/p" | sort -u | paste -sd ' ' -)"
+        if [ -n "$skips" ]; then
+            if [ -n "$missing" ]; then
+                echo "FAIL - the changed tests skipped at collection; not installed in this job: $missing"
+            else
+                echo "FAIL - the changed tests skipped at collection:"
+                printf '%s\n' "$skips" | sed 's/^/  /'
+            fi
+            echo "Paste your local red/green runs into the PR. A maintainer can exempt it with"
+            echo "the skip-prove-fix label (push a commit afterwards; a re-run keeps the old labels)."
+        else
+            echo "FAIL - no tests collected from the changed files"
+        fi
         exit 1
         ;;
     *)

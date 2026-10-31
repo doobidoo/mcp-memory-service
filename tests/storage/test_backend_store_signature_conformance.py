@@ -46,6 +46,9 @@ the method optional. The rest are not, which makes the method mandatory for
 every backend the web server can be pointed at. WEB_API_REQUIRED_METHODS is that
 second list: each entry must be declared on MemoryStorage and overridden by all
 four backends, so a missing method fails here instead of on a dashboard tab.
+
+The `agent_id` keyword (issue #1650) is guarded the same way as `store`:
+AGENT_ID_CONTRACT_METHODS lists the methods callers pass it to.
 """
 
 import importlib
@@ -72,6 +75,18 @@ STORE_CONTRACT_METHODS = [
     "get_memory_timestamps",
     "get_all_tags_with_counts",
     "get_graph_visualization_data",
+]
+
+# Methods that callers invoke with `agent_id=` (#1297): services/memory_service.py
+# passes it to get_all_memories and count_all_memories, and the MCP search
+# handler (server/handlers/memory.py::_retrieve_search_results) always passes it
+# to search_memories, None included. Milvus overrides search_memories and shipped
+# without the keyword, so every memory_search call on Milvus raised TypeError
+# (issue #1650) — the same drift as #133, for a different keyword.
+AGENT_ID_CONTRACT_METHODS = [
+    "get_all_memories",
+    "count_all_memories",
+    "search_memories",
 ]
 
 # Methods that web/api/*.py calls on `storage` WITHOUT a hasattr guard, i.e.
@@ -260,6 +275,39 @@ def test_base_interface_declares_store_kwarg(method_name):
     ), (
         f"MemoryStorage.{method_name}() does not declare the multi-store `store` "
         f"keyword, but callers pass it and every backend accepts it (issue #133)."
+    )
+
+
+@pytest.mark.parametrize("method_name", AGENT_ID_CONTRACT_METHODS)
+def test_all_backends_accept_agent_id_kwarg(method_name):
+    """Each backend, inherited or overridden, accepts the `agent_id` callers pass."""
+    offenders = []
+    for name, cls, err in BACKENDS:
+        if cls is None:
+            continue
+        method = getattr(cls, method_name, None)
+        assert method is not None, f"{name} is missing {method_name}()"
+        params = inspect.signature(method).parameters
+        accepts_agent_id = (
+            "agent_id" in params
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        )
+        if not accepts_agent_id:
+            offenders.append(name)
+    assert not offenders, (
+        f"{method_name}() is missing the `agent_id` keyword on: {offenders}. "
+        f"Callers pass agent_id=... to this method (issue #1650)."
+    )
+
+
+@pytest.mark.parametrize("method_name", AGENT_ID_CONTRACT_METHODS)
+def test_base_interface_declares_agent_id_kwarg(method_name):
+    """The abstract interface declares `agent_id` for every method callers pass it to."""
+    method = getattr(MemoryStorage, method_name, None)
+    assert method is not None, f"MemoryStorage is missing {method_name}()"
+    assert "agent_id" in inspect.signature(method).parameters, (
+        f"MemoryStorage.{method_name}() does not declare `agent_id`, but callers "
+        f"pass it (issue #1650)."
     )
 
 

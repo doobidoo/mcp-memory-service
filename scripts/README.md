@@ -115,8 +115,6 @@ Ensure proper setup and configuration.
 |--------|---------|-------------|
 | `validate_configuration_complete.py` | Comprehensive config validation | `python validation/validate_configuration_complete.py` |
 | `diagnose_backend_config.py` | Cloudflare backend diagnostics | `python validation/diagnose_backend_config.py` |
-| `validate_memories.py` | Memory data validation | `python validation/validate_memories.py` |
-| `validate_migration.py` | Migration validation | `python validation/validate_migration.py` |
 | `verify_environment.py` | Environment setup checker | `python validation/verify_environment.py` |
 | `verify_pytorch_windows.py` | PyTorch Windows validation | `python validation/verify_pytorch_windows.py` |
 | `verify_torch.py` | PyTorch installation check | `python validation/verify_torch.py` |
@@ -155,7 +153,6 @@ Scripts for maintaining database integrity and performance.
 | `cleanup_memories.py` | General memory cleanup, enhanced with HTTP/HTTPS auto-detection | `python maintenance/cleanup_memories.py` |
 | `find_duplicates.py` | Find and remove duplicate memories | `python maintenance/find_duplicates.py --execute` |
 | `cleanup_corrupted_encoding.py` | Fix corrupted emoji encoding | `python maintenance/cleanup_corrupted_encoding.py --execute` |
-| `repair_memories.py` | Repair corrupted memory entries | `python maintenance/repair_memories.py` |
 | `repair_sqlite_vec_embeddings.py` | Fix embedding inconsistencies | `python maintenance/repair_sqlite_vec_embeddings.py` |
 | `repair_zero_embeddings.py` | Fix zero/null embeddings | `python maintenance/repair_zero_embeddings.py` |
 
@@ -182,7 +179,6 @@ Handle database migrations and data transformations.
 | Script | Purpose | Quick Usage |
 |--------|---------|-------------|
 | `migrate_to_cloudflare.py` | Migrate to Cloudflare backend | `python migration/migrate_to_cloudflare.py` |
-| `migrate_chroma_to_sqlite.py` | ChromaDB → SQLite migration | `python migration/migrate_chroma_to_sqlite.py` |
 | `migrate_sqlite_vec_embeddings.py` | Update embedding format | `python migration/migrate_sqlite_vec_embeddings.py` |
 | `migrate_timestamps.py` | Fix timestamp issues | `python migration/migrate_timestamps.py` |
 | `cleanup_mcp_timestamps.py` | Clean timestamp proliferation | `python migration/cleanup_mcp_timestamps.py` |
@@ -325,7 +321,7 @@ python maintenance/cleanup_corrupted_encoding.py --execute
 python migration/migrate_to_cloudflare.py
 
 # Verify migration
-python validation/validate_memories.py
+python database/db_health_check.py
 ```
 
 ## 🚨 Safety Guidelines

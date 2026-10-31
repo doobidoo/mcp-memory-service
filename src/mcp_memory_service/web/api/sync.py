@@ -13,9 +13,9 @@
 # limitations under the License.
 
 """
-Sync management endpoints for hybrid backend.
+Sync management endpoints for hybrid and event-log sync.
 
-Provides status monitoring and manual sync triggering for hybrid storage mode.
+Provides delta-sync monitoring for any backend and hybrid sync controls.
 """
 
 import time
@@ -26,6 +26,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ...storage.base import MemoryStorage
+from ...storage.sync.apply import KNOWN_SCHEMA_VERSION
+from ...storage.sync.protocol import (
+    SYNC_PROTOCOL_MIN_VERSION,
+    SYNC_PROTOCOL_VERSION,
+    resolve_embedding_identity,
+)
 from ..dependencies import get_storage
 
 # OAuth config no longer needed - auth is always enabled
@@ -37,6 +43,41 @@ from ..oauth.middleware import (
 )
 
 router = APIRouter()
+
+try:
+    from ... import __version__
+except (ImportError, AttributeError):
+    __version__ = "0.0.0.dev0"
+
+
+class SyncCapabilitiesResponse(BaseModel):
+    """Versions and vector identity required before exchanging sync events."""
+
+    sync_protocol: int = Field(description="Highest delta-sync wire protocol version supported")
+    sync_protocol_min: int = Field(description="Lowest delta-sync wire protocol version supported")
+    event_schema_version: int = Field(
+        description="Event-envelope schema understood; independent of protocol versions"
+    )
+    embedding_model: str = Field(description="Embedding model used by the vector storage")
+    embedding_dimension: int = Field(description="Vector dimension used by the storage")
+    version: str = Field(description="Installed MCP Memory Service package version")
+
+
+@router.get("/sync/capabilities", response_model=SyncCapabilitiesResponse)
+async def get_sync_capabilities(
+    storage: MemoryStorage = Depends(get_storage),
+    user: AuthenticationResult = Depends(require_read_access),
+):
+    """Advertise delta-sync compatibility; this is not a general health endpoint."""
+    embedding_model, embedding_dimension = resolve_embedding_identity(storage)
+    return SyncCapabilitiesResponse(
+        sync_protocol=SYNC_PROTOCOL_VERSION,
+        sync_protocol_min=SYNC_PROTOCOL_MIN_VERSION,
+        event_schema_version=KNOWN_SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        embedding_dimension=embedding_dimension,
+        version=__version__,
+    )
 
 
 class SyncStatusResponse(BaseModel):
@@ -53,6 +94,25 @@ class SyncStatusResponse(BaseModel):
     time_since_last_sync_seconds: float
     next_sync_eta_seconds: float
     status: str  # 'synced', 'syncing', 'pending', 'error' — reflects current health only
+    delta_sync_peers: list[dict[str, Any]] = Field(default_factory=list)
+    delta_sync: dict[str, Any] = Field(default_factory=dict)
+
+
+def _get_delta_sync_status() -> dict[str, Any]:
+    from ...api.client import get_scheduler
+    from ...consolidation.scheduler import ConsolidationScheduler
+
+    scheduler = get_scheduler()
+    return (scheduler.get_delta_sync_status() if scheduler is not None
+            else ConsolidationScheduler.delta_sync_configuration())
+
+
+def _get_delta_sync_peer_status() -> list[dict[str, Any]]:
+    """Return scheduler-owned peer status without coupling API startup to it."""
+    from ...api.client import get_scheduler
+
+    scheduler = get_scheduler()
+    return scheduler.get_sync_peer_status() if scheduler is not None else []
 
 
 class SyncForceResponse(BaseModel):
@@ -92,10 +152,11 @@ async def get_sync_status(
     user: AuthenticationResult = Depends(require_read_access)
 ):
     """
-    Get current sync status for hybrid backend.
+    Get hybrid sync status and scheduled delta-sync peer results.
 
     Returns sync state, pending operations, last sync time, and health metrics.
-    Only available when using hybrid storage backend.
+    Delta-sync information is available for any storage backend. Hybrid control
+    fields are inactive when the storage does not support hybrid sync.
     """
     # Check if storage supports sync (hybrid mode only)
     if not hasattr(storage, 'get_sync_status'):
@@ -110,7 +171,9 @@ async def get_sync_status(
             sync_interval_seconds=0,
             time_since_last_sync_seconds=0,
             next_sync_eta_seconds=0,
-            status='not_hybrid'
+            status='not_hybrid',
+            delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     try:
@@ -155,7 +218,9 @@ async def get_sync_status(
             sync_interval_seconds=sync_interval,
             time_since_last_sync_seconds=time_since_sync,
             next_sync_eta_seconds=next_sync_eta,
-            status=status
+            status=status,
+            delta_sync_peers=_get_delta_sync_peer_status(),
+            delta_sync=_get_delta_sync_status(),
         )
 
     except Exception as e:

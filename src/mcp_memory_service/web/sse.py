@@ -67,9 +67,18 @@ def _event_in_scope(event: "SSEEvent", stores: Optional[Set[str]]) -> bool:
     ``stores`` is ``None`` for a firehose connection (receives everything).
     A system-wide event (``event.store is None``) always passes. Otherwise the
     event passes only when its store is in the subscription set.
+
+    ``search_completed`` is the exception: it carries a raw query string and has
+    no reliable store attribution, so it is delivered only to the firehose. A
+    store-restricted subscriber never receives it — otherwise it would see other
+    stores' search queries (it still gets its own search *results* over HTTP).
     """
-    if stores is None or event.store is None:
-        return True
+    if stores is None:
+        return True  # firehose connection receives everything
+    if event.event_type == "search_completed":
+        return False  # never leak search queries to a store-restricted subscriber
+    if event.store is None:
+        return True  # genuine system-wide event (heartbeat/health/lifecycle)
     return event.store in stores
 
 
@@ -515,6 +524,45 @@ def create_sync_progress_event(
             "remaining_count": total_count - synced_count,
             "progress_percentage": round(progress_percentage, 1),
             "message": message or f"Syncing: {synced_count}/{total_count} memories ({progress_percentage:.1f}%)"
+        }
+    )
+
+
+def create_sync_delta_completed_event(
+    peer_id: str,
+    pulled: Optional[int],
+    pushed: Optional[int],
+    time_taken_seconds: float = 0.0,
+    success: bool = True,
+    message: str = None,
+) -> SSEEvent:
+    """Create a sync_delta_completed event for one delta-sync peer cycle.
+
+    Emitted by the scheduled delta-sync cycle (MCP_SYNC_SCHEDULE) after it has
+    finished exchanging events with a single peer. ``pulled``/``pushed`` carry
+    the per-peer transfer counts so the Web GUI can refresh the dashboard and
+    the sync panel without waiting for its next poll. A null count means the
+    direction did not return a summary (possibly after committing some pages).
+    """
+    if message is None:
+        if success:
+            message = (
+                f"Delta-sync with {peer_id} completed: "
+                f"pulled {pulled if pulled is not None else 'unknown'}, "
+                f"pushed {pushed if pushed is not None else 'unknown'}"
+            )
+        else:
+            message = f"Delta-sync with {peer_id} failed"
+
+    return SSEEvent(
+        event_type="sync_delta_completed",
+        data={
+            "peer_id": peer_id,
+            "pulled": pulled,
+            "pushed": pushed,
+            "time_taken_seconds": round(time_taken_seconds, 2),
+            "success": success,
+            "message": message
         }
     )
 

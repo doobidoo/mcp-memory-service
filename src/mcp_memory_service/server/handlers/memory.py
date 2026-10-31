@@ -208,7 +208,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
     metadata = arguments.get("metadata", {})
 
     if not content:
-        return [types.TextContent(type="text", text="Error: Content is required")]
+        # Nothing to store: must not look like success (#1601).
+        raise ValueError("Content is required")
 
     try:
         # Initialize storage lazily when needed (also initializes memory_service)
@@ -228,6 +229,15 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         conversation_id = arguments.get("conversation_id")
         agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
+        restore_deleted = arguments.get("restore_deleted", False)
+        if not isinstance(restore_deleted, bool):
+            # `bool("false")` is True. The /mcp route hands tool arguments to this
+            # handler without validating them against the tool schema, so a
+            # restore must be asked for with a real boolean, never a string (#1560).
+            raise ValueError(
+                "restore_deleted must be a boolean (true/false), "
+                f"got {type(restore_deleted).__name__}"
+            )
 
         # Call shared MemoryService business logic
         result = await server.memory_service.store_memory(
@@ -239,12 +249,31 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             conversation_id=conversation_id,
             agent_id=agent_id,
             store=store,
+            restore_deleted=restore_deleted,
         )
 
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
             error_msg = result.get("error", "Unknown error")
-            return [types.TextContent(type="text", text=f"Error storing memory: {error_msg}")]
+            if result.get("refused_recreate"):
+                # #1560: a refused re-create is the answer the caller chose by not
+                # passing restore_deleted — plain text, not isError. Unlike the
+                # failures #1601 covers, nothing was lost here: the tombstone is
+                # intact and the message says how to proceed.
+                return [types.TextContent(type="text", text=error_msg)]
+            # A refused write is a failure. Return-as-text made the MCP envelope
+            # report isError=False while nothing was stored, so automation counted
+            # it as success (#1601). Raise: the SDK answers isError=True.
+            raise RuntimeError(f"Error storing memory: {error_msg}")
+
+        # Partial writes are failures too: some chunks never reached the database,
+        # so reporting success lets a harvester skip them permanently (#1601).
+        failed_chunks = result.get("failed_chunks") or 0
+        if failed_chunks:
+            raise RuntimeError(
+                f"Error storing memory: {failed_chunks} of "
+                f"{result.get('total_chunks', '?')} chunks failed to store"
+            )
 
         if "memories" in result:
             # Chunked response - multiple memories created
@@ -302,6 +331,30 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
         # Phase 3: NLI contradiction check on store (opt-in, single memories only)
         nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
+
+        # Modo assíncrono (MCP_NLI_ON_STORE_ASYNC, issue #1630): a escrita não
+        # espera o LLM. As duas verificações abaixo rodam em background e o
+        # resultado vai para o log, não para esta resposta.
+        if (
+            nli_on_store
+            and result.get("success")
+            and "memory" in result
+            and os.environ.get("MCP_NLI_ON_STORE_ASYNC", "").strip().lower() in {"true", "1", "yes"}
+        ):
+            try:
+                from ...consolidation.quarantine import schedule_on_store_checks
+
+                agendado = schedule_on_store_checks(
+                    server.storage, content, result["memory"]["content_hash"]
+                )
+                if agendado:
+                    message += "\n(contradiction checks scheduled in the background)"
+                else:
+                    message += "\n(contradiction checks skipped: background capacity is full)"
+                nli_on_store = False
+            except Exception as e:
+                logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))
+
         if nli_on_store and result.get("success") and "memory" in result:
             try:
                 from ...reasoning.nli import detect_contradictions_nli
@@ -377,7 +430,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
 
     except Exception as e:
         logger.error("Error storing memory: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
-        return [types.TextContent(type="text", text=f"Error storing memory: {str(e)}")]
+        # Re-raise: a failed write must reach the caller as isError=True (#1601).
+        raise
 
 
 async def handle_memory_observe(server, arguments: dict) -> List[types.TextContent]:
@@ -464,7 +518,8 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         if content:
             lines.append(f"[{role}] {content}")
     if not lines:
-        return [types.TextContent(type="text", text="Error: all turns have empty content")]
+        # Nothing to store: raise so the envelope reports a failure (#1601).
+        raise ValueError("all turns have empty content")
 
     full_content = "\n".join(lines)
     base_tags = [f"session:{session_id}"] + extra_tags
@@ -485,12 +540,16 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 content=full_content,
                 tags=base_tags,
                 memory_type="session",
+                agent_id=arguments.get("agent_id"),
                 metadata=arguments.get("metadata", {}),
                 client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
-                return [types.TextContent(type="text", text=f"Error storing session: {result.get('error', 'Unknown error')}")]
+                # Refused write = failure; raise so the SDK sets isError=True (#1601).
+                raise RuntimeError(
+                    f"Error storing session: {result.get('error', 'Unknown error')}"
+                )
             memory_hash = result["memory"]["content_hash"]
             return [types.TextContent(
                 type="text",
@@ -508,16 +567,18 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
                 content=chunk_content,
                 tags=chunk_tags,
                 memory_type="session",
+                agent_id=arguments.get("agent_id"),
                 metadata=arguments.get("metadata", {}),
                 client_hostname=_resolve_hostname(arguments.get("client_hostname")),
                 store=store,
             )
             if not result.get("success"):
                 error = result.get("error", "Unknown error")
-                return [types.TextContent(
-                    type="text",
-                    text=f"Error storing session chunk {i+1}/{len(chunks)}: {error} (stored {stored}/{len(chunks)} before failure)"
-                )]
+                # Partial chunk failure is still a failure for the caller: raise (#1601).
+                raise RuntimeError(
+                    f"Error storing session chunk {i+1}/{len(chunks)}: {error} "
+                    f"(stored {stored}/{len(chunks)} before failure)"
+                )
             stored += 1
 
         return [types.TextContent(
@@ -526,7 +587,9 @@ async def handle_store_session(server, arguments: dict) -> List[types.TextConten
         )]
     except Exception as e:
         logger.error("Error storing session: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
-        return [types.TextContent(type="text", text=f"Error storing session: {str(e)}")]
+        # Re-raise: a failed write must reach the client as isError=True (#1601),
+        # not as a successful envelope carrying error text.
+        raise
 
 
 def _chunk_session_lines(lines: List[str], chunk_size: int) -> List[List[str]]:
@@ -1158,7 +1221,13 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         store = None
 
     query = arguments.get("query")
-    limit = arguments.get("limit", 10)
+    # Rerank stage (issue #1602): with `rerank=true` on an enabled setup the
+    # candidate pool inflates to MCP_RERANK_CANDIDATES (default 40) so the
+    # cross-encoder has something to order; otherwise the fetch is
+    # byte-identical to today's.
+    from ...quality.search_rerank import resolve_fetch_limit
+
+    limit = resolve_fetch_limit(arguments, arguments.get("limit", 10))
     result = await storage.search_memories(
         query=query,
         mode=arguments.get("mode", "semantic"),
@@ -1372,6 +1441,41 @@ def _format_memory_search_debug(result: dict) -> str:
                 f"\n  Time range: {time_filter.get('start_timestamp')} - "
                 f"{time_filter.get('end_timestamp')}"
             )
+    text += _format_rerank_timing(debug.get("rerank_timing"))
+    return text
+
+
+def _format_rerank_timing(timing) -> str:
+    """One block per stage of the rerank path (issue #1669); empty when the
+    stage did not run under include_debug."""
+    if not timing:
+        return ""
+    text = "\n  Rerank timing (ms):"
+    if "search_ms" in timing:
+        text += f"\n    search: {timing['search_ms']} (pool {timing.get('pool')})"
+        text += f"\n    filters: {timing['filters_ms']}"
+    if "resolve_ms" in timing:
+        text += (
+            f"\n    scorer resolve: {timing['resolve_ms']}"
+            f" ({'cold' if timing.get('scorer_cold') else 'warm'},"
+            f" hop {timing.get('resolve_hop_ms')})"
+        )
+    if "score_ms" in timing:
+        text += (
+            f"\n    score: {timing['score_ms']} (hop {timing.get('score_hop_ms')},"
+            f" {timing.get('candidates')} candidates)"
+        )
+        for chunk in timing.get("chunks") or ():
+            text += (
+                f"\n      chunk of {chunk.get('items')} x {chunk.get('max_len')} tokens:"
+                f" tokenize {chunk.get('tokenize_ms')}, run {chunk.get('run_ms')}"
+            )
+    if "rerank_ms" in timing:
+        text += f"\n    rerank stage total: {timing['rerank_ms']}"
+        # The fallback note means the scorer was asked and the baseline order
+        # was kept; an empty pool never asked it, so it says nothing.
+        if "candidates" in timing and not timing.get("applied", True):
+            text += " (fell back to the unreranked order)"
     return text
 
 
@@ -1407,11 +1511,7 @@ async def _format_truncated_memory_search(
     fallback_used: bool, max_response_chars: int, summary_warning: str,
 ) -> types.TextContent:
     """Format search results through the configured response-length limiter."""
-    from ..utils.response_limiter import (
-        format_bounded_response,
-        format_truncated_response,
-        truncate_memories,
-    )
+    from ..utils.response_limiter import format_bounded_response
 
     memory_dicts = [
         {
@@ -1423,20 +1523,25 @@ async def _format_truncated_memory_search(
         }
         for memory in memories
     ]
+    # Under a limit the diagnostics asked for with include_debug ride after
+    # the results as the optional section, never in the required header: the
+    # limiter drops an optional section before it drops a memory (Greptile
+    # on #1701: in the header a long debug block could leave only the header).
     header = _build_memory_search_header(result, total, fallback_used) + "\n\n"
-    beliefs_section = await _format_beliefs_section(arguments, storage)
-    if summary_warning:
-        response_text = format_bounded_response(
-            memory_dicts,
-            max_response_chars,
-            header=summary_warning + header,
-            footer=beliefs_section,
-        )
-        return types.TextContent(type="text", text=response_text)
-
-    truncated, meta = truncate_memories(memory_dicts, max_response_chars)
-    response_text = (
-        header + format_truncated_response(truncated, meta) + beliefs_section
+    optional_section = (
+        _format_memory_search_debug(result)
+        + await _format_beliefs_section(arguments, storage)
+    )
+    # Every positive limit goes through the bounded formatter, with or
+    # without a summarization warning in front: the no-warning branch used to
+    # budget only the memories and append the header, the truncation notice
+    # and the optional section uncounted (doobidoo and ducanhnguyen223 on
+    # #1701), so a response could exceed the limit by the whole debug block.
+    response_text = format_bounded_response(
+        memory_dicts,
+        max_response_chars,
+        header=summary_warning + header,
+        footer=optional_section,
     )
     return types.TextContent(type="text", text=response_text)
 
@@ -1451,17 +1556,25 @@ async def _format_empty_memory_search(
     response = "No memories found"
     if result.get("query"):
         response += f" for query: '{result['query']}'"
-    beliefs_section = await _format_beliefs_section(arguments, storage)
-    if summary_warning and max_response_chars > 0:
+    # A zero-hit search still carries the diagnostics the caller asked for
+    # (filter counts, and the search/filter timing of #1669): a slow empty
+    # search is the one that needs them (Greptile on #1701).
+    optional_section = (
+        _format_memory_search_debug(result)
+        + await _format_beliefs_section(arguments, storage)
+    )
+    # Every positive limit goes through the limiter, with or without a
+    # summarization warning in front (doobidoo and ducanhnguyen223 on #1701).
+    if max_response_chars > 0:
         response = format_bounded_response(
             [],
             max_response_chars,
             header=summary_warning + response,
-            footer=beliefs_section,
+            footer=optional_section,
         )
         return types.TextContent(type="text", text=response)
     return types.TextContent(
-        type="text", text=summary_warning + response + beliefs_section
+        type="text", text=summary_warning + response + optional_section
     )
 
 
@@ -1497,46 +1610,90 @@ async def handle_memory_search(server, arguments: dict) -> List[types.TextConten
         # Get max_response_chars for truncation
         max_response_chars = _get_max_response_chars(arguments)
         query = arguments.get("query")
+        t_begin = time.perf_counter()
         result, fallback_used = await _retrieve_search_results(
             storage, arguments, normalize_tags
         )
+        t_searched = time.perf_counter()
 
         # Check for errors
         if "error" in result:
             return [types.TextContent(type="text", text=f"Error: {result['error']}")]
+        pool = len(result.get("memories") or ())
 
         memories, total, filter_error = await _apply_memory_search_filters(
             server, arguments, query, result, MemoryService
         )
         if filter_error:
             return [types.TextContent(type="text", text=filter_error)]
+        t_filtered = time.perf_counter()
 
-        # Summarize only after retrieval, filters, and plugins. The helper keeps
-        # raw results intact as a safe fallback when the provider is unavailable.
-        summary_response, summary_warning = await _summarize_memory_search(
+        # Optional second-stage rerank (issue #1602): per-call opt-in, gated by
+        # MCP_RERANK_ENABLED. Runs after every narrowing stage, so callers see
+        # the final ordering. Off it is a passthrough -- byte-identical to
+        # today's response.
+        from ...quality.search_rerank import apply_search_rerank
+        memories, total = await apply_search_rerank(
+            arguments, query, memories, total, result
+        )
+        t_reranked = time.perf_counter()
+        # Stage timing for the rerank path (issue #1669): present only when the
+        # rerank stage ran under include_debug. The stages before it are added
+        # here, where they are measured; formatting comes after the response is
+        # built, so it can only be logged.
+        rerank_timing = (result.get("debug") or {}).get("rerank_timing")
+        if rerank_timing is not None:
+            rerank_timing["search_ms"] = round((t_searched - t_begin) * 1000, 1)
+            rerank_timing["pool"] = pool
+            rerank_timing["filters_ms"] = round((t_filtered - t_searched) * 1000, 1)
+            rerank_timing["rerank_ms"] = round((t_reranked - t_filtered) * 1000, 1)
+        response = await _finish_memory_search(
             arguments, query, memories, total, result, fallback_used, storage,
             max_response_chars,
         )
-        if summary_response is not None:
-            return [summary_response]
-
-        if max_response_chars > 0 and memories:
-            return [await _format_truncated_memory_search(
-                arguments, storage, memories, total, result, fallback_used,
-                max_response_chars, summary_warning,
-            )]
-        if not memories:
-            return [await _format_empty_memory_search(
-                arguments, storage, result, max_response_chars, summary_warning
-            )]
-        return [await _format_full_memory_search(
-            arguments, storage, memories, total, result, fallback_used,
-            summary_warning,
-        )]
+        if rerank_timing is not None:
+            logger.debug(
+                "memory_search rerank timing: search %.1f ms (pool %d) | filters %.1f ms"
+                " | rerank %.1f ms | format %.1f ms",
+                rerank_timing["search_ms"], pool, rerank_timing["filters_ms"],
+                rerank_timing["rerank_ms"], (time.perf_counter() - t_reranked) * 1000,
+            )
+        return response
 
     except Exception as e:
         logger.error("Error in memory_search: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
         return [types.TextContent(type="text", text=f"Error searching memories: {str(e)}")]
+
+
+async def _finish_memory_search(
+    arguments, query, memories, total, result, fallback_used, storage,
+    max_response_chars,
+) -> List[types.TextContent]:
+    """Summarize, truncate or format the search result: the tail of
+    ``handle_memory_search``, moved out so the handler can time the stages
+    before it (issue #1669). Behaviour unchanged."""
+    # Summarize only after retrieval, filters, and plugins. The helper keeps
+    # raw results intact as a safe fallback when the provider is unavailable.
+    summary_response, summary_warning = await _summarize_memory_search(
+        arguments, query, memories, total, result, fallback_used, storage,
+        max_response_chars,
+    )
+    if summary_response is not None:
+        return [summary_response]
+
+    if max_response_chars > 0 and memories:
+        return [await _format_truncated_memory_search(
+            arguments, storage, memories, total, result, fallback_used,
+            max_response_chars, summary_warning,
+        )]
+    if not memories:
+        return [await _format_empty_memory_search(
+            arguments, storage, result, max_response_chars, summary_warning
+        )]
+    return [await _format_full_memory_search(
+        arguments, storage, memories, total, result, fallback_used,
+        summary_warning,
+    )]
 
 
 async def handle_update_memory_metadata(server, arguments: dict) -> List[types.TextContent]:
@@ -1563,6 +1720,31 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
 
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
+
+        # Per-store confinement for this hash-addressed update. The transport
+        # gate authorizes the *claimed* store, but the update resolves by
+        # content_hash and would otherwise ignore it — so a token scoped to one
+        # store could update another store's memory. When a store is claimed,
+        # resolve the hash within it first: on backends whose get_by_hash honors
+        # ``store`` a hash from another store comes back missing -> not found;
+        # backends that ignore ``store`` can't prove confinement, so a
+        # store-scoped update fails closed there (real storage-layer enforcement
+        # is the follow-up issue, after which this pre-check can be removed).
+        claimed_store = arguments.get("store")
+        if claimed_store is not None and claimed_store != "all":
+            # Raise rather than return: a refused update must surface as a tool
+            # error (isError=true), so a client checking the MCP success flag
+            # cannot mistake it for a completed write. The /mcp shim and the SDK
+            # both map a raised exception to isError; the broad except below
+            # re-raises PermissionError so it is not flattened into a
+            # success-looking TextContent.
+            if not getattr(storage, "get_by_hash_is_store_scoped", False):
+                raise PermissionError(
+                    "store-scoped updates are not supported on this storage backend; "
+                    "omit 'store' or use a globally-scoped credential"
+                )
+            if await storage.get_by_hash(content_hash, store=claimed_store) is None:
+                raise PermissionError("memory not found in the requested store")
 
         versioned = arguments.get("versioned", False)
 
@@ -1658,6 +1840,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             logger.warning("Failed to update metadata for memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(message))
             return [types.TextContent(type="text", text=f"Failed to update memory metadata: {message}")]
 
+    except PermissionError:
+        # A store-scope refusal must propagate as a tool error (isError), not be
+        # flattened into a success-looking TextContent by the handler below.
+        raise
     except Exception as e:
         error_msg = f"Error updating memory metadata: {str(e)}"
         logger.error("%s\n%s", _sanitize_log_value(error_msg), traceback.format_exc())
@@ -1820,9 +2006,9 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
         # Parse natural language time expressions
         cleaned_query, (start_timestamp, end_timestamp) = extract_time_expression(query)
 
-        # Log the parsed timestamps and clean query
-        logger.info("Original query: %s", _sanitize_log_value(query))
-        logger.info("Cleaned query for semantic search: %s", _sanitize_log_value(cleaned_query))
+        # Log the parsed timestamps and clean query (query text at DEBUG: it is the user's prompt)
+        logger.debug("Original query: %s", _sanitize_log_value(query))
+        logger.debug("Cleaned query for semantic search: %s", _sanitize_log_value(cleaned_query))
         logger.info("Parsed time range: %s to %s", start_timestamp, end_timestamp)
 
         # Log more detailed timestamp information for debugging

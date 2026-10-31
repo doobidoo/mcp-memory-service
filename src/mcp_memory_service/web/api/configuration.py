@@ -16,7 +16,8 @@
 Configuration API endpoint for exposing .env parameters.
 
 Provides read-only access to environment configuration with sensitive value masking,
-plus write access for Cloudflare credentials with connection validation.
+plus write access for Cloudflare credentials with connection validation and for the
+quality settings shown in the dashboard's Quality tab.
 """
 
 import os
@@ -107,6 +108,16 @@ PARAM_DESCRIPTIONS = {
     "MCP_HYBRID_MIN_CHECK_COUNT": "Minimum memories to check before early stop",
     "MCP_HYBRID_FALLBACK_TO_PRIMARY": "Fallback to primary on secondary failure",
     "MCP_HYBRID_WARN_ON_SECONDARY_FAILURE": "Warn on secondary backend failures",
+
+    # Delta-Sync / Sync Hub
+    "MCP_SYNC_EVENTLOG": "Enable the delta-sync event log (on, true, or 1)",
+    "MCP_SYNC_SCHEDULE": "Opt-in delta-sync interval, for example 15m, 90s, or 6h; unset or disabled turns it off",
+    "MCP_SYNC_PEERS": "Comma-separated peer IDs to sync with; clients set this and the hub leaves it unset",
+    "MCP_SYNC_PEER_URL": "Base URL of the remote sync peer, such as the self-hosted hub",
+    "MCP_SYNC_PEER_API_KEY": "API key required by the remote sync peer; separate from this server's MCP_API_KEY",
+    "MCP_SYNC_BASIC_USER": "Basic-auth username for the remote sync peer",
+    "MCP_SYNC_BASIC_PASS": "Basic-auth password for the remote sync peer",
+    "MCP_SYNC_PUSH_ALLOWED_AGENTS": "Optional comma-separated allow-list of MCP_AGENT_ID values permitted to push events; unset accepts any agent",
 
     # Milvus Backend
     "MCP_MILVUS_URI": "Milvus endpoint: ./milvus.db (Milvus Lite), http://host:19530 (self-hosted), or https://xxx.zillizcloud.com (Zilliz Cloud)",
@@ -288,6 +299,20 @@ ENV_CATEGORIES = {
             ("MCP_HYBRID_MIN_CHECK_COUNT", "integer", None, False),
             ("MCP_HYBRID_FALLBACK_TO_PRIMARY", "boolean", None, False),
             ("MCP_HYBRID_WARN_ON_SECONDARY_FAILURE", "boolean", None, False),
+        ]
+    },
+    "delta_sync": {
+        "name": "Delta-Sync / Sync Hub",
+        "description": "Read-only settings for the delta-sync event log and self-hosted sync peers",
+        "params": [
+            ("MCP_SYNC_EVENTLOG", "string", None, False),
+            ("MCP_SYNC_SCHEDULE", "string", None, False),
+            ("MCP_SYNC_PEERS", "string", None, False),
+            ("MCP_SYNC_PEER_URL", "string", None, False),
+            ("MCP_SYNC_PEER_API_KEY", "string", None, True),
+            ("MCP_SYNC_BASIC_USER", "string", None, True),
+            ("MCP_SYNC_BASIC_PASS", "string", None, True),
+            ("MCP_SYNC_PUSH_ALLOWED_AGENTS", "string", None, False),
         ]
     },
     "milvus": {
@@ -488,8 +513,8 @@ async def get_env_configuration(user = Depends(require_read_access)):
             choices = param_def[2] if len(param_def) > 2 else None
             sensitive = param_def[3] if len(param_def) > 3 else False
 
-            # Get current value (environment > .env)
-            value = os.getenv(key) or env_vars.get(key)
+            # Get current value (environment > .env, even when empty, as at startup)
+            value = os.environ[key] if key in os.environ else env_vars.get(key)
 
             # Determine source
             source = "default"
@@ -618,6 +643,9 @@ def _write_credential_to_env(env_path: Path, key: str, value: str) -> None:
             new_lines.append(line)
 
     if not found:
+        # A file that ends without a newline would otherwise get the key glued to its last line
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
         new_lines.append(f"{key}={value}\n")
 
     with open(env_path, 'w', encoding='utf-8') as f:
@@ -773,5 +801,111 @@ async def save_credentials(
     return SaveCredentialsResponse(
         success=True,
         message="Credentials saved. Server restarting...",
+        restart_scheduled=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quality settings
+# ---------------------------------------------------------------------------
+
+# Keys the Quality tab may write. Each one is also listed in the "quality"
+# category of ENV_CATEGORIES, which supplies its type and allowed choices.
+QUALITY_WRITABLE_KEYS = ("MCP_QUALITY_AI_PROVIDER", "MCP_QUALITY_BOOST_ENABLED")
+
+# Variables a provider needs before QualityConfig.validate() lets the server start.
+QUALITY_PROVIDER_REQUIREMENTS = {
+    "groq": ("GROQ_API_KEY",),
+    "gemini": ("GEMINI_API_KEY",),
+}
+
+
+class SaveQualitySettingsRequest(BaseModel):
+    settings: dict[str, str]
+
+
+def _normalize_quality_value(key: str, raw: str) -> str:
+    """Strip control characters and check the value against the key's type and choices."""
+    param_type, choices = next(
+        (param_type, choices)
+        for param_key, param_type, choices, _ in ENV_CATEGORIES["quality"]["params"]
+        if param_key == key
+    )
+    value = re.sub(r"[\x00-\x1f\x7f]", "", raw).strip()
+
+    if param_type == "boolean":
+        value = value.lower()
+        if value not in ("true", "false"):
+            raise HTTPException(status_code=400, detail=f"{key} must be true or false")
+    elif param_type == "choice":
+        value = value.lower()
+        if value not in choices:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{key} must be one of: {', '.join(choices)}"
+            )
+    return value
+
+
+def _check_quality_provider_requirements(provider: Optional[str], env_path: Path) -> None:
+    """Refuse a provider whose required variables are not set."""
+    env_vars = _read_env_file_dict(env_path)
+    # Same precedence as load_dotenv(override=False) at startup: a variable present in
+    # the process environment wins over .env even when it is empty.
+    missing = [
+        key for key in QUALITY_PROVIDER_REQUIREMENTS.get(provider, ())
+        if not (os.environ[key] if key in os.environ else env_vars.get(key))
+    ]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The {provider} provider needs {', '.join(missing)} to be set first"
+        )
+
+
+@router.post("/quality", response_model=SaveCredentialsResponse)
+async def save_quality_settings(
+    request: SaveQualitySettingsRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_admin_access)
+):
+    """
+    Persist the Quality tab settings to .env and schedule a server restart.
+    Only keys in QUALITY_WRITABLE_KEYS are accepted. Requires admin access.
+    """
+    if not request.settings:
+        raise HTTPException(status_code=400, detail="No settings to save")
+
+    unknown = sorted(set(request.settings) - set(QUALITY_WRITABLE_KEYS))
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unsupported setting: {', '.join(unknown)}")
+
+    values = {key: _normalize_quality_value(key, raw) for key, raw in request.settings.items()}
+
+    env_path = _find_env_path()
+    _check_quality_provider_requirements(values.get("MCP_QUALITY_AI_PROVIDER"), env_path)
+
+    try:
+        for key, value in values.items():
+            _write_credential_to_env(env_path, key, value)
+    except Exception as e:
+        logger.error("Failed to write quality settings to .env: %s", _sanitize_log_value(e))
+        raise HTTPException(status_code=500, detail=f"Failed to write .env: {e}")
+
+    # load_dotenv(override=False) copied the old .env values into os.environ, and the
+    # restarted process inherits it, so the new values would lose to the old ones.
+    os.environ.update(values)
+
+    logger.warning(
+        "AUDIT: Quality settings (%s) updated by %s (auth: %s)",
+        _sanitize_log_value(", ".join(values)), user.client_id, user.auth_method
+    )
+
+    from .server import _restart_server_delayed
+    background_tasks.add_task(_restart_server_delayed)
+
+    return SaveCredentialsResponse(
+        success=True,
+        message="Quality settings saved. Server restarting...",
         restart_scheduled=True,
     )

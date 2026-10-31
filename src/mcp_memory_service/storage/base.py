@@ -38,6 +38,62 @@ class EmbeddingModelMismatchError(RuntimeError):
         self.remote_model = remote_model
 
 
+class RecreateRefused(str):
+    """The (False, message) string store()/store_batch() return when ``recreate=False``
+    met a delete on record for the content_hash (#1560).
+
+    It *is* the plain message of the ``Tuple[bool, str]`` storage contract — a direct
+    caller that only logs or prints sees text — and it also carries the delete the
+    caller would have overridden, so entry points that answer structurally (REST 409,
+    MCP plain-text refusal) read attributes instead of parsing the text.
+
+    Attributes:
+        event_id: ``event_id`` of the dominant delete on record (what ADR-0012 v2 would
+            have stamped as ``recreate_of``).
+        hlc: the delete's ``[hlc_physical, hlc_logical, agent_id]`` anchor
+            (``recreate_of_hlc``). ``hlc_physical`` is epoch milliseconds.
+        deleted_at: ISO-8601 UTC timestamp derived from ``hlc_physical``.
+    """
+
+    event_id: str
+    hlc: list
+    deleted_at: str
+
+    def __new__(cls, event_id: str, hlc, *, flag_name: str = "recreate=True"):
+        anchor = list(hlc) if hlc is not None else []
+        physical = int(anchor[0] or 0) if anchor else 0
+        deleted_at = datetime.fromtimestamp(physical / 1000, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        text = (
+            f"Not stored: this content was deleted on {deleted_at} "
+            f"(delete event {event_id}); pass {flag_name} to bring it back"
+        )
+        obj = super().__new__(cls, text)
+        obj.event_id = event_id
+        obj.hlc = anchor
+        obj.deleted_at = deleted_at
+        return obj
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"event_id": self.event_id, "hlc": self.hlc, "deleted_at": self.deleted_at}
+
+
+def recreate_kwargs(storage: Any, recreate: Optional[bool]) -> Dict[str, bool]:
+    """Keyword arguments that forward ``recreate`` (#1560) to ``storage.store()``.
+
+    The flag is forwarded only when there is something to forward (``recreate`` is
+    not ``None``) **and** the backend says it can act on it
+    (``supports_recreate_refusal`` is ``True``). Every other backend — a third-party
+    ``MemoryStorage`` written before #1560, a test double with the previous
+    signature, a backend that keeps no delete record — receives exactly the call it
+    received before and is never handed a keyword it does not know.
+    """
+    if recreate is None or getattr(storage, "supports_recreate_refusal", False) is not True:
+        return {}
+    return {"recreate": recreate}
+
+
 class MemoryStorage(ABC):
     """Abstract base class for memory storage implementations."""
 
@@ -70,6 +126,13 @@ class MemoryStorage(ABC):
         return False
 
     @property
+    def supports_recreate_refusal(self) -> bool:
+        """Backend can refuse to re-create deleted content (``store(recreate=False)``,
+        #1560) because it keeps a delete record to refuse against. Default False: the
+        flag is then never forwarded to this backend (see ``recreate_kwargs``)."""
+        return False
+
+    @property
     def requires_metadata_normalization(self) -> bool:
         """Backend needs metadata normalized/compressed before store (e.g. Cloudflare). Default False."""
         return False
@@ -85,7 +148,8 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default") -> Tuple[bool, str]:
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default",
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
         """Store a memory. Returns (success, message).
 
         Args:
@@ -94,6 +158,15 @@ class MemoryStorage(ABC):
                 Exact hash deduplication is always enforced.
             store: Target store partition (multi-store, #57 Phase 1). Backends
                 that are not partitioned accept it and ignore it.
+            recreate: What to do when the content_hash has a delete on record
+                (ADR-0012 v2, #1560). ``None`` (default) keeps today's behaviour:
+                purge the tombstone and stamp the create with ``recreate_of`` —
+                direct callers (consolidation, ingestion, CLI, ``api/operations.py``)
+                are unchanged. ``False`` refuses the write: no tombstone purge, no
+                create event, and the message is a ``RecreateRefused`` naming the
+                delete's event_id and HLC. ``True`` purges and stamps as ``None``
+                does, but says so explicitly. Backends that keep no delete record
+                accept the flag and have nothing to refuse.
 
         Note: the #57 change added `store` to every concrete backend and to all
         four call sites (`services/memory_service.py`, `server/handlers/documents.py`,
@@ -103,7 +176,7 @@ class MemoryStorage(ABC):
         """
         pass
 
-    async def store_batch(self, memories: List[Memory]) -> List[Tuple[bool, str]]:
+    async def store_batch(self, memories: List[Memory], recreate: Optional[bool] = None) -> List[Tuple[bool, str]]:
         """
         Store multiple memories in a single operation.
 
@@ -113,6 +186,7 @@ class MemoryStorage(ABC):
 
         Args:
             memories: List of Memory objects to store
+            recreate: Same tri-state as ``store()`` (#1560); a refusal is per item.
 
         Returns:
             A list of (success, message) tuples, one for each memory in the batch.
@@ -121,7 +195,7 @@ class MemoryStorage(ABC):
             return []
 
         results = await asyncio.gather(
-            *(self.store(memory) for memory in memories),
+            *(self.store(memory, **recreate_kwargs(self, recreate)) for memory in memories),
             return_exceptions=True
         )
 
@@ -440,6 +514,13 @@ class MemoryStorage(ABC):
             List of Memory objects with matching content
         """
         raise NotImplementedError("Subclasses must implement get_by_exact_content")
+
+    # Whether get_by_hash honors ``store`` (confines the lookup to that
+    # partition). Backends that accept ``store`` but ignore it leave this
+    # False, so a store-scoped hash-addressed operation must fail closed on
+    # them until the storage layer enforces ``store`` everywhere (follow-up
+    # issue). Overridden True on sqlite_vec and hybrid.
+    get_by_hash_is_store_scoped: bool = False
 
     @abstractmethod
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:

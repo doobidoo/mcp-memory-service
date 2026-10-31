@@ -30,6 +30,7 @@ from ...config import (
     OAUTH_ISSUER,
     API_KEY,
     ALLOW_ANONYMOUS_ACCESS,
+    ANONYMOUS_ACCESS_SCOPE,
     OAUTH_ENABLED,
     get_jwt_algorithm,
     get_jwt_verification_key
@@ -87,6 +88,99 @@ class AuthenticationResult:
                     "error_description": f"Required scope '{required_scope}' not granted"
                 }
             )
+
+    def has_store_scope(self, operation: str, store: Optional[str]) -> bool:
+        """Check access to a store partition for ``operation`` ("read"/"write").
+
+        A global ``operation`` scope ("read"/"write") grants every store, which
+        is the pre-existing behaviour (all tokens were global). Otherwise a
+        parameterized ``operation:<store>`` scope grants exactly that store.
+        ``store`` is ``None`` for a cross-partition request (the ``all``
+        sentinel, resolved by ``resolve_store``); that spans every partition and
+        so requires the global scope — a store-restricted token cannot use it.
+        """
+        if not self.authenticated or not self.scope:
+            return False
+        scopes = self.scope.split()
+        if operation in scopes:
+            return True
+        if store is None:
+            return False
+        return f"{operation}:{store}" in scopes
+
+    def require_store_scope(self, operation: str, store: Optional[str]) -> None:
+        """Raise 403 if ``operation`` on ``store`` is not permitted.
+
+        A grant that holds only through ``operation:<store>`` additionally needs
+        a backend that confines hash lookups to the store. cloudflare, milvus
+        and remote_http accept ``store`` on get_by_hash and ignore it, so there
+        a store-restricted credential would read or delete another partition's
+        memory by hash; it is refused until the storage layer enforces
+        ``store`` (#1683). Global grants are unaffected.
+        """
+        if self.has_store_scope(operation, store) and not self.has_scope(operation):
+            if not _storage_confines_store():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "insufficient_scope",
+                        "error_description": (
+                            "Store-restricted credentials are not supported on this "
+                            f"storage backend; use a global '{operation}' scope"
+                        ),
+                    }
+                )
+        if not self.has_store_scope(operation, store):
+            if store is None:
+                needed = f"'{operation}' (global, for cross-store access)"
+            else:
+                needed = f"'{operation}' or '{operation}:{store}'"
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "insufficient_scope",
+                    "error_description": f"Access to store requires scope {needed}",
+                }
+            )
+
+
+def _storage_confines_store() -> bool:
+    """Whether the active backend's get_by_hash honours ``store``.
+
+    Fails closed: no initialized storage counts as not confining.
+    """
+    from ..dependencies import get_storage  # inline import: keeps the storage stack out of OAuth module import
+    try:
+        storage = get_storage()
+    except HTTPException:
+        return False
+    return bool(getattr(storage, "get_by_hash_is_store_scoped", False))
+
+
+def scope_within_ceiling(requested: Optional[str], ceiling: Optional[str]) -> bool:
+    """Return True if every token in ``requested`` is permitted by ``ceiling``.
+
+    ``ceiling`` is a client's declared ``allowed_scope``. ``None`` means no
+    ceiling (unlimited — the pre-ceiling behaviour, and any client registered
+    before ceilings existed), so anything is permitted. An empty ``requested``
+    is trivially within any ceiling.
+
+    Coverage follows the same store grant hierarchy as ``has_store_scope``: a
+    global ``read``/``write`` in the ceiling covers the matching
+    ``read:<store>``/``write:<store>`` request, but a bare ``read``/``write``
+    request requires the bare scope in the ceiling (a store-scoped ceiling does
+    not grant global).
+    """
+    if ceiling is None:
+        return True
+    allowed = set(ceiling.split())
+    for token in (requested or "").split():
+        if token in allowed:
+            continue
+        if ":" in token and token.split(":", 1)[0] in allowed:
+            continue
+        return False
+    return True
 
 
 def validate_jwt_token(token: str) -> Optional[Dict[str, Any]]:
@@ -380,13 +474,53 @@ async def get_current_user(
                 logger.debug("Authenticated via X-API-Key header")
                 return api_key_result
 
-        # Try query parameter as fallback (less secure, but convenient)
-        api_key_param = request.query_params.get("api_key")
-        if api_key_param:
-            api_key_result = authenticate_api_key(api_key_param)
-            if api_key_result.authenticated:
-                logger.debug("Authenticated via api_key query parameter")
-                return api_key_result
+        # `api_key` as a query parameter used to be accepted here for the same
+        # reason `token` still is below: EventSource cannot set headers. It is
+        # gone deliberately (issue #1117). uvicorn logs the whole request line,
+        # so `?api_key=...` wrote the long-lived key in cleartext into
+        # ~/.local/share/mcp-memory/logs/server.log on every reconnect — under
+        # HTTPS too, since TLS protects the wire and not the log. That file
+        # outlives the session and gets pasted into bug reports.
+        #
+        # The replacement is a single-use, short-TTL ticket issued over POST
+        # (see /api/events/ticket). Kept as a distinct check rather than folded
+        # into the Bearer fallback so the failure message can name the migration.
+        if request.query_params.get("api_key"):
+            logger.warning(
+                "api_key query parameter is no longer accepted; "
+                "fetch a short-lived ticket from POST /api/events/ticket "
+                "and connect with ?ticket= (issue #1117)"
+            )
+
+    # Ticket redemption sits OUTSIDE the `if API_KEY` block on purpose.
+    # Greptile caught it: issuance accepts OAuth credentials, so in an
+    # OAuth-only deployment a client could get a ticket and then 401 on
+    # redemption. The ticket path must work whenever a ticket can be issued.
+    ticket_param = request.query_params.get("ticket")
+    if ticket_param:
+        from ..sse_ticket import sse_tickets
+
+        # hmac.compare_digest raises TypeError on non-ASCII strings, which
+        # would surface as 500 instead of 401. Refuse before comparing.
+        try:
+            ticket_param.encode("ascii")
+        except UnicodeEncodeError:
+            logger.warning("Rejected an SSE ticket: non-ASCII")
+        else:
+            granted = sse_tickets.redeem_scope(ticket_param)
+            if granted is not None:
+                logger.debug("Authenticated via single-use SSE ticket")
+                return AuthenticationResult(
+                    authenticated=True,
+                    client_id="sse-ticket",
+                    # The ticket carries the read scope of the credential that
+                    # minted it (e.g. 'read:projectA'), so a store-restricted
+                    # caller's SSE connection stays confined — enforced by
+                    # /events via require_store_scope, same as a Bearer token.
+                    scope=granted,
+                    auth_method="ticket",
+                )
+            logger.warning("Rejected an SSE ticket: expired, used, or unknown")
 
     # Try OAuth token as query parameter (EventSource API doesn't support headers)
     if OAUTH_ENABLED:
@@ -397,13 +531,20 @@ async def get_current_user(
                 logger.debug("Authenticated via token query parameter (SSE workaround)")
                 return auth_result
 
-    # Allow anonymous access only if explicitly enabled
+    # Allow anonymous access only if explicitly enabled. The granted scope is
+    # MCP_ANONYMOUS_SCOPE (default "read write" = full, so existing anonymous
+    # deployments are unchanged); operators may narrow it (e.g. "read:default")
+    # to confine un-authenticated callers to a shared store while authenticated
+    # agents carry per-store OAuth scopes.
     if ALLOW_ANONYMOUS_ACCESS:
-        logger.debug("Anonymous access explicitly enabled, granting full local access")
+        logger.debug(
+            "Anonymous access explicitly enabled, granting scope=%s",
+            _sanitize_log_value(ANONYMOUS_ACCESS_SCOPE),
+        )
         return AuthenticationResult(
             authenticated=True,
             client_id="anonymous",
-            scope="read write",  # User explicitly opted in via MCP_ALLOW_ANONYMOUS_ACCESS=true
+            scope=ANONYMOUS_ACCESS_SCOPE,
             auth_method="none"
         )
 
@@ -446,6 +587,39 @@ def require_scope(scope: str):
 
 
 # Convenience dependencies for common access patterns
+async def require_real_credential(user: AuthenticationResult = Depends(get_current_user)) -> AuthenticationResult:
+    """Require a real credential — Bearer token or API key, **not** an SSE ticket.
+
+    Ticket issuance must be gated on something the ticket cannot itself supply.
+    Greptile caught this: `POST /api/events/ticket` used `require_read_access`,
+    which accepts a ticket, so anyone holding one unused ticket could exchange
+    it for another and repeat — the 60-second TTL bounded nothing.
+
+    A ticket is a bearer credential minted *from* a real one; letting it mint
+    more turns a single leak into an indefinite one.
+    """
+    if user.auth_method == "ticket":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "invalid_token",
+                "error_description": (
+                    "An SSE ticket cannot be used to mint another ticket; "
+                    "authenticate with a Bearer token or an API key."
+                ),
+            },
+            headers={"WWW-Authenticate": _www_authenticate_header()},
+        )
+    # Require some read capability — global ``read`` or any ``read:<store>``.
+    # The ticket is a read credential and inherits exactly the caller's read
+    # scope (see events._ticket_read_scope), so a store-scoped agent (e.g.
+    # ``read:projectA``) qualifies and receives a ticket confined to its
+    # channel. A credential with no read grant at all is refused.
+    if not any(t == "read" or t.startswith("read:") for t in (user.scope or "").split()):
+        user.require_scope("read")  # no read anywhere -> standard 403 insufficient_scope
+    return user
+
+
 async def require_read_access(user: AuthenticationResult = Depends(get_current_user)) -> AuthenticationResult:
     """Require read access to the resource."""
     user.require_scope("read")
@@ -461,6 +635,38 @@ async def require_write_access(user: AuthenticationResult = Depends(get_current_
 async def require_admin_access(user: AuthenticationResult = Depends(get_current_user)) -> AuthenticationResult:
     """Require admin access to the resource."""
     user.require_scope("admin")
+    return user
+
+
+# Store-aware access dependencies for routes that carry a `store` query param.
+# A global "read"/"write" scope grants every store (backward compatible); a
+# parameterized "read:<store>"/"write:<store>" scope grants just that store. The
+# `store=all` sentinel is cross-partition and requires the global scope. Routes
+# whose store arrives in the request body enforce in-handler via
+# AuthenticationResult.require_store_scope instead (a dependency cannot read the
+# body). The store is read straight off the query string (mirroring the route's
+# default of "default") rather than re-declared as a Query param, so it does not
+# duplicate the route's own `store` parameter in the OpenAPI schema.
+def _query_store(request: Request) -> Optional[str]:
+    store = request.query_params.get("store", "default")
+    return None if store == "all" else store
+
+
+async def require_store_read(
+    request: Request,
+    user: AuthenticationResult = Depends(get_current_user),
+) -> AuthenticationResult:
+    """Require read access to the store named by the `store` query param."""
+    user.require_store_scope("read", _query_store(request))
+    return user
+
+
+async def require_store_write(
+    request: Request,
+    user: AuthenticationResult = Depends(get_current_user),
+) -> AuthenticationResult:
+    """Require write access to the store named by the `store` query param."""
+    user.require_store_scope("write", _query_store(request))
     return user
 
 

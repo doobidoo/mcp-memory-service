@@ -24,6 +24,7 @@ import asyncio
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class JSONLoader(DocumentLoader):
         include_types = kwargs.get('include_types', False)
         array_handling = kwargs.get('array_handling', 'expand')
 
-        logger.info(f"Extracting chunks from JSON file: {file_path}")
+        logger.info("Extracting chunks from JSON file: %s", _sanitize_log_value(file_path))
 
         try:
             # Read and parse JSON
@@ -140,10 +141,10 @@ class JSONLoader(DocumentLoader):
                 )
 
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in file {file_path}: {str(e)}")
+            logger.error("Invalid JSON in file %s: %s", _sanitize_log_value(file_path), _sanitize_log_value(e))
             raise ValueError(f"Invalid JSON format: {str(e)}") from e
         except Exception as e:
-            logger.error(f"Error extracting from JSON file {file_path}: {type(e).__name__} - {str(e)}")
+            logger.error("Error extracting from JSON file %s: %s - %s", _sanitize_log_value(file_path), _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
             raise ValueError(f"Failed to extract JSON content: {str(e)}") from e
 
     async def _read_json_file(self, file_path: Path) -> tuple:

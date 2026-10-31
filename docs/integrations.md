@@ -8,6 +8,9 @@ utilities that extend it.
 Anything that speaks MCP or plain HTTP works. The list below is what has actually been
 used against the service, grouped by how it connects.
 
+Per-harness coverage — how far each integration goes beyond connectivity — is in
+[`agents/README.md`](../agents/README.md).
+
 ### Agent frameworks (REST API)
 
 LangGraph · CrewAI · AutoGen · OpenClaw/Nanobot · custom pipelines · any HTTP client
@@ -25,6 +28,9 @@ Automatic lifecycle integrations are also available for
 [Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
 [Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
 project context, capture learnings, and checkpoint session outcomes.
+
+Hermes has an installer that registers the server and verifies a round trip:
+[`agents/hermes/README.md`](../agents/hermes/README.md).
 
 ### Desktop and IDE (MCP)
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import TYPE_CHECKING
+
 from .base import MemoryStorage
 
 # Conditional imports based on available dependencies
@@ -35,8 +37,17 @@ try:
 except ImportError:
     HybridMemoryStorage = None
 
-try:
+# Milvus is loaded on first access, not here: every deployment imports this
+# package, and only Milvus users need storage/milvus.py. The backend
+# selectors (factory.py, server_impl.py, cli/utils.py) import it directly.
+__all__.append('MilvusMemoryStorage')
+
+if TYPE_CHECKING:
     from .milvus import MilvusMemoryStorage
-    __all__.append('MilvusMemoryStorage')
-except ImportError:
-    MilvusMemoryStorage = None
+
+
+def __getattr__(name):
+    if name == 'MilvusMemoryStorage':
+        from .milvus import MilvusMemoryStorage
+        return MilvusMemoryStorage
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

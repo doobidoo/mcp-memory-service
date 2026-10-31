@@ -1002,7 +1002,34 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
                 }, indent=2)
             )]
 
-        memory_hashes = await graph.find_memories_by_entity(name, limit=limit)
+        # Per-store confinement (read). memory_detail has no first-class store
+        # selector and the entity graph is global, so a token scoped to one
+        # store would otherwise receive the entity's chunks from every store.
+        # When a store is claimed (the transport gate has already authorized
+        # it), keep only hashes that resolve within that store; a backend whose
+        # get_by_hash ignores ``store`` can't confine, so fail closed. Real
+        # per-store graph partitioning is the follow-up issue (#1683).
+        detail_store = arguments.get("store")
+        if detail_store is not None and detail_store != "all":
+            if not getattr(server.storage, "get_by_hash_is_store_scoped", False):
+                return [types.TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": "store-scoped memory_detail is not supported on this backend",
+                    "entity_id": entity_id, "chunks": [], "related_entities": [],
+                }, indent=2))]
+            # Filter to the claimed store BEFORE applying the caller's limit:
+            # an entity whose newest links live in another store must not hide
+            # this store's older chunks. Scan a wider window, keep matches up to
+            # the limit.
+            wide = await graph.find_memories_by_entity(name, limit=max(limit * 10, 200))
+            memory_hashes = []
+            for _h in wide:
+                if await server.storage.get_by_hash(_h, store=detail_store) is not None:
+                    memory_hashes.append(_h)
+                    if len(memory_hashes) >= limit:
+                        break
+        else:
+            memory_hashes = await graph.find_memories_by_entity(name, limit=limit)
         entity_degree = len(memory_hashes)  # proxy for centrality
         chunks = await _hydrate_chunks(
             server.storage, memory_hashes, scoring=scoring, graph=graph, entity_degree=entity_degree

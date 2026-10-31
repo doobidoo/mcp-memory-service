@@ -56,6 +56,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/discovery/client.py",
     "mcp_memory_service/discovery/mdns_service.py",
     "mcp_memory_service/sync/importer.py",
+    "mcp_memory_service/sync/exporter.py",
     "mcp_memory_service/backup/scheduler.py",
     "mcp_memory_service/web/api/analytics.py",
     "mcp_memory_service/storage/mixins/base.py",
@@ -80,6 +81,18 @@ GUARDED_MODULES = [
     "mcp_memory_service/server/environment.py",
     "mcp_memory_service/mcp_server.py",
     "mcp_memory_service/embeddings/onnx_embeddings.py",
+    "mcp_memory_service/config/search.py",
+    "mcp_memory_service/config/quality.py",
+    "mcp_memory_service/config/backup.py",
+    "mcp_memory_service/ingestion/semtools_loader.py",
+    "mcp_memory_service/ingestion/json_loader.py",
+    "mcp_memory_service/ingestion/csv_loader.py",
+    "mcp_memory_service/ingestion/text_loader.py",
+    "mcp_memory_service/ingestion/pdf_loader.py",
+    "mcp_memory_service/reasoning/inference.py",
+    "mcp_memory_service/reasoning/entity_linker.py",
+    "mcp_memory_service/reasoning/nli.py",
+    "mcp_memory_service/reasoning/multi_strategy.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -167,6 +180,23 @@ EXTERNAL_NAMES = frozenset({
     # calls and is not guarded yet, so listing the name would decide for it.
     "_hf_repo",
     "_model_dir",
+    # The three strings config/search.py, config/quality.py and config/backup.py
+    # take verbatim (lower-cased) from the environment and log at import time.
+    # The numeric settings next to them come out of safe_get_*_env or float()
+    # and stay unlisted.
+    "MCP_HYBRID_FUSION_METHOD",
+    "MCP_QUALITY_AI_PROVIDER",
+    "BACKUP_INTERVAL",
+    # The document a caller asks the ingestion/ loaders to read: every loader
+    # logs it when it starts and when the parser fails. No guarded module logs
+    # the name bare in a %-style call, so listing it decides for nobody else.
+    # `error_msg` above already covers the stderr of the semtools subprocess.
+    "file_path",
+    # An entity name EntityExtractor pulled out of a memory's content or tags
+    # (reasoning/entity_linker.py logs it when the lookup fails and when the
+    # per-entity link cap is hit). No guarded module logs the name bare in a
+    # %-style call, so listing it decides for nobody else.
+    "entity_name",
 })
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -551,3 +581,57 @@ def test_detectors_accept_the_two_supported_safe_forms():
     )
     assert not _gate_findings(sample)
     assert not _ast_findings(sample)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_config_environment_strings():
+    """The environment strings config/search.py, quality.py and backup.py log.
+
+    Every guarded logger call in the three modules already wraps them, so the
+    module scans stay green whether or not the names are listed. These are the
+    samples that fail if an entry is dropped from EXTERNAL_NAMES; the parsed
+    numbers logged next to them stay unlisted on purpose.
+    """
+    for bare, wrapped in (
+        ('logger.warning("Invalid fusion method: %s", MCP_HYBRID_FUSION_METHOD)\n',
+         'logger.warning("Invalid fusion method: %s", _sanitize_log_value(MCP_HYBRID_FUSION_METHOD))\n'),
+        ('logger.info("Quality System: provider=%s", MCP_QUALITY_AI_PROVIDER)\n',
+         'logger.info("Quality System: provider=%s", _sanitize_log_value(MCP_QUALITY_AI_PROVIDER))\n'),
+        ('logger.warning("Invalid backup interval: %s", BACKUP_INTERVAL)\n',
+         'logger.warning("Invalid backup interval: %s", _sanitize_log_value(BACKUP_INTERVAL))\n'),
+    ):
+        assert _lazy_findings(bare)
+        assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("Backup configuration: retention=%s days", BACKUP_RETENTION)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_ingestion_file_path():
+    """The path the ingestion/ loaders are handed, logged at start and on failure.
+
+    Every guarded logger call in the five loaders already wraps it, so the module
+    scans stay green whether or not the name is listed. This is the sample that
+    fails if `file_path` is dropped from EXTERNAL_NAMES; the character count and
+    the PDF backend name logged next to it stay unlisted on purpose.
+    """
+    bare = 'logger.info("Extracting chunks from JSON file: %s", file_path)\n'
+    wrapped = 'logger.info("Extracting chunks from JSON file: %s", _sanitize_log_value(file_path))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.debug("Successfully parsed %s, extracted %d characters", _sanitize_log_value(file_path), len(markdown_content))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_reasoning_entity_name():
+    """An entity name pulled out of memory content, logged by reasoning/entity_linker.py.
+
+    Both guarded logger calls that carry it already wrap it, so the module scans
+    stay green whether or not the name is listed. This is the sample that fails
+    if `entity_name` is dropped from EXTERNAL_NAMES; the link cap and the edge
+    count logged next to it stay unlisted on purpose.
+    """
+    bare = 'logger.debug("EntityLinker: hit cap (%s) for entity \'%s\'", MAX_LINKS_PER_ENTITY, entity_name)\n'
+    wrapped = 'logger.debug("EntityLinker: hit cap (%s) for entity \'%s\'", MAX_LINKS_PER_ENTITY, _sanitize_log_value(entity_name))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("EntityLinker: created %s shares_entity edges for %s", edges_created, memory_hash)\n')

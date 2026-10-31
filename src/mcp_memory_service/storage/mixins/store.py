@@ -16,11 +16,15 @@ except ImportError:
 
 from ...compat import _sanitize_log_value
 from ...models.memory import Memory
+from ..base import RecreateRefused
 
 logger = logging.getLogger(__name__)
 
 
 class StoreMixin:
+    #: sqlite-vec keeps tombstones and the sync event log: it can refuse a re-create (#1560).
+    supports_recreate_refusal = True
+
     """Mixin providing memory storage operations."""
 
     @staticmethod
@@ -40,6 +44,15 @@ class StoreMixin:
         the memories row without this leaves an orphan embedding; since memories has no
         AUTOINCREMENT, SQLite reuses that rowid later and the next store collides with a
         "UNIQUE constraint failed: memory_embeddings".
+
+        This purge runs on every re-store, regardless of the tombstone's age or the
+        `purge_deleted(older_than_days=...)` retention window. A new store of the same
+        content supersedes the old memory's metadata (tags, created_at, deleted_at);
+        those values are not preserved.
+
+        For sync this is safe: the durable tombstone consulted by conflict resolution
+        is the `sync_events` row with `op='delete'` (ADR-0009), which lives in a
+        separate table and survives this purge.
         """
         rows = self.conn.execute(
             'SELECT id FROM memories WHERE content_hash = ? AND deleted_at IS NOT NULL',
@@ -158,8 +171,16 @@ class StoreMixin:
 
         return False, None
 
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default') -> Tuple[bool, str]:
-        """Store a memory in the SQLite-vec database."""
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default',
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
+        """Store a memory in the SQLite-vec database.
+
+        ``recreate`` (#1560, tri-state — see ``MemoryStorage.store``): ``None`` keeps
+        today's behaviour (purge the tombstone, stamp ``recreate_of``); ``False`` refuses
+        the write when a delete for this hash is on record in ``sync_events`` — the
+        tombstone stays, no create event is appended, and the message is a
+        ``RecreateRefused`` naming the delete; ``True`` revives explicitly.
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized"
@@ -199,6 +220,7 @@ class StoreMixin:
             metadata_str = json.dumps(memory.metadata) if memory.metadata else "{}"
 
             _sp_name = f"store_{os.urandom(4).hex()}"
+            _refused: List[Tuple[str, list]] = []
             def insert_memory_and_embedding():
                 self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
@@ -206,6 +228,14 @@ class StoreMixin:
                     # tombstone (purge does not touch sync_events). Only set when a tombstone
                     # actually exists for this hash; a fresh create carries no recreate_of.
                     _recreate_info = self._recreate_of_for(memory.content_hash)
+                    if recreate is False and _recreate_info is not None:
+                        # #1560: the caller did not ask to bring deleted content back. A
+                        # stale client re-sending what this node deleted must not have the
+                        # node's own delete stamped as a deliberate revive: leave the
+                        # tombstone, append no create event, and name the delete instead.
+                        _refused.append(_recreate_info)
+                        self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
+                        return
                     self._purge_tombstone(memory.content_hash)
                     cursor = self.conn.execute('''
                         INSERT INTO memories (
@@ -281,6 +311,8 @@ class StoreMixin:
             async with self._savepoint_lock:
                 await self._execute_with_retry(insert_memory_and_embedding)
                 await self._execute_with_retry(self.conn.commit)
+                if _refused:
+                    return False, RecreateRefused(_refused[0][0], _refused[0][1])
 
             # Conflict detection (P3) — runs after commit, outside the lock
             try:
@@ -319,8 +351,14 @@ class StoreMixin:
             logger.error("%s", _sanitize_log_value(traceback.format_exc()))
             return False, error_msg
 
-    async def store_batch(self, memories: List[Memory], store: str = 'default') -> List[Tuple[bool, str]]:
-        """Store multiple memories in a single transaction with batched embedding generation."""
+    async def store_batch(self, memories: List[Memory], store: str = 'default',
+                          recreate: Optional[bool] = None) -> List[Tuple[bool, str]]:
+        """Store multiple memories in a single transaction with batched embedding generation.
+
+        ``recreate`` has the same tri-state as ``store()`` (#1560); with ``False`` an item
+        whose hash has a delete on record is refused on its own (``RecreateRefused``
+        message) while the rest of the batch proceeds.
+        """
         if not memories:
             return []
 
@@ -376,6 +414,14 @@ class StoreMixin:
 
                     # #1522 #2: capture the superseded delete BEFORE purge (same as store()).
                     _recreate_info = self._recreate_of_for(memory.content_hash)
+                    if recreate is False and _recreate_info is not None:
+                        # #1560: refuse this item only (see store()); tombstone and
+                        # sync_events untouched.
+                        self.conn.execute(f'RELEASE SAVEPOINT {sp}')
+                        local_results[j] = (
+                            False, RecreateRefused(_recreate_info[0], _recreate_info[1])
+                        )
+                        continue
                     self._purge_tombstone(memory.content_hash)
 
                     cur = self.conn.execute('''

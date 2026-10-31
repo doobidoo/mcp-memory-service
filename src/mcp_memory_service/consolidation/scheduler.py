@@ -16,23 +16,27 @@
 
 import logging
 import os
-from typing import Dict, Any, Optional
-from datetime import datetime
+from copy import deepcopy
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 try:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.interval import IntervalTrigger
-    from apscheduler.jobstores.memory import MemoryJobStore
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
     from apscheduler.executors.asyncio import AsyncIOExecutor
-    from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
+    from apscheduler.jobstores.memory import MemoryJobStore
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.schedulers.base import STATE_RUNNING
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
     APSCHEDULER_AVAILABLE = True
 except ImportError:
     APSCHEDULER_AVAILABLE = False
 
-from .consolidator import DreamInspiredConsolidator
-from .belief_service import BeliefService
 from ..compat import _sanitize_log_value
+from .belief_service import BeliefService
+from .consolidator import DreamInspiredConsolidator
 
 
 def sessions_to_track(results) -> set:
@@ -52,11 +56,56 @@ def sessions_to_track(results) -> set:
     HarvestResult; tracked as a separate follow-up. Re-processing an empty
     session is cheaper than losing data, so this stays conservative.
     """
+    def _count(r, name) -> int:
+        value = getattr(r, name, 0)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    def _handled(r) -> bool:
+        stored, skipped, found = _count(r, "stored"), _count(r, "skipped"), _count(r, "found")
+        if stored > 0:
+            return True
+        # #1560: candidates the server refused because they were deleted are handled,
+        # not failed — a session made only of those must not be reselected every tick.
+        # Any candidate that is neither stored nor skipped keeps the session pending.
+        # `found` is counted AFTER the LLM rewrite, so a candidate the rewrite lost is
+        # not in it: `rewrite_dropped` (HarvestResult) is the evidence that rewriting
+        # completed for every candidate. Without it a skipped-only session stays pending.
+        return (skipped > 0 and _count(r, "rewrite_dropped") == 0
+                and stored + skipped >= found)
+
     return {
         r.session_id
         for r in results
-        if getattr(r, "session_id", None) and (getattr(r, "stored", 0) or 0) > 0
+        if getattr(r, "session_id", None) and _handled(r)
     }
+
+
+def _classify_sync_failure(
+    exc: Exception,
+    handshake_complete: bool,
+    event_failure_message: str | None = None,
+    probe: bool = False,
+) -> tuple[str, str]:
+    """Map sync exceptions to the stable status and user-facing message."""
+    if event_failure_message is not None:
+        return "error", event_failure_message
+
+    from ..storage.base import EmbeddingModelMismatchError
+    from ..storage.sync.protocol import SyncProtocolCompatibilityError
+
+    if isinstance(exc, (EmbeddingModelMismatchError, SyncProtocolCompatibilityError)):
+        return "incompatible", str(exc)
+    if handshake_complete:
+        return "error", "Sync cycle failed after capability negotiation."
+    if probe:
+        return (
+            "unavailable",
+            "Capability probe failed; check peer connectivity and credentials.",
+        )
+    return (
+        "unavailable",
+        "Capability negotiation failed; check peer connectivity and credentials.",
+    )
 
 
 class ConsolidationScheduler:
@@ -86,6 +135,9 @@ class ConsolidationScheduler:
             'successful_jobs': 0,
             'failed_jobs': 0
         }
+        self._sync_peer_status: Dict[str, Dict[str, Any]] = {}
+        self._sync_peer_operation_versions: dict[str, int] = {}
+        self._sync_peer_probe_versions: dict[str, int] = {}
         
         # Initialize scheduler if APScheduler is available
         if APSCHEDULER_AVAILABLE and enabled:
@@ -222,7 +274,9 @@ class ConsolidationScheduler:
             )
             self.logger.info("Scheduled session harvest every %ss (MCP_HARVEST_SCHEDULE=%s)", seconds, schedule_spec)
         except Exception as e:
-            self.logger.error(f"Error scheduling session harvest: {e}")
+            self.logger.error(
+                "Error scheduling session harvest: %s", _sanitize_log_value(e)
+            )
 
     def _schedule_sync_job(self):
         """Schedule the delta-sync cycle job (opt-in via MCP_SYNC_SCHEDULE). Phase 4d, ADR-0028.
@@ -250,6 +304,16 @@ class ConsolidationScheduler:
             return
 
         try:
+            # Probe peers once after the service starts without delaying service
+            # startup. Every scheduled cycle repeats the handshake before data I/O.
+            self.scheduler.add_job(
+                func=self._probe_sync_peers,
+                trigger=DateTrigger(run_date=datetime.now(timezone.utc)),
+                id="delta_sync_probe",
+                name="Delta-Sync Capability Probe",
+                replace_existing=True,
+                max_instances=1,
+            )
             self.scheduler.add_job(
                 func=self._run_sync_cycle,
                 trigger=IntervalTrigger(seconds=seconds),
@@ -259,7 +323,189 @@ class ConsolidationScheduler:
             )
             self.logger.info("Scheduled delta-sync every %ss (MCP_SYNC_SCHEDULE=%s)", seconds, schedule_spec)
         except Exception as e:
-            self.logger.error(f"Error scheduling delta-sync: {e}")
+            self.logger.error("Error scheduling delta-sync: %s", _sanitize_log_value(e))
+
+    def _begin_sync_peer_operation(self, peer_id: str) -> int:
+        """Return a token that lets newer probe/cycle results supersede older ones."""
+        operation_version = self._sync_peer_operation_versions.get(peer_id, 0) + 1
+        self._sync_peer_operation_versions[peer_id] = operation_version
+        return operation_version
+
+    def _set_sync_peer_status(
+        self,
+        peer_id: str,
+        status: str,
+        message: str,
+        compatibility: dict[str, Any] | None = None,
+        *,
+        last_sync_at: str | None = None,
+        operation_version: int | None = None,
+        probe_version: int | None = None,
+    ) -> None:
+        """Store the latest safe-to-expose delta-sync result for one peer."""
+        # Startup probes have their own generation. Once a cycle has started,
+        # its result owns the peer status, even if a slow probe reaches it later.
+        if probe_version is not None and (
+            probe_version != self._sync_peer_probe_versions.get(peer_id)
+            or self._sync_peer_operation_versions.get(peer_id, 0) > 0
+        ):
+            return
+        if (
+            operation_version is not None
+            and operation_version != self._sync_peer_operation_versions.get(peer_id)
+        ):
+            return
+        previous = self._sync_peer_status.get(peer_id, {})
+        result = {
+            **previous,
+            "peer_id": peer_id,
+            "status": status,
+            "message": message,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "negotiated_sync_protocol": previous.get("negotiated_sync_protocol"),
+            "event_schema_version": previous.get("event_schema_version"),
+            "peer_version": previous.get("peer_version"),
+            "last_sync_at": last_sync_at or previous.get("last_sync_at"),
+        }
+        if compatibility is not None:
+            result.update({
+                "negotiated_sync_protocol": compatibility.get("negotiated_sync_protocol"),
+                "event_schema_version": compatibility.get("event_schema_version"),
+                "peer_version": compatibility.get("version"),
+            })
+        self._sync_peer_status[peer_id] = result
+
+    def get_sync_peer_status(self) -> list[dict[str, Any]]:
+        """Return the most recent startup/cycle result for each delta-sync peer."""
+        return [deepcopy(self._sync_peer_status[key]) for key in sorted(self._sync_peer_status)]
+
+    @staticmethod
+    def delta_sync_configuration() -> dict[str, Any]:
+        """Describe configured peers without creating clients or exposing credentials."""
+        schedule = os.getenv("MCP_SYNC_SCHEDULE", "").strip()
+        peer_ids = sorted({p.strip() for p in os.getenv("MCP_SYNC_PEERS", "").split(",") if p.strip()})
+        raw_url = os.getenv("MCP_SYNC_PEER_URL", "").strip()
+        try:
+            parts = urlsplit(raw_url)
+            valid_url = parts.scheme in ("http", "https") and bool(parts.hostname)
+            # Remove userinfo, query credentials, and fragments from the display URL.
+            url = urlunsplit((parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", "")) if valid_url else ""
+        except ValueError:
+            url = ""
+        return {
+            "configured": bool(peer_ids or schedule.lower() not in ("", "disabled")),
+            "schedule": schedule or "disabled",
+            "enabled": False,
+            "next_run_at": None,
+            "interval_seconds": None,
+            "status": "disabled",
+            "peers": [{"peer_id": peer_id, "url": url, "status": "pending" if url else "error",
+                       "message": "Waiting for first cycle" if url else "MCP_SYNC_PEER_URL is missing or invalid"}
+                      for peer_id in peer_ids],
+        }
+
+    def get_delta_sync_status(self) -> dict[str, Any]:
+        """Expose actual scheduling and the latest in-memory cycle snapshots."""
+        result = self.delta_sync_configuration()
+        job = self.scheduler.get_job("delta_sync") if self.scheduler else None
+        next_run = getattr(job, "next_run_time", None)
+        result["enabled"] = bool(job and next_run and self.scheduler.state == STATE_RUNNING)
+        result["next_run_at"] = next_run.isoformat() if result["enabled"] else None
+        if job is not None:
+            result["interval_seconds"] = int(job.trigger.interval.total_seconds())
+        for peer in result["peers"]:
+            peer.update(deepcopy(self._sync_peer_status.get(peer["peer_id"], {})))
+            peer["health"] = peer.get("cycle_status", "pending")
+            if peer["status"] in ("error", "incompatible", "unavailable"):
+                peer["health"] = "error"
+        states = {peer["health"] for peer in result["peers"]}
+        result["status"] = ("syncing" if "syncing" in states else "error" if "error" in states
+                            else "disabled" if not result["enabled"] else "pending" if not states or "pending" in states
+                            else "synced")
+        return result
+
+    async def _broadcast_delta_sync_event(
+        self,
+        peer_id: str,
+        pulled: Optional[int],
+        pushed: Optional[int],
+        time_taken_seconds: float,
+        success: bool,
+    ) -> None:
+        """Best-effort notification; web failures must not stop scheduled sync."""
+        try:
+            # Lazy import: web imports consolidation, so consolidation must not
+            # import web at module level (same pattern as storage/hybrid.py).
+            from ..web.sse import sse_manager, create_sync_delta_completed_event
+        except ImportError:
+            self.logger.debug(
+                "SSE unavailable; skipping sync_delta_completed broadcast"
+            )
+            return
+        try:
+            event = create_sync_delta_completed_event(
+                peer_id=str(peer_id),
+                pulled=int(pulled) if pulled is not None else None,
+                pushed=int(pushed) if pushed is not None else None,
+                time_taken_seconds=float(time_taken_seconds or 0.0),
+                success=success,
+            )
+            await sse_manager.broadcast_event(event)
+            self.logger.debug(
+                "Broadcast sync_delta_completed for peer %s (pulled=%s, pushed=%s, success=%s)",
+                _sanitize_log_value(peer_id),
+                pulled,
+                pushed,
+                success,
+            )
+        except Exception as exc:
+            self.logger.debug(
+                "Failed to broadcast sync_delta_completed for peer %s: %s",
+                _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+            )
+
+    async def _probe_sync_peers(self) -> None:
+        """Best-effort startup capability probe; never blocks application startup."""
+        storage = getattr(self.consolidator, "storage", None)
+        if storage is None:
+            self.logger.debug("Delta-sync capability probe skipped: storage unavailable")
+            return
+
+        for peer_id, peer in self._resolve_sync_peers():
+            probe_version = self._sync_peer_probe_versions.get(peer_id, 0) + 1
+            self._sync_peer_probe_versions[peer_id] = probe_version
+            try:
+                await peer.initialize()
+                compatibility = await peer.check_sync_compatibility(storage)
+                self._set_sync_peer_status(
+                    peer_id,
+                    "compatible",
+                    "Peer capabilities are compatible",
+                    compatibility,
+                    probe_version=probe_version,
+                )
+            except Exception as exc:
+                status, message = _classify_sync_failure(
+                    exc, handshake_complete=False, probe=True
+                )
+                self._set_sync_peer_status(
+                    peer_id,
+                    status,
+                    message,
+                    probe_version=probe_version,
+                )
+                self.logger.warning(
+                    "Delta-sync capability probe failed for peer %s: %s",
+                    _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                )
+            finally:
+                try:
+                    await peer.close()
+                except Exception as exc:
+                    self.logger.debug(
+                        "Could not close sync peer %s after capability probe: %s",
+                        _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                    )
 
     def _resolve_sync_peers(self):
         """Build (peer_id, RemoteHTTPStorage) list from MCP_SYNC_PEERS. Option 1 (single hub):
@@ -303,28 +549,112 @@ class ConsolidationScheduler:
         if not peers:
             self.logger.debug("Delta-sync cycle: no peers configured (MCP_SYNC_PEERS unset)")
             return
-        from ..storage.sync.orchestrator import sync_from_peer, push_to_peer
+        from ..storage.sync.orchestrator import push_to_peer, sync_from_peer
         for peer_id, peer in peers:
-            try:
-                await peer.initialize()
-                pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
-                push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
-                self.logger.info(
-                    "Delta-sync %s: pulled %s applied, pushed %s",
-                    _sanitize_log_value(peer_id),
-                    getattr(pull, "events_applied", "?"),
-                    getattr(push, "events_pushed", "?"),
+            await self._run_sync_peer_cycle(
+                storage, peer_id, peer, sync_from_peer, push_to_peer
+            )
+
+    async def _run_sync_peer_cycle(
+        self,
+        storage: Any,
+        peer_id: str,
+        peer: Any,
+        sync_from_peer: Any,
+        push_to_peer: Any,
+    ) -> None:
+        """Negotiate, exchange events, and record one peer's cycle result."""
+        operation_version = self._begin_sync_peer_operation(peer_id)
+        handshake_complete = False
+        compatibility = None
+        event_failure_message = None
+        cycle_start = datetime.now(timezone.utc).isoformat()
+        cycle = {"cycle_status": "syncing", "last_cycle_started_at": cycle_start,
+                 "last_cycle_at": None, "last_error": None, "pull": None, "push": None,
+                 "backlog": None}
+        self._sync_peer_status.setdefault(peer_id, {"peer_id": peer_id}).update(cycle)
+        try:
+            await peer.initialize()
+            compatibility = await peer.check_sync_compatibility(storage)
+            handshake_complete = True
+            self._set_sync_peer_status(
+                peer_id,
+                "compatible",
+                "Peer capabilities are compatible",
+                compatibility,
+                operation_version=operation_version,
+            )
+            pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
+            cycle["pull"] = {"received": getattr(pull, "events_received", None),
+                             "applied": pull.events_applied, "cursor": getattr(pull, "final_cursor", None)}
+            push = await push_to_peer(storage, peer, peer_id=peer_id, limit=100)
+            cycle["push"] = {"pushed": push.events_pushed, "cursor": getattr(push, "final_seq", None)}
+            pull_failed = getattr(pull, "events_failed", 0) or 0
+            push_failed = getattr(push, "events_failed", 0) or 0
+            if pull_failed or push_failed:
+                event_failure_message = (
+                    "Peer sync reported failed events "
+                    f"(pull={pull_failed}, push={push_failed})."
                 )
-            except Exception as e:
-                self.execution_stats['failed_jobs'] += 1
-                self.logger.error("Delta-sync cycle failed for peer %s: %s", _sanitize_log_value(peer_id), _sanitize_log_value(e))
-            finally:
-                try:
-                    await peer.close()
-                except Exception:
-                    # Best-effort cleanup: a failing close() must not mask the cycle result
-                    # or abort the remaining peers. Nothing actionable to recover here.
-                    pass
+                raise RuntimeError(event_failure_message)
+            self._set_sync_peer_status(
+                peer_id,
+                "compatible",
+                "Peer sync cycle completed",
+                compatibility,
+                last_sync_at=datetime.now(timezone.utc).isoformat(),
+                operation_version=operation_version,
+            )
+            self.logger.info(
+                "Delta-sync %s: pulled %s applied, pushed %s",
+                _sanitize_log_value(peer_id),
+                getattr(pull, "events_applied", "?"),
+                getattr(push, "events_pushed", "?"),
+            )
+            cycle["cycle_status"] = "synced"
+        except Exception as exc:
+            self.execution_stats['failed_jobs'] += 1
+            status, message = _classify_sync_failure(
+                exc, handshake_complete, event_failure_message
+            )
+            cycle.update(cycle_status="error", last_error=message)
+            self._set_sync_peer_status(
+                peer_id,
+                status,
+                message,
+                compatibility,
+                operation_version=operation_version,
+            )
+            self.logger.error(
+                "Delta-sync cycle failed for peer %s: %s",
+                _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+            )
+        finally:
+            if operation_version == self._sync_peer_operation_versions.get(peer_id):
+                cycle["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
+                self._sync_peer_status[peer_id].update(cycle)
+                # A direction that raised may have committed earlier pages;
+                # without a returned summary its count is unknown, not zero.
+                pull_result = cycle["pull"] or {}
+                push_result = cycle["push"] or {}
+                await self._broadcast_delta_sync_event(
+                    peer_id=peer_id,
+                    pulled=pull_result.get("received"),
+                    pushed=push_result.get("pushed"),
+                    time_taken_seconds=(
+                        datetime.now(timezone.utc) - datetime.fromisoformat(cycle_start)
+                    ).total_seconds(),
+                    success=cycle["cycle_status"] == "synced",
+                )
+            try:
+                await peer.close()
+            except Exception as exc:
+                # Best-effort cleanup: a failing close() must not mask the cycle result
+                # or abort the remaining peers. Nothing actionable to recover here.
+                self.logger.debug(
+                    "Could not close sync peer %s after cycle: %s",
+                    _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                )
 
     @staticmethod
     def _parse_interval_seconds(spec: str) -> Optional[int]:
@@ -359,7 +689,10 @@ class ConsolidationScheduler:
             from ..harvest.models import harvest_config_from_env
             from ..services.memory_service import MemoryService
         except Exception as e:
-            self.logger.warning(f"Scheduled harvest skipped: harvest module unavailable ({e})")
+            self.logger.warning(
+                "Scheduled harvest skipped: harvest module unavailable (%s)",
+                _sanitize_log_value(e),
+            )
             return
 
         session_dir = os.path.expanduser(os.getenv("MCP_HARVEST_SESSION_DIR", "~/.kiro/sessions/cli"))
@@ -535,7 +868,10 @@ class ConsolidationScheduler:
             beliefs_enabled = os.getenv("MCP_BELIEFS_ENABLED", "false").lower() in ("true", "1", "yes")
             if beliefs_enabled and hasattr(self.consolidator, 'storage'):
                 try:
-                    belief_svc = BeliefService(self.consolidator.storage)
+                    belief_svc = BeliefService(
+                        self.consolidator.storage,
+                        graph=getattr(self.consolidator, "graph_storage", None),
+                    )
                     belief_stats = await belief_svc.derive_beliefs()
                 except Exception as be:
                     self.logger.warning("Belief derivation error (non-fatal): %s", _sanitize_log_value(be))
@@ -595,7 +931,18 @@ class ConsolidationScheduler:
             
             self.logger.error("Failed %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             raise
-    
+        finally:
+            # Consolidation can change counts even if a later step fails.
+            try:
+                from ..web.sse import SSEEvent, sse_manager
+
+                await sse_manager.broadcast_event(SSEEvent(
+                    event_type="consolidation_completed",
+                    data={"time_horizon": time_horizon, "success": job_record["status"] == "success"},
+                ))
+            except Exception as exc:
+                self.logger.debug("Unable to notify dashboard of consolidation: %s", _sanitize_log_value(exc))
+
     def _add_job_to_history(self, job_record: Dict[str, Any]):
         """Add job record to history with size limit."""
         self.job_history.append(job_record)

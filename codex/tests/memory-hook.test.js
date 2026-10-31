@@ -55,8 +55,13 @@ async function fixture(t) {
             if (rejectSearch) { res.statusCode = 503; res.end('{}'); return; }
             res.end(JSON.stringify({ results: [
                 { memory: { content: 'unrelated project', tags: ['elsewhere'] } },
-                { memory: { content: 'Use transactions for writes.', tags: ['project'] } }
+                { memory: { content: 'Use transactions for writes.', tags: ['project'] } },
+                { memory: { content: 'Keep the schema in migrations.', tags: ['project'] } }
             ] }));
+        } else if (rejectStores === 'deleted') {
+            // Content deleted on the server and sent without restore_deleted (#1560).
+            res.statusCode = 409;
+            res.end('{"detail":{"message":"Not stored: this content was deleted"}}');
         } else if (rejectStores && typeof rejectStores === 'object') {
             res.end(JSON.stringify(rejectStores));
         } else if (rejectStores === true || requests.length === rejectStores) {
@@ -90,8 +95,94 @@ test('startup injects bounded project-scoped context and sends the configured AP
     assert.equal(result.hookSpecificOutput.hookEventName, 'SessionStart');
     assert.match(result.hookSpecificOutput.additionalContext, /Use transactions/);
     assert.doesNotMatch(result.hookSpecificOutput.additionalContext, /unrelated project/);
+    assert.equal(result.systemMessage, 'Memory: loaded 2 project memories.');
     assert.equal(f.requests[0].headers['x-api-key'], 'test-only');
     assert.equal(f.requests[0].body.n_results, 32);
+});
+
+test('the loaded count excludes memories cut off by the context budget', async t => {
+    const f = await fixture(t);
+    const result = await runHook({ ...f.event, hook_event_name: 'SessionStart' }, { ...f.config, contextChars: 130 });
+    assert.match(result.hookSpecificOutput.additionalContext, /Use transactions/);
+    assert.doesNotMatch(result.hookSpecificOutput.additionalContext, /Keep the schema/);
+    assert.equal(result.systemMessage, 'Memory: loaded 1 project memory.');
+    const headerOnly = await runHook({ ...f.event, hook_event_name: 'SessionStart', session_id: 'tiny' }, { ...f.config, contextChars: 100 });
+    assert.match(headerOnly.hookSpecificOutput.additionalContext, /^Project memories: project/);
+    assert.equal(headerOnly.systemMessage, undefined);
+});
+
+test('a cached context trimmed by a smaller budget is reported without its stale count', async t => {
+    const f = await fixture(t);
+    const start = { ...f.event, hook_event_name: 'SessionStart' };
+    await runHook(start, f.config);
+    f.failSearch();
+    const result = await runHook(start, { ...f.config, contextChars: 130 });
+    assert.doesNotMatch(result.hookSpecificOutput.additionalContext, /Keep the schema/);
+    assert.equal(result.systemMessage, 'Memory: retrieval failed, using cached project memories.');
+});
+
+test('startup with no project memories stays silent', async t => {
+    const f = await fixture(t);
+    const result = await runHook({ ...f.event, hook_event_name: 'SessionStart' }, { ...f.config, projectName: 'empty' });
+    assert.equal(result, null);
+});
+
+test('cached context from state without a count is reported without one', async t => {
+    const f = await fixture(t);
+    const start = { ...f.event, hook_event_name: 'SessionStart' };
+    await runHook(start, f.config);
+    const stateFile = path.join(f.config.stateDir, (await fs.readdir(f.config.stateDir)).find(name => name.endsWith('.json')));
+    const { contextCount, ...legacy } = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    assert.equal(contextCount, 2);
+    await fs.writeFile(stateFile, JSON.stringify(legacy));
+    f.failSearch();
+    const result = await runHook(start, f.config);
+    assert.equal(result.systemMessage, 'Memory: retrieval failed, using cached project memories.');
+});
+
+test('a checkpoint reports new writes in one message and stays silent when nothing is new', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    assert.deepEqual(await runHook(f.event, f.config), { systemMessage: 'Memory: saved 1 memory and a session summary.' });
+    assert.equal(await runHook(f.event, f.config), null);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer'),
+        message('user', 'What did you find?'), message('assistant', learning, 'final_answer')]);
+    const result = await runHook({ ...f.event, hook_event_name: 'PreCompact' }, f.config);
+    assert.deepEqual(result, { systemMessage: 'Memory: saved 1 memory and a session summary.' });
+});
+
+test('captures and summaries are reported on their own when the other is disabled', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer'),
+        message('user', 'What did you find?'), message('assistant', learning, 'final_answer')]);
+    assert.deepEqual(await runHook(f.event, { ...f.config, sessionSummary: false }), { systemMessage: 'Memory: saved 2 memories.' });
+    assert.deepEqual(await runHook({ ...f.event, session_id: 'summary-only' }, { ...f.config, autoCapture: false }),
+        { systemMessage: 'Memory: saved a session summary.' });
+});
+
+test('confirmed duplicates, failures and SessionEnd never report a save', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await runHook({ ...f.event, session_id: 'previous-session' }, f.config);
+    assert.equal(await runHook(f.event, f.config), null);
+    assert.equal(f.requests.filter(r => r.url.startsWith('/api/memories/')).length, 2);
+    await f.write([message('user', 'What did you find?'), message('assistant', learning, 'final_answer')]);
+    f.reject(true);
+    await assert.rejects(runHook({ ...f.event, session_id: 'failing-session' }, f.config), /HTTP 503/);
+    f.reject(false);
+    assert.equal(await runHook({ ...f.event, session_id: 'failing-session', hook_event_name: 'SessionEnd' }, f.config), null);
+    assert.ok(f.requests.some(r => r.body.memory_type === 'learning'));
+});
+
+test('captures and summaries refused as deleted are checkpointed but never reported as saved', async t => {
+    const f = await fixture(t);
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    f.reject('deleted');
+    assert.equal(await runHook(f.event, f.config), null);
+    const sent = f.requests.length;
+    assert.ok(sent >= 2);
+    assert.equal(await runHook(f.event, f.config), null);
+    assert.equal(f.requests.length, sent);
 });
 
 test('capture and incremental summaries survive process restarts without duplicate writes', async t => {
@@ -215,7 +306,9 @@ test('parallel Stop and PreCompact hooks serialize writes and cached context sur
     const start = { ...f.event, hook_event_name: 'SessionStart' };
     const first = await runHook(start, f.config);
     f.failSearch();
-    assert.deepEqual(await runHook({ ...start, source: 'compact' }, f.config), first);
+    const cached = await runHook({ ...start, source: 'compact' }, f.config);
+    assert.deepEqual(cached.hookSpecificOutput, first.hookSpecificOutput);
+    assert.equal(cached.systemMessage, 'Memory: retrieval failed, using 2 cached project memories.');
     await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
     await Promise.all([runHook(f.event, f.config), runHook({ ...f.event, hook_event_name: 'PreCompact' }, f.config)]);
     assert.equal(f.requests.filter(r => r.url === '/api/memories').length, 2);

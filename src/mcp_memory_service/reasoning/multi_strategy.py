@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,7 +78,7 @@ async def multi_strategy_search(
 
     for result in results:
         if isinstance(result, Exception):
-            logger.warning(f"Strategy failed: {result}")
+            logger.warning("Strategy failed: %s", _sanitize_log_value(result))
             continue
         hashes, mem_map = result
         if hashes:
