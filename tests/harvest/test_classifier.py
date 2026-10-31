@@ -375,6 +375,9 @@ class TestOpenAICompatiblePayload:
 
         payload = client.__enter__.return_value.post.call_args.kwargs["json"]
         assert payload["stream"] is False
+        assert payload["max_tokens"] == 50
+        assert payload["temperature"] == 0.0
+        assert "max_completion_tokens" not in payload
 
     def test_gpt5_uses_completion_tokens_without_temperature(self):
         resp = MagicMock(status_code=200)
