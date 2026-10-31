@@ -30,6 +30,9 @@ _NOISE_PREFIXES = (
     "Cluster of",
     "[SESSÃO]",
     "[MINED:",
+    "[GAP]",      # auto decision-gap statistic (not a claim) — investigação 31/out
+    "[PATTERN]",  # auto tag co-occurrence statistic — investigação 31/out
+    "[TREND]",    # auto trend statistic — investigação 31/out
     "# Session Summary",
     "## Session Summary",
     "Session: ",  # commit_session_legacy entries (#121 follow-up)
@@ -43,6 +46,17 @@ _NOISE_PATTERNS = [
     re.compile(r"<ide_opened_file>", re.IGNORECASE),
     re.compile(r"^Topics Discussed:", re.MULTILINE | re.IGNORECASE),
     re.compile(r"^Session:\s+[0-9a-f]{8}-", re.IGNORECASE),  # UUID session IDs (#121)
+    # Meta-statistics that escape the bracket prefixes (e.g. the bracket-less
+    # "[PATTERN]" body): "N memories share tags [...], indicating a recurring
+    # theme." is a co-occurrence count, not knowledge. Investigação 31/out:
+    # ~230 such beliefs occupied top-k slots. Narrow by design — requires the
+    # "share tags" + "recurring theme" co-location, never a plain mention of
+    # "tag" or "pattern" in a legitimate sentence.
+    # Anchored to the exact shape insights.py emits ("N memories share tags
+    # [<list>], indicating a recurring theme." — one contiguous sentence, the
+    # bracketed list is short): bounded gap, no DOTALL, so legitimate prose that
+    # merely mentions both expressions in separate paragraphs is not caught.
+    re.compile(r"memories share tags.{0,80}?indicating a recurring theme", re.IGNORECASE),
 ]
 
 
