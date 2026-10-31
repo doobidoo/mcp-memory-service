@@ -60,8 +60,9 @@ except ImportError:
     PYMILVUS_AVAILABLE = False
     MilvusClient = None  # type: ignore
     DataType = None  # type: ignore
-    # No warning here: MilvusMemoryStorage.__init__ raises with install
-    # instructions, which is the only point where a missing pymilvus matters.
+    logging.getLogger(__name__).warning(
+        "pymilvus not available. Install with: pip install pymilvus milvus-lite"
+    )
 
 # BM25 full-text search support (Milvus 2.5+).
 # Function / FunctionType were added in pymilvus ≥ 2.5; older versions lack them.
@@ -341,8 +342,8 @@ class MilvusMemoryStorage(MemoryStorage):
         # Lower-cased mirror of ``content``. Populated on every insert/upsert
         # so that ``get_by_exact_content`` can push a case-insensitive
         # substring filter down to Milvus (its ``like`` operator is
-        # case-sensitive, so we match against the pre-lowered mirror instead
-        # of scanning rows in Python).
+        # case-sensitive and has no escape syntax, so we match against the
+        # pre-lowered mirror instead of scanning rows in Python).
         schema.add_field(
             field_name="content_lower",
             datatype=DataType.VARCHAR,
@@ -978,25 +979,6 @@ class MilvusMemoryStorage(MemoryStorage):
             self._graph_storage = graph
             return graph
 
-    async def _delete_graph_edges(self, content_hashes: List[str]) -> None:
-        """Best-effort removal of graph edges touching deleted memories (#1703).
-
-        SQLite cascades these on delete; here the edges live in a separate
-        collection and would otherwise survive, so entity linking kept
-        linking new memories to deleted ones. A failure is logged and does
-        not fail the delete, which has already happened.
-        """
-        if not content_hashes:
-            return
-        try:
-            graph = await self._get_graph_storage()
-            await graph.delete_edges_for_memories(content_hashes)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to delete graph edges for %d deleted memories (non-fatal): %s",
-                len(content_hashes), _sanitize_log_value(exc),
-            )
-
     async def _detect_conflicts(
         self, new_hash: str, new_content: str, embedding: List[float]
     ) -> List[Dict[str, Any]]:
@@ -1395,10 +1377,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
     # -- Store ---------------------------------------------------------------
 
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
-                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
-        # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
-        # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default") -> Tuple[bool, str]:
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # The Milvus backend is single-collection and does not partition by
         # store yet, so the value is intentionally not used (matches
@@ -1495,9 +1474,8 @@ class MilvusMemoryStorage(MemoryStorage):
             results[idx] = outcome
 
     async def store_batch(
-        self, memories: List[Memory], store: str = "default", recreate: Optional[bool] = None
+        self, memories: List[Memory], store: str = "default"
     ) -> List[Tuple[bool, str]]:
-        # `recreate` accepted for BaseStorage parity (#1560), unused — see store().
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # Single-collection backend — see store() for the full rationale.
         if not memories:
@@ -1858,7 +1836,6 @@ class MilvusMemoryStorage(MemoryStorage):
                 )
             except Exception:  # noqa: BLE001
                 pass  # non-fatal
-        await self._delete_graph_edges([content_hash])
         return True, f"Successfully deleted memory {content_hash}"
 
     async def delete_memory(self, content_hash: str) -> bool:
@@ -1880,11 +1857,7 @@ class MilvusMemoryStorage(MemoryStorage):
         tag_filter, matched = self._tag_like_clauses([tag], joiner="or")
         if not matched:
             return 0, f"No memories found with tag '{tag}'"
-        return await self._delete_matching(
-            tag_filter,
-            f"Successfully deleted {{count}} memories with tag '{tag}'",
-            any_of_tags=[tag],
-        )
+        return await self._delete_matching(tag_filter, f"Successfully deleted {{count}} memories with tag '{tag}'")
 
     async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
         if not self._ensure_initialized():
@@ -1896,40 +1869,37 @@ class MilvusMemoryStorage(MemoryStorage):
         if not matched:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        hashes = await self._collect_hashes(tag_filter, any_of_tags=tags)
+        hashes = await self._collect_hashes(tag_filter)
         if not hashes:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
         deleted_hashes: List[str] = []
-        try:
-            for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
-                chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
-                try:
-                    await self._call_client(
-                        "delete",
-                        collection_name=self.collection_name,
-                        ids=chunk,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.error(
-                        "delete_by_tags failed after %d/%d memories: %s",
-                        len(deleted_hashes),
-                        len(hashes),
-                        _sanitize_log_value(exc),
-                    )
-                    if deleted_hashes:
-                        raise MilvusDeleteError(
-                            f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
-                            f"before deletion failed: {_sanitize_log_value(exc)}",
-                            deleted_count=len(deleted_hashes),
-                            deleted_hashes=deleted_hashes,
-                        ) from exc
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
+            try:
+                await self._call_client(
+                    "delete",
+                    collection_name=self.collection_name,
+                    ids=chunk,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "delete_by_tags failed after %d/%d memories: %s",
+                    len(deleted_hashes),
+                    len(hashes),
+                    _sanitize_log_value(exc),
+                )
+                if deleted_hashes:
                     raise MilvusDeleteError(
-                        f"Deletion failed: {_sanitize_log_value(exc)}",
+                        f"Deleted {len(deleted_hashes)} of {len(hashes)} memories "
+                        f"before deletion failed: {_sanitize_log_value(exc)}",
+                        deleted_count=len(deleted_hashes),
+                        deleted_hashes=deleted_hashes,
                     ) from exc
-                deleted_hashes.extend(chunk)
-        finally:
-            await self._delete_graph_edges(deleted_hashes)
+                raise MilvusDeleteError(
+                    f"Deletion failed: {_sanitize_log_value(exc)}",
+                ) from exc
+            deleted_hashes.extend(chunk)
 
         return (
             len(deleted_hashes),
@@ -1963,7 +1933,6 @@ class MilvusMemoryStorage(MemoryStorage):
         count, _ = await self._delete_matching_parts(
             filter_expr,
             f"Deleted {{count}} memories from {start_date} to {end_date}{suffix}",
-            any_of_tags=[tag] if tag else None,
         )
         return count, f"Deleted {count} memories from {start_date} to {end_date}{suffix}"
 
@@ -1991,7 +1960,6 @@ class MilvusMemoryStorage(MemoryStorage):
         count, _ = await self._delete_matching_parts(
             filter_expr,
             f"Deleted {{count}} memories before {before_date}{suffix}",
-            any_of_tags=[tag] if tag else None,
         )
         return count, f"Deleted {count} memories before {before_date}{suffix}"
 
@@ -2000,11 +1968,9 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr: str,
         success_template: str,
         require_live: bool = False,
-        any_of_tags: Optional[List[str]] = None,
     ) -> Tuple[int, str]:
         count, hashes = await self._delete_matching_parts(
             filter_expr, success_template, require_live=require_live,
-            any_of_tags=any_of_tags,
         )
         if count > 0:
             return count, success_template.format(count=count)
@@ -2015,56 +1981,29 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr: str,
         _success_template: str,
         require_live: bool = False,
-        any_of_tags: Optional[List[str]] = None,
     ) -> Tuple[int, List[str]]:
-        hashes = await self._collect_hashes(
-            filter_expr, require_live=require_live, any_of_tags=any_of_tags,
-        )
+        hashes = await self._collect_hashes(filter_expr, require_live=require_live)
         if not hashes:
             return 0, []
-        deleted: List[str] = []
-        try:
-            for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
-                chunk = hashes[start:start + self._GET_BY_ID_CHUNK]
-                await self._call_client(
-                    "delete",
-                    collection_name=self.collection_name,
-                    ids=chunk,
-                )
-                deleted.extend(chunk)
-        finally:
-            await self._delete_graph_edges(deleted)
+        for start in range(0, len(hashes), self._GET_BY_ID_CHUNK):
+            await self._call_client(
+                "delete",
+                collection_name=self.collection_name,
+                ids=hashes[start:start + self._GET_BY_ID_CHUNK],
+            )
         return len(hashes), hashes
 
     async def _collect_hashes(
         self,
         filter_expr: str,
         require_live: bool = False,
-        any_of_tags: Optional[List[str]] = None,
     ) -> List[str]:
-        """Return the ids of rows matching ``filter_expr``.
-
-        ``any_of_tags`` re-checks, in Python, that each row really carries one
-        of those tags before its id is returned for deletion. The tag filter is
-        a ``like`` pattern, and Milvus has not handled escaped wildcards the
-        same way in every server version (milvus-io/milvus#43864). On a read an
-        over-match shows one extra row; on a delete it removes one, so the
-        delete paths do not rely on the server alone (#1684).
-        """
-        output_fields = ["id"]
-        if require_live:
-            output_fields.append("metadata")
-        wanted = None
-        if any_of_tags is not None:
-            wanted = {t.strip() for t in any_of_tags if isinstance(t, str) and t.strip()}
-            output_fields.append("tags")
+        output_fields = ["id", "metadata"] if require_live else ["id"]
         rows = await self._drain_rows(filter_expr, output_fields)
         return [
             row["id"]
             for row in rows
-            if row.get("id")
-            and (not require_live or self._row_is_live(row))
-            and (wanted is None or not wanted.isdisjoint(_string_to_tags(row.get("tags"))))
+            if row.get("id") and (not require_live or self._row_is_live(row))
         ]
 
     # -- Reads ---------------------------------------------------------------
@@ -2798,22 +2737,13 @@ class MilvusMemoryStorage(MemoryStorage):
         include_superseded: bool = False,
         ranking_weights: Optional[Dict[str, float]] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
-        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Unified memory search with Milvus-native filtering.
 
         Pushes time and tag filters into Milvus filter expressions for
         server-side filtering instead of Python-side post-filtering.
         Supports all modes: semantic, exact, hybrid, ranked.
-
-        ``agent_id`` is accepted because the MCP search handler always passes
-        it (issue #1650). Filtering by agent is not implemented for Milvus, so
-        a non-None value returns an error result, like the other failures here.
         """
-        if agent_id is not None:
-            return {"memories": [], "total": 0, "query": query, "mode": mode,
-                    "error": "agent_id filtering is not implemented for the Milvus backend "
-                             "(sqlite-vec only in this phase). See PR #1297."}
         if not self._ensure_initialized():
             return {"memories": [], "total": 0, "query": query, "mode": mode,
                     "error": "Milvus storage not initialized"}
@@ -2879,9 +2809,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
             if self._has_content_lower and combined_filter:
                 # Push all filters (content + time + tags) to Milvus in one query
-                # Escape like wildcards first, as get_by_exact_content does, so
-                # "_" and "%" in the query match literally (#1684).
-                needle = escape_expr_value(_escape_like(query.lower()))
+                needle = escape_expr_value(query.lower())
                 content_filter = f'content_lower like "%{needle}%"'
                 final_filter = (
                     f"({combined_filter}) and ({content_filter})"
@@ -3268,7 +3196,6 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("purge_deleted: delete failed: %s", _sanitize_log_value(exc))
             return 0
 
-        await self._delete_graph_edges(to_purge)
         logger.info("purge_deleted: permanently removed %d tombstones", len(to_purge))
         return len(to_purge)
 

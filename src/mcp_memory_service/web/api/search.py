@@ -39,11 +39,7 @@ from .store_scope import resolve_store
 _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for time filtering (reduced for performance)
 
 # OAuth authentication imports
-from ..oauth.middleware import (
-    AuthenticationResult,
-    require_store_read,
-    get_current_user,
-)
+from ..oauth.middleware import AuthenticationResult, require_read_access
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -198,7 +194,7 @@ async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(get_current_user)
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Perform semantic similarity search on memory content.
@@ -214,10 +210,9 @@ async def semantic_search(
     import time
     start_time = time.time()
 
-    # Per-store read gate (store is in the request body).
-    user.require_store_scope("read", resolve_store(request.store))
-
     # Issue #1724: point-in-time query. Invalid as_of fails the request.
+    # (Upstream moved the per-store read gate into the require_read_access
+    # dependency; the as_of block is anchored after start_time instead.)
     as_of_ts = None
     if request.as_of is not None:
         from ...utils.time_parser import parse_as_of
@@ -319,7 +314,7 @@ async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(get_current_user)
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by tags with optional time filtering.
@@ -332,9 +327,6 @@ async def tag_search(
     """
     import time
     start_time = time.time()
-
-    # Per-store read gate (store is in the request body).
-    user.require_store_scope("read", resolve_store(request.store))
 
     try:
         if not request.tags:
@@ -422,7 +414,7 @@ async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(get_current_user)
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Search memories by time-based queries.
@@ -433,9 +425,6 @@ async def time_search(
     """
     import time
     start_time = time.time()
-
-    # Per-store read gate (store is in the request body).
-    user.require_store_scope("read", resolve_store(request.store))
 
     try:
         # Parse time query using robust time_parser
@@ -520,7 +509,7 @@ async def find_similar(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_store_read)
+    user: AuthenticationResult = Depends(require_read_access)
 ):
     """
     Find memories similar to a specific memory identified by its content hash.

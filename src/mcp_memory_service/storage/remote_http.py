@@ -18,99 +18,14 @@ Provides HTTP-based storage using REST API calls to remote MCP Memory Service in
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
-
+from typing import List, Dict, Any, Tuple, Optional, Set
 import httpx
 
-from mcp_memory_service.compat import _sanitize_log_value
+from mcp_memory_service.storage.base import MemoryStorage
 from mcp_memory_service.models.memory import Memory, MemoryQueryResult
-from mcp_memory_service.storage.base import MemoryStorage, RecreateRefused
+from mcp_memory_service.compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
-
-
-def _read_sync_capabilities(response: httpx.Response) -> dict[str, Any]:
-    """Validate and decode a peer's capabilities response."""
-    from .sync.protocol import SyncProtocolCompatibilityError
-
-    if response.status_code == 404:
-        probed_url = response.request.url.copy_with(
-            username="", password="", query=None, fragment=None
-        )
-        raise SyncProtocolCompatibilityError(
-            f"peer at {probed_url} does not advertise a sync protocol; "
-            "upgrade it to a version that supports /api/sync/capabilities."
-        )
-    response.raise_for_status()
-    if response.status_code != 200:
-        raise SyncProtocolCompatibilityError(
-            f"Peer capabilities endpoint returned HTTP {response.status_code}"
-        )
-
-    try:
-        capabilities = response.json()
-    except (ValueError, TypeError) as exc:
-        raise SyncProtocolCompatibilityError(
-            "Peer returned invalid JSON from /api/sync/capabilities"
-        ) from exc
-    if not isinstance(capabilities, dict):
-        raise SyncProtocolCompatibilityError(
-            "Peer capabilities response must be a JSON object"
-        )
-    peer_version = capabilities.get("version")
-    if not isinstance(peer_version, str) or not peer_version:
-        raise SyncProtocolCompatibilityError("Peer advertises an invalid version value")
-    return capabilities
-
-
-def _check_sync_embedding_identity(
-    capabilities: dict[str, Any], local_storage: MemoryStorage
-) -> tuple[str, int]:
-    """Validate the peer's advertised embedding identity against local storage."""
-    from .base import EmbeddingModelMismatchError
-    from .sync.protocol import (
-        SyncProtocolCompatibilityError,
-        resolve_embedding_identity,
-    )
-
-    remote_model, remote_dimension = _read_sync_embedding_identity(capabilities)
-    local_model, local_dimension = resolve_embedding_identity(local_storage)
-    if remote_model != local_model:
-        raise EmbeddingModelMismatchError(
-            f"Embedding model mismatch: local peer uses '{local_model}' but "
-            f"remote peer uses '{remote_model}'",
-            local_model=local_model,
-            remote_model=remote_model,
-        )
-    if remote_dimension != local_dimension:
-        raise SyncProtocolCompatibilityError(
-            "Embedding dimension mismatch: local peer uses "
-            f"{local_dimension}, remote peer uses {remote_dimension}"
-        )
-    return remote_model, remote_dimension
-
-
-def _read_sync_embedding_identity(
-    capabilities: dict[str, Any],
-) -> tuple[str, int]:
-    """Read and validate the peer's embedding model and vector dimension."""
-    from .sync.protocol import SyncProtocolCompatibilityError
-
-    remote_model = capabilities.get("embedding_model")
-    remote_dimension = capabilities.get("embedding_dimension")
-    if not isinstance(remote_model, str) or not remote_model:
-        raise SyncProtocolCompatibilityError(
-            "Peer advertises an invalid embedding_model value"
-        )
-    if (
-        isinstance(remote_dimension, bool)
-        or not isinstance(remote_dimension, int)
-        or remote_dimension <= 0
-    ):
-        raise SyncProtocolCompatibilityError(
-            "Peer advertises an invalid embedding_dimension value"
-        )
-    return remote_model, remote_dimension
 
 
 class RemoteHTTPStorage(MemoryStorage):
@@ -120,11 +35,6 @@ class RemoteHTTPStorage(MemoryStorage):
     def max_content_length(self) -> Optional[int]:
         """No local content limit for HTTP storage."""
         return None
-
-    @property
-    def supports_recreate_refusal(self) -> bool:
-        """The remote server keeps the delete record and answers 409 (#1560)."""
-        return True
 
     @property
     def supports_chunking(self) -> bool:
@@ -285,50 +195,14 @@ class RemoteHTTPStorage(MemoryStorage):
                 remote_model="unknown"
             )
 
-    async def check_sync_compatibility(self, local_storage: MemoryStorage) -> dict[str, Any]:
-        """Negotiate protocol and event compatibility before delta-sync I/O.
-
-        A capabilities 404 is the only response treated as a legacy peer. Other
-        HTTP failures are surfaced so the scheduler can report connectivity or
-        authentication problems instead of silently downgrading the protocol.
-        """
-        from .sync.protocol import (
-            negotiate_sync_protocol,
-            validate_event_schema,
-        )
-
-        response = await self._request("GET", "/api/sync/capabilities")
-        capabilities = _read_sync_capabilities(response)
-        peer_version = capabilities.get("version")
-        negotiated_protocol = negotiate_sync_protocol(capabilities)
-        event_schema_version = validate_event_schema(capabilities)
-        remote_model, remote_dimension = _check_sync_embedding_identity(
-            capabilities, local_storage
-        )
-
-        return {
-            "negotiated_sync_protocol": negotiated_protocol,
-            "event_schema_version": event_schema_version,
-            "embedding_model": remote_model,
-            "embedding_dimension": remote_dimension,
-            "version": peer_version,
-        }
-
     async def close(self) -> None:
         """Close the HTTP client."""
         await self.client.aclose()
 
     # Serviceable methods (8 methods as per Gate 1 decisions)
 
-    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default",
-                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
-        """Store a memory via HTTP POST.
-
-        ``recreate`` (#1560): the remote server decides from its own delete record. The
-        REST entry point refuses by default, so only ``True`` is forwarded (as
-        ``restore_deleted``); a 409 from the server comes back as a ``RecreateRefused``
-        message carrying the delete's event_id and HLC, like the local backend's.
-        """
+    async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: Optional[str] = "default") -> Tuple[bool, str]:
+        """Store a memory via HTTP POST."""
         try:
             payload = {
                 "content": memory.content,
@@ -337,8 +211,6 @@ class RemoteHTTPStorage(MemoryStorage):
                 "memory_type": memory.memory_type,
                 "metadata": memory.metadata or {}
             }
-            if recreate is True:
-                payload["restore_deleted"] = True
             # TODO Bug #5: POST /api/memories endpoint (MemoryCreateRequest) does not accept 
             # created_at/updated_at fields. Server always assigns current timestamp.
             # This means pulled memories lose their original timestamps on re-store.
@@ -352,15 +224,6 @@ class RemoteHTTPStorage(MemoryStorage):
                     return True, "Memory stored successfully"
                 else:
                     return False, f"Server reported failure: {result}"
-            elif response.status_code == 409:
-                # #1560: the server has a delete on record for this content.
-                detail = response.json().get("detail") or {}
-                if not isinstance(detail, dict):
-                    detail = {}
-                return False, RecreateRefused(
-                    str(detail.get("event_id") or ""), detail.get("hlc") or [],
-                    flag_name="recreate=True",
-                )
             else:
                 response.raise_for_status()
                 return False, f"Unexpected status code: {response.status_code}"

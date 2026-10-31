@@ -67,10 +67,6 @@ TOOL_REGISTRY: list[ToolDef] = [
                     "type": "string",
                     "description": "The memory content to store, such as a fact, note, or piece of information.",
                 },
-                "restore_deleted": {
-                    "type": "boolean",
-                    "description": "Bring back content that was deleted on this server. Default false: re-sending deleted content is refused with 'Not stored: this content was deleted on <date>; pass restore_deleted=true to bring it back'. Set true only when the user deliberately wants the deleted memory back.",
-                },
                 "conversation_id": {
                     "type": "string",
                     "description": "Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar. Exact duplicate hashes are still rejected.",
@@ -170,10 +166,6 @@ Example:
                 "store": {
                     "type": "string",
                     "description": "Target store partition (default: 'default'). Use 'docs' for documents, 'all' for cross-store search.",
-                },
-                "agent_id": {
-                    "type": "string",
-                    "description": "Optional authoring agent id. Falls back to the X-Agent-ID header, then MCP_AGENT_ID. Passing it here makes the caller's author win over the server default.",
                 },
             },
             "required": ["turns"],
@@ -277,16 +269,6 @@ Examples:
                     "maximum": 1,
                     "default": 0,
                     "description": "Quality weight for reranking (0.0-1.0)",
-                },
-                "rerank": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": (
-                        "Opt-in second-stage ONNX rerank of the top "
-                        "MCP_RERANK_CANDIDATES results. Requires "
-                        "MCP_RERANK_ENABLED on the server; off by default and a "
-                        "no-op when the server flag is unset."
-                    ),
                 },
                 "ranking_weights": {
                     "type": "object",
@@ -1274,9 +1256,7 @@ Examples:
     ),
     ToolDef(
         name="get_bootstrap_profile",
-        description="""Generate a behavioral bootstrap profile for an ephemeral agent.
-Requires write scope because it resets session counters when a fresh start is due.
-For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
+        description="""Generate a behavioral bootstrap profile for an ephemeral agent.""",
         input_schema={
             "type": "object",
             "properties": {
@@ -1306,7 +1286,7 @@ For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
             },
             "required": ["agent_ids"],
         },
-        annotations={"readOnlyHint": False},
+        annotations={"readOnlyHint": True},
     ),
     ToolDef(
         name="get_onboarding_guide",

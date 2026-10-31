@@ -632,7 +632,7 @@ class MetadataMixin:
 
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                    "SELECT content_hash, tags, memory_type, version, metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
                     (content_hash,),
                 )
                 return cursor.fetchone()
@@ -641,7 +641,7 @@ class MetadataMixin:
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type, old_version, old_metadata_str, old_store = row
+            old_hash, old_tags_str, old_type, old_version, old_metadata_str = row
             resolved_tags = new_tags if new_tags is not None else (
                 [t for t in old_tags_str.split(",") if t] if old_tags_str else []
             )
@@ -666,11 +666,7 @@ class MetadataMixin:
                 memory_type=resolved_type,
                 metadata=inherited_metadata,
             )
-            # The new version lives in the old one's store partition, or it drops
-            # out of that store's searches once the old row is superseded.
-            store_ok, store_msg = await self.store(
-                new_memory, skip_semantic_dedup=True, store=old_store or "default"
-            )
+            store_ok, store_msg = await self.store(new_memory, skip_semantic_dedup=True)
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
