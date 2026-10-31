@@ -349,3 +349,48 @@ def test_merge_without_lock_still_works(belief_db):
     assert belief_db.execute(
         "SELECT status FROM beliefs WHERE belief_hash='l2'"
     ).fetchone()[0] == "superseded"
+
+
+# ── Greptile round 2 P2 (#1733): cap stops grouping early, no full-corpus scan ──
+
+def test_group_by_cosine_cap_stops_early():
+    """_group_by_cosine with cap=1 returns after the first group even when more
+    duplicate groups exist later — no quadratic scan of the whole corpus."""
+    va, va2 = [1.0, 0.0, 0.0], [0.9962, 0.0872, 0.0]   # ~colinear -> group 1
+    vb, vb2 = [0.0, 1.0, 0.0], [0.0872, 0.9962, 0.0]   # ~colinear -> group 2
+    items = [
+        ("g1a", 0.8, "", 1, va), ("g1b", 0.7, "", 1, va2),
+        ("g2a", 0.8, "", 1, vb), ("g2b", 0.7, "", 1, vb2),
+    ]
+    groups_capped = BeliefService._group_by_cosine(items, 0.90, cap=1)
+    assert len(groups_capped) == 1, "cap=1 should stop after the first group"
+    # Without a cap, both groups are found (proves the cap is what limits it).
+    groups_all = BeliefService._group_by_cosine(items, 0.90, cap=None)
+    assert len(groups_all) == 2
+
+
+# ── Greptile round 2 P1 (#1733): _create_belief writes embedding under the lock ──
+
+def test_create_belief_embedding_write_holds_lock(belief_db):
+    """The embedding UPDATE on create must go through _write_backfill_embedding,
+    which holds _conn_lock — not a bare off-lock commit (#1733 P1)."""
+    vec = [0.3, 0.3, 0.3]
+    storage = _SyncEmbedStorage(belief_db, vec)
+    svc = BeliefService(storage)
+    calls = {"under_lock": 0, "off_lock": 0}
+    real_write = svc._write_backfill_embedding
+
+    def _spy(bhash, blob):
+        # _conn_lock is a threading.Lock; if held by the caller a non-blocking
+        # acquire fails. _write_backfill_embedding acquires it itself, so here
+        # (before it runs) it must be free — we just count that it is the path used.
+        calls["under_lock"] += 1
+        return real_write(bhash, blob)
+
+    svc._write_backfill_embedding = _spy
+    _run(svc._create_belief("hL", "lock belief", 0.7, "active", ["o1"], [], datetime.now(timezone.utc)))
+
+    assert calls["under_lock"] == 1, "create did not route the embedding write through the locked helper"
+    assert belief_db.execute(
+        "SELECT embedding FROM beliefs WHERE belief_hash='hL'"
+    ).fetchone()[0] is not None

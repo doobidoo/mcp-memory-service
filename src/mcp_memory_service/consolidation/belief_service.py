@@ -440,13 +440,17 @@ class BeliefService:
         return items
 
     @staticmethod
-    def _group_by_cosine(items: list, threshold: float) -> list:
+    def _group_by_cosine(items: list, threshold: float, cap: int | None = None) -> list:
         """Greedy single-linkage grouping by cosine >= threshold.
 
         Each later belief is tested against the seed only (approximation, NOT
         exact clustering): a chain A~B, B~C with A≁C groups {A,B} and leaves C a
         singleton. Stable because ``items`` arrives ORDER BY belief_hash. Returns
         a list of member-lists, each with >= 2 members (singletons dropped).
+
+        ``cap`` stops the scan once that many groups are found, so a capped call
+        does not compare the whole remaining corpus for groups it will discard
+        (Greptile P2 #1733). None = no cap.
         """
         used = set()
         groups = []
@@ -464,6 +468,8 @@ class BeliefService:
             for m in members:
                 used.add(m[0])
             groups.append(members)
+            if cap is not None and len(groups) >= cap:
+                break
         return groups
 
     @staticmethod
@@ -507,7 +513,10 @@ class BeliefService:
         try:
             now = datetime.now(timezone.utc)
             items = self._load_dedup_candidates(report)
-            groups = self._group_by_cosine(items, threshold)
+            # Pass the cap so grouping STOPS at the cap instead of scanning the
+            # whole corpus for groups that will be discarded (Greptile P2 #1733:
+            # the refactor had lost the early exit — quadratic work on large corpora).
+            groups = self._group_by_cosine(items, threshold, cap)
 
             for members in groups:
                 canonical, losers = self._elect_canonical(members)
@@ -960,11 +969,12 @@ class BeliefService:
         embedding = await self._compute_belief_embedding(content)
         if embedding is not None:
             try:
-                conn.execute(
-                    "UPDATE beliefs SET embedding = ? WHERE belief_hash = ?",
-                    (embedding, belief_hash),
-                )
-                conn.commit()
+                # Persist the embedding UNDER the connection lock (Greptile P1
+                # #1733): committing it off-lock could end a concurrent storage
+                # worker's open transaction early. _write_backfill_embedding holds
+                # _conn_lock_cm and only fills a still-NULL row (the one just
+                # inserted), so it is the right primitive here too.
+                self._write_backfill_embedding(belief_hash, embedding)
             except Exception as e:
                 # Column absent (pre-020 schema) or any write issue: the belief
                 # is already persisted; embedding is optional, so swallow.
