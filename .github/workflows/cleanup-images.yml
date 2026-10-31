@@ -63,11 +63,7 @@ jobs:
 
       - name: Install deps
         if: env.SKIP_DOCKER_CLEANUP != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --only-upgrade ca-certificates
-          python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
-          python3 -m pip install --upgrade requests python-dateutil
+        run: python3 -m pip install --upgrade pip requests python-dateutil
 
       - name: Create cleanup script
         if: env.SKIP_DOCKER_CLEANUP != 'true'

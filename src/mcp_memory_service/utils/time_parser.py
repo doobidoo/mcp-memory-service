@@ -824,3 +824,43 @@ def parse_boundary(value: str) -> float:
     if len(value.strip()) == 10:  # date only: host-local calendar day
         return dt.timestamp()
     return dt.replace(tzinfo=timezone.utc).timestamp()
+
+
+def parse_as_of(value: str) -> float:
+    """Epoch for an ``as_of`` point-in-time query (issue #1724).
+
+    Knowledge-time semantics: "what did the store contain at this instant".
+    Accepts ISO dates/datetimes plus the Carrel-style shorthands, where a
+    year or month means the **last day of that period**:
+
+    - ``"2024"`` -> 2024-12-31 23:59:59
+    - ``"2024-03"`` -> last day of March 2024, 23:59:59
+    - ``"2024-03-15"`` -> end of that calendar day (so memories created
+      during the day are included: ``created_at <= as_of``)
+    - full datetimes -> the exact instant (UTC unless an offset is given)
+
+    Bare dates resolve against the host's local day, matching parse_boundary.
+    Raises ValueError on unparseable input.
+    """
+    text = value.strip()
+    if re.fullmatch(r"\d{4}", text):  # YYYY -> Dec 31, end of day
+        year = int(text)
+        dt = datetime(year, 12, 31, 23, 59, 59)
+        return dt.timestamp()  # host-local, like parse_boundary's bare dates
+    if re.fullmatch(r"\d{4}-\d{2}", text):  # YYYY-MM -> last day of month, end of day
+        year, month = int(text[:4]), int(text[5:7])
+        if not 1 <= month <= 12:
+            raise ValueError(f"Invalid as_of month: {value!r}. Use YYYY, YYYY-MM, or an ISO date.")
+        # First day of next month minus one second.
+        if month == 12:
+            last = datetime(year, 12, 31, 23, 59, 59)
+        else:
+            last = datetime(year, month + 1, 1, 23, 59, 59) - timedelta(days=1)
+            last = last.replace(hour=23, minute=59, second=59)
+        return last.timestamp()  # host-local, like parse_boundary's bare dates
+    dt = datetime.fromisoformat(text)  # raises ValueError when unparseable
+    if dt.tzinfo is not None:
+        return dt.timestamp()
+    if len(text) == 10:  # bare YYYY-MM-DD -> end of that calendar day
+        return dt.replace(hour=23, minute=59, second=59).timestamp()
+    return dt.replace(tzinfo=timezone.utc).timestamp()

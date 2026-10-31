@@ -1152,15 +1152,16 @@ async def _collect_cascading_fallback_memories(
     """Combine exact and tag fallback results while preserving their labels."""
     seen_hashes = {memory.get("content_hash") for memory in memories}
     include_superseded = arguments.get("include_superseded", False)
+    as_of = arguments.get("as_of")
     exact_memories = await _search_exact_fallback(
-        storage, query, limit, include_superseded
+        storage, query, limit, include_superseded, as_of
     )
     _append_unique_fallback_memories(
         memories, exact_memories, seen_hashes, "exact_fallback"
     )
     if len(memories) < limit:
         tag_memories = await _search_tag_fallback(
-            storage, query, limit, include_superseded
+            storage, query, limit, include_superseded, as_of
         )
         _append_unique_fallback_memories(
             memories, tag_memories, seen_hashes, "tag_fallback"
@@ -1173,7 +1174,7 @@ async def _collect_cascading_fallback_memories(
 
 
 async def _search_exact_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage, query: str, limit: int, include_superseded: bool, as_of=None
 ) -> list[dict]:
     """Return exact-search candidates, treating a backend error as no matches."""
     result = await storage.search_memories(
@@ -1181,6 +1182,7 @@ async def _search_exact_fallback(
         mode="exact",
         limit=limit,
         include_superseded=include_superseded,
+        as_of=as_of,
     )
     if "error" in result:
         return []
@@ -1188,7 +1190,7 @@ async def _search_exact_fallback(
 
 
 async def _search_tag_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage, query: str, limit: int, include_superseded: bool, as_of=None
 ) -> list[dict]:
     """Return tag-search candidates for tokens extracted from the query."""
     query_tokens = [
@@ -1204,6 +1206,7 @@ async def _search_tag_fallback(
         tags=query_tokens,
         limit=limit,
         include_superseded=include_superseded,
+        as_of=as_of,
     )
     if "error" in result:
         return []
@@ -1243,6 +1246,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         ranking_weights=arguments.get("ranking_weights"),
         store=store,
         agent_id=arguments.get("agent_id"),
+        as_of=arguments.get("as_of"),
     )
     if "error" in result:
         return result, None
@@ -1487,10 +1491,21 @@ def _format_search_memory(memory: dict, index: int, fallback_used: bool) -> str:
     match_info = ""
     if fallback_used and memory.get("match_method"):
         match_info = f" (via {memory['match_method']})"
+    # Issue #1724: surface the point-in-time status flag when the backend
+    # attached one (include_superseded=true).
+    status_info = ""
+    if memory.get("status"):
+        status_info = f"   Status: {memory['status']}"
+        if memory.get("superseded_by"):
+            status_info += f" by {memory['superseded_by'][:12]}"
+            if memory.get("superseded_at_iso"):
+                status_info += f" at {memory['superseded_at_iso']}"
+        status_info += "\n"
     return (
         f"{index}. {memory.get('content', '')}\n"
         f"   Hash: {content_hash}\n"
-        f"   Created: {created_at}{tags_display}{match_info}"
+        f"   Created: {created_at}{tags_display}{match_info}\n"
+        f"{status_info}".rstrip("\n")
     )
 
 

@@ -99,7 +99,10 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
 
             return await handle_find_connected_memories(server, {
                 "hash": hash_val,
-                "max_hops": arguments.get("max_hops", 2)
+                "max_hops": arguments.get("max_hops", 2),
+                # Issue #1724: forward the point-in-time bound — dropping it
+                # here silently disabled as_of for the memory_graph tool.
+                "as_of": arguments.get("as_of"),
             })
 
         elif action == "path":
@@ -373,10 +376,32 @@ async def handle_find_connected_memories(
 
     # Get optional parameters
     max_hops = arguments.get("max_hops", 2)
+    as_of = arguments.get("as_of")
 
     try:
+        # Parse as_of (issue #1724): point-in-time traversal. Invalid values
+        # fail the call rather than silently ignoring the bound.
+        as_of_ts = None
+        if as_of is not None:
+            from ...utils.time_parser import parse_as_of
+            try:
+                as_of_ts = parse_as_of(as_of)
+            except ValueError as e:
+                result = {
+                    "success": False,
+                    "error": f"Invalid as_of value: {e}",
+                    "connected": [],
+                    "count": 0,
+                }
+                return [types.TextContent(
+                    type="text",
+                    text=json.dumps(result, indent=2)
+                )]
+
         # Perform graph traversal
-        connected = await graph.find_connected(memory_hash, max_hops=max_hops)
+        connected = await graph.find_connected(
+            memory_hash, max_hops=max_hops, as_of=as_of_ts
+        )
 
         # Format results
         result = {

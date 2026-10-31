@@ -13,10 +13,11 @@
 # checked out or run here: the checkout below is the base branch, and the
 # script reads the PR through the API alone. Keep it that way.
 #
-# Assignment changes re-run the PR's completed check (scripts/ci has why), so
-# assigning or unassigning the author takes effect without a new push. Assignment
-# also drops the `claim-pending` label that claim-pending.yml adds when the claim
-# was first commented, so the label never outlives the maintainer's assignment.
+# issues: assigned is the other half. Assigning the author confirms a late
+# claim, and that run re-runs the PR's failed check (scripts/ci has why), so
+# the check turns green without a new push. It also drops the `claim-pending`
+# label that claim-pending.yml adds when the claim was first commented, so the
+# label never outlives the maintainer's assignment.
 
 name: Claim Check
 
@@ -30,13 +31,13 @@ on:
     types: [opened, reopened, edited, synchronize, labeled, unlabeled]
     branches: [main]
   issues:
-    types: [assigned, unassigned]
+    types: [assigned]
 
 permissions:
   contents: read
   issues: write
   pull-requests: write
-  actions: write   # re-run a PR's check when issue assignments change
+  actions: write   # re-run a PR's check from the issues: assigned run
 
 concurrency:
   group: claim-check-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -65,7 +66,7 @@ jobs:
       # Independent of the re-run below (which has `if: always()`), so neither step
       # blocks the other: a cleanup failure is surfaced here but still lets the PR
       # check re-run, and a re-run failure never leaves the label behind (Greptile).
-      if: github.event_name == 'issues' && github.event.action == 'assigned'
+      if: github.event_name == 'issues'
       env:
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}

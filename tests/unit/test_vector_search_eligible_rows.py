@@ -44,6 +44,7 @@ def storage():
             id INTEGER PRIMARY KEY, content_hash TEXT, content TEXT, tags TEXT,
             memory_type TEXT, metadata TEXT, created_at REAL, updated_at REAL,
             created_at_iso TEXT, updated_at_iso TEXT, deleted_at REAL, superseded_by TEXT,
+            superseded_at REAL,
             embedding_pending INTEGER NOT NULL DEFAULT 0
         )
     """)

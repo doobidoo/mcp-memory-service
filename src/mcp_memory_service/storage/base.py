@@ -19,6 +19,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 """
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any, Sequence, Tuple, Set
 from datetime import datetime, timezone, timedelta, date
@@ -209,7 +210,7 @@ class MemoryStorage(ABC):
         return final_results
 
     @abstractmethod
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None, as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search.
 
         Args:
@@ -221,6 +222,9 @@ class MemoryStorage(ABC):
             min_confidence: Minimum effective confidence score (0.0-1.0).
                   When > 0, stale memories below threshold are filtered out.
                   Default 0.0 disables filtering (backward compatible).
+            as_of: Optional epoch seconds for a point-in-time query (issue
+                  #1724): only memories with created_at <= as_of that had not
+                  yet been superseded at as_of are returned. None disables.
         """
         pass
 
@@ -240,7 +244,8 @@ class MemoryStorage(ABC):
         quality_boost: Optional[bool] = None,
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
-        store: Optional[str] = "default"
+        store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         """
         Retrieve memories with optional quality-based reranking.
@@ -285,12 +290,12 @@ class MemoryStorage(ABC):
 
         if not quality_boost:
             # Standard retrieval, no reranking
-            return await self.retrieve(query, n_results, tags=tags, include_superseded=include_superseded, store=store)
+            return await self.retrieve(query, n_results, tags=tags, include_superseded=include_superseded, store=store, as_of=as_of)
 
         # Quality-boosted retrieval
         # Step 1: Over-fetch (3x) to have pool for reranking
         oversample_factor = 3
-        candidates = await self.retrieve(query, n_results * oversample_factor, tags=tags, include_superseded=include_superseded, store=store)
+        candidates = await self.retrieve(query, n_results * oversample_factor, tags=tags, include_superseded=include_superseded, store=store, as_of=as_of)
 
         if not candidates:
             return []
@@ -1219,6 +1224,74 @@ class MemoryStorage(ABC):
             },
         }
 
+    @staticmethod
+    def _post_filter_as_of(
+        results: List[MemoryQueryResult], as_of_ts: float
+    ) -> List[MemoryQueryResult]:
+        """Best-effort point-in-time post-filter (issue #1724).
+
+        For backends without SQL-level as_of support (cloudflare, milvus,
+        remote_http): drop memories created after as_of, and drop memories
+        that are superseded without a known replacement moment (their
+        supersede time cannot be proven to be after as_of, so they cannot be
+        shown as current at as_of). Backends with native support (sqlite_vec,
+        hybrid via primary) already filtered; this is a no-op for them.
+        """
+        filtered = []
+        for r in results:
+            created = r.memory.created_at
+            if created is not None and created > as_of_ts:
+                continue
+            sup_by = r.superseded_by
+            sup_at = r.superseded_at
+            if sup_by and (sup_at is None or sup_at <= as_of_ts):
+                continue
+            filtered.append(r)
+        return filtered
+
+    async def _get_supersession_map(
+        self, content_hashes: List[str], store: Optional[str] = None
+    ) -> Dict[str, Tuple[Optional[str], Optional[float]]]:
+        """Batch supersession-lineage lookup: content_hash -> (superseded_by, superseded_at).
+
+        Issue #1724 follow-up: exact / time-only / tag-only search paths build
+        results from raw Memory objects that never flow through retrieve(), so
+        their lineage fields are empty. The base implementation returns {}
+        (backend cannot provide it — those paths then get only the created_at
+        bound); SQLite overrides with a single batched query.
+        """
+        return {}
+
+    async def _enrich_supersession(
+        self, results: List[MemoryQueryResult], store: Optional[str] = None
+    ) -> List[MemoryQueryResult]:
+        """Backfill supersession lineage on results that lack it. Never raises:
+        on any failure the results pass through unchanged (created_at bound
+        still applies via _post_filter_as_of)."""
+        try:
+            need = [
+                r for r in results
+                if r.superseded_by is None and r.superseded_at is None
+            ]
+            if not need:
+                return results
+            mapping = await self._get_supersession_map(
+                [r.memory.content_hash for r in need], store=store
+            )
+            if not mapping:
+                return results
+            for r in need:
+                hit = mapping.get(r.memory.content_hash)
+                if hit:
+                    r.superseded_by, r.superseded_at = hit
+            return results
+        except Exception as e:
+            logger.warning(
+                "Supersession enrichment failed, continuing without lineage: %s",
+                _sanitize_log_value(str(e)),
+            )
+            return results
+
     async def search_memories(
         self,
         query: Optional[str] = None,
@@ -1235,6 +1308,7 @@ class MemoryStorage(ABC):
         ranking_weights: Optional[Dict[str, float]] = None,
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Unified memory search with flexible modes and filters.
@@ -1382,6 +1456,23 @@ class MemoryStorage(ABC):
                             "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
                         }
 
+            # Point-in-time query (issue #1724): knowledge-time semantics —
+            # "what did the store contain at as_of". Accepts ISO dates and the
+            # YYYY / YYYY-MM shorthands (last day of the period).
+            as_of_ts = None
+            if as_of is not None:
+                from ..utils.time_parser import parse_as_of  # inline import
+                try:
+                    as_of_ts = parse_as_of(as_of)
+                except ValueError:
+                    return {
+                        "memories": [],
+                        "total": 0,
+                        "query": query,
+                        "mode": mode,
+                        "error": f"Invalid as_of date format: {as_of}. Use YYYY, YYYY-MM, or an ISO date/datetime"
+                    }
+
             # Perform search based on mode
             results = []
 
@@ -1403,6 +1494,7 @@ class MemoryStorage(ABC):
                     query, n_results=oversample,
                     include_superseded=include_superseded,
                     store=store,
+                    as_of=as_of_ts,
                 )
                 if candidates:
                     weights = RankedSearchWeights.from_dict(ranking_weights)
@@ -1428,6 +1520,14 @@ class MemoryStorage(ABC):
                     MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
                     for m in matched_memories
                 ]
+                # Issue #1724 follow-up: exact matches never flow through
+                # retrieve(), so backfill supersession lineage (for the status
+                # flags below) and apply the point-in-time bound. Without
+                # as_of/include_superseded the path is byte-for-byte unchanged.
+                if as_of_ts is not None or include_superseded:
+                    results = await self._enrich_supersession(results, store=store)
+                if as_of_ts is not None:
+                    results = self._post_filter_as_of(results, as_of_ts)
                 pre_filter_count = len(results)
 
             elif mode in ("semantic", "hybrid"):
@@ -1468,7 +1568,8 @@ class MemoryStorage(ABC):
                                 query,
                                 n_results=fetch_limit,
                                 include_superseded=include_superseded,
-                                store=store
+                                store=store,
+                                as_of=as_of_ts,
                             )
                         else:
                             # Fall back to semantic if hybrid disabled in config
@@ -1481,10 +1582,11 @@ class MemoryStorage(ABC):
                                     quality_boost=True,
                                     quality_weight=quality_boost,
                                     include_superseded=include_superseded,
-                                    store=store
+                                    store=store,
+                                    as_of=as_of_ts,
                                 )
                             else:
-                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time, store=store)
+                                results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time, store=store, as_of=as_of_ts)
                     elif quality_boost > 0:
                         # Use quality-boosted retrieval
                         results = await self.retrieve_with_quality_boost(
@@ -1494,11 +1596,12 @@ class MemoryStorage(ABC):
                             quality_boost=True,
                             quality_weight=quality_boost,
                             include_superseded=include_superseded,
-                            store=store
+                            store=store,
+                            as_of=as_of_ts,
                         )
                     else:
                         # Standard semantic search
-                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time, store=store)
+                        results = await self.retrieve(query, n_results=fetch_limit, tags=tags, include_superseded=include_superseded, start_time=start_time, end_time=end_time, store=store, as_of=as_of_ts)
 
                     pre_filter_count = len(results)
                 else:
@@ -1525,6 +1628,15 @@ class MemoryStorage(ABC):
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories
                         ]
+                        pre_filter_count = len(results)
+
+                    # Issue #1724 follow-up: time-only / tag-only paths also
+                    # bypass retrieve() — same enrichment + point-in-time bound
+                    # as the exact branch above.
+                    if as_of_ts is not None or include_superseded:
+                        results = await self._enrich_supersession(results, store=store)
+                    if as_of_ts is not None:
+                        results = self._post_filter_as_of(results, as_of_ts)
                         pre_filter_count = len(results)
 
             # Apply time filters
@@ -1582,6 +1694,22 @@ class MemoryStorage(ABC):
                 mem_dict["similarity_score"] = r.relevance_score
                 if r.debug_info:
                     mem_dict["debug_info"] = r.debug_info
+                # Issue #1724: status flags. The status is evaluated at the
+                # query time (as_of when given, otherwise now): a memory whose
+                # supersede happened after as_of was still current then.
+                if include_superseded:
+                    query_ts = as_of_ts if as_of_ts is not None else time.time()
+                    sup_by = r.superseded_by
+                    sup_at = r.superseded_at
+                    is_superseded = bool(sup_by) and (sup_at is None or sup_at <= query_ts)
+                    mem_dict["status"] = "superseded" if is_superseded else "current"
+                    if sup_by:
+                        mem_dict["superseded_by"] = sup_by
+                    if sup_at is not None:
+                        mem_dict["superseded_at"] = sup_at
+                        mem_dict["superseded_at_iso"] = (
+                            datetime.fromtimestamp(sup_at, tz=timezone.utc).isoformat()
+                        )
                 memories.append(mem_dict)
 
             # Build response

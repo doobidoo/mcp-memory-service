@@ -41,9 +41,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install package + test deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --only-upgrade ca-certificates
-          python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+          python3 -m pip install --upgrade pip
           python3 -m pip install -e ".[sqlite]" pytest pytest-asyncio
       - name: Run unit tests
         run: python3 -m pytest -m unit -q
@@ -56,9 +54,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install build tooling
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --only-upgrade ca-certificates
-          python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+          python3 -m pip install --upgrade pip
           python3 -m pip install build hatchling twine
 
       # --- Main package (with PyTorch) ---

@@ -1711,6 +1711,7 @@ class MilvusMemoryStorage(MemoryStorage):
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         store: Optional[str] = None,
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # Single-collection backend — see store() for the full rationale.
@@ -1742,6 +1743,17 @@ class MilvusMemoryStorage(MemoryStorage):
                 r for r in results
                 if not r.memory.metadata.get("superseded_by")
             ]
+        # Issue #1724 follow-up: always load the replacement lineage, not only
+        # when as_of is set — include_superseded status flags need it too.
+        # Milvus tracks superseded_by in metadata but not the replacement
+        # moment, so superseded_at stays None (conservative in as_of queries).
+        for r in results:
+            r.superseded_by = r.memory.metadata.get("superseded_by") or None
+        # Issue #1724: best-effort point-in-time filter. Milvus tracks
+        # superseded_by in metadata but not the replacement moment, so
+        # superseded rows are conservatively excluded from as_of queries.
+        if as_of is not None:
+            results = self._post_filter_as_of(results, as_of)
         results = results[:n_results]
 
         # Async update last_accessed for hit memories (non-blocking)
@@ -2672,6 +2684,7 @@ class MilvusMemoryStorage(MemoryStorage):
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
         store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List["MemoryQueryResult"]:
         """Quality-boosted retrieval using Milvus native hybrid search.
 
@@ -2692,14 +2705,14 @@ class MilvusMemoryStorage(MemoryStorage):
         if not quality_boost:
             return await self.retrieve(
                 query, n_results, tags=tags, include_superseded=include_superseded,
-                store=store,
+                store=store, as_of=as_of,
             )
 
         # Over-fetch for reranking pool
         oversample = 3
         candidates = await self.retrieve(
             query, n_results * oversample, tags=tags,
-            include_superseded=include_superseded, store=store,
+            include_superseded=include_superseded, store=store, as_of=as_of,
         )
         if not candidates:
             return []
@@ -2791,6 +2804,7 @@ class MilvusMemoryStorage(MemoryStorage):
         ranking_weights: Optional[Dict[str, float]] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
         agent_id: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Unified memory search with Milvus-native filtering.
 
@@ -2801,6 +2815,11 @@ class MilvusMemoryStorage(MemoryStorage):
         ``agent_id`` is accepted because the MCP search handler always passes
         it (issue #1650). Filtering by agent is not implemented for Milvus, so
         a non-None value returns an error result, like the other failures here.
+
+        Issue #1724: as_of is a point-in-time bound (same format as the base
+        class). It is applied as a best-effort post-filter: Milvus tracks
+        superseded_by in metadata but not the replacement moment, so
+        superseded rows are conservatively excluded from as_of queries.
         """
         if agent_id is not None:
             return {"memories": [], "total": 0, "query": query, "mode": mode,
@@ -2844,6 +2863,17 @@ class MilvusMemoryStorage(MemoryStorage):
                 except ValueError:
                     return {"memories": [], "total": 0, "query": query, "mode": mode,
                             "error": f"Invalid before date: {before}"}
+
+        # Issue #1724: point-in-time bound, parsed like the base class. Invalid
+        # values fail the call rather than silently returning present-time data.
+        as_of_ts: Optional[float] = None
+        if as_of is not None:
+            try:
+                from ..utils.time_parser import parse_as_of  # inline import
+                as_of_ts = parse_as_of(as_of)
+            except ValueError:
+                return {"memories": [], "total": 0, "query": query, "mode": mode,
+                        "error": f"Invalid as_of date format: {as_of}. Use YYYY, YYYY-MM, or an ISO date/datetime"}
 
         # -- Build Milvus filter expression (push filters server-side) --
         filter_parts: List[str] = []
@@ -2969,6 +2999,14 @@ class MilvusMemoryStorage(MemoryStorage):
                 except Exception as exc:  # noqa: BLE001
                     logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
 
+        # Issue #1724: always load the replacement lineage (needed by the
+        # status flags below, independently of as_of), then apply the
+        # point-in-time bound, then the plain superseded filter.
+        for r in results:
+            r.superseded_by = r.memory.metadata.get("superseded_by") or None
+        if as_of_ts is not None:
+            results = self._post_filter_as_of(results, as_of_ts)
+
         # Filter superseded
         if not include_superseded:
             results = [r for r in results if not r.memory.metadata.get("superseded_by")]
@@ -2983,6 +3021,12 @@ class MilvusMemoryStorage(MemoryStorage):
             mem_dict["similarity_score"] = r.relevance_score
             if r.debug_info:
                 mem_dict["debug_info"] = r.debug_info
+            # Issue #1724: status flags, mirroring the base class.
+            if include_superseded:
+                sup_by = r.superseded_by
+                mem_dict["status"] = "superseded" if sup_by else "current"
+                if sup_by:
+                    mem_dict["superseded_by"] = sup_by
             memories.append(mem_dict)
 
         response: Dict[str, Any] = {

@@ -460,12 +460,18 @@ class MemoryQueryResult:
     memory: Memory
     relevance_score: float
     debug_info: Dict[str, Any] = field(default_factory=dict)
-    
+    # Issue #1724: supersession lineage, populated by backends that track it
+    # (sqlite_vec / hybrid). superseded_at is the exact replacement moment for
+    # rows superseded after migration 020; for older rows it is approximated
+    # with the successor's created_at (see RetrieveMixin.retrieve).
+    superseded_by: Optional[str] = None
+    superseded_at: Optional[float] = None
+
     @property
     def similarity_score(self) -> float:
         """Alias for relevance_score for backward compatibility."""
         return self.relevance_score
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
         return {

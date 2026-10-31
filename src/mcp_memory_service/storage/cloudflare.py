@@ -1039,7 +1039,7 @@ class CloudflareStorage(MemoryStorage):
         if response.status_code not in [200, 201]:
             raise ValueError(f"Failed to store content in R2: {response.status_code}")
     
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default") -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search."""
         try:
             # Generate query embedding
@@ -1126,9 +1126,15 @@ class CloudflareStorage(MemoryStorage):
                 except Exception as e:
                     logger.warning("Failed to persist access metadata: %s", _sanitize_log_value(e))
 
+            # Issue #1724: best-effort point-in-time filter. The Cloudflare
+            # backend has no superseded_at; superseded rows are conservatively
+            # excluded from as_of queries.
+            if as_of is not None:
+                results = self._post_filter_as_of(results, as_of)
+
             logger.info("Retrieved %s memories for query", len(results))
             return results
-            
+
         except Exception as e:
             logger.error("Failed to retrieve memories: %s", _sanitize_log_value(e))
             return []

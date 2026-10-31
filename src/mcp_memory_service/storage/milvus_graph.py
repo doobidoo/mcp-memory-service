@@ -463,6 +463,32 @@ class MilvusGraphStorage:
             logger.error("Edge query (both directions) failed: %s", exc)
             return []
 
+    @staticmethod
+    def _edge_valid_at_as_of(row: Dict[str, Any], as_of: float) -> bool:
+        """Issue #1724: point-in-time edge validity, mirroring the temporal
+        predicate in GraphStorage.find_connected. An edge is traversable at
+        as_of when its valid_from/valid_until window (stored in metadata by
+        store_temporal_association) contains as_of; edges without temporal
+        bounds always pass. Unparseable metadata fails open (pass)."""
+        meta = row.get("metadata") or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                return True
+        if not isinstance(meta, dict):
+            return True
+        try:
+            vf = meta.get("valid_from")
+            vu = meta.get("valid_until")
+            if vf is not None and float(vf) > as_of:
+                return False
+            if vu is not None and float(vu) < as_of:
+                return False
+        except (TypeError, ValueError):
+            return True
+        return True
+
     async def _bfs(
         self,
         start_hash: str,
@@ -470,6 +496,7 @@ class MilvusGraphStorage:
         direction: str = "both",
         relationship_types: Optional[List[str]] = None,
         stop_at: Optional[str] = None,
+        as_of: Optional[float] = None,
     ) -> Tuple[List[Tuple[str, int]], Optional[Dict[str, str]]]:
         """Application-layer BFS over the association collection.
 
@@ -478,6 +505,9 @@ class MilvusGraphStorage:
             and parents is a dict mapping each hash to its predecessor (used
             for path reconstruction when stop_at is set). If stop_at is None,
             parents is None.
+
+        Issue #1724: as_of filters edges by their temporal window
+        (valid_from/valid_until in metadata), mirroring GraphStorage.
         """
         visited: Set[str] = {start_hash}
         frontier: Set[str] = {start_hash}
@@ -491,6 +521,9 @@ class MilvusGraphStorage:
                 # Single query for both directions — halves network round-trips
                 rows = await self._query_edges_both(frontier, relationship_types)
                 for row in rows:
+                    # Issue #1724: skip edges outside the point-in-time window.
+                    if as_of is not None and not self._edge_valid_at_as_of(row, as_of):
+                        continue
                     source = row["source_hash"]
                     target = row["target_hash"]
                     # Determine which end is the new neighbor
@@ -508,6 +541,8 @@ class MilvusGraphStorage:
                 if direction == "outgoing":
                     rows = await self._query_edges("source_hash", frontier, relationship_types)
                     for row in rows:
+                        if as_of is not None and not self._edge_valid_at_as_of(row, as_of):
+                            continue
                         target = row["target_hash"]
                         if target not in visited:
                             visited.add(target)
@@ -518,6 +553,8 @@ class MilvusGraphStorage:
                 elif direction == "incoming":
                     rows = await self._query_edges("target_hash", frontier, relationship_types)
                     for row in rows:
+                        if as_of is not None and not self._edge_valid_at_as_of(row, as_of):
+                            continue
                         source = row["source_hash"]
                         if source not in visited:
                             visited.add(source)
@@ -543,8 +580,15 @@ class MilvusGraphStorage:
         max_hops: int = 2,
         relationship_type: Optional[str] = None,
         direction: str = "both",
+        as_of: Optional[float] = None,
     ) -> List[Tuple[str, int]]:
-        """Find all memories connected within N hops using BFS."""
+        """Find all memories connected within N hops using BFS.
+
+        Issue #1724: as_of is a point-in-time bound (Unix epoch). Edges whose
+        metadata carries valid_from/valid_until are only traversed when the
+        window contains as_of; untimed edges always pass. Mirrors
+        GraphStorage.find_connected.
+        """
         if not self._ensure_ready():
             return []
 
@@ -566,6 +610,7 @@ class MilvusGraphStorage:
                 max_hops,
                 direction=direction,
                 relationship_types=rt_list,
+                as_of=as_of,
             )
             result.sort(key=lambda x: (x[1], x[0]))
             return result

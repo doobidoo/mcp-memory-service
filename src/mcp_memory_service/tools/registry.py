@@ -317,7 +317,18 @@ Examples:
                 "include_superseded": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden).",
+                    "description": "Include memories that have been superseded by newer contradicting memories. Default: false (superseded memories are hidden). When true, each result carries a status field ('current' or 'superseded') plus superseded_by and superseded_at when superseded.",
+                },
+                "as_of": {
+                    "type": "string",
+                    "description": (
+                        "Point-in-time query (issue #1724): return what was known at this moment. "
+                        "Accepts an ISO date/datetime (e.g. '2026-09-15', '2026-09-15T10:00:00Z'), "
+                        "'YYYY' (the whole year, evaluated at its last second), or 'YYYY-MM' "
+                        "(evaluated at that month's last second). Results include memories with "
+                        "created_at <= as_of that had not been superseded by as_of. Status flags "
+                        "with include_superseded=true are evaluated at as_of as well."
+                    ),
                 },
                 "entity": {
                     "type": "string",
@@ -1045,6 +1056,15 @@ Examples:
                 "rel_type": {
                     "type": "string",
                     "description": "For 'infer': relationship type to traverse",
+                },
+                "as_of": {
+                    "type": "string",
+                    "description": (
+                        "For 'connected': point-in-time traversal (issue #1724). "
+                        "Only edges valid at this moment are followed (temporal "
+                        "edges carry valid_from/valid_until; untimed edges are "
+                        "always followed). Same formats as memory_search as_of."
+                    ),
                 },
             },
             "required": ["action"],
