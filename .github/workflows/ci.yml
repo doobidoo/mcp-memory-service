@@ -545,9 +545,14 @@ jobs:
         MCP_OAUTH_ENABLED: "false"
         MCP_ALLOW_ANONYMOUS_ACCESS: "true"
       # -rs: a skip inside this job is a finding, not noise — print its reason.
+      # -n auto (pytest-xdist): one worker per runner core. Each Milvus Lite
+      # instance lives under tmp_path / tmp_path_factory, which xdist gives every
+      # worker separately, and collection names carry a uuid, so workers never
+      # share a database file.
       run: |
         python3 -m pytest tests/storage/test_milvus*.py \
           -m "not benchmark" \
           --timeout=120 \
+          -n auto \
           -rs \
           -q
