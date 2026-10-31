@@ -442,6 +442,25 @@ jobs:
           -n auto \
           -q
 
+    # TEMPORARY (revert before merge): repeat this shard so different
+    # test-to-worker distributions get a chance to expose order dependencies.
+    - name: "TEMP: repeat this shard"
+      env:
+        MCP_API_KEY: ""
+        MCP_OAUTH_ENABLED: "false"
+        MCP_ALLOW_ANONYMOUS_ACCESS: "true"
+        MCP_TEST_SHARD: ${{ matrix.shard }}/2
+      run: |
+        set -o pipefail
+        rc=0
+        for i in 1 2 3; do
+          echo "::group::repeat $i"
+          python3 -m pytest tests/ --ignore=tests/benchmarks --ignore=tests/integration \
+            -m "not benchmark" --timeout=120 -n auto -q -p no:cacheprovider | tail -8 || rc=1
+          echo "::endgroup::"
+        done
+        exit $rc
+
   # The required check `Tests with ML Extras (transformers paths)`, now reported by
   # this job instead of the sharded one above, so ProtectMain needs no change.
   # Green when every shard passed, or when the shards skipped because `changes`
