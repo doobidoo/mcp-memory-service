@@ -46,12 +46,12 @@ _NOISE_PATTERNS = [
     re.compile(r"<ide_opened_file>", re.IGNORECASE),
     re.compile(r"^Topics Discussed:", re.MULTILINE | re.IGNORECASE),
     re.compile(r"^Session:\s+[0-9a-f]{8}-", re.IGNORECASE),  # UUID session IDs (#121)
-    # Meta-statistics that escape the bracket prefixes (e.g. the bracket-less
+    # Meta-statistics that escape the bracket prefixes (the bracket-less
     # "[PATTERN]" body): "N memories share tags [...], indicating a recurring
-    # theme." is a co-occurrence count, not knowledge. Investigação 31/out:
-    # ~230 such beliefs occupied top-k slots. Narrow by design — requires the
-    # "share tags" + "recurring theme" co-location, never a plain mention of
-    # "tag" or "pattern" in a legitimate sentence.
+    # theme." is a co-occurrence count, not knowledge. Anchored to the trailing
+    # "indicating a recurring theme"; the list body is [^\n]* (NOT [^\]], because
+    # a tag name can itself contain "]" e.g. "[project]" — Greptile P2
+    # r4431605443). No DOTALL, so legit prose across paragraphs is not caught.
     # Anchored to the exact shape _detect_patterns emits in insights.py:
     # "... share tags [<sorted list>], indicating a recurring theme." The list
     # is unbounded (every shared tag is printed), so match the bracketed-list
@@ -60,7 +60,7 @@ _NOISE_PATTERNS = [
     # No DOTALL and the list body excludes line breaks, so legitimate prose that
     # mentions both phrases across paragraphs is not caught.
     re.compile(
-        r"memories share tags \[[^\]\n]*\],?\s*indicating a recurring theme",
+        r"memories share tags \[[^\n]*\],?\s*indicating a recurring theme",
         re.IGNORECASE,
     ),
 ]
@@ -105,7 +105,7 @@ def _is_noise(content: str) -> bool:
 # derivation. Only the auto-insight markers are retroactively excluded.
 _META_STAT_PREFIXES = ("[GAP]", "[PATTERN]", "[TREND]", "[MINED:")
 _META_STAT_PATTERN = re.compile(
-    r"memories share tags \[[^\]\n]*\],?\s*indicating a recurring theme",
+    r"memories share tags \[[^\n]*\],?\s*indicating a recurring theme",
     re.IGNORECASE,
 )
 

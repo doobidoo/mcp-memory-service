@@ -88,6 +88,12 @@ class TestMetaStatNoiseRejected:
         # still be rejected — the pattern matches list structure, not length.
         assert _is_noise(LONGLIST_CASE) is True
 
+    def test_tag_name_containing_bracket_is_noise(self):
+        # Greptile P2 r4431605443: a tag name can contain "]" (e.g. "[project]").
+        # The pattern must not stop at the first "]" and let the statistic pass.
+        case = "6 memories share tags ['[project]', 'work'], indicating a recurring theme."
+        assert _is_noise(case) is True
+
 
 class TestLegitBeliefsNotNoise:
     """Anti-regression: legitimate, actionable beliefs stay un-filtered (False)."""
