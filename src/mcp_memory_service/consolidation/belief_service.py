@@ -440,6 +440,19 @@ class BeliefService:
         return items
 
     @staticmethod
+    def _members_from_seed(items: list, seed_idx: int, used: set, threshold: float) -> list:
+        """Members of the seed's group: the seed plus every later unused item with
+        cosine >= threshold against it (single-linkage from the seed)."""
+        seed = items[seed_idx]
+        members = [seed]
+        for j in range(seed_idx + 1, len(items)):
+            if items[j][0] in used:
+                continue
+            if _cosine(seed[4], items[j][4]) >= threshold:
+                members.append(items[j])
+        return members
+
+    @staticmethod
     def _group_by_cosine(items: list, threshold: float, cap: int | None = None) -> list:
         """Greedy single-linkage grouping by cosine >= threshold.
 
@@ -457,16 +470,10 @@ class BeliefService:
         for i in range(len(items)):
             if items[i][0] in used:
                 continue
-            members = [items[i]]
-            for j in range(i + 1, len(items)):
-                if items[j][0] in used:
-                    continue
-                if _cosine(items[i][4], items[j][4]) >= threshold:
-                    members.append(items[j])
+            members = BeliefService._members_from_seed(items, i, used, threshold)
             if len(members) < 2:
                 continue
-            for m in members:
-                used.add(m[0])
+            used.update(m[0] for m in members)
             groups.append(members)
             if cap is not None and len(groups) >= cap:
                 break
