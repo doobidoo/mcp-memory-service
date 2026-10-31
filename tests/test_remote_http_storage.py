@@ -303,8 +303,9 @@ class TestRemoteHTTPStorageServibleMethods:
         mock_response.json.return_value = {"success": True, "hash": sample_memory.content_hash}
         mock_response.status_code = 201
         
+        http_storage.supports_store_scoped_access = True
         with patch.object(http_storage, '_request', return_value=mock_response) as mock_request:
-            success, message = await http_storage.store(sample_memory)
+            success, message = await http_storage.store(sample_memory, store="docs")
             
             # Verify HTTP call
             mock_request.assert_called_once_with(
@@ -315,7 +316,8 @@ class TestRemoteHTTPStorageServibleMethods:
                     "content_hash": sample_memory.content_hash,
                     "tags": sample_memory.tags,
                     "memory_type": sample_memory.memory_type,
-                    "metadata": sample_memory.metadata or {}
+                    "metadata": sample_memory.metadata or {},
+                    "store": "docs",
                 }
             )
             assert success is True
@@ -385,6 +387,93 @@ class TestRemoteHTTPStorageServibleMethods:
                 }
             )
             assert success is True
+
+    @pytest.mark.asyncio
+    async def test_hash_operations_forward_store_scope(self, http_storage):
+        """Remote HTTP hash operations must carry the partition to the API."""
+        http_storage.get_by_hash_is_store_scoped = True
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "content": "scoped memory",
+            "content_hash": "scoped_hash",
+            "tags": [],
+            "metadata": {},
+        }
+        with patch.object(http_storage, "_request", return_value=response) as request:
+            memory = await http_storage.get_by_hash("scoped_hash", store="docs")
+            request.assert_called_once_with(
+                "GET", "/api/memories/scoped_hash", params={"store": "docs"}
+            )
+            assert memory is not None
+
+        response.json.return_value = {"success": True}
+        with patch.object(http_storage, "_request", return_value=response) as request:
+            ok, _ = await http_storage.update_memory_metadata(
+                "scoped_hash", {"tags": ["docs"]}, store="docs"
+            )
+            request.assert_called_once_with(
+                "PUT",
+                "/api/memories/scoped_hash",
+                json={"tags": ["docs"], "preserve_timestamps": True},
+                params={"store": "docs"},
+            )
+            assert ok
+
+    @pytest.mark.asyncio
+    async def test_default_store_hash_operations_keep_legacy_requests(self, http_storage):
+        """The default partition remains usable with older peers lacking capabilities."""
+        response = MagicMock()
+        response.status_code = 200
+        response.json.side_effect = [
+            {
+                "content": "default memory",
+                "content_hash": "default_hash",
+                "tags": [],
+                "metadata": {},
+            },
+            {"success": True},
+            {"success": True},
+        ]
+
+        with patch.object(http_storage, "_request", return_value=response) as request:
+            assert await http_storage.get_by_hash("default_hash", store="default")
+            assert (await http_storage.delete("default_hash", store="default"))[0]
+            assert (
+                await http_storage.update_memory_metadata(
+                    "default_hash", {"tags": []}, store="default"
+                )
+            )[0]
+
+        assert [call.args for call in request.call_args_list] == [
+            ("GET", "/api/memories/default_hash"),
+            ("DELETE", "/api/memories/default_hash"),
+            ("PUT", "/api/memories/default_hash"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_named_store_write_fails_closed_without_peer_capability(
+        self, http_storage, sample_memory
+    ):
+        with patch.object(http_storage, "_request") as request:
+            ok, message = await http_storage.store(sample_memory, store="docs")
+
+        assert not ok
+        assert "not confirmed" in message
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hash_operations_fail_closed_without_peer_capability(self, http_storage):
+        http_storage.get_by_hash_is_store_scoped = False
+        with patch.object(http_storage, "_request") as request:
+            assert await http_storage.get_by_hash("scoped_hash", store="docs") is None
+            assert not (await http_storage.delete("scoped_hash", store="docs"))[0]
+            assert not (
+                await http_storage.update_memory_metadata(
+                    "scoped_hash", {"tags": ["docs"]}, store="docs"
+                )
+            )[0]
+            request.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_get_stats_http_call(self, http_storage):
@@ -651,9 +740,28 @@ class TestRemoteHTTPStorageLifecycle:
     
     @pytest.mark.asyncio
     async def test_initialize_method(self, http_storage):
-        """initialize() should be a no-op or health check."""
-        # Should not raise an exception
-        await http_storage.initialize()
+        """initialize() should read peer capabilities and remain backward compatible."""
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "store_scoped_hash_ops": True,
+            "store_scoped_access": True,
+        }
+        with patch.object(http_storage, "_request", return_value=response) as request:
+            await http_storage.initialize()
+        request.assert_called_once_with("GET", "/api/sync/capabilities")
+        assert http_storage.get_by_hash_is_store_scoped is True
+        assert http_storage.supports_store_scoped_access is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_leaves_legacy_peer_unscoped(self, http_storage):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"version": "11.0.0"}
+        with patch.object(http_storage, "_request", return_value=response):
+            await http_storage.initialize()
+        assert http_storage.get_by_hash_is_store_scoped is False
+        assert http_storage.supports_store_scoped_access is False
     
     @pytest.mark.asyncio
     async def test_close_method(self, http_storage):

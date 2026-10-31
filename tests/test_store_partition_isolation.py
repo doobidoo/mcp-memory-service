@@ -94,6 +94,72 @@ class TestDeleteMemoriesStoreIsolation:
         assert res_wrong["deleted_count"] == 0, "Wrong-store delete must report 0 deleted"
 
     @pytest.mark.asyncio
+    async def test_delete_by_hash_method_respects_store(self, storage):
+        """The storage-layer hash delete must not rely only on handler checks."""
+        memory = Memory(content="delete method scope", content_hash="delete_method_scope")
+        await storage.store(memory, store="docs")
+
+        ok, message = await storage.delete(memory.content_hash, store="default")
+
+        assert not ok
+        assert "not found" in message.lower()
+        row = storage.conn.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?", (memory.content_hash,)
+        ).fetchone()
+        assert row is not None and row[0] is None
+
+
+class TestHashAddressedUpdateStoreIsolation:
+    """Hash-addressed metadata and version writes must enforce store in storage."""
+
+    @pytest.mark.asyncio
+    async def test_metadata_update_is_scoped_at_storage_layer(self, storage):
+        memory = Memory(
+            content="metadata update store scope",
+            content_hash="metadata_update_scope",
+            metadata={"owner": "docs"},
+        )
+        await storage.store(memory, store="docs")
+
+        ok, message = await storage.update_memory_metadata(
+            memory.content_hash, {"metadata": {"owner": "default"}}, store="default"
+        )
+
+        assert not ok
+        assert "not found" in message.lower()
+        stored = await storage.get_by_hash(memory.content_hash, store="docs")
+        assert stored is not None
+        assert stored.metadata["owner"] == "docs"
+
+        ok, _ = await storage.update_memory_metadata(
+            memory.content_hash, {"metadata": {"owner": "docs-updated"}}, store="docs"
+        )
+        assert ok
+        stored = await storage.get_by_hash(memory.content_hash, store="docs")
+        assert stored is not None
+        assert stored.metadata["owner"] == "docs-updated"
+
+    @pytest.mark.asyncio
+    async def test_versioned_update_is_scoped_at_storage_layer(self, storage):
+        memory = Memory(content="versioned update store scope", content_hash="versioned_update_scope")
+        await storage.store(memory, store="docs")
+
+        ok, message, new_hash = await storage.update_memory_versioned(
+            memory.content_hash, "must not create a cross-store version", store="default"
+        )
+
+        assert not ok
+        assert "not found" in message.lower()
+        assert new_hash is None
+        assert storage.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE content_hash = ?", (memory.content_hash,)
+        ).fetchone()[0] == 1
+        assert storage.conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE content = ?",
+            ("must not create a cross-store version",),
+        ).fetchone()[0] == 0
+
+    @pytest.mark.asyncio
     async def test_delete_by_tag_respects_store(self, storage):
         """Delete by tag should only affect memories in specified store (#1465).
 

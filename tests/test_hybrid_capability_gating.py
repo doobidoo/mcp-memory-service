@@ -40,6 +40,7 @@ class MockMemoryStorage(MemoryStorage):
         self._requires_metadata_normalization = requires_metadata_norm
         self.call_log = []
         self.store_calls = []
+        self.store_partitions = []
         self.update_calls = []
         self.delete_calls = []
 
@@ -67,6 +68,7 @@ class MockMemoryStorage(MemoryStorage):
     async def store(self, memory, skip_semantic_dedup=False, store="default"):
         self.call_log.append(f"store({memory.content_hash})")
         self.store_calls.append(memory)
+        self.store_partitions.append(store)
         return True, "Success"
 
     async def delete(self, content_hash):
@@ -311,6 +313,26 @@ class TestCapabilityGating:
             mock_validate.assert_called_once()  # Should be called for store op
             mock_normalize.assert_called_once()  # Should be called for update op  
             mock_capacity.assert_not_called()  # Should NOT be called during normal ops (only error handler + periodic)
+
+    @pytest.mark.asyncio
+    async def test_store_operation_forwards_partition_to_secondary(
+        self, sync_service_with_cf_like_secondary
+    ):
+        primary, secondary, sync_service = sync_service_with_cf_like_secondary
+        content = "partitioned sync content"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["test"],
+            memory_type="observation",
+        )
+        assert (await primary.store(memory, store="docs"))[0]
+
+        await sync_service._process_single_operation(
+            SyncOperation(operation="store", memory=memory, store="docs")
+        )
+
+        assert secondary.store_partitions == ["docs"]
 
     @pytest.mark.asyncio
     async def test_cf_only_functions_skip_with_http_like_secondary(self, sync_service_with_http_like_secondary):

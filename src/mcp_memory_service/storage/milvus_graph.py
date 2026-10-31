@@ -988,12 +988,18 @@ class MilvusGraphStorage:
             logger.error("Failed to store entity link: %s", _sanitize_log_value(exc))
             return False
 
-    async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def list_entities(
+        self, limit: Optional[int] = 50, store: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """List all known entities with link count and last activity.
 
         Milvus has no GROUP BY, so the has_entity edges are drained and
         aggregated in Python — the same shape GraphStorage returns via SQL.
         """
+        # The Milvus graph collection does not retain store ownership for every
+        # edge, so it cannot safely answer a partition-scoped graph query.
+        if store is not None:
+            return []
         if not self._ensure_ready():
             return []
 
@@ -1022,12 +1028,14 @@ class MilvusGraphStorage:
         ordered = sorted(
             grouped.values(), key=lambda e: e["count"], reverse=True,
         )
-        return ordered[:limit]
+        return ordered if limit is None else ordered[:limit]
 
     async def find_memories_by_entity(
-        self, entity_name: str, limit: int = 20
+        self, entity_name: str, limit: int = 20, store: Optional[str] = None
     ) -> List[str]:
         """Find memory hashes linked to a given entity name, newest first."""
+        if store is not None:
+            return []
         if not self._ensure_ready():
             return []
 
@@ -1042,8 +1050,12 @@ class MilvusGraphStorage:
         rows.sort(key=lambda r: float(r.get("created_at") or 0.0), reverse=True)
         return [r["source_hash"] for r in rows[:limit] if r.get("source_hash")]
 
-    async def get_entities_for_memory(self, memory_hash: str) -> List[str]:
+    async def get_entities_for_memory(
+        self, memory_hash: str, store: Optional[str] = None
+    ) -> List[str]:
         """Get entity names linked to a memory hash."""
+        if store is not None:
+            return []
         if not self._ensure_ready():
             return []
 
@@ -1058,8 +1070,12 @@ class MilvusGraphStorage:
         names = [self._entity_name_from_row(r) for r in rows]
         return [n for n in names if n]
 
-    async def get_entity_profile(self, entity_name: str) -> Dict[str, Any]:
+    async def get_entity_profile(
+        self, entity_name: str, store: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get entity profile: memory count, entity types, last activity."""
+        if store is not None:
+            return {}
         if not self._ensure_ready():
             return {}
 
@@ -1190,6 +1206,7 @@ class MilvusGraphStorage:
         self,
         memory_hash: str,
         min_shared: int = 1,
+        store: Optional[str] = None,
     ) -> List[Tuple[str, int, int]]:
         """Find memories sharing neighbours with ``memory_hash``.
 
@@ -1197,6 +1214,8 @@ class MilvusGraphStorage:
         10 candidates, excluding the source itself and anything already
         directly connected — matching GraphStorage's self-join query.
         """
+        if store is not None:
+            return []
         if not self._ensure_ready():
             return []
 

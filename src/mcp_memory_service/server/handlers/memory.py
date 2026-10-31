@@ -345,7 +345,10 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...consolidation.quarantine import schedule_on_store_checks
 
                 agendado = schedule_on_store_checks(
-                    server.storage, content, result["memory"]["content_hash"]
+                    server.storage,
+                    content,
+                    result["memory"]["content_hash"],
+                    store=store,
                 )
                 if agendado:
                     message += "\n(contradiction checks scheduled in the background)"
@@ -360,7 +363,12 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...reasoning.nli import detect_contradictions_nli
                 mem_hash = result["memory"].get("content_hash")
                 if mem_hash:
-                    nli_result = await detect_contradictions_nli(server.storage, memory_hash=mem_hash, dry_run=False)
+                    nli_result = await detect_contradictions_nli(
+                        server.storage,
+                        memory_hash=mem_hash,
+                        dry_run=False,
+                        store=store,
+                    )
                     if nli_result.get("pairs_detected", 0) > 0:
                         message += f"\n⚠️ Contradiction detected: {nli_result['pairs_detected']} conflict(s) registered."
             except Exception as e:
@@ -376,6 +384,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 quarantine_result = await check_beliefs_on_store(
                     server.storage, belief_svc,
                     content, result["memory"]["content_hash"],
+                    store=store,
                 )
                 if quarantine_result and quarantine_result.get("status") == "quarantined":
                     result["quarantine_warning"] = quarantine_result
@@ -929,13 +938,19 @@ async def handle_delete_memory(server, arguments: dict) -> List[types.TextConten
         await server._ensure_storage_initialized()
 
         # Call shared MemoryService business logic
-        result = await server.memory_service.delete_memory(content_hash)
+        delete_store = arguments.get("store")
+        if delete_store == "all":
+            raise PermissionError("store='all' is only valid for read scopes")
+        delete_kwargs = {"store": delete_store} if delete_store is not None else {}
+        result = await server.memory_service.delete_memory(content_hash, **delete_kwargs)
 
         # Handle response based on success/failure format
         if result["success"]:
             return [types.TextContent(type="text", text=f"Memory deleted successfully: {result['content_hash']}")]
         else:
             return [types.TextContent(type="text", text=f"Failed to delete memory: {result.get('error', 'Unknown error')}")]
+    except PermissionError:
+        raise
     except Exception as e:
         logger.error("Error deleting memory: %s\n%s", _sanitize_log_value(e), traceback.format_exc())
         return [types.TextContent(type="text", text=f"Error deleting memory: {str(e)}")]
@@ -1095,7 +1110,10 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
         from ...consolidation.belief_service import BeliefService
 
         svc = BeliefService(storage)
-        beliefs = await svc.get_beliefs()
+        store = arguments.get("store", "default")
+        if store == "all":
+            store = None
+        beliefs = await svc.get_beliefs(store=store)
 
         if not beliefs:
             return ""
@@ -1147,20 +1165,25 @@ def _append_unique_fallback_memories(
 
 
 async def _collect_cascading_fallback_memories(
-    storage, arguments: dict, query: str, memories: list[dict], limit: int
+    storage,
+    arguments: dict,
+    query: str,
+    memories: list[dict],
+    limit: int,
+    store: str | None,
 ) -> list[dict]:
     """Combine exact and tag fallback results while preserving their labels."""
     seen_hashes = {memory.get("content_hash") for memory in memories}
     include_superseded = arguments.get("include_superseded", False)
     exact_memories = await _search_exact_fallback(
-        storage, query, limit, include_superseded
+        storage, query, limit, include_superseded, store=store
     )
     _append_unique_fallback_memories(
         memories, exact_memories, seen_hashes, "exact_fallback"
     )
     if len(memories) < limit:
         tag_memories = await _search_tag_fallback(
-            storage, query, limit, include_superseded
+            storage, query, limit, include_superseded, store=store
         )
         _append_unique_fallback_memories(
             memories, tag_memories, seen_hashes, "tag_fallback"
@@ -1173,7 +1196,11 @@ async def _collect_cascading_fallback_memories(
 
 
 async def _search_exact_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage,
+    query: str,
+    limit: int,
+    include_superseded: bool,
+    store: str | None = None,
 ) -> list[dict]:
     """Return exact-search candidates, treating a backend error as no matches."""
     result = await storage.search_memories(
@@ -1181,6 +1208,7 @@ async def _search_exact_fallback(
         mode="exact",
         limit=limit,
         include_superseded=include_superseded,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1188,7 +1216,11 @@ async def _search_exact_fallback(
 
 
 async def _search_tag_fallback(
-    storage, query: str, limit: int, include_superseded: bool
+    storage,
+    query: str,
+    limit: int,
+    include_superseded: bool,
+    store: str | None = None,
 ) -> list[dict]:
     """Return tag-search candidates for tokens extracted from the query."""
     query_tokens = [
@@ -1204,6 +1236,7 @@ async def _search_tag_fallback(
         tags=query_tokens,
         limit=limit,
         include_superseded=include_superseded,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1251,7 +1284,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
     fallback_used = None
     if _should_use_cascading_fallback(arguments, query, memories):
         memories = await _collect_cascading_fallback_memories(
-            storage, arguments, query, memories, limit
+            storage, arguments, query, memories, limit, store=store
         )
         result["memories"] = memories
         result["total"] = len(memories)
@@ -1715,11 +1748,14 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # store could update another store's memory. When a store is claimed,
         # resolve the hash within it first: on backends whose get_by_hash honors
         # ``store`` a hash from another store comes back missing -> not found;
-        # backends that ignore ``store`` can't prove confinement, so a
-        # store-scoped update fails closed there (real storage-layer enforcement
-        # is the follow-up issue, after which this pre-check can be removed).
+        # backends that cannot prove confinement fail closed. The storage update
+        # also receives the same scope and enforces it in the write predicate.
         claimed_store = arguments.get("store")
-        if claimed_store is not None and claimed_store != "all":
+        if claimed_store == "all":
+            raise PermissionError("store='all' is only valid for read scopes")
+        storage_store = claimed_store
+        storage_scope_kwargs = {"store": storage_store} if storage_store is not None else {}
+        if claimed_store is not None:
             # Raise rather than return: a refused update must surface as a tool
             # error (isError=true), so a client checking the MCP success flag
             # cannot mistake it for a completed write. The /mcp shim and the SDK
@@ -1766,6 +1802,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 new_tags=updates.get("tags"),
                 new_memory_type=updates.get("memory_type"),
                 reason=updates.get("reason"),
+                **storage_scope_kwargs,
             )
 
             if success:
@@ -1786,7 +1823,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 overrides_applied = True
                 if final_metadata:
                     meta_ok, meta_msg = await storage.update_memory_metadata(
-                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                        new_hash,
+                        {"metadata": final_metadata},
+                        preserve_timestamps=True,
+                        **storage_scope_kwargs,
                     )
                     overrides_applied = meta_ok
                     if not meta_ok:
@@ -1815,7 +1855,8 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=preserve_timestamps
+            preserve_timestamps=preserve_timestamps,
+            **storage_scope_kwargs,
         )
 
         if success:

@@ -85,3 +85,4 @@ class SqliteVecMemoryStorage(
     # RetrieveMixin.get_by_hash scopes the lookup to ``store`` (AND store = ?),
     # so a store-scoped hash-addressed operation can be safely pre-checked.
     get_by_hash_is_store_scoped = True
+    supports_store_scoped_access = True

@@ -128,3 +128,34 @@ async def test_store_memory_chunked_response_warns_on_coercion():
     assert "Warning" in text
     assert "'bogus_type'" in text
     assert "'observation'" in text
+
+
+@pytest.mark.asyncio
+async def test_store_memory_nli_checks_keep_the_requested_store(monkeypatch):
+    from mcp_memory_service.consolidation import belief_service, quarantine
+    from mcp_memory_service.reasoning import nli
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.delenv("MCP_NLI_ON_STORE_ASYNC", raising=False)
+    server = _make_server()
+    server.storage = MagicMock()
+    belief = MagicMock()
+    monkeypatch.setattr(belief_service, "BeliefService", MagicMock(return_value=belief))
+    detect = AsyncMock(return_value={"pairs_detected": 0})
+    check = AsyncMock(return_value=None)
+    monkeypatch.setattr(nli, "detect_contradictions_nli", detect)
+    monkeypatch.setattr(quarantine, "check_beliefs_on_store", check)
+
+    await handle_store_memory(server, {
+        "content": "A store-scoped note.",
+        "store": "work",
+        "metadata": {},
+    })
+
+    detect.assert_awaited_once_with(
+        server.storage, memory_hash="abc123", dry_run=False, store="work"
+    )
+    check.assert_awaited_once_with(
+        server.storage, belief, "A store-scoped note.", "abc123", store="work"
+    )

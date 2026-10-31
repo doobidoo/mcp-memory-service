@@ -823,7 +823,8 @@ class MemoryService:
         query: str,
         n_results: int = 10,
         tags: Optional[List[str]] = None,
-        memory_type: Optional[str] = None
+        memory_type: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Union[RetrieveMemoriesSuccess, RetrieveMemoriesError]:
         """
         Retrieve memories by semantic search with optional filtering.
@@ -833,6 +834,7 @@ class MemoryService:
             n_results: Maximum number of results
             tags: Optional tag filtering
             memory_type: Optional memory type filtering
+            store: Optional memory-store partition to restrict retrieval to
 
         Returns:
             Dictionary with search results
@@ -847,10 +849,10 @@ class MemoryService:
             fetch_n = n_results
             if tags or memory_type:
                 fetch_n = max(n_results * 10, n_results + 50)
-            memories = await self.storage.retrieve(
-                query=query,
-                n_results=fetch_n
-            )
+            retrieve_kwargs = {"query": query, "n_results": fetch_n}
+            if store is not None:
+                retrieve_kwargs["store"] = store
+            memories = await self.storage.retrieve(**retrieve_kwargs)
 
             # Apply optional post-filtering
             filtered_memories = memories
@@ -985,7 +987,9 @@ class MemoryService:
                 "error": f"Failed to get memory: {str(e)}"
             }
 
-    async def delete_memory(self, content_hash: str) -> Union[DeleteMemorySuccess, DeleteMemoryFailure]:
+    async def delete_memory(
+        self, content_hash: str, store: Optional[str] = None
+    ) -> Union[DeleteMemorySuccess, DeleteMemoryFailure]:
         """
         Delete a memory by its content hash.
 
@@ -996,7 +1000,8 @@ class MemoryService:
             Dictionary with operation result
         """
         try:
-            success, message = await self.storage.delete(content_hash)
+            delete_kwargs = {"store": store} if store is not None else {}
+            success, message = await self.storage.delete(content_hash, **delete_kwargs)
             if success:
                 await self._plugin_registry.fire('on_delete', content_hash)
                 return {

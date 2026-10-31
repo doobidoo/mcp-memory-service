@@ -644,12 +644,14 @@ async def _select_explore_entities(
     graph: Any,
     chunk_pool: List[Dict[str, Any]],
     max_entities: int,
+    store: Optional[str] = None,
 ) -> tuple[List[Dict[str, Any]], Dict[str, set]]:
     """Select entities linked to the highest-relevance retrieved chunks.
 
-    Keep the historical global list as a fallback for stores whose retrieved
-    memories have no entity links yet. The knowledge-map builder still leaves
-    those fallback entities' chunks empty instead of implying a false link.
+    Keep the historical entity-list fallback for a global query (or the
+    matching store's entity list for a scoped query) when retrieved memories
+    have no entity links yet. The builder leaves fallback chunks empty instead
+    of implying a false link.
 
     Also return the entity-to-memory links discovered on the way, keyed by
     normalized entity id. Selecting an entity means one of the retrieved chunks
@@ -672,7 +674,11 @@ async def _select_explore_entities(
         memory_hash = chunk.get("hash")
         if not memory_hash:
             continue
-        for name in await graph.get_entities_for_memory(memory_hash):
+        if store is None:
+            names = await graph.get_entities_for_memory(memory_hash)
+        else:
+            names = await graph.get_entities_for_memory(memory_hash, store=store)
+        for name in names:
             if not name:
                 continue
             entity_id = normalize_entity_id(name)
@@ -686,11 +692,16 @@ async def _select_explore_entities(
 
     if entities:
         return entities, hashes_by_entity
-    return await graph.list_entities(limit=max_entities), {}
+    if store is None:
+        fallback_entities = await graph.list_entities(limit=max_entities)
+    else:
+        fallback_entities = await graph.list_entities(limit=max_entities, store=store)
+    return fallback_entities, {}
 
 
 async def _build_knowledge_map(
-    graph, entities_raw, chunk_pool, chunks_per_entity, scoring=None, hashes_by_entity=None
+    graph, entities_raw, chunk_pool, chunks_per_entity, scoring=None,
+    hashes_by_entity=None, store: Optional[str] = None,
 ):
     """Assemble the memory_explore response shape from discovered entities.
 
@@ -706,7 +717,10 @@ async def _build_knowledge_map(
     knowledge_map = []
     for ent in entities_raw:
         name = ent.get("entity_name", "")
-        profile = await graph.get_entity_profile(name) if graph else {}
+        if graph and store is not None:
+            profile = await graph.get_entity_profile(name, store=store)
+        else:
+            profile = await graph.get_entity_profile(name) if graph else {}
         entity_types = profile.get("entity_types") or []
 
         # Entity-specific chunk filtering
@@ -717,7 +731,12 @@ async def _build_knowledge_map(
             # without the very chunk that caused it to be selected -- leaving
             # top_chunks empty and summary blank. Union in the links found
             # while selecting, which are retrieved chunks by construction.
-            entity_hashes = set(await graph.find_memories_by_entity(name))
+            if store is None:
+                entity_hashes = set(await graph.find_memories_by_entity(name))
+            else:
+                entity_hashes = set(
+                    await graph.find_memories_by_entity(name, store=store)
+                )
             entity_hashes |= (hashes_by_entity or {}).get(normalize_entity_id(name), set())
             entity_chunks = [chunk_by_hash[h] for h in entity_hashes if h in chunk_by_hash]
 
@@ -730,7 +749,10 @@ async def _build_knowledge_map(
             entity_degree = ent.get("count", profile.get("memory_count", 0))
             # Batch proximity: one find_connected per entity (not per chunk)
             proximity_map = {}
-            if graph and top_chunks:
+            # Graph proximity is global on legacy graph APIs. Omitting this
+            # optional score term is safer than allowing a scoped caller's
+            # ordering to depend on memories in another store.
+            if graph and top_chunks and store is None:
                 first_hash = top_chunks[0].get("hash")
                 if first_hash:
                     try:
@@ -793,6 +815,19 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
     tags = arguments.get("tags")
     min_score = arguments.get("min_score", 0.0)
     store = arguments.get("store")  # forwarded to retrieve() when supported (now wired via #62)
+    graph_store = store if store not in (None, "all") else None
+    if graph_store is not None and not getattr(
+        server.storage, "supports_store_scoped_access", False
+    ):
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False,
+                "error": "store-scoped memory_explore is not supported on this backend",
+                "entities": [],
+                "count": 0,
+            }, indent=2),
+        )]
     scoring = arguments.get("scoring")  # opt-in: "composite" enables graph-aware scoring (#55)
 
     try:
@@ -815,7 +850,7 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
         # 2. Entity discovery — scoped to entities linked from retrieved chunks.
         graph = await get_graph_storage()
         entities_raw, hashes_by_entity = await _select_explore_entities(
-            graph, chunk_pool, max_entities
+            graph, chunk_pool, max_entities, store=graph_store
         )
 
         knowledge_map = await _build_knowledge_map(
@@ -825,6 +860,7 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
             chunks_per_entity,
             scoring=scoring,
             hashes_by_entity=hashes_by_entity,
+            store=graph_store,
         )
         knowledge_map = knowledge_map[:max_entities]
 
@@ -850,9 +886,14 @@ async def handle_memory_explore(server, arguments: dict) -> List[types.TextConte
         )]
 
 
-async def _resolve_entity_name(graph, entity_id: str):
+async def _resolve_entity_name(
+    graph, entity_id: str, store: Optional[str] = None
+):
     """Resolve a canonical slug back to its stored entity name (or None)."""
-    entities = await graph.list_entities(limit=500)
+    if store is None:
+        entities = await graph.list_entities(limit=500)
+    else:
+        entities = await graph.list_entities(limit=None, store=store)
     return next(
         (e.get("entity_name", "") for e in entities
          if normalize_entity_id(e.get("entity_name", "")) == entity_id),
@@ -860,7 +901,10 @@ async def _resolve_entity_name(graph, entity_id: str):
     )
 
 
-async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, entity_degree=0):
+async def _hydrate_chunks(
+    storage, memory_hashes, scoring=None, graph=None, entity_degree=0,
+    store: Optional[str] = None,
+):
     """Fetch real chunk content for an entity's linked memories.
 
     Ranks by quality_score when available (simple sort, no composite scoring).
@@ -871,7 +915,10 @@ async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, enti
     """
     chunks = []
     for h in memory_hashes:
-        mem = await storage.get_by_hash(h)
+        if store is None:
+            mem = await storage.get_by_hash(h)
+        else:
+            mem = await storage.get_by_hash(h, store=store)
         content = (mem.content or "")[:500] if mem else None
         quality = getattr(mem, "quality_score", None) if mem else None
         chunks.append({
@@ -885,7 +932,9 @@ async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, enti
     if scoring == "composite" and chunks:
         # Batch proximity from first chunk
         proximity_map = {}
-        if graph:
+        # `find_connected` still traverses the global association graph. Do not
+        # use it to rank a per-store result until the traversal itself is scoped.
+        if graph and store is None:
             try:
                 connected = await graph.find_connected(chunks[0]["hash"], max_hops=3)
                 proximity_map = {h: d for h, d in connected}
@@ -904,7 +953,9 @@ async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, enti
     return chunks
 
 
-async def _discover_related_entities(graph, memory_hashes, max_hops: int):
+async def _discover_related_entities(
+    graph, memory_hashes, max_hops: int, store: Optional[str] = None
+):
     """Discover related entities via shared neighbours with dedup and ranking.
 
     Resolves memory hashes to linked entity names via graph.get_entities_for_memory.
@@ -913,9 +964,16 @@ async def _discover_related_entities(graph, memory_hashes, max_hops: int):
     """
     entity_map: dict = {}  # entity_id -> {name, shared_count}
     for h in memory_hashes[:max_hops + 1]:
-        for cand_hash, shared, _deg in await graph.common_neighbors(h):
+        if store is None:
+            neighbors = await graph.common_neighbors(h)
+        else:
+            neighbors = await graph.common_neighbors(h, store=store)
+        for cand_hash, shared, _deg in neighbors:
             # Resolve candidate memory hash -> linked entity names
-            entity_names = await graph.get_entities_for_memory(cand_hash)
+            if store is None:
+                entity_names = await graph.get_entities_for_memory(cand_hash)
+            else:
+                entity_names = await graph.get_entities_for_memory(cand_hash, store=store)
             for entity_name in entity_names:
                 eid = normalize_entity_id(entity_name)
                 if eid in entity_map:
@@ -967,7 +1025,20 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
         )]
 
     try:
-        name = await _resolve_entity_name(graph, entity_id)
+        # A scoped caller must be rejected before resolving the entity against
+        # the global graph. Even an error/name response can reveal that another
+        # store contains a particular entity.
+        detail_store = arguments.get("store")
+        if detail_store is not None and detail_store != "all":
+            if not getattr(server.storage, "supports_store_scoped_access", False):
+                return [types.TextContent(type="text", text=json.dumps({
+                    "success": False,
+                    "error": "store-scoped memory_detail is not supported on this backend",
+                    "entity_id": entity_id, "chunks": [], "related_entities": [],
+                }, indent=2))]
+            name = await _resolve_entity_name(graph, entity_id, store=detail_store)
+        else:
+            name = await _resolve_entity_name(graph, entity_id)
         if name is None:
             return [types.TextContent(
                 type="text",
@@ -977,40 +1048,28 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
                 }, indent=2)
             )]
 
-        # Per-store confinement (read). memory_detail has no first-class store
-        # selector and the entity graph is global, so a token scoped to one
-        # store would otherwise receive the entity's chunks from every store.
-        # When a store is claimed (the transport gate has already authorized
-        # it), keep only hashes that resolve within that store; a backend whose
-        # get_by_hash ignores ``store`` can't confine, so fail closed. Real
-        # per-store graph partitioning is the follow-up issue (#1683).
-        detail_store = arguments.get("store")
+        # Per-store confinement is enforced by GraphStorage's joins against the
+        # live memory rows for this store. Backends without proven store-scoped
+        # storage are rejected before entity resolution.
         if detail_store is not None and detail_store != "all":
-            if not getattr(server.storage, "get_by_hash_is_store_scoped", False):
-                return [types.TextContent(type="text", text=json.dumps({
-                    "success": False,
-                    "error": "store-scoped memory_detail is not supported on this backend",
-                    "entity_id": entity_id, "chunks": [], "related_entities": [],
-                }, indent=2))]
-            # Filter to the claimed store BEFORE applying the caller's limit:
-            # an entity whose newest links live in another store must not hide
-            # this store's older chunks. Scan a wider window, keep matches up to
-            # the limit.
-            wide = await graph.find_memories_by_entity(name, limit=max(limit * 10, 200))
-            memory_hashes = []
-            for _h in wide:
-                if await server.storage.get_by_hash(_h, store=detail_store) is not None:
-                    memory_hashes.append(_h)
-                    if len(memory_hashes) >= limit:
-                        break
+            # Filter in SQL before applying the requested limit; a fixed global
+            # window can otherwise hide older memories owned by this store.
+            memory_hashes = await graph.find_memories_by_entity(
+                name, limit=limit, store=detail_store
+            )
         else:
             memory_hashes = await graph.find_memories_by_entity(name, limit=limit)
         entity_degree = len(memory_hashes)  # proxy for centrality
         chunks = await _hydrate_chunks(
-            server.storage, memory_hashes, scoring=scoring, graph=graph, entity_degree=entity_degree
+            server.storage, memory_hashes, scoring=scoring, graph=graph,
+            entity_degree=entity_degree,
+            store=detail_store if detail_store not in (None, "all") else None,
         )
         related_entities = (
-            await _discover_related_entities(graph, memory_hashes, max_hops)
+            await _discover_related_entities(
+                graph, memory_hashes, max_hops,
+                store=detail_store if detail_store not in (None, "all") else None,
+            )
             if include_related else []
         )
 

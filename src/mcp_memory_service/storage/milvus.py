@@ -170,6 +170,10 @@ class MilvusMemoryStorage(MemoryStorage):
         default — matches the rest of the project.
     """
 
+    # This backend is a single default partition. Named-store lookups fail closed
+    # rather than returning a row from that unpartitioned collection.
+    get_by_hash_is_store_scoped = True
+
     @property
     def max_content_length(self) -> Optional[int]:
         return _CONTENT_MAX_LEN
@@ -1825,7 +1829,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
-        existing = await self.get_by_hash(content_hash)
+        existing = await self.get_by_hash(content_hash, store=store)
         if existing is None:
             return False, f"Memory with hash {content_hash} not found"
 
@@ -2065,6 +2069,11 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return None
 
+        # Milvus currently stores one unpartitioned collection, equivalent to
+        # the default store. Never let a named-store lookup fall through to it.
+        if store is not None and store != "default":
+            return None
+
         try:
             rows = await self._call_client(
                 "get",
@@ -2267,11 +2276,12 @@ class MilvusMemoryStorage(MemoryStorage):
         content_hash: str,
         updates: Dict[str, Any],
         preserve_timestamps: bool = True,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str]:
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
-        existing = await self.get_by_hash(content_hash)
+        existing = await self.get_by_hash(content_hash, store=store)
         if existing is None:
             return False, f"Memory with hash {content_hash} not found"
 
@@ -2329,6 +2339,7 @@ class MilvusMemoryStorage(MemoryStorage):
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """Non-destructive versioned update: store a new revision, supersede the old.
 
@@ -2346,7 +2357,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 self._versioned_update_lock = lock
 
             async with lock:
-                existing = await self.get_by_hash(content_hash)
+                existing = await self.get_by_hash(content_hash, store=store)
                 if existing is None:
                     return False, f"Memory {content_hash} not found", None
                 if (existing.metadata or {}).get("superseded_by") is not None:

@@ -24,6 +24,7 @@ def server(monkeypatch):
     srv.remote_transport = True
     srv.storage = AsyncMock()
     srv.storage.get_by_hash_is_store_scoped = True
+    srv.storage.supports_store_scoped_access = True
     monkeypatch.setattr(srv, "_ensure_storage_initialized", AsyncMock(return_value=srv.storage))
     srv.handled = []
 
@@ -63,11 +64,15 @@ async def test_store_grant_cannot_reach_a_tool_that_ignores_store(server):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("flag", ["include_beliefs", "fallback"])
-async def test_store_grant_cannot_search_across_partitions(server, flag):
-    result = await _call(server, "memory_search", {"query": "x", "store": "projectA", flag: True},
-                         "read:projectA")
-    assert result.isError
-    assert server.handled == []
+async def test_store_grant_can_search_with_store_scoped_options(server, flag):
+    result = await _call(
+        server,
+        "memory_search",
+        {"query": "x", "store": "projectA", flag: True},
+        "read:projectA",
+    )
+    assert not result.isError
+    assert server.handled == [{"query": "x", "store": "projectA", flag: True}]
 
 
 @pytest.mark.asyncio
@@ -75,9 +80,22 @@ async def test_store_grant_cannot_search_across_partitions(server, flag):
     ("memory_explore", {"query": "x", "store": "projectA"}),
     ("memory_detail", {"entity_id": "e", "store": "projectA"}),
 ])
-async def test_store_grant_cannot_read_the_unpartitioned_graph(server, tool, arguments):
-    """Entity names and related entities come from a graph with no store, so
-    a per-store grant would see other stores' entities."""
+async def test_store_grant_can_read_the_scoped_entity_graph(server, tool, arguments):
+    """Graph tools are eligible only when they explicitly name a store."""
+    result = await _call(server, tool, arguments, "read:projectA")
+    assert not result.isError
+    assert server.handled == [arguments]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, arguments", [
+    ("memory_explore", {"query": "x", "store": "projectA"}),
+    ("memory_detail", {"entity_id": "e", "store": "projectA"}),
+])
+async def test_graph_store_grant_requires_store_scoped_backend_capability(
+    server, tool, arguments
+):
+    server.storage.supports_store_scoped_access = False
     result = await _call(server, tool, arguments, "read:projectA")
     assert result.isError
     assert server.handled == []
@@ -88,6 +106,28 @@ async def test_store_grant_refused_on_a_backend_that_cannot_confine(server):
     server.storage.get_by_hash_is_store_scoped = False
     result = await _call(server, "memory_delete", {"content_hash": "h", "store": "projectA"},
                          "read:projectA write:projectA")
+    assert result.isError
+    assert server.handled == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "arguments", "scope"),
+    [
+        ("memory_search", {"query": "x", "store": "projectA"}, "read:projectA"),
+        ("memory_list", {"store": "projectA"}, "read:projectA"),
+        ("memory_store", {"content": "x", "store": "projectA"}, "write:projectA"),
+    ],
+)
+async def test_store_grant_requires_backend_wide_store_scoping(
+    server, tool, arguments, scope
+):
+    """Hash lookup confinement alone cannot authorize other store-aware APIs."""
+    server.storage.get_by_hash_is_store_scoped = True
+    server.storage.supports_store_scoped_access = False
+
+    result = await _call(server, tool, arguments, scope)
+
     assert result.isError
     assert server.handled == []
 

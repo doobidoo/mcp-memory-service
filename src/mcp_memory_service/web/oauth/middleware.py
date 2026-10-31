@@ -145,7 +145,7 @@ class AuthenticationResult:
 
 
 def _storage_confines_store() -> bool:
-    """Whether the active backend's get_by_hash honours ``store``.
+    """Whether every store-aware API on the backend confines data to ``store``.
 
     Fails closed: no initialized storage counts as not confining.
     """
@@ -154,7 +154,7 @@ def _storage_confines_store() -> bool:
         storage = get_storage()
     except HTTPException:
         return False
-    return bool(getattr(storage, "get_by_hash_is_store_scoped", False))
+    return bool(getattr(storage, "supports_store_scoped_access", False))
 
 
 def scope_within_ceiling(requested: Optional[str], ceiling: Optional[str]) -> bool:

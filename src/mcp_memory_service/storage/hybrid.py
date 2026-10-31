@@ -29,7 +29,7 @@ import os
 import threading
 import time
 import weakref
-from typing import List, Dict, Any, Sequence, Tuple, Optional
+from typing import List, Dict, Any, Sequence, Tuple, Optional, Set
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -132,6 +132,7 @@ class SyncOperation:
     content_hash: Optional[str] = None
     updates: Optional[Dict[str, Any]] = None
     preserve_timestamps: bool = True
+    store: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     before_date: Optional[date] = None
@@ -1101,13 +1102,18 @@ class BackgroundSyncService:
                             raise RuntimeError(validation_error)
 
                     success, message = await self.secondary.store(
-                        memory_to_sync, **recreate_kwargs(self.secondary, operation.recreate)
+                        memory_to_sync,
+                        **({"store": operation.store} if operation.store is not None else {}),
+                        **recreate_kwargs(self.secondary, operation.recreate),
                     )
                     if not success:
                         raise RuntimeError(f"Store operation failed: {message}")
 
             elif operation.operation == 'delete' and operation.content_hash:
-                success, message = await self.secondary.delete(operation.content_hash)
+                delete_kwargs = {"store": operation.store} if operation.store is not None else {}
+                success, message = await self.secondary.delete(
+                    operation.content_hash, **delete_kwargs
+                )
                 if not success:
                     raise Exception(f"Delete operation failed: {message}")
 
@@ -1130,10 +1136,13 @@ class BackgroundSyncService:
                 else:
                     normalized_updates = operation.updates
 
+                update_kwargs = {
+                    "preserve_timestamps": operation.preserve_timestamps,
+                }
+                if operation.store is not None:
+                    update_kwargs["store"] = operation.store
                 success, message = await self.secondary.update_memory_metadata(
-                    operation.content_hash,
-                    normalized_updates,
-                    preserve_timestamps=operation.preserve_timestamps
+                    operation.content_hash, normalized_updates, **update_kwargs
                 )
                 if not success:
                     raise Exception(f"Update operation failed: {message}")
@@ -1404,6 +1413,7 @@ class HybridMemoryStorage(MemoryStorage):
 
     # Delegates get_by_hash to the SQLite-vec primary, which scopes by ``store``.
     get_by_hash_is_store_scoped = True
+    supports_store_scoped_access = True
 
     @property
     def max_content_length(self) -> Optional[int]:
@@ -2194,6 +2204,7 @@ class HybridMemoryStorage(MemoryStorage):
             # Queue for background sync to secondary
             operation = SyncOperation(
                 operation='store', memory=memory,
+                store=store if store != "default" else None,
                 recreate=True if recreate is True else None,
             )
             await self.sync_service.enqueue_operation(operation)
@@ -2284,7 +2295,11 @@ class HybridMemoryStorage(MemoryStorage):
 
         if success and self.sync_service:
             # Queue for background sync to secondary
-            operation = SyncOperation(operation='delete', content_hash=content_hash)
+            operation = SyncOperation(
+                operation='delete',
+                content_hash=content_hash,
+                store=store if store not in (None, "default") else None,
+            )
             await self.sync_service.enqueue_operation(operation)
 
         return success, message
@@ -2326,7 +2341,11 @@ class HybridMemoryStorage(MemoryStorage):
         # other stores' memories from the cloud while keeping them locally (#1466).
         if count_deleted > 0 and self.sync_service:
             for content_hash in deleted_hashes:
-                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                operation = SyncOperation(
+                    operation='delete',
+                    content_hash=content_hash,
+                    store=store if store not in (None, "default") else None,
+                )
                 await self.sync_service.enqueue_operation(operation)
 
         return count_deleted, message, deleted_hashes
@@ -2371,9 +2390,20 @@ class HybridMemoryStorage(MemoryStorage):
         # Only cleanup primary, secondary will sync naturally
         return await self.primary.cleanup_duplicates()
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """Update memory metadata in primary storage and queue for secondary sync."""
-        success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+        update_kwargs = {"preserve_timestamps": preserve_timestamps}
+        if store is not None:
+            update_kwargs["store"] = store
+        success, message = await self.primary.update_memory_metadata(
+            content_hash, updates, **update_kwargs
+        )
 
         # Skip enqueuing if sync is paused (v8.47.1 - fix consolidation hang)
         # Operations will be synced when sync resumes
@@ -2383,7 +2413,8 @@ class HybridMemoryStorage(MemoryStorage):
                 operation='update',
                 content_hash=content_hash,
                 updates=updates,
-                preserve_timestamps=preserve_timestamps
+                preserve_timestamps=preserve_timestamps,
+                store=store if store not in (None, "default") else None,
             )
             await self.sync_service.enqueue_operation(operation)
 

@@ -309,6 +309,17 @@ def test_hash_crud_respects_store_scope(test_app):
     assert own.status_code == 200
     assert own.json()["content"] == "Work store roadmap entry"
 
+    update = test_app.put(
+        f"/api/memories/{content_hash}",
+        params={"store": "work"},
+        json={"tags": ["work-only"]},
+    )
+    assert update.status_code == 200, update.text
+    assert test_app.get(f"/api/memories/{content_hash}").status_code == 404
+    assert test_app.get(
+        f"/api/memories/{content_hash}", params={"store": "work"}
+    ).json()["tags"] == ["work-only"]
+
     assert (
         test_app.delete(f"/api/memories/{content_hash}", params={"store": "work"}).status_code
         == 200

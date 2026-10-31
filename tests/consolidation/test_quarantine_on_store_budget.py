@@ -297,18 +297,23 @@ class TestBackgroundBounded:
     @pytest.mark.asyncio
     async def test_background_logs_hash_and_status(self, monkeypatch, caplog):
         """O resultado do check em background não pode sumir (Greptile, #1633)."""
+        observed_stores = {}
 
         async def fake_detect(*args, **kwargs):
+            observed_stores["nli"] = kwargs.get("store")
             return {"pairs_detected": 0}
 
         async def fake_beliefs(*args, **kwargs):
+            observed_stores["beliefs"] = kwargs.get("store")
             return {"status": "quarantined", "content_hash": "abc"}
 
         monkeypatch.setattr("mcp_memory_service.reasoning.nli.detect_contradictions_nli", fake_detect)
         monkeypatch.setattr(quarantine_mod, "check_beliefs_on_store", fake_beliefs)
 
         with caplog.at_level("INFO"):
-            quarantine_mod.schedule_on_store_checks(_FakeStorage(), "texto", "deadbeef00")
+            quarantine_mod.schedule_on_store_checks(
+                _FakeStorage(), "texto", "deadbeef00", store="work"
+            )
             for _ in range(60):
                 if quarantine_mod._background_state.active == 0:
                     break
@@ -317,3 +322,4 @@ class TestBackgroundBounded:
         texto = " ".join(r.getMessage() for r in caplog.records)
         assert "deadbeef" in texto, "o log precisa identificar a memória verificada"
         assert "quarantined" in texto, "o log precisa dizer o desfecho"
+        assert observed_stores == {"nli": "work", "beliefs": "work"}

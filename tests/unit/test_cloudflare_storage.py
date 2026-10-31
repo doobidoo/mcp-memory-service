@@ -916,7 +916,10 @@ async def test_restore_deleted_memory_sql_lifecycle(cloudflare_storage, monkeypa
         assert not (await cloudflare_storage.store(memory))[0]
         assert tuple(db.execute("SELECT * FROM memories").fetchone()) == original_row
         assert (await cloudflare_storage.delete(memory.content_hash))[0]
-        assert db.execute("SELECT deleted_at FROM memories").fetchone()[0] is not None
+        assert db.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?",
+            (memory.content_hash,),
+        ).fetchone()[0] is not None
 
         # A different content hash must keep its tombstone and retention window.
         db.execute(
@@ -985,8 +988,36 @@ async def test_get_by_hash_excludes_soft_deleted(cloudflare_storage, monkeypatch
         live = await cloudflare_storage.get_by_hash(memory.content_hash)
         assert live is not None and live.content == content
 
+        scoped = Memory(
+            content="store-scoped hash operations",
+            content_hash="store_scoped_hash_operations",
+            tags=["scoped"],
+        )
+        assert (await cloudflare_storage.store(scoped, store="docs"))[0]
+        assert await cloudflare_storage.get_by_hash(scoped.content_hash, store="default") is None
+        assert await cloudflare_storage.get_by_hash(scoped.content_hash, store="docs") is not None
+
+        wrong_update = await cloudflare_storage.update_memory_metadata(
+            scoped.content_hash, {"metadata": {"scope": "default"}}, store="default"
+        )
+        assert not wrong_update[0]
+        assert await cloudflare_storage.get_by_hash(scoped.content_hash, store="docs") is not None
+
+        right_update = await cloudflare_storage.update_memory_metadata(
+            scoped.content_hash, {"metadata": {"scope": "docs"}}, store="docs"
+        )
+        assert right_update[0]
+        updated = await cloudflare_storage.get_by_hash(scoped.content_hash, store="docs")
+        assert updated is not None and updated.metadata["scope"] == "docs"
+
+        wrong_delete = await cloudflare_storage.delete(scoped.content_hash, store="default")
+        assert not wrong_delete[0]
+        assert await cloudflare_storage.get_by_hash(scoped.content_hash, store="docs") is not None
+
         assert (await cloudflare_storage.delete(memory.content_hash))[0]
-        assert db.execute("SELECT deleted_at FROM memories").fetchone()[0] is not None
+        assert db.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?", (memory.content_hash,)
+        ).fetchone()[0] is not None
         assert await cloudflare_storage.get_by_hash(memory.content_hash) is None, (
             "soft-deleted memory resurfaced through get_by_hash — the hybrid pull "
             "would restore data deleted concurrently in Cloudflare"

@@ -116,6 +116,9 @@ def _read_sync_embedding_identity(
 class RemoteHTTPStorage(MemoryStorage):
     """Remote HTTP storage backend using REST API calls."""
 
+    # Store scoping is negotiated with the peer; older APIs may ignore query params.
+    get_by_hash_is_store_scoped = False
+
     @property
     def max_content_length(self) -> Optional[int]:
         """No local content limit for HTTP storage."""
@@ -167,6 +170,9 @@ class RemoteHTTPStorage(MemoryStorage):
         self.basic_user = basic_user
         self.basic_pass = basic_pass
         self.expected_embedding_model = expected_embedding_model
+        self.get_by_hash_is_store_scoped = False
+        self.supports_store_scoped_access = False
+        self._sync_capabilities_response = None
 
         # Set up HTTP client with headers
         headers = {}
@@ -220,6 +226,30 @@ class RemoteHTTPStorage(MemoryStorage):
 
     async def initialize(self) -> None:
         """Initialize the HTTP storage backend and validate embedding model if expected."""
+        # Older servers may silently ignore an unknown store query parameter. Only
+        # advertise hash confinement after the peer explicitly confirms it.
+        self._sync_capabilities_response = None
+        try:
+            capabilities_response = await self._request("GET", "/api/sync/capabilities")
+            # The delta-sync scheduler initializes the peer immediately before
+            # checking compatibility. Reuse this response there rather than
+            # issuing the same capability request twice.
+            self._sync_capabilities_response = capabilities_response
+            if capabilities_response.status_code == 200:
+                capabilities = capabilities_response.json()
+                if isinstance(capabilities, dict):
+                    self.get_by_hash_is_store_scoped = (
+                        capabilities.get("store_scoped_hash_ops") is True
+                    )
+                    self.supports_store_scoped_access = (
+                        capabilities.get("store_scoped_access") is True
+                    )
+        except Exception as e:
+            logger.debug(
+                "Could not verify remote store-scoped hash support: %s",
+                _sanitize_log_value(str(e)),
+            )
+
         # If no expected model is specified, skip validation for backward compatibility
         if self.expected_embedding_model is None:
             return
@@ -297,7 +327,10 @@ class RemoteHTTPStorage(MemoryStorage):
             validate_event_schema,
         )
 
-        response = await self._request("GET", "/api/sync/capabilities")
+        response = self._sync_capabilities_response
+        self._sync_capabilities_response = None
+        if response is None:
+            response = await self._request("GET", "/api/sync/capabilities")
         capabilities = _read_sync_capabilities(response)
         peer_version = capabilities.get("version")
         negotiated_protocol = negotiate_sync_protocol(capabilities)
@@ -329,13 +362,17 @@ class RemoteHTTPStorage(MemoryStorage):
         ``restore_deleted``); a 409 from the server comes back as a ``RecreateRefused``
         message carrying the delete's event_id and HLC, like the local backend's.
         """
+        if store not in (None, "default") and not self.supports_store_scoped_access:
+            return False, "Remote peer has not confirmed store-scoped access"
+
         try:
             payload = {
                 "content": memory.content,
                 "content_hash": memory.content_hash,
                 "tags": memory.tags,
                 "memory_type": memory.memory_type,
-                "metadata": memory.metadata or {}
+                "metadata": memory.metadata or {},
+                "store": store,
             }
             if recreate is True:
                 payload["restore_deleted"] = True
@@ -372,8 +409,15 @@ class RemoteHTTPStorage(MemoryStorage):
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by hash via HTTP GET."""
+        named_store = store not in (None, "default")
+        if named_store and not self.get_by_hash_is_store_scoped:
+            return None
+
         try:
-            response = await self._request("GET", f"/api/memories/{content_hash}")
+            request_options = {"params": {"store": store}} if named_store else {}
+            response = await self._request(
+                "GET", f"/api/memories/{content_hash}", **request_options
+            )
 
             if response.status_code == 404:
                 return None
@@ -432,8 +476,12 @@ class RemoteHTTPStorage(MemoryStorage):
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory via HTTP DELETE, scoped to the given store partition."""
+        named_store = store not in (None, "default")
+        if named_store and not self.get_by_hash_is_store_scoped:
+            return False, "Remote peer has not confirmed store-scoped hash operations"
+
         try:
-            if store is not None:
+            if named_store:
                 response = await self._request("DELETE", f"/api/memories/{content_hash}", params={"store": store})
             else:
                 response = await self._request("DELETE", f"/api/memories/{content_hash}")
@@ -455,15 +503,28 @@ class RemoteHTTPStorage(MemoryStorage):
         except Exception as e:
             return False, f"Delete failed: {_sanitize_log_value(str(e))}"
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """Update memory metadata via HTTP PUT."""
+        named_store = store not in (None, "default")
+        if named_store and not self.get_by_hash_is_store_scoped:
+            return False, "Remote peer has not confirmed store-scoped hash operations"
+
         try:
             payload = {
                 **updates,
                 "preserve_timestamps": preserve_timestamps
             }
 
-            response = await self._request("PUT", f"/api/memories/{content_hash}", json=payload)
+            request_options = {"params": {"store": store}} if named_store else {}
+            response = await self._request(
+                "PUT", f"/api/memories/{content_hash}", json=payload, **request_options
+            )
 
             if response.status_code == 200:
                 result = response.json()

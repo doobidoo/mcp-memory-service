@@ -419,12 +419,21 @@ async def get_analytics_overview(
             tag_rows = await storage.get_all_tags_with_counts(store=scope)
             unique_tags = len(tag_rows)
 
+        # get_stats() reports backend-wide size, which cannot be attributed to
+        # one store when partitions share a database file.
+        database_size_mb = None
+        if scope is None:
+            database_size_mb = (
+                stats.get("primary_stats", {}).get("database_size_mb")
+                or stats.get("database_size_mb")
+            )
+
         return AnalyticsOverview(
             total_memories=total_memories,
             memories_this_week=memories_this_week,
             memories_this_month=memories_this_month,
             unique_tags=unique_tags,
-            database_size_mb=stats.get("primary_stats", {}).get("database_size_mb") or stats.get("database_size_mb"),
+            database_size_mb=database_size_mb,
             uptime_seconds=None,  # Would need to be calculated from health endpoint
             backend_type=stats.get("storage_backend", "unknown")
         )

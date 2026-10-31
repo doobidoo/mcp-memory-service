@@ -30,6 +30,7 @@ import logging
 from collections import deque
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from urllib.parse import quote, unquote
 
 
 # CLI clients (Claude Code, opencode, Codex CLI) sometimes invoke MCP prompts
@@ -47,6 +48,29 @@ def _is_unresolved_prompt_placeholder(value) -> bool:
     Examples that don't: "", "General", "$1 real value", "$abc", None.
     """
     return isinstance(value, str) and bool(_PROMPT_PLACEHOLDER_RE.match(value.strip()))
+
+
+def _store_resource_uri(store: str, resource_path: str) -> str:
+    """Build an unambiguous URI for a resource confined to one store."""
+    return f"memory://store/{quote(store, safe='')}/{resource_path.lstrip('/')}"
+
+
+def _split_store_resource_uri(uri: str) -> tuple[Optional[str], str]:
+    """Return a decoded store and path for ``memory://store/{name}/...``."""
+    prefix = "memory://store/"
+    if not uri.startswith(prefix):
+        return None, uri
+    encoded = uri[len(prefix):]
+    store_part, separator, resource_path = encoded.partition("/")
+    if not separator or not store_part:
+        return None, uri
+    return unquote(store_part), f"memory://{resource_path}"
+
+
+def _read_store_grants(scope: Optional[str]) -> list[str]:
+    """Extract per-store read grants from an MCP scope string."""
+    return [token[len("read:"):] for token in (scope or "").split()
+            if token.startswith("read:") and token[len("read:"):]]
 
 
 def _sanitize_log_value(value: object) -> str:
@@ -971,56 +995,98 @@ class MemoryServer:
         async def handle_list_resources() -> List[Resource]:
             """List available memory resources."""
             await self._ensure_storage_initialized()
-            
-            resources = [
-                types.Resource(
-                    uri="memory://stats",
-                    name="Memory Statistics",
-                    description="Current memory database statistics",
-                    mimeType="application/json"
-                ),
-                types.Resource(
-                    uri="memory://tags",
-                    name="Available Tags",
-                    description="List of all tags used in memories",
-                    mimeType="application/json"
-                ),
-                types.Resource(
-                    uri="memory://recent/10",
-                    name="Recent Memories",
-                    description="10 most recent memories",
-                    mimeType="application/json"
-                ),
-                types.Resource(
-                    uri="memory://onboarding/generic",
-                    name="Client Onboarding Guide",
-                    description="Integration guide — how to use this memory server optimally",
-                    mimeType="text/markdown"
-                ),
-                types.Resource(
-                    uri="memory://agent/default/bootstrap",
-                    name="Agent Bootstrap Profile",
-                    description="Confidence-weighted behavioral profile for agent startup injection",
-                    mimeType="text/markdown"
-                ),
-            ]
-            
-            # Add tag-specific resources for existing tags
+            scope = self._caller_scope_str()
+            has_global_read = scope is None or "read" in (scope or "").split()
+            stores = [] if has_global_read else _read_store_grants(scope)
+            if stores and not getattr(self.storage, "supports_store_scoped_access", False):
+                stores = []
+
+            resources = [types.Resource(
+                uri="memory://onboarding/generic",
+                name="Client Onboarding Guide",
+                description="Integration guide — how to use this memory server optimally",
+                mimeType="text/markdown",
+            )]
+
+            if has_global_read:
+                resources.extend([
+                    types.Resource(
+                        uri="memory://stats", name="Memory Statistics",
+                        description="Current memory database statistics",
+                        mimeType="application/json",
+                    ),
+                    types.Resource(
+                        uri="memory://tags", name="Available Tags",
+                        description="List of all tags used in memories",
+                        mimeType="application/json",
+                    ),
+                    types.Resource(
+                        uri="memory://recent/10", name="Recent Memories",
+                        description="10 most recent memories",
+                        mimeType="application/json",
+                    ),
+                    types.Resource(
+                        uri="memory://agent/default/bootstrap",
+                        name="Agent Bootstrap Profile",
+                        description="Confidence-weighted behavioral profile for agent startup injection",
+                        mimeType="text/markdown",
+                    ),
+                ])
+            else:
+                for store in stores:
+                    resources.extend([
+                        types.Resource(
+                            uri=_store_resource_uri(store, "stats"), name=f"Memory Statistics ({store})",
+                            description="Statistics for this memory store",
+                            mimeType="application/json",
+                        ),
+                        types.Resource(
+                            uri=_store_resource_uri(store, "tags"), name=f"Available Tags ({store})",
+                            description="Tags used in this memory store",
+                            mimeType="application/json",
+                        ),
+                        types.Resource(
+                            uri=_store_resource_uri(store, "recent/10"), name=f"Recent Memories ({store})",
+                            description="10 most recent memories in this store",
+                            mimeType="application/json",
+                        ),
+                        types.Resource(
+                            uri=_store_resource_uri(store, "agent/default/bootstrap"),
+                            name=f"Agent Bootstrap Profile ({store})",
+                            description="Bootstrap profile generated from this memory store",
+                            mimeType="text/markdown",
+                        ),
+                    ])
+
+            # Tag resource URIs and their contents use the same store filter.
             try:
-                all_tags = await self.storage.get_all_tags()
-                for tag in all_tags[:5]:  # Limit to first 5 tags for resources
-                    resources.append(types.Resource(
-                        uri=f"memory://tag/{tag}",
-                        name=f"Memories tagged '{tag}'",
-                        description=f"All memories with tag '{tag}'",
-                        mimeType="application/json"
-                    ))
+                if has_global_read:
+                    all_tags = await self.storage.get_all_tags()
+                    tag_stores = [(None, all_tags)]
+                else:
+                    tag_stores = [
+                        (store, [row["tag"] for row in
+                                 await self.storage.get_all_tags_with_counts(store=store)])
+                        for store in stores
+                    ]
+                for store, all_tags in tag_stores:
+                    for tag in all_tags[:5]:
+                        tag_path = f"tag/{quote(tag, safe='')}"
+                        resource_uri = (
+                            f"memory://{tag_path}" if store is None
+                            else _store_resource_uri(store, tag_path)
+                        )
+                        resources.append(types.Resource(
+                            uri=resource_uri,
+                            name=f"Memories tagged '{tag}'" + (f" ({store})" if store else ""),
+                            description=f"Memories tagged '{tag}'" + (f" in store '{store}'" if store else ""),
+                            mimeType="application/json",
+                        ))
             except AttributeError:
-                # get_all_tags method not available on this storage backend
+                # Older storage adapters may not expose a tag listing method.
                 pass
             except Exception as e:
                 logger.warning("Failed to load tag resources: %s", _sanitize_log_value(e))
-            
             return resources
         
         @self.server.read_resource()
@@ -1028,41 +1094,70 @@ class MemoryServer:
             """Read a specific memory resource."""
             await self._ensure_storage_initialized()
 
-            # Resources (tags, recent, search, stats) span every store and carry
-            # no store selector, so a store-restricted caller — a token with a
-            # read:<store> scope but no global `read` — can't be confined here
-            # and is refused. A global-read caller, or stdio / a no-auth loopback
-            # (no recorded scope), is unaffected. Per-store resource filtering is
-            # the follow-up issue; until then this fails closed.
-            _scope = self._caller_scope_str()
-            if _scope is not None and "read" not in _scope.split():
-                raise PermissionError(
-                    "insufficient_scope: MCP resources require a global 'read' scope; "
-                    "a store-restricted token cannot read cross-store resources"
-                )
-
-            from urllib.parse import unquote
-
             # Convert AnyUrl to string if necessary (fix for issue #254)
             # MCP SDK may pass Pydantic AnyUrl objects instead of plain strings
             if hasattr(uri, '__str__'):
                 uri = str(uri)
 
+            scope = self._caller_scope_str()
+            store, uri = _split_store_resource_uri(uri)
+            if scope is not None:
+                scopes = scope.split()
+                if store is not None:
+                    if not self._scope_grants(scope, "read", store):
+                        raise PermissionError(
+                            "insufficient_scope: resource URI store is not covered by this token"
+                        )
+                    storage = await self._ensure_storage_initialized()
+                    if not getattr(storage, "supports_store_scoped_access", False):
+                        raise PermissionError(
+                            "insufficient_scope: this backend cannot confine resource reads to a store"
+                        )
+                elif "read" not in scopes and not uri.startswith("memory://onboarding"):
+                    if _read_store_grants(scope):
+                        raise PermissionError(
+                            "insufficient_scope: store-scoped resources require a memory://store/{store}/... URI"
+                        )
+                    raise PermissionError(
+                        "insufficient_scope: MCP data resources require a read grant"
+                    )
+            elif store is not None:
+                storage = await self._ensure_storage_initialized()
+                if not getattr(storage, "supports_store_scoped_access", False):
+                    raise PermissionError(
+                        "store-scoped resources are not supported on this backend"
+                    )
+
             try:
                 if uri == "memory://stats":
                     # Get memory statistics
-                    stats = await self.storage.get_stats()
+                    if store is None:
+                        stats = await self.storage.get_stats()
+                    else:
+                        tags = await self.storage.get_all_tags_with_counts(store=store)
+                        stats = {
+                            "store": store,
+                            "total_memories": await self.storage.count_all_memories(store=store),
+                            "unique_tags": len(tags),
+                        }
                     return json.dumps(stats, indent=2)
                     
                 elif uri == "memory://tags":
                     # Get all available tags
-                    tags = await self.storage.get_all_tags()
+                    if store is None:
+                        tags = await self.storage.get_all_tags()
+                    else:
+                        tags = [row["tag"] for row in
+                                await self.storage.get_all_tags_with_counts(store=store)]
                     return json.dumps({"tags": tags, "count": len(tags)}, indent=2)
                     
                 elif uri.startswith("memory://recent/"):
                     # Get recent memories
                     n = int(uri.split("/")[-1])
-                    memories = await self.storage.get_recent_memories(n)
+                    if store is None:
+                        memories = await self.storage.get_recent_memories(n)
+                    else:
+                        memories = await self.storage.get_all_memories(limit=n, store=store)
                     return json.dumps({
                         "memories": [m.to_dict() for m in memories],
                         "count": len(memories)
@@ -1071,7 +1166,12 @@ class MemoryServer:
                 elif uri.startswith("memory://tag/"):
                     # Get memories by tag
                     tag = unquote(uri.split("/", 3)[-1])
-                    memories = await self.storage.search_by_tag([tag])
+                    if store is None:
+                        memories = await self.storage.search_by_tag([tag])
+                    else:
+                        memories = await self.storage.get_all_memories(
+                            tags=[tag], store=store
+                        )
                     return json.dumps({
                         "tag": tag,
                         "memories": [m.to_dict() for m in memories],
@@ -1081,7 +1181,12 @@ class MemoryServer:
                 elif uri.startswith("memory://search/"):
                     # Dynamic search
                     query = unquote(uri.split("/", 3)[-1])
-                    results = await self.storage.search(query, n_results=10)
+                    if store is None:
+                        results = await self.storage.search(query, n_results=10)
+                    else:
+                        results = await self.storage.retrieve(
+                            query, n_results=10, store=store
+                        )
                     return json.dumps({
                         "query": query,
                         "results": [r.to_dict() for r in results],
@@ -1097,7 +1202,7 @@ class MemoryServer:
                 elif uri.startswith("memory://agent/") and uri.endswith("/bootstrap"):
                     # §7: Bootstrap profile as resource
                     agent_id = uri[len("memory://agent/"):-len("/bootstrap")]
-                    return await self._read_bootstrap_resource(agent_id)
+                    return await self._read_bootstrap_resource(agent_id, store=store)
 
                 else:
                     return json.dumps({"error": f"Resource not found: {uri}"}, indent=2)
@@ -1109,25 +1214,42 @@ class MemoryServer:
         @self.server.list_resource_templates()
         async def handle_list_resource_templates() -> List[types.ResourceTemplate]:
             """List resource templates for dynamic queries."""
+            scope = self._caller_scope_str()
+            has_global_read = scope is None or "read" in (scope or "").split()
+            if has_global_read:
+                prefixes = ["memory://"]
+            else:
+                prefixes = [
+                    f"memory://store/{quote(store, safe='')}/"
+                    for store in _read_store_grants(scope)
+                ]
+                storage = await self._ensure_storage_initialized()
+                if not getattr(storage, "supports_store_scoped_access", False):
+                    prefixes = []
             return [
                 types.ResourceTemplate(
-                    uriTemplate="memory://recent/{n}",
+                    uriTemplate=f"{prefix}recent/{{n}}",
                     name="Recent Memories",
-                    description="Get N most recent memories",
-                    mimeType="application/json"
-                ),
-                types.ResourceTemplate(
-                    uriTemplate="memory://tag/{tag}",
-                    name="Memories by Tag",
-                    description="Get all memories with a specific tag",
-                    mimeType="application/json"
-                ),
-                types.ResourceTemplate(
-                    uriTemplate="memory://search/{query}",
-                    name="Search Memories",
-                    description="Search memories by query",
-                    mimeType="application/json"
+                    description="Get N most recent memories in the selected scope",
+                    mimeType="application/json",
                 )
+                for prefix in prefixes
+            ] + [
+                types.ResourceTemplate(
+                    uriTemplate=f"{prefix}tag/{{tag}}",
+                    name="Memories by Tag",
+                    description="Get memories with a tag in the selected scope",
+                    mimeType="application/json",
+                )
+                for prefix in prefixes
+            ] + [
+                types.ResourceTemplate(
+                    uriTemplate=f"{prefix}search/{{query}}",
+                    name="Search Memories",
+                    description="Search memories in the selected scope",
+                    mimeType="application/json",
+                )
+                for prefix in prefixes
             ]
         
         @self.server.list_prompts()
@@ -1617,33 +1739,32 @@ class MemoryServer:
     # on a backend whose get_by_hash honours it. A per-store grant
     # (read:<s>/write:<s>) authorizes only these: every other tool acts on all
     # partitions, so naming a store there must not unlock it. memory_explore
-    # and memory_detail are left out: the entity graph is not partitioned, so
-    # their entity names and related entities span every store (#1683).
+    # and memory_detail are eligible once they carry a store selector and the
+    # graph backend can join entity edges to live memories in that partition
+    # (#1683). Their handlers keep optional graph scoring from using global
+    # traversals when a store is selected.
     STORE_CONFINED_TOOLS = frozenset({
         "memory_store", "memory_store_session", "memory_search", "memory_list",
-        "memory_delete", "memory_update",
+        "memory_delete", "memory_update", "memory_explore", "memory_detail",
     })
-    # memory_search arguments that read outside the claimed store: beliefs are
-    # not partitioned, and the exact/tag fallback queries ignore ``store``.
-    CROSS_STORE_ARGUMENTS = ("include_beliefs", "fallback")
-
     async def store_grant_target(self, name: Optional[str], arguments: Optional[dict] = None) -> Optional[str]:
         """Return the store a per-store grant may authorize this call for.
 
         ``None`` means only the global grant will do: the call names no store
         (or ``all``), the tool ignores ``store``, the call reaches across
-        partitions, or the backend's get_by_hash ignores ``store`` and so cannot
-        prove confinement (storage-layer enforcement is #1683). The SDK dispatch
+        partitions, or the backend cannot prove that every store-aware API is
+        confined. Hash lookup confinement alone is insufficient here because
+        this set also includes list/search/write operations. The SDK dispatch
         gate and the /mcp shim both ask this, so the transports cannot disagree.
         """
         arguments = arguments or {}
         store = arguments.get("store")
         if store in (None, "all") or name not in self.STORE_CONFINED_TOOLS:
             return None
-        if any(arguments.get(key) for key in self.CROSS_STORE_ARGUMENTS):
-            return None
         storage = await self._ensure_storage_initialized()
         if not getattr(storage, "get_by_hash_is_store_scoped", False):
+            return None
+        if not getattr(storage, "supports_store_scoped_access", False):
             return None
         return store
 
@@ -2595,10 +2716,13 @@ class MemoryServer:
         """Return the MCP resource URI for an agent's bootstrap profile."""
         return f"memory://agent/{agent_id}/bootstrap"
 
-    async def _read_bootstrap_resource(self, agent_id: str) -> str:
+    async def _read_bootstrap_resource(
+        self, agent_id: str, store: Optional[str] = None
+    ) -> str:
         """Read bootstrap profile as resource content."""
         result = await self.handle_get_bootstrap_profile(
-            {"agent_ids": [agent_id]}, reset_session_counters=False,
+            {"agent_ids": [agent_id], "store": store},
+            reset_session_counters=False,
         )
         if result and hasattr(result[0], 'text'):
             return result[0].text
@@ -2710,6 +2834,8 @@ class MemoryServer:
             return [types.TextContent(type="text", text="=== BEHAVIORAL PROFILE (v1) ===\n\nBootstrap disabled. Set MCP_BOOTSTRAP_ENABLED=true to enable.\n=== END PROFILE ===")]
 
         agent_ids = arguments.get("agent_ids", [])
+        store = arguments.get("store")
+        store_kwargs = {"store": store} if store is not None else {}
         max_tokens = arguments.get("max_tokens", int(os.getenv("MCP_BOOTSTRAP_MAX_TOKENS", "2048")))
         task_summary = arguments.get("task_summary")
         budget_tokens = arguments.get("budget_tokens") or max_tokens
@@ -2722,16 +2848,19 @@ class MemoryServer:
 
         try:
             # Check fresh-start sentinel for each agent
-            for agent_id in agent_ids:
-                count = await self._get_session_count(agent_id)
-                if count >= fresh_start_interval:
-                    fresh_start_recommended = True
-                    if reset_session_counters:
-                        await self._reset_session_counter(agent_id)
+            # Session counters are legacy/global bootstrap state, not partitioned
+            # by store. Do not consult them for a store-scoped resource request.
+            if store is None:
+                for agent_id in agent_ids:
+                    count = await self._get_session_count(agent_id)
+                    if count >= fresh_start_interval:
+                        fresh_start_recommended = True
+                        if reset_session_counters:
+                            await self._reset_session_counter(agent_id)
 
             # Query avoid-rule mistake notes
             all_mistakes = await self.memory_service.list_memories(
-                page=1, page_size=50, memory_type="mistake"
+                page=1, page_size=50, memory_type="mistake", **store_kwargs
             )
             for mem in all_mistakes.get("memories", []):
                 meta = mem.get("metadata") or {}
@@ -2747,7 +2876,7 @@ class MemoryServer:
 
             # Query user_correction and decision observations
             corrections = await self.memory_service.list_memories(
-                page=1, page_size=50, memory_type="observation"
+                page=1, page_size=50, memory_type="observation", **store_kwargs
             )
             for mem in corrections.get("memories", []):
                 meta = mem.get("metadata") or {}
@@ -2767,7 +2896,7 @@ class MemoryServer:
                 if task_summary:
                     # Semantic search: find memories RELEVANT to the current task
                     harvest_mems = await self.memory_service.retrieve_memories(
-                        query=f"{task_summary} {htype}", n_results=10,
+                        query=f"{task_summary} {htype}", n_results=10, store=store,
                     )
                     mem_list = harvest_mems.get("memories", []) if isinstance(harvest_mems, dict) else []
                 else:
@@ -2776,6 +2905,7 @@ class MemoryServer:
                     for _htag in ["session-harvest", "memory-distill"]:
                         harvest_mems = await self.memory_service.list_memories(
                             page=1, page_size=20, memory_type=htype, tags=[_htag],
+                            **store_kwargs,
                         )
                         mem_list.extend(harvest_mems.get("memories", []))
                 for mem in mem_list:
@@ -2798,7 +2928,9 @@ class MemoryServer:
             try:
                 from mcp_memory_service.consolidation.belief_service import BeliefService
                 belief_svc = BeliefService(self.storage)
-                active_beliefs = await belief_svc.get_beliefs(status="active", min_confidence=0.6)
+                active_beliefs = await belief_svc.get_beliefs(
+                    status="active", min_confidence=0.6, store=store
+                )
                 for b in active_beliefs[:10]:
                     beliefs_entries.append(f"- 🧠 {b['content']} [confidence: {b['confidence']:.2f}]")
             except Exception as e:
@@ -2809,7 +2941,7 @@ class MemoryServer:
             if task_summary:
                 try:
                     task_results = await self.memory_service.retrieve_memories(
-                        query=task_summary, n_results=5
+                        query=task_summary, n_results=5, store=store
                     )
                     for mem in task_results.get("memories", []):
                         content = mem.get("content", "")

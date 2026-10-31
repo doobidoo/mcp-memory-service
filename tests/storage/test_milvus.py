@@ -61,6 +61,16 @@ async def storage(milvus_db_path):
         await instance.close()
 
 
+@pytest.mark.asyncio
+async def test_hash_lookup_fails_closed_for_unpartitioned_named_store(monkeypatch):
+    """Milvus is default-only; a named partition must never resolve globally."""
+    instance = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
+    monkeypatch.setattr(instance, "_ensure_initialized", lambda: True)
+
+    assert MilvusMemoryStorage.get_by_hash_is_store_scoped is True
+    assert await instance.get_by_hash("known-hash", store="docs") is None
+
+
 @pytest.fixture
 def sample_memory():
     content = "Milvus backend smoke test — Python FastAPI handlers."

@@ -422,6 +422,8 @@ async def test_capabilities_endpoint_and_sync_status_expose_versions_and_peer_re
     assert data["embedding_model"] == expected_embedding_model
     assert data["embedding_dimension"] == expected_embedding_dimension
     assert data["version"]
+    assert data["store_scoped_hash_ops"] is True
+    assert data["store_scoped_access"] is True
     assert status_response.status_code == 200
     status = status_response.json()
     assert status["is_hybrid"] is False

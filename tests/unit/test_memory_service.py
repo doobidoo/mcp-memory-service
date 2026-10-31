@@ -494,6 +494,16 @@ async def test_delete_memory_success(memory_service, mock_storage):
 
 
 @pytest.mark.asyncio
+async def test_delete_memory_forwards_store_scope(memory_service, mock_storage):
+    mock_storage.delete.return_value = (True, "Deleted successfully")
+
+    result = await memory_service.delete_memory("test_hash", store="docs")
+
+    assert result["success"] is True
+    mock_storage.delete.assert_called_once_with("test_hash", store="docs")
+
+
+@pytest.mark.asyncio
 async def test_delete_memory_not_found(memory_service, mock_storage):
     """Test deleting non-existent memory."""
     mock_storage.delete.return_value = (False, "Not found")

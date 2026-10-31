@@ -359,6 +359,19 @@ class TestHybridMemoryStorage:
         assert results[0].memory.content == sample_memory.content
 
     @pytest.mark.asyncio
+    async def test_store_queues_named_partition_for_secondary_sync(
+        self, hybrid_storage, sample_memory
+    ):
+        enqueue = AsyncMock()
+        hybrid_storage.sync_service.enqueue_operation = enqueue
+
+        success, _ = await hybrid_storage.store(sample_memory, store="docs")
+
+        assert success
+        operation = enqueue.await_args.args[0]
+        assert operation.store == "docs"
+
+    @pytest.mark.asyncio
     async def test_retrieve_memory(self, hybrid_storage, sample_memory):
         """Test retrieving memories from hybrid storage."""
         # Store a memory first
