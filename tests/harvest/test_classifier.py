@@ -375,3 +375,19 @@ class TestOpenAICompatiblePayload:
 
         payload = client.__enter__.return_value.post.call_args.kwargs["json"]
         assert payload["stream"] is False
+
+    def test_gpt5_uses_completion_tokens_without_temperature(self):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        client = MagicMock()
+        client.__enter__.return_value.post.return_value = resp
+
+        with patch("httpx.Client", return_value=client):
+            _classifier_without_groq_key()._call_openai_compatible(
+                "http://127.0.0.1:1976/v1", "gpt-5.4-mini", "", "prompt", "system msg", 200, 0.3
+            )
+
+        payload = client.__enter__.return_value.post.call_args.kwargs["json"]
+        assert payload["max_completion_tokens"] == 1000
+        assert "max_tokens" not in payload
+        assert "temperature" not in payload
