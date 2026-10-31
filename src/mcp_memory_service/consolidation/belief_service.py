@@ -30,6 +30,9 @@ _NOISE_PREFIXES = (
     "Cluster of",
     "[SESSÃO]",
     "[MINED:",
+    "[GAP]",      # auto decision-gap statistic (not a claim) — investigação 31/out
+    "[PATTERN]",  # auto tag co-occurrence statistic — investigação 31/out
+    "[TREND]",    # auto trend statistic — investigação 31/out
     "# Session Summary",
     "## Session Summary",
     "Session: ",  # commit_session_legacy entries (#121 follow-up)
@@ -43,6 +46,23 @@ _NOISE_PATTERNS = [
     re.compile(r"<ide_opened_file>", re.IGNORECASE),
     re.compile(r"^Topics Discussed:", re.MULTILINE | re.IGNORECASE),
     re.compile(r"^Session:\s+[0-9a-f]{8}-", re.IGNORECASE),  # UUID session IDs (#121)
+    # Meta-statistics that escape the bracket prefixes (the bracket-less
+    # "[PATTERN]" body): "N memories share tags [...], indicating a recurring
+    # theme." is a co-occurrence count, not knowledge. Anchored to the trailing
+    # "indicating a recurring theme"; the list body is [^\n]* (NOT [^\]], because
+    # a tag name can itself contain "]" e.g. "[project]" — Greptile P2
+    # r4431605443). No DOTALL, so legit prose across paragraphs is not caught.
+    # Anchored to the exact shape _detect_patterns emits in insights.py:
+    # "... share tags [<sorted list>], indicating a recurring theme." The list
+    # is unbounded (every shared tag is printed), so match the bracketed-list
+    # STRUCTURE — "share tags [" ... "], indicating a recurring theme" — never a
+    # char budget (Greptile P2 on #1727: two long tags exceed any fixed limit).
+    # No DOTALL and the list body excludes line breaks, so legitimate prose that
+    # mentions both phrases across paragraphs is not caught.
+    re.compile(
+        r"memories share tags \[[^\n]*\],?\s*indicating a recurring theme",
+        re.IGNORECASE,
+    ),
 ]
 
 
@@ -76,6 +96,34 @@ def _is_noise(content: str) -> bool:
             return True
 
     return False
+
+
+# Markers that are pure consolidation meta-statistics, not knowledge. Subset of
+# _NOISE_PREFIXES used at READ time (get_beliefs): excluding stored noise must not
+# reapply the full _is_noise dump heuristics (entropy/bullet/length) to beliefs that
+# are merely long or repetitive — those are legitimate and were accepted at
+# derivation. Only the auto-insight markers are retroactively excluded.
+_META_STAT_PREFIXES = ("[GAP]", "[PATTERN]", "[TREND]", "[MINED:")
+_META_STAT_PATTERN = re.compile(
+    r"memories share tags \[[^\n]*\],?\s*indicating a recurring theme",
+    re.IGNORECASE,
+)
+
+
+def _is_meta_statistic(content: str) -> bool:
+    """True if content is a consolidation auto-statistic ([GAP]/[PATTERN]/[TREND]/
+    [MINED:] or the bracket-less 'N memories share tags [...] recurring theme').
+
+    Narrow by design for read-time exclusion (Greptile P1 on #1727): beliefs
+    stored before the derivation filter existed stay in the table, and
+    derive_beliefs no longer reaches them to supersede. This keeps existing
+    stores clean without a data migration, WITHOUT reapplying the dump
+    heuristics that would hide legitimate long/repetitive beliefs.
+    """
+    text = (content or "").lstrip()
+    if any(text.startswith(p) for p in _META_STAT_PREFIXES):
+        return True
+    return bool(_META_STAT_PATTERN.search(text))
 
 
 def _content_entropy(content: str) -> float:
@@ -277,6 +325,10 @@ class BeliefService:
                 (status, min_confidence),
             )
             rows = cursor.fetchall()
+            # Greptile P1 (#1727): beliefs stored BEFORE this filter existed stay
+            # in the table — derive_beliefs no longer reaches them to supersede,
+            # so exclude meta-statistics noise at read time too. Keeps existing
+            # stores clean without a data migration.
             return [
                 {
                     "belief_hash": r[0],
@@ -291,6 +343,7 @@ class BeliefService:
                     "result_type": "belief",
                 }
                 for r in rows
+                if not _is_meta_statistic(r[1] or "")
             ]
         except Exception as e:
             logger.error("[belief] get_beliefs failed: %s", _sanitize_log_value(str(e)))
