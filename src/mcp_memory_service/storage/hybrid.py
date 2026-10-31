@@ -2314,6 +2314,13 @@ class HybridMemoryStorage(MemoryStorage):
         """Retrieve memories by exact content match from primary storage."""
         return await self.primary.get_by_exact_content(content, store=store)
 
+    async def _get_supersession_map(self, content_hashes, store=None):
+        """Delegate the issue-#1724 lineage lookup to the primary SQLite storage."""
+        delegate = getattr(self.primary, "_get_supersession_map", None)
+        if delegate is not None:
+            return await delegate(content_hashes, store=store)
+        return {}
+
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""
         count, message = await self.primary.delete_by_timeframe(start_date, end_date, tag)

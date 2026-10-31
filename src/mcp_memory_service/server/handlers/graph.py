@@ -99,7 +99,10 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
 
             return await handle_find_connected_memories(server, {
                 "hash": hash_val,
-                "max_hops": arguments.get("max_hops", 2)
+                "max_hops": arguments.get("max_hops", 2),
+                # Issue #1724: forward the point-in-time bound — dropping it
+                # here silently disabled as_of for the memory_graph tool.
+                "as_of": arguments.get("as_of"),
             })
 
         elif action == "path":

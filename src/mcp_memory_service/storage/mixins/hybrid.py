@@ -32,7 +32,8 @@ class HybridMixin:
         query: str,
         n_results: int = 5,
         sanitize_query: bool = True,
-        include_superseded: bool = False
+        include_superseded: bool = False,
+        as_of: Optional[float] = None,
     ) -> List[Tuple[str, float]]:
         """Perform BM25 keyword search using FTS5."""
         try:
@@ -67,8 +68,13 @@ class HybridMixin:
             else:
                 fts_query = '"{}"'.format(query_clean.replace('"', '""'))
 
+            # Issue #1724 follow-up: when as_of is set, do NOT pre-exclude
+            # superseded rows here — a row superseded after as_of was still
+            # current at as_of. The historical bound is applied post-fusion
+            # instead (no-op when as_of is None).
             superseded_filter = (
-                "" if include_superseded
+                ""
+                if (include_superseded or as_of is not None)
                 else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
             )
 
@@ -113,9 +119,14 @@ class HybridMixin:
         self,
         bm25_results,
         vector_results,
-        n_results: int
+        n_results: int,
+        as_of: Optional[float] = None,
     ):
-        """Fuse results using Reciprocal Rank Fusion (RRF)."""
+        """Fuse results using Reciprocal Rank Fusion (RRF).
+
+        Issue #1724: supersession lineage is carried through the fusion so the
+        point-in-time filter can be applied before truncating to n_results.
+        """
         from ...config import MCP_HYBRID_RRF_K, MCP_HYBRID_RRF_CONSENSUS_BOOST
 
         k = MCP_HYBRID_RRF_K
@@ -139,6 +150,9 @@ class HybridMixin:
 
         bm25_only = [h for h in scores if h not in vector_memories]
         fetched = {}
+        # Issue #1724: supersession lineage for BM25-only rows, mirroring the
+        # weighted branch fetch (successor lookups are live-row only).
+        rrf_supersession = {}
         if bm25_only:
             try:
                 for i in range(0, len(bm25_only), 999):
@@ -147,25 +161,41 @@ class HybridMixin:
                     def fetch_batch(ph=ph, b=batch):
                         cur = self.conn.execute(
                             f"SELECT content_hash, content, tags, memory_type, metadata, "
-                            f"created_at, updated_at, created_at_iso, updated_at_iso "
-                            f"FROM memories WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)", b)
+                            f"created_at, updated_at, created_at_iso, updated_at_iso, "
+                            f"m.superseded_by, "
+                            f"COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) "
+                            f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)", b)
                         return cur.fetchall()
                     rows = await self._execute_with_retry(fetch_batch)
                     for row in rows:
                         m = self._row_to_memory(row)
                         if m:
                             fetched[m.content_hash] = m
+                            rrf_supersession[m.content_hash] = (
+                                row[9] or None, row[10],
+                            )
             except Exception as e:
                 logger.warning("RRF batch fetch failed: %s", _sanitize_log_value(e))
 
+        vector_results_by_hash = {r.memory.content_hash: r for r in vector_results}
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         results = []
-        for ch, rrf_score in ranked[:n_results]:
+        for ch, rrf_score in ranked:
             memory = vector_memories.get(ch) or fetched.get(ch)
             if memory:
+                # Issue #1724: carry supersession lineage so the as_of
+                # post-filter below works. Vector hits already carry it from
+                # retrieve().
+                vresult = vector_results_by_hash.get(ch)
+                if vresult is not None:
+                    sup_by, sup_at = vresult.superseded_by, vresult.superseded_at
+                else:
+                    sup_by, sup_at = rrf_supersession.get(ch, (None, None))
                 results.append(MemoryQueryResult(
                     memory=memory,
                     relevance_score=rrf_score,
+                    superseded_by=sup_by,
+                    superseded_at=sup_at,
                     debug_info={
                         "rrf_score": rrf_score,
                         "in_semantic": ch in vector_set,
@@ -174,6 +204,12 @@ class HybridMixin:
                         "backend": "hybrid-rrf",
                     },
                 ))
+
+        # Issue #1724: apply the historical bound BEFORE truncating, so
+        # dropped rows don't consume result slots (no-op when as_of is None).
+        if as_of is not None:
+            results = self._post_filter_as_of(results, as_of)
+        results = results[:n_results]
 
         logger.info("RRF hybrid: %d results (BM25: %d, Vec: %d, Consensus: %d)",
                     len(results), len(bm25_results), len(vector_results), len(consensus))
@@ -223,7 +259,7 @@ class HybridMixin:
         merged set so the (store-unaware) BM25 half cannot leak other partitions.
         """
         try:
-            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded))
+            bm25_task = asyncio.create_task(self._search_bm25(query, n_results * 2, include_superseded=include_superseded, as_of=as_of))
             vector_task = asyncio.create_task(self.retrieve(query, n_results * 2, include_superseded=include_superseded, store=store, as_of=as_of))
 
             bm25_results, vector_results = await asyncio.gather(bm25_task, vector_task)
@@ -232,7 +268,8 @@ class HybridMixin:
             if MCP_HYBRID_FUSION_METHOD == 'rrf':
                 # Fuse everything, then scope to the store before truncating, as the
                 # weighted path below does: BM25 hits can come from any store.
-                fused = await self._fuse_rrf(bm25_results, vector_results, len(bm25_results) + len(vector_results))
+                # Issue #1724: as_of is applied inside _fuse_rrf (pre-truncation).
+                fused = await self._fuse_rrf(bm25_results, vector_results, len(bm25_results) + len(vector_results), as_of=as_of)
                 return self._only_in_store(fused, store)[:n_results]
 
             bm25_scores = {}
@@ -257,14 +294,22 @@ class HybridMixin:
                         batch = bm25_only_hashes[batch_start : batch_start + 999]
                         placeholders = ",".join("?" for _ in batch)
 
-                        superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+                        # Issue #1724: keep supersession lineage for the as_of
+                        # post-filter below. When as_of is set, superseded rows
+                        # stay in the candidate pool (they may have been current
+                        # at as_of); the historical bound is applied post-fusion.
+                        # Successor lookups are live-row only (deleted_at).
+                        superseded_filter = (
+                            "" if (include_superseded or as_of is not None)
+                            else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+                        )
 
                         def fetch_batch(ph=placeholders, b=batch, sf=superseded_filter):
                             cursor = self.conn.execute(
                                 f"SELECT content_hash, content, tags, memory_type, metadata, "
                                 f"created_at, updated_at, created_at_iso, updated_at_iso, "
                                 f"m.superseded_by, "
-                                f"COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)) "
+                                f"COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) "
                                 f"FROM memories m WHERE content_hash IN ({ph}) AND deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){sf}",
                                 b,
                             )

@@ -312,3 +312,182 @@ async def test_find_connected_respects_as_of(graph_storage):
     # Untimed edges still pass: no as_of keeps old behaviour.
     connected = await graph_storage.find_connected(h1)
     assert {h for h, _ in connected} == {h2, h3}
+
+
+# ---------------------------------------------------------------------------
+# Review follow-up (filhocf, 2026-10-31): boundary cases, non-retrieve modes,
+# superseded_at idempotency, and the RRF fusion path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_as_of_future_equals_present(storage, superseded_pair):
+    """as_of in the future must equal the present result set (review #4)."""
+    m1_hash, m2_hash = superseded_pair
+    present = await storage.search_memories(query="project deadline", limit=10)
+    future = await storage.search_memories(
+        query="project deadline", as_of="2030-01-01", limit=10
+    )
+    assert "error" not in future, future.get("error")
+    assert _hashes(future) == _hashes(present)
+    assert m2_hash in _hashes(future)
+    assert m1_hash not in _hashes(future)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_as_of_before_oldest_memory_returns_empty(storage, superseded_pair):
+    """as_of before the oldest memory must return empty, not an error (review #4)."""
+    result = await storage.search_memories(
+        query="project deadline", as_of="2020-01-01", limit=10
+    )
+    assert "error" not in result, result.get("error")
+    assert result["memories"] == []
+    assert result["total"] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_as_of_exact_mode(storage, superseded_pair):
+    """Exact mode must honour as_of (review #1): created/superseded bounds apply."""
+    m1_hash, m2_hash = superseded_pair
+    result = await storage.search_memories(
+        query="deadline", mode="exact", as_of="2026-10-20", limit=10
+    )
+    assert "error" not in result, result.get("error")
+    hashes = _hashes(result)
+    assert m2_hash in hashes
+    assert m1_hash not in hashes, "M1 was superseded 2026-10-15, before as_of"
+
+    result = await storage.search_memories(
+        query="deadline", mode="exact", as_of="2026-10-10", limit=10
+    )
+    assert "error" not in result, result.get("error")
+    hashes = _hashes(result)
+    assert m1_hash in hashes, "M1 was still current on 2026-10-10"
+    assert m2_hash in hashes
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_as_of_tag_only_mode(storage, superseded_pair):
+    """Tag-only path must honour as_of (review #1)."""
+    m1_hash, m2_hash = superseded_pair
+    result = await storage.search_memories(
+        tags=["deadline"], as_of="2026-10-20", limit=10
+    )
+    assert "error" not in result, result.get("error")
+    hashes = _hashes(result)
+    assert m2_hash in hashes
+    assert m1_hash not in hashes, "M1 was superseded before as_of"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_exact_mode_status_flags(storage, superseded_pair):
+    """Exact mode with include_superseded must label lineage (review #1)."""
+    m1_hash, m2_hash = superseded_pair
+    result = await storage.search_memories(
+        query="deadline", mode="exact", include_superseded=True, limit=10
+    )
+    assert "error" not in result, result.get("error")
+    by_hash = {m["content_hash"]: m for m in result["memories"]}
+    assert m1_hash in by_hash and m2_hash in by_hash
+    assert by_hash[m1_hash].get("status") == "superseded"
+    assert by_hash[m1_hash].get("superseded_by") == m2_hash
+    assert by_hash[m2_hash].get("status") == "current"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_superseded_at_not_restamped_on_retry(storage, superseded_pair):
+    """Retried supersede operations must keep the original superseded_at (review #2)."""
+
+    async def _read_sup_at(content_hash):
+        def _q():
+            row = storage.conn.execute(
+                "SELECT superseded_at FROM memories WHERE content_hash = ?",
+                (content_hash,),
+            ).fetchone()
+            return row[0] if row else None
+
+        return await storage._execute_with_retry(_q)
+
+    m1_hash, m2_hash = superseded_pair
+    assert await _read_sup_at(m1_hash) == T3
+
+    # Retry the same batch: the timestamp must not move.
+    assert await storage.mark_superseded_batch([(m2_hash, m1_hash)]) == 1
+    assert await _read_sup_at(m1_hash) == T3, "batch retry must preserve superseded_at"
+
+    # Explicit metadata update with the same winner: preserved too.
+    ok, _ = await storage.update_memory_metadata(m1_hash, {"superseded_by": m2_hash})
+    assert ok
+    assert await _read_sup_at(m1_hash) == T3, "metadata re-point must preserve superseded_at"
+
+    # Clearing the supersession clears the timestamp.
+    ok, _ = await storage.update_memory_metadata(m1_hash, {"superseded_by": None})
+    assert ok
+    assert await _read_sup_at(m1_hash) is None
+
+    # Re-superseding after a clear stamps a fresh (current) time.
+    ok, _ = await storage.update_memory_metadata(m1_hash, {"superseded_by": m2_hash})
+    assert ok
+    new_ts = await _read_sup_at(m1_hash)
+    assert new_ts is not None and new_ts > T3
+
+
+@pytest_asyncio.fixture
+async def rrf_corpus(storage):
+    """40-memory corpus for the RRF test: superseded pair + future memory + fillers."""
+    t_fill = _ts(2026, 9, 15)
+    t_future = _ts(2026, 10, 25)  # M3 is created after as_of
+    m1 = _make_memory("The project deadline is October 1st", T1)
+    m2 = _make_memory("The project deadline is November 1st", T2)
+    m3 = _make_memory("The project deadline moved to December", t_future)
+    assert await storage.store(m1, skip_semantic_dedup=True)
+    assert await storage.store(m2, skip_semantic_dedup=True)
+    assert await storage.store(m3, skip_semantic_dedup=True)
+    for i in range(37):
+        f = _make_memory(f"filler note {i} about project deadline logistics", t_fill)
+        assert await storage.store(f, skip_semantic_dedup=True)
+    assert await storage.mark_superseded_batch([(m2.content_hash, m1.content_hash)]) == 1
+
+    def _backdate():
+        storage.conn.execute(
+            "UPDATE memories SET superseded_at = ? WHERE content_hash = ?",
+            (T3, m1.content_hash),
+        )
+        storage.conn.commit()
+
+    await storage._execute_with_retry(_backdate)
+    return m1.content_hash, m2.content_hash, m3.content_hash
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_rrf_fusion_honors_as_of(storage, rrf_corpus, monkeypatch):
+    """RRF fusion path must apply the as_of bound at 40 candidates (review #3)."""
+    m1_hash, m2_hash, m3_hash = rrf_corpus
+    monkeypatch.setattr("mcp_memory_service.config.MCP_HYBRID_FUSION_METHOD", "rrf")
+
+    result = await storage.search_memories(
+        query="project deadline", mode="hybrid", as_of="2026-10-20", limit=50
+    )
+    assert "error" not in result, result.get("error")
+    hashes = _hashes(result)
+    assert len(hashes) == 38, f"expected 38 live-at-as_of memories, got {len(hashes)}"
+    assert m1_hash not in hashes, "M1 was superseded 2026-10-15, before as_of"
+    assert m2_hash in hashes, "M2 was current on 2026-10-20"
+    assert m3_hash not in hashes, "M3 was created after as_of"
+
+    # Sanity: without as_of the present-day path still hides M1 and shows M3.
+    result_now = await storage.search_memories(
+        query="project deadline", mode="hybrid", limit=50
+    )
+    assert "error" not in result_now, result_now.get("error")
+    hashes_now = _hashes(result_now)
+    assert m1_hash not in hashes_now
+    assert m2_hash in hashes_now
+    assert m3_hash in hashes_now

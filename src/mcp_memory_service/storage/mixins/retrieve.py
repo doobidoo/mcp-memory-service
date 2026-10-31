@@ -147,7 +147,7 @@ class RetrieveMixin:
                         " AND m.created_at <= ?"
                         " AND (m.superseded_by IS NULL OR m.superseded_by = ''"
                         " OR COALESCE(m.superseded_at,"
-                        " (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)) > ?)"
+                        " (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) > ?)"
                     )
                     as_of_params = [as_of, as_of]
 
@@ -175,7 +175,7 @@ class RetrieveMixin:
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
                            e.distance, m.superseded_by, m.superseded_at,
                            COALESCE(m.superseded_at,
-                                    (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by)
+                                    (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)
                            ) AS eff_superseded_at
                     FROM memories m
                     INNER JOIN (
@@ -645,6 +645,45 @@ class RetrieveMixin:
         except Exception as e:
             logger.error("Error in exact content match: %s", _sanitize_log_value(e))
             return []
+
+    async def _get_supersession_map(
+        self, content_hashes: list, store: Optional[str] = None
+    ) -> Dict[str, Tuple[Optional[str], Optional[float]]]:
+        """SQLite implementation of the batched supersession-lineage lookup (issue #1724).
+
+        Returns content_hash -> (superseded_by, effective superseded_at), where
+        the effective time is superseded_at when known (migration 020), else
+        the successor's created_at. Deleted rows and deleted successors are
+        excluded (repository rule: successor lookups must be live-row only).
+        """
+        mapping: Dict[str, Tuple[Optional[str], Optional[float]]] = {}
+        if not content_hashes or not self.conn:
+            return mapping
+        try:
+            for batch_start in range(0, len(content_hashes), 999):
+                batch = content_hashes[batch_start:batch_start + 999]
+                placeholders = ",".join("?" for _ in batch)
+                store_pred = " AND m.store = ?" if store is not None else ""
+                params = list(batch) + ([store] if store is not None else [])
+
+                def _lookup(ph=placeholders, sp=store_pred, p=tuple(params)):
+                    return self.conn.execute(
+                        "SELECT m.content_hash, m.superseded_by, "
+                        "COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s "
+                        "WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) "
+                        f"FROM memories m WHERE m.content_hash IN ({ph}) "
+                        f"AND m.deleted_at IS NULL{sp}",
+                        p,
+                    ).fetchall()
+
+                for h, sup_by, sup_at in await self._execute_with_retry(_lookup):
+                    mapping[h] = (sup_by or None, sup_at)
+        except Exception as e:
+            logger.warning(
+                "Supersession lineage lookup failed, continuing without: %s",
+                _sanitize_log_value(str(e)),
+            )
+        return mapping
 
     async def get_all_memories(
         self,

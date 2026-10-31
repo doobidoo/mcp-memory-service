@@ -1168,6 +1168,49 @@ class MemoryStorage(ABC):
             filtered.append(r)
         return filtered
 
+    async def _get_supersession_map(
+        self, content_hashes: List[str], store: Optional[str] = None
+    ) -> Dict[str, Tuple[Optional[str], Optional[float]]]:
+        """Batch supersession-lineage lookup: content_hash -> (superseded_by, superseded_at).
+
+        Issue #1724 follow-up: exact / time-only / tag-only search paths build
+        results from raw Memory objects that never flow through retrieve(), so
+        their lineage fields are empty. The base implementation returns {}
+        (backend cannot provide it — those paths then get only the created_at
+        bound); SQLite overrides with a single batched query.
+        """
+        return {}
+
+    async def _enrich_supersession(
+        self, results: List[MemoryQueryResult], store: Optional[str] = None
+    ) -> List[MemoryQueryResult]:
+        """Backfill supersession lineage on results that lack it. Never raises:
+        on any failure the results pass through unchanged (created_at bound
+        still applies via _post_filter_as_of)."""
+        try:
+            need = [
+                r for r in results
+                if r.superseded_by is None and r.superseded_at is None
+            ]
+            if not need:
+                return results
+            mapping = await self._get_supersession_map(
+                [r.memory.content_hash for r in need], store=store
+            )
+            if not mapping:
+                return results
+            for r in need:
+                hit = mapping.get(r.memory.content_hash)
+                if hit:
+                    r.superseded_by, r.superseded_at = hit
+            return results
+        except Exception as e:
+            logger.warning(
+                "Supersession enrichment failed, continuing without lineage: %s",
+                _sanitize_log_value(str(e)),
+            )
+            return results
+
     async def search_memories(
         self,
         query: Optional[str] = None,
@@ -1396,6 +1439,14 @@ class MemoryStorage(ABC):
                     MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
                     for m in matched_memories
                 ]
+                # Issue #1724 follow-up: exact matches never flow through
+                # retrieve(), so backfill supersession lineage (for the status
+                # flags below) and apply the point-in-time bound. Without
+                # as_of/include_superseded the path is byte-for-byte unchanged.
+                if as_of_ts is not None or include_superseded:
+                    results = await self._enrich_supersession(results, store=store)
+                if as_of_ts is not None:
+                    results = self._post_filter_as_of(results, as_of_ts)
                 pre_filter_count = len(results)
 
             elif mode in ("semantic", "hybrid"):
@@ -1496,6 +1547,15 @@ class MemoryStorage(ABC):
                             MemoryQueryResult(memory=m, relevance_score=0.5, debug_info=None)
                             for m in all_memories
                         ]
+                        pre_filter_count = len(results)
+
+                    # Issue #1724 follow-up: time-only / tag-only paths also
+                    # bypass retrieve() — same enrichment + point-in-time bound
+                    # as the exact branch above.
+                    if as_of_ts is not None or include_superseded:
+                        results = await self._enrich_supersession(results, store=store)
+                    if as_of_ts is not None:
+                        results = self._post_filter_as_of(results, as_of_ts)
                         pre_filter_count = len(results)
 
             # Apply time filters

@@ -163,10 +163,21 @@ class MetadataMixin:
                 if update_superseded_by:
                     set_clauses.append("superseded_by = ?")
                     params.append(new_superseded_by)
-                    # Issue #1724: record when the supersede happened in the same
-                    # UPDATE. Clearing superseded_by (None) clears the timestamp.
-                    set_clauses.append("superseded_at = ?")
-                    params.append(now if new_superseded_by is not None else None)
+                    # Issue #1724 follow-up (review): superseded_at is the
+                    # historical instant the row ceased being current. Stamp it
+                    # only on the actual current -> superseded transition;
+                    # preserve the original on retries / re-points, and clear
+                    # it when superseded_by is cleared. (Column refs inside the
+                    # CASE see pre-update values.) Never overwrite it on a
+                    # plain metadata update — this branch only runs when the
+                    # caller explicitly sets superseded_by.
+                    set_clauses.append(
+                        "superseded_at = CASE "
+                        "WHEN ? IS NULL THEN NULL "
+                        "WHEN superseded_by IS NULL OR superseded_by = '' THEN ? "
+                        "ELSE superseded_at END"
+                    )
+                    params.extend([new_superseded_by, now])
                 params.append(content_hash)
                 # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
                 # WITHIN this serialized operation — never with a bare rollback outside the
@@ -332,12 +343,17 @@ class MetadataMixin:
             return 0
 
         def _batch_mark():
-            # Issue #1724: record WHEN the supersede happened in the same UPDATE
-            # that sets superseded_by, so point-in-time queries can tell whether
-            # the supersede had happened at as_of.
+            # Issue #1724 / follow-up review: stamp superseded_at only on the
+            # actual current -> superseded transition. A retried batch (same
+            # winner) or a re-point keeps the ORIGINAL replacement moment —
+            # re-stamping would corrupt the historical instant that
+            # point-in-time queries rely on. (CASE sees pre-update values.)
             now = time.time()
             self.conn.executemany(
-                "UPDATE memories SET superseded_by = ?, superseded_at = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                "UPDATE memories SET superseded_by = ?, "
+                "superseded_at = CASE WHEN superseded_by IS NULL OR superseded_by = '' "
+                "THEN ? ELSE superseded_at END "
+                "WHERE content_hash = ? AND deleted_at IS NULL",
                 [(winner, now, loser) for winner, loser in pairs],
             )
             self.conn.commit()
@@ -524,8 +540,13 @@ class MetadataMixin:
 
             def _do_resolve():
                 self.conn.execute(
-                    # Issue #1724: superseded_at rides along in the same UPDATE.
-                    "UPDATE memories SET superseded_by = ?, superseded_at = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                    # Issue #1724 / follow-up review: only stamp superseded_at
+                    # when the loser is actually transitioning (still current);
+                    # retries keep the original replacement moment.
+                    "UPDATE memories SET superseded_by = ?, "
+                    "superseded_at = CASE WHEN superseded_by IS NULL OR superseded_by = '' "
+                    "THEN ? ELSE superseded_at END "
+                    "WHERE content_hash = ? AND deleted_at IS NULL",
                     (winner_hash, now, loser_hash),
                 )
 
