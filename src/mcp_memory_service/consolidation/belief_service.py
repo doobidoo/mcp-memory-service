@@ -8,6 +8,7 @@ to the beliefs table. No LLM dependency.
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -124,6 +125,27 @@ def _is_meta_statistic(content: str) -> bool:
     if any(text.startswith(p) for p in _META_STAT_PREFIXES):
         return True
     return bool(_META_STAT_PATTERN.search(text))
+
+
+def _cosine(a, b) -> float:
+    """Cosine similarity of two equal-length float vectors. 0.0 on degenerate input."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    import math
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _desc_str(s: str) -> tuple:
+    """Sort key that orders strings DESCENDING inside an ascending sorted():
+    invert each code point. Used for updated_at (most-recent-first) as a tie-break.
+    Correct only for fixed-width ISO-8601 timestamps (the belief updated_at shape);
+    not a general-purpose descending key."""
+    return tuple(-ord(c) for c in (s or ""))
 
 
 def _content_entropy(content: str) -> float:
@@ -348,6 +370,211 @@ class BeliefService:
         except Exception as e:
             logger.error("[belief] get_beliefs failed: %s", _sanitize_log_value(str(e)))
             return []
+
+    def dedup_beliefs(self, dry_run: bool = True) -> dict:
+        """Semantic dedup of beliefs by embedding cosine (ARCO SÍNTESE B.2a).
+
+        Opt-in behind MCP_BELIEF_DEDUP. Groups active/candidate beliefs whose
+        cosine similarity over the persisted ``beliefs.embedding`` is >=
+        MCP_BELIEF_DEDUP_THRESHOLD (default 0.90), elects a deterministic
+        canonical per group, and reports the groups. dry_run=True (B.2a) never
+        writes — it only measures, to corroborate the numbers before any apply
+        (B.2b) or PR. Models sweep_degenerate_beliefs (flag/cap/per-row guard).
+
+        Report dict: {"evaluated", "groups", "skipped", "capped",
+        "group_details": [{"canonical": hash, "superseded": [hashes]}]}.
+        """
+        report = {"evaluated": 0, "groups": 0, "merged": 0, "skipped": 0,
+                  "capped": False, "group_details": [], "errors": []}
+
+        if not os.environ.get("MCP_BELIEF_DEDUP"):
+            return report
+
+        try:
+            threshold = float(os.environ.get("MCP_BELIEF_DEDUP_THRESHOLD", "0.90"))
+        except (ValueError, TypeError):
+            threshold = 0.90
+        try:
+            cap_str = os.environ.get("MCP_BELIEF_DEDUP_CAP", "1000")
+            cap = int(cap_str) if cap_str else 1000
+        except (ValueError, TypeError):
+            cap = 1000
+
+        try:
+            conn = self.storage.conn
+            now = datetime.now(timezone.utc)
+            # ORDER BY belief_hash makes the greedy single-linkage grouping
+            # STABLE across runs (SQLite has no implicit row order): without it
+            # the group count / collapsible total would depend on physical row
+            # order — and that total is the very metric B.2a reports (tuvok P2).
+            rows = conn.execute(
+                "SELECT belief_hash, content, confidence, status, updated_at, "
+                "derived_from, embedding FROM beliefs WHERE status IN ('active', 'candidate') "
+                "ORDER BY belief_hash"
+            ).fetchall()
+
+            # Deserialize embeddings; NULL-embedding beliefs are not dedupable.
+            items = []  # (hash, confidence, updated_at, n_sources, vec)
+            for bhash, content, confidence, status, updated_at, derived_from, emb in rows:
+                report["evaluated"] += 1
+                if emb is None:
+                    report["skipped"] += 1
+                    continue
+                try:
+                    vec = self._deserialize_embedding(emb)
+                    if vec is None:
+                        report["skipped"] += 1
+                        continue
+                    try:
+                        n_src = len(json.loads(derived_from) if derived_from else [])
+                    except (ValueError, TypeError):
+                        n_src = 0
+                    items.append((bhash, float(confidence or 0.0),
+                                  updated_at or "", n_src, vec))
+                except Exception as e:  # pragma: no cover - defensive
+                    report["errors"].append(f"belief {bhash}: {e}")
+                    report["skipped"] += 1
+
+            # Greedy single-linkage grouping by cosine >= threshold. Each later
+            # belief is tested against the seed only (approximation, NOT exact
+            # clustering): a chain A~B, B~C with A≁C groups {A,B} and leaves C a
+            # singleton. Stable because rows are ORDER BY belief_hash. The RFC
+            # documents this as an intentional approximation (tuvok P2).
+            used = set()
+            for i in range(len(items)):
+                if items[i][0] in used:
+                    continue
+                members = [items[i]]
+                for j in range(i + 1, len(items)):
+                    if items[j][0] in used:
+                        continue
+                    if _cosine(items[i][4], items[j][4]) >= threshold:
+                        members.append(items[j])
+                if len(members) < 2:
+                    continue
+                # R4: canonical = confidence desc, |derived_from| desc,
+                # updated_at desc, belief_hash asc (deterministic; NO utility_prior).
+                # Sort key: negate numeric fields for desc; updated_at desc via reverse
+                # string compare is handled by picking max on updated_at then min on hash.
+                members_sorted = sorted(
+                    members,
+                    key=lambda m: (-m[1], -m[3], _desc_str(m[2]), m[0]),
+                )
+                canonical = members_sorted[0][0]
+                for m in members:
+                    used.add(m[0])
+                losers = [m[0] for m in members_sorted[1:]]
+                report["group_details"].append(
+                    {"canonical": canonical, "superseded": losers}
+                )
+                report["groups"] += 1
+                # B.2b apply: merge losers into canonical + supersede, per-group
+                # transaction (A4). dry_run=True only reports. A failing group is
+                # rolled back and does not stop the others (per-group try/except,
+                # like sweep_degenerate_beliefs).
+                if not dry_run:
+                    try:
+                        self._merge_into_canonical(canonical, losers, now)
+                        report["merged"] += len(losers)
+                    except Exception as e:
+                        report["errors"].append(f"merge group {canonical}: {e}")
+                if report["groups"] >= cap:
+                    report["capped"] = True
+                    break
+
+            logger.info(
+                "[belief] dedup (dry_run=%s): evaluated=%d groups=%d skipped=%d capped=%s",
+                dry_run, report["evaluated"], report["groups"],
+                report["skipped"], report["capped"],
+            )
+        except Exception as e:
+            report["errors"].append(str(e))
+            logger.error("[belief] dedup failed: %s", _sanitize_log_value(str(e)))
+
+        return report
+
+    @staticmethod
+    def _deserialize_embedding(blob):
+        """Deserialize a sqlite_vec float32 BLOB into a list of floats, or None."""
+        if blob is None:
+            return None
+        try:
+            import struct
+            n = len(blob) // 4
+            return list(struct.unpack(f"<{n}f", blob))  # little-endian: matches serialize_float32
+        except Exception:
+            return None
+
+    def _merge_into_canonical(self, canonical: str, losers: list, now) -> None:
+        """Merge losers into the canonical belief and supersede them, atomically.
+
+        One transaction per group (B.2b, EARS A1-A4): unions the losers'
+        ``derived_from`` into the canonical (set, no dup — A2), sums the numeric
+        feedback counters in ``metadata`` (e.g. injected_used/unused — A3), writes
+        the canonical, and marks every loser ``superseded`` (A1, never deleted). On
+        any error the whole group rolls back (A4) and the exception propagates so
+        the caller records it and moves on. Confidence/content of the canonical are
+        left untouched (dedup is identity consolidation, not re-derivation).
+        """
+        conn = self.storage.conn
+        rows = {
+            r[0]: (json.loads(r[1] or "[]"), json.loads(r[2] or "{}"))
+            for r in conn.execute(
+                "SELECT belief_hash, derived_from, metadata FROM beliefs "
+                "WHERE belief_hash IN (%s)" % ",".join("?" * (len(losers) + 1)),
+                (canonical, *losers),
+            ).fetchall()
+        }
+        if canonical not in rows:
+            raise ValueError(f"canonical {canonical} not found")
+
+        canon_df, canon_meta = rows[canonical]
+        merged_df = list(canon_df)
+        seen = set(merged_df)
+        merged_meta = dict(canon_meta)
+
+        for lh in losers:
+            if lh not in rows:
+                continue
+            l_df, l_meta = rows[lh]
+            for h in l_df:
+                if h not in seen:
+                    merged_df.append(h)
+                    seen.add(h)
+            # Sum numeric counters; non-numeric loser keys are ignored, and a
+            # non-numeric canonical value is NEVER overwritten by a loser number
+            # (tuvok nit: the canonical's own value wins for non-counters).
+            for k, v in l_meta.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    base = merged_meta.get(k, 0)
+                    if isinstance(base, (int, float)) and not isinstance(base, bool):
+                        merged_meta[k] = base + v
+                    # else: canonical holds a non-numeric value for k -> keep it.
+
+        now_iso = now.isoformat()
+        try:
+            # Guard against a stale open transaction on the shared connection
+            # (check_same_thread=False): a dangling BEGIN would raise "cannot
+            # start a transaction within a transaction". Same defense as
+            # storage/sqlite_vec store.py before an explicit BEGIN (tuvok MEDIUM).
+            if getattr(conn, "in_transaction", False):
+                conn.rollback()
+            conn.execute("BEGIN")
+            conn.execute(
+                "UPDATE beliefs SET derived_from = ?, metadata = ?, updated_at = ? "
+                "WHERE belief_hash = ?",
+                (json.dumps(merged_df), json.dumps(merged_meta), now_iso, canonical),
+            )
+            for lh in losers:
+                conn.execute(
+                    "UPDATE beliefs SET status = 'superseded', updated_at = ? "
+                    "WHERE belief_hash = ?",
+                    (now_iso, lh),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     # --- Internal helpers ---
 
