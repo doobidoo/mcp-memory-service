@@ -1,0 +1,32 @@
+name: Localized Site
+
+on:
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'scripts/maintenance/generate_localized_site.py'
+      - 'scripts/maintenance/site_locales/**'
+      - 'tests/ci/test_localized_site.py'
+      - '.github/workflows/site.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/maintenance/generate_localized_site.py'
+      - 'scripts/maintenance/site_locales/**'
+      - 'tests/ci/test_localized_site.py'
+      - '.github/workflows/site.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  localized-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check generated pages and language metadata
+        run: |
+          python3 scripts/maintenance/generate_localized_site.py --check
+          python3 -m unittest discover -s tests/ci -p test_localized_site.py -v
