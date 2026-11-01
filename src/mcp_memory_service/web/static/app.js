@@ -1243,7 +1243,7 @@ class MemoryDashboard {
                         <div class="upload-status ${statusClass}">
                             <span>${statusText}</span>
                             ${upload.errors && upload.errors.length > 0 ? `
-                                <span class="upload-error-count" title="${this.escapeHtml(upload.errors.join('; '))}">${upload.errors.length} ${upload.errors.length === 1 ? 'error' : 'errors'}</span>
+                                <span class="upload-error-count" title="${this.escapeHtml(upload.errors.join('; '))}">${this.escapeHtml(this.t('documents.uploadErrorCount', 'Errors: {count}', { count: upload.errors.length }))}</span>
                             ` : ''}
                         </div>
                         ${upload.status === 'completed' && hasMemories ? `
@@ -3001,7 +3001,7 @@ class MemoryDashboard {
         return `
             <div class="memory-detail">
                 <div class="memory-meta">
-                    <p><strong>Created:</strong> ${createdDate} ${this.renderTimeIcon(memory.created_at)}</p>
+                    <p><strong>Created:</strong> ${createdDate}</p>
                     ${updatedDate ? `<p><strong>Updated:</strong> ${updatedDate}</p>` : ''}
                     <p><strong>Type:</strong> ${memory.memory_type || 'note'}</p>
                     <p><strong>ID:</strong> ${memory.content_hash}</p>
@@ -4934,10 +4934,10 @@ class MemoryDashboard {
                         // account_id is not masked but keep consistent UX
                     }
                     input.type = 'text';
-                    btn.textContent = 'Hide';
+                    btn.textContent = this.t('common.hide', 'Hide');
                 } else {
                     input.type = 'password';
-                    btn.textContent = 'Show';
+                    btn.textContent = this.t('common.show', 'Show');
                 }
             });
         });
@@ -5818,7 +5818,7 @@ class MemoryDashboard {
     html += `<div class="report-period">Period: ${data.period}</div>`;
     html += '<ul class="tags-list">';
     data.tags.slice(0, 10).forEach(tag => {
-        const trendIcon = tag.trending ? ' <span class="tag-trending">trending</span>' : '';
+        const trendIcon = tag.trending ? ` <span class="tag-trending">${this.escapeHtml(this.t('analytics.trending', 'trending'))}</span>` : '';
             const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
         html += `<li>
                 <div class="tag-header">
