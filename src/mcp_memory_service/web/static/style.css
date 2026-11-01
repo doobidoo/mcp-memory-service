@@ -101,10 +101,14 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 500;
+    letter-spacing: 0;
     line-height: 1.25;
     margin-bottom: var(--space-4);
+}
+
+h1, h2 {
+    letter-spacing: -0.01em;
 }
 
 h1 { font-size: var(--text-3xl); }
@@ -160,7 +164,7 @@ h3 { font-size: var(--text-xl); }
 
 .app-title {
     font-size: var(--text-xl);
-    font-weight: 700;
+    font-weight: 600;
     color: var(--primary-text);
     margin: 0;
 }
@@ -529,7 +533,7 @@ body.dark-mode .btn-danger {
 }
 
 #syncStatusText {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
 }
 
@@ -548,7 +552,7 @@ body.dark-mode .btn-danger {
     border: none;
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
     transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
     transition-property: color, background-color, border-color, box-shadow, opacity, transform;
@@ -641,9 +645,11 @@ body.dark-mode .btn-danger {
 
 .stat-number {
     display: block;
+    font-family: var(--font-mono);
     font-size: var(--text-2xl);
-    font-weight: 700;
-    color: var(--primary-text);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--neutral-900);
     margin-bottom: var(--space-1);
 }
 
@@ -732,7 +738,7 @@ body.dark-mode #deltaSyncControl {
 
 .delta-sync-heading {
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .delta-sync-heading svg { flex-shrink: 0; color: var(--neutral-500); }
@@ -773,7 +779,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 }
 
 .delta-sync-metrics dt { color: var(--neutral-500); font-size: var(--text-xs); }
-.delta-sync-metrics dd { margin: var(--space-1) 0 0; font-size: var(--text-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.delta-sync-metrics dd { margin: var(--space-1) 0 0; font-size: var(--text-lg); font-weight: 500; font-variant-numeric: tabular-nums; }
 .delta-sync-metrics .delta-sync-meta { display: block; font-weight: 400; }
 .delta-sync-error { margin-top: var(--space-2); color: var(--error); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .delta-sync-details { margin-top: var(--space-3); color: var(--neutral-500); font-size: var(--text-xs); }
@@ -1047,7 +1053,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 }
 
 .document-title {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
     margin-bottom: var(--space-1);
     word-break: break-word;
@@ -1129,7 +1135,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 }
 
 .chunk-number {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
 }
 
@@ -1483,7 +1489,7 @@ body.dark-mode .form-group label {
 .info-value {
     font-size: var(--text-sm);
     color: var(--neutral-900);
-    font-weight: 600;
+    font-weight: 500;
     font-family: 'Monaco', 'Courier New', monospace;
 }
 
@@ -1734,7 +1740,7 @@ body.dark-mode .form-group label {
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-sm);
     font-size: var(--text-xs);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .tagged-memories {
@@ -1757,7 +1763,7 @@ body.dark-mode .form-group label {
 
 #selectedTagName {
     color: var(--primary-text);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 /* Memory Details Metadata Styles */
@@ -1774,7 +1780,7 @@ body.dark-mode .form-group label {
     margin: 0;
     border-bottom: 1px solid var(--neutral-200);
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
     transition: background-color 0.2s ease;
 }
@@ -1823,7 +1829,7 @@ body.dark-mode .form-group label {
 }
 
 .metadata-key {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
     min-width: 120px;
     flex-shrink: 0;
@@ -1972,7 +1978,7 @@ body.dark-mode .form-group label {
     padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-sm);
     font-size: var(--text-xs);
-    font-weight: 700;
+    font-weight: 500;
     text-transform: uppercase;
     margin-right: var(--space-3);
     min-width: 60px;
@@ -1996,7 +2002,7 @@ body.dark-mode .form-group label {
 
 .endpoint-item .path {
     font-family: var(--font-mono);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
     font-size: var(--text-sm);
 }
@@ -2152,7 +2158,7 @@ body.dark-mode .form-group label {
 
 .active-filters h4 {
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
     margin-bottom: var(--space-3);
 }
@@ -2342,7 +2348,7 @@ body.dark-mode .form-group label {
 
 .mode-status #searchModeText {
     color: var(--primary-text);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .toggle-switch {
@@ -2398,7 +2404,7 @@ input:checked + .slider:before {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
 }
 
@@ -2598,9 +2604,7 @@ body.dark-mode ::-webkit-scrollbar-thumb:hover {
 
 .footer-section h4 {
     font-size: 0.875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-weight: 500;
     color: var(--neutral-900);
     margin: 0 0 1rem 0;
 }
@@ -2728,7 +2732,7 @@ body.dark-mode .footer-copyright {
     margin: 0 0 var(--space-6) 0;
     color: var(--neutral-900);
     font-size: var(--text-xl);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 /* Upload Area */
@@ -3194,7 +3198,7 @@ margin-top: 3rem;
     margin: 0 0 var(--space-6) 0;
     color: var(--neutral-900);
     font-size: var(--text-xl);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .bulk-ops-grid {
@@ -3221,7 +3225,7 @@ margin-top: 3rem;
     margin: 0 0 var(--space-2) 0;
     color: var(--neutral-900);
     font-size: var(--text-lg);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .bulk-op-card p {
@@ -3258,7 +3262,7 @@ margin-top: 3rem;
 .system-op-card h3 {
     margin: 0 0 var(--space-2) 0;
     font-size: var(--text-base);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .system-op-card p {
@@ -3286,7 +3290,7 @@ margin-top: 3rem;
     margin: 0 0 var(--space-6) 0;
     color: var(--neutral-900);
     font-size: var(--text-xl);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .metrics-grid {
@@ -3335,7 +3339,7 @@ margin-top: 3rem;
     margin: 0 0 var(--space-4) 0;
     color: var(--neutral-900);
     font-size: var(--text-lg);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .chart-controls {
@@ -3380,7 +3384,7 @@ margin-top: 3rem;
     margin: 0 0 var(--space-4) 0;
     color: var(--neutral-900);
     font-size: var(--text-lg);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .report-content {
@@ -3403,7 +3407,7 @@ margin-top: 3rem;
 
 .tag-stats-table th {
     background: var(--neutral-100);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
 }
 
@@ -3413,7 +3417,7 @@ margin-top: 3rem;
 }
 
 .tag-stats-table .tag-count {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
 }
 
@@ -3499,7 +3503,7 @@ body.dark-mode .report-card p {
 
 .month-label {
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-700);
     margin-bottom: var(--space-2);
 }
@@ -3596,7 +3600,7 @@ body.dark-mode .report-card p {
 }
 
 .enhanced-tags-report .tag-count {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--primary-text);
 }
 
@@ -3659,7 +3663,7 @@ body.dark-mode .report-card p {
     min-width: 30px;
     text-align: right;
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--primary-text);
 }
 
@@ -3680,7 +3684,7 @@ body.dark-mode .report-card p {
     margin: var(--space-4) 0 var(--space-2) 0;
     color: var(--neutral-900);
     font-size: var(--text-lg);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .storage-report .largest-memories {
@@ -3697,7 +3701,7 @@ body.dark-mode .report-card p {
 }
 
 .storage-report .memory-size {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--primary-text);
     margin-bottom: var(--space-1);
 }
@@ -3907,7 +3911,7 @@ body.dark-mode .tag-action-btn.danger:hover {
 }
 
 .chart-header {
-    font-weight: 600;
+    font-weight: 500;
     margin-bottom: var(--space-4);
     color: var(--neutral-900);
 }
@@ -3987,7 +3991,7 @@ body.dark-mode .chart-label {
 
 body.dark-mode .chart-value {
     color: #ffffff !important;  /* Pure white for maximum readability */
-    font-weight: 600;  /* Slightly bolder in dark mode */
+    font-weight: 500;  /* Slightly bolder in dark mode */
 }
 
 body.dark-mode .chart-value small {
@@ -4163,7 +4167,7 @@ body.dark-mode .modal-content .chunk-number {
 .similarity-score {
     font-size: var(--text-sm);
     color: var(--primary-text);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .result-content {
@@ -4287,7 +4291,7 @@ body.dark-mode .modal-content .chunk-number {
 }
 
 .chunk-number {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--primary-text);
     font-size: var(--text-sm);
 }
@@ -4476,9 +4480,7 @@ body.dark-mode .result-content {
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-full);
     font-size: 0.75em;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    font-weight: 500;
 }
 
 .help-option p {
@@ -4519,7 +4521,7 @@ body.dark-mode .result-content {
 .help-tips li strong {
     display: inline;
     color: var(--primary-text);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 /* Overlap Visual Diagram */
@@ -4574,7 +4576,7 @@ body.dark-mode .result-content {
     color: #92400e;
     flex: 0 0 35%;
     border: 2px solid var(--warning);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .chunk-demo:hover .chunk-part.overlap {
@@ -4632,7 +4634,7 @@ body.dark-mode .result-content {
 }
 
 .quality-score {
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .quality-label {
@@ -4724,8 +4726,10 @@ body.dark-mode .quality-tier-low,
 }
 
 .stat-value {
+    font-family: var(--font-mono);
     font-size: var(--text-3xl);
-    font-weight: 700;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
     color: var(--neutral-900);
     margin-bottom: var(--space-2);
 }
@@ -4910,7 +4914,7 @@ body.dark-mode .quality-tier-low,
 .quality-settings label {
     display: block;
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--neutral-900);
     margin-bottom: var(--space-2);
 }
@@ -5054,10 +5058,8 @@ body.dark-mode .quality-tier-low,
 
 .graph-filter-label {
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-muted, var(--text));
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .graph-type-pills {
@@ -5073,7 +5075,7 @@ body.dark-mode .quality-tier-low,
     gap: 0.45rem;
     padding: 0.35rem 0.7rem;
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 500;
     text-transform: capitalize;
     border: 1.5px solid var(--border);
     border-radius: 999px;
@@ -5127,7 +5129,7 @@ body.dark-mode .quality-tier-low,
     color: var(--neutral-800);
     font: inherit;
     font-size: 0.82rem;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
 }
 
@@ -5179,7 +5181,7 @@ body.dark-mode .graph-layout-toggle button:hover {
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 5px;
     font-size: 0.72rem;
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
     pointer-events: none;
 }
@@ -5265,7 +5267,7 @@ body.dark-mode .graph-layout-toggle button:hover {
 }
 
 .legend-section > span:first-child {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-primary);
     margin-right: 0.5rem;
 }
@@ -5395,7 +5397,7 @@ body.dark-mode .graph-ring-guide {
     pointer-events: none;
     user-select: none;
     text-anchor: middle;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 /* White labels in fullscreen mode */
@@ -5424,7 +5426,7 @@ body.dark-mode .graph-ring-guide {
 }
 
 .graph-tooltip-title {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 0.5rem;
     font-size: 0.9rem;
@@ -5531,7 +5533,7 @@ body.dark-mode .graph-ring-guide {
     margin: 0;
     font-size: 20px;
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .graph-fullscreen-controls {
@@ -5577,7 +5579,7 @@ body.dark-mode .graph-ring-guide {
 
 #graphFullscreenLegend .legend-section > span {
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 #graphFullscreenLegend .legend-items {
@@ -5716,7 +5718,7 @@ body.dark-mode .graph-ring-guide {
     margin: 0 0 var(--space-4) 0;
     color: var(--neutral-900);
     font-size: 1.125rem;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .auth-option p {
@@ -5932,7 +5934,7 @@ body.dark-mode .btn-warning {
 }
 
 .backup-filename {
-    font-weight: 600;
+    font-weight: 500;
     font-size: var(--text-sm);
     color: var(--neutral-900);
     word-break: break-all;
@@ -6095,7 +6097,7 @@ body.dark-mode .env-category {
     margin: 0 0 var(--space-4) 0;
     color: var(--neutral-900);
     font-size: var(--text-lg);
-    font-weight: 600;
+    font-weight: 500;
     border-bottom: 2px solid var(--neutral-200);
     padding-bottom: var(--space-3);
 }
@@ -6144,7 +6146,7 @@ body.dark-mode .env-param-row:hover {
     color: var(--neutral-900);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 body.dark-mode .env-param-key strong {
@@ -6157,7 +6159,7 @@ body.dark-mode .env-param-key strong {
     background: var(--warning);
     color: var(--neutral-900);
     border-radius: var(--radius-sm);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 body.dark-mode .sensitive-badge {
@@ -6197,7 +6199,7 @@ body.dark-mode .env-value-empty {
 }
 
 .env-value-boolean {
-    font-weight: 600;
+    font-weight: 500;
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
@@ -6298,7 +6300,7 @@ body.dark-mode .env-param-description {
 
 .credential-field label {
     font-size: var(--text-sm);
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-primary);
 }
 
