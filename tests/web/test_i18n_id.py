@@ -87,8 +87,8 @@ def test_indonesian_keeps_the_english_html_structure():
     for key, source in english.items():
         if key not in indonesian:
             continue
-        expected = sorted(HTML_TAG_RE.findall(source))
-        actual = sorted(HTML_TAG_RE.findall(indonesian[key]))
+        expected = HTML_TAG_RE.findall(source)
+        actual = HTML_TAG_RE.findall(indonesian[key])
         if expected != actual:
             mismatched[key] = {"en": expected, "id": actual}
 
