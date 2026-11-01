@@ -1,0 +1,1 @@
+- Add a German introduction to mcpmemory.services with a shared translation template, language links, search metadata, and generated-page checks.
