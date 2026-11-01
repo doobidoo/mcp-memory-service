@@ -110,16 +110,17 @@ class MigrationRunner:
         """
         applied = set(self._get_applied_versions(conn))
 
-        # Delta-sync recovery (15/16): probe these INDEPENDENTLY of the legacy baseline below,
-        # and only when absent from the registry. A partial manual rollback can leave v15
-        # registered while v16's row was removed but its columns retained; without this, the
-        # forward migration would re-run the unconditional ADD COLUMN and fail duplicate-column
-        # (Greptile). This runs even when the registry is non-empty, but is a strict no-op unless
-        # the artifact exists AND its registry row is missing — so it never changes the legacy
-        # 8-11 baseline semantics handled further down.
+        # Independent recovery probes (15/16 delta-sync, 20 belief embedding): probe these
+        # INDEPENDENTLY of the legacy baseline below, and only when absent from the registry.
+        # A partial manual rollback can leave the primary artifact (table/column) in place
+        # while its registry row was removed; without this, the forward migration would re-run
+        # the unconditional ADD COLUMN/TABLE and fail duplicate (Greptile). Strict no-op unless
+        # the artifact exists AND its registry row is missing — never changes the legacy 8-11
+        # baseline semantics handled further down.
         delta_probes = {
             15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
             16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
+            20: "SELECT 1 FROM pragma_table_info('beliefs') WHERE name='embedding'",
         }
         recovered = self._stamp_probes(
             conn, {v: sql for v, sql in delta_probes.items() if v not in applied}
@@ -177,6 +178,8 @@ class MigrationRunner:
         artifact_repairs = {
             16: "CREATE INDEX IF NOT EXISTS idx_sync_events_hlc "
                 "ON sync_events(hlc_physical, hlc_logical, agent_id, event_id)",
+            20: "CREATE INDEX IF NOT EXISTS idx_beliefs_embedding_pending "
+                "ON beliefs(belief_hash) WHERE embedding IS NULL",
         }
 
         stamped = []

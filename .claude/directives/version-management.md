@@ -218,7 +218,9 @@ docs-only. A job skipped through `if:` reports success to a required check, so
 `Tests + Coverage` and `Tests with ML Extras (transformers paths)` can be required. The
 milvus matrix cannot: skipped, it reports under its unexpanded name
 (`Tests with the milvus extra (${{ matrix.leg }})`), so `(pinned)` never arrives on a
-docs-only PR. Push keeps `paths-ignore`.
+docs-only PR. The ML-extras tests run as a two-shard matrix for the same reason behind
+a plain job, `ml-extras-result`, which carries the required name and goes green only
+when both shards passed or skipped as docs-only. Push keeps `paths-ignore`.
 
 Strict also has a documented precondition: it takes effect only while at least one
 status check is required. Setting the flag with an empty check list changes nothing.

@@ -199,6 +199,21 @@ Extraction is deliberately pattern-based and high-precision, not semantic NER. I
 - any terms listed in `MCP_ENTITY_CUSTOM_TERMS` (comma-separated), matched on word
   boundaries
 
+Every tag becomes an entity by default, so a generic tag such as `bugfix` or
+`project:<name>` links every memory that carries it. Two optional settings narrow that,
+each a comma-separated list of `fnmatch` patterns matched case-insensitively:
+
+- `MCP_ENTITY_TAG_INCLUDE` — only matching tags become entities;
+- `MCP_ENTITY_TAG_EXCLUDE` — matching tags never do.
+
+When both are set, include is applied first, then exclude. Unset keeps every tag. Entities
+found in the content (`#hashtags`, `@mentions`, URLs, paths) are not filtered. Existing
+graph edges are not rebuilt: the filter applies to extraction from then on.
+
+```bash
+MCP_ENTITY_TAG_INCLUDE=task:*
+```
+
 It does **not** recognise "Postgres", "Kafka" or "OAuth" as entities just because they
 appear in prose. On a store whose memories are well tagged but whose content carries none
 of the patterns above, tags do most of the work — which is why tags being dropped

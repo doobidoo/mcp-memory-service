@@ -60,9 +60,8 @@ except ImportError:
     PYMILVUS_AVAILABLE = False
     MilvusClient = None  # type: ignore
     DataType = None  # type: ignore
-    logging.getLogger(__name__).warning(
-        "pymilvus not available. Install with: pip install pymilvus milvus-lite"
-    )
+    # No warning here: MilvusMemoryStorage.__init__ raises with install
+    # instructions, which is the only point where a missing pymilvus matters.
 
 # BM25 full-text search support (Milvus 2.5+).
 # Function / FunctionType were added in pymilvus ≥ 2.5; older versions lack them.

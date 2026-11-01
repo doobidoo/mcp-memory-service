@@ -9,6 +9,7 @@ import inspect
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 import numpy as np
@@ -448,6 +449,19 @@ class ONNXRankerModel:
             logger.error("Error scoring quality with %s: %s", self.model_name, _sanitize_log_value(str(e)))
             return 0.5  # Return neutral score on error
 
+    @staticmethod
+    def _record_chunk_timing(timing, input_ids, t_start: float, t_tokenized: float) -> None:
+        """Append one chunk's split (tokenize vs. ``session.run``) when asked (#1669)."""
+        if timing is None:
+            return
+        t_done = time.perf_counter()
+        timing.append({
+            "items": int(input_ids.shape[0]),
+            "max_len": int(input_ids.shape[1]),
+            "tokenize_ms": round((t_tokenized - t_start) * 1000, 1),
+            "run_ms": round((t_done - t_tokenized) * 1000, 1),
+        })
+
     def _accepted_ort_inputs(self, ort_inputs: dict) -> dict:
         """Filter the feed to the inputs the loaded graph declares.
 
@@ -476,7 +490,8 @@ class ONNXRankerModel:
     MIN_GPU_BATCH_SIZE = int(os.environ.get("MCP_QUALITY_MIN_GPU_BATCH", "16"))
 
     def score_quality_batch(
-        self, pairs: List[Tuple[str, str]], max_batch_size: int = 32
+        self, pairs: List[Tuple[str, str]], max_batch_size: int = 32,
+        timing: Optional[List[dict]] = None,
     ) -> List[float]:
         """
         Score multiple (query, memory_content) pairs in batched inference calls.
@@ -489,6 +504,12 @@ class ONNXRankerModel:
         Args:
             pairs: List of (query, memory_content) tuples
             max_batch_size: Maximum items per ONNX inference call
+            timing: Optional list; when given, one dict per inference chunk is
+                appended with ``items``, ``max_len`` (padded sequence length),
+                ``tokenize_ms`` and ``run_ms`` (issue #1669). Scores are not
+                affected. A chunk that fell back to sequential scoring leaves no
+                entry, so the sum of ``run_ms`` under the caller's total is the
+                sign of that fallback.
 
         Returns:
             List of quality scores between 0.0 and 1.0
@@ -512,7 +533,7 @@ class ONNXRankerModel:
         for chunk_start in range(0, len(pairs), max_batch_size):
             chunk = pairs[chunk_start:chunk_start + max_batch_size]
             try:
-                chunk_scores = self._score_batch_chunk(chunk)
+                chunk_scores = self._score_batch_chunk(chunk, timing)
                 all_scores.extend(chunk_scores)
             except Exception as e:
                 logger.warning(
@@ -523,20 +544,25 @@ class ONNXRankerModel:
 
         return all_scores
 
-    def _score_batch_chunk(self, pairs: List[Tuple[str, str]]) -> List[float]:
+    def _score_batch_chunk(
+        self, pairs: List[Tuple[str, str]], timing: Optional[List[dict]] = None
+    ) -> List[float]:
         """Score a single chunk of pairs in one ONNX inference call."""
         if self.model_config['type'] == 'classifier':
-            return self._score_classifier_batch(pairs)
+            return self._score_classifier_batch(pairs, timing)
         elif self.model_config['type'] == 'cross-encoder':
-            return self._score_cross_encoder_batch(pairs)
+            return self._score_cross_encoder_batch(pairs, timing)
         else:
             raise ValueError(f"Unsupported model type: {self.model_config['type']}")
 
-    def _score_classifier_batch(self, pairs: List[Tuple[str, str]]) -> List[float]:
+    def _score_classifier_batch(
+        self, pairs: List[Tuple[str, str]], timing: Optional[List[dict]] = None
+    ) -> List[float]:
         """Batch score for classifier models (DeBERTa). Uses memory_content only."""
         texts = [content for _, content in pairs]
         texts = [t if t else " " for t in texts]  # Avoid empty strings
 
+        t_start = time.perf_counter()
         if self._use_fast_tokenizer:
             encoded_list = self._tokenizer.encode_batch(texts)
             max_len = max(len(enc.ids) for enc in encoded_list)
@@ -557,7 +583,9 @@ class ONNXRankerModel:
             attention_mask = inputs["attention_mask"].astype(np.int64)
 
         ort_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+        t_tokenized = time.perf_counter()
         outputs = self._model.run(None, self._accepted_ort_inputs(ort_inputs))
+        self._record_chunk_timing(timing, input_ids, t_start, t_tokenized)
         logits = outputs[0]  # Shape: (batch_size, num_classes)
 
         # Vectorized softmax + weighted score
@@ -569,8 +597,11 @@ class ONNXRankerModel:
         scores = probs @ class_values
         return np.clip(scores, 0.0, 1.0).tolist()
 
-    def _score_cross_encoder_batch(self, pairs: List[Tuple[str, str]]) -> List[float]:
+    def _score_cross_encoder_batch(
+        self, pairs: List[Tuple[str, str]], timing: Optional[List[dict]] = None
+    ) -> List[float]:
         """Batch score for cross-encoder models (MS-MARCO). Uses query+content pairs."""
+        t_start = time.perf_counter()
         if self._use_fast_tokenizer:
             # Lock protects tokenizer state (no_padding/enable_padding) from
             # concurrent callers (e.g., interleaved single-item score_quality).
@@ -612,7 +643,9 @@ class ONNXRankerModel:
             "attention_mask": attention_mask,
             "token_type_ids": token_type_ids,
         }
+        t_tokenized = time.perf_counter()
         outputs = self._model.run(None, self._accepted_ort_inputs(ort_inputs))
+        self._record_chunk_timing(timing, input_ids, t_start, t_tokenized)
         logits = outputs[0]  # Shape: (batch_size, num_classes) or (batch_size,)
 
         # Vectorized sigmoid
