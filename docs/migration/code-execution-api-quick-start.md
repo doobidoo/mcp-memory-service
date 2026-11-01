@@ -27,7 +27,7 @@ The Code Execution API provides **75-90% token reduction** compared to MCP tool 
 ## Prerequisites (30 seconds)
 
 - Existing mcp-memory-service installation (any version)
-- Python 3.10 or higher
+- Python 3.11 or higher
 - 5 minutes of your time
 
 **Check Python version:**
@@ -71,7 +71,7 @@ git pull
 # 2. Install/update API module
 pip install -e .
 
-# 3. Verify Python version (must be 3.10+)
+# 3. Verify Python version (must be 3.11+)
 python --version
 
 # 4. Enable code execution in hooks (if not auto-enabled)
@@ -156,7 +156,7 @@ Claude Code → Python API → Memory Server
 
 1. **Check Python version:**
    ```bash
-   python --version  # Must be 3.10+
+   python --version  # Must be 3.11+
    ```
 
 2. **Verify API installed:**

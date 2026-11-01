@@ -283,7 +283,7 @@ def detect_gpu():
     """
     # Import the module directly by file path to avoid triggering package __init__.py
     # which has dependencies that aren't installed yet
-    import importlib.util
+    import importlib.util  # inline import: defer helper until this check runs
     
     gpu_detection_path = Path(__file__).parent.parent.parent / "src" / "mcp_memory_service" / "utils" / "gpu_detection.py"
     
@@ -377,7 +377,7 @@ def check_dependencies():
     
     # Check for setuptools
     try:
-        import setuptools
+        import setuptools  # inline import: probe package availability after installation
         print_info(f"setuptools is installed: {setuptools.__version__}")
     except ImportError:
         print_warning("setuptools is not installed. Will attempt to install it.")
@@ -393,7 +393,7 @@ def check_dependencies():
     
     # Check for wheel
     try:
-        import wheel
+        import wheel  # inline import: probe package availability after installation
         print_info(f"wheel is installed: {wheel.__version__}")
     except ImportError:
         print_warning("wheel is not installed. Will attempt to install it.")
@@ -616,7 +616,7 @@ def detect_storage_backend_compatibility(system_info, gpu_info):
     # Memory constraints
     total_memory_gb = 0
     try:
-        import psutil
+        import psutil  # inline import: probe package availability after installation
         total_memory_gb = psutil.virtual_memory().total / (1024**3)
     except ImportError:
         # Fallback memory detection
@@ -843,7 +843,7 @@ def test_cloudflare_connection(credentials):
     print_info("Testing Cloudflare API connection...")
 
     try:
-        import requests
+        import requests  # inline import: probe package availability after installation
 
         headers = {
             'Authorization': f"Bearer {credentials['CLOUDFLARE_API_TOKEN']}",
@@ -1467,7 +1467,7 @@ def verify_installation():
     
     # Check if the package is installed
     try:
-        import mcp_memory_service
+        import mcp_memory_service  # inline import: probe package availability after installation
         print_success(f"MCP Memory Service is installed: {mcp_memory_service.__file__}")
     except ImportError:
         print_error("MCP Memory Service is not installed correctly")
@@ -1500,7 +1500,7 @@ def verify_installation():
     
     # Check for ONNX runtime
     try:
-        import onnxruntime
+        import onnxruntime  # inline import: probe package availability after installation
         print_success(f"ONNX Runtime is installed: {onnxruntime.__version__}")
         use_onnx = os.environ.get('MCP_MEMORY_USE_ONNX', '').lower() in ('1', 'true', 'yes')
         if use_onnx:
@@ -1526,7 +1526,7 @@ def verify_installation():
     # Check ML dependencies as optional
     pytorch_installed = False
     try:
-        import torch
+        import torch  # inline import: probe package availability after installation
         pytorch_installed = True
         print_info(f"PyTorch is installed: {torch.__version__}")
         
@@ -1629,7 +1629,7 @@ def verify_installation():
             
     # Check if MCP Memory Service package is installed correctly
     try:
-        import mcp_memory_service
+        import mcp_memory_service  # inline import: probe package availability after installation
         print_success(f"MCP Memory Service is installed correctly")
         return True
     except ImportError:
@@ -1769,6 +1769,10 @@ def recommend_editable_install(args):
 
 def main():
     """Main installation function."""
+    if not is_python_version_at_least(3, 11):
+        print_error("Python 3.11 or newer is required.")
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(description="Install MCP Memory Service")
     parser.add_argument('--dev', action='store_true', help='Install in development mode')
     parser.add_argument('--chroma-path', type=str, help='Path to ChromaDB storage')

@@ -43,8 +43,8 @@ def detect_platform():
 
 def check_python_version():
     """Check if Python version meets requirements."""
-    if sys.version_info < (3, 10):
-        print_error(f"Python 3.10 or newer is required. Found: {sys.version}")
+    if sys.version_info < (3, 11):
+        print_error(f"Python 3.11 or newer is required. Found: {sys.version}")
         sys.exit(1)
 
 
