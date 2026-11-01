@@ -3357,6 +3357,11 @@ margin-top: 3rem;
     gap: var(--space-6);
 }
 
+/* The growth chart is the main chart and takes the full row */
+.chart-card:has(#memoryGrowthChart) {
+    grid-column: 1 / -1;
+}
+
 .chart-card {
     background: var(--neutral-50);
     border: 1px solid var(--neutral-200);
@@ -3394,6 +3399,66 @@ margin-top: 3rem;
     flex-direction: column;
     gap: var(--space-3);
     color: var(--neutral-500);
+}
+
+/* Memory growth: one line of the running total, the latest point carries the accent */
+#memoryGrowthChart {
+    align-items: stretch;
+}
+
+.growth-summary {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.growth-figure {
+    font-size: var(--text-3xl);
+    font-weight: 500;
+    line-height: 1;
+    color: var(--neutral-900);
+}
+
+.growth-delta {
+    font-size: var(--text-xs);
+    color: var(--neutral-500);
+}
+
+.growth-chart {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.growth-grid {
+    stroke: var(--neutral-200);
+    stroke-width: 1;
+}
+
+.growth-axis {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    fill: var(--neutral-500);
+}
+
+.growth-line {
+    fill: none;
+    stroke: var(--primary);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.growth-dot {
+    fill: var(--primary);
+    stroke: white;
+    stroke-width: 2;
+}
+
+body.dark-mode .growth-dot {
+    stroke: var(--neutral-100);
 }
 
 .reports-grid {

@@ -5650,29 +5650,37 @@ class MemoryDashboard {
             return;
         }
 
-        // Find max count for scaling
-        const recentPoints = data.data_points.slice(-10);
-        const maxCount = Math.max(...recentPoints.map(p => p.count), 1);
+        // One line: the running total per period, the latest point carries the accent.
+        const points = data.data_points.slice(-12);
+        const totals = points.map(p => Number(p.cumulative) || 0);
+        const max = Math.max(...totals, 1);
+        // Draw at the container's real width so the 11px axis labels are not scaled down.
+        const W = Math.max(container.clientWidth || 600, 320), H = 220, L = 8, R = 48, T = 16, B = 28;
+        const x = i => L + (points.length === 1 ? (W - L - R) : i * (W - L - R) / (points.length - 1));
+        const y = v => T + (H - T - B) * (1 - v / max);
+        const label = p => this.escapeHtml(p.label || p.date || '');
 
-        let html = '<div class="simple-chart">';
+        const path = totals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+        const grid = [0, 0.5, 1].map(f => {
+            const gy = y(max * f).toFixed(1);
+            return `<line class="growth-grid" x1="${L}" x2="${W - R}" y1="${gy}" y2="${gy}"/>`
+                + `<text class="growth-axis" x="${W - R + 8}" y="${(+gy + 4).toFixed(1)}">${Math.round(max * f)}</text>`;
+        }).join('');
+        const last = points.length - 1;
+        const current = points[last];
 
-        recentPoints.forEach(point => {
-            // Normalize bar width relative to max, then convert to pixels (200px scale)
-            const barWidthPx = (point.count / maxCount) * 200;
-            const displayCount = point.count || 0;
-            const displayCumulative = point.cumulative || 0;
-            // Use label if available, otherwise fall back to date for backward compatibility
-            const displayLabel = point.label || point.date;
-
-            html += `<div class="chart-row">
-                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
-                <span class="chart-value">+${displayCount} <small>(${displayCumulative} total)</small></span>
-                <span class="chart-label">${displayLabel}</span>
-            </div>`;
-        });
-
-        html += '</div>';
-        container.innerHTML = html;
+        container.innerHTML = `
+            <div class="growth-summary">
+                <span class="growth-figure">${totals[last]}</span>
+                <span class="growth-delta">+${Number(current.count) || 0} · ${label(current)}</span>
+            </div>
+            <svg class="growth-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label(points[0])} – ${label(current)}">
+                ${grid}
+                <path class="growth-line" d="${path}"/>
+                <circle class="growth-dot" cx="${x(last).toFixed(1)}" cy="${y(totals[last]).toFixed(1)}" r="4"/>
+                <text class="growth-axis" x="${L}" y="${H - 6}">${label(points[0])}</text>
+                <text class="growth-axis" x="${W - R}" y="${H - 6}" text-anchor="end">${label(current)}</text>
+            </svg>`;
     }
 
     /**
