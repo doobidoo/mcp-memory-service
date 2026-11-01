@@ -356,3 +356,28 @@ def test_a4_internal_rollback_leaves_canonical_untouched(storage, monkeypatch):
     # Perdedores seguem com o status ORIGINAL (supersede revertido): h2 active, h3 candidate.
     assert _row(storage.conn, "h2")[0] == "active"
     assert _row(storage.conn, "h3")[0] == "candidate"
+
+
+# ── A7: cap de 0 (ou negativo) não mergeia nenhum grupo ──
+
+def test_a7_cap_zero_merges_nothing(storage, monkeypatch):
+    """A7 (doobidoo review #1733): com MCP_BELIEF_DEDUP_CAP=0 e dry_run=False, dedup_beliefs
+    deve retornar ANTES de agrupar — nenhum grupo, nenhum merge, corpus intacto. Sem a guarda
+    `cap <= 0` em dedup_beliefs, _group_by_cosine adicionava o primeiro grupo antes do seu
+    próprio check e o apply mergeava esse grupo antes do check da linha 544."""
+    monkeypatch.setenv("MCP_BELIEF_DEDUP", "1")
+    monkeypatch.setenv("MCP_BELIEF_DEDUP_CAP", "0")
+    _seed_group_with_metadata(storage.conn)
+
+    before = _snapshot(storage.conn)
+
+    svc = BeliefService(storage)
+    report = svc.dedup_beliefs(dry_run=False)
+
+    # Retornou antes de agrupar: nenhum grupo detectado, nenhum merge aplicado.
+    assert report["groups"] == 0
+    assert report["merged"] == 0
+    assert report["capped"] is True
+    # Corpus intacto — o grupo real de 3 membros NÃO foi colapsado.
+    after = _snapshot(storage.conn)
+    assert after == before, f"cap=0 mutou o corpus: before={before} after={after}"

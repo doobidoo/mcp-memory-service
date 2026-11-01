@@ -517,6 +517,16 @@ class BeliefService:
 
         threshold, cap = self._dedup_config()
 
+        # A cap of 0 (or negative) means "produce no groups": return before
+        # grouping, mirroring backfill_belief_embeddings (cap <= 0 -> return).
+        # Without this, _group_by_cosine appends the first group BEFORE its
+        # len(groups) >= cap check, so dedup_beliefs(dry_run=False) would merge
+        # that one group before the line-544 cap check could stop it
+        # (doobidoo review #1733).
+        if cap <= 0:
+            report["capped"] = True
+            return report
+
         try:
             now = datetime.now(timezone.utc)
             items = self._load_dedup_candidates(report)
