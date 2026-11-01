@@ -593,6 +593,7 @@ body.dark-mode .btn-danger {
     margin: 0 auto;
     padding: var(--space-8) var(--space-6);
     width: 100%;
+    min-width: 0; /* a grid item; without this, wide content widens the whole page on phones */
 }
 
 /* View Containers */
@@ -955,7 +956,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 
 .memory-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
     gap: var(--space-6);
 }
 
@@ -1952,7 +1953,7 @@ body.dark-mode .form-group label {
 
 .api-endpoints-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(350px, 100%), 1fr));
     gap: var(--space-6);
     max-width: 1200px;
     margin: 0 auto;
@@ -3232,7 +3233,7 @@ margin-top: 3rem;
 
 .bulk-ops-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
     gap: var(--space-6);
 }
 
@@ -3270,13 +3271,13 @@ margin-top: 3rem;
 }
 
 .op-controls .form-control {
-    min-width: 200px;
+    min-width: 0;
     flex: 1;
 }
 
 .system-ops-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -3324,7 +3325,7 @@ margin-top: 3rem;
 
 .metrics-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
     gap: var(--space-4);
 }
 
@@ -3353,7 +3354,7 @@ margin-top: 3rem;
 
 .charts-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr));
     gap: var(--space-6);
 }
 
@@ -3463,7 +3464,7 @@ body.dark-mode .growth-dot {
 
 .reports-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
     gap: var(--space-6);
 }
 
@@ -3486,6 +3487,11 @@ body.dark-mode .growth-dot {
 }
 
 /* Tag Management Styles */
+/* On phones the tag table scrolls inside its section instead of widening the page */
+#tagManagementContainer {
+    overflow-x: auto;
+}
+
 .tag-stats-table {
     width: 100%;
     border-collapse: collapse;
@@ -4749,7 +4755,7 @@ body.dark-mode .result-content {
 
 .quality-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
     gap: var(--space-4);
     margin-bottom: var(--space-6);
 }
