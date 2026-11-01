@@ -1,5 +1,6 @@
 """Protect language-page generation, escaping, and reciprocal search metadata."""
 
+import html
 import importlib.util
 import json
 import shutil
@@ -102,6 +103,18 @@ class LocalizedSiteTests(unittest.TestCase):
             page,
         )
         self.assertTrue((ROOT / "docs/setup-guide.md").is_file())
+
+    def test_install_command_includes_local_semantic_search(self):
+        pages = site.generated_files(ROOT)
+        for path, page in pages.items():
+            if path in {Path("site/index.html"), Path("site/sitemap.xml")}:
+                continue
+            with self.subTest(path=path):
+                self.assertIn(
+                    "<code>pip install 'mcp-memory-service[sqlite]'</code>",
+                    html.unescape(page),
+                    "The quickstart needs ONNX dependencies for semantic search",
+                )
 
     def test_removed_catalog_rejects_retired_output(self):
         root, _, catalog = self.catalog_fixture()

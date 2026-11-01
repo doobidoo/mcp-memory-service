@@ -23,6 +23,10 @@ that the AI client's own model requests stay local. Avoid version numbers and
 volatile benchmark/test counts in introductions so releases need not rewrite every
 translation.
 
+Keep `pip install 'mcp-memory-service[sqlite]'` in the shared installation step.
+The SQLite extra supplies ONNX dependencies for local semantic search; the bare
+package does not guarantee a semantic embedding backend in a fresh environment.
+
 The initial German search phrases are hypotheses, not measured keywords:
 "dauerhaftes Gedächtnis für KI-Assistenten", "Claude Code Projektwissen speichern"
 and "MCP Memory Server selbst hosten". A fluent reviewer should check how developers
