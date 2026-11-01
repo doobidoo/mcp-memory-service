@@ -5616,7 +5616,9 @@ class MemoryDashboard {
             this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
             this.updateElementText('analyticsThisWeek', data.memories_this_week || 0);
             this.updateElementText('analyticsUniqueTags', data.unique_tags || 0);
-            this.updateElementText('analyticsDbSize', data.database_size_mb ?
+            // 0.0 is a real size for a near-empty database and rounds down to 0;
+            // only null/undefined mean the backend did not report a size.
+            this.updateElementText('analyticsDbSize', data.database_size_mb != null ?
                 `${data.database_size_mb.toFixed(1)} MB` : 'N/A');
         } catch (error) {
             console.error('Failed to load analytics overview:', error);
@@ -5708,7 +5710,7 @@ class MemoryDashboard {
 
         // Render significant tags
         significantTags.forEach(tag => {
-            const barWidthPx = (tag.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
+            const barWidthPx = (Math.min(tag.percentage, 100) / 100) * 200; // percentage to px, clamped to the 200px scale
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
@@ -5716,15 +5718,18 @@ class MemoryDashboard {
             </div>`;
         });
 
-        // Add "diverse" category if there are minor tags
+        // Add an aggregate row for the minor tags.
+        //
+        // These counts are tag assignments, not memories: one memory can carry
+        // several tags, so summing the per-tag percentages goes past 100% as soon
+        // as anything is multiply tagged, and the bar (percentage / 100 * 200) runs
+        // past the 200px scale. Report how many tags were folded in and leave the
+        // percentage out; there is no honest percentage for a set of overlapping tags.
         if (minorTags.length > 0) {
-            const diverseCount = minorTags.reduce((sum, t) => sum + t.count, 0);
-            const diversePercentage = minorTags.reduce((sum, t) => sum + t.percentage, 0);
-            const barWidthPx = (diversePercentage / 100) * 200;
+            const assignmentCount = minorTags.reduce((sum, t) => sum + t.count, 0);
             html += `<div class="chart-row">
-                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
-                <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTags.length} tags with ≤10 memories each">diverse (${minorTags.length} tags)</span>
+                <span class="chart-value">${minorTags.length} tags</span>
+                <span class="chart-label" title="${assignmentCount} tag assignments across ${minorTags.length} tags with 10 or fewer memories each">more tags (≤10 memories each)</span>
             </div>`;
         }
 
