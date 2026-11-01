@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 CSS = re.sub(
     r"/\*.*?\*/",
     "",
@@ -23,11 +25,69 @@ def test_no_gradients():
     assert [sel for sel, body in _rules() if "gradient(" in body] == []
 
 
+TIMING_WORDS = {"ease", "ease-in", "ease-out", "ease-in-out", "linear", "step-start", "step-end", "infinite"}
+
+
+def _split_top_level(value):
+    """Split a comma list, ignoring commas inside parentheses (cubic-bezier, var)."""
+    parts, depth, buf = [], 0, ""
+    for ch in value:
+        depth += (ch == "(") - (ch == ")")
+        if ch == "," and depth == 0:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    return parts + [buf]
+
+
+def _names_a_property(part):
+    for token in re.findall(r"[\w-]+\([^)]*\)|[^\s]+", part.strip()):
+        if token == "all":
+            return False
+        if re.match(r"^[\d.]+m?s$|^(var|cubic-bezier|steps)\(", token) or token in TIMING_WORDS:
+            continue
+        return True
+    return False
+
+
+def catch_all_transition(body):
+    """True when a rule animates every property, explicitly or by omitting the property name."""
+    if re.search(r"transition-property:\s*all\b", body):
+        return True
+    has_property_list = re.search(r"transition-property:\s*(?!all\b)[\w-]", body) is not None
+    for value in re.findall(r"(?<![\w-])transition:\s*([^;]+)", body):
+        if value.strip() in ("none", "initial", "unset", "inherit"):
+            continue
+        if not all(_names_a_property(part) for part in _split_top_level(value)) and not has_property_list:
+            return True
+    return False
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("transition: all 0.2s ease;", True),
+        ("transition: 0.2s ease;", True),
+        ("transition: var(--transition-base);", True),
+        ("transition-property: all; transition-duration: 0.2s;", True),
+        ("transition: color 0.2s, all 0.3s;", True),
+        ("transition: var(--transition-base); transition-property: color, opacity;", False),
+        ("transition: opacity var(--transition-base), transform var(--transition-base);", False),
+        ("transition: background-color 0.2s cubic-bezier(0.22, 1, 0.36, 1);", False),
+        ("transition: none;", False),
+        ("color: red;", False),
+    ],
+)
+def test_catch_all_detection(body, expected):
+    assert catch_all_transition(body) is expected
+
+
 def test_transitions_name_their_properties():
     # Graph nodes and links are SVG content and keep their own transitions.
     offenders = [
         sel for sel, body in _rules()
-        if re.search(r"transition:\s*all\b", body) and not sel.startswith((".graph-node", ".graph-link"))
+        if catch_all_transition(body) and not sel.startswith((".graph-node", ".graph-link"))
     ]
     assert offenders == []
 

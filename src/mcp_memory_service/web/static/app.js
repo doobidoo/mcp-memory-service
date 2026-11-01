@@ -5654,8 +5654,13 @@ class MemoryDashboard {
         const points = data.data_points.slice(-12);
         const totals = points.map(p => Number(p.cumulative) || 0);
         const max = Math.max(...totals, 1);
-        // Draw at the container's real width so the 11px axis labels are not scaled down.
-        const W = Math.max(container.clientWidth || 600, 320), H = 220, L = 8, R = 48, T = 16, B = 28;
+        // Draw at the container's content width (no padding, no floor) so the SVG is not
+        // scaled and the 11px axis labels stay 11px on phones too. 600 only if hidden.
+        const cs = getComputedStyle(container);
+        const contentWidth = container.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const W = contentWidth > 0 ? Math.round(contentWidth) : 600, H = 220, L = 8, R = 48, T = 16, B = 28;
+        // Below ~360px the two period labels would overlap; keep only the current one.
+        const showFirstLabel = W >= 360 && points.length > 1;
         const x = i => L + (points.length === 1 ? (W - L - R) : i * (W - L - R) / (points.length - 1));
         const y = v => T + (H - T - B) * (1 - v / max);
         const label = p => this.escapeHtml(p.label || p.date || '');
@@ -5678,7 +5683,7 @@ class MemoryDashboard {
                 ${grid}
                 <path class="growth-line" d="${path}"/>
                 <circle class="growth-dot" cx="${x(last).toFixed(1)}" cy="${y(totals[last]).toFixed(1)}" r="4"/>
-                <text class="growth-axis" x="${L}" y="${H - 6}">${label(points[0])}</text>
+                ${showFirstLabel ? `<text class="growth-axis" x="${L}" y="${H - 6}">${label(points[0])}</text>` : ''}
                 <text class="growth-axis" x="${W - R}" y="${H - 6}" text-anchor="end">${label(current)}</text>
             </svg>`;
     }
