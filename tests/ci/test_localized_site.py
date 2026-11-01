@@ -1,0 +1,98 @@
+"""Protect language-page generation, escaping, and reciprocal search metadata."""
+
+import importlib.util
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from xml.etree import ElementTree
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location(
+    "generate_localized_site", ROOT / "scripts/maintenance/generate_localized_site.py"
+)
+site = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(site)
+
+
+class LocalizedSiteTests(unittest.TestCase):
+    """Exercise the real catalog/template and isolated invalid inputs."""
+
+    def test_committed_pages_match_sources(self):
+        for path, expected in site.generated_files(ROOT).items():
+            with self.subTest(path=path):
+                self.assertEqual((ROOT / path).read_text(), expected)
+
+    def test_reciprocal_alternates_and_self_canonical(self):
+        pages = site.generated_files(ROOT)
+        for path, locale, url in [
+            ("site/index.html", "en", "/"),
+            ("site/de/index.html", "de", "/de/"),
+        ]:
+            page = pages[Path(path)]
+            self.assertIn(f'<html lang="{locale}">', page)
+            self.assertIn(f'rel="canonical" href="{site.BASE_URL}{url}"', page)
+            for lang, target in [("en", "/"), ("de", "/de/"), ("x-default", "/")]:
+                self.assertIn(f'hreflang="{lang}" href="{site.BASE_URL}{target}"', page)
+            self.assertIn(f'hreflang="{locale}" aria-current="page"', page)
+
+    def test_sitemap_contains_language_page(self):
+        xml = site.generated_files(ROOT)[Path("site/sitemap.xml")]
+        tree = ElementTree.fromstring(xml)
+        locations = [e.text for e in tree.findall("{*}url/{*}loc")]
+        self.assertEqual(locations.count(f"{site.BASE_URL}/de/"), 1)
+
+    def test_missing_or_duplicated_markers_fail(self):
+        for source in ["", "<!-- test:start -->" * 2 + "<!-- test:end -->"]:
+            with self.assertRaises(ValueError):
+                site.replace_block(source, "test", "content")
+
+    def catalog_fixture(self):
+        """Create a disposable copy so failures cannot change real catalogs."""
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        shutil.copytree(ROOT / site.SOURCES, root / site.SOURCES)
+        (root / "site").mkdir()
+        for name in ["index.html", "sitemap.xml"]:
+            shutil.copyfile(ROOT / "site" / name, root / "site" / name)
+        path = root / site.SOURCES / "de.json"
+        return root, path, json.loads(path.read_text())
+
+    def test_incomplete_catalog_fails(self):
+        root, path, catalog = self.catalog_fixture()
+        del catalog["headline"]
+        path.write_text(json.dumps(catalog))
+        with self.assertRaisesRegex(ValueError, "translation keys"):
+            site.generated_files(root)
+
+    def test_unsafe_or_mismatched_locale_fails(self):
+        root, path, catalog = self.catalog_fixture()
+        for locale in ["../x", "en", "es"]:
+            catalog["locale"] = locale
+            path.write_text(json.dumps(catalog))
+            with self.assertRaises(ValueError):
+                site.generated_files(root)
+
+    def test_translations_are_escaped(self):
+        root, path, catalog = self.catalog_fixture()
+        catalog["headline"] = '<script>alert("x")</script>'
+        path.write_text(json.dumps(catalog))
+        page = site.generated_files(root)[Path("site/de/index.html")]
+        self.assertIn("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;", page)
+        self.assertNotIn('<script>alert("x")</script>', page)
+
+    def test_new_language_updates_all_alternates(self):
+        root, _, catalog = self.catalog_fixture()
+        catalog.update(locale="es", language_name="Español", og_locale="es_ES")
+        (root / site.SOURCES / "es.json").write_text(json.dumps(catalog))
+        pages = site.generated_files(root)
+        for path in ["site/index.html", "site/de/index.html", "site/es/index.html"]:
+            self.assertIn(
+                'hreflang="es" href="https://mcpmemory.services/es/"', pages[Path(path)]
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
