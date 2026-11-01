@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -209,7 +211,7 @@ class TranscriptParser:
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
-                    logger.debug(f"Skipping corrupt line {line_num} in {filepath.name}")
+                    logger.debug("Skipping corrupt line %d in %s", line_num, _sanitize_log_value(filepath.name))
                     continue
 
                 # Auto-detect format from first valid JSON line
@@ -223,7 +225,7 @@ class TranscriptParser:
                     elif isinstance(obj.get("payload"), dict) and "type" in obj["payload"]:
                         format_detected = "kiro-cli-v4"
                     else:
-                        logger.warning(f"Unknown session format in {filepath.name}, skipping")
+                        logger.warning("Unknown session format in %s, skipping", _sanitize_log_value(filepath.name))
                         return messages
 
                 if format_detected == "claude":
@@ -263,7 +265,8 @@ class TranscriptParser:
         try:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         except sqlite3.Error as e:
-            logger.warning("parse_sqlite: cannot open %s read-only: %s", db_path.name, e)
+            logger.warning("parse_sqlite: cannot open %s read-only: %s",
+                           _sanitize_log_value(db_path.name), _sanitize_log_value(e))
             return messages
 
         try:

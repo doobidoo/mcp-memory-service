@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+from ...compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Type alias: dict of memory_type -> list of (compiled_regex, confidence)
@@ -38,7 +40,7 @@ def load_patterns(locales: str = "en") -> PatternDict:
     for locale in locale_list:
         filepath = PATTERNS_DIR / f"{locale}.yaml"
         if not filepath.exists():
-            logger.warning(f"Locale file not found: {filepath}")
+            logger.warning("Locale file not found: %s", _sanitize_log_value(filepath))
             continue
 
         patterns = _parse_yaml_patterns(filepath)
@@ -77,7 +79,8 @@ def _parse_yaml_patterns(filepath: Path) -> PatternDict:
                 confidence = float(entry.get("confidence", 0.6))
                 compiled.append((pattern, confidence))
             except re.error as e:
-                logger.warning(f"Invalid regex in {filepath.name}/{memory_type}: {e}")
+                logger.warning("Invalid regex in %s/%s: %s", _sanitize_log_value(filepath.name),
+                               _sanitize_log_value(memory_type), _sanitize_log_value(e))
         if compiled:
             result[memory_type] = compiled
 

@@ -1,0 +1,98 @@
+"""
+Log-injection tests for the harvest transcript parser and pattern loader (#1146).
+
+``TranscriptParser.parse_file`` logs the name of the session file it is reading
+when a line is not JSON and when the format is unknown; ``parse_sqlite`` logs the
+database name and the ``sqlite3`` error when it cannot open the file.
+``load_patterns`` logs the locale-derived path of a missing pattern file, and
+``_parse_yaml_patterns`` the file name, the ``memory_type`` key and the ``re.error``
+text of a pattern that does not compile. A newline in any of those must not reach
+the log as a line break.
+
+The session file, the database path and the pattern file are created under
+``tmp_path``; the file-name cases are skipped on Windows, where a newline is not a
+legal file-name character.
+"""
+
+import logging
+import sys
+
+import pytest
+
+from mcp_memory_service.harvest import patterns as patterns_module
+from mcp_memory_service.harvest.parser import TranscriptParser
+
+FORGED = "FORGED harvest verified"
+PARSER_LOGGER = "mcp_memory_service.harvest.parser"
+PATTERNS_LOGGER = "mcp_memory_service.harvest.patterns"
+
+no_newline_in_filenames = pytest.mark.skipif(
+    sys.platform == "win32", reason="a newline is not a legal file-name character on Windows"
+)
+
+
+def _messages(caplog):
+    return [record.getMessage() for record in caplog.records]
+
+
+def _assert_clean(caplog, *expected):
+    messages = _messages(caplog)
+    for text in expected:
+        assert any(text in m for m in messages), (text, messages)
+    assert not any(f"\n{FORGED}" in m for m in messages), messages
+
+
+@no_newline_in_filenames
+def test_parse_file_logs_do_not_carry_newlines_from_the_file_name(tmp_path, caplog):
+    session = tmp_path / f"session\n{FORGED}.jsonl"
+    session.write_text('{not json\n{"unknown": 1}\n', encoding="utf-8")
+
+    with caplog.at_level(logging.DEBUG, logger=PARSER_LOGGER):
+        messages = TranscriptParser().parse_file(session)
+
+    assert messages == []
+    _assert_clean(
+        caplog,
+        f"Skipping corrupt line 1 in session\\n{FORGED}.jsonl",
+        f"Unknown session format in session\\n{FORGED}.jsonl, skipping",
+    )
+
+
+@no_newline_in_filenames
+def test_parse_sqlite_logs_do_not_carry_newlines_from_the_database_name(tmp_path, caplog):
+    # A directory exists but cannot be opened as a database, so the warning path runs.
+    db_path = tmp_path / f"kiro\n{FORGED}.db"
+    db_path.mkdir()
+
+    with caplog.at_level(logging.WARNING, logger=PARSER_LOGGER):
+        messages = TranscriptParser().parse_sqlite(db_path)
+
+    assert messages == []
+    _assert_clean(caplog, f"parse_sqlite: cannot open kiro\\n{FORGED}.db read-only")
+
+
+def test_load_patterns_logs_do_not_carry_newlines_from_the_locale(caplog):
+    with caplog.at_level(logging.WARNING, logger=PATTERNS_LOGGER):
+        merged = patterns_module.load_patterns(f"en\n{FORGED}")
+
+    # The forged locale is skipped and the loader falls back to en.yaml.
+    assert merged
+    _assert_clean(caplog, "Locale file not found: ", f"en\\n{FORGED}.yaml")
+
+
+def test_parse_yaml_patterns_logs_do_not_carry_newlines_from_the_pattern_file(tmp_path, caplog):
+    pytest.importorskip("yaml")
+    pattern_file = tmp_path / "custom.yaml"
+    pattern_file.write_text(
+        "patterns:\n"
+        f'  "bug\\n{FORGED}":\n'
+        '    - pattern: "("\n'
+        "      confidence: 0.5\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING, logger=PATTERNS_LOGGER):
+        result = patterns_module._parse_yaml_patterns(pattern_file)
+
+    assert result == {}
+    _assert_clean(caplog, f"Invalid regex in custom.yaml/bug\\n{FORGED}:")
