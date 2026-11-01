@@ -5629,7 +5629,7 @@ class MemoryDashboard {
             this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
             this.updateElementText('analyticsThisWeek', data.memories_this_week || 0);
             this.updateElementText('analyticsUniqueTags', data.unique_tags || 0);
-            this.updateElementText('analyticsDbSize', data.database_size_mb ?
+            this.updateElementText('analyticsDbSize', data.database_size_mb != null ?
                 `${data.database_size_mb.toFixed(1)} MB` : 'N/A');
         } catch (error) {
             console.error('Failed to load analytics overview:', error);
@@ -5732,12 +5732,16 @@ class MemoryDashboard {
         // Add "diverse" category if there are minor tags
         if (minorTags.length > 0) {
             const diverseCount = minorTags.reduce((sum, t) => sum + t.count, 0);
-            const diversePercentage = minorTags.reduce((sum, t) => sum + t.percentage, 0);
-            const barWidthPx = (diversePercentage / 100) * 200;
+            // Per-tag percentages are shares of total memories, and a memory can carry
+            // several tags, so summing them can exceed 100% and overflow the bar scale.
+            // Report the number of distinct minor tags and scale the bar by the share
+            // of tag assignments, which never exceeds 100%.
+            const totalAssignments = data.tags.reduce((sum, t) => sum + t.count, 0);
+            const barWidthPx = totalAssignments > 0 ? (diverseCount / totalAssignments) * 200 : 0;
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
-                <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTags.length} tags with ≤10 memories each">diverse (${minorTags.length} tags)</span>
+                <span class="chart-value">${minorTags.length} more tags</span>
+                <span class="chart-label" title="${minorTags.length} tags with ≤10 memories each, ${diverseCount} tag uses total">diverse</span>
             </div>`;
         }
 

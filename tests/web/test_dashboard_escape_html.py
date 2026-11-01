@@ -87,3 +87,77 @@ console.log(container.innerHTML);
     assert all(tag != "img" for tag, _ in parsed.elements)
     assert all(not key.startswith("on") for _, attrs in parsed.elements for key in attrs)
     assert payload in "".join(parsed.text)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_tag_usage_diverse_bucket_has_no_summed_percentage():
+    """Regression for #1736: per-tag percentages are shares of total memories, and a
+    memory can carry several tags, so summing them can exceed 100% and overflow the
+    200px bar scale (the 'diverse' row used to read '30 (249.4%)')."""
+    source = APP_JS.read_text()
+    script = source[source.index("class MemoryDashboard {"):source.index("// Initialize the application when DOM is ready")]
+    script += "\nconst app = Object.create(MemoryDashboard.prototype);\n"
+    script += """
+const container = {innerHTML: '', addEventListener() {}};
+global.document = {getElementById: () => container};
+function render(tags) {
+  app.renderTagUsageChart(container, {tags});
+  return container.innerHTML;
+}
+const results = [];
+// Issue repro: 12 memories, 20 tags -> all minor (count <= 10), summed percentage 249.4%.
+const overflow = [
+  {tag: 'work', count: 6, percentage: 50.0, growth_rate: null},
+  {tag: 'home', count: 6, percentage: 50.0, growth_rate: null},
+];
+for (let i = 0; i < 18; i++) overflow.push({tag: 't' + i, count: 1, percentage: 8.3, growth_rate: null});
+results.push(render(overflow));
+// Mixed case: 2 significant tags + 18 minor tags (bar must stay proportional and <= 200px).
+const mixed = [
+  {tag: 'work', count: 12, percentage: 30.0, growth_rate: null},
+  {tag: 'home', count: 12, percentage: 30.0, growth_rate: null},
+];
+for (let i = 0; i < 18; i++) mixed.push({tag: 't' + i, count: 1, percentage: 2.5, growth_rate: null});
+results.push(render(mixed));
+console.log(JSON.stringify(results));
+"""
+    result = subprocess.run(["node", "-"], check=False, input=script, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    outputs = json.loads(result.stdout.splitlines()[-1])
+    assert len(outputs) == 2
+    for output in outputs:
+        # The diverse bucket is labelled by tag count only, never 'N (P%)'.
+        assert re.search(r"chart-value\">\d+ \(\d+\.\d+%\)", output) is None
+        assert "more tags" in output
+        # Bars never exceed the 200px scale.
+        for match in re.finditer(r'chart-bar" style="width: ([\d.]+)px"', output):
+            assert float(match.group(1)) <= 200.0, output
+    assert "20 more tags" in outputs[0]
+    assert "18 more tags" in outputs[1]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_analytics_db_size_shows_0_mb_when_falsy():
+    """Regression for #1736: a 4 KB database rounds to database_size_mb: 0.0, which is
+    falsy, so the tile previously read N/A although the API returned a real size."""
+    source = APP_JS.read_text()
+    script = source[source.index("class MemoryDashboard {"):source.index("// Initialize the application when DOM is ready")]
+    script += "\nconst app = Object.create(MemoryDashboard.prototype);\n"
+    script += """
+(async () => {
+  const els = {};
+  global.document = {getElementById: (id) => (els[id] = els[id] || {textContent: ''})};
+  app.apiCall = async () => ({total_memories: 12, memories_this_week: 3, unique_tags: 20, database_size_mb: 0.0});
+  await app.loadAnalyticsOverview();
+  const zero = els.analyticsDbSize.textContent;
+  app.apiCall = async () => ({total_memories: 12, memories_this_week: 3, unique_tags: 20, database_size_mb: null});
+  await app.loadAnalyticsOverview();
+  const missing = els.analyticsDbSize.textContent;
+  console.log(JSON.stringify({zero, missing}));
+})();
+"""
+    result = subprocess.run(["node", "-"], check=False, input=script, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    values = json.loads(result.stdout.splitlines()[-1])
+    assert values["zero"] == "0.0 MB"
+    assert values["missing"] == "N/A"
