@@ -219,7 +219,6 @@
   "api.subtitle": "REST endpoints of this server",
   "api.link.swagger": "Interactive Swagger UI",
   "api.link.redoc": "ReDoc Documentation",
-  "api.link.overview": "API Overview Page",
   "api.section.memory": "Memory Management",
   "api.memory.store": "Store a new memory with automatic embedding generation",
   "api.memory.list": "List all memories with pagination support",

@@ -65,7 +65,6 @@
   "api.events.stream": "S'abonner au flux d'événements mémoire en temps réel",
   "api.health.detailed": "Santé détaillée avec statistiques de base de données",
   "api.health.quick": "Point de terminaison de vérification de santé rapide",
-  "api.link.overview": "Page de Vue d'ensemble API",
   "api.link.redoc": "Documentation ReDoc",
   "api.link.swagger": "Interface Swagger Interactive",
   "api.memory.delete": "Supprimer une mémoire et ses embeddings",
