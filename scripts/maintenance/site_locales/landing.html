@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<!-- Generated localized introduction. -->
+<html lang="$locale">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>$title</title>
+<meta name="description" content="$description">
+<meta property="og:title" content="$title">
+<meta property="og:description" content="$description">
+<meta property="og:type" content="website">
+<meta property="og:url" content="$canonical">
+<meta property="og:locale" content="$og_locale">
+<meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="$title">
+<meta name="twitter:description" content="$description">
+<meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<link rel="canonical" href="$canonical">
+$alternates
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/localized.css">
+</head>
+<body>
+<a class="skip-link" href="#main">$skip</a>
+<div class="band">
+  <div class="wrap">
+    <nav class="nav" aria-label="$navigation">
+      <a class="brand" href="/$locale/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a href="#install">$install_link</a>
+    </nav>
+    <nav class="language-switcher" aria-label="$languages">$language_links</nav>
+  </div>
+  <header class="wrap locale-hero">
+    <div>
+      <p class="eyebrow">MCP Memory Service</p>
+      <h1>$headline</h1>
+      <p class="intro">$intro</p>
+      <div class="btns">
+        <a class="btn" href="#install">$start</a>
+        <a href="https://github.com/doobidoo/mcp-memory-service">$github_link</a>
+      </div>
+    </div>
+    <aside class="memory-example" aria-label="$example_label">
+      <p class="eyebrow">$example_label</p>
+      <h2>$store_heading</h2>
+      <p>$store_example</p>
+      <h2>$recall_heading</h2>
+      <p>$recall_example</p>
+      <p class="example-note">$example_note</p>
+    </aside>
+  </header>
+</div>
+<main id="main">
+  <section class="sec">
+    <div class="wrap">
+      <h2>$use_cases_heading</h2>
+      <p class="lede">$use_cases_intro</p>
+      <div class="locale-cards">
+        <article><h3>$case_1_title</h3><p>$case_1_text</p></article>
+        <article><h3>$case_2_title</h3><p>$case_2_text</p></article>
+        <article><h3>$case_3_title</h3><p>$case_3_text</p></article>
+      </div>
+    </div>
+  </section>
+  <section class="sec" id="install">
+    <div class="wrap locale-install">
+      <h2>$install_heading</h2>
+      <p class="lede">$install_intro</p>
+      <ol class="install-steps">
+        <li><h3>$step_1_title</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>$step_1_text</p></li>
+        <li><h3>$step_2_title</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>$step_2_text</p></li>
+        <li><h3>$step_3_title</h3><p>$step_3_text</p></li>
+      </ol>
+      <div class="btns">
+        <a class="btn" href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md">$setup_link</a>
+        <a href="/demo/">$demo_link</a>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="wrap locale-faq">
+      <h2>$faq_heading</h2>
+      <details><summary>$faq_1_question</summary><p>$faq_1_answer</p></details>
+      <details><summary>$faq_2_question</summary><p>$faq_2_answer</p></details>
+      <details><summary>$faq_3_question</summary><p>$faq_3_answer</p></details>
+      <details><summary>$faq_4_question</summary><p>$faq_4_answer</p></details>
+    </div>
+  </section>
+</main>
+<footer><div class="wrap">
+  <p>$footer_text <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md">$contribute_link</a></p>
+</div></footer>
+<!-- Cloudflare Web Analytics is injected at the proxy; do not add a second beacon. -->
+</body>
+</html>
