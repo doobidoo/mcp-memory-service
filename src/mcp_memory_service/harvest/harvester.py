@@ -516,23 +516,23 @@ class SessionHarvester:
                             harvest_model=_model,
                         ))
                 logger.info(
-                    f"LLM rewrite: {len(filtered)} → {len(rewritten)} candidates "
-                    f"({len(filtered) - len(rewritten)} skipped)"
+                    "LLM rewrite: %d → %d candidates (%d skipped)",
+                    len(filtered), len(rewritten), len(filtered) - len(rewritten),
                 )
                 # Post-LLM filter: reject meta-discussion and temporal facts
                 filtered = [c for c in rewritten if not self._is_meta_or_temporal(c.content)]
                 if len(filtered) < len(rewritten):
                     logger.info(
-                        f"Post-LLM filter: {len(rewritten)} → {len(filtered)} "
-                        f"({len(rewritten) - len(filtered)} meta/temporal rejected)"
+                        "Post-LLM filter: %d → %d (%d meta/temporal rejected)",
+                        len(rewritten), len(filtered), len(rewritten) - len(filtered),
                     )
                 # Passo 3: consolidate similar candidates
                 before_consolidate = len(filtered)
                 filtered = self._consolidate_similar(filtered)
                 if len(filtered) < before_consolidate:
                     logger.info(
-                        f"Consolidation: {before_consolidate} → {len(filtered)} "
-                        f"({before_consolidate - len(filtered)} duplicates merged)"
+                        "Consolidation: %d → %d (%d duplicates merged)",
+                        before_consolidate, len(filtered), before_consolidate - len(filtered),
                     )
             else:
                 # Fallback to legacy classifier
@@ -541,8 +541,8 @@ class SessionHarvester:
                 before_count = len(filtered)
                 filtered = classifier.classify(filtered, context_messages=context_texts)
                 logger.info(
-                    f"LLM classification: {before_count} → {len(filtered)} candidates "
-                    f"({before_count - len(filtered)} rejected)"
+                    "LLM classification: %d → %d candidates (%d rejected)",
+                    before_count, len(filtered), before_count - len(filtered),
                 )
 
         by_type = dict(Counter(c.memory_type for c in filtered))
