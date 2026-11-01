@@ -1,8 +1,8 @@
 # Reaching developers in more languages
 
-The pilot adds a German introduction to mcpmemory.services. English remains at `/`;
-German lives at `/de/`. Spanish is the provisional second language, subject to
-audience signals and an available fluent reviewer. Dashboard language catalogs are
+The pilot adds German and Spanish introductions to mcpmemory.services. English
+remains at `/`; German lives at `/de/` and Spanish at `/es/`. The Spanish page uses
+neutral phrasing for readers across Spanish-speaking regions. Dashboard language catalogs are
 separate: a translated dashboard alone does not create a searchable entry page.
 
 ## Content brief
@@ -112,14 +112,14 @@ attribution. Introduce the project in relevant developer communities in accordan
 with their posting rules; the existing project Discord mainly reaches current
 community members. Add README language links when the pages are published.
 
-## Spanish contributor brief
+## Further language contributor brief
 
-Prepare the Spanish introduction after the foundation is merged and a fluent
-reviewer is available. Scope: `es.json`, generated `/es/` output, language metadata
+Prepare further introductions when audience signals and a fluent reviewer are
+available. Scope: a locale-named JSON catalog, generated language page, language metadata
 and sitemap updates, plus the README language link. Reuse the shared layout and
 commands; translate and review all content, including SEO and social descriptions.
-Suggested wording such as "memoria persistente para asistentes de IA" needs fluent
-review and is not a measured search-volume claim. Installation and client support
+The Spanish phrase "memoria persistente para asistentes de IA" is a natural content
+description, not a measured search-volume claim. Installation and client support
 must stay consistent with the reference introduction.
 
 Publish the contributor issue only when that scope is ready to claim. Use
