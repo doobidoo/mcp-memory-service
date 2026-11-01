@@ -4934,9 +4934,11 @@ class MemoryDashboard {
                         // account_id is not masked but keep consistent UX
                     }
                     input.type = 'text';
+                    btn.dataset.i18n = 'common.hide'; // keeps the label right across language switches
                     btn.textContent = this.t('common.hide', 'Hide');
                 } else {
                     input.type = 'password';
+                    btn.dataset.i18n = 'common.show';
                     btn.textContent = this.t('common.show', 'Show');
                 }
             });
