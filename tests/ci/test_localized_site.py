@@ -29,14 +29,16 @@ class LocalizedSiteTests(unittest.TestCase):
 
     def test_reciprocal_alternates_and_self_canonical(self):
         pages = site.generated_files(ROOT)
-        for path, locale, url in [
-            ("site/index.html", "en", "/"),
-            ("site/de/index.html", "de", "/de/"),
-        ]:
+        _, catalogs = site.load_catalogs(ROOT)
+        languages = [("en", "/")] + [
+            (c["locale"], f'/{c["locale"]}/') for c in catalogs
+        ]
+        for locale, url in languages:
+            path = "site/index.html" if locale == "en" else f"site/{locale}/index.html"
             page = pages[Path(path)]
             self.assertIn(f'<html lang="{locale}">', page)
             self.assertIn(f'rel="canonical" href="{site.BASE_URL}{url}"', page)
-            for lang, target in [("en", "/"), ("de", "/de/"), ("x-default", "/")]:
+            for lang, target in languages + [("x-default", "/")]:
                 self.assertIn(f'hreflang="{lang}" href="{site.BASE_URL}{target}"', page)
             self.assertIn(f'hreflang="{locale}" aria-current="page"', page)
 
@@ -44,7 +46,11 @@ class LocalizedSiteTests(unittest.TestCase):
         xml = site.generated_files(ROOT)[Path("site/sitemap.xml")]
         tree = ElementTree.fromstring(xml)
         locations = [e.text for e in tree.findall("{*}url/{*}loc")]
-        self.assertEqual(locations.count(f"{site.BASE_URL}/de/"), 1)
+        _, catalogs = site.load_catalogs(ROOT)
+        for catalog in catalogs:
+            self.assertEqual(
+                locations.count(f'{site.BASE_URL}/{catalog["locale"]}/'), 1
+            )
 
     def test_missing_or_duplicated_markers_fail(self):
         for source in ["", "<!-- test:start -->" * 2 + "<!-- test:end -->"]:
@@ -88,13 +94,13 @@ class LocalizedSiteTests(unittest.TestCase):
 
     def test_new_language_updates_all_alternates(self):
         root, _, catalog = self.catalog_fixture()
-        catalog.update(locale="es", language_name="Español", og_locale="es_ES")
-        (root / site.SOURCES / "es.json").write_text(json.dumps(catalog))
+        catalog.update(locale="fr", language_name="Français", og_locale="fr_FR")
+        (root / site.SOURCES / "fr.json").write_text(json.dumps(catalog))
         pages = site.generated_files(root)
-        for path in ["site/index.html", "site/de/index.html", "site/es/index.html"]:
-            self.assertIn(
-                'hreflang="es" href="https://mcpmemory.services/es/"', pages[Path(path)]
-            )
+        for path, page in pages.items():
+            if path.suffix != ".html":
+                continue
+            self.assertIn('hreflang="fr" href="https://mcpmemory.services/fr/"', page)
 
     def test_setup_button_links_to_existing_document(self):
         page = site.generated_files(ROOT)[Path("site/de/index.html")]
