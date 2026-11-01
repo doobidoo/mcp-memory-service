@@ -504,3 +504,107 @@ async def test_rrf_fusion_honors_as_of(storage, rrf_corpus, monkeypatch):
     assert m1_hash not in hashes_now
     assert m2_hash in hashes_now
     assert m3_hash in hashes_now
+
+
+# ---------------------------------------------------------------------------
+# Issue #1724 follow-up (Henry's review on #1726): the Cloudflare backend must
+# populate MemoryQueryResult.superseded_by from the loaded metadata before
+# point-in-time filtering / status marking. Without it, as_of queries silently
+# return superseded memories and include_superseded=true marks them "current".
+# ---------------------------------------------------------------------------
+
+import sys as _sys
+import types as _types
+from unittest.mock import AsyncMock
+
+try:
+    import httpx  # noqa: F401
+except ImportError:  # local venv lacks httpx; CI installs it
+    _httpx_stub = _types.ModuleType("httpx")
+
+    class _StubHTTPStatusError(Exception):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args)
+            self.response = kwargs.get("response")
+
+    _httpx_stub.HTTPStatusError = _StubHTTPStatusError
+    _httpx_stub.HTTPError = _StubHTTPStatusError
+    _httpx_stub.NetworkError = _StubHTTPStatusError
+    _httpx_stub.TimeoutException = _StubHTTPStatusError
+    _httpx_stub.AsyncClient = object
+    _httpx_stub.Response = object
+    _httpx_stub.Limits = object
+    _httpx_stub.Timeout = object
+    _sys.modules["httpx"] = _httpx_stub
+
+from mcp_memory_service.models.memory import MemoryQueryResult
+from mcp_memory_service.storage.cloudflare import CloudflareStorage
+
+
+def _cf_storage() -> CloudflareStorage:
+    s = CloudflareStorage.__new__(CloudflareStorage)
+    s.vectorize_url = "https://example.invalid/vectorize"
+    return s
+
+
+def _cf_result(content_hash: str, created_at: float, superseded_by=None) -> MemoryQueryResult:
+    metadata = {"superseded_by": superseded_by} if superseded_by else {}
+    mem = Memory(content="c", content_hash=content_hash, metadata=metadata, created_at=created_at)
+    return MemoryQueryResult(memory=mem, relevance_score=0.9)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cloudflare_enrich_supersession_copies_from_metadata():
+    """Exact/tag-only paths: lineage must come from the loaded metadata."""
+    s = _cf_storage()
+    r1 = _cf_result("h1", T1, superseded_by="h2")
+    r2 = _cf_result("h3", T1)
+    out = await s._enrich_supersession([r1, r2])
+    assert out[0] is r1 and out[1] is r2
+    assert r1.superseded_by == "h2"
+    assert r1.superseded_at is None  # moment unknown -> conservative later
+    assert r2.superseded_by is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cloudflare_as_of_excludes_metadata_superseded():
+    """as_of must conservatively exclude rows superseded at an unknown time."""
+    s = _cf_storage()
+    r1 = _cf_result("h1", T1, superseded_by="h2")  # superseded, moment unknown
+    r2 = _cf_result("h2", T2)  # current
+    enriched = await s._enrich_supersession([r1, r2])
+    kept = s._post_filter_as_of(enriched, T3)
+    assert [r.memory.content_hash for r in kept] == ["h2"]
+    # Without as_of the default path is unchanged: nothing is dropped.
+    assert len(await s._enrich_supersession([_cf_result("h1", T1, "h2")])) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cloudflare_retrieve_populates_superseded_by():
+    """Semantic path: retrieve() must set superseded_by before filtering."""
+    s = _cf_storage()
+    mem = Memory(
+        content="deadline is October 1st",
+        content_hash="h1",
+        metadata={"superseded_by": "h2"},
+        created_at=T1,
+    )
+    s._generate_embedding = AsyncMock(return_value=[0.1] * 8)
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "success": True,
+        "result": {"matches": [{"id": "v1", "score": 0.9}]},
+    }
+    s._retry_request = AsyncMock(return_value=fake_resp)
+    s._load_memory_from_match = AsyncMock(return_value=mem)
+    s._persist_access_metadata = AsyncMock()
+
+    results = await s.retrieve("deadline", n_results=5)
+    assert len(results) == 1
+    assert results[0].superseded_by == "h2"
+
+    # ... and an as_of query must then exclude it (unknown supersede moment).
+    assert await s.retrieve("deadline", n_results=5, as_of=T3) == []

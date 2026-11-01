@@ -1126,6 +1126,13 @@ class CloudflareStorage(MemoryStorage):
                 except Exception as e:
                     logger.warning("Failed to persist access metadata: %s", _sanitize_log_value(e))
 
+            # Issue #1724 follow-up: always load the replacement lineage, not
+            # only when as_of is set — include_superseded status flags need it
+            # too. Cloudflare tracks superseded_by in metadata_json but not
+            # the replacement moment, so superseded_at stays None
+            # (conservative in as_of queries).
+            results = self._copy_supersession_from_metadata(results)
+
             # Issue #1724: best-effort point-in-time filter. The Cloudflare
             # backend has no superseded_at; superseded rows are conservatively
             # excluded from as_of queries.
@@ -1138,7 +1145,45 @@ class CloudflareStorage(MemoryStorage):
         except Exception as e:
             logger.error("Failed to retrieve memories: %s", _sanitize_log_value(e))
             return []
-    
+
+    @staticmethod
+    def _copy_supersession_from_metadata(
+        results: List[MemoryQueryResult],
+    ) -> List[MemoryQueryResult]:
+        """Copy the superseded_by pointer from each result's loaded metadata.
+
+        Issue #1724 follow-up: Cloudflare's D1 schema has no superseded_by /
+        superseded_at columns, so MemoryQueryResult lineage is never populated
+        by the query itself. The replacement pointer, when present, lives in
+        the memory's metadata_json (same convention as the SQLite metadata
+        mirror and the Milvus backend). superseded_at is not tracked, so it
+        stays None and _post_filter_as_of conservatively excludes such rows
+        from as_of queries instead of silently returning them as current.
+        """
+        for r in results:
+            if r.superseded_by is None:
+                r.superseded_by = (r.memory.metadata or {}).get("superseded_by") or None
+        return results
+
+    async def _enrich_supersession(
+        self, results: List[MemoryQueryResult], store: Optional[str] = None
+    ) -> List[MemoryQueryResult]:
+        """Backfill supersession lineage from loaded metadata (issue #1724).
+
+        The exact / tag-only / time-only paths in search_memories() never flow
+        through retrieve(), so they rely on this hook. The base implementation
+        does a batched DB lookup that this backend cannot provide; copy the
+        pointer from the already-loaded metadata instead. Never raises.
+        """
+        try:
+            return self._copy_supersession_from_metadata(results)
+        except Exception as e:
+            logger.warning(
+                "Supersession enrichment failed, continuing without lineage: %s",
+                _sanitize_log_value(str(e)),
+            )
+            return results
+
     async def _load_memory_from_match(self, match: Dict[str, Any]) -> Optional[Memory]:
         """Load full memory from a Vectorize match id."""
         try:
