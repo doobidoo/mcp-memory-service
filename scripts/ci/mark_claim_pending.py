@@ -256,19 +256,22 @@ def is_claim_command(body: str) -> bool:
 def possible_claim(body: str) -> bool:
     """Conservative blocker for earlier prose claims; never authorizes assignment."""
     text = prose(body)
+    # Intent must concern the issue, not "this approach" or "this edge case".
+    # Scope details may follow a connector, as in "this following the revised scope".
+    intent = (
+        r"\b(?:i(?: am|['\u2019]m) taking|"
+        r"(?:i['\u2019]d like to|i['\u2019]ll|"
+        r"i (?:want to|would like to|will|can|plan to|intend to|am going to)|"
+        r"(?:can|may|could) i) (?:take(?: on)?|work on|handle|pick up|tackle|fix|implement)) "
+        r"(?:this(?: (?:one|issue|task|bug|ticket))?|it|the (?:issue|task|bug|ticket|fix)|#\d+)"
+        r"(?=\s*(?:[.!?,;:)\"']|$)|\s+(?:if|following|with|using|as|and|by|according|"
+        r"once|now|today|tomorrow|on|in|for)\b)"
+    )
     return bool(
         is_claim(text)
         or WITHDRAWAL.search(text)
-        or re.search(
-            r"\b(?:i['\u2019]d like to (?:take|work on)|i(?: am|['\u2019]m) taking|"
-            r"i (?:want to|would like to|will|can|plan to|intend to|am going to) "
-            r"(?:take|work on|handle|pick up|tackle|fix|implement)|"
-            r"i['\u2019]ll (?:take|work on|handle|pick up|tackle|fix|implement)|"
-            r"(?:can|may|could) i (?:take|work on)|"
-            r"(?:please|could you|can you) assign)",
-            text,
-            re.IGNORECASE,
-        )
+        or re.search(intent, text, re.IGNORECASE)
+        or re.search(r"\b(?:please|could you|can you) assign\b", text, re.IGNORECASE)
     )
 
 

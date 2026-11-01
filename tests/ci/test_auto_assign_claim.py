@@ -439,6 +439,22 @@ def test_successful_refresh_is_recorded_only_after_it_succeeds(tmp_path, monkeyp
 @pytest.mark.parametrize(
     "body",
     [
+        "I will take this edge case into account",
+        "I'd like to work on this approach with you",
+        "Can I take this approach instead of the other one?",
+        "I'll implement this approach",
+        "I plan to fix this edge case",
+    ],
+)
+def test_technical_discussion_does_not_reserve_the_issue(tmp_path, monkeypatch, body):
+    api = GitHub([comment(9, "carol", body), comment()])
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert api.issue["assignees"] == [{"login": "alice"}]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
         "I can't work on this anymore",
         "I cannot continue with this",
         "I'm unable to work on this",
