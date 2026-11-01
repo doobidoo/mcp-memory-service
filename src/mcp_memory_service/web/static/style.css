@@ -77,9 +77,9 @@
     --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
 
     /* Transitions */
-    --transition-fast: 150ms ease;
-    --transition-base: 200ms ease;
-    --transition-slow: 300ms ease;
+    --transition-fast: 150ms cubic-bezier(0.22, 1, 0.36, 1);
+    --transition-base: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    --transition-slow: 300ms cubic-bezier(0.22, 1, 0.36, 1);
 
     /* Breakpoints */
     --mobile-max: 768px;
@@ -195,6 +195,7 @@ h3 { font-size: var(--text-xl); }
     font-size: var(--text-base);
     background: var(--neutral-50);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .search-input:focus {
@@ -214,6 +215,7 @@ h3 { font-size: var(--text-xl); }
     cursor: pointer;
     border-radius: var(--radius-md);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .search-btn:hover {
@@ -240,6 +242,7 @@ h3 { font-size: var(--text-xl); }
     font-weight: 500;
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     text-decoration: none;
 }
 
@@ -278,6 +281,7 @@ h3 { font-size: var(--text-xl); }
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     font-size: var(--text-sm);
     font-family: var(--font-primary);
     white-space: nowrap;
@@ -351,6 +355,7 @@ h3 { font-size: var(--text-xl); }
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: var(--transition-fast);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     text-align: left;
     font-size: var(--text-sm);
     font-family: var(--font-primary);
@@ -452,6 +457,7 @@ body.dark-mode .btn-danger {
     cursor: pointer;
     border-bottom: 2px solid transparent;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .nav-item:hover {
@@ -471,7 +477,8 @@ body.dark-mode .btn-danger {
     background: var(--neutral-50);
     border-bottom: 1px solid var(--neutral-200);
     padding: var(--space-3) var(--space-6);
-    transition: all 0.3s ease;
+    transition: 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .sync-status-bar.visible {
@@ -515,7 +522,6 @@ body.dark-mode .btn-danger {
 
 #syncStatusIcon {
     font-size: var(--text-lg);
-    animation: sync-pulse 2s ease-in-out infinite;
 }
 
 .sync-status-bar.syncing #syncStatusIcon {
@@ -544,12 +550,12 @@ body.dark-mode .btn-danger {
     font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .sync-button:hover:not(:disabled) {
     background: var(--primary-dark);
-    transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
 }
 
@@ -573,15 +579,6 @@ body.dark-mode .btn-danger {
     }
     to {
         transform: rotate(360deg);
-    }
-}
-
-@keyframes sync-pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.6;
     }
 }
 
@@ -686,6 +683,7 @@ body.dark-mode .btn-danger {
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     font-size: var(--text-sm);
     font-weight: 500;
 }
@@ -841,7 +839,8 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     border-radius: var(--radius-sm);
     cursor: pointer;
     color: var(--neutral-500);
-    transition: all var(--transition-fast);
+    transition: var(--transition-fast);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .btn-icon-sm:hover {
@@ -850,7 +849,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 }
 
 .btn-icon-sm:active {
-    transform: scale(0.95);
+    transform: scale(0.97);
 }
 
 .btn-icon-sm.btn-icon-primary {
@@ -909,10 +908,6 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     background: var(--neutral-400);
 }
 
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-}
 
 @keyframes spinner {
     0% { transform: rotate(0deg); }
@@ -963,6 +958,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     border-radius: var(--radius-lg);
     padding: var(--space-5);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     cursor: pointer;
 }
 
@@ -1023,6 +1019,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     border-radius: var(--radius-lg);
     padding: var(--space-5);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     cursor: pointer;
     margin-bottom: var(--space-4);
 }
@@ -1095,6 +1092,7 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
     transition: var(--transition-fast);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     cursor: pointer;
 }
 
@@ -1298,6 +1296,7 @@ body.dark-mode .lang-option.active {
     font-size: var(--text-sm);
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .view-btn:first-child {
@@ -1370,6 +1369,7 @@ body.dark-mode .lang-option.active {
     color: var(--neutral-500);
     border-radius: var(--radius-md);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .modal-close:hover {
@@ -1413,6 +1413,7 @@ body.dark-mode .lang-option.active {
     border-radius: var(--radius-md);
     font-size: var(--text-base);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .form-group input:focus,
@@ -1716,14 +1717,14 @@ body.dark-mode .form-group label {
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     text-decoration: none;
 }
 
 .tag-bubble:hover {
     background: var(--neutral-200);
     border-color: var(--neutral-300);
-    transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -2040,18 +2041,19 @@ body.dark-mode .form-group label {
     color: var(--neutral-400);
     font-size: var(--text-sm);
     margin-left: var(--space-2);
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     vertical-align: middle;
 }
 
 .tooltip svg {
     display: block;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .tooltip:hover {
     color: var(--primary-text);
-    transform: scale(1.1);
 }
 
 .tooltip:hover::after {
@@ -2116,7 +2118,8 @@ body.dark-mode .form-group label {
     border-radius: var(--space-2);
     border: none;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .filter-actions .btn-primary {
@@ -2126,7 +2129,6 @@ body.dark-mode .form-group label {
 
 .filter-actions .btn-primary:hover {
     background: var(--primary-dark);
-    transform: translateY(-1px);
 }
 
 .filter-actions .btn-secondary {
@@ -2172,7 +2174,8 @@ body.dark-mode .form-group label {
     border-radius: 9999px;
     border: none;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .filter-pill:hover {
@@ -2363,7 +2366,8 @@ body.dark-mode .form-group label {
     right: 0;
     bottom: 0;
     background-color: #666;
-    transition: .3s;
+    transition: .3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     border-radius: 28px;
 }
 
@@ -2375,7 +2379,8 @@ body.dark-mode .form-group label {
     left: 4px;
     bottom: 4px;
     background-color: white;
-    transition: .3s;
+    transition: .3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     border-radius: 50%;
 }
 
@@ -2737,6 +2742,7 @@ body.dark-mode .footer-copyright {
     padding: var(--space-12);
     text-align: center;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     background: var(--neutral-50);
     cursor: pointer;
 }
@@ -2821,6 +2827,7 @@ body.dark-mode .footer-copyright {
     border-radius: var(--radius-md);
     font-size: var(--text-base);
     transition: var(--transition-fast);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .form-control:focus {
@@ -2853,6 +2860,7 @@ cursor: pointer;
     font-weight: 500;
     cursor: pointer;
     transition: var(--transition-fast);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     flex: 1;
     justify-content: center;
 }
@@ -3201,6 +3209,7 @@ margin-top: 3rem;
     border-radius: var(--radius-lg);
     padding: var(--space-5);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .bulk-op-card:hover {
@@ -3422,6 +3431,7 @@ margin-top: 3rem;
     font-size: var(--text-xs);
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .tag-action-btn:hover {
@@ -3509,6 +3519,7 @@ body.dark-mode .report-card p {
     border: 1px solid var(--neutral-200);
     cursor: pointer;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .heatmap-cell:hover {
@@ -3641,6 +3652,7 @@ body.dark-mode .report-card p {
     background: var(--primary);
     border-radius: 4px;
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .activity-count {
@@ -4047,7 +4059,8 @@ body.dark-mode .modal-content .chunk-number {
     border-radius: var(--radius-md);
     background: white;
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     font-size: var(--text-sm);
     color: var(--neutral-700);
 }
@@ -4055,7 +4068,6 @@ body.dark-mode .modal-content .chunk-number {
 .btn-icon:hover {
     background: var(--neutral-50);
     border-color: var(--neutral-400);
-    transform: translateY(-1px);
 }
 
 .btn-icon svg {
@@ -4129,6 +4141,7 @@ body.dark-mode .modal-content .chunk-number {
     border: 1px solid var(--neutral-200);
     border-radius: var(--radius-md);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .search-result-item:hover {
@@ -4220,6 +4233,7 @@ body.dark-mode .modal-content .chunk-number {
     padding: var(--space-2);
     border-radius: var(--radius-md);
     transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .memory-viewer-content .modal-close:hover {
@@ -4351,14 +4365,14 @@ body.dark-mode .result-content {
     font-size: 1.1em;
     margin-left: var(--space-1);
     opacity: 0.7;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     -webkit-user-select: none;
     user-select: none;
 }
 
 .info-icon:hover {
     opacity: 1;
-    transform: scale(1.2);
 }
 
 .chunking-help {
@@ -4436,7 +4450,8 @@ body.dark-mode .result-content {
     padding: var(--space-3);
     border-radius: var(--radius-base);
     border: 1px solid var(--neutral-200);
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .help-option:hover {
@@ -4543,7 +4558,8 @@ body.dark-mode .result-content {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .chunk-part.unique {
@@ -4563,7 +4579,6 @@ body.dark-mode .result-content {
 
 .chunk-demo:hover .chunk-part.overlap {
     background: #fde68a;
-    transform: scale(1.02);
 }
 
 /* Mobile responsiveness for help section */
@@ -4607,7 +4622,8 @@ body.dark-mode .result-content {
     border-radius: 12px;
     font-size: var(--text-sm);
     font-weight: 500;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .quality-star {
@@ -4667,7 +4683,6 @@ body.dark-mode .quality-tier-low,
 
 /* Quality badge hover effect */
 .quality-badge:hover {
-    transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
 }
 
@@ -4688,11 +4703,11 @@ body.dark-mode .quality-tier-low,
     border-radius: var(--radius-lg);
     padding: var(--space-5);
     box-shadow: var(--shadow-md);
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .stat-card:hover {
-    transform: translateY(-2px);
     box-shadow: var(--shadow-lg);
 }
 
@@ -4797,7 +4812,8 @@ body.dark-mode .quality-tier-low,
     border: 1px solid var(--neutral-200);
     border-radius: var(--radius-md);
     margin-bottom: var(--space-3);
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .memory-preview:hover {
@@ -4846,12 +4862,12 @@ body.dark-mode .quality-tier-low,
     font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .btn-rate:hover {
     background: var(--neutral-100);
-    transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
 }
 
@@ -4906,7 +4922,8 @@ body.dark-mode .quality-tier-low,
     border-radius: var(--radius-md);
     font-size: var(--text-sm);
     background: white;
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 
 .quality-settings .form-select:focus {
@@ -5595,7 +5612,8 @@ body.dark-mode .graph-ring-guide {
     border-radius: 6px;
     padding: 0.5rem;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     color: var(--text-primary);
 }
 
@@ -5994,7 +6012,8 @@ body.dark-mode .settings-tabs {
     font-weight: 500;
     font-size: var(--text-sm);
     color: var(--neutral-600);
-    transition: all var(--transition-base);
+    transition: var(--transition-base);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
     position: relative;
 }
 
@@ -6375,7 +6394,8 @@ body.dark-mode .env-param-description {
     border-radius: 4px;
     font-size: 0.85em;
     margin-top: 8px;
-    transition: all 0.2s;
+    transition: 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
 }
 .content-toggle-btn:hover {
     background: var(--neutral-100);
