@@ -17,6 +17,8 @@
 # assigning or unassigning the author takes effect without a new push. Assignment
 # also drops the `claim-pending` label that claim-pending.yml adds when the claim
 # was first commented, so the label never outlives the maintainer's assignment.
+# The opted-in automatic path in claim-pending.yml performs that cleanup and
+# invokes --issue itself: GITHUB_TOKEN assignments do not emit a new issues run.
 
 name: Claim Check
 

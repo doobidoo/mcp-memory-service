@@ -1,3 +1,10 @@
+## Issue claim automation
+
+Issues with both `good first issue` and `auto-assign` accept a standalone
+`/claim` comment. Wait for the actual assignment and confirmation before working;
+the confirmation approves only the issue's prepared scope. Other issues retain
+manual maintainer confirmation. See CONTRIBUTING.md for the full rules.
+
 <!-- gitnexus:start -->
 # GitNexus MCP
 
