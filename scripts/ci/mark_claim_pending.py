@@ -261,7 +261,9 @@ def possible_claim(body: str) -> bool:
         or WITHDRAWAL.search(text)
         or re.search(
             r"\b(?:i['\u2019]d like to (?:take|work on)|i(?: am|['\u2019]m) taking|"
-            r"i (?:want|would like) to (?:take|work on)|"
+            r"i (?:want to|would like to|will|can|plan to|intend to|am going to) "
+            r"(?:take|work on|handle|pick up|tackle|fix|implement)|"
+            r"i['\u2019]ll (?:take|work on|handle|pick up|tackle|fix|implement)|"
             r"(?:can|may|could) i (?:take|work on)|"
             r"(?:please|could you|can you) assign)",
             text,
@@ -292,18 +294,19 @@ def human(comment: dict) -> bool:
 
 def reply_once(
     api: str, comments: list[dict], claim: dict, outcome: str, text: str
-) -> None:
+) -> dict:
     """Only trust markers from Actions, never markers pasted by contributors."""
     marker = f"<!-- auto-claim:{claim['id']}:{outcome} -->"
-    if any(
-        (c.get("user") or {}).get("type") == "Bot"
-        and c["user"].get("login") == "github-actions[bot]"
-        and marker in c.get("body", "")
-        for c in comments
-    ):
-        return
+    for comment in comments:
+        user = comment.get("user") or {}
+        if (
+            user.get("type") == "Bot"
+            and user.get("login") == "github-actions[bot]"
+            and marker in comment.get("body", "")
+        ):
+            return comment
     body = f"{marker}\n@{claim['user']['login']}, {text}"
-    gh("api", f"{api}/comments", "-F", "body=@-", stdin=body)
+    return json.loads(gh("api", f"{api}/comments", "-F", "body=@-", stdin=body))
 
 
 def claim_ambiguity(first: dict, claims: list[dict], comments: list[dict]) -> bool:
@@ -377,7 +380,7 @@ def confirm_claim(
 ) -> None:
     """Resume confirmation, cleanup and re-check safely after a partial failure."""
     number = issue["number"]
-    reply_once(
+    reply = reply_once(
         api,
         comments,
         first,
@@ -388,6 +391,9 @@ def confirm_claim(
     )
     if LABEL in {x["name"] for x in issue["labels"]}:
         gh("api", "-X", "DELETE", f"{api}/labels/{LABEL}")
+    marker = f"<!-- auto-claim:{first['id']}:refreshed -->"
+    if marker in reply["body"]:
+        return
     # GITHUB_TOKEN assignments do NOT trigger issues:assigned. Invoke the
     # existing re-check explicitly, even on a retry after a partial failure.
     subprocess.run(
@@ -402,6 +408,22 @@ def confirm_claim(
         ],
         check=True,
     )
+    # Record success on the existing confirmation, without another public reply.
+    # A failed refresh leaves no receipt, so the next run can retry it.
+    body = f"{reply['body']}\n\n{marker}"
+    updated = json.loads(
+        gh(
+            "api",
+            f"repos/{repo}/issues/comments/{reply['id']}",
+            "-X",
+            "PATCH",
+            "-F",
+            "body=@-",
+            stdin=body,
+        )
+    )
+    if updated.get("body") != body:
+        raise RuntimeError("claim check refresh receipt was not confirmed")
 
 
 def automatic_event(event: dict) -> bool:

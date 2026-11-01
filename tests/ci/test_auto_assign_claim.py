@@ -66,6 +66,11 @@ class GitHub:
                 }
             )
         path = next(a for a in args[1:] if a.startswith("repos/"))
+        if "/issues/comments/" in path:
+            cid = int(path.rsplit("/", 1)[-1])
+            item = next(c for c in self.comments if c["id"] == cid)
+            item["body"] = stdin
+            return json.dumps(item)
         endpoint = path.split("?")[0].rsplit("/", 1)[-1]
         handlers = {
             "assignees": self.assign,
@@ -394,6 +399,11 @@ def test_deleted_comment_author_does_not_break_confirmation(tmp_path, monkeypatc
         "I want to work on this",
         "I would like to take this issue",
         "Can I work on this?",
+        "I will work on this",
+        "I plan to work on this",
+        "I intend to take this issue",
+        "I'll fix this",
+        "I can handle this",
     ],
 )
 def test_prior_claim_intent_prevents_automatic_assignment(tmp_path, monkeypatch, body):
@@ -401,6 +411,29 @@ def test_prior_claim_intent_prevents_automatic_assignment(tmp_path, monkeypatch,
     run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
     assert not api.issue["assignees"]
     assert {"name": "claim-pending"} in api.issue["labels"]
+
+
+def test_discussion_does_not_repeat_a_successful_check_refresh(tmp_path, monkeypatch):
+    api = GitHub()
+    run_cli(tmp_path, monkeypatch, api)
+    before = len([args for args, _ in api.calls if "--wait-for-check" in args])
+    assert before == 1
+    discussion = comment(12, "carol", "How is this progressing?")
+    api.comments.append(discussion)
+    run_cli(tmp_path, monkeypatch, api, trigger=discussion)
+    after = len([args for args, _ in api.calls if "--wait-for-check" in args])
+    assert after == before
+
+
+def test_successful_refresh_is_recorded_only_after_it_succeeds(tmp_path, monkeypatch):
+    api = GitHub()
+    api.fail_recheck = True
+    with pytest.raises(subprocess.CalledProcessError):
+        run_cli(tmp_path, monkeypatch, api)
+    assert "<!-- auto-claim:10:refreshed -->" not in api.replies[0]
+    api.fail_recheck = False
+    run_cli(tmp_path, monkeypatch, api)
+    assert "<!-- auto-claim:10:refreshed -->" in api.replies[0]
 
 
 @pytest.mark.parametrize(
