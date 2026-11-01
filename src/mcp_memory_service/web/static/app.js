@@ -3892,7 +3892,15 @@ class MemoryDashboard {
             // callers can branch on machine-readable values instead of
             // substring-matching the human-readable message (which breaks on
             // wording / translation changes — see PR #807 review).
-            const err = new Error(errorData.detail || `HTTP ${response.status}`);
+            // `detail` is not always a string: the OAuth scope checks send
+            // {error, error_description} and request validation sends a list.
+            // Error() stringified those to "[object Object]" in every toast
+            // (#1743), so only non-empty strings become the message.
+            const detail = errorData.detail;
+            const text = (value) => (typeof value === 'string' && value) || null;
+            const message = text(detail) || text(detail?.error_description)
+                || text(detail?.error) || `HTTP ${response.status}`;
+            const err = new Error(message);
             err.status = response.status;
             err.detail = errorData.detail;
             err.body = errorData;
