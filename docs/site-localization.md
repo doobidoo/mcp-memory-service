@@ -65,6 +65,11 @@ there is no redirect based on browser language or location. The Localized Site C
 workflow checks committed output on changes to the site, template, catalogs,
 generator, tests or workflow.
 
+When retiring or renaming a language, remove its old generated HTML explicitly
+alongside the catalog change. Both generator modes reject leftover owned pages
+before writing anything, so obsolete translations cannot silently ship. Existing
+pages such as the demo are not treated as generated language output.
+
 ## Measurement and rollout
 
 `site/index.html` documents zone-level Cloudflare Web Analytics injection. Do not

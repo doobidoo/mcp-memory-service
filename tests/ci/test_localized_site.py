@@ -3,9 +3,11 @@
 import importlib.util
 import json
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,6 +94,42 @@ class LocalizedSiteTests(unittest.TestCase):
             self.assertIn(
                 'hreflang="es" href="https://mcpmemory.services/es/"', pages[Path(path)]
             )
+
+    def test_setup_button_links_to_existing_document(self):
+        page = site.generated_files(ROOT)[Path("site/de/index.html")]
+        self.assertIn(
+            'href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md"',
+            page,
+        )
+        self.assertTrue((ROOT / "docs/setup-guide.md").is_file())
+
+    def test_removed_catalog_rejects_retired_output(self):
+        root, _, catalog = self.catalog_fixture()
+        catalog.update(locale="es", language_name="Español", og_locale="es_ES")
+        path = root / site.SOURCES / "es.json"
+        path.write_text(json.dumps(catalog))
+        page = site.generated_files(root)[Path("site/es/index.html")]
+        retired = root / "site/es/index.html"
+        retired.parent.mkdir()
+        retired.write_text(page)
+        path.unlink()
+        for mode in ["--check", "--write"]:
+            with self.subTest(mode=mode):
+                with (
+                    patch.object(site, "ROOT", root),
+                    patch.object(sys, "argv", ["generate_localized_site.py", mode]),
+                ):
+                    with self.assertRaisesRegex(ValueError, "Retired localized page"):
+                        site.main()
+        self.assertTrue(retired.is_file())
+
+    def test_existing_non_generated_pages_are_preserved(self):
+        root, _, _ = self.catalog_fixture()
+        page = root / "site/demo/index.html"
+        page.parent.mkdir()
+        page.write_text("<!DOCTYPE html><title>Existing demo</title>")
+        site.reject_retired_pages(root, site.generated_files(root))
+        self.assertTrue(page.is_file())
 
 
 if __name__ == "__main__":

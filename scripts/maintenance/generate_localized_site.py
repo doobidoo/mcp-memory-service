@@ -12,6 +12,7 @@ BASE_URL = "https://mcpmemory.services"
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = Path("scripts/maintenance/site_locales")
 AUTOMATIC_KEYS = {"canonical", "alternates", "language_links"}
+GENERATED_MARKER = "<!-- Generated localized introduction. -->"
 
 
 def validate_catalog(catalog, path, required):
@@ -111,6 +112,15 @@ def generated_files(root):
     return outputs
 
 
+def reject_retired_pages(root, outputs):
+    """Reject obsolete owned HTML without deleting or touching unrelated pages."""
+    for path in (root / "site").glob("*/index.html"):
+        if path.relative_to(root) in outputs:
+            continue
+        if GENERATED_MARKER in path.read_text(encoding="utf-8"):
+            raise ValueError(f"Retired localized page: remove {path.relative_to(root)}")
+
+
 def main():
     """Check committed output or explicitly regenerate it for a content change."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -119,7 +129,9 @@ def main():
     mode.add_argument("--write", action="store_true")
     args = parser.parse_args()
     stale = []
-    for relative, content in generated_files(ROOT).items():
+    outputs = generated_files(ROOT)
+    reject_retired_pages(ROOT, outputs)
+    for relative, content in outputs.items():
         path = ROOT / relative
         if path.exists() and path.read_text(encoding="utf-8") == content:
             continue
