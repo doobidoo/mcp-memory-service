@@ -1243,7 +1243,7 @@ class MemoryDashboard {
                         <div class="upload-status ${statusClass}">
                             <span>${statusText}</span>
                             ${upload.errors && upload.errors.length > 0 ? `
-                                <span title="${this.escapeHtml(upload.errors.join('; '))}">⚠️</span>
+                                <span class="upload-error-count" title="${this.escapeHtml(upload.errors.join('; '))}">${upload.errors.length} ${upload.errors.length === 1 ? 'error' : 'errors'}</span>
                             ` : ''}
                         </div>
                         ${upload.status === 'completed' && hasMemories ? `
@@ -2435,30 +2435,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Get time-of-day emoji icon based on timestamp
+     * Render the local time of day (HH:MM) for a timestamp
      * @param {number} timestamp - Unix timestamp in seconds
-     * @returns {string} HTML with emoji + tooltip
+     * @returns {string} HTML span with the time
      */
     renderTimeIcon(timestamp) {
         if (!timestamp) return '';
 
-        const date = new Date(timestamp * 1000);
-        const hour = date.getHours(); // Local timezone
-        const segment = Math.floor(hour / 3); // 0-7
-
-        const icons = ['🌙', '🌅', '☕', '💻', '🍽️', '⛅', '🍷', '🛏️'];
-        const labels = [
-            'Late Night',    // 00-03
-            'Early Morning', // 03-06
-            'Morning',       // 06-09
-            'Late Morning',  // 09-12
-            'Afternoon',     // 12-15
-            'Late Afternoon',// 15-18
-            'Evening',       // 18-21
-            'Night'          // 21-24
-        ];
-
-        return `<span class="time-icon" title="${labels[segment]}">${icons[segment]}</span>`;
+        const time = new Date(timestamp * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        return `<span class="time-icon">${time}</span>`;
     }
 
     /**
@@ -3417,7 +3402,7 @@ class MemoryDashboard {
         return `
             <div class="document-group" data-upload-id="${this.escapeHtml(group.upload_id)}">
                 <div class="document-header">
-                    <div class="document-icon">📄</div>
+                    <div class="document-icon"><svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg></div>
                     <div class="document-info">
                         <div class="document-title">${fileName}</div>
                         <div class="document-meta">
@@ -3461,7 +3446,7 @@ class MemoryDashboard {
         modal.innerHTML = `
             <div class="modal-content large-modal">
                 <div class="modal-header">
-                    <h3>📄 ${this.escapeHtml(group.source_file)}</h3>
+                    <h3>${this.escapeHtml(group.source_file)}</h3>
                     <button class="modal-close">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -4949,10 +4934,10 @@ class MemoryDashboard {
                         // account_id is not masked but keep consistent UX
                     }
                     input.type = 'text';
-                    btn.textContent = '🙈';
+                    btn.textContent = 'Hide';
                 } else {
                     input.type = 'password';
-                    btn.textContent = '👁';
+                    btn.textContent = 'Show';
                 }
             });
         });
@@ -4997,7 +4982,7 @@ class MemoryDashboard {
         const testBtn = document.getElementById('credTestBtn');
 
         if (!tokenVal || !accountVal) {
-            this._showCredResult('error', '⚠️ API Token and Account ID are required.');
+            this._showCredResult('error', 'API Token and Account ID are required.');
             return;
         }
 
@@ -5042,7 +5027,7 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('credSaveBtn');
 
         if (!this._credTestedToken || this._credTestedToken !== tokenVal) {
-            this._showCredResult('error', '⚠️ Run "Test Connection" first.');
+            this._showCredResult('error', 'Run "Test Connection" first.');
             return;
         }
 
@@ -5197,7 +5182,7 @@ class MemoryDashboard {
                             <div class="env-param-row">
                                 <div class="env-param-key">
                                     <strong>${this.escapeHtml(param.key)}</strong>
-                                    ${param.sensitive ? '<span class="sensitive-badge">🔒 Sensitive</span>' : ''}
+                                    ${param.sensitive ? '<span class="sensitive-badge">Sensitive</span>' : ''}
                                 </div>
                                 <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
                                     ${this.renderParamValue(param)}
@@ -5833,7 +5818,7 @@ class MemoryDashboard {
     html += `<div class="report-period">Period: ${data.period}</div>`;
     html += '<ul class="tags-list">';
     data.tags.slice(0, 10).forEach(tag => {
-        const trendIcon = tag.trending ? '📈' : '';
+        const trendIcon = tag.trending ? ' <span class="tag-trending">trending</span>' : '';
             const growthText = tag.growth_rate !== null ? ` (${tag.growth_rate > 0 ? '+' : ''}${tag.growth_rate}%)` : '';
         html += `<li>
                 <div class="tag-header">
@@ -7396,34 +7381,28 @@ class MemoryDashboard {
             <div class="graph-tooltip-content">${this.escapeHtml(d.content || '')}</div>
             <div class="graph-tooltip-meta">
                 <div class="tooltip-row">
-                    <span class="tooltip-icon">🔗</span>
                     <span>${d.connections} connection${d.connections !== 1 ? 's' : ''}</span>
                 </div>
                 <div class="tooltip-row">
-                    <span class="tooltip-icon">⭐</span>
                     <span style="color: ${qualityColor}">Quality: ${(d.quality_score * 100).toFixed(0)}%</span>
                 </div>
                 <div class="tooltip-row">
-                    <span class="tooltip-icon">📅</span>
                     <span>Created ${formatRelativeTime(createdDate)}</span>
                 </div>
                 ${updatedDate ? `
                 <div class="tooltip-row">
-                    <span class="tooltip-icon">🔄</span>
                     <span>Updated ${formatRelativeTime(updatedDate)}</span>
                 </div>
                 ` : ''}
                 ${d.tags && d.tags.length > 0 ? `
                 <div class="tooltip-row">
-                    <span class="tooltip-icon">🏷️</span>
-                    <span>${this.escapeHtml(d.tags.join(', '))}</span>
+                    <span>Tags: ${this.escapeHtml(d.tags.join(', '))}</span>
                 </div>
                 ` : ''}
                 <div class="tooltip-row tooltip-id">
-                    <span class="tooltip-icon">🔑</span>
-                    <span title="${d.id}">${d.id.substring(0, 12)}...</span>
+                    <span title="${d.id}">ID ${d.id.substring(0, 12)}...</span>
                 </div>
-                <div class="tooltip-hint">💡 ${this.escapeHtml(interactionHint)}</div>
+                <div class="tooltip-hint">${this.escapeHtml(interactionHint)}</div>
             </div>
         `;
     }
@@ -7895,7 +7874,7 @@ class MemoryDashboard {
      * Show confirmation dialog for bulk operations
      */
     async confirmBulkOperation(message) {
-        return confirm(`⚠️ WARNING: ${message}
+        return confirm(`Warning: ${message}
 
 This action cannot be undone. Are you sure?`);
     }
