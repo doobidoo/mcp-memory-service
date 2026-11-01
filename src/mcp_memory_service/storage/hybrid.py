@@ -2454,7 +2454,10 @@ class HybridMemoryStorage(MemoryStorage):
             "unique_tags": primary_stats.get("unique_tags", 0),
             "memories_this_week": primary_stats.get("memories_this_week", 0),
             "database_size_bytes": primary_stats.get("database_size_bytes", 0),
-            "database_size_mb": primary_stats.get("database_size_mb", 0),
+            # No default: when the primary cannot read the database it returns only
+            # {"error": ...}, and a filled-in 0 would be indistinguishable from an
+            # empty database. None means "unknown" all the way to the UI.
+            "database_size_mb": primary_stats.get("database_size_mb"),
             "primary_stats": primary_stats,
             "sync_enabled": self.sync_service is not None
         }
