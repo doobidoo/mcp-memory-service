@@ -112,7 +112,9 @@ class StreamableService:
                 "MCP_ALLOW_ANONYMOUS_ACCESS": "true",
             },
         )
-        env.pop("MCP_API_KEY", None)  # sem API key → /mcp anônimo em loopback
+        # override=False do load_dotenv re-injecta a chave do .env no subprocesso;
+        # string vazia = "sem chave" no caminho de auth → /mcp anônimo em loopback
+        env["MCP_API_KEY"] = ""
         self.proc = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
