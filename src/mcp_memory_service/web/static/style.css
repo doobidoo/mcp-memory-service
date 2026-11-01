@@ -668,6 +668,7 @@ body.dark-mode .btn-danger {
 
 .quick-actions {
     grid-area: quick-actions;
+    align-self: start;
     background: white;
     padding: var(--space-6);
     border-radius: var(--radius-xl);
@@ -981,13 +982,44 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
 }
 
 .memory-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: var(--font-mono);
     font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
     color: var(--neutral-500);
 }
 
+/* Signature: every memory carries its type as a small dot. Colors only where the type means something. */
+.memory-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--neutral-700);
+}
+
+.memory-type::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--neutral-400);
+}
+
+.memory-type[data-type="decision"]::before { background: var(--primary); }
+.memory-type[data-type="error"]::before,
+.memory-type[data-type="bug"]::before { background: var(--error); }
+.memory-type[data-type="learning"]::before,
+.memory-type[data-type="insight"]::before,
+.memory-type[data-type="pattern"]::before { background: var(--success); }
+.memory-type[data-type="planning"]::before,
+.memory-type[data-type="milestone"]::before { background: var(--warning); }
+
 /* Local time next to a date */
 .time-icon {
-    margin-left: 4px;
+    margin-left: var(--space-1);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--neutral-500);
@@ -1703,12 +1735,9 @@ body.dark-mode .form-group label {
 .tags-cloud {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3);
-    justify-content: center;
+    gap: var(--space-2);
+    justify-content: flex-start;
     margin-bottom: var(--space-8);
-    padding: var(--space-6);
-    background: var(--neutral-50);
-    border-radius: var(--radius-lg);
 }
 
 .tag-bubble {
@@ -4619,18 +4648,19 @@ body.dark-mode .result-content {
 .quality-badge {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-1) var(--space-3);
-    border-radius: 12px;
-    font-size: var(--text-sm);
-    font-weight: 500;
-    transition: var(--transition-base);
-    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    color: var(--neutral-700);
 }
 
-.quality-star {
-    font-size: 1.1em;
-    color: #FFD700; /* Gold star */
+.quality-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--neutral-400);
 }
 
 .quality-score {
@@ -4639,54 +4669,13 @@ body.dark-mode .result-content {
 
 .quality-label {
     font-size: var(--text-xs);
-    opacity: 0.9;
+    color: var(--neutral-500);
 }
 
-/* Quality tier color coding */
-.quality-tier-high {
-    background-color: #D4EDDA;
-    color: #155724;
-    border: 1px solid #C3E6CB;
-}
-
-.quality-tier-medium {
-    background-color: #FFF3CD;
-    color: #856404;
-    border: 1px solid #FFEAA7;
-}
-
-.quality-tier-low {
-    background-color: #F8D7DA;
-    color: #721C24;
-    border: 1px solid #F5C6CB;
-}
-
-/* Dark mode quality badge support */
-body.dark-mode .quality-tier-high,
-[data-theme="dark"] .quality-tier-high {
-    background-color: #2D5A3D;
-    color: #A5E0B5;
-    border-color: #4A8A5E;
-}
-
-body.dark-mode .quality-tier-medium,
-[data-theme="dark"] .quality-tier-medium {
-    background-color: #5A4A1F;
-    color: #F4D88A;
-    border-color: #7A6A2F;
-}
-
-body.dark-mode .quality-tier-low,
-[data-theme="dark"] .quality-tier-low {
-    background-color: #5A1F23;
-    color: #F5A5AB;
-    border-color: #7A3F43;
-}
-
-/* Quality badge hover effect */
-.quality-badge:hover {
-    box-shadow: var(--shadow-sm);
-}
+/* Quality tier as the dot color */
+.quality-tier-high::before { background: var(--success); }
+.quality-tier-medium::before { background: var(--warning); }
+.quality-tier-low::before { background: var(--error); }
 
 /* Quality Analytics Section */
 .quality-analytics-section {

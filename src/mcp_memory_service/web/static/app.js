@@ -1214,7 +1214,7 @@ class MemoryDashboard {
         if (!historyContainer) return;
 
         if (uploads.length === 0) {
-            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet. Start by uploading some documents!</p>';
+            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet</p>';
             return;
         }
 
@@ -3569,9 +3569,9 @@ class MemoryDashboard {
         ${this.renderQualityBadge(memory)}
     <div class="memory-header">
         <div class="memory-meta">
-                        <span>${createdDate} ${this.renderTimeIcon(memory.created_at)}</span>
-            ${memory.memory_type ? `<span> • ${memory.memory_type}</span>` : ''}
-        ${relevanceScore ? `<span> • ${relevanceScore}% match</span>` : ''}
+            ${memory.memory_type ? `<span class="memory-type" data-type="${this.escapeHtml(memory.memory_type)}">${this.escapeHtml(memory.memory_type)}</span>` : ''}
+            <span>${createdDate} ${this.renderTimeIcon(memory.created_at)}</span>
+            ${relevanceScore ? `<span>${relevanceScore}% match</span>` : ''}
         </div>
                 </div>
 
@@ -4098,7 +4098,7 @@ class MemoryDashboard {
                     statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
-                this.showToast(`${data.commits_behind} update(s) available!`, 'info');
+                this.showToast(`${data.commits_behind} update(s) available`, 'info');
             } else {
                 if (statusEl) {
                     statusEl.textContent = 'Up to date';
@@ -4266,7 +4266,7 @@ class MemoryDashboard {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
                 const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
-                    if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
+                    if (statusEl) { statusEl.textContent = 'Server is back online, reloading'; }
                     setTimeout(() => { window.location.reload(); }, 1500);
                     return;
                 }
@@ -7791,7 +7791,6 @@ class MemoryDashboard {
         const html = memories.map(memory => `
             <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-high">
-                    <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
                 </div>
                 <div class="memory-content">${this.escapeHtml(memory.content)}</div>
@@ -7817,7 +7816,6 @@ class MemoryDashboard {
         const html = memories.map(memory => `
             <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-low">
-                    <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
                 </div>
                 <div class="memory-content">${this.escapeHtml(memory.content)}</div>
@@ -7843,8 +7841,7 @@ class MemoryDashboard {
         return `
             <div class="quality-badge quality-tier-${tier}"
                  data-quality-score="${score.toFixed(2)}"
-                 title="Quality Score: ${score.toFixed(2)} (${provider})">
-                <span class="quality-star">★</span>
+                 title="Quality score ${score.toFixed(2)} (${this.escapeHtml(provider)})">
                 <span class="quality-score">${score.toFixed(2)}</span>
             </div>
         `;
@@ -7859,7 +7856,7 @@ class MemoryDashboard {
                     rating: rating,
                     feedback: ''
                 });
-            this.showToast(`Rating saved! Quality score updated to ${result.new_quality_score.toFixed(2)}`, 'success');
+            this.showToast(`Rating saved, quality score is now ${result.new_quality_score.toFixed(2)}`, 'success');
 
             // Refresh memory display if viewing details
             // This would refresh the modal or current view
