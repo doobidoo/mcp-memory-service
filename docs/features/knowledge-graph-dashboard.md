@@ -92,9 +92,9 @@ The dashboard UI is fully localized in 8 languages:
 | Indonesian | id | 22 keys |
 
 **Historical:** 154 translation keys (22 per language across the 7 languages available at
-the time) were added in v9.2.0. That count is kept for the release notes only — every
-catalog now carries the full 424-key dashboard catalog, and
-`tests/web/test_i18n_id.py` keeps the Indonesian catalog at parity with `en.json`.
+the time) were added in v9.2.0. That count is kept for the release notes only.
+The Indonesian catalog carries all 424 keys from `en.json`, and
+`tests/web/test_i18n_id.py` keeps those two catalogs at parity.
 
 ## Relationship Types
 
