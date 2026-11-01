@@ -65,7 +65,6 @@
   "api.events.stream": "Echtzeit-Erinnerungs-Event-Stream abonnieren",
   "api.health.detailed": "Detaillierte Gesundheit mit Datenbankstatistiken",
   "api.health.quick": "Schneller Health-Check-Endpunkt",
-  "api.link.overview": "API-Übersichtsseite",
   "api.link.redoc": "ReDoc-Dokumentation",
   "api.link.swagger": "Interaktive Swagger UI",
   "api.memory.delete": "Erinnerung und Embeddings löschen",

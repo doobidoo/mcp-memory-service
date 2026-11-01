@@ -65,7 +65,6 @@
   "api.events.stream": "실시간 메모리 이벤트 스트림 구독",
   "api.health.detailed": "데이터베이스 통계가 포함된 상세 상태",
   "api.health.quick": "빠른 상태 확인 엔드포인트",
-  "api.link.overview": "API 개요 페이지",
   "api.link.redoc": "ReDoc 문서",
   "api.link.swagger": "인터랙티브 Swagger UI",
   "api.memory.delete": "메모리 및 임베딩 삭제",

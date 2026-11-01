@@ -220,7 +220,6 @@
   "api.subtitle": "本服务器的 REST API 端点",
   "api.link.swagger": "交互式 Swagger UI",
   "api.link.redoc": "ReDoc 文档",
-  "api.link.overview": "API 概览页面",
   "api.section.memory": "记忆管理",
   "api.memory.store": "存储新记忆并自动生成向量",
   "api.memory.list": "分页列出所有记忆",

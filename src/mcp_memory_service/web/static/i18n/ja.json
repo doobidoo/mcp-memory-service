@@ -65,7 +65,6 @@
   "api.events.stream": "リアルタイムメモリーイベントストリームをサブスクライブ",
   "api.health.detailed": "データベース統計を含む詳細なヘルス",
   "api.health.quick": "クイックヘルスチェックエンドポイント",
-  "api.link.overview": "API概要ページ",
   "api.link.redoc": "ReDoc ドキュメント",
   "api.link.swagger": "インタラクティブSwagger UI",
   "api.memory.delete": "メモリーとその埋め込みを削除",
