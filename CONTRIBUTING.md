@@ -153,9 +153,11 @@ before starting. That automatic confirmation counts as maintainer approval for
 the scope described in the issue; it does not approve a broader change or a merge.
 
 The earliest eligible claim wins. Existing assignees are preserved, and later
-claimants receive a reply that the issue is taken. An earlier prose claim, an
-edited claim, a withdrawal, an earlier removed assignment or an open PR requires
-manual confirmation instead. Do not edit an old comment to claim an issue. The
+claimants receive a reply that the issue is taken. Your `/claim` can confirm your
+own earlier prose claim if no other contributor claimed it in between. An earlier
+prose claim by someone else, an edited claim, a withdrawal, an earlier removed
+assignment or an open PR requires manual confirmation instead. Do not edit an old
+comment to claim an issue. The
 command is ignored inside quotes and code examples; `/claim @someone` cannot
 assign another person. Collaborators can use the same command.
 

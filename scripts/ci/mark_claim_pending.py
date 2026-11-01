@@ -312,6 +312,16 @@ def reply_once(
     return json.loads(gh("api", f"{api}/comments", "-F", "body=@-", stdin=body))
 
 
+def confirmed_claim(claims: list[dict], commands: list[dict]) -> dict:
+    """A command confirms earlier prose only when its author has no competitor."""
+    command = commands[0]
+    login = command["user"]["login"].lower()
+    preceding = claims[: claims.index(command)]
+    if all(c["user"]["login"].lower() == login for c in preceding):
+        return command
+    return claims[0]
+
+
 def claim_ambiguity(first: dict, claims: list[dict], comments: list[dict]) -> bool:
     """Prose, edits and withdrawals require a maintainer to decide ownership."""
     if not is_claim_command(first["body"]):
@@ -321,7 +331,7 @@ def claim_ambiguity(first: dict, claims: list[dict], comments: list[dict]) -> bo
     return any(
         WITHDRAWAL.search(prose(c.get("body", "")))
         for c in comments
-        if human(c) and c["user"]["login"] == first["user"]["login"]
+        if human(c) and c["user"]["login"].lower() == first["user"]["login"].lower()
     )
 
 
@@ -482,7 +492,7 @@ def reconcile_claims(
     commands: list[dict],
 ) -> None:
     """Resolve ownership, then confirm the winner and notify later claimants."""
-    first = claims[0]
+    first = confirmed_claim(claims, commands)
     ambiguous = claim_ambiguity(first, claims, comments)
     issue = prepare_assignment(api, repo, issue, comments, claims, commands, ambiguous)
     if issue is None:
