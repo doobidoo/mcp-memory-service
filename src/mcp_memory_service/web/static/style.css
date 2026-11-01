@@ -977,18 +977,12 @@ body.dark-mode .delta-sync-badge { background: var(--neutral-200); }
     color: var(--neutral-500);
 }
 
-/* Time-of-day emoji icon */
+/* Local time next to a date */
 .time-icon {
-    display: inline-block;
-    margin-left: 6px;
-    font-size: 1em;
-    opacity: 0.85;
-    vertical-align: middle;
-    cursor: help; /* Shows tooltip on hover */
-}
-
-.time-icon:hover {
-    opacity: 1;
+    margin-left: 4px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--neutral-500);
 }
 
 .memory-content {
@@ -2517,16 +2511,6 @@ body.dark-mode .memory-meta strong {
     color: var(--neutral-900) !important;  /* Bright labels for readability */
 }
 
-/* Dark mode - reduce emoji brightness slightly */
-body.dark-mode .time-icon {
-    opacity: 0.75;
-    filter: grayscale(10%); /* Subtle desaturation */
-}
-
-body.dark-mode .time-icon:hover {
-    opacity: 0.9;
-    filter: grayscale(0%);
-}
 
 body.dark-mode .action-card h3,
 body.dark-mode .action-card p,
@@ -5444,12 +5428,6 @@ body.dark-mode .graph-ring-guide {
     display: flex;
     align-items: center;
     gap: 6px;
-}
-
-.tooltip-icon {
-    font-size: 14px;
-    width: 18px;
-    text-align: center;
 }
 
 .tooltip-id {
