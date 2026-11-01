@@ -873,6 +873,26 @@ class ConsolidationScheduler:
                         graph=getattr(self.consolidator, "graph_storage", None),
                     )
                     belief_stats = await belief_svc.derive_beliefs()
+
+                    # Belief embedding backfill + semantic dedup (opt-in via
+                    # MCP_BELIEF_DEDUP). The dedup primitive (#1733) is dry-run
+                    # by default: it only reports the groups. Applying (merge +
+                    # supersede) requires the separate MCP_BELIEF_DEDUP_APPLY
+                    # switch, so turning the feature on cannot silently mutate
+                    # the corpus. Backfill runs first so pre-existing beliefs
+                    # with a NULL embedding become dedup-eligible.
+                    if belief_svc._env_flag_on("MCP_BELIEF_DEDUP"):
+                        try:
+                            backfill = await belief_svc.backfill_belief_embeddings()
+                            apply = belief_svc._env_flag_on("MCP_BELIEF_DEDUP_APPLY")
+                            dedup = belief_svc.dedup_beliefs(dry_run=not apply)
+                            belief_stats["dedup_backfill"] = backfill
+                            belief_stats["dedup"] = dedup
+                        except Exception as de:
+                            self.logger.warning(
+                                "Belief dedup error (non-fatal): %s",
+                                _sanitize_log_value(de),
+                            )
                 except Exception as be:
                     self.logger.warning("Belief derivation error (non-fatal): %s", _sanitize_log_value(be))
 
