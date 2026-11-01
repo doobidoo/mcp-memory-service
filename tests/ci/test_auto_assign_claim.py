@@ -386,3 +386,71 @@ def test_deleted_comment_author_does_not_break_confirmation(tmp_path, monkeypatc
     api = GitHub([comment(), comment(11, body="Old comment", user=None)])
     run_cli(tmp_path, monkeypatch, api)
     assert api.issue["assignees"] == [{"login": "alice"}]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "I want to work on this",
+        "I would like to take this issue",
+        "Can I work on this?",
+    ],
+)
+def test_prior_claim_intent_prevents_automatic_assignment(tmp_path, monkeypatch, body):
+    api = GitHub([comment(9, "carol", body), comment()])
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert not api.issue["assignees"]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "I can't work on this anymore",
+        "I cannot continue with this",
+        "I'm unable to work on this",
+        "I’m not working on this anymore",
+    ],
+)
+def test_withdrawal_prevents_a_queued_assignment(tmp_path, monkeypatch, body):
+    api = GitHub([comment(), comment(11, "alice", body)])
+    run_cli(tmp_path, monkeypatch, api)
+    assert not api.issue["assignees"]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "/claim `@bob`",
+        "/claim ``@bob``",
+        "/claim `extra\nargument`",
+        "/claim <!-- @bob -->",
+    ],
+)
+def test_hidden_arguments_do_not_turn_into_standalone_commands(
+    tmp_path, monkeypatch, body
+):
+    api = GitHub([comment(body=body)])
+    run_cli(tmp_path, monkeypatch, api)
+    assert not api.issue["assignees"]
+
+
+@pytest.mark.parametrize("read_number", [1, 2])
+@pytest.mark.parametrize("association", ["CONTRIBUTOR", "COLLABORATOR"])
+@pytest.mark.parametrize("later_event", [False, True])
+def test_disabling_automation_preserves_pending_claims(
+    tmp_path, monkeypatch, read_number, association, later_event
+):
+    api = GitHub([comment(author_association=association)])
+    if later_event:
+        api.comments.append(comment(11, "bob", "A follow-up question"))
+
+    def disable(reads):
+        if reads == read_number:
+            api.issue["labels"] = [{"name": "good first issue"}]
+
+    api.before_read = disable
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert not api.issue["assignees"]
+    assert {"name": "claim-pending"} in api.issue["labels"]

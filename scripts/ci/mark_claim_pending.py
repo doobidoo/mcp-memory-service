@@ -220,11 +220,17 @@ def _issue_still_eligible(repo: str, number: int) -> tuple[bool, str]:
 
 AUTO_LABELS = {"good first issue", "auto-assign"}
 LOGIN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,38}")
+WITHDRAWAL = re.compile(
+    r"\b(?:withdraw\w*|stepping (?:back|away)|no longer|stop(?:ping)? working|"
+    r"(?:cannot|can['\u2019]t|unable to)\s+(?:work|take|continue)|"
+    r"not (?:working|taking))\b",
+    re.IGNORECASE,
+)
 
 
 def prose(body: str) -> str:
     """Strip Markdown examples before interpreting contributor intent."""
-    body = re.sub(r"<!--.*?(?:-->|$)", "", body, flags=re.DOTALL)
+    body = re.sub(r"<!--.*?(?:-->|$)", "[comment]", body, flags=re.DOTALL)
     lines = []
     fence = None
     for line in body.splitlines():
@@ -239,7 +245,7 @@ def prose(body: str) -> str:
         if fence or line.startswith(("    ", "\t")) or line.lstrip().startswith(">"):
             continue
         lines.append(line)
-    return re.sub(r"(`+).*?\1", "", "\n".join(lines), flags=re.DOTALL)
+    return re.sub(r"(`+).*?\1", "[code]", "\n".join(lines), flags=re.DOTALL)
 
 
 def is_claim_command(body: str) -> bool:
@@ -250,11 +256,14 @@ def is_claim_command(body: str) -> bool:
 def possible_claim(body: str) -> bool:
     """Conservative blocker for earlier prose claims; never authorizes assignment."""
     text = prose(body)
-    return is_claim(text) or bool(
-        re.search(
+    return bool(
+        is_claim(text)
+        or WITHDRAWAL.search(text)
+        or re.search(
             r"\b(?:i['\u2019]d like to (?:take|work on)|i(?: am|['\u2019]m) taking|"
-            r"(?:please|could you|can you) assign|withdrawing|withdraw my claim|"
-            r"stepping back|no longer|stop working)",
+            r"i (?:want|would like) to (?:take|work on)|"
+            r"(?:can|may|could) i (?:take|work on)|"
+            r"(?:please|could you|can you) assign)",
             text,
             re.IGNORECASE,
         )
@@ -303,11 +312,8 @@ def claim_ambiguity(first: dict, claims: list[dict], comments: list[dict]) -> bo
         return True
     if any(c.get("updated_at") != c.get("created_at") for c in claims):
         return True
-    withdrawal = re.compile(
-        r"\b(?:withdraw\w*|stepping back|no longer|stop working)\b", re.I
-    )
     return any(
-        withdrawal.search(prose(c.get("body", "")))
+        WITHDRAWAL.search(prose(c.get("body", "")))
         for c in comments
         if human(c) and c["user"]["login"] == first["user"]["login"]
     )
@@ -352,6 +358,18 @@ def assign_if_free(api: str, login: str) -> dict:
             "automatic assignment was not confirmed or raced with another assignment"
         )
     return issue
+
+
+def defer_waiting_claims(
+    api: str, issue: dict, comments: list[dict], commands: list[dict]
+) -> None:
+    """Disabling automation preserves the manual signal for waiting claims."""
+    if (
+        issue.get("state") == "open"
+        and not issue.get("locked")
+        and not issue.get("assignees")
+    ):
+        manual_claims(api, issue, comments, commands)
 
 
 def confirm_claim(
@@ -442,7 +460,10 @@ def reconcile_claims(
     first = claims[0]
     ambiguous = claim_ambiguity(first, claims, comments)
     issue = prepare_assignment(api, repo, issue, comments, claims, commands, ambiguous)
-    if issue is None or not auto_eligible(issue):
+    if issue is None:
+        return
+    if not auto_eligible(issue):
+        defer_waiting_claims(api, issue, comments, commands)
         return
     assigned = {a["login"].lower() for a in issue["assignees"]}
     if assigned == {first["user"]["login"].lower()} and not ambiguous:
@@ -473,11 +494,17 @@ def handle_auto_claim(event: dict, repo: str) -> bool:
         raise ValueError("invalid issue number")
     api = f"repos/{repo}/issues/{number}"
     issue = json.loads(gh("api", api))
-    if not auto_eligible(issue):
+    if issue.get("state") != "open" or issue.get("locked"):
         return True
     comments, claims, commands = read_claim_history(api)
     if not commands:
+        event["issue"] = (
+            issue  # label-only fallback uses live state, not the event snapshot
+        )
         return False
+    if not auto_eligible(issue):
+        defer_waiting_claims(api, issue, comments, commands)
+        return True
     reconcile_claims(api, repo, issue, comments, claims, commands)
     return True
 
