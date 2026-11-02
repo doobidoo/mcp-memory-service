@@ -238,7 +238,11 @@ async def check_beliefs_on_store(
                 contradiction_count = await _count_quarantined_for_belief(storage, belief["belief_hash"])
                 if contradiction_count >= CONTRADICTION_THRESHOLD:
                     await belief_service.challenge_belief(belief["belief_hash"])
-                    logger.info(f"Belief {belief['belief_hash'][:8]} challenged after {contradiction_count} contradictions")
+                    logger.info(
+                        "Belief %s challenged after %s contradictions",
+                        _sanitize_log_value(belief["belief_hash"][:8]),
+                        _sanitize_log_value(contradiction_count),
+                    )
 
                 stop_reason = "contradiction"
                 return q_result
