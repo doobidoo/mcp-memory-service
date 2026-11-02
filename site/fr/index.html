@@ -83,7 +83,7 @@
       <ol class="install-steps">
         <li><h3>Installez Memory Service</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>Installez le paquet dans un environnement Python dont les commandes sont accessibles à votre client.</p></li>
         <li><h3>Ajoutez-le comme serveur MCP</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>Lancez la commande depuis le répertoire du projet, puis redémarrez Claude Code. Au premier démarrage, le modèle local d&#x27;embeddings est téléchargé.</p></li>
-        <li><h3>Enregistrez votre premier souvenir</h3><p>Demandez à votre client d&#x27;enregistrer une préférence du projet. Vérifiez que l&#x27;appel à l&#x27;outil a bien abouti, puis interrogez-le sur cette préférence dans une nouvelle session. Vous vérifiez ainsi que l&#x27;information est bien enregistrée et retrouvée.</p></li>
+        <li><h3>Enregistrez votre premier souvenir</h3><p>Demandez à votre client d&#x27;enregistrer une préférence du projet et vérifiez que l&#x27;appel à l&#x27;outil a abouti. Interrogez-le ensuite sur cette préférence dans une nouvelle session : vous confirmez ainsi que l&#x27;information est enregistrée puis retrouvée.</p></li>
       </ol>
       <div class="btns">
         <a class="btn" href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md">Guide de configuration complet (en anglais)</a>
@@ -94,9 +94,9 @@
   <section class="sec">
     <div class="wrap locale-faq">
       <h2>Questions fréquentes</h2>
-      <details><summary>Le service enregistre-t-il automatiquement toutes les conversations ?</summary><p>Connecter le service via MCP n&#x27;enregistre pas automatiquement toutes les conversations. Votre client doit utiliser les outils. Les hooks optionnels et l&#x27;import de sessions nécessitent leur propre configuration.</p></details>
+      <details><summary>Le service enregistre-t-il automatiquement toutes les conversations ?</summary><p>Non. Connecter le service via MCP ne suffit pas : votre client doit appeler les outils de mémoire. Les hooks optionnels et l&#x27;import de sessions nécessitent leur propre configuration.</p></details>
       <details><summary>Mes souvenirs restent-ils sur ma machine ?</summary><p>Avec la configuration SQLite locale, les souvenirs sont stockés sur votre système et les embeddings sont calculés localement. Les données que votre client IA envoie au fournisseur du modèle dépendent du client lui-même. Le stockage Cloudflare et la synchronisation sont des options qui se configurent séparément.</p></details>
-      <details><summary>Fonctionne-t-il uniquement avec Claude ?</summary><p>Non. En plus de MCP, le service propose une API REST et une CLI. Vous pouvez connecter d&#x27;autres clients compatibles ainsi que vos propres applications.</p></details>
+      <details><summary>Le service fonctionne-t-il uniquement avec Claude ?</summary><p>Non. En plus de MCP, le service propose une API REST et une CLI. Vous pouvez connecter d&#x27;autres clients compatibles ainsi que vos propres applications.</p></details>
       <details><summary>MCP Memory Service est-il gratuit ?</summary><p>Le service est open source et distribué sous licence Apache 2.0. Vous pouvez l&#x27;héberger vous-même. Votre client IA, l&#x27;hébergement et les services externes optionnels peuvent entraîner des coûts supplémentaires.</p></details>
     </div>
   </section>
