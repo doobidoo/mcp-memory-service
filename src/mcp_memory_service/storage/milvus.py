@@ -2980,21 +2980,21 @@ class MilvusMemoryStorage(MemoryStorage):
                     weights = RankedSearchWeights.from_dict(ranking_weights)
                     results = apply_ranked_rerank(results, weights=weights)
             else:
-                # Time/tag only — use Milvus query with filter
+                # Time/tag only. Milvus has no server-side ORDER BY, so a single
+                # query(limit=...) returned whichever rows the server scanned
+                # first, which in practice are the oldest. Read the matching set
+                # newest first, as sqlite_vec does, and let the superseded filter
+                # and the limit below trim it (#1782).
                 try:
-                    rows = await self._call_client(
-                        "query",
-                        collection_name=self.collection_name,
-                        filter=combined_filter,
-                        output_fields=list(self._OUTPUT_FIELDS),
-                        limit=min(limit * 3, _MILVUS_MAX_LIMIT),
+                    matched_memories = await self._query_memories(
+                        filter_expr=combined_filter,
+                        limit=_MILVUS_MAX_LIMIT,
+                        sort_desc_key="created_at",
                     )
-                    for row in (rows or []):
-                        mem = self._entity_to_memory(row)
-                        if mem:
-                            results.append(
-                                MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
-                            )
+                    results = [
+                        MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
+                        for mem in matched_memories
+                    ]
                     pre_filter_count = len(results)
                 except Exception as exc:  # noqa: BLE001
                     logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))

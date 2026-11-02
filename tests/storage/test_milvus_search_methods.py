@@ -318,24 +318,26 @@ class TestSearchMemories:
         assert "like" in filter_expr.lower() or "tags" in filter_expr.lower()
 
     @pytest.mark.asyncio
-    async def test_time_only_search_uses_query(self):
-        """Time-only search (no query) uses Milvus query with filter."""
+    async def test_time_only_search_scans_filter_newest_first(self):
+        """Time-only search (no query) scans the filter, skips vector search,
+        and returns the newest matches first (#1782)."""
         storage = _make_storage()
         now = time.time()
-        storage._call_client = AsyncMock(return_value=[
-            {"id": "h1", "content": "c1", "tags": ",test,", "memory_type": "note",
-             "metadata": "{}", "created_at": now - 50, "updated_at": now - 10,
-             "created_at_iso": None, "updated_at_iso": None},
+        # Rows come back in scan order, oldest first, as Milvus returns them.
+        storage._iterate_all_rows = AsyncMock(return_value=[
+            {"id": f"h{age}", "content": f"c{age}", "tags": ",test,", "memory_type": "note",
+             "metadata": "{}", "created_at": now - age * 60, "updated_at": now - age * 60,
+             "created_at_iso": None, "updated_at_iso": None}
+            for age in (30, 20, 10)
         ])
 
         result = await storage.search_memories(
-            query=None, after="2026-01-01"
+            query=None, after="2026-01-01", limit=2
         )
 
-        assert result["total"] == 1
-        # Should use "query" method, not "search"
-        call_args = storage._call_client.call_args
-        assert call_args[0][0] == "query"
+        assert [m["content_hash"] for m in result["memories"]] == ["h10", "h20"]
+        assert "created_at >=" in storage._iterate_all_rows.call_args[0][0]
+        storage._call_client.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_include_debug_adds_debug_info(self):
