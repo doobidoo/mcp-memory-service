@@ -43,3 +43,16 @@ async def test_null_distance_is_treated_as_no_duplicate(storage):
     stored, message = await storage.store(_memory("hello"))
 
     assert stored is True, message
+
+
+async def test_null_distance_does_not_hide_a_real_duplicate(storage):
+    """A NULL row must not win ORDER BY similarity and mask the duplicate behind it."""
+    stored, message = await storage.store(_memory(""))
+    assert stored is True, message
+    stored, message = await storage.store(_memory("hello"))
+    assert stored is True, message
+
+    stored, message = await storage.store(_memory("hello again"))
+
+    assert stored is False, message
+    assert "Duplicate content detected" in message

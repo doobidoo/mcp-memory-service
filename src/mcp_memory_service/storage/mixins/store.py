@@ -160,7 +160,7 @@ class StoreMixin:
                 WHERE m.created_at > ?
                   AND m.deleted_at IS NULL
                   AND m.store = ?
-                ORDER BY similarity ASC
+                ORDER BY similarity IS NULL, similarity ASC
                 LIMIT 1
             ''', (embedding_blob, cutoff_timestamp, store))
             return cursor.fetchone()
