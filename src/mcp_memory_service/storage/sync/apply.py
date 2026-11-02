@@ -472,8 +472,29 @@ def _top_level_fields(ev_op, pl):
                 if vv is not None}
     # update_metadata
     upd = (pl.get("updates", {}) or {})
-    return {kk: vv for kk, vv in upd.items()
-            if kk in ("tags", "memory_type") and vv is not None}
+    fields = {kk: vv for kk, vv in upd.items()
+              if kk in ("tags", "memory_type") and vv is not None}
+    fields.update(_supersede_fields(upd, pl))
+    return fields
+
+
+def _supersede_fields(upd, pl):
+    """Supersede columns carried by an update_metadata event (issue #1773).
+
+    ``superseded_by`` lives in ``updates`` ("" or None clears it). ``superseded_at`` is the
+    origin's instant at the payload top level, written as-is and never re-stamped here; a
+    clear without one clears it too. An event from a peer without #1773 has no top-level
+    ``superseded_at``, so only ``superseded_by`` is taken from it.
+    """
+    if "superseded_by" not in upd:
+        return {}
+    superseded_by = upd["superseded_by"] or None
+    fields = {"superseded_by": superseded_by}
+    if "superseded_at" in pl:
+        fields["superseded_at"] = pl["superseded_at"]
+    elif superseded_by is None:
+        fields["superseded_at"] = None
+    return fields
 
 
 def _take_if_winner(best, best_key, k, key, value):
@@ -563,6 +584,13 @@ def _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, lat
     event_owned = set(meta_best) | create_md_keys
     merged_md = {kk: vv for kk, vv in current_md.items() if kk not in event_owned}
     merged_md.update(meta_best)
+    if "superseded_by" in best:
+        # Keep the legacy JSON mirror in step with the column, as update_memory_metadata
+        # does on the origin (#1773): readers such as the contradiction scan check it.
+        if best["superseded_by"] is None:
+            merged_md.pop("superseded_by", None)
+        else:
+            merged_md["superseded_by"] = best["superseded_by"]
     best = dict(best)
     best["metadata"] = merged_md
 
