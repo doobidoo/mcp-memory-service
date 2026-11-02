@@ -6,10 +6,14 @@ Tests the three graph traversal tools:
 - find_shortest_path: Path finding between memories
 - get_memory_subgraph: Subgraph extraction for visualization
 """
+import json
+import uuid
+from functools import wraps
+
 import pytest
 import pytest_asyncio
-import json
 from mcp_memory_service.server import MemoryServer
+from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.graph import GraphStorage
 from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
 
@@ -72,7 +76,6 @@ async def setup_graph_data(memory_server, graph_storage):
     A -> D
     B -> D
     """
-    import uuid
     test_id = str(uuid.uuid4())[:8]  # Short unique ID for this test run
 
     # Store test memories with unique content
@@ -316,7 +319,6 @@ async def test_get_memory_subgraph_isolated(memory_server):
         pytest.skip(f"Graph operations not supported for backend: {STORAGE_BACKEND}")
 
     # Store isolated memory with unique content
-    import uuid
     test_id = str(uuid.uuid4())[:8]
     mem = await memory_server.store_memory(
         content=f"Isolated graph test memory {test_id}"
@@ -460,6 +462,43 @@ async def test_memory_explore_returns_contract_shape(memory_server, setup_graph_
             "relation_count", "top_chunks",
         }
         assert isinstance(ent["top_chunks"], list)
+
+
+@pytest.mark.asyncio
+async def test_memory_explore_all_store_retrieves_global_candidates(
+    memory_server, setup_graph_data, monkeypatch
+):
+    """The explicit all-store sentinel must use an unscoped retrieval."""
+    if STORAGE_BACKEND not in ['sqlite_vec', 'hybrid']:
+        pytest.skip(f"Graph operations not supported for backend: {STORAGE_BACKEND}")
+    from mcp_memory_service.server.handlers.graph import handle_memory_explore
+
+    memory = Memory(
+        content=f"All-store explore candidate {uuid.uuid4().hex}",
+        content_hash=f"all-store-{uuid.uuid4().hex}",
+        tags=["all-store"],
+    )
+    stored, _ = await memory_server.storage.store(memory, store="docs")
+    assert stored is True
+    original_retrieve = memory_server.storage.retrieve
+    observed = {}
+
+    @wraps(original_retrieve)
+    async def track_retrieve(*args, **kwargs):
+        results = await original_retrieve(*args, **kwargs)
+        observed["store_passed"] = "store" in kwargs
+        observed["store"] = kwargs.get("store")
+        observed["hashes"] = [result.memory.content_hash for result in results]
+        return results
+
+    monkeypatch.setattr(memory_server.storage, "retrieve", track_retrieve)
+    await handle_memory_explore(
+        memory_server, {"query": memory.content, "store": "all"}
+    )
+
+    assert observed["store_passed"] is True
+    assert observed["store"] is None
+    assert memory.content_hash in observed["hashes"]
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ Provides graph database operations including:
 - get_memory_subgraph: Subgraph extraction for visualization
 """
 
+import inspect
 import json
 import logging
 import traceback
@@ -651,15 +652,17 @@ async def _retrieve_candidates(storage, query: str, n_results: int, tags, store)
 
     Passes ``store`` only if the active backend's ``retrieve`` accepts it, so
     this composes the moment multi-store scoping reaches the retrieve path
-    (#62) without breaking on backends that do not yet support it.
+    (#62) without breaking on backends that do not yet support it. The explicit
+    ``all`` sentinel maps to ``None`` to request federation across stores.
     """
-    import inspect
-
     kwargs = {"n_results": n_results, "tags": tags}
     try:
         params = inspect.signature(storage.retrieve).parameters
-        if store is not None and "store" in params:
-            kwargs["store"] = store
+        if "store" in params:
+            if store == "all":
+                kwargs["store"] = None
+            elif store is not None:
+                kwargs["store"] = store
     except (TypeError, ValueError):
         pass
     return await storage.retrieve(query, **kwargs)
