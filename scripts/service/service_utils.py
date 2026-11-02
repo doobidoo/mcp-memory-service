@@ -108,8 +108,8 @@ def check_dependencies() -> Tuple[bool, str]:
     """Check if all required dependencies are installed."""
     try:
         # Check Python version
-        if sys.version_info < (3, 10):
-            return False, f"Python 3.10+ required, found {sys.version}"
+        if sys.version_info < (3, 11):
+            return False, f"Python 3.11+ required, found {sys.version}"
         
         # Check if in virtual environment (recommended)
         if not get_venv_path():
@@ -173,7 +173,7 @@ def test_service_startup() -> Tuple[bool, str]:
         )
         
         # Give it a moment to start
-        import time
+        import time  # inline import: defer helper until this check runs
         time.sleep(2)
         
         # Check if process is still running

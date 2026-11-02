@@ -82,7 +82,7 @@
 
 ## Code Style Guidelines
 - **Imports**: Absolute imports preferred, conditional imports for optional dependencies
-- **Types**: Python 3.10+ type hints throughout, TypedDict for MCP responses
+- **Types**: Python 3.11+ type hints throughout, TypedDict for MCP responses
 - **Async/await**: All I/O operations use async/await pattern
 - **Naming**: snake_case for functions/variables, PascalCase for classes, SCREAMING_SNAKE_CASE for constants
 - **Error handling**: Try/except blocks with specific exceptions, logging for debugging

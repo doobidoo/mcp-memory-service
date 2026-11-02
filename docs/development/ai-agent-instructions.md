@@ -62,7 +62,7 @@ python scripts/database/db_health_check.py
 
 ## Code Style
 
-- **Python 3.10+** with type hints everywhere
+- **Python 3.11+** with type hints everywhere
 - **Async/await** for all I/O operations
 - **Black** formatter with 88-char line length
 - **Import order**: stdlib, third-party, local (use `isort`)

@@ -51,6 +51,6 @@ tag, as described in [`chromadb-migration.md`](chromadb-migration.md).
 - Use migration scripts with caution and ensure backups are available
 
 ## Script Dependencies
-- Python 3.10+
+- Python 3.11+
 - Required packages listed in `requirements.txt`
 - Some scripts may require additional dependencies listed in `requirements-migration.txt` 
