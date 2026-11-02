@@ -160,13 +160,16 @@ class StoreMixin:
                 WHERE m.created_at > ?
                   AND m.deleted_at IS NULL
                   AND m.store = ?
-                ORDER BY similarity ASC
+                ORDER BY similarity IS NULL, similarity ASC
                 LIMIT 1
             ''', (embedding_blob, cutoff_timestamp, store))
             return cursor.fetchone()
 
         result = await self._execute_with_retry(_search_semantic_dup)
-        if result and result[2] <= (1.0 - similarity_threshold):
+        # A zero-length embedding (for example from empty content stored before
+        # #1791 was fixed) makes vec_distance_cosine() return NULL. Treat that as
+        # "no duplicate" instead of comparing None to a float.
+        if result and result[2] is not None and result[2] <= (1.0 - similarity_threshold):
             return True, result[0]
 
         return False, None
