@@ -344,7 +344,8 @@ class MetadataMixin:
     def _read_superseded_at(self, content_hash: str) -> float | None:
         """Return the row's superseded_at as written by the current transaction."""
         row = self.conn.execute(
-            "SELECT superseded_at FROM memories WHERE content_hash = ?", (content_hash,)
+            "SELECT superseded_at FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+            (content_hash,),
         ).fetchone()
         return row[0] if row else None
 
@@ -361,7 +362,8 @@ class MetadataMixin:
         if not hasattr(self, '_append_sync_event'):
             return
         row = self.conn.execute(
-            "SELECT superseded_by, superseded_at, updated_at FROM memories WHERE content_hash = ?",
+            "SELECT superseded_by, superseded_at, updated_at FROM memories "
+            "WHERE content_hash = ? AND deleted_at IS NULL",
             (content_hash,),
         ).fetchone()
         if row is None:
@@ -600,36 +602,41 @@ class MetadataMixin:
             now = time.time()
 
             def _do_resolve():
-                # SAVEPOINT: the supersede UPDATE and its sync event (#1773) land or
-                # vanish together (fail-closed, ADR-0008).
+                # SAVEPOINT around every write: the supersede, its sync event (#1773),
+                # the winner's confidence and the tag cleanup land or vanish together
+                # (fail-closed, ADR-0008). On a clean connection this savepoint is the
+                # outermost transaction, so it is released only after the last write.
                 sp = f"resolve_conflict_{os.urandom(4).hex()}"
                 self.conn.execute(f"SAVEPOINT {sp}")
                 try:
                     self._supersede_with_event(winner_hash, loser_hash, now)
+
+                    self.conn.execute(
+                        "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                        (int(now), winner_hash),
+                    )
+
+                    for h in (winner_hash, loser_hash):
+                        cursor = self.conn.execute(
+                            "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                        )
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
+                            self.conn.execute(
+                                "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                                (",".join(tags), h),
+                            )
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
                     self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                     raise
-
-                self.conn.execute(
-                    "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                    (int(now), winner_hash),
-                )
-
-                for h in (winner_hash, loser_hash):
-                    cursor = self.conn.execute(
-                        "SELECT tags FROM memories WHERE content_hash = ?", (h,)
-                    )
-                    row = cursor.fetchone()
-                    if row and row[0]:
-                        tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
-                        self.conn.execute(
-                            "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                            (",".join(tags), h),
-                        )
-
-                self.conn.commit()
+                try:
+                    self.conn.commit()
+                except Exception:
+                    self.conn.rollback()
+                    raise
 
             await self._execute_with_retry(_do_resolve)
             logger.info("Conflict resolved: %s wins over %s", _sanitize_log_value(winner_hash[:8]), _sanitize_log_value(loser_hash[:8]))

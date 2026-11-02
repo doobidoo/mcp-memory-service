@@ -584,6 +584,13 @@ def _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, lat
     event_owned = set(meta_best) | create_md_keys
     merged_md = {kk: vv for kk, vv in current_md.items() if kk not in event_owned}
     merged_md.update(meta_best)
+    if "superseded_by" in best:
+        # Keep the legacy JSON mirror in step with the column, as update_memory_metadata
+        # does on the origin (#1773): readers such as the contradiction scan check it.
+        if best["superseded_by"] is None:
+            merged_md.pop("superseded_by", None)
+        else:
+            merged_md["superseded_by"] = best["superseded_by"]
     best = dict(best)
     best["metadata"] = merged_md
 

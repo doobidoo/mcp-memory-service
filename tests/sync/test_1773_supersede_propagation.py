@@ -156,3 +156,55 @@ async def test_conflicting_supersedes_converge_in_both_orders(monkeypatch):
         finally:
             for s in stores.values():
                 await s.close()
+
+
+def _metadata(storage, content_hash):
+    row = storage.conn.execute(
+        "SELECT metadata FROM memories WHERE content_hash = ?", (content_hash,)
+    ).fetchone()
+    return json.loads(row[0]) if row and row[0] else {}
+
+
+@pytest.mark.asyncio
+async def test_remote_set_and_clear_keep_legacy_metadata_in_step(peers, monkeypatch):
+    """The receiver mirrors superseded_by into metadata JSON like the origin, and clears it."""
+    a, b = peers
+    monkeypatch.setenv("MCP_AGENT_ID", "alpha")
+    x = await _store(a, "Memory X: set then cleared")
+    y = await _store(a, "Memory Y: temporary winner")
+    _sync(a, b)
+
+    ok, msg = await a.update_memory_metadata(x, {"superseded_by": y})
+    assert ok, msg
+    _sync(a, b)
+    assert _supersede_state(b, x)[0] == y
+    assert _metadata(b, x).get("superseded_by") == y == _metadata(a, x).get("superseded_by")
+
+    ok, msg = await a.update_memory_metadata(x, {"superseded_by": ""})
+    assert ok, msg
+    _sync(a, b)
+    assert _supersede_state(b, x) == (None, None) == _supersede_state(a, x)
+    assert "superseded_by" not in _metadata(b, x)
+
+
+@pytest.mark.asyncio
+async def test_failed_resolve_conflict_keeps_neither_supersede_nor_event(peers, monkeypatch):
+    """A failure after the supersede rolls back the supersede and its sync event too."""
+    a, _ = peers
+    monkeypatch.setenv("MCP_AGENT_ID", "alpha")
+    x = await _store(a, "Memory X: loser")
+    y = await _store(a, "Memory Y: winner")
+    a.conn.execute(
+        "CREATE TRIGGER fail_confidence BEFORE UPDATE OF confidence ON memories "
+        "BEGIN SELECT RAISE(ABORT, 'confidence update failed'); END"
+    )
+    a.conn.commit()
+
+    ok, _ = await a.resolve_conflict(y, x)
+    assert not ok
+    assert _supersede_state(a, x) == (None, None)
+    count = a.conn.execute(
+        "SELECT COUNT(*) FROM sync_events WHERE content_hash = ? AND op = 'update_metadata'",
+        (x,),
+    ).fetchone()[0]
+    assert count == 0
