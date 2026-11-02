@@ -33,6 +33,9 @@ digest. Scheduled runs post reminders. Digest comments additionally require the
 existing `TRIAGE_DIGEST_ISSUE` repository variable; without it the digest still
 appears in the Actions run summary. A failed review scan fails the run but leaves
 the existing digest step enabled, with an explicit warning in the summary.
+The scan has a two-minute step deadline; the digest retains a separate
+five-minute step budget inside a ten-minute job, so a slow scan cannot consume
+the digest's time allowance.
 
 Locally, with `gh` authenticated:
 
