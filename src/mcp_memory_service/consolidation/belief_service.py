@@ -596,12 +596,12 @@ class BeliefService:
         return nullcontext()
 
     def _fetch_merge_rows(self, conn, canonical: str, losers: list) -> dict:
-        """SELECT (derived_from, metadata) for the canonical + losers as a dict."""
+        """SELECT (status, derived_from, metadata) for the canonical + losers as a dict."""
         placeholders = ",".join("?" * (len(losers) + 1))
         return {
-            r[0]: (json.loads(r[1] or "[]"), json.loads(r[2] or "{}"))
+            r[0]: (r[1], json.loads(r[2] or "[]"), json.loads(r[3] or "{}"))
             for r in conn.execute(
-                "SELECT belief_hash, derived_from, metadata FROM beliefs "
+                "SELECT belief_hash, status, derived_from, metadata FROM beliefs "
                 "WHERE belief_hash IN (%s)" % placeholders,
                 (canonical, *losers),
             ).fetchall()
@@ -616,8 +616,12 @@ class BeliefService:
         never overwritten by a loser number), and records every loser-sourced
         hash under ``metadata['merged_from_hashes']`` so a later re-derivation can
         preserve them (#566).
+
+        Idempotency (#1771, Greptile P1): a loser ALREADY ``superseded`` — by an
+        overlapping dedup run on the shared storage — is skipped entirely, so its
+        counters are never summed into the canonical twice.
         """
-        canon_df, canon_meta = rows[canonical]
+        _canon_status, canon_df, canon_meta = rows[canonical]
         merged_df = list(canon_df)
         seen = set(merged_df)
         merged_meta = dict(canon_meta)
@@ -627,7 +631,11 @@ class BeliefService:
         for lh in losers:
             if lh not in rows:
                 continue
-            l_df, l_meta = rows[lh]
+            l_status, l_df, l_meta = rows[lh]
+            # Skip a loser another worker already superseded: re-folding it would
+            # double-count its counters and re-add its provenance on the canonical.
+            if l_status == "superseded":
+                continue
             for h in l_df:
                 if h not in seen:
                     merged_df.append(h)
@@ -660,7 +668,7 @@ class BeliefService:
             for lh in losers:
                 conn.execute(
                     "UPDATE beliefs SET status = 'superseded', updated_at = ? "
-                    "WHERE belief_hash = ?",
+                    "WHERE belief_hash = ? AND status != 'superseded'",
                     (now_iso, lh),
                 )
             conn.commit()
