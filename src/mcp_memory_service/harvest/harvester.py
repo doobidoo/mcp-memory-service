@@ -224,7 +224,7 @@ class SessionHarvester:
                 for candidate in result.candidates:
                     try:
                         tags, metadata = self._provenance(candidate, result.session_id)
-                        evolved = await self._try_evolve(candidate, config, metadata)
+                        evolved, _new_hash = await self._try_evolve(candidate, config, metadata)
                         if evolved:
                             stored += 1
                         else:
@@ -304,14 +304,20 @@ class SessionHarvester:
         }
         return tags, metadata
 
-    async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None) -> bool:
+    async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None):
         """Check for similar active memory; if found, evolve it.
 
-        Returns True if an existing memory was evolved, False if caller
-        should fall back to store_memory().
+        Returns ``(evolved, new_hash)``. ``evolved`` is True when an existing
+        memory was updated in place, and the caller must not store the
+        candidate again. ``new_hash`` is the versioned child's hash when the
+        backend reports one.
+
+        Evolution can succeed without a hash, so ``new_hash`` may be None while
+        ``evolved`` is True. Branch on ``evolved``, never on ``new_hash``:
+        treating "no hash" as "not evolved" stores the candidate a second time.
         """
         if not hasattr(self.memory_service, "storage") or not self.memory_service.storage:
-            return False
+            return False, None
 
         try:
             similar = await self.memory_service.storage.retrieve(
@@ -321,10 +327,10 @@ class SessionHarvester:
             )
         except Exception as e:
             logger.debug("Similarity check failed, falling back to store: %s", _sanitize_log_value(str(e)))
-            return False
+            return False, None
 
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
-            return False
+            return False, None
 
         existing_hash = similar[0].memory.content_hash
         try:
@@ -342,13 +348,13 @@ class SessionHarvester:
             )
             if ok:
                 logger.info("Evolved memory %s→%s", existing_hash[:8], new_hash[:8] if new_hash else "?")
-                return True
+                return True, new_hash
             else:
                 logger.debug("Evolution failed (%s), falling back to store", _sanitize_log_value(str(msg)))
-                return False
+                return False, None
         except Exception as e:
             logger.debug("Evolution error, falling back to store: %s", _sanitize_log_value(str(e)))
-            return False
+            return False, None
 
     async def verify_session_coverage(self, session_id: str, threshold: float = 0.9,
                                       use_llm: bool = True) -> dict:
