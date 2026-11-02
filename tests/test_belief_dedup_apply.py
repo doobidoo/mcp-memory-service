@@ -381,3 +381,35 @@ def test_a7_cap_zero_merges_nothing(storage, monkeypatch):
     # Corpus intacto — o grupo real de 3 membros NÃO foi colapsado.
     after = _snapshot(storage.conn)
     assert after == before, f"cap=0 mutou o corpus: before={before} after={after}"
+
+
+# ── A8: idempotência sob runs sobrepostos (Greptile P1 #1771) ──
+
+def test_a8_second_merge_does_not_double_count(storage, monkeypatch):
+    """A8: dois dedup sobrepostos selecionam o MESMO grupo. O 2º _merge_into_canonical
+    NÃO pode re-somar os counters do loser já superseded no canônico (double-count).
+    Simula a corrida chamando o merge duas vezes com os mesmos (canonical, losers)."""
+    monkeypatch.setenv("MCP_BELIEF_DEDUP", "1")
+    # canônico h1 + 1 loser h2 (injected_used 5 no loser).
+    _insert_belief(storage.conn, "h1", "Sempre usar type hints",
+                   confidence=0.9, status="active",
+                   embedding=_vec_blob([1.0, 0.0, 0.0]),
+                   metadata={"injected_used": 10})
+    _insert_belief(storage.conn, "h2", "Use type hints sempre",
+                   confidence=0.7, status="active",
+                   embedding=_vec_blob([0.9962, 0.0872, 0.0]),
+                   metadata={"injected_used": 5})
+
+    svc = BeliefService(storage)
+    now = datetime.now(timezone.utc)
+
+    # 1º worker: funde h2 em h1 -> injected_used 10+5=15, h2 superseded.
+    svc._merge_into_canonical("h1", ["h2"], now)
+    after_first = _row(storage.conn, "h1")[2]["injected_used"]
+    assert after_first == 15
+    assert _row(storage.conn, "h2")[0] == "superseded"
+
+    # 2º worker (corrida): mesmo grupo. h2 já é superseded -> NÃO re-soma.
+    svc._merge_into_canonical("h1", ["h2"], now)
+    after_second = _row(storage.conn, "h1")[2]["injected_used"]
+    assert after_second == 15, f"double-count: {after_second} (esperado 15)"
