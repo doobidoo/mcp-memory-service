@@ -29,6 +29,7 @@ import argparse
 import datetime as dt
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
@@ -218,6 +219,9 @@ def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
             return
         lines.extend([text, ""])
 
+    section("Review threads awaiting reviewer reply", data.get("waiting_reviewer", []), 5,
+            lambda p: f"- {ref(p)} {title(p, 64)} — "
+            f"[thread]({p['threads'][0]}) ({len(p['threads'])} open)")
     section("New in the last 24h", data["new_issues"] + data["new_pulls"], 6,
             lambda i: f"- {ref(i)} {title(i, 72)} — `{i['user']['login']}`")
     section(f"Quiet {stale_days}+ days, awaiting my reply", data["stale"], 6,
@@ -249,13 +253,18 @@ def main() -> int:
     ap.add_argument("--stale-days", type=int, default=14)
     ap.add_argument("--post", action="store_true",
                     help="comment the digest on --issue; without this it only prints")
+    ap.add_argument("--review-report", type=Path,
+                    help="JSON output from github_review_reminders.py")
     args = ap.parse_args()
     if args.post and args.issue is None:
         ap.error("--post needs --issue")
 
     api = make_api(resolve_token())
     now = dt.datetime.now(dt.timezone.utc)
-    digest = render(collect(api, args.stale_days, now, args.issue), args.stale_days, now)
+    data = collect(api, args.stale_days, now, args.issue)
+    if args.review_report:
+        data["waiting_reviewer"] = json.loads(args.review_report.read_text())["waiting_reviewer"]
+    digest = render(data, args.stale_days, now)
     # Print before posting, so a failed post still leaves the digest in the run log.
     print(digest, flush=True)
 
