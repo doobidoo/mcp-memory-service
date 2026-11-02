@@ -449,6 +449,57 @@ async def test_full_reads_are_not_capped_at_the_query_limit(storage, monkeypatch
     assert len(json.loads(export_file.read_text())["memories"]) == total
 
 
+@pytest.mark.asyncio
+async def test_purge_deleted_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: purge_deleted finds every old tombstone, not only
+    those in the first ``_MILVUS_MAX_LIMIT`` rows of one query()."""
+    import time
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    old = time.time() - 90 * 86400
+    total = 12
+    for i in range(total):
+        content = f"tombstoned memory {i:02d}"
+        memory = Memory(
+            content=content, content_hash=generate_content_hash(content),
+            tags=["gone"], created_at=old,
+        )
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        ok, msg = await storage.update_memory_metadata(
+            memory.content_hash, {"deleted_at": old}, preserve_timestamps=True,
+        )
+        assert ok, msg
+
+    assert await storage.purge_deleted(older_than_days=30) == total
+    assert await storage.count_all_memories() == 0
+
+
+@pytest.mark.asyncio
+async def test_get_conflicts_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: get_conflicts returns every unresolved pair, not
+    only those whose edges fit in one query()."""
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    graph = await storage._get_graph_storage()
+    pairs = 12
+    for i in range(pairs):
+        hashes = []
+        for side in ("a", "b"):
+            content = f"conflict pair {i:02d} side {side}"
+            memory = _tagged(content, ["conflict:unresolved"])
+            ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+            assert ok, msg
+            hashes.append(memory.content_hash)
+        assert await graph.store_association(
+            hashes[0], hashes[1], 0.97, ["semantic"], relationship_type="contradicts",
+        )
+
+    assert len(await storage.get_conflicts()) == pairs
+
+
 async def _store_hourly_timeline(storage, count=10):
     """Store ``count`` memories one hour apart, oldest first as real use writes
     them. Returns their hashes ordered newest first."""
