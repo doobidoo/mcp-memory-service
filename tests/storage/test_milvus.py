@@ -5,6 +5,7 @@ All tests use Milvus Lite (a single local file, no server required) via
 """
 
 import asyncio
+import json
 import os
 import uuid
 
@@ -402,6 +403,101 @@ async def test_exact_content_search_matches_underscore_literally(storage):
     # its own content_lower pattern; it must escape the query the same way.
     result = await storage.search_memories(query="my_package", mode="exact", tags=["plain"])
     assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
+
+
+@pytest.mark.asyncio
+async def test_full_reads_are_not_capped_at_the_query_limit(storage, monkeypatch, tmp_path):
+    """Regression for #1785: reads that mean "every match" return every match.
+
+    They sliced to ``_MILVUS_MAX_LIMIT`` (16384) after draining, or passed it to
+    a single ``query()``, which Milvus also caps there. A collection past 16384
+    rows lost the rest silently, in exports, tag counts and the forgetting pass
+    (which wants the oldest rows, exactly the ones the newest-first slice cut).
+    The constant is shrunk to 5 here so 12 rows reproduce it without inserting
+    16385; the fixed paths no longer read it at all.
+    """
+    import mcp_memory_service.storage.milvus as milvus_module
+    from mcp_memory_service.sync.exporter import MemoryExporter
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    total = 12
+    for i in range(total):
+        content = f"bulk_row {i:02d} " + "x" * i
+        ok, msg = await storage.store(
+            _tagged(content, ["bulk"]), skip_semantic_dedup=True,
+        )
+        assert ok, msg
+    oldest = generate_content_hash("bulk_row 00 ")
+    longest = generate_content_hash(f"bulk_row {total - 1:02d} " + "x" * (total - 1))
+
+    everything = await storage.get_all_memories()
+    assert len(everything) == total
+    in_range = await storage.get_memories_by_time_range(0.0, 4102444800.0)
+    assert oldest in {m.content_hash for m in in_range}
+    assert len(await storage.search_by_tag(["bulk"])) == total
+    assert len(await storage.search_by_tags(["bulk"])) == total
+    assert len(await storage.search_by_tag_chronological(["bulk"])) == total
+    assert len(await storage.get_by_exact_content("bulk_row")) == total
+    assert {"tag": "bulk", "count": total} in await storage.get_all_tags_with_counts()
+    assert len(await storage.get_memory_timestamps()) == total
+    assert (await storage.get_largest_memories(1))[0].content_hash == longest
+    exact = await storage.search_memories(query="bulk_row", mode="exact", tags=["bulk"], limit=100)
+    assert exact["total"] == total
+
+    export_file = tmp_path / "export.json"
+    await MemoryExporter(storage).export_to_json(export_file)
+    assert len(json.loads(export_file.read_text())["memories"]) == total
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: purge_deleted finds every old tombstone, not only
+    those in the first ``_MILVUS_MAX_LIMIT`` rows of one query()."""
+    import time
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    old = time.time() - 90 * 86400
+    total = 12
+    for i in range(total):
+        content = f"tombstoned memory {i:02d}"
+        memory = Memory(
+            content=content, content_hash=generate_content_hash(content),
+            tags=["gone"], created_at=old,
+        )
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        ok, msg = await storage.update_memory_metadata(
+            memory.content_hash, {"deleted_at": old}, preserve_timestamps=True,
+        )
+        assert ok, msg
+
+    assert await storage.purge_deleted(older_than_days=30) == total
+    assert await storage.count_all_memories() == 0
+
+
+@pytest.mark.asyncio
+async def test_get_conflicts_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: get_conflicts returns every unresolved pair, not
+    only those whose edges fit in one query()."""
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    graph = await storage._get_graph_storage()
+    pairs = 12
+    for i in range(pairs):
+        hashes = []
+        for side in ("a", "b"):
+            content = f"conflict pair {i:02d} side {side}"
+            memory = _tagged(content, ["conflict:unresolved"])
+            ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+            assert ok, msg
+            hashes.append(memory.content_hash)
+        assert await graph.store_association(
+            hashes[0], hashes[1], 0.97, ["semantic"], relationship_type="contradicts",
+        )
+
+    assert len(await storage.get_conflicts()) == pairs
 
 
 async def _store_hourly_timeline(storage, count=10):

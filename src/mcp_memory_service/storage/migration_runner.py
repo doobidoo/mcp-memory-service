@@ -1,6 +1,7 @@
 """Schema migration runner with version tracking and registry."""
 
 import hashlib
+import locale
 import logging
 import re
 import sqlite3
@@ -95,9 +96,33 @@ class MigrationRunner:
         except sqlite3.OperationalError:
             return 7
 
+    @staticmethod
+    def _read_sql(path: Path) -> str:
+        """Read a migration file as UTF-8, the encoding the files are written in.
+
+        Without an explicit encoding Python on Windows (before 3.15) decodes with
+        the locale code page, and cp950/cp949 cannot decode the UTF-8 punctuation
+        in 008 and 010, which stopped every later migration (#1789).
+        """
+        return path.read_text(encoding="utf-8")
+
     def _checksum(self, path: Path) -> str:
         """SHA256 checksum of migration file content."""
-        return hashlib.sha256(path.read_text().encode()).hexdigest()
+        return hashlib.sha256(self._read_sql(path).encode()).hexdigest()
+
+    @staticmethod
+    def _legacy_checksum(path: Path) -> str | None:
+        """Checksum as runners before #1789 recorded it on this machine.
+
+        They decoded with the locale encoding. Where that is not UTF-8 but could
+        still decode the file (cp1252, for one), the stored checksum hashes the
+        mis-decoded text and must not be reported as a modified migration.
+        """
+        encoding = locale.getpreferredencoding(False)
+        try:
+            return hashlib.sha256(path.read_text(encoding=encoding).encode()).hexdigest()
+        except (UnicodeDecodeError, LookupError):
+            return None
 
     def _stamp_baseline(self, conn) -> list[int]:
         """Stamp pre-existing migrations as applied without re-executing.
@@ -258,7 +283,7 @@ class MigrationRunner:
                     result["applied"].append({"version": version, "name": name})
                     continue
 
-                sql = path.read_text()
+                sql = self._read_sql(path)
                 checksum = self._checksum(path)
                 now = datetime.now(timezone.utc).isoformat()
 
@@ -310,7 +335,7 @@ class MigrationRunner:
         for version, name, path in migrations:
             if version in registry_by_version:
                 stored = registry_by_version[version].get("checksum")
-                if stored and stored != self._checksum(path):
+                if stored and stored not in (self._checksum(path), self._legacy_checksum(path)):
                     checksum_mismatches.append({"version": version, "name": name, "filename": path.name})
 
         healthy = len(pending) == 0 and len(checksum_mismatches) == 0
