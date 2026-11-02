@@ -14,6 +14,7 @@
 
 """APScheduler integration for autonomous consolidation operations."""
 
+import asyncio
 import logging
 import os
 from copy import deepcopy
@@ -879,13 +880,24 @@ class ConsolidationScheduler:
                     # by default: it only reports the groups. Applying (merge +
                     # supersede) requires the separate MCP_BELIEF_DEDUP_APPLY
                     # switch, so turning the feature on cannot silently mutate
-                    # the corpus. Backfill runs first so pre-existing beliefs
-                    # with a NULL embedding become dedup-eligible.
+                    # the corpus. Backfill runs FIRST (and completes) so beliefs
+                    # with a NULL embedding become dedup-eligible before the scan.
                     if belief_svc._env_flag_on("MCP_BELIEF_DEDUP"):
                         try:
-                            backfill = await belief_svc.backfill_belief_embeddings()
+                            # Honour the documented bound for backfill too, not
+                            # just dedup (Greptile P2): a configured cap of 10
+                            # must not let 1000 embeddings be computed per job.
+                            _, cap = belief_svc._dedup_config()
+                            backfill = await belief_svc.backfill_belief_embeddings(cap=cap)
                             apply = belief_svc._env_flag_on("MCP_BELIEF_DEDUP_APPLY")
-                            dedup = belief_svc.dedup_beliefs(dry_run=not apply)
+                            # dedup_beliefs is synchronous and O(n^2) in the worst
+                            # case; run it OFF the event loop (Greptile P1) so a
+                            # large corpus cannot block other requests/scheduled
+                            # work. It acquires storage._conn_lock internally, so
+                            # do NOT wrap it in a second lock acquisition here.
+                            dedup = await asyncio.to_thread(
+                                belief_svc.dedup_beliefs, dry_run=not apply
+                            )
                             belief_stats["dedup_backfill"] = backfill
                             belief_stats["dedup"] = dedup
                         except Exception as de:
