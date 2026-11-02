@@ -21,7 +21,7 @@ Defines the interface that all OAuth storage implementations must follow.
 import hashlib
 import secrets
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from ..models import RegisteredClient
 
 _SECRET_HASH_PREFIX = "sha256$"
@@ -307,6 +307,46 @@ class OAuthStorage(ABC):
             Already-revoked or unknown tokens do not count.
         """
         pass
+
+    async def list_clients(self) -> List[Dict]:
+        """
+        List registered clients for operator inspection.
+
+        Never includes client secrets.
+
+        Returns:
+            One dict per client, newest registration first, with keys:
+            client_id, client_name, token_endpoint_auth_method, created_at,
+            active_refresh_tokens (not revoked, not expired) and
+            last_refresh_token_at (issue time of the client's newest refresh
+            token, None if it never received one).
+
+        Raises:
+            NotImplementedError: If the backend does not support listing.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support list_clients")
+
+    async def delete_client(self, client_id: str) -> Optional[Dict[str, int]]:
+        """
+        Delete a registered client and every authorization code, access
+        token and refresh token issued to it.
+
+        Access tokens issued as JWTs are validated without a storage lookup,
+        so they stay valid until they expire; deleting the client stops all
+        new grants (authorization code, refresh, client credentials).
+
+        Args:
+            client_id: OAuth client identifier
+
+        Returns:
+            None if the client is unknown (nothing is deleted), otherwise a
+            dict with keys authorization_codes, access_tokens and
+            refresh_tokens giving the number of records removed.
+
+        Raises:
+            NotImplementedError: If the backend does not support deletion.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support delete_client")
 
     @abstractmethod
     async def cleanup_expired(self) -> Dict[str, int]:
