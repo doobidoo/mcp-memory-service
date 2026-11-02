@@ -1,1 +1,0 @@
-Remind contributors about unanswered review threads after 48 hours, with one final follow-up after seven days. Route threads with an author reply into the daily maintainer digest.
