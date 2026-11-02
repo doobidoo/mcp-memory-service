@@ -23,5 +23,6 @@
 <!-- locale-pages:start -->
   <url><loc>https://mcpmemory.services/de/</loc><changefreq>monthly</changefreq></url>
   <url><loc>https://mcpmemory.services/es/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/ja/</loc><changefreq>monthly</changefreq></url>
 <!-- locale-pages:end -->
 </urlset>
