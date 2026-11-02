@@ -1214,7 +1214,7 @@ class MemoryDashboard {
         if (!historyContainer) return;
 
         if (uploads.length === 0) {
-            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet. Start by uploading some documents!</p>';
+            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet</p>';
             return;
         }
 
@@ -3569,9 +3569,9 @@ class MemoryDashboard {
         ${this.renderQualityBadge(memory)}
     <div class="memory-header">
         <div class="memory-meta">
-                        <span>${createdDate} ${this.renderTimeIcon(memory.created_at)}</span>
-            ${memory.memory_type ? `<span> • ${memory.memory_type}</span>` : ''}
-        ${relevanceScore ? `<span> • ${relevanceScore}% match</span>` : ''}
+            ${memory.memory_type ? `<span class="memory-type" data-type="${this.escapeHtml(memory.memory_type)}">${this.escapeHtml(memory.memory_type)}</span>` : ''}
+            <span>${createdDate} ${this.renderTimeIcon(memory.created_at)}</span>
+            ${relevanceScore ? `<span>${relevanceScore}% match</span>` : ''}
         </div>
                 </div>
 
@@ -3892,7 +3892,15 @@ class MemoryDashboard {
             // callers can branch on machine-readable values instead of
             // substring-matching the human-readable message (which breaks on
             // wording / translation changes — see PR #807 review).
-            const err = new Error(errorData.detail || `HTTP ${response.status}`);
+            // `detail` is not always a string: the OAuth scope checks send
+            // {error, error_description} and request validation sends a list.
+            // Error() stringified those to "[object Object]" in every toast
+            // (#1743), so only non-empty strings become the message.
+            const detail = errorData.detail;
+            const text = (value) => (typeof value === 'string' && value) || null;
+            const message = text(detail) || text(detail?.error_description)
+                || text(detail?.error) || `HTTP ${response.status}`;
+            const err = new Error(message);
             err.status = response.status;
             err.detail = errorData.detail;
             err.body = errorData;
@@ -4098,7 +4106,7 @@ class MemoryDashboard {
                     statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
-                this.showToast(`${data.commits_behind} update(s) available!`, 'info');
+                this.showToast(`${data.commits_behind} update(s) available`, 'info');
             } else {
                 if (statusEl) {
                     statusEl.textContent = 'Up to date';
@@ -4266,7 +4274,7 @@ class MemoryDashboard {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
                 const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
-                    if (statusEl) { statusEl.textContent = 'Server is back online! Reloading...'; }
+                    if (statusEl) { statusEl.textContent = 'Server is back online, reloading'; }
                     setTimeout(() => { window.location.reload(); }, 1500);
                     return;
                 }
@@ -5616,7 +5624,9 @@ class MemoryDashboard {
             this.updateElementText('analyticsTotalMemories', data.total_memories || 0);
             this.updateElementText('analyticsThisWeek', data.memories_this_week || 0);
             this.updateElementText('analyticsUniqueTags', data.unique_tags || 0);
-            this.updateElementText('analyticsDbSize', data.database_size_mb ?
+            // 0.0 is a real size for a near-empty database and rounds down to 0;
+            // only null/undefined mean the backend did not report a size.
+            this.updateElementText('analyticsDbSize', data.database_size_mb != null ?
                 `${data.database_size_mb.toFixed(1)} MB` : 'N/A');
         } catch (error) {
             console.error('Failed to load analytics overview:', error);
@@ -5650,29 +5660,42 @@ class MemoryDashboard {
             return;
         }
 
-        // Find max count for scaling
-        const recentPoints = data.data_points.slice(-10);
-        const maxCount = Math.max(...recentPoints.map(p => p.count), 1);
+        // One line: the running total per period, the latest point carries the accent.
+        const points = data.data_points.slice(-12);
+        const totals = points.map(p => Number(p.cumulative) || 0);
+        const max = Math.max(...totals, 1);
+        // Draw at the container's content width (no padding, no floor) so the SVG is not
+        // scaled and the 11px axis labels stay 11px on phones too. 600 only if hidden.
+        const cs = getComputedStyle(container);
+        const contentWidth = container.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const W = contentWidth > 0 ? Math.round(contentWidth) : 600, H = 220, L = 8, R = 48, T = 16, B = 28;
+        // Below ~360px the two period labels would overlap; keep only the current one.
+        const showFirstLabel = W >= 360 && points.length > 1;
+        const x = i => L + (points.length === 1 ? (W - L - R) : i * (W - L - R) / (points.length - 1));
+        const y = v => T + (H - T - B) * (1 - v / max);
+        const label = p => this.escapeHtml(p.label || p.date || '');
 
-        let html = '<div class="simple-chart">';
+        const path = totals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+        const grid = [0, 0.5, 1].map(f => {
+            const gy = y(max * f).toFixed(1);
+            return `<line class="growth-grid" x1="${L}" x2="${W - R}" y1="${gy}" y2="${gy}"/>`
+                + `<text class="growth-axis" x="${W - R + 8}" y="${(+gy + 4).toFixed(1)}">${Math.round(max * f)}</text>`;
+        }).join('');
+        const last = points.length - 1;
+        const current = points[last];
 
-        recentPoints.forEach(point => {
-            // Normalize bar width relative to max, then convert to pixels (200px scale)
-            const barWidthPx = (point.count / maxCount) * 200;
-            const displayCount = point.count || 0;
-            const displayCumulative = point.cumulative || 0;
-            // Use label if available, otherwise fall back to date for backward compatibility
-            const displayLabel = point.label || point.date;
-
-            html += `<div class="chart-row">
-                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
-                <span class="chart-value">+${displayCount} <small>(${displayCumulative} total)</small></span>
-                <span class="chart-label">${displayLabel}</span>
-            </div>`;
-        });
-
-        html += '</div>';
-        container.innerHTML = html;
+        container.innerHTML = `
+            <div class="growth-summary">
+                <span class="growth-figure">${totals[last]}</span>
+                <span class="growth-delta">+${Number(current.count) || 0} · ${label(current)}</span>
+            </div>
+            <svg class="growth-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label(points[0])} – ${label(current)}">
+                ${grid}
+                <path class="growth-line" d="${path}"/>
+                <circle class="growth-dot" cx="${x(last).toFixed(1)}" cy="${y(totals[last]).toFixed(1)}" r="4"/>
+                ${showFirstLabel ? `<text class="growth-axis" x="${L}" y="${H - 6}">${label(points[0])}</text>` : ''}
+                <text class="growth-axis" x="${W - R}" y="${H - 6}" text-anchor="end">${label(current)}</text>
+            </svg>`;
     }
 
     /**
@@ -5708,7 +5731,7 @@ class MemoryDashboard {
 
         // Render significant tags
         significantTags.forEach(tag => {
-            const barWidthPx = (tag.percentage / 100) * 200; // Convert percentage to pixels (200px scale)
+            const barWidthPx = (Math.min(tag.percentage, 100) / 100) * 200; // percentage to px, clamped to the 200px scale
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${tag.count} (${tag.percentage}%)</span>
@@ -5716,15 +5739,18 @@ class MemoryDashboard {
             </div>`;
         });
 
-        // Add "diverse" category if there are minor tags
+        // Add an aggregate row for the minor tags.
+        //
+        // These counts are tag assignments, not memories: one memory can carry
+        // several tags, so summing the per-tag percentages goes past 100% as soon
+        // as anything is multiply tagged, and the bar (percentage / 100 * 200) runs
+        // past the 200px scale. Report how many tags were folded in and leave the
+        // percentage out; there is no honest percentage for a set of overlapping tags.
         if (minorTags.length > 0) {
-            const diverseCount = minorTags.reduce((sum, t) => sum + t.count, 0);
-            const diversePercentage = minorTags.reduce((sum, t) => sum + t.percentage, 0);
-            const barWidthPx = (diversePercentage / 100) * 200;
+            const assignmentCount = minorTags.reduce((sum, t) => sum + t.count, 0);
             html += `<div class="chart-row">
-                <div class="chart-bar" style="width: ${barWidthPx}px"></div>
-                <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTags.length} tags with ≤10 memories each">diverse (${minorTags.length} tags)</span>
+                <span class="chart-value">${minorTags.length} tags</span>
+                <span class="chart-label" title="${assignmentCount} tag assignments across ${minorTags.length} tags with 10 or fewer memories each">more tags (≤10 memories each)</span>
             </div>`;
         }
 
@@ -7791,7 +7817,6 @@ class MemoryDashboard {
         const html = memories.map(memory => `
             <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-high">
-                    <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
                 </div>
                 <div class="memory-content">${this.escapeHtml(memory.content)}</div>
@@ -7817,7 +7842,6 @@ class MemoryDashboard {
         const html = memories.map(memory => `
             <div class="memory-preview" data-content-hash="${memory.content_hash}">
                 <div class="quality-badge quality-tier-low">
-                    <span class="quality-star">★</span>
                     <span class="quality-score">${memory.quality_score.toFixed(2)}</span>
                 </div>
                 <div class="memory-content">${this.escapeHtml(memory.content)}</div>
@@ -7843,8 +7867,7 @@ class MemoryDashboard {
         return `
             <div class="quality-badge quality-tier-${tier}"
                  data-quality-score="${score.toFixed(2)}"
-                 title="Quality Score: ${score.toFixed(2)} (${provider})">
-                <span class="quality-star">★</span>
+                 title="Quality score ${score.toFixed(2)} (${this.escapeHtml(provider)})">
                 <span class="quality-score">${score.toFixed(2)}</span>
             </div>
         `;
@@ -7859,7 +7882,7 @@ class MemoryDashboard {
                     rating: rating,
                     feedback: ''
                 });
-            this.showToast(`Rating saved! Quality score updated to ${result.new_quality_score.toFixed(2)}`, 'success');
+            this.showToast(`Rating saved, quality score is now ${result.new_quality_score.toFixed(2)}`, 'success');
 
             // Refresh memory display if viewing details
             // This would refresh the modal or current view

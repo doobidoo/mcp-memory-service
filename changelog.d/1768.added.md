@@ -1,0 +1,1 @@
+- Add a Spanish introduction to mcpmemory.services with installation guidance, language links and search metadata.

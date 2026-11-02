@@ -6,14 +6,26 @@ from fastapi.testclient import TestClient
 
 from mcp_memory_service.web.api.memories import router
 from mcp_memory_service.web.dependencies import get_memory_service
-from mcp_memory_service.web.oauth.middleware import require_write_access
+from mcp_memory_service.web.oauth.middleware import (
+    AuthenticationResult,
+    get_current_user,
+)
 
 
 def _make_app(mock_svc):
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_memory_service] = lambda: mock_svc
-    app.dependency_overrides[require_write_access] = lambda: None
+    # Pin an authenticated user with the global "write" scope so these tests are
+    # hermetic: they must not depend on ambient auth configuration. Without the
+    # override, a dev .env that sets MCP_API_KEY turns every request into 401
+    # while CI (no key) passes.
+    app.dependency_overrides[get_current_user] = lambda: AuthenticationResult(
+        authenticated=True,
+        client_id="test-contributor",
+        scope="write",
+        auth_method="none",
+    )
     return app
 
 

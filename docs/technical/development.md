@@ -18,7 +18,7 @@
 - For recursion errors, run: `python scripts/fix_sitecustomize.py`
 
 ## Code Style
-- Python 3.10+ with type hints
+- Python 3.11+ with type hints
 - Use dataclasses for models (see `models/memory.py`)
 - Triple-quoted docstrings for modules and functions
 - Async/await pattern for all I/O operations
@@ -47,7 +47,7 @@
 ### Common Issues
 
 - For Windows installation issues, use `scripts/install_windows.py`
-- Apple Silicon requires Python 3.10+ built for ARM64  
+- Apple Silicon requires Python 3.11+ built for ARM64
 - CUDA issues: verify with `torch.cuda.is_available()`
 - For MCP protocol issues, check `server.py` for required methods
 

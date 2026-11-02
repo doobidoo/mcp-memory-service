@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -147,7 +148,6 @@ def test_open_pr_blocks_the_label(monkeypatch):
 
 def test_dry_run_labels_without_network_or_write(tmp_path, monkeypatch, capsys):
     """--dry-run decides on local guards, never calls gh (no network, no write)."""
-    import json
 
     def boom(*a, **k):  # any gh call fails the test
         raise AssertionError("gh must not be called in --dry-run")
@@ -194,7 +194,6 @@ def _gh_stub(responses):
 
 
 def _pr_graphql(states):
-    import json
     payload = {"data": {"repository": {"issue": {
         "closedByPullRequestsReferences": {
             "nodes": [{"state": s} for s in states]
@@ -218,9 +217,26 @@ def test_has_open_closing_pr_false_on_empty(monkeypatch):
     assert mark._has_open_closing_pr("owner/repo", 1) is False
 
 
+def test_has_open_closing_pr_reads_all_pages(monkeypatch):
+
+    calls = []
+    def paged(*args):
+        calls.append(args)
+        cursors = [a for a in args if a.startswith("cursor=")]
+        assert len(cursors) <= 1
+        page = len(calls)
+        return json.dumps({"data": {"repository": {"issue": {
+            "closedByPullRequestsReferences": {
+                "nodes": [{"state": "OPEN" if page == 3 else "MERGED"}],
+                "pageInfo": {"hasNextPage": page < 3, "endCursor": str(page)}
+            }}}}})
+    monkeypatch.setattr(mark, "gh", paged)
+    assert mark._has_open_closing_pr("owner/repo", 1) is True
+    assert "cursor=2" in calls[-1]
+
+
 def test_main_writes_label_with_correct_args(tmp_path, monkeypatch):
     """Non-dry-run path: open-PR check clears, freshness clears, label POST fires."""
-    import json
     stub = _gh_stub({
         "graphql": _pr_graphql([]),                                   # no open PR
         "api-GET": '{"assignees": [], "labels": []}',                 # still eligible
@@ -240,7 +256,6 @@ def test_main_writes_label_with_correct_args(tmp_path, monkeypatch):
 
 def test_main_skips_write_when_assigned_before_run(tmp_path, monkeypatch):
     """Freshness race: the issue got an assignee while the run was queued."""
-    import json
     stub = _gh_stub({
         "graphql": _pr_graphql([]),
         "api-GET": '{"assignees": ["dev"], "labels": []}',            # assigned meanwhile

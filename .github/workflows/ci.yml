@@ -279,6 +279,32 @@ jobs:
   # condition reads `!= 'false'` with `!cancelled()` so that a failed `changes`
   # job runs the tests instead of skipping them: a skip reports success to a
   # required check, and a broken classifier must not turn into a green board.
+  python-minimum:
+    runs-on: ubuntu-latest
+    name: Python minimum (3.11)
+    timeout-minutes: 10
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ github.job }}-${{ hashFiles('uv.lock') }}
+        restore-keys: uv-${{ runner.os }}-${{ github.job }}-
+    - name: Install and test on Python 3.11
+      env:
+        MCP_API_KEY: ""
+        MCP_OAUTH_ENABLED: "false"
+        MCP_ALLOW_ANONYMOUS_ACCESS: "true"
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python3 scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
+        python3 -m pip install --quiet "uv==0.13.4"
+        python3 -m uv sync --frozen --python 3.11 --extra dev --extra sqlite
+        .venv/bin/python -m pytest tests/test_python_minimum.py tests/unit/test_dependency_check.py -q --timeout=120
+
   test:
     runs-on: ubuntu-latest
     name: Tests + Coverage

@@ -169,7 +169,7 @@ fi
 
 # Find best Python (prefer 3.12 or 3.13, avoid 3.14+)
 find_compatible_python() {
-    for py in python3.12 python3.13 python3.11 python3.10; do
+    for py in python3.12 python3.13 python3.11; do
         if command -v "$py" &> /dev/null; then
             local version=$("$py" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
             local minor=$(echo "$version" | cut -d. -f2)

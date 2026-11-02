@@ -71,7 +71,7 @@ Answer questions in Issues or help other users.
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - Git
 - Platform-specific requirements:
   - **macOS**: Homebrew Python recommended for SQLite extension support
@@ -133,7 +133,8 @@ not duplicating someone else's effort:
 - Search open **and** closed issues and PRs for the same problem. A fix may already be
   in review, merged, or rejected with a reason.
 - If you want to work on an existing issue, leave a comment on it saying you are taking
-  it on, and wait for a maintainer to confirm before you start. Issues that already
+  it on, and wait for confirmation before you start (see the automatic option below).
+  Issues that already
   have someone working on them, per a comment or an open PR, are taken.
 - If there is no issue yet for a non-trivial change, open one first so the approach
   can be agreed before you invest time in it.
@@ -143,11 +144,39 @@ not duplicating someone else's effort:
 A PR for an issue someone else has already claimed, or one that duplicates an open
 PR, will usually be closed.
 
+#### Automatic claims for prepared good first issues
+
+An issue carrying **both** `good first issue` and `auto-assign` has already had its
+scope approved by a maintainer. Comment `/claim` on a line of its own to request
+assignment to yourself. Wait for the assignment and the confirmation comment
+before starting. That automatic confirmation counts as maintainer approval for
+the scope described in the issue; it does not approve a broader change or a merge.
+
+The earliest eligible claim wins. Existing assignees are preserved, and later
+claimants receive a reply that the issue is taken. Your `/claim` can confirm your
+own earlier prose claim if no other contributor claimed it in between. An earlier
+prose claim by someone else, an edited claim, a withdrawal, an earlier removed
+assignment or an open PR requires manual confirmation instead. Do not edit an old
+comment to claim an issue. The
+command is ignored inside quotes and code examples; `/claim @someone` cannot
+assign another person. Collaborators can use the same command.
+
+For all other issues, or if you comment in ordinary prose instead of using
+`/claim`, wait for a maintainer to assign you. If you stop working on an issue,
+leave a comment; a maintainer will handle reassignment.
+
+Maintainers: add `auto-assign` only after the issue has a settled scope and
+acceptance criteria. Remove it to disable automatic claims. In Discord, link
+the GitHub issue and tell contributors to comment `/claim` there; claims stay
+on GitHub. Do not enable automatic claims on tasks that still need a design
+discussion. Automated-agent disclosure requirements below still apply.
+
 CI checks the maintainer's confirmation. The author must be a current assignee of
 every issue a pull request closes (`Fixes #N`); a comment alone does not count.
 Otherwise, the `Claim Check` workflow labels the PR `unclaimed` and links back
-here. Comment on the issue and wait for confirmation before starting; once a
-maintainer assigns you, the check runs again on its own and passes. Removing an
+here. Comment on the issue and wait for confirmation before starting; once you
+are assigned manually or through the automatic flow above, the check runs again
+and passes. Removing an
 assignment also refreshes the check against the current assignees.
 
 A pull request that changes `src/` without linking any issue is labelled
