@@ -94,13 +94,13 @@ class LocalizedSiteTests(unittest.TestCase):
 
     def test_new_language_updates_all_alternates(self):
         root, _, catalog = self.catalog_fixture()
-        catalog.update(locale="fr", language_name="Français", og_locale="fr_FR")
-        (root / site.SOURCES / "fr.json").write_text(json.dumps(catalog))
+        catalog.update(locale="zz", language_name="Zz", og_locale="zz_ZZ")
+        (root / site.SOURCES / "zz.json").write_text(json.dumps(catalog))
         pages = site.generated_files(root)
         for path, page in pages.items():
             if path.suffix != ".html":
                 continue
-            self.assertIn('hreflang="fr" href="https://mcpmemory.services/fr/"', page)
+            self.assertIn('hreflang="zz" href="https://mcpmemory.services/zz/"', page)
 
     def test_setup_button_links_to_existing_document(self):
         page = site.generated_files(ROOT)[Path("site/de/index.html")]
