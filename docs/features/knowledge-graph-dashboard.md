@@ -78,7 +78,7 @@ A Chart.js bar chart displays the breakdown of relationship types in your knowle
 
 ### Multi-Language Support
 
-The dashboard UI is fully localized in 7 languages:
+The dashboard UI is fully localized in 8 languages:
 
 | Language | Code | Translation Keys |
 |----------|------|------------------|
@@ -89,6 +89,7 @@ The dashboard UI is fully localized in 7 languages:
 | French | fr | 22 keys |
 | Japanese | ja | 22 keys |
 | Korean | ko | 22 keys |
+| Portuguese (Brazil)| pt-br | 424 keys |
 
 **Total:** 154 translation keys added in v9.2.0
 
