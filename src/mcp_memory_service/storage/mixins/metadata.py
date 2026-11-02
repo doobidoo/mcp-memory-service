@@ -199,6 +199,10 @@ class MetadataMixin:
                             'updates': updates,
                             'updated_at': updated_at,
                         }
+                        if update_superseded_by:
+                            # Issue #1773: carry the origin's superseded_at (the CASE above
+                            # may have kept an earlier instant) so receivers never re-stamp it.
+                            payload['superseded_at'] = self._read_superseded_at(content_hash)
                         self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
@@ -337,25 +341,82 @@ class MetadataMixin:
             logger.error("Batch update failed: %s\n%s", _sanitize_log_value(str(e)), traceback.format_exc())
             return [False] * len(memories)
 
+    def _read_superseded_at(self, content_hash: str) -> float | None:
+        """Return the row's superseded_at as written by the current transaction."""
+        row = self.conn.execute(
+            "SELECT superseded_at FROM memories WHERE content_hash = ?", (content_hash,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def _append_supersede_event(self, content_hash: str) -> None:
+        """Log a supersede of ``content_hash`` for delta-sync peers (issue #1773).
+
+        Runs inside the caller's transaction/savepoint, so the UPDATE and the event
+        commit or roll back together (ADR-0008). The event is an ``update_metadata``
+        whose ``updates`` holds only ``superseded_by``, a field peers already treat as
+        protected, and whose ``superseded_at`` sits at the payload top level, where a
+        peer without #1773 never reads it. Both values and ``updated_at`` are read back
+        from the row, so receivers write the origin's values instead of re-stamping.
+        """
+        if not hasattr(self, '_append_sync_event'):
+            return
+        row = self.conn.execute(
+            "SELECT superseded_by, superseded_at, updated_at FROM memories WHERE content_hash = ?",
+            (content_hash,),
+        ).fetchone()
+        if row is None:
+            return
+        superseded_by, superseded_at, updated_at = row
+        payload = {
+            'content_hash': content_hash,
+            'updates': {'superseded_by': superseded_by},
+            'superseded_at': superseded_at,
+            'updated_at': updated_at,
+        }
+        self._append_sync_event(self.conn, 'update_metadata', content_hash, payload)
+
+    def _supersede_with_event(self, winner_hash: str, loser_hash: str, now: float) -> None:
+        """Point ``loser_hash`` at ``winner_hash`` and log the change for sync peers.
+
+        Issue #1724 / follow-up review: stamp superseded_at only on the actual
+        current -> superseded transition. A retried call (same winner) or a re-point
+        keeps the ORIGINAL replacement moment — re-stamping would corrupt the
+        historical instant that point-in-time queries rely on. (CASE sees pre-update
+        values.) A retry that changes nothing logs no event.
+        """
+        before = self.conn.execute(
+            "SELECT superseded_by FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+            (loser_hash,),
+        ).fetchone()
+        cur = self.conn.execute(
+            "UPDATE memories SET superseded_by = ?, "
+            "superseded_at = CASE WHEN superseded_by IS NULL OR superseded_by = '' "
+            "THEN ? ELSE superseded_at END "
+            "WHERE content_hash = ? AND deleted_at IS NULL",
+            (winner_hash, now, loser_hash),
+        )
+        if cur.rowcount > 0 and before is not None and before[0] != winner_hash:
+            self._append_supersede_event(loser_hash)
+
     async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
         """Mark memories as superseded in a single transaction."""
         if not pairs or not self.conn:
             return 0
 
         def _batch_mark():
-            # Issue #1724 / follow-up review: stamp superseded_at only on the
-            # actual current -> superseded transition. A retried batch (same
-            # winner) or a re-point keeps the ORIGINAL replacement moment —
-            # re-stamping would corrupt the historical instant that
-            # point-in-time queries rely on. (CASE sees pre-update values.)
             now = time.time()
-            self.conn.executemany(
-                "UPDATE memories SET superseded_by = ?, "
-                "superseded_at = CASE WHEN superseded_by IS NULL OR superseded_by = '' "
-                "THEN ? ELSE superseded_at END "
-                "WHERE content_hash = ? AND deleted_at IS NULL",
-                [(winner, now, loser) for winner, loser in pairs],
-            )
+            # SAVEPOINT: the UPDATEs and their sync events land or vanish together
+            # (fail-closed, ADR-0008), as in update_memory_metadata.
+            sp = f"supersede_batch_{os.urandom(4).hex()}"
+            self.conn.execute(f"SAVEPOINT {sp}")
+            try:
+                for winner, loser in pairs:
+                    self._supersede_with_event(winner, loser, now)
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+            except Exception:
+                self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                raise
             self.conn.commit()
             return len(pairs)
 
@@ -539,16 +600,17 @@ class MetadataMixin:
             now = time.time()
 
             def _do_resolve():
-                self.conn.execute(
-                    # Issue #1724 / follow-up review: only stamp superseded_at
-                    # when the loser is actually transitioning (still current);
-                    # retries keep the original replacement moment.
-                    "UPDATE memories SET superseded_by = ?, "
-                    "superseded_at = CASE WHEN superseded_by IS NULL OR superseded_by = '' "
-                    "THEN ? ELSE superseded_at END "
-                    "WHERE content_hash = ? AND deleted_at IS NULL",
-                    (winner_hash, now, loser_hash),
-                )
+                # SAVEPOINT: the supersede UPDATE and its sync event (#1773) land or
+                # vanish together (fail-closed, ADR-0008).
+                sp = f"resolve_conflict_{os.urandom(4).hex()}"
+                self.conn.execute(f"SAVEPOINT {sp}")
+                try:
+                    self._supersede_with_event(winner_hash, loser_hash, now)
+                    self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                except Exception:
+                    self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                    self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                    raise
 
                 self.conn.execute(
                     "UPDATE memories SET confidence = 1.0, last_accessed = ? WHERE content_hash = ? AND deleted_at IS NULL",
@@ -739,6 +801,9 @@ class MetadataMixin:
                         raise RuntimeError(
                             f"old version {old_hash[:8]} is no longer current (concurrent update)"
                         )
+                    # Issue #1773: the new version's create is already logged; log the
+                    # supersede of the old row too, in this same transaction.
+                    self._append_supersede_event(old_hash)
                     self.conn.commit()
                 except Exception:
                     self.conn.rollback()
