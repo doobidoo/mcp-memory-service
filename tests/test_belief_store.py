@@ -1,5 +1,6 @@
 """Tests for §2 Belief Store — observation-to-belief derivation pipeline."""
 
+import json
 import math
 import sqlite3
 import tempfile
@@ -254,7 +255,7 @@ def test_migration_applies_cleanly():
 @pytest.fixture
 def belief_db():
     """Create an in-memory DB with beliefs table for service tests."""
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     migration_path = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "storage" / "migrations" / "012_add_belief_store.sql"
     conn.executescript(migration_path.read_text())
     return conn
@@ -348,7 +349,6 @@ async def test_challenge_belief_not_found(mock_storage):
 @pytest.mark.asyncio
 async def test_challenge_belief_reederivation(mock_storage, belief_db):
     """Challenge a belief — re-derive and update status."""
-    import json
 
     now = datetime.now(timezone.utc)
     belief_hash = _hash_content("Test belief")

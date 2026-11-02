@@ -11,7 +11,14 @@ meta-noise shapes below currently return False, and go GREEN when the filter lea
 reject them. The three legit cases guard against over-reach (must stay False).
 """
 
-from mcp_memory_service.consolidation.belief_service import _is_noise
+import hashlib
+import json
+import sqlite3
+import time
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from mcp_memory_service.consolidation.belief_service import BeliefService, _is_noise
 
 
 # ── Real cases measured in the live corpus that MUST be rejected (True) ──
@@ -147,10 +154,7 @@ class TestGetBeliefsExcludesStoredNoise:
 
     @staticmethod
     def _make_storage():
-        import sqlite3
-        from pathlib import Path
-        from unittest.mock import MagicMock
-        conn = sqlite3.connect(":memory:")
+        conn = sqlite3.connect(":memory:", check_same_thread=False)
         migration = (
             Path(__file__).parent.parent / "src" / "mcp_memory_service"
             / "storage" / "migrations" / "012_add_belief_store.sql"
@@ -162,7 +166,6 @@ class TestGetBeliefsExcludesStoredNoise:
 
     @staticmethod
     def _store_raw_belief(storage, content, confidence=0.9):
-        import json, hashlib, time
         h = hashlib.sha256(content.encode()).hexdigest()
         now = time.time()
         storage.conn.execute(
@@ -176,7 +179,6 @@ class TestGetBeliefsExcludesStoredNoise:
         return h
 
     async def test_stored_meta_noise_not_returned(self):
-        from mcp_memory_service.consolidation.belief_service import BeliefService
         storage = self._make_storage()
         svc = BeliefService(storage)
         noise = "[GAP] Decision gap: 'legacy'\n\nTag 'legacy' has 50 memories but no decisions recorded."
