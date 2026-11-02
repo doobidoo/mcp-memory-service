@@ -127,3 +127,34 @@ async def test_handle_memory_observe_dry_run():
     assert payload["dry_run"] is True
     assert payload["found"] >= 1
     server.memory_service.store_memory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_capture_stores_when_try_evolve_reports_no_match():
+    """Regression for #1758: capture() unpacks (evolved, new_hash).
+
+    _try_evolve used to return a bare bool, so the unpack raised TypeError
+    inside the per-candidate try and dry_run=False stored nothing; the only
+    trace was "Auto-capture store failed: cannot unpack non-iterable bool
+    object". The test above patches _try_evolve with a two-tuple, which is why
+    the real return shape was never exercised. This one leaves it alone.
+    """
+    mock_service = AsyncMock()
+    mock_service.storage = None  # nothing to compare against, so no match
+    mock_service.store_memory.return_value = {
+        "success": True,
+        "memory": {"content_hash": "child789"},
+    }
+
+    service = AutoCaptureService(memory_service=mock_service, min_confidence=0.6)
+    text = "I decided to use WAL mode for concurrent SQLite because readers were blocking writers."
+
+    with patch(
+        "mcp_memory_service.harvest.auto_capture._get_graph_instance_async",
+        AsyncMock(return_value=None),
+    ):
+        result = await service.capture(text, dry_run=False)
+
+    assert result.candidates, "the text should yield at least one candidate"
+    assert result.stored == len(result.candidates)
+    mock_service.store_memory.assert_called()
