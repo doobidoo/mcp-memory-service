@@ -1,5 +1,6 @@
 """Real shared-connection interleavings between derivation and dedup merges."""
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -52,7 +53,7 @@ class _PausedConnectionLock:
         self.state = state
 
     def __enter__(self):
-        if threading.get_ident() == self.state.main_thread:
+        if threading.get_ident() != self.state.worker.ident:
             self.state.progressed.set()
         self.state.real_lock.acquire()
 
@@ -65,7 +66,7 @@ class _PausedCursor:
         self.inner, self.state = inner, state
 
     def _signal_read(self):
-        if self.state.reading and threading.get_ident() == self.state.main_thread:
+        if self.state.reading and threading.get_ident() != self.state.worker.ident:
             self.state.progressed.set()
 
     def fetchone(self):
@@ -88,7 +89,7 @@ class _PausedConnection:
 
     def execute(self, sql, args=()):
         state = self.state
-        worker = threading.get_ident() != state.main_thread
+        worker = threading.get_ident() == state.worker.ident
         if worker and sql.startswith("UPDATE beliefs SET status"):
             raise RuntimeError("forced loser update failure")
         cursor = state.conn.execute(sql, args)
@@ -100,7 +101,7 @@ class _PausedConnection:
 
     def commit(self):
         self.state.conn.commit()
-        if threading.get_ident() == self.state.main_thread:
+        if threading.get_ident() != self.state.worker.ident:
             self.state.progressed.set()
 
     def __getattr__(self, name):
@@ -239,7 +240,7 @@ class _MetadataLock:
 
     def __enter__(self):
         state = self.state
-        if threading.get_ident() != state.main_thread and state.real_lock.locked():
+        if threading.get_ident() == state.worker.ident and state.real_lock.locked():
             state.continue_update.set()
         state.real_lock.acquire()
 
@@ -268,7 +269,7 @@ class _MetadataConnection:
         cursor = self.state.conn.execute(sql, args)
         if (
             sql.startswith("SELECT metadata")
-            and threading.get_ident() == self.state.main_thread
+            and threading.get_ident() != self.state.worker.ident
         ):
             return _MetadataCursor(cursor, self.state)
         return cursor
@@ -387,3 +388,61 @@ async def test_derivation_does_not_reactivate_a_concurrently_superseded_loser(
     ).fetchone()
     assert row[0] == "superseded"
     assert stats["promoted"] == 0
+
+
+class _ObservedLock:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.attempted = threading.Event()
+
+    def __enter__(self):
+        self.attempted.set()
+        self.lock.acquire()
+
+    def __exit__(self, *_):
+        self.lock.release()
+
+
+def _hold_connection_lock(lock, held, release):
+    with lock.lock:
+        held.set()
+        release.wait(2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation", ["get", "list", "create", "update", "status", "backfill"]
+)
+async def test_waiting_for_connection_does_not_freeze_event_loop(
+    belief_connection, monkeypatch, operation
+):
+    lock = _ObservedLock()
+    held, release = threading.Event(), threading.Event()
+    worker = threading.Thread(target=_hold_connection_lock, args=(lock, held, release))
+    storage = SimpleNamespace(
+        conn=belief_connection, _conn_lock=lock, embedding_model=None
+    )
+    service = BeliefService(storage)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("MCP_BELIEF_DEDUP", "true")
+    worker.start()
+    assert held.wait(2)
+    operations = {
+        "get": lambda: service._get_belief("canon"),
+        "list": service.get_beliefs,
+        "create": lambda: service._create_belief(
+            "new", "new belief", 0.8, "active", [], [], now
+        ),
+        "update": lambda: service._update_belief("other", 0.8, [], [], now),
+        "status": lambda: service._set_belief_status("other", "disputed", now),
+        "backfill": service.backfill_belief_embeddings,
+    }
+    task = asyncio.create_task(operations[operation]())
+    try:
+        assert await asyncio.to_thread(lock.attempted.wait, 1)
+        assert worker.is_alive(), "waiting for the lock blocked the event loop"
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+        worker.join(2)

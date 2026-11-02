@@ -30,7 +30,7 @@ MIGRATIONS = Path(__file__).parent.parent / "src" / "mcp_memory_service" / "stor
 
 @pytest.fixture
 def belief_db():
-    conn = sqlite3.connect(":memory:")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.executescript((MIGRATIONS / "012_add_belief_store.sql").read_text())
     conn.executescript((MIGRATIONS / "020_add_belief_embedding.sql").read_text())
     return conn

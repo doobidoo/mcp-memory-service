@@ -5,6 +5,7 @@ derives confidence via pure math (belief.py), and persists results
 to the beliefs table. No LLM dependency.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -363,7 +364,11 @@ class BeliefService:
     async def get_beliefs(
         self, status: str = "active", min_confidence: float = CONFIDENCE_FLOOR
     ) -> List[dict]:
-        """Get beliefs filtered by status and confidence."""
+        """Get beliefs without waiting for the connection lock on the event loop."""
+        return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence)
+
+    def _get_beliefs_sync(self, status, min_confidence):
+        """Read and decode beliefs under the shared connection lock in a worker."""
         try:
             with self._conn_lock_cm():
                 conn = self.storage.conn
@@ -818,7 +823,7 @@ class BeliefService:
             return report
 
         try:
-            rows = self._select_null_embedding_rows(cap, report)
+            rows = await asyncio.to_thread(self._select_null_embedding_rows, cap, report)
         except Exception as e:
             report["errors"].append(str(e))
             logger.error("[belief] backfill select failed: %s", _sanitize_log_value(str(e)))
@@ -831,7 +836,7 @@ class BeliefService:
                 report["skipped"] += 1
                 continue
             try:
-                self._write_backfill_embedding(bhash, blob)
+                await asyncio.to_thread(self._write_backfill_embedding, bhash, blob)
                 report["filled"] += 1
             except Exception as e:
                 report["errors"].append(f"belief {bhash}: {e}")
@@ -962,7 +967,11 @@ class BeliefService:
         return results
 
     async def _get_belief(self, belief_hash: str) -> Optional[dict]:
-        """Get a belief by hash."""
+        """Get a belief by hash without blocking the event loop."""
+        return await asyncio.to_thread(self._get_belief_sync, belief_hash)
+
+    def _get_belief_sync(self, belief_hash):
+        """Read one belief under the shared connection lock in a worker."""
         try:
             with self._conn_lock_cm():
                 conn = self.storage.conn
@@ -999,6 +1008,32 @@ class BeliefService:
         never block belief creation. A None embedding (no model, or failure)
         simply skips the UPDATE — behaviour identical to before this change.
         """
+        await asyncio.to_thread(
+            self._insert_belief, belief_hash, content, confidence, status,
+            supporting_hashes, contradicting_hashes, now,
+        )
+
+        embedding = await self._compute_belief_embedding(content)
+        if embedding is not None:
+            try:
+                # Persist the embedding UNDER the connection lock (Greptile P1
+                # #1733): committing it off-lock could end a concurrent storage
+                # worker's open transaction early. _write_backfill_embedding holds
+                # _conn_lock_cm and only fills a still-NULL row (the one just
+                # inserted), so it is the right primitive here too.
+                await asyncio.to_thread(self._write_backfill_embedding, belief_hash, embedding)
+            except Exception as e:
+                # Column absent (pre-020 schema) or any write issue: the belief
+                # is already persisted; embedding is optional, so swallow.
+                logger.debug(
+                    "[belief] embedding not stored for %s: %s",
+                    _sanitize_log_value(belief_hash), _sanitize_log_value(str(e)),
+                )
+
+    def _insert_belief(
+        self, belief_hash, content, confidence, status, supporting_hashes, contradicting_hashes, now
+    ):
+        """Insert and commit a belief in a worker under the connection lock."""
         with self._conn_lock_cm():
             conn = self.storage.conn
             now_iso = now.isoformat()
@@ -1013,23 +1048,6 @@ class BeliefService:
             )
             conn.commit()
 
-        embedding = await self._compute_belief_embedding(content)
-        if embedding is not None:
-            try:
-                # Persist the embedding UNDER the connection lock (Greptile P1
-                # #1733): committing it off-lock could end a concurrent storage
-                # worker's open transaction early. _write_backfill_embedding holds
-                # _conn_lock_cm and only fills a still-NULL row (the one just
-                # inserted), so it is the right primitive here too.
-                self._write_backfill_embedding(belief_hash, embedding)
-            except Exception as e:
-                # Column absent (pre-020 schema) or any write issue: the belief
-                # is already persisted; embedding is optional, so swallow.
-                logger.debug(
-                    "[belief] embedding not stored for %s: %s",
-                    _sanitize_log_value(belief_hash), _sanitize_log_value(str(e)),
-                )
-
     async def _update_belief(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now):
         """Update an existing belief's confidence and provenance.
 
@@ -1039,6 +1057,13 @@ class BeliefService:
         group's supporting hashes. Without this, re-deriving a canonical would
         silently drop the sources inherited from the losers it absorbed.
         """
+        await asyncio.to_thread(
+            self._update_belief_sync, belief_hash, confidence,
+            supporting_hashes, contradicting_hashes, now,
+        )
+
+    def _update_belief_sync(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now):
+        """Update provenance and commit under one worker-held connection lock."""
         # Keep the metadata read, provenance union and commit in one critical
         # section: dedup may add merged sources between any two SQL statements.
         with self._conn_lock_cm():
@@ -1076,6 +1101,12 @@ class BeliefService:
         it. Return the affected row count so a stale promotion is neither
         applied nor counted. Explicit challenge operations omit the guard.
         """
+        return await asyncio.to_thread(
+            self._set_belief_status_sync, belief_hash, status, now, expected_status,
+        )
+
+    def _set_belief_status_sync(self, belief_hash, status, now, expected_status):
+        """Apply the guarded status change under the connection lock in a worker."""
         with self._conn_lock_cm():
             conn = self.storage.conn
             cursor = conn.execute(
