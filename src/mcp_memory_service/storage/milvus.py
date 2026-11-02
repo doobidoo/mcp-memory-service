@@ -2980,21 +2980,29 @@ class MilvusMemoryStorage(MemoryStorage):
                     weights = RankedSearchWeights.from_dict(ranking_weights)
                     results = apply_ranked_rerank(results, weights=weights)
             else:
-                # Time/tag only — use Milvus query with filter
-                try:
-                    rows = await self._call_client(
-                        "query",
-                        collection_name=self.collection_name,
-                        filter=combined_filter,
-                        output_fields=list(self._OUTPUT_FIELDS),
-                        limit=min(limit * 3, _MILVUS_MAX_LIMIT),
+                # Time/tag only. Milvus has no server-side ORDER BY, so a single
+                # query(limit=...) returned whichever rows the server scanned
+                # first, which in practice are the oldest. Read the matching set
+                # newest first, as sqlite_vec does, and let the superseded filter
+                # and the limit below trim it (#1782).
+                # Bound by as_of server-side too: the newest-first slice below
+                # would otherwise keep only rows newer than as_of, which
+                # _post_filter_as_of then drops, leaving nothing.
+                scan_filter = combined_filter
+                if as_of_ts is not None:
+                    scan_filter = self._combine_filter(
+                        combined_filter, f"created_at <= {as_of_ts}"
                     )
-                    for row in (rows or []):
-                        mem = self._entity_to_memory(row)
-                        if mem:
-                            results.append(
-                                MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
-                            )
+                try:
+                    matched_memories = await self._query_memories(
+                        filter_expr=scan_filter,
+                        limit=_MILVUS_MAX_LIMIT,
+                        sort_desc_key="created_at",
+                    )
+                    results = [
+                        MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
+                        for mem in matched_memories
+                    ]
                     pre_filter_count = len(results)
                 except Exception as exc:  # noqa: BLE001
                     logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
@@ -4655,9 +4663,26 @@ class MilvusMemoryStorage(MemoryStorage):
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
-            return await asyncio.to_thread(
-                self._drain_query_iterator, filter_expr, include_embeddings,
-            )
+            try:
+                return await asyncio.to_thread(
+                    self._drain_query_iterator, filter_expr, include_embeddings,
+                )
+            except Exception as exc:
+                # Re-raised unless it is a Lite dead channel. Same recovery _call_client gives single RPCs: on Milvus Lite a
+                # channel that died while idle (milvus-lite #334) gets one
+                # reconnect and the scan starts over. Without it the caller sees
+                # an error, or an empty result where it swallows one (#1782).
+                if not (self._is_lite and self._is_lite_dead_channel_error(exc)):
+                    raise
+                logger.warning(
+                    "Milvus Lite channel died during query_iterator (%s) — "
+                    "reconnecting and rescanning once (upstream milvus-lite issue #334)",
+                    _sanitize_log_value(exc),
+                )
+                self._reconnect_lite_client()
+                return await asyncio.to_thread(
+                    self._drain_query_iterator, filter_expr, include_embeddings,
+                )
 
     def _drain_query_iterator(
         self,

@@ -404,6 +404,63 @@ async def test_exact_content_search_matches_underscore_literally(storage):
     assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
 
 
+async def _store_hourly_timeline(storage, count=10):
+    """Store ``count`` memories one hour apart, oldest first as real use writes
+    them. Returns their hashes ordered newest first."""
+    import time
+
+    now = time.time()
+    newest_first = []
+    for age in range(count - 1, -1, -1):
+        content = f"timeline entry written {age} hours ago"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["timeline"],
+            created_at=now - age * 3600,
+        )
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        newest_first.insert(0, memory.content_hash)
+    return newest_first
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filters", [
+    {"time_expr": "last 7 days"},
+    {"after": "2000-01-01"},
+    {"tags": ["timeline"]},
+])
+async def test_search_without_query_returns_newest_first(storage, filters):
+    """Regression for #1782: a time- or tag-only search returns the newest matches.
+
+    The branch used one unsorted ``query(limit=limit * 3)``, which on Milvus
+    returned the rows written first, so ``memory_search {"time_expr": "last
+    week", "limit": 3}`` answered with the three oldest memories in range.
+    """
+    newest_first = await _store_hourly_timeline(storage)
+
+    result = await storage.search_memories(limit=3, **filters)
+
+    assert [m["content_hash"] for m in result["memories"]] == newest_first[:3]
+
+
+@pytest.mark.asyncio
+async def test_search_without_query_skips_superseded_before_limit(storage):
+    """Superseded memories are dropped before the limit, so the newest live ones
+    still fill it (#1782)."""
+    newest_first = await _store_hourly_timeline(storage)
+    for content_hash in newest_first[:2]:
+        ok, msg = await storage.update_memory_metadata(
+            content_hash, {"metadata": {"superseded_by": "replacement"}},
+        )
+        assert ok, msg
+
+    result = await storage.search_memories(tags=["timeline"], limit=3)
+
+    assert [m["content_hash"] for m in result["memories"]] == newest_first[2:5]
+
+
 @pytest.mark.asyncio
 async def test_search_by_tags_and_or(storage):
     a = Memory(
