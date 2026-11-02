@@ -1,4 +1,4 @@
--- Migration 020: Record when a supersede happened (issue #1724)
+-- Migration 021: Record when a supersede happened (issue #1724)
 -- Safe to run multiple times (MigrationRunner treats "duplicate column" as already applied)
 --
 -- superseded_by (migration 011) says WHICH memory replaced a row but not WHEN.

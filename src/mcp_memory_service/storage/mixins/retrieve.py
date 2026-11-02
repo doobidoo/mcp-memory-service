@@ -66,7 +66,7 @@ class RetrieveMixin:
         as_of (epoch seconds, issue #1724): point-in-time query with
         knowledge-time semantics — return memories with created_at <= as_of
         that had not yet been superseded at as_of. Rows superseded before
-        migration 020 have no superseded_at; their replacement moment is
+        migration 021 have no superseded_at; their replacement moment is
         approximated with the successor's created_at.
         """
         try:
@@ -136,7 +136,7 @@ class RetrieveMixin:
                 # Issue #1724: point-in-time predicate. A memory is visible at
                 # as_of when it already existed (created_at <= as_of) and its
                 # supersede — if any — happened strictly after as_of. The
-                # supersede moment is superseded_at when known (migration 020),
+                # supersede moment is superseded_at when known (migration 021),
                 # otherwise approximated by the successor's created_at. When
                 # as_of is given it subsumes the plain superseded_filter: rows
                 # superseded after as_of were still current then.
@@ -210,7 +210,7 @@ class RetrieveMixin:
                     created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:10]
                     # Issue #1724: supersession lineage for status flags. The
                     # effective replacement moment is exact for rows superseded
-                    # after migration 020, approximated via the successor's
+                    # after migration 021, approximated via the successor's
                     # created_at for older rows.
                     superseded_by, _superseded_at_raw, eff_superseded_at = row[10:13]
                     superseded_by = superseded_by or None
@@ -653,7 +653,7 @@ class RetrieveMixin:
         """SQLite implementation of the batched supersession-lineage lookup (issue #1724).
 
         Returns content_hash -> (superseded_by, effective superseded_at), where
-        the effective time is superseded_at when known (migration 020), else
+        the effective time is superseded_at when known (migration 021), else
         the successor's created_at. Deleted rows and deleted successors are
         excluded (repository rule: successor lookups must be live-row only).
         """

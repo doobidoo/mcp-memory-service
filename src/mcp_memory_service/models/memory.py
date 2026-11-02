@@ -462,7 +462,7 @@ class MemoryQueryResult:
     debug_info: Dict[str, Any] = field(default_factory=dict)
     # Issue #1724: supersession lineage, populated by backends that track it
     # (sqlite_vec / hybrid). superseded_at is the exact replacement moment for
-    # rows superseded after migration 020; for older rows it is approximated
+    # rows superseded after migration 021; for older rows it is approximated
     # with the successor's created_at (see RetrieveMixin.retrieve).
     superseded_by: Optional[str] = None
     superseded_at: Optional[float] = None

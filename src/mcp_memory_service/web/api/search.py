@@ -159,6 +159,11 @@ def _search_result_to_plugin_row(result: SearchResult) -> dict[str, Any]:
     row = result.memory.model_dump()
     row["similarity_score"] = result.similarity_score
     row["relevance_reason"] = result.relevance_reason
+    # Issue #1724: the status flags live on SearchResult, not MemoryResponse,
+    # so they must ride along explicitly or the round trip drops them.
+    row["status"] = result.status
+    row["superseded_by"] = result.superseded_by
+    row["superseded_at"] = result.superseded_at
     return row
 
 
@@ -168,6 +173,9 @@ def _plugin_row_to_search_result(row: dict[str, Any]) -> SearchResult:
         memory=MemoryResponse(**row),
         similarity_score=row.get("similarity_score"),
         relevance_reason=row.get("relevance_reason"),
+        status=row.get("status"),
+        superseded_by=row.get("superseded_by"),
+        superseded_at=row.get("superseded_at"),
     )
 
 
