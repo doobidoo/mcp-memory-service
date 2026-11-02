@@ -1,8 +1,8 @@
 {
   "meta.title": "MCP Memory Service - Painel",
-  "meta.language.code": "pt-br",
+  "meta.language.code": "pt",
   "meta.language.nativeName": "Português (Brasil)",
-  "meta.language.englishName": "Portuguese",
+  "meta.language.englishName": "Portuguese (Brazil)",
   "meta.language.flag": "🇧🇷",
   "header.title": "MCP Memory",
   "header.versionLoading": "Carregando...",
