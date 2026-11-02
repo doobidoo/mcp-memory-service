@@ -25,7 +25,7 @@ The Knowledge Graph Dashboard provides an interactive visualization of your memo
   drag, and animated re-centering
 - **Typed Relationships**: 6 semantic relationship types for rich knowledge graphs
 - **Analytics**: Bar chart showing distribution of relationship types
-- **Multi-Language**: Full UI localization in 9 languages
+- **Multi-Language**: Full UI localization in 10 languages
 - **Dark Mode**: Seamless integration with dashboard theme
 - **Performance**: Tested with 2,730 relationships
 
@@ -78,7 +78,7 @@ A Chart.js bar chart displays the breakdown of relationship types in your knowle
 
 ### Multi-Language Support
 
-The dashboard UI is fully localized in 9 languages:
+The dashboard UI is fully localized in 10 languages:
 
 | Language | Code | Knowledge Graph keys |
 |----------|------|----------------------|
