@@ -316,7 +316,10 @@ async function capture(event, config, project, state, deadline, persist) {
     for (const message of messages) {
         if (message.role === 'user') overrides = hasUserOverride(message.content);
         if (overrides.forceSkip) continue;
-        if (message.role === 'assistant' && pairedAssistantTurns.has(message.turnIndex)) continue;
+        const isPairedAssistantTurn = message.role === 'assistant'
+            && pairedAssistantTurns.has(message.turnIndex);
+        const canCapturePair = config.autoCapture && captures < config.maxCapturesPerRun;
+        if (isPairedAssistantTurn && canCapturePair) continue;
         const pair = message.role === 'user' ? pairsByUserTurn.get(message.turnIndex) : undefined;
         const content = pair?.captureText
             || stripCode(message.content).replace(/#remember\b/gi, '').trim();
@@ -351,9 +354,13 @@ async function capture(event, config, project, state, deadline, persist) {
             captures++;
             if (!result.duplicate && !result.refused) saved++;
         }
-        if (!pair && !summarized.has(id)
+        const pairDeferredByCap = Boolean(pair && !canCapturePair);
+        const shouldSummarize = pair
+            ? pairDeferredByCap && !captured.has(id)
+            : !isPairedAssistantTurn;
+        if (shouldSummarize && !summarized.has(id)
             && (forced || ['decision', 'error', 'learning', 'implementation'].includes(detection.matchedPattern))) {
-            outcomes.set(id, { id, text });
+            outcomes.set(id, { id, text: pairDeferredByCap ? pair.captureText : text });
         }
     }
     if (config.sessionSummary && outcomes.size) {

@@ -80,6 +80,55 @@ test('opt-in contextual capture stores a short reply with its immediately preced
     assert.match(updatedWrites[1].body.content, /User: Change it now\./);
 });
 
+test('contextual capture preserves later assistant outcomes after the capture cap', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('user', 'Choose storage.'),
+        message('assistant', decision, 'final_answer'),
+        message('assistant', learning, 'final_answer'),
+        message('user', 'Ok go.')
+    ]);
+
+    await runHook(f.event, {
+        ...f.config,
+        contextualCapture: true,
+        maxCapturesPerRun: 1,
+        sessionSummary: true
+    });
+
+    const captures = f.requests.filter(request => request.url === '/api/memories'
+        && request.body.memory_type !== 'session');
+    const summary = f.requests.find(request => request.body.memory_type === 'session').body.content;
+    assert.equal(captures.length, 1);
+    assert.match(captures[0].body.content, /We decided to use SQLite/);
+    assert.match(summary, /the timeout must cover the entire request/);
+});
+
+test('contextual capture summarizes a valuable pair deferred by the capture cap', async t => {
+    const f = await fixture(t);
+    await f.write([
+        message('user', decision),
+        message('assistant', 'Understood.', 'final_answer'),
+        message('assistant', 'The client keeps its existing configuration, and migration remains '
+            + 'compatible with previously stored records.', 'final_answer'),
+        message('user', 'We selected this option.')
+    ]);
+
+    await runHook(f.event, {
+        ...f.config,
+        contextualCapture: true,
+        maxCapturesPerRun: 1,
+        sessionSummary: true
+    });
+
+    const captures = f.requests.filter(request => request.url === '/api/memories'
+        && request.body.memory_type !== 'session');
+    const summary = f.requests.find(request => request.body.memory_type === 'session').body.content;
+    assert.equal(captures.length, 1);
+    assert.match(summary, /The client keeps its existing configuration/);
+    assert.match(summary, /We selected this option/);
+});
+
 test('contextual capture omits malformed or oversized source timestamps', async t => {
     const f = await fixture(t);
     const oversizedTimestamp = `2026-10-30T00:01:00.000Z${'x'.repeat(4096)}`;
