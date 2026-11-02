@@ -919,8 +919,8 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 INSERT OR REPLACE INTO memories
                 (content_hash, content, tags, memory_type, metadata,
                  created_at, created_at_iso, updated_at, updated_at_iso,
-                 deleted_at, embedding_pending, store, superseded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                 deleted_at, embedding_pending, store, superseded_by, superseded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
             """, (
                 content_hash,
                 content,
@@ -936,6 +936,8 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 # Greptile P1-4: carry superseded_by so a replaced memory stays hidden from
                 # search on the target (retrieve filters on this column, not metadata).
                 payload.get("superseded_by"),
+                # #1724: the replacement moment travels with it (None from older peers).
+                payload.get("superseded_at"),
             ))
 
             # Remove the old embedding if the replace changed the row id (Greptile P2);

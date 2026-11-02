@@ -224,6 +224,14 @@ def test_parse_as_of_shorthands():
     end_sep1 = datetime(2026, 9, 1, 23, 59, 59).timestamp()
     assert parse_as_of("2026-09-01") == pytest.approx(end_sep1, abs=2)
 
+    # The bound covers the whole final second: created_at keeps fractions, so a
+    # memory stored at 23:59:59.5 belongs to that day, month and year.
+    late = datetime(2024, 12, 31, 23, 59, 59, 500000).timestamp()
+    assert late <= parse_as_of("2024-12-31")
+    assert late <= parse_as_of("2024-12")
+    assert late <= parse_as_of("2024")
+    assert datetime(2024, 2, 29, 23, 59, 59, 500000).timestamp() <= parse_as_of("2024-02")
+
     # Shorthands order correctly: year > month > day within it.
     assert parse_as_of("2024") > parse_as_of("2024-06") > parse_as_of("2024-06-15")
 

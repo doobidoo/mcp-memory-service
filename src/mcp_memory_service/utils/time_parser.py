@@ -845,22 +845,22 @@ def parse_as_of(value: str) -> float:
     text = value.strip()
     if re.fullmatch(r"\d{4}", text):  # YYYY -> Dec 31, end of day
         year = int(text)
-        dt = datetime(year, 12, 31, 23, 59, 59)
+        dt = datetime(year, 12, 31, 23, 59, 59, 999999)
         return dt.timestamp()  # host-local, like parse_boundary's bare dates
     if re.fullmatch(r"\d{4}-\d{2}", text):  # YYYY-MM -> last day of month, end of day
         year, month = int(text[:4]), int(text[5:7])
         if not 1 <= month <= 12:
             raise ValueError(f"Invalid as_of month: {value!r}. Use YYYY, YYYY-MM, or an ISO date.")
-        # First day of next month minus one second.
+        # Last instant of the month: timestamps keep sub-second precision, so
+        # the bound includes the whole final second.
         if month == 12:
-            last = datetime(year, 12, 31, 23, 59, 59)
+            last = datetime(year, 12, 31, 23, 59, 59, 999999)
         else:
-            last = datetime(year, month + 1, 1, 23, 59, 59) - timedelta(days=1)
-            last = last.replace(hour=23, minute=59, second=59)
+            last = datetime(year, month + 1, 1, 23, 59, 59, 999999) - timedelta(days=1)
         return last.timestamp()  # host-local, like parse_boundary's bare dates
     dt = datetime.fromisoformat(text)  # raises ValueError when unparseable
     if dt.tzinfo is not None:
         return dt.timestamp()
     if len(text) == 10:  # bare YYYY-MM-DD -> end of that calendar day
-        return dt.replace(hour=23, minute=59, second=59).timestamp()
+        return dt.replace(hour=23, minute=59, second=59, microsecond=999999).timestamp()
     return dt.replace(tzinfo=timezone.utc).timestamp()
