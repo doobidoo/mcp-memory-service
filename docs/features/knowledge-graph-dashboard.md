@@ -89,7 +89,7 @@ The dashboard UI is fully localized in 8 languages:
 | French | fr | 22 keys |
 | Japanese | ja | 22 keys |
 | Korean | ko | 22 keys |
-| Portuguese (Brazil)| pt-br | 424 keys |
+| Portuguese (Brazil)| pt | 424 keys |
 
 **Total:** 154 translation keys added in v9.2.0
 

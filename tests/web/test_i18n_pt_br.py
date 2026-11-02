@@ -11,7 +11,8 @@ def test_pt_catalog_parity():
     Reads the real en.json and pt.json catalogs from disk to verify coverage, 
     non-empty values, and interpolation token parity.
     """
-    i18n_dir = Path("src/mcp_memory_service/web/static/i18n")
+    project_root = Path(__file__).resolve().parents[2]
+    i18n_dir = project_root / "src/mcp_memory_service/web/static/i18n"  
     en_path = i18n_dir / "en.json"
     pt_path = i18n_dir / "pt.json"
 
