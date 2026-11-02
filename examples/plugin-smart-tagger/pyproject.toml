@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "mcp-memory-plugin-smart-tagger"
 version = "0.1.0"
 description = "Plugin for mcp-memory-service — auto-tags memories on store and boosts mistake-notes on retrieve"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 
 [project.entry-points."mcp_memory_service.plugins"]

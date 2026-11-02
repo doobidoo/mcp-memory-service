@@ -62,8 +62,8 @@ def check_python_version():
     major, minor, _ = platform.python_version_tuple()
     major, minor = int(major), int(minor)
     
-    if major < 3 or (major == 3 and minor < 10):
-        print_error(f"Python version {major}.{minor} is too old. MCP Memory Service requires Python 3.10+")
+    if major < 3 or (major == 3 and minor < 11):
+        print_error(f"Python version {major}.{minor} is too old. MCP Memory Service requires Python 3.11+")
         return False
     else:
         print_success(f"Python version {major}.{minor} is compatible")
@@ -108,7 +108,7 @@ def check_dependencies():
 
 def check_torch_compatibility():
     """Check if PyTorch is compatible with the system."""
-    import torch
+    import torch  # inline import: probe package availability after installation
     
     # Get system info
     system = platform.system().lower()
@@ -159,8 +159,8 @@ def check_torch_compatibility():
 
 def check_sentence_transformers_compatibility():
     """Check if sentence-transformers is compatible with the system and PyTorch."""
-    import torch
-    import sentence_transformers
+    import torch  # inline import: probe package availability after installation
+    import sentence_transformers  # inline import: probe package availability after installation
     
     # Check compatibility
     torch_version = [int(x) for x in torch.__version__.split('.')[:2]]
@@ -209,7 +209,7 @@ def check_sentence_transformers_compatibility():
 def check_mcp_protocol():
     """Check if MCP protocol handler is working correctly."""
     try:
-        import mcp
+        import mcp  # inline import: probe package availability after installation
         from mcp.types import TextContent
         from mcp.server import Server
         
@@ -291,7 +291,7 @@ def check_system_paths():
 def check_torch_operations():
     """Perform basic PyTorch operations to verify functionality."""
     try:
-        import torch
+        import torch  # inline import: probe package availability after installation
         
         # Create a simple tensor
         print_info("Creating and manipulating tensors...")

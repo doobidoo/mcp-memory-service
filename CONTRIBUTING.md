@@ -71,7 +71,7 @@ Answer questions in Issues or help other users.
 
 ### Prerequisites
 
-- Python 3.10 or higher
+- Python 3.11 or higher
 - Git
 - Platform-specific requirements:
   - **macOS**: Homebrew Python recommended for SQLite extension support

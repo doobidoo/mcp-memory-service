@@ -30,6 +30,7 @@ import time
 from collections import deque
 from unittest.mock import MagicMock, call, patch
 
+import psutil
 from click import Command
 from click.testing import CliRunner
 
@@ -196,7 +197,8 @@ def test_stop_refuses_to_kill_foreign_listener_without_force(monkeypatch, tmp_pa
 
         assert result.exit_code != 0
         assert str(proc.pid) in result.output
-        assert sys.executable in result.output
+        # Framework builds on macOS can expose a different path in argv[0].
+        assert psutil.Process(proc.pid).cmdline()[0] in result.output
         assert "Refusing to stop" in result.output
         assert "--force" in result.output
         assert proc.poll() is None

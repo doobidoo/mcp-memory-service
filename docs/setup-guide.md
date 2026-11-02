@@ -31,7 +31,7 @@ Each path builds on the previous one where noted. OpenCode users can start with 
 
 **For whom:** Individual users who want Claude Desktop or Claude Code to remember things across sessions.
 
-**Prerequisites:** Python 3.10–3.13, pip
+**Prerequisites:** Python 3.11–3.13, pip
 
 **Duration:** ~5 min
 
@@ -88,7 +88,7 @@ memory server --help
 
 **For whom:** OpenCode users who want memory-aware sessions via a local plugin.
 
-**Prerequisites:** Python 3.10–3.13, pip, Git, and an installed OpenCode version with plugin support.
+**Prerequisites:** Python 3.11–3.13, pip, Git, and an installed OpenCode version with plugin support.
 The commands below use a Bash-compatible shell (macOS, Linux, or WSL).
 
 **Duration:** ~5 min for the memory plugin; the sidebar is optional.
@@ -180,7 +180,7 @@ automatic memory hooks.
 
 **For whom:** Codex users who want automatic project context and session capture.
 
-**Prerequisites:** A current Codex runtime with `/hooks`, Node.js 18+, Python 3.10+,
+**Prerequisites:** A current Codex runtime with `/hooks`, Node.js 18+, Python 3.11+,
 and a repository checkout.
 
 Start the HTTP API as in [Path 1A](#path-1a-opencode-plugin), then run from the
