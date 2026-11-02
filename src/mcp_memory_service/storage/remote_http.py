@@ -706,7 +706,7 @@ class RemoteHTTPStorage(MemoryStorage):
 
     # Non-serviceable methods (raise NotImplementedError)
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = None, as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('retrieve not serviceable over RemoteHTTPStorage')
 
