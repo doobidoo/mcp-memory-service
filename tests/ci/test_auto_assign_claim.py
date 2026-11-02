@@ -219,6 +219,65 @@ def test_earliest_claim_wins_even_when_later_event_runs_first(tmp_path, monkeypa
     assert len(api.replies) == count
 
 
+@pytest.mark.parametrize("login", ["alice", "ALICE"])
+def test_command_confirms_own_earlier_prose_claim(tmp_path, monkeypatch, login):
+    api = GitHub(
+        [comment(9, login, "I can take this one."), comment()],
+        labels=("good first issue", "auto-assign", "claim-pending"),
+    )
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1])
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1])
+    assert [a["login"].lower() for a in api.issue["assignees"]] == ["alice"]
+    assert len(api.replies) == 1
+    assert "<!-- auto-claim:10:assigned -->" in api.replies[0]
+    assert "claim-pending" not in [x["name"] for x in api.issue["labels"]]
+
+
+@pytest.mark.parametrize("competing_body", ["/claim", "I'd like to take this one."])
+def test_own_confirmation_cannot_bypass_an_intervening_claim(
+    tmp_path, monkeypatch, competing_body
+):
+    api = GitHub(
+        [
+            comment(8, "alice", "I can take this one."),
+            comment(9, "bob", competing_body),
+            comment(),
+        ]
+    )
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert not api.issue["assignees"]
+    assert any("maintainer" in r for r in api.replies)
+
+
+def test_confirmed_prose_claim_wins_over_a_later_claim(tmp_path, monkeypatch):
+    api = GitHub(
+        [comment(9, "alice", "I can take this one."), comment(), comment(11, "bob")]
+    )
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert api.issue["assignees"] == [{"login": "alice"}]
+    assert any("<!-- auto-claim:10:assigned -->" in r for r in api.replies)
+    assert any("@bob" in r and "already assigned" in r for r in api.replies)
+
+
+@pytest.mark.parametrize(
+    "reason", ["edited-prose", "edited-command", "withdrawal", "open-pr", "released"]
+)
+def test_own_confirmation_preserves_safety_checks(tmp_path, monkeypatch, reason):
+    api = GitHub([comment(8, "alice", "I can take this one."), comment()])
+    if reason.startswith("edited"):
+        index = 1 if reason == "edited-command" else 0
+        api.comments[index]["updated_at"] = "2026-11-01T11:00:00Z"
+    if reason == "withdrawal":
+        api.comments.insert(1, comment(9, "alice", "I'm withdrawing my claim."))
+    if reason == "open-pr":
+        api.open_pr = True
+    if reason == "released":
+        api.timeline = [{"event": "unassigned"}]
+    run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1])
+    assert not api.issue["assignees"]
+    assert any("maintainer" in r for r in api.replies)
+
+
 def test_existing_assignment_is_preserved_and_claimant_told_once(tmp_path, monkeypatch):
     api = GitHub(assignees=("carol",))
     run_cli(tmp_path, monkeypatch, api)

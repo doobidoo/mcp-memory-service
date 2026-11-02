@@ -2200,7 +2200,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return success, message
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default") -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories from primary storage (fast)."""
         return await self.primary.retrieve(
             query,
@@ -2211,6 +2211,7 @@ class HybridMemoryStorage(MemoryStorage):
             start_time=start_time,
             end_time=end_time,
             store=store,
+            as_of=as_of,
         )
 
     async def retrieve_hybrid(
@@ -2221,6 +2222,7 @@ class HybridMemoryStorage(MemoryStorage):
         semantic_weight: Optional[float] = None,
         include_superseded: bool = False,
         store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         """BM25 + vector search on primary storage (#1576).
 
@@ -2235,6 +2237,7 @@ class HybridMemoryStorage(MemoryStorage):
             semantic_weight=semantic_weight,
             include_superseded=include_superseded,
             store=store,
+            as_of=as_of,
         )
 
     async def search(self, query: str, n_results: int = 5, min_similarity: float = 0.0) -> List[MemoryQueryResult]:
@@ -2334,6 +2337,13 @@ class HybridMemoryStorage(MemoryStorage):
     async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Retrieve memories by exact content match from primary storage."""
         return await self.primary.get_by_exact_content(content, store=store)
+
+    async def _get_supersession_map(self, content_hashes, store=None):
+        """Delegate the issue-#1724 lineage lookup to the primary SQLite storage."""
+        delegate = getattr(self.primary, "_get_supersession_map", None)
+        if delegate is not None:
+            return await delegate(content_hashes, store=store)
+        return {}
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""

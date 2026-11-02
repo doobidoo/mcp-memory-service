@@ -128,7 +128,7 @@ python install_hooks.py --natural-triggers  # Natural Memory Triggers only
 ```
 
 **Prerequisites:**
-- Python 3.10+
+- Python 3.11+
 - Node.js (for hooks execution)
 - **`jq`** (required for statusLine feature - displays memory context in Claude Code status bar)
   - macOS: `brew install jq`

@@ -31,6 +31,9 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    - name: Verify generated language pages
+      run: python3 scripts/maintenance/generate_localized_site.py --check
+
     - name: Deploy site/ to Cloudflare Pages
       env:
         CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

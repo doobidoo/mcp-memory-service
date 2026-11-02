@@ -322,9 +322,9 @@ class HookInstaller:
         import platform
         import os
 
-        # Check Python version (must be 3.10+)
-        if sys.version_info < (3, 10):
-            self.warn(f"Python {sys.version_info.major}.{sys.version_info.minor} detected - code execution requires 3.10+")
+        # Check Python version (must be 3.11+)
+        if sys.version_info < (3, 11):
+            self.warn(f"Python {sys.version_info.major}.{sys.version_info.minor} detected - code execution requires 3.11+")
 
         # Use sys.executable to get the current Python interpreter
         # This ensures venv Python is used if installer runs from venv

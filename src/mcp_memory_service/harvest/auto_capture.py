@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ..compat import _sanitize_log_value
 from .extractor import PatternExtractor
 from .harvester import SessionHarvester
 from .models import HARVEST_TYPES, HarvestCandidate, HarvestConfig, harvest_config_from_env
@@ -146,7 +147,7 @@ class AutoCaptureService:
                     if link_parent and parent_hash:
                         await _link_derived_from(parent_hash, child_hash, candidate.confidence, graph=graph)
             except Exception as exc:
-                logger.warning("Auto-capture store failed: %s", exc)
+                logger.warning("Auto-capture store failed: %s", _sanitize_log_value(str(exc)))
 
         return result
 
@@ -220,4 +221,4 @@ async def _link_derived_from(parent_hash: str, child_hash: str, confidence: floa
             metadata={"extraction": "auto_capture"},
         )
     except Exception as exc:
-        logger.debug("Auto-capture graph link skipped: %s", exc)
+        logger.debug("Auto-capture graph link skipped: %s", _sanitize_log_value(str(exc)))

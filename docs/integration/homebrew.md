@@ -18,7 +18,7 @@ The Homebrew PyTorch integration allows MCP Memory Service to use system-install
 ### Prerequisites
 
 - Homebrew installed
-- Python 3.10+
+- Python 3.11+
 - PyTorch via Homebrew: `brew install pytorch`
 
 ### Installation

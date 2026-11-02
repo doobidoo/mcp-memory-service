@@ -79,6 +79,7 @@ WITH RECURSIVE connected_memories(hash, distance, path) AS (
         cm.distance < ?  -- Limit recursion depth
         AND instr(cm.path, ',' || {selected_hash} || ',') = 0  -- Prevent cycles (exact match)
         {relationship_filter}
+        {temporal_filter}
 )
 SELECT DISTINCT hash, distance
 FROM connected_memories
@@ -268,7 +269,8 @@ class GraphStorage:
         memory_hash: str,
         max_hops: int = 2,
         relationship_type: Optional[str] = None,
-        direction: str = "both"
+        direction: str = "both",
+        as_of: Optional[float] = None,
     ) -> List[Tuple[str, int]]:
         """
         Find all memories connected within N hops using recursive CTE.
@@ -281,6 +283,11 @@ class GraphStorage:
             max_hops: Maximum number of hops to traverse (default: 2)
             relationship_type: Optional filter for specific relationship type
             direction: Direction to traverse ("outgoing", "incoming", "both")
+            as_of: Optional point-in-time filter (Unix epoch, issue #1724).
+                Edges whose metadata carries valid_from/valid_until
+                (see reasoning.temporal.store_temporal_association) are only
+                traversed when valid at as_of; edges without temporal bounds
+                are always traversed.
 
         Returns:
             List of (memory_hash, distance) tuples, sorted by distance
@@ -313,6 +320,18 @@ class GraphStorage:
                 relationship_filter = "AND mg.relationship_type = ?"
                 params.append(relationship_type)
 
+            # Issue #1724: point-in-time traversal. Temporal edges carry
+            # valid_from/valid_until in metadata JSON; untimed edges pass.
+            temporal_filter = ""
+            if as_of is not None:
+                temporal_filter = (
+                    "AND (json_extract(mg.metadata, '$.valid_from') IS NULL "
+                    "OR json_extract(mg.metadata, '$.valid_from') <= ?) "
+                    "AND (json_extract(mg.metadata, '$.valid_until') IS NULL "
+                    "OR json_extract(mg.metadata, '$.valid_until') >= ?)"
+                )
+                params.extend([as_of, as_of])
+
             # Build join condition and selected hash based on direction
             if direction == "outgoing":
                 join_condition = "JOIN memory_graph mg ON cm.hash = mg.source_hash"
@@ -329,7 +348,8 @@ class GraphStorage:
             query = _QUERY_TEMPLATE_FIND_CONNECTED.format(
                 selected_hash=selected_hash,
                 join_condition=join_condition,
-                relationship_filter=relationship_filter
+                relationship_filter=relationship_filter,
+                temporal_filter=temporal_filter,
             )
 
             cursor = conn.cursor()
@@ -347,6 +367,51 @@ class GraphStorage:
         except sqlite3.Error as e:
             logger.error(f"Failed to find connected memories: {_sanitize_log_value(e)}")
             return []
+
+    async def get_temporal_edges(
+        self,
+        memory_hash: str,
+        as_of: Optional[float] = None,
+    ) -> List["TemporalEdge"]:
+        """Return temporal edges incident to a memory, filtered by as_of.
+
+        Issue #1724: this wires up reasoning/temporal.py (previously dead
+        code). Edges are built from memory_graph rows — valid_from/valid_until
+        come from the metadata JSON written by
+        reasoning.temporal.store_temporal_association — and passed through
+        filter_temporal_edges.
+        """
+        from ..reasoning.temporal import TemporalEdge, filter_temporal_edges
+
+        edges: List[TemporalEdge] = []
+        try:
+            conn = await self._get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT source_hash, target_hash, metadata FROM memory_graph "
+                    "WHERE source_hash = ? OR target_hash = ?",
+                    (memory_hash, memory_hash),
+                )
+                for row in cursor.fetchall():
+                    try:
+                        meta = json.loads(row["metadata"]) if row["metadata"] else {}
+                    except (json.JSONDecodeError, TypeError):
+                        meta = {}
+                    edges.append(
+                        TemporalEdge(
+                            source=row["source_hash"],
+                            target=row["target_hash"],
+                            valid_from=meta.get("valid_from"),
+                            valid_until=meta.get("valid_until"),
+                        )
+                    )
+            finally:
+                cursor.close()
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get temporal edges: {_sanitize_log_value(e)}")
+            return []
+        return filter_temporal_edges(edges, as_of)
 
     async def get_relationship_types(self, memory_hash: str) -> Dict[str, int]:
         """
