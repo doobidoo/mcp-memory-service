@@ -18,20 +18,44 @@ on:
       dry_run:
         description: 'Print the digest to the run summary without commenting'
         type: boolean
-        default: false
+        default: true
+
+# Serialize scheduled and manual runs so they cannot both post the same reminder.
+concurrency:
+  group: triage-digest
+  cancel-in-progress: false
 
 permissions:
   contents: read
   issues: write
+  pull-requests: write
 
 jobs:
   digest:
+    if: github.repository == 'doobidoo/mcp-memory-service'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Remind contributors about unanswered reviews
+      id: reviews
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        DRY_RUN: ${{ inputs.dry_run }}
+      run: |
+        args=()
+        if [ "$DRY_RUN" != "true" ]; then
+          args+=(--post)
+        fi
+        python3 scripts/maintenance/github_review_reminders.py "${args[@]}" \
+          --report "$RUNNER_TEMP/review-report.json" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Build and post the digest
+      # A reminder API failure must not suppress the existing maintainer digest.
+      if: ${{ !cancelled() }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         DIGEST_ISSUE: ${{ vars.TRIAGE_DIGEST_ISSUE }}
@@ -43,5 +67,10 @@ jobs:
           if [ "$DRY_RUN" != "true" ]; then
             args+=(--post)
           fi
+        fi
+        if [ -f "$RUNNER_TEMP/review-report.json" ]; then
+          args+=(--review-report "$RUNNER_TEMP/review-report.json")
+        else
+          echo 'Review scan failed; reviewer reply details are unavailable.' >> "$GITHUB_STEP_SUMMARY"
         fi
         python3 scripts/maintenance/github_triage_digest.py "${args[@]}" >> "$GITHUB_STEP_SUMMARY"
