@@ -131,7 +131,7 @@ def _cosine(a, b) -> float:
     """Cosine similarity of two equal-length float vectors. 0.0 on degenerate input."""
     if not a or not b or len(a) != len(b):
         return 0.0
-    import math
+    import math  # inline import: only needed for cosine evaluation
     dot = sum(x * y for x, y in zip(a, b))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(y * y for y in b))
@@ -212,25 +212,7 @@ class BeliefService:
         stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0, "errors": []}
 
         try:
-            observations = await self.storage.get_all_memories(memory_type="observation")
-            if not observations:
-                return stats
-
-            # Filter noise before grouping
-            observations = [
-                obs for obs in observations
-                if not _is_noise(obs.content if hasattr(obs, "content") else obs.get("content", ""))
-            ]
-            if not observations:
-                return stats
-
-            # Filter low-entropy content (repetitive boilerplate)
-            observations = [
-                obs for obs in observations
-                if _content_entropy(
-                    obs.content if hasattr(obs, "content") else obs.get("content", "")
-                ) > 0.25
-            ]
+            observations = await self._load_derivation_observations()
             if not observations:
                 return stats
 
@@ -241,48 +223,7 @@ class BeliefService:
 
             for group_content, group_obs in groups.items():
                 try:
-                    obs_dicts = [self._obs_to_dict(o) for o in group_obs]
-                    # All observations in a group are supporting; contradictions come from
-                    # memories explicitly marked via contradiction detection
-                    contradicting = await self._find_contradictions(group_obs)
-
-                    supporting_hashes = [o.content_hash for o in group_obs]
-                    contradicting_hashes = [c.get("content_hash", "") for c in contradicting]
-
-                    confidence = derive_confidence(
-                        supporting=obs_dicts,
-                        contradicting=contradicting,
-                        current_time=now,
-                        lambda_weight=LAMBDA,
-                    )
-
-                    belief_hash = _hash_content(group_content)
-                    existing = await self._get_belief(belief_hash)
-
-                    if existing:
-                        await self._update_belief(
-                            belief_hash, confidence, supporting_hashes, contradicting_hashes, now
-                        )
-                        stats["updated"] += 1
-
-                        # Promote or supersede
-                        status = existing["status"]
-                        if status == "candidate" and should_promote(confidence, len(supporting_hashes)):
-                            await self._set_belief_status(belief_hash, "active", now)
-                            stats["promoted"] += 1
-                        elif status == "active" and should_supersede(confidence):
-                            await self._set_belief_status(belief_hash, "superseded", now)
-                            stats["superseded"] += 1
-                    else:
-                        # Create new candidate
-                        status = "active" if should_promote(confidence, len(supporting_hashes)) else "candidate"
-                        await self._create_belief(
-                            belief_hash, group_content, confidence, status,
-                            supporting_hashes, contradicting_hashes, now
-                        )
-                        stats["created"] += 1
-                        if status == "active":
-                            stats["promoted"] += 1
+                    await self._derive_group_belief(group_content, group_obs, now, stats)
 
                 except Exception as e:
                     stats["errors"].append(str(e))
@@ -297,6 +238,78 @@ class BeliefService:
             stats["created"], stats["updated"], stats["promoted"], stats["superseded"],
         )
         return stats
+
+    async def _load_derivation_observations(self):
+        """Load observations eligible for grouping, excluding noise and boilerplate."""
+        observations = await self.storage.get_all_memories(memory_type="observation")
+        if not observations:
+            return []
+
+        # Filter noise before grouping
+        observations = [
+            obs for obs in observations
+            if not _is_noise(obs.content if hasattr(obs, "content") else obs.get("content", ""))
+        ]
+        if not observations:
+            return []
+
+        # Filter low-entropy content (repetitive boilerplate)
+        observations = [
+            obs for obs in observations
+            if _content_entropy(
+                obs.content if hasattr(obs, "content") else obs.get("content", "")
+            ) > 0.25
+        ]
+        if not observations:
+            return []
+        return observations
+
+    async def _derive_group_belief(self, group_content, group_obs, now, stats):
+        """Derive one group, preserving partial progress if a later step fails."""
+        obs_dicts = [self._obs_to_dict(o) for o in group_obs]
+        # All observations in a group are supporting; contradictions come from
+        # memories explicitly marked via contradiction detection
+        contradicting = await self._find_contradictions(group_obs)
+
+        supporting_hashes = [o.content_hash for o in group_obs]
+        contradicting_hashes = [c.get("content_hash", "") for c in contradicting]
+
+        confidence = derive_confidence(
+            supporting=obs_dicts,
+            contradicting=contradicting,
+            current_time=now,
+            lambda_weight=LAMBDA,
+        )
+
+        belief_hash = _hash_content(group_content)
+        existing = await self._get_belief(belief_hash)
+
+        if existing:
+            await self._update_belief(
+                belief_hash, confidence, supporting_hashes, contradicting_hashes, now
+            )
+            stats["updated"] += 1
+
+            # Promote or supersede
+            status = existing["status"]
+            if status == "candidate" and should_promote(confidence, len(supporting_hashes)):
+                stats["promoted"] += await self._set_belief_status(
+                    belief_hash, "active", now, expected_status=status
+                )
+            elif status == "active" and should_supersede(confidence):
+                stats["superseded"] += await self._set_belief_status(
+                    belief_hash, "superseded", now, expected_status=status
+                )
+        else:
+            # Create new candidate
+            status = "active" if should_promote(confidence, len(supporting_hashes)) else "candidate"
+            await self._create_belief(
+                belief_hash, group_content, confidence, status,
+                supporting_hashes, contradicting_hashes, now
+            )
+            stats["created"] += 1
+            if status == "active":
+                stats["promoted"] += 1
 
     async def challenge_belief(self, belief_hash: str) -> dict:
         """Force re-derivation of a specific belief."""
@@ -352,14 +365,15 @@ class BeliefService:
     ) -> List[dict]:
         """Get beliefs filtered by status and confidence."""
         try:
-            conn = self.storage.conn
-            cursor = conn.execute(
-                "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
-                "derived_from, contradicted_by, metadata FROM beliefs "
-                "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
-                (status, min_confidence),
-            )
-            rows = cursor.fetchall()
+            with self._conn_lock_cm():
+                conn = self.storage.conn
+                cursor = conn.execute(
+                    "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
+                    "derived_from, contradicted_by, metadata FROM beliefs "
+                    "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
+                    (status, min_confidence),
+                )
+                rows = cursor.fetchall()
             # Greptile P1 (#1727): beliefs stored BEFORE this filter existed stay
             # in the table — derive_beliefs no longer reaches them to supersede,
             # so exclude meta-statistics noise at read time too. Keeps existing
@@ -415,12 +429,13 @@ class BeliefService:
         ORDER BY belief_hash keeps the downstream greedy grouping STABLE across
         runs (SQLite has no implicit row order — tuvok P2).
         """
-        conn = self.storage.conn
-        rows = conn.execute(
-            "SELECT belief_hash, content, confidence, status, updated_at, "
-            "derived_from, embedding FROM beliefs WHERE status IN ('active', 'candidate') "
-            "ORDER BY belief_hash"
-        ).fetchall()
+        with self._conn_lock_cm():
+            conn = self.storage.conn
+            rows = conn.execute(
+                "SELECT belief_hash, content, confidence, status, updated_at, "
+                "derived_from, embedding FROM beliefs WHERE status IN ('active', 'candidate') "
+                "ORDER BY belief_hash"
+            ).fetchall()
 
         items = []
         for bhash, content, confidence, status, updated_at, derived_from, emb in rows:
@@ -572,7 +587,7 @@ class BeliefService:
         if blob is None:
             return None
         try:
-            import struct
+            import struct  # inline import: only needed when deserializing a blob
             n = len(blob) // 4
             return list(struct.unpack(f"<{n}f", blob))  # little-endian: matches serialize_float32
         except Exception:
@@ -581,13 +596,17 @@ class BeliefService:
     def _conn_lock_cm(self):
         """Context manager that holds the storage connection lock if present.
 
-        The merge transaction mutates the shared sqlite connection
+        All belief reads and writes share this lock. The merge transaction
+        mutates the shared sqlite connection
         (check_same_thread=False); holding ``storage._conn_lock`` for the whole
         read+BEGIN+UPDATE+commit serializes it against the storage's own worker
         thread so a concurrent writer cannot interleave and lose an update
         (#562). Backends/mocks without the lock (e.g. the test storage exposing
         only ``.conn``) fall back to a no-op context — correctness is unchanged
         single-threaded, only the cross-thread guard is absent.
+
+        Keep the critical section synchronous: release it before awaiting
+        storage operations or embedding generation, which may take this lock.
         """
         lock = getattr(self.storage, "_conn_lock", None)
         if lock is not None:
@@ -714,7 +733,7 @@ class BeliefService:
         off the event loop under the connection lock — falling back to an inline
         call when the backend/mock has no ``_run_in_thread``.
         """
-        import inspect as _inspect
+        import inspect as _inspect  # inline import: inspect optional embedding providers
         if _inspect.iscoroutinefunction(gen):
             return await gen(content)
         runner = getattr(self.storage, "_run_in_thread", None)
@@ -753,12 +772,13 @@ class BeliefService:
 
     def _select_null_embedding_rows(self, cap: int, report: dict) -> list:
         """Fetch up to ``cap`` beliefs with a NULL embedding (sets report['capped'])."""
-        conn = self.storage.conn
-        rows = conn.execute(
-            "SELECT belief_hash, content FROM beliefs "
-            "WHERE embedding IS NULL ORDER BY belief_hash LIMIT ?",
-            (cap + 1,),
-        ).fetchall()
+        with self._conn_lock_cm():
+            conn = self.storage.conn
+            rows = conn.execute(
+                "SELECT belief_hash, content FROM beliefs "
+                "WHERE embedding IS NULL ORDER BY belief_hash LIMIT ?",
+                (cap + 1,),
+            ).fetchall()
         if len(rows) > cap:
             report["capped"] = True
             rows = rows[:cap]
@@ -944,13 +964,14 @@ class BeliefService:
     async def _get_belief(self, belief_hash: str) -> Optional[dict]:
         """Get a belief by hash."""
         try:
-            conn = self.storage.conn
-            cursor = conn.execute(
-                "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
-                "derived_from, contradicted_by, metadata FROM beliefs WHERE belief_hash = ?",
-                (belief_hash,),
-            )
-            row = cursor.fetchone()
+            with self._conn_lock_cm():
+                conn = self.storage.conn
+                cursor = conn.execute(
+                    "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
+                    "derived_from, contradicted_by, metadata FROM beliefs WHERE belief_hash = ?",
+                    (belief_hash,),
+                )
+                row = cursor.fetchone()
             if not row:
                 return None
             return {
@@ -978,18 +999,19 @@ class BeliefService:
         never block belief creation. A None embedding (no model, or failure)
         simply skips the UPDATE — behaviour identical to before this change.
         """
-        conn = self.storage.conn
-        now_iso = now.isoformat()
-        conn.execute(
-            "INSERT OR IGNORE INTO beliefs "
-            "(belief_hash, content, confidence, status, created_at, updated_at, derived_from, contradicted_by) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                belief_hash, content, confidence, status, now_iso, now_iso,
-                json.dumps(supporting_hashes), json.dumps(contradicting_hashes),
-            ),
-        )
-        conn.commit()
+        with self._conn_lock_cm():
+            conn = self.storage.conn
+            now_iso = now.isoformat()
+            conn.execute(
+                "INSERT OR IGNORE INTO beliefs "
+                "(belief_hash, content, confidence, status, created_at, updated_at, derived_from, contradicted_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    belief_hash, content, confidence, status, now_iso, now_iso,
+                    json.dumps(supporting_hashes), json.dumps(contradicting_hashes),
+                ),
+            )
+            conn.commit()
 
         embedding = await self._compute_belief_embedding(content)
         if embedding is not None:
@@ -1017,35 +1039,49 @@ class BeliefService:
         group's supporting hashes. Without this, re-deriving a canonical would
         silently drop the sources inherited from the losers it absorbed.
         """
-        conn = self.storage.conn
-        merged_df = list(supporting_hashes)
-        try:
-            row = conn.execute(
-                "SELECT metadata FROM beliefs WHERE belief_hash = ?", (belief_hash,)
-            ).fetchone()
-            meta = json.loads(row[0] or "{}") if row and row[0] else {}
-            merged_from = meta.get("merged_from_hashes", [])
-            if merged_from:
-                seen = set(merged_df)
-                for h in merged_from:
-                    if h not in seen:
-                        merged_df.append(h)
-                        seen.add(h)
-        except (ValueError, TypeError):
-            # Malformed metadata -> fall back to the current group's hashes only.
+        # Keep the metadata read, provenance union and commit in one critical
+        # section: dedup may add merged sources between any two SQL statements.
+        with self._conn_lock_cm():
+            conn = self.storage.conn
             merged_df = list(supporting_hashes)
-        conn.execute(
-            "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, updated_at = ? "
-            "WHERE belief_hash = ?",
-            (confidence, json.dumps(merged_df), json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
-        )
-        conn.commit()
+            try:
+                row = conn.execute(
+                    "SELECT metadata FROM beliefs WHERE belief_hash = ?", (belief_hash,)
+                ).fetchone()
+                meta = json.loads(row[0] or "{}") if row and row[0] else {}
+                merged_from = meta.get("merged_from_hashes", [])
+                if merged_from:
+                    seen = set(merged_df)
+                    for h in merged_from:
+                        if h not in seen:
+                            merged_df.append(h)
+                            seen.add(h)
+            except (ValueError, TypeError):
+                # Malformed metadata -> fall back to the current group's hashes only.
+                merged_df = list(supporting_hashes)
+            conn.execute(
+                "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, updated_at = ? "
+                "WHERE belief_hash = ?",
+                (confidence, json.dumps(merged_df), json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
+            )
+            conn.commit()
 
-    async def _set_belief_status(self, belief_hash: str, status: str, now: datetime):
-        """Update belief status."""
-        conn = self.storage.conn
-        conn.execute(
-            "UPDATE beliefs SET status = ?, updated_at = ? WHERE belief_hash = ?",
-            (status, now.isoformat(), belief_hash),
-        )
-        conn.commit()
+    async def _set_belief_status(
+        self, belief_hash: str, status: str, now: datetime,
+        expected_status: Optional[str] = None,
+    ) -> int:
+        """Update status, optionally guarding a derivation's earlier snapshot.
+
+        A dedup worker may have superseded this belief since derivation read
+        it. Return the affected row count so a stale promotion is neither
+        applied nor counted. Explicit challenge operations omit the guard.
+        """
+        with self._conn_lock_cm():
+            conn = self.storage.conn
+            cursor = conn.execute(
+                "UPDATE beliefs SET status = ?, updated_at = ? "
+                "WHERE belief_hash = ? AND (? IS NULL OR status = ?)",
+                (status, now.isoformat(), belief_hash, expected_status, expected_status),
+            )
+            conn.commit()
+            return cursor.rowcount
