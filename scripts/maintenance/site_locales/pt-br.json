@@ -27,7 +27,7 @@
   "case_3_title": "Hospede no seu próprio ambiente",
   "case_3_text": "Comece localmente com SQLite e busca vetorial. Essa configuração não exige serviço de armazenamento na nuvem nem chave paga de API de embeddings.",
   "install_heading": "Configurar no Claude Code",
-  "install_intro": "Você precisa do Python 3.10 ou mais recente e do Claude Code instalado. Outros clientes também podem se conectar por MCP; o guia em inglês explica como configurá-los.",
+  "install_intro": "Você precisa do Python 3.11 ou mais recente e do Claude Code instalado. Outros clientes também podem se conectar por MCP; o guia em inglês explica como configurá-los.",
   "step_1_title": "Instale o Memory Service",
   "step_1_text": "Instale o pacote em um ambiente Python cujos comandos estejam disponíveis para o seu cliente.",
   "step_2_title": "Adicione como servidor MCP",

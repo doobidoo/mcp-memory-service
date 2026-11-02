@@ -559,3 +559,13 @@ def test_store_memory_refuses_deleted_content_with_409_until_restore_deleted(tes
     assert restored.status_code == 200, restored.text
     assert restored.json()["success"] is True
     assert test_app.get(f"/api/memories/{content_hash}").status_code == 200
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("content", ["", "   ", "\n\t "])
+def test_store_memory_rejects_blank_content(test_app, content):
+    """Blank content must be rejected before it can become a zero-vector memory (#1791)."""
+    response = test_app.post("/api/memories", json={"content": content})
+
+    assert response.status_code == 422, response.text
+    assert "content" in str(response.json()["detail"])

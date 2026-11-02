@@ -1172,15 +1172,11 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
 
         try:
-            # Query all contradicts edges
-            rows = await graph._call_client(
-                "query",
-                collection_name=graph.collection_name,
-                filter='relationship_type == "contradicts"',
-                output_fields=[
-                    "source_hash", "target_hash", "similarity", "metadata",
-                ],
-                limit=_MILVUS_MAX_LIMIT,
+            # Query all contradicts edges. A full scan: one query() stops at
+            # 16384 rows without saying so (#1785).
+            rows = await graph._drain_edges(
+                'relationship_type == "contradicts"',
+                ["source_hash", "target_hash", "similarity", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to query conflict edges: %s", _sanitize_log_value(exc))
@@ -1781,7 +1777,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
         )
 
@@ -1827,7 +1823,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="updated_at",
         )
 
@@ -2125,7 +2121,7 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr = f'content_lower like "%{safe}%"'
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
         )
 
@@ -2911,7 +2907,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 )
                 matched_memories = await self._query_memories(
                     filter_expr=final_filter,
-                    limit=_MILVUS_MAX_LIMIT,
+                    limit=None,
                     sort_desc_key="created_at",
                 )
                 results = [
@@ -2980,21 +2976,29 @@ class MilvusMemoryStorage(MemoryStorage):
                     weights = RankedSearchWeights.from_dict(ranking_weights)
                     results = apply_ranked_rerank(results, weights=weights)
             else:
-                # Time/tag only — use Milvus query with filter
-                try:
-                    rows = await self._call_client(
-                        "query",
-                        collection_name=self.collection_name,
-                        filter=combined_filter,
-                        output_fields=list(self._OUTPUT_FIELDS),
-                        limit=min(limit * 3, _MILVUS_MAX_LIMIT),
+                # Time/tag only. Milvus has no server-side ORDER BY, so a single
+                # query(limit=...) returned whichever rows the server scanned
+                # first, which in practice are the oldest. Read the matching set
+                # newest first, as sqlite_vec does, and let the superseded filter
+                # and the limit below trim it (#1782).
+                # Bound by as_of server-side too: the newest-first slice below
+                # would otherwise keep only rows newer than as_of, which
+                # _post_filter_as_of then drops, leaving nothing.
+                scan_filter = combined_filter
+                if as_of_ts is not None:
+                    scan_filter = self._combine_filter(
+                        combined_filter, f"created_at <= {as_of_ts}"
                     )
-                    for row in (rows or []):
-                        mem = self._entity_to_memory(row)
-                        if mem:
-                            results.append(
-                                MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
-                            )
+                try:
+                    matched_memories = await self._query_memories(
+                        filter_expr=scan_filter,
+                        limit=None,
+                        sort_desc_key="created_at",
+                    )
+                    results = [
+                        MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
+                        for mem in matched_memories
+                    ]
                     pre_filter_count = len(results)
                 except Exception as exc:  # noqa: BLE001
                     logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
@@ -3067,7 +3071,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not matched:
             return []
 
-        effective_limit = limit if limit is not None else _MILVUS_MAX_LIMIT
+        effective_limit = limit
         return await self._query_memories(
             filter_expr=tag_filter,
             limit=effective_limit,
@@ -3217,7 +3221,7 @@ class MilvusMemoryStorage(MemoryStorage):
         async with lock:
             if self.client is None:
                 return []
-            return await asyncio.to_thread(
+            return await self._scan_with_lite_retry(
                 self._drain_query_rows, filter_expr, output_fields,
             )
 
@@ -3269,13 +3273,9 @@ class MilvusMemoryStorage(MemoryStorage):
         # Milvus can't filter on JSON sub-fields easily, so we need to
         # scan for memories with deleted_at in metadata
         try:
-            # Get all memories created before cutoff
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=f"created_at <= {cutoff}",
-                output_fields=["id", "metadata"],
-                limit=_MILVUS_MAX_LIMIT,
+            # Get all memories created before cutoff (full scan, #1785)
+            rows = await self._drain_rows(
+                f"created_at <= {cutoff}", ["id", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("purge_deleted: query failed: %s", _sanitize_log_value(exc))
@@ -3390,13 +3390,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter="",
-                output_fields=["tags"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            # Full scan: one query() stops at 16384 rows without saying so (#1785).
+            rows = await self._drain_rows("", ["tags"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("tag scan failed: %s", _sanitize_log_value(exc))
             return []
@@ -3431,7 +3426,7 @@ class MilvusMemoryStorage(MemoryStorage):
         """
         if not self._ensure_initialized():
             return []
-        memories = await self._query_memories(filter_expr="", limit=_MILVUS_MAX_LIMIT)
+        memories = await self._query_memories(filter_expr="", limit=None)
         memories.sort(key=lambda m: len(m.content or ""), reverse=True)
         return memories[:n]
 
@@ -3823,7 +3818,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=limit if limit is not None else _MILVUS_MAX_LIMIT,
+            limit=limit,
             offset=offset,
             sort_desc_key="created_at",
             include_embeddings=include_embeddings,
@@ -4011,7 +4006,7 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr = f"created_at >= {start_time} and created_at <= {end_time}"
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
             include_embeddings=include_embeddings,
         )
@@ -4026,13 +4021,8 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr = f"created_at >= {cutoff}"
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=filter_expr,
-                output_fields=["created_at"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            # Full scan: one query() stops at 16384 rows without saying so (#1785).
+            rows = await self._drain_rows(filter_expr, ["created_at"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_memory_timestamps failed: %s", _sanitize_log_value(exc))
             return []
@@ -4567,7 +4557,7 @@ class MilvusMemoryStorage(MemoryStorage):
     async def _query_memories(
         self,
         filter_expr: str,
-        limit: int,
+        limit: Optional[int],
         offset: int = 0,
         sort_desc_key: Optional[str] = None,
         include_embeddings: bool = False,
@@ -4583,12 +4573,16 @@ class MilvusMemoryStorage(MemoryStorage):
         to the full matching set rather than to a random subset.
 
         Args:
+            limit: Maximum number of memories to return after sorting and
+                ``offset``. ``None`` returns every match. Callers that mean
+                "all" must pass ``None``: passing ``_MILVUS_MAX_LIMIT`` threw
+                away everything past 16384 rows after draining it (#1785).
             include_embeddings: If True, request the ``vector`` field from
                 Milvus and populate ``Memory.embedding`` on the returned
                 objects. Used by the consolidation pipeline. Default False
                 keeps the CRUD cost envelope unchanged.
         """
-        if limit <= 0:
+        if limit is not None and limit <= 0:
             return []
         rows = await self._iterate_all_rows(
             filter_expr, include_embeddings=include_embeddings,
@@ -4610,7 +4604,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         if offset:
             memories = memories[offset:]
-        return memories[:limit]
+        return memories if limit is None else memories[:limit]
 
     def _log_hydration_stats(
         self,
@@ -4655,9 +4649,32 @@ class MilvusMemoryStorage(MemoryStorage):
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
-            return await asyncio.to_thread(
+            return await self._scan_with_lite_retry(
                 self._drain_query_iterator, filter_expr, include_embeddings,
             )
+
+    async def _scan_with_lite_retry(self, drain, *args):
+        """Run a sync ``QueryIterator`` drain in a worker thread, recovering a
+        dead Milvus Lite channel once.
+
+        Gives full scans the recovery ``_call_client`` gives single RPCs: on
+        Milvus Lite a channel that died while idle (milvus-lite #334) gets one
+        reconnect and the scan starts over (#1782). Any other error, and any
+        error on a remote server, propagates. The caller must hold
+        ``self._write_lock``.
+        """
+        try:
+            return await asyncio.to_thread(drain, *args)
+        except Exception as exc:
+            if not (getattr(self, "_is_lite", False) and self._is_lite_dead_channel_error(exc)):
+                raise
+            logger.warning(
+                "Milvus Lite channel died during query_iterator (%s) — "
+                "reconnecting and rescanning once (upstream milvus-lite issue #334)",
+                _sanitize_log_value(exc),
+            )
+            self._reconnect_lite_client()
+            return await asyncio.to_thread(drain, *args)
 
     def _drain_query_iterator(
         self,

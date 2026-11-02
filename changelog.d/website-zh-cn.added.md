@@ -1,0 +1,1 @@
+- The website now has a Simplified Chinese introduction at https://mcpmemory.services/zh-cn/.

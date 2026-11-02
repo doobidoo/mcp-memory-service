@@ -1,1 +1,0 @@
-- The website now has a Brazilian Portuguese introduction at https://mcpmemory.services/pt-br/.
