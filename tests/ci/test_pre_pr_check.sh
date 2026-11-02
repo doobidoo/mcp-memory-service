@@ -61,8 +61,9 @@ test_quality_gate_skip_uses_exit_3() {
   local tmpbin out code
   tmpbin="$(mktemp -d)"
   # PATH without python3 or gemini, so no analysis backend resolves. `gh` is kept
-  # available because PR mode requires it; --staged does not.
-  for tool in gh git bash grep sed awk; do
+  # available because PR mode requires it; --staged does not. Keep dirname for
+  # the gate's script-directory lookup before it checks the analysis backend.
+  for tool in gh git bash grep sed awk dirname; do
     command -v "$tool" >/dev/null 2>&1 && ln -sf "$(command -v "$tool")" "$tmpbin/$tool"
   done
   out=$(PATH="$tmpbin" bash "$QUALITY_GATE" --staged 2>&1)
