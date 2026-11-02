@@ -2985,9 +2985,17 @@ class MilvusMemoryStorage(MemoryStorage):
                 # first, which in practice are the oldest. Read the matching set
                 # newest first, as sqlite_vec does, and let the superseded filter
                 # and the limit below trim it (#1782).
+                # Bound by as_of server-side too: the newest-first slice below
+                # would otherwise keep only rows newer than as_of, which
+                # _post_filter_as_of then drops, leaving nothing.
+                scan_filter = combined_filter
+                if as_of_ts is not None:
+                    scan_filter = self._combine_filter(
+                        combined_filter, f"created_at <= {as_of_ts}"
+                    )
                 try:
                     matched_memories = await self._query_memories(
-                        filter_expr=combined_filter,
+                        filter_expr=scan_filter,
                         limit=_MILVUS_MAX_LIMIT,
                         sort_desc_key="created_at",
                     )
@@ -4655,9 +4663,26 @@ class MilvusMemoryStorage(MemoryStorage):
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
-            return await asyncio.to_thread(
-                self._drain_query_iterator, filter_expr, include_embeddings,
-            )
+            try:
+                return await asyncio.to_thread(
+                    self._drain_query_iterator, filter_expr, include_embeddings,
+                )
+            except Exception as exc:
+                # Re-raised unless it is a Lite dead channel. Same recovery _call_client gives single RPCs: on Milvus Lite a
+                # channel that died while idle (milvus-lite #334) gets one
+                # reconnect and the scan starts over. Without it the caller sees
+                # an error, or an empty result where it swallows one (#1782).
+                if not (self._is_lite and self._is_lite_dead_channel_error(exc)):
+                    raise
+                logger.warning(
+                    "Milvus Lite channel died during query_iterator (%s) — "
+                    "reconnecting and rescanning once (upstream milvus-lite issue #334)",
+                    _sanitize_log_value(exc),
+                )
+                self._reconnect_lite_client()
+                return await asyncio.to_thread(
+                    self._drain_query_iterator, filter_expr, include_embeddings,
+                )
 
     def _drain_query_iterator(
         self,

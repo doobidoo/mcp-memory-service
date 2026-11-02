@@ -10,6 +10,7 @@ Reference: https://github.com/doobidoo/mcp-memory-service/issues/888
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -338,6 +339,85 @@ class TestSearchMemories:
         assert [m["content_hash"] for m in result["memories"]] == ["h10", "h20"]
         assert "created_at >=" in storage._iterate_all_rows.call_args[0][0]
         storage._call_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_time_only_search_pushes_as_of_into_the_scan_filter(self):
+        """as_of bounds the scan itself (#1782 review).
+
+        The result is sliced newest first. If as_of were only applied after the
+        slice, a filter matching more than the slice of rows newer than as_of
+        would keep only those, and the as_of post-filter would then drop them
+        all, hiding the older matches that should be returned.
+        """
+        storage = _make_storage()
+        storage._iterate_all_rows = AsyncMock(return_value=[])
+
+        await storage.search_memories(query=None, tags=["test"], as_of="2026-01-01")
+
+        scan_filter = storage._iterate_all_rows.call_args[0][0]
+        assert "created_at <=" in scan_filter
+        assert "tags like" in scan_filter
+
+    @pytest.mark.asyncio
+    async def test_time_only_search_reconnects_lite_after_channel_death(self, monkeypatch):
+        """A Milvus Lite channel that died while idle gets one reconnect and the
+        scan is retried, as single RPCs already do in _call_client (#1782 review).
+
+        Before, the error escaped the iterator and search_memories returned an
+        empty successful result, and every later search failed the same way.
+        """
+        import mcp_memory_service.storage.milvus as milvus_module
+
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+
+        dead_iterator = MagicMock()
+        dead_iterator.next.side_effect = ValueError("Cannot invoke RPC on closed channel!")
+        dead_client = MagicMock()
+        dead_client.query_iterator.return_value = dead_iterator
+
+        now = time.time()
+        row = {"id": "h1", "content": "c1", "tags": ",test,", "memory_type": "note",
+               "metadata": "{}", "created_at": now - 60, "updated_at": now - 60,
+               "created_at_iso": None, "updated_at_iso": None}
+        recovered_iterator = MagicMock()
+        recovered_iterator.next.side_effect = [[row], []]
+        recovered_client = MagicMock()
+        recovered_client.query_iterator.return_value = recovered_iterator
+
+        storage.client = dead_client
+        client_factory = MagicMock(return_value=recovered_client)
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
+
+        result = await storage.search_memories(query=None, after="2026-01-01")
+
+        assert [m["content_hash"] for m in result["memories"]] == ["h1"]
+        assert storage.client is recovered_client
+        client_factory.assert_called_once_with(uri=storage.uri)
+
+    @pytest.mark.asyncio
+    async def test_iterator_scan_does_not_reconnect_on_other_errors(self, monkeypatch):
+        """Only the Lite dead-channel signature triggers a reconnect."""
+        import mcp_memory_service.storage.milvus as milvus_module
+
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+        iterator = MagicMock()
+        iterator.next.side_effect = RuntimeError("iterator exploded")
+        storage.client = MagicMock()
+        storage.client.query_iterator.return_value = iterator
+        client_factory = MagicMock()
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
+
+        with pytest.raises(RuntimeError, match="iterator exploded"):
+            await storage._iterate_all_rows("created_at >= 0")
+        client_factory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_include_debug_adds_debug_info(self):
