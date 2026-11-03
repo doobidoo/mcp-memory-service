@@ -25,6 +25,7 @@
   "analytics.period.quarter": "Letztes Quartal",
   "analytics.period.week": "Letzte Woche",
   "analytics.period.year": "Letztes Jahr",
+  "analytics.weekLabel": "KW {week} ({year})",
   "analytics.recentActivity": "Aktuelle Aktivität",
   "analytics.reports": "Detailberichte",
   "analytics.storage": "Speicherbericht",

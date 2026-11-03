@@ -272,6 +272,7 @@
   "analytics.period.month": "Último mês",
   "analytics.period.quarter": "Último trimestre",
   "analytics.period.year": "Último ano",
+  "analytics.weekLabel": "Semana {week} ({year})",
   "analytics.period.90d": "Últimos 90 dias",
   "analytics.period.180d": "Últimos 6 meses",
   "analytics.period.7d": "Últimos 7 dias",

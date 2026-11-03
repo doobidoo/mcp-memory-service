@@ -25,6 +25,7 @@
   "analytics.period.quarter": "지난 분기",
   "analytics.period.week": "지난 주",
   "analytics.period.year": "작년",
+  "analytics.weekLabel": "{year}년 {week}주차",
   "analytics.recentActivity": "최근 활동",
   "analytics.reports": "상세 보고서",
   "analytics.storage": "스토리지 보고서",

@@ -36,6 +36,7 @@
   "analytics.period.quarter": "Último Trimestre",
   "analytics.period.week": "Última Semana",
   "analytics.period.year": "Último Año",
+  "analytics.weekLabel": "Semana {week} ({year})",
   "analytics.recentActivity": "Actividad Reciente",
   "analytics.refresh": "Actualizar",
   "analytics.reports": "Informes Detallados",

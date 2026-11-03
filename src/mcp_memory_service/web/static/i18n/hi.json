@@ -272,6 +272,7 @@
   "analytics.period.month": "पिछला महीना",
   "analytics.period.quarter": "पिछली तिमाही",
   "analytics.period.year": "पिछला वर्ष",
+  "analytics.weekLabel": "सप्ताह {week} ({year})",
   "analytics.period.90d": "पिछले 90 दिन",
   "analytics.period.180d": "पिछले 6 महीने",
   "analytics.period.7d": "पिछले 7 दिन",

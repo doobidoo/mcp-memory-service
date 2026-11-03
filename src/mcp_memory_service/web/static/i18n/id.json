@@ -272,6 +272,7 @@
   "analytics.period.month": "Bulan Lalu",
   "analytics.period.quarter": "Kuartal Lalu",
   "analytics.period.year": "Tahun Lalu",
+  "analytics.weekLabel": "Minggu {week} ({year})",
   "analytics.period.90d": "90 Hari Terakhir",
   "analytics.period.180d": "6 Bulan Terakhir",
   "analytics.period.7d": "7 Hari Terakhir",
