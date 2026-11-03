@@ -26,7 +26,7 @@ STUBS = [
 
 
 def _method(js, name):
-    match = re.search(rf"^    async {name}\([^)]*\) \{{\n.*?^    \}}\n", js, re.S | re.M)
+    match = re.search(rf"^    (?:async )?{name}\([^)]*\) \{{\n.*?^    \}}\n", js, re.S | re.M)
     assert match, f"{name}() not found in app.js"
     return match.group(0).strip()
 
@@ -38,7 +38,6 @@ def _script(view, state):
     stubs = ",\n".join(f"  async {name}(...a) {{ calls.push('{name}'); }}" for name in STUBS)
     return f"""
 const calls = [];
-const window = {{ scrollY: 420, scrollTo(x, y) {{ calls.push('scrollTo:' + y); }} }};
 const app = {{
   supportedLanguages: ['de', 'en'],
   currentLang: 'de',
@@ -53,13 +52,18 @@ app.setLanguage('en').then(() => console.log(JSON.stringify(calls)));
 """
 
 
-def _switch_language(view, state=None):
-    """Switch de -> en with the given view active; return the recorded calls."""
+def _run_node(script):
+    """Run a node script and return the JSON it prints."""
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed")
-    result = subprocess.run([node, "-e", _script(view, state)], capture_output=True, text=True, timeout=30, check=True)
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30, check=True)
     return json.loads(result.stdout)
+
+
+def _switch_language(view, state=None):
+    """Switch de -> en with the given view active; return the recorded calls."""
+    return _run_node(_script(view, state))
 
 
 def test_dashboard_rerenders_cached_memories_without_a_request():
@@ -68,9 +72,14 @@ def test_dashboard_rerenders_cached_memories_without_a_request():
     assert not [c for c in calls if c.startswith("load") and c != "loadTranslations"]
 
 
-def test_search_and_browse_rerender_from_cache():
+def test_search_rerenders_from_cache():
     assert "renderSearchResults" in _switch_language("search", {"searchResults": [{"memory": {}}]})
-    assert "renderTagsCloud" in _switch_language("browse", {"tags": [{"tag": "x", "count": 1}]})
+
+
+def test_browse_is_left_alone_so_a_selected_tag_stays_open():
+    # renderTagsCloud() hides the memories of the selected tag.
+    calls = _switch_language("browse", {"tags": [{"tag": "x", "count": 1}]})
+    assert "renderTagsCloud" not in calls and "loadViewData" not in calls
 
 
 def test_empty_search_keeps_its_empty_state():
@@ -88,12 +97,58 @@ def test_other_views_rerun_their_own_loader(view):
     assert "loadViewData" in _switch_language(view)
 
 
-def test_switch_never_reloads_memory_types_and_restores_scroll():
+def test_switch_never_reloads_memory_types():
     # loadMemoryTypes() would reset the selected type filter.
     for view in ["dashboard", "search", "analytics", "manage"]:
         calls = _switch_language(view)
         assert "loadMemoryTypes" not in calls
-        assert calls.index("applyTranslations") < calls.index("scrollTo:420") < calls.index("showToast")
+        assert calls.index("applyTranslations") < calls.index("showToast")
+
+
+# Just enough DOM for the manage-view methods. removeChild() clears the value
+# the way a real <select> does when its selected option goes away.
+FAKE_DOM = """
+const out = {};
+function el(tag) {
+  return { tag, children: [], value: '', dataset: {}, listeners: 0, innerHTML: '',
+    appendChild(c) { this.children.push(c); },
+    removeChild() { this.children.pop(); this.value = ''; },
+    get lastChild() { return this.children[this.children.length - 1]; },
+    addEventListener() { this.listeners++; } };
+}
+const nodes = { deleteTagSelect: el('select'), tagManagementContainer: el('div') };
+nodes.deleteTagSelect.children.push(el('option'));
+const document = { getElementById: id => nodes[id], createElement: el };
+const data = { tags: [{ tag: 'alpha', count: 2 }, { tag: 'beta', count: 1 }] };
+"""
+
+
+def _run_manage_method(name, body):
+    """Run a manage-view method from app.js against FAKE_DOM."""
+    method = _method(APP_JS.read_text(encoding="utf-8"), name)
+    app = f"const app = {{ async apiCall() {{ return data; }}, escapeHtml: s => s, {method} }};"
+    return _run_node(f"{FAKE_DOM}\n{app}\n(async () => {{ {body} console.log(JSON.stringify(out)); }})();")
+
+
+def test_reloading_tag_options_keeps_the_selected_tag():
+    out = _run_manage_method("loadTagSelectOptions", """
+      await app.loadTagSelectOptions();
+      nodes.deleteTagSelect.value = 'beta';
+      await app.loadTagSelectOptions();
+      out.value = nodes.deleteTagSelect.value;
+      out.options = nodes.deleteTagSelect.children.length;
+    """)
+    assert out == {"value": "beta", "options": 3}
+
+
+def test_rerendering_the_tag_table_keeps_one_click_handler():
+    out = _run_manage_method("renderTagManagementTable", """
+      app.renderTagManagementTable(data);
+      app.renderTagManagementTable(data);
+      const c = nodes.tagManagementContainer;
+      out.handlers = c.listeners + (typeof c.onclick === 'function' ? 1 : 0);
+    """)
+    assert out == {"handlers": 1}
 
 
 def test_all_types_option_is_reached_by_apply_translations():

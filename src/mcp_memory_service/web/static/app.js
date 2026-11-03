@@ -457,9 +457,11 @@ class MemoryDashboard {
      * switch (#1807). applyTranslations() only reaches data-i18n elements.
      * Cached views re-render without a request; the others re-run the loader
      * they use on open. The knowledge graph is left alone to keep its camera.
+     * Browse is skipped: its tag cloud has no translated text, and re-rendering
+     * it would hide the memories of a selected tag. No scroll restore: every
+     * renderer swaps its content in one step, so the page height holds.
      */
     async rerenderActiveView() {
-        const scrollY = window.scrollY;
         try {
             switch (this.currentView) {
                 case 'dashboard':
@@ -467,9 +469,6 @@ class MemoryDashboard {
                     break;
                 case 'search':
                     if (this.searchResults.length) this.renderSearchResults(this.searchResults);
-                    break;
-                case 'browse':
-                    if (this.tags?.length) this.renderTagsCloud();
                     break;
                 case 'analytics':
                     await Promise.all([
@@ -493,7 +492,6 @@ class MemoryDashboard {
         } catch (error) {
             console.warn('Re-render after language switch failed:', error);
         }
-        window.scrollTo(0, scrollY);
     }
 
     /**
@@ -5378,6 +5376,7 @@ class MemoryDashboard {
             const data = await this.apiCall('/manage/tags/stats');
             const select = document.getElementById('deleteTagSelect');
             if (!select) return;
+            const selected = select.value;
 
             // Clear existing options except the first
             while (select.children.length > 1) {
@@ -5392,6 +5391,7 @@ class MemoryDashboard {
                 option.dataset.count = tagStat.count;  // Store count in data attribute
                 select.appendChild(option);
             });
+            if (data.tags.some(tagStat => tagStat.tag === selected)) select.value = selected;
         } catch (error) {
             console.error('Failed to load tag options:', error);
         }
@@ -5440,8 +5440,8 @@ class MemoryDashboard {
         html += '</tbody></table>';
         container.innerHTML = html;
 
-        // Add event listeners for tag actions
-        container.addEventListener('click', (e) => {
+        // Assigned, not added: the table re-renders on every visit and language switch.
+        container.onclick = (e) => {
             const button = e.target.closest('[data-action]');
             if (!button) return;
 
@@ -5454,7 +5454,7 @@ class MemoryDashboard {
                 const count = parseInt(button.dataset.count, 10);
                 this.deleteTag(tag, count);
             }
-        });
+        };
     }
 
     /**
