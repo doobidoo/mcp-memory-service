@@ -448,7 +448,52 @@ class MemoryDashboard {
         if (!this.supportedLanguages.includes(lang) || lang === this.currentLang) return;
         await this.loadTranslations(lang);
         await this.applyTranslations();
+        await this.rerenderActiveView();
         this.showToast(this.t('toast.languageSwitched', 'Language switched'), 'success', 2000);
+    }
+
+    /**
+     * Re-render the JavaScript-built text of the active view after a language
+     * switch (#1807). applyTranslations() only reaches data-i18n elements.
+     * Cached views re-render without a request; the others re-run the loader
+     * they use on open. The knowledge graph is left alone to keep its camera.
+     */
+    async rerenderActiveView() {
+        const scrollY = window.scrollY;
+        try {
+            switch (this.currentView) {
+                case 'dashboard':
+                    this.renderRecentMemories(this.memories);
+                    break;
+                case 'search':
+                    if (this.searchResults.length) this.renderSearchResults(this.searchResults);
+                    break;
+                case 'browse':
+                    if (this.tags?.length) this.renderTagsCloud();
+                    break;
+                case 'analytics':
+                    await Promise.all([
+                        this.loadAnalyticsOverview(),
+                        this.loadMemoryGrowthChart(),
+                        this.loadTagUsageChart(),
+                        this.loadMemoryTypesChart(),
+                        this.loadActivityHeatmapChart(),
+                        this.loadTopTagsReport(),
+                        this.loadRecentActivityReport(),
+                        this.loadStorageReport(),
+                        this.loadRelationshipTypesChart()
+                    ]);
+                    break;
+                case 'documents':
+                case 'manage':
+                case 'qualityAnalytics':
+                    await this.loadViewData(this.currentView);
+                    break;
+            }
+        } catch (error) {
+            console.warn('Re-render after language switch failed:', error);
+        }
+        window.scrollTo(0, scrollY);
     }
 
     /**
@@ -1088,6 +1133,7 @@ class MemoryDashboard {
             if (typeFilter) {
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
+                allOpt.dataset.i18n = 'search.filters.type.all';
                 allOpt.textContent = this.t('search.filters.type.all') || 'All types';
                 const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
