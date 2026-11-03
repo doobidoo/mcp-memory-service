@@ -335,13 +335,54 @@ def claim_ambiguity(first: dict, claims: list[dict], comments: list[dict]) -> bo
     )
 
 
+_PR_CLOSES_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: 100) {
+        nodes { number repository { nameWithOwner } }
+      }
+    }
+  }
+}
+"""
+
+
+def _closes_only_other_issues(source: dict, repo: str, number: int) -> bool:
+    """True when a referencing PR formally closes issues, none of them this one.
+
+    Such a PR is scoped elsewhere and only mentions this issue (#1814 was held
+    for manual review because #1830, which fixes #1816, named it in passing).
+    A PR that closes nothing stays existing work: "part of #N" may be the work.
+    """
+    match = re.search(r"/repos/([^/]+)/([^/]+)$", source.get("repository_url", ""))
+    if not match or not isinstance(source.get("number"), int):
+        return False  # cannot tell: stay conservative
+    owner, name = match.groups()
+    data = json.loads(
+        gh(
+            "api", "graphql", "-f", f"query={_PR_CLOSES_QUERY}",
+            "-f", f"owner={owner}", "-f", f"name={name}",
+            "-F", f"number={source['number']}",
+        )
+    )
+    # ponytail: first 100 closing refs only; a PR closing more is not a mention
+    nodes = data["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]
+    closes = {(n["repository"]["nameWithOwner"].lower(), n["number"]) for n in nodes}
+    return bool(closes) and (repo.lower(), number) not in closes
+
+
 def existing_work(repo: str, number: int, api: str) -> bool:
     """Check all timeline pages as well as formal closing links."""
     for item in api_pages(f"{api}/timeline"):
         if item.get("event") == "unassigned":
             return True  # never reactivate a manually released claim
         source = item.get("source", {}).get("issue", {})
-        if source.get("state") == "open" and "pull_request" in source:
+        if (
+            source.get("state") == "open"
+            and "pull_request" in source
+            and not _closes_only_other_issues(source, repo, number)
+        ):
             return True
     return _has_open_closing_pr(repo, number)
 

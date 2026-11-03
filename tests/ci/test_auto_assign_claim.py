@@ -43,6 +43,7 @@ class GitHub:
         self.calls = []
         self.open_pr = False
         self.timeline = []
+        self.referencing_pr_closes = []
         self.fail_comment = False
         self.silent_assignment = False
         self.before_assign = None
@@ -52,6 +53,20 @@ class GitHub:
 
     def gh(self, *args, stdin=None):
         self.calls.append((args, stdin))
+        if args[:2] == ("api", "graphql") and any("pullRequest(" in a for a in args):
+            nodes = [
+                {"number": n, "repository": {"nameWithOwner": "owner/repo"}}
+                for n in self.referencing_pr_closes
+            ]
+            return json.dumps(
+                {
+                    "data": {
+                        "repository": {
+                            "pullRequest": {"closingIssuesReferences": {"nodes": nodes}}
+                        }
+                    }
+                }
+            )
         if args[:2] == ("api", "graphql"):
             nodes = [{"state": "OPEN"}] if self.open_pr else []
             return json.dumps(
@@ -304,8 +319,28 @@ def test_prior_natural_claim_requires_manual_confirmation(
     assert {"name": "claim-pending"} in api.issue["labels"]
 
 
+def referencing_pr(**fields):
+    source = {
+        "state": "open",
+        "pull_request": {"url": "https://api.github.com/repos/owner/repo/pulls/7"},
+        **fields,
+    }
+    return [{"event": "cross-referenced", "source": {"issue": source}}]
+
+
+PR_FIELDS = {"number": 7, "repository_url": "https://api.github.com/repos/owner/repo"}
+
+
 @pytest.mark.parametrize(
-    "reason", ["withdrawal", "edited", "closing-pr", "referencing-pr"]
+    "reason",
+    [
+        "withdrawal",
+        "edited",
+        "closing-pr",
+        "referencing-pr",
+        "referencing-pr-closes-nothing",
+        "referencing-pr-closes-this",
+    ],
 )
 def test_ambiguous_or_existing_work_stays_manual(tmp_path, monkeypatch, reason):
     api = GitHub()
@@ -316,22 +351,27 @@ def test_ambiguous_or_existing_work_stays_manual(tmp_path, monkeypatch, reason):
     if reason == "closing-pr":
         api.open_pr = True
     if reason == "referencing-pr":
-        api.timeline = [
-            {
-                "event": "cross-referenced",
-                "source": {
-                    "issue": {
-                        "state": "open",
-                        "pull_request": {
-                            "url": "https://api.github.com/repos/o/r/pulls/1"
-                        },
-                    }
-                },
-            }
-        ]
+        api.timeline = referencing_pr()  # no number/repo: cannot tell, stay manual
+    if reason == "referencing-pr-closes-nothing":
+        api.timeline = referencing_pr(**PR_FIELDS)
+    if reason == "referencing-pr-closes-this":
+        api.timeline = referencing_pr(**PR_FIELDS)
+        api.referencing_pr_closes = [42, 99]
     run_cli(tmp_path, monkeypatch, api)
     assert not api.issue["assignees"]
     assert any("maintainer" in r for r in api.replies)
+
+
+def test_pr_fixing_another_issue_that_only_mentions_this_one_is_no_work(
+    tmp_path, monkeypatch
+):
+    # #1814: open PR #1830 ("Fixes #1816") named the issue in passing.
+    api = GitHub()
+    api.timeline = referencing_pr(**PR_FIELDS)
+    api.referencing_pr_closes = [99]
+    run_cli(tmp_path, monkeypatch, api)
+    assert api.issue["assignees"] == [{"login": "alice"}]
+    assert not any("maintainer" in r for r in api.replies)
 
 
 def test_collaborator_can_claim(tmp_path, monkeypatch):
