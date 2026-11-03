@@ -1334,7 +1334,7 @@ class MemoryDashboard {
             // Show a message in the history container instead of just logging
             const historyContainer = document.getElementById('uploadHistory');
             if (historyContainer) {
-                historyContainer.innerHTML = '<p style="text-align: center; color: var(--error);">Failed to load upload history. Please check the console for details.</p>';
+                historyContainer.innerHTML = `<p style="text-align: center; color: var(--error);">${this.escapeHtml(this.t('documents.uploadHistoryError', 'Failed to load upload history. Please check the console for details.'))}</p>`;
             }
         }
     }
@@ -1347,7 +1347,7 @@ class MemoryDashboard {
         if (!historyContainer) return;
 
         if (uploads.length === 0) {
-            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet</p>';
+            historyContainer.innerHTML = `<p style="text-align: center; color: var(--neutral-500);" data-i18n="documents.noUploads">${this.escapeHtml(this.t('documents.noUploads', 'No uploads yet'))}</p>`;
             return;
         }
 
@@ -1382,18 +1382,20 @@ class MemoryDashboard {
                         ${upload.status === 'completed' && hasMemories ? `
                             <div class="upload-actions">
                                 <button class="btn-icon btn-view-memory"
-                                title="View memory chunks">
+                                title="${this.escapeHtml(this.t('documents.viewChunksTip', 'View memory chunks'))}"
+                                data-i18n-title="documents.viewChunksTip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                                     </svg>
-                                    <span>View</span>
+                                    <span data-i18n="documents.view">${this.escapeHtml(this.t('documents.view', 'View'))}</span>
                                 </button>
                                 <button class="btn-icon btn-remove"
-                                title="Remove document and memories">
+                                title="${this.escapeHtml(this.t('documents.removeWithMemoriesTip', 'Remove document and memories'))}"
+                                data-i18n-title="documents.removeWithMemoriesTip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                                     </svg>
-                                    <span>Remove</span>
+                                    <span data-i18n="documents.remove">${this.escapeHtml(this.t('documents.remove', 'Remove'))}</span>
                                 </button>
                             </div>
                         ` : ''}
@@ -1465,7 +1467,7 @@ class MemoryDashboard {
         }
 
         // Chunking help info icon
-        const infoIcon = document.querySelector('.info-icon');
+        const infoIcon = document.querySelector('.info-icon-chunk');
         if (infoIcon) {
             infoIcon.addEventListener('click', () => {
                 this.toggleChunkingHelp();
@@ -1656,8 +1658,8 @@ class MemoryDashboard {
         }
         if (this.modeDescription) {
             this.modeDescription.innerHTML = mode === 'batch'
-                ? '<small>All selected files will be processed together with the same tags.</small>'
-                : '<small>Each file will be processed individually with the same tags.</small>';
+                ? `<small data-i18n="documents.modeDescription">${this.escapeHtml(this.t('documents.modeDescription', 'All selected files will be processed together with the same tags.'))}</small>`
+                : `<small data-i18n="documents.modeDescriptionIndividual">${this.escapeHtml(this.t('documents.modeDescriptionIndividual', 'Each file will be processed individually with the same tags.'))}</small>`;
         }
 
         console.log(`Processing mode set to: ${mode}`);
@@ -1732,9 +1734,9 @@ class MemoryDashboard {
                         <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                         </svg>
-                        <h3>Drag & drop files here</h3>
-                        <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
-                        <p class="supported-formats">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
+                        <h3 data-i18n="documents.dropTitle">${this.escapeHtml(this.t('documents.dropTitle', 'Drag & drop files here'))}</h3>
+                        <p data-i18n-html="documents.dropSubtitle">${this.t('documents.dropSubtitle', 'or <button id="fileSelectBtn" class="link-button">browse to select files</button>')}</p>
+                        <p class="supported-formats" data-i18n="documents.supported">${this.escapeHtml(this.t('documents.supported', 'Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON'))}</p>
                         <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
                     `;
                 }
@@ -1778,7 +1780,7 @@ class MemoryDashboard {
         console.log(`Upload response status: ${response.status}`);
 
         if (!response.ok) {
-            let errorMessage = `Upload failed with status ${response.status}`;
+            let errorMessage = this.t('documents.uploadStatusError', 'Upload failed with status {status}', { status: response.status });
             try {
                 const error = await response.json();
                 console.error('Upload error details:', error);
@@ -1836,7 +1838,7 @@ class MemoryDashboard {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Batch upload failed');
+            throw new Error(error.detail || this.t('documents.batchUploadFailed', 'Batch upload failed'));
         }
 
         const result = await response.json();
@@ -3496,7 +3498,7 @@ class MemoryDashboard {
 
             if (isDocumentChunk && !processedHashes.has(memory.content_hash)) {
                 const uploadId = memory.metadata.upload_id;
-                const sourceFile = memory.metadata.source_file || 'Unknown file';
+                const sourceFile = memory.metadata.source_file || this.t('documents.unknownFile', 'Unknown file');
 
                 if (!documentGroups.has(uploadId)) {
                     documentGroups.set(uploadId, {
@@ -3571,7 +3573,7 @@ class MemoryDashboard {
                     </div>
                 </div>
                 <div class="document-preview">
-                    ${group.memories[0] ? this.escapeHtml(group.memories[0].content.substring(0, 150)) + (group.memories[0].content.length > 150 ? '...' : '') : 'No content preview available'}
+                    ${group.memories[0] ? this.escapeHtml(group.memories[0].content.substring(0, 150)) + (group.memories[0].content.length > 150 ? '...' : '') : this.escapeHtml(this.t('documents.noPreview', 'No content preview available'))}
                 </div>
                 ${uniqueTags.length > 0 ? `
                     <div class="document-tags">
@@ -3580,17 +3582,19 @@ class MemoryDashboard {
                     </div>
                 ` : ''}
                 <div class="document-actions">
-                    <button class="btn-icon btn-view-chunks" title="View all chunks">
+                    <button class="btn-icon btn-view-chunks" title="${this.escapeHtml(this.t('documents.viewAllChunksTip', 'View all chunks'))}"
+                            data-i18n-title="documents.viewAllChunksTip">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                         </svg>
-                        <span>View Chunks</span>
+                        <span data-i18n="documents.viewChunks">${this.escapeHtml(this.t('documents.viewChunks', 'View Chunks'))}</span>
                     </button>
-                    <button class="btn-icon btn-remove" title="Remove document">
+                    <button class="btn-icon btn-remove" title="${this.escapeHtml(this.t('documents.removeTip', 'Remove document'))}"
+                            data-i18n-title="documents.removeTip">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                         </svg>
-                        <span>Remove</span>
+                        <span data-i18n="documents.remove">${this.escapeHtml(this.t('documents.remove', 'Remove'))}</span>
                     </button>
                 </div>
             </div>
@@ -4507,7 +4511,7 @@ class MemoryDashboard {
                 const stats = document.getElementById('memoryViewerStats');
                 const chunksList = document.getElementById('memoryChunksList');
 
-                filename.textContent = response.filename || 'Document';
+                filename.textContent = response.filename || this.t('documents.untitled', 'Document');
                 const found = response.total_found;
                 const key = found === 1
                     ? 'modal.memoryViewer.chunksFound.one'
@@ -4540,7 +4544,7 @@ class MemoryDashboard {
 
                     chunksList.innerHTML = chunksHtml;
                 } else {
-                    chunksList.innerHTML = '<p class="text-muted">No memory chunks found for this document.</p>';
+                    chunksList.innerHTML = `<p class="text-muted" data-i18n="documents.noChunks">${this.escapeHtml(this.t('documents.noChunks', 'No memory chunks found for this document.'))}</p>`;
                 }
 
                 modal.style.display = 'flex';
@@ -4580,7 +4584,7 @@ class MemoryDashboard {
     async removeDocument(uploadId, filename) {
         console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
 
-        if (!confirm(`Remove "${filename}" and all its memory chunks?\n\nThis action cannot be undone.`)) {
+        if (!confirm(this.t('documents.removeConfirm', 'Remove "{filename}" and all its memory chunks?\n\nThis action cannot be undone.', { filename }))) {
             console.log('User cancelled removal');
             return;
         }
@@ -4658,7 +4662,7 @@ class MemoryDashboard {
                     const resultsHtml = displayResults.map(result => {
                         const mem = result.memory;
                         const uploadIdTag = mem.tags?.find(tag => tag.startsWith('upload_id:'));
-                        const sourceFile = mem.metadata?.source_file || 'Unknown file';
+                        const sourceFile = mem.metadata?.source_file || this.t('documents.unknownFile', 'Unknown file');
                         const contentPreview = mem.content.length > 200
                             ? mem.content.substring(0, 200) + '...'
                             : mem.content;
