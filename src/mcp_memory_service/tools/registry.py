@@ -589,7 +589,7 @@ Examples:
                         }
                     }
 
-                    # Create a new version with updated content (sqlite_vec only)
+                    # Create a new version with updated content (sqlite_vec and milvus)
                     {
                         "content_hash": "abc123...",
                         "updates": {
@@ -649,7 +649,7 @@ Examples:
                 "versioned": {
                     "type": "boolean",
                     "default": False,
-                    "description": "When true, creates a new memory version instead of overwriting and marks the old one as superseded. Requires content in updates. Supported backends: sqlite_vec. Unsupported backends return an error.",
+                    "description": "When true, creates a new memory version instead of overwriting and marks the old one as superseded. Requires content in updates. Supported backends: sqlite_vec, milvus. Unsupported backends return an error.",
                 },
             },
             "required": ["content_hash", "updates"],
