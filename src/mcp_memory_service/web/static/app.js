@@ -393,6 +393,22 @@ class MemoryDashboard {
     }
 
     /**
+     * Set an element's text from the catalog. Text without values keeps its
+     * key in data-i18n, so applyTranslations() translates it again after a
+     * language switch. Text with values drops the key, so a switch cannot put
+     * back the element's earlier text.
+     */
+    setTranslatedText(el, key, fallback, vars) {
+        if (!el) return;
+        el.textContent = this.t(key, fallback, vars);
+        if (vars) {
+            delete el.dataset.i18n;
+        } else {
+            el.dataset.i18n = key;
+        }
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -4153,7 +4169,7 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Checking for updates...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.checking', 'Checking for updates...');
 
         try {
             const data = await this.apiCall('/server/version/check');
@@ -4161,24 +4177,24 @@ class MemoryDashboard {
 
             if (data.update_available) {
                 if (statusEl) {
-                    statusEl.textContent = `Yes - ${data.commits_behind} commit(s) available`;
+                    this.setTranslatedText(statusEl, 'modal.settings.server.commitsAvailable', 'Yes - {count} commit(s) available', { count: data.commits_behind });
                     statusEl.style.color = 'var(--success, #10b981)';
                     statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
-                this.showToast(`${data.commits_behind} update(s) available`, 'info');
+                this.showToast(this.t('modal.settings.server.updatesAvailable', '{count} update(s) available', { count: data.commits_behind }), 'info');
             } else {
                 if (statusEl) {
-                    statusEl.textContent = 'Up to date';
+                    this.setTranslatedText(statusEl, 'modal.settings.server.upToDate', 'Up to date');
                     statusEl.style.color = 'var(--text-secondary)';
                 }
                 if (updateBtn) { updateBtn.style.display = 'none'; }
-                this.showToast('Already up to date.', 'success');
+                this.showToast(this.t('modal.settings.server.alreadyUpToDate', 'Already up to date.'), 'success');
             }
         } catch (error) {
             if (actionStatus) { actionStatus.style.display = 'none'; }
-            if (statusEl) { statusEl.textContent = 'Check failed'; }
-            this.showToast('Failed to check for updates: ' + error.message, 'error');
+            this.setTranslatedText(statusEl, 'modal.settings.server.checkFailed', 'Check failed');
+            this.showToast(this.t('modal.settings.server.checkFailedWithError', 'Failed to check for updates: {error}', { error: error.message }), 'error');
         }
     }
 
@@ -4191,7 +4207,7 @@ class MemoryDashboard {
      * the process actually rolled over instead of trusting /api/health.
      */
     async updateAndRestart(force = false) {
-        if (!force && !confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+        if (!force && !confirm(this.t('modal.settings.server.confirmUpdate', 'This will pull the latest code, install dependencies, and restart the server. Continue?'))) {
             return;
         }
 
@@ -4199,12 +4215,12 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.pulling', 'Pulling updates and installing...');
 
         try {
             const data = await this.apiCall('/server/update', 'POST', { confirm: true, force });
 
-            if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
+            this.setTranslatedText(actionText, 'modal.settings.server.updateComplete', 'Update complete. Server restarting...');
             // Show captured git/pip output in console for diagnostics
             if (data.git_output) { console.info('git pull:\n' + data.git_output); }
             if (data.pip_output) { console.info('pip install:\n' + data.pip_output); }
@@ -4218,14 +4234,14 @@ class MemoryDashboard {
             // substring-matching the message — error wording can change
             // between releases and gets translated, status codes don't.
             if (error.status === 409) {
-                this.showToast('Update blocked: ' + msg, 'error');
-                if (confirm('The server has uncommitted local changes that will block the pull.\n\n' + msg + '\n\nForce-pull anyway? (Local changes may be overwritten.)')) {
+                this.showToast(this.t('modal.settings.server.updateBlocked', 'Update blocked: {error}', { error: msg }), 'error');
+                if (confirm(this.t('modal.settings.server.confirmForcePull', 'The server has uncommitted local changes that will block the pull.\n\n{error}\n\nForce-pull anyway? (Local changes may be overwritten.)', { error: msg }))) {
                     return this.updateAndRestart(true);
                 }
                 return;
             }
 
-            this.showToast('Update failed: ' + msg, 'error');
+            this.showToast(this.t('modal.settings.server.updateFailed', 'Update failed: {error}', { error: msg }), 'error');
         }
     }
 
@@ -4234,7 +4250,7 @@ class MemoryDashboard {
      * so pollServerHealth can verify the process actually rolled over.
      */
     async restartServer() {
-        if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
+        if (!confirm(this.t('modal.settings.server.confirmRestart', 'Are you sure you want to restart the server? This will temporarily disconnect all clients.'))) {
             return;
         }
 
@@ -4246,7 +4262,7 @@ class MemoryDashboard {
             if (error.message && error.message.includes('fetch')) {
                 this.showRestartOverlay(null, null);
             } else {
-                this.showToast('Restart failed: ' + error.message, 'error');
+                this.showToast(this.t('modal.settings.server.restartFailed', 'Restart failed: {error}', { error: error.message }), 'error');
             }
         }
     }
@@ -4265,6 +4281,13 @@ class MemoryDashboard {
         const statusEl = document.getElementById('restartStatus');
 
         if (overlay) { overlay.style.display = 'flex'; }
+        // "Reconnecting in {seconds}s": the countdown span moves to wherever
+        // the language puts {seconds}, and the interval below keeps updating it.
+        const countdownLine = countdownEl ? countdownEl.parentElement : null;
+        if (countdownLine) {
+            const [before, after = ''] = this.t('modal.settings.server.reconnectingIn', 'Reconnecting in {seconds}s').split('{seconds}');
+            countdownLine.replaceChildren(before, countdownEl, after);
+        }
 
         let countdown = 5;
         let attempts = 0;
@@ -4287,14 +4310,14 @@ class MemoryDashboard {
      */
     async pollServerHealth(statusEl, overlay, attempts, maxAttempts, preRestartPid, preRestartVersion) {
         if (attempts >= maxAttempts) {
-            if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
+            this.setTranslatedText(statusEl, 'modal.settings.server.notBackOnline', 'Server did not come back online. Please check manually.');
             setTimeout(() => {
                 if (overlay) { overlay.style.display = 'none'; }
             }, 5000);
             return;
         }
 
-        if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
+        this.setTranslatedText(statusEl, 'modal.settings.server.attempt', 'Attempt {attempt}/{max} - Waiting for server...', { attempt: attempts + 1, max: maxAttempts });
 
         try {
             // Probe /server/status (auth-protected); fall back to /api/health
@@ -4313,7 +4336,7 @@ class MemoryDashboard {
                 }
 
                 if (restarted) {
-                    if (statusEl) { statusEl.textContent = `Server is back online (v${status.version}, pid ${status.pid})! Reloading...`; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnline', 'Server is back online (v{version}, pid {pid})! Reloading...', { version: status.version, pid: status.pid });
                     setTimeout(() => {
                         window.location.reload();
                     }, 1500);
@@ -4322,9 +4345,7 @@ class MemoryDashboard {
                 // Status responded but pid+version unchanged — process didn't actually restart.
                 // Keep polling; on the final attempt we surface a warning below.
                 if (attempts === maxAttempts - 1) {
-                    if (statusEl) {
-                        statusEl.textContent = `Process did not restart (still pid ${status.pid}, v${status.version}). The update may have failed silently — check server logs.`;
-                    }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.didNotRestart', 'Process did not restart (still pid {pid}, v{version}). The update may have failed silently — check server logs.', { pid: status.pid, version: status.version });
                     setTimeout(() => {
                         if (overlay) { overlay.style.display = 'none'; }
                     }, 8000);
@@ -4334,7 +4355,7 @@ class MemoryDashboard {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
                 const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
-                    if (statusEl) { statusEl.textContent = 'Server is back online, reloading'; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnlineReloading', 'Server is back online, reloading');
                     setTimeout(() => { window.location.reload(); }, 1500);
                     return;
                 }
