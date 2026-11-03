@@ -5133,9 +5133,10 @@ class MemoryDashboard {
         if (resultEl) { resultEl.style.display = 'none'; }
 
         try {
-            const data = await this.apiCall('/config/credentials/test', {
-                method: 'POST',
-                body: JSON.stringify({ api_token: tokenVal, account_id: accountVal })
+            // apiCall(endpoint, method, data) — not a fetch-style options object (#1839).
+            const data = await this.apiCall('/config/credentials/test', 'POST', {
+                api_token: tokenVal,
+                account_id: accountVal,
             });
 
             if (data.valid) {
@@ -5182,16 +5183,13 @@ class MemoryDashboard {
 
         try {
             const syncOwnerVal = (document.getElementById('cred-sync-owner')?.value || 'http');
-            await this.apiCall('/config/credentials', {
-                method: 'POST',
-                body: JSON.stringify({
-                    api_token: tokenVal,
-                    account_id: accountVal,
-                    d1_database_id: d1Val,
-                    vectorize_index: vectorizeVal,
-                    sync_owner: syncOwnerVal,
-                    tested_token: this._credTestedToken,
-                })
+            await this.apiCall('/config/credentials', 'POST', {
+                api_token: tokenVal,
+                account_id: accountVal,
+                d1_database_id: d1Val,
+                vectorize_index: vectorizeVal,
+                sync_owner: syncOwnerVal,
+                tested_token: this._credTestedToken,
             });
             this._showCredResult('success', this.t('settings.credentials.saved', '✓ Credentials saved. Server restarting…'));
             this.closeModal(document.getElementById('settingsModal'));
