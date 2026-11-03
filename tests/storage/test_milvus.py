@@ -500,6 +500,98 @@ async def test_get_conflicts_scans_past_the_query_limit(storage, monkeypatch):
     assert len(await storage.get_conflicts()) == pairs
 
 
+async def _store_versioned_chains(storage, chains=3):
+    """Store ``chains`` memories tagged ``vchain`` and give each one versioned
+    update. Returns (current_hashes, superseded_hashes)."""
+    current, superseded = [], []
+    for i in range(chains):
+        content = f"deploy runbook {i} uses make deploy-old"
+        memory = _tagged(content, ["vchain"])
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        ok, msg, new_hash = await storage.update_memory_versioned(
+            memory.content_hash, f"deploy runbook {i} uses make deploy",
+            reason="renamed target",
+        )
+        assert ok, msg
+        superseded.append(memory.content_hash)
+        current.append(new_hash)
+    return current, superseded
+
+
+@pytest.mark.asyncio
+async def test_listing_paths_hide_superseded_versions(storage):
+    """Regression for #1824: Milvus applies the #1803 rule.
+
+    #1805 hid superseded versions in memory_list and tag search on sqlite-vec,
+    but Milvus only accepted ``include_superseded`` and ignored it, so
+    memory_list kept listing the old versions and counting them in ``total``.
+    """
+    from mcp_memory_service.services.memory_service import MemoryService
+
+    current, superseded = await _store_versioned_chains(storage)
+    service = MemoryService(storage)
+
+    listed = await service.list_memories(page=1, page_size=20)
+    assert {m["content_hash"] for m in listed["memories"]} == set(current)
+    assert listed["total"] == len(current)
+
+    page1 = await service.list_memories(page=1, page_size=2)
+    page2 = await service.list_memories(page=2, page_size=2)
+    assert (page1["total"], page1["has_more"], len(page1["memories"])) == (3, True, 2)
+    assert (page2["has_more"], len(page2["memories"])) == (False, 1)
+    assert {m["content_hash"] for m in page1["memories"] + page2["memories"]} == set(current)
+
+    with_old = await service.list_memories(page=1, page_size=20, include_superseded=True)
+    assert with_old["total"] == len(current) + len(superseded)
+
+    for search in (storage.search_by_tag, storage.search_by_tags):
+        hidden = {m.content_hash for m in await search(["vchain"], include_superseded=False)}
+        assert hidden == set(current), search.__name__
+
+    assert await storage.count_all_memories(include_superseded=False) == len(current)
+    assert await storage.count_all_memories(tags=["vchain"], include_superseded=False) == len(current)
+
+
+@pytest.mark.asyncio
+async def test_storage_listing_keeps_superseded_by_default(storage):
+    """The storage default keeps every live row for export, sync and
+    consolidation callers (#1803); only an explicit False hides old versions."""
+    current, superseded = await _store_versioned_chains(storage)
+    everything = set(current) | set(superseded)
+
+    assert {m.content_hash for m in await storage.get_all_memories()} == everything
+    assert await storage.count_all_memories() == len(everything)
+    assert {m.content_hash for m in await storage.search_by_tag(["vchain"])} == everything
+    assert {m.content_hash for m in await storage.search_by_tags(["vchain"])} == everything
+
+
+@pytest.mark.asyncio
+async def test_stale_listing_hides_superseded_versions(storage):
+    """The stale_days path of get_all_memories/count_all_memories applies the
+    same rule (#1824)."""
+    import time
+
+    old = time.time() - 60 * 86400
+    hashes = []
+    for i in range(2):
+        content = f"stale note {i} before the rename"
+        memory = Memory(content=content, content_hash=generate_content_hash(content),
+                        tags=["stale"], created_at=old)
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        hashes.append(memory.content_hash)
+    ok, msg = await storage.update_memory_metadata(
+        hashes[0], {"metadata": {"superseded_by": "replacement"}},
+    )
+    assert ok, msg
+
+    stale = await storage.get_all_memories(stale_days=30, include_superseded=False)
+    assert [m.content_hash for m in stale] == [hashes[1]]
+    assert await storage.count_all_memories(stale_days=30, include_superseded=False) == 1
+    assert await storage.count_all_memories(stale_days=30) == 2
+
+
 async def _store_hourly_timeline(storage, count=10):
     """Store ``count`` memories one hour apart, oldest first as real use writes
     them. Returns their hashes ordered newest first."""
