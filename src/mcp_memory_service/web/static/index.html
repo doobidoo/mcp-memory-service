@@ -1332,13 +1332,13 @@
 
                 <!-- Tab Navigation -->
                 <div class="settings-tabs">
-                    <button class="settings-tab active" data-tab="preferences">Preferences</button>
-                    <button class="settings-tab" data-tab="credentials">Credentials</button>
-                    <button class="settings-tab" data-tab="environment">Environment</button>
-                    <button class="settings-tab" data-tab="system">System Info</button>
-                    <button class="settings-tab" data-tab="quality">Quality</button>
-                    <button class="settings-tab" data-tab="backup">Backup</button>
-                    <button class="settings-tab" data-tab="server">Server</button>
+                    <button class="settings-tab active" data-tab="preferences" data-i18n="modal.settings.tabs.preferences">Preferences</button>
+                    <button class="settings-tab" data-tab="credentials" data-i18n="modal.settings.tabs.credentials">Credentials</button>
+                    <button class="settings-tab" data-tab="environment" data-i18n="modal.settings.tabs.environment">Environment</button>
+                    <button class="settings-tab" data-tab="system" data-i18n="modal.settings.tabs.system">System Info</button>
+                    <button class="settings-tab" data-tab="quality" data-i18n="modal.settings.tabs.quality">Quality</button>
+                    <button class="settings-tab" data-tab="backup" data-i18n="modal.settings.tabs.backup">Backup</button>
+                    <button class="settings-tab" data-tab="server" data-i18n="modal.settings.tabs.server">Server</button>
                 </div>
 
                 <div class="modal-body">
@@ -1371,7 +1371,7 @@
                     <!-- Environment Configuration Tab -->
                     <div id="environmentTab" class="settings-tab-content" style="display: none;">
                         <div class="env-config-header">
-                            <p class="env-config-description">
+                            <p class="env-config-description" data-i18n="modal.settings.env.description">
                                 View your current environment configuration.
                                 To change settings, edit your .env file and restart the server.
                             </p>
@@ -1379,7 +1379,7 @@
                                 <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
                                 </svg>
-                                Copy Configuration
+                                <span data-i18n="modal.settings.env.copy">Copy Configuration</span>
                             </button>
                         </div>
 
@@ -1602,17 +1602,17 @@
         <div id="viewBackupsModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3>Backup History</h3>
+                    <h3 data-i18n="modal.backups.title">Backup History</h3>
                     <button class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div id="backupsSummary" class="backup-summary"></div>
                     <div id="backupsList" class="backups-list">
-                        <p class="loading-text">Loading backups...</p>
+                        <p class="loading-text" data-i18n="modal.backups.loading">Loading backups...</p>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary">Close</button>
+                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary" data-i18n="modal.backups.close">Close</button>
                 </div>
             </div>
         </div>

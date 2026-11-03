@@ -18,54 +18,56 @@ class MemoryDashboard {
             // authenticated /api/health/detailed endpoint, which is already
             // fetched by loadSystemInfo().
             sources: [{ path: 'version', api: 'detailedHealth' }],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsBackend: {
             sources: [
                 { path: 'storage.storage_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsPrimaryBackend: {
             sources: [
                 { path: 'storage.primary_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingModel: {
             sources: [
                 { path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' },
                 { path: 'storage.embedding_model', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingDim: {
             sources: [
                 { path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' },
                 { path: 'storage.embedding_dimension', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsDbSize: {
             sources: [
                 { path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' },
                 { path: 'storage.database_size_mb', api: 'detailedHealth' }
             ],
-            formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
+            formatter: (value, app) => (value != null) ? `${value.toFixed(2)} MB` : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsTotalMemories: {
             sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? value.toLocaleString() : 'N/A'
+            formatter: (value, app) => (value != null) ? value.toLocaleString() : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
+            formatter: (value, app) => (value != null) ? app.formatUptime(value) : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsOAuthEnabled: {
             sources: [{ path: 'oauth_enabled', api: 'oauthStatus' }],
-            formatter: (value) => (value === true) ? '✓ Enabled' : (value === false) ? 'Disabled' : 'N/A'
+            formatter: (value, app) => (value === true) ? app.t('modal.settings.system.enabled', '✓ Enabled')
+                : (value === false) ? app.t('modal.settings.system.disabled', 'Disabled')
+                : app.t('modal.settings.system.notAvailable', 'N/A')
         }
     };
 
@@ -406,6 +408,26 @@ class MemoryDashboard {
         } else {
             el.dataset.i18n = key;
         }
+    }
+
+    /**
+     * Set text that is not a single catalog string (a date, a size, a value
+     * from the server) and drop any data-i18n key, so a language switch
+     * leaves it alone.
+     */
+    setValueText(el, text) {
+        if (!el) return;
+        el.textContent = text;
+        delete el.dataset.i18n;
+    }
+
+    /**
+     * Markup for an element whose whole text is one catalog string. It carries
+     * the key, so a language switch translates it again without a re-render.
+     */
+    staticTextHtml(tag, className, key, fallback, style = '') {
+        const styleAttr = style ? ` style="${style}"` : '';
+        return `<${tag} class="${className}"${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
     }
 
     /**
@@ -1958,7 +1980,7 @@ class MemoryDashboard {
         panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
         document.getElementById('deltaSyncStatus').textContent = this.t(`sync.status.${state}`, state.charAt(0).toUpperCase() + state.slice(1));
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
-        const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
+        const cadence = this.formatDuration(delta.interval_seconds);
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
             ? this.t('sync.scheduleEveryNext', 'Every {interval} · Next: {time}', { interval: cadence, time: next ? next.toLocaleTimeString() : this.t('sync.notScheduled', 'not scheduled') })
             : this.t('sync.automaticDisabled', 'Automatic sync disabled · Schedule: {schedule}', { schedule: delta.schedule });
@@ -2042,11 +2064,19 @@ class MemoryDashboard {
         }
     }
 
+    /**
+     * A duration in its largest whole unit: "45s", "5m", "3h", "2d". The sync
+     * cadence shows it on its own; formatTimeDelta() wraps it in "{time} ago".
+     */
+    formatDuration(seconds) {
+        if (seconds < 60) return this.t('time.seconds', '{count}s', { count: seconds });
+        if (seconds < 3600) return this.t('time.minutes', '{count}m', { count: Math.floor(seconds / 60) });
+        if (seconds < 86400) return this.t('time.hours', '{count}h', { count: Math.floor(seconds / 3600) });
+        return this.t('time.days', '{count}d', { count: Math.floor(seconds / 86400) });
+    }
+
     formatTimeDelta(seconds) {
-        if (seconds < 60) return `${seconds}s ago`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
+        return this.t('time.ago', '{time} ago', { time: this.formatDuration(seconds) });
     }
 
     /**
@@ -2185,18 +2215,18 @@ class MemoryDashboard {
             const nextBackup = document.getElementById('settingsNextBackup');
 
             if (!backupStatus.enabled) {
-                if (lastBackup) lastBackup.textContent = 'Backups disabled';
+                this.setTranslatedText(lastBackup, 'modal.settings.backup.disabled', 'Backups disabled');
                 if (backupCount) backupCount.textContent = '-';
-                if (nextBackup) nextBackup.textContent = '-';
+                this.setValueText(nextBackup, '-');
                 return;
             }
 
-            // Update last backup time
+            // Update last backup time. formatTimeDelta() already says "ago".
             if (lastBackup) {
                 if (backupStatus.time_since_last_seconds) {
-                    lastBackup.textContent = this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)) + ' ago';
+                    this.setValueText(lastBackup, this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)));
                 } else {
-                    lastBackup.textContent = 'Never';
+                    this.setTranslatedText(lastBackup, 'modal.settings.never', 'Never');
                 }
             }
 
@@ -2209,9 +2239,11 @@ class MemoryDashboard {
             // Update next scheduled backup
             if (nextBackup && backupStatus.next_backup_at) {
                 const nextDate = new Date(backupStatus.next_backup_at);
-                nextBackup.textContent = nextDate.toLocaleString();
-            } else if (nextBackup) {
-                nextBackup.textContent = backupStatus.scheduler_running ? 'Scheduled' : 'Not scheduled';
+                this.setValueText(nextBackup, nextDate.toLocaleString());
+            } else if (backupStatus.scheduler_running) {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.scheduled', 'Scheduled');
+            } else {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.notScheduled', 'Not scheduled');
             }
 
         } catch (error) {
@@ -2266,7 +2298,7 @@ class MemoryDashboard {
         // Show loading state
         const listEl = document.getElementById('backupsList');
         const summaryEl = document.getElementById('backupsSummary');
-        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (listEl) listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loading', 'Loading backups...');
         if (summaryEl) summaryEl.innerHTML = '';
 
         this.openModal(modal);
@@ -2292,9 +2324,16 @@ class MemoryDashboard {
             const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
             const backupDir = status?.backup_directory || '';
 
-            // Render summary
+            // Render summary. The values are inserted as HTML after the
+            // translated sentence is escaped, so they keep their <strong>.
             if (summaryEl) {
-                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                const sentence = totalCount === 1
+                    ? this.t('modal.backups.summaryOne', '{count} backup · {size} total')
+                    : this.t('modal.backups.summaryMany', '{count} backups · {size} total');
+                let html = this.replacePlaceholders(this.escapeHtml(sentence), {
+                    count: `<strong>${this.escapeHtml(totalCount)}</strong>`,
+                    size: `<strong>${this.escapeHtml(totalSizeMB)} MB</strong>`
+                });
                 if (backupDir) {
                     html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
                 }
@@ -2303,15 +2342,22 @@ class MemoryDashboard {
 
             // Render backup list
             if (backups.length === 0) {
-                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                const empty = this.t('modal.backups.empty', 'No backups found. Create one using "{button}".', {
+                    button: this.t('modal.settings.backupNow', 'Create Backup Now')
+                });
+                listEl.innerHTML = `<p class="loading-text">${this.escapeHtml(empty)}</p>`;
                 return;
             }
 
             listEl.innerHTML = backups.map(backup => {
                 const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
-                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const createdDate = backup.created_at
+                    ? new Date(backup.created_at).toLocaleString()
+                    : this.t('modal.backups.unknownDate', 'Unknown');
                 const ageDays = backup.age_days != null ? backup.age_days : '?';
-                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+                const ageLabel = ageDays === 1
+                    ? this.t('modal.backups.ageOne', '1 day ago')
+                    : this.t('modal.backups.ageDays', '{days} days ago', { days: ageDays });
 
                 return `
                     <div class="backup-item">
@@ -2319,7 +2365,7 @@ class MemoryDashboard {
                         <div class="backup-meta">
                             <span>${sizeMB} MB</span>
                             <span>${this.escapeHtml(createdDate)}</span>
-                            <span>${ageLabel}</span>
+                            <span>${this.escapeHtml(ageLabel)}</span>
                         </div>
                     </div>
                 `;
@@ -2327,7 +2373,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error loading backups list:', error);
-            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
+            listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loadFailed', 'Failed to load backups.', 'color: var(--error);');
         }
     }
 
@@ -4758,13 +4804,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Reset system info fields to loading state
+     * Reset system info fields to loading state. data-loading marks a field
+     * that has no value yet; the text cannot, since it is translated.
      */
     resetSystemInfoLoadingState() {
         Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
             const element = document.getElementById(id);
             if (element) {
-                element.textContent = 'Loading...';
+                this.setTranslatedText(element, 'status.loading', 'Loading...');
+                element.dataset.loading = 'true';
             }
         });
     }
@@ -4801,7 +4849,8 @@ class MemoryDashboard {
                     }
                 }
 
-                element.textContent = config.formatter(value);
+                this.setValueText(element, config.formatter(value, this));
+                delete element.dataset.loading;
             });
 
             // Populate OAuth detail fields (conditionally shown when enabled)
@@ -4811,10 +4860,11 @@ class MemoryDashboard {
                 showRow('oauthBackendRow');
                 showRow('oauthClientsRow');
                 showRow('oauthTokensRow');
+                const notAvailable = this.t('modal.settings.system.notAvailable', 'N/A');
                 const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-                setVal('settingsOAuthBackend', oauthData.storage_backend || 'N/A');
-                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? 'N/A');
-                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? 'N/A');
+                setVal('settingsOAuthBackend', oauthData.storage_backend || notAvailable);
+                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? notAvailable);
+                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? notAvailable);
             }
 
             // Log warnings for failed API calls
@@ -4832,8 +4882,9 @@ class MemoryDashboard {
             // Set all system info fields that are still in loading state to error
             Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
                 const element = document.getElementById(id);
-                if (element && element.textContent === 'Loading...') {
-                    element.textContent = 'Error';
+                if (element && element.dataset.loading === 'true') {
+                    this.setTranslatedText(element, 'modal.settings.system.error', 'Error');
+                    delete element.dataset.loading;
                 }
             });
         }
@@ -4854,17 +4905,17 @@ class MemoryDashboard {
      * @param {number} seconds - Uptime in seconds
      * @returns {string} Formatted uptime string
      */
-    static formatUptime(seconds) {
+    formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
 
         const parts = [];
-        if (days > 0) parts.push(`${days}d`);
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
+        if (days > 0) parts.push(this.t('time.days', '{count}d', { count: days }));
+        if (hours > 0) parts.push(this.t('time.hours', '{count}h', { count: hours }));
+        if (minutes > 0) parts.push(this.t('time.minutes', '{count}m', { count: minutes }));
 
-        return parts.length > 0 ? parts.join(' ') : '< 1m';
+        return parts.length > 0 ? parts.join(' ') : this.t('time.underAMinute', '< 1m');
     }
 
     /**
@@ -5273,7 +5324,7 @@ class MemoryDashboard {
                             <div class="env-param-row">
                                 <div class="env-param-key">
                                     <strong>${this.escapeHtml(param.key)}</strong>
-                                    ${param.sensitive ? '<span class="sensitive-badge">Sensitive</span>' : ''}
+                                    ${param.sensitive ? this.staticTextHtml('span', 'sensitive-badge', 'modal.settings.env.sensitive', 'Sensitive') : ''}
                                 </div>
                                 <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
                                     ${this.renderParamValue(param)}
@@ -5294,7 +5345,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load environment config:', error);
-            container.innerHTML = '<p class="error">Failed to load configuration</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'modal.settings.env.loadFailed', 'Failed to load configuration');
         }
     }
 
@@ -5305,7 +5356,7 @@ class MemoryDashboard {
      */
     renderParamValue(param) {
         if (!param.value) {
-            return '<span class="env-value-empty">(not set)</span>';
+            return this.staticTextHtml('span', 'env-value-empty', 'modal.settings.env.notSet', '(not set)');
         }
 
         if (param.sensitive) {
@@ -5314,11 +5365,14 @@ class MemoryDashboard {
 
         if (param.type === 'boolean') {
             const isTrue = param.value === 'true' || param.value === true;
-            return `<span class="env-value-boolean ${isTrue ? 'true' : 'false'}">${isTrue ? '✓ Enabled' : '✗ Disabled'}</span>`;
+            return isTrue
+                ? this.staticTextHtml('span', 'env-value-boolean true', 'modal.settings.env.enabled', '✓ Enabled')
+                : this.staticTextHtml('span', 'env-value-boolean false', 'modal.settings.env.disabled', '✗ Disabled');
         }
 
         if (param.choices && param.choices.length > 0) {
-            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">(options: ${param.choices.map(c => this.escapeHtml(c)).join(', ')})</span>`;
+            const options = this.t('modal.settings.env.options', '(options: {options})', { options: param.choices.join(', ') });
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">${this.escapeHtml(options)}</span>`;
         }
 
         return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
@@ -5329,7 +5383,7 @@ class MemoryDashboard {
      */
     async copyEnvironmentConfig() {
         if (!this.currentEnvConfig) {
-            this.showToast('No configuration loaded', 'error');
+            this.showToast(this.t('modal.settings.env.noConfig', 'No configuration loaded'), 'error');
             return;
         }
 
@@ -5360,10 +5414,10 @@ class MemoryDashboard {
 
         try {
             await navigator.clipboard.writeText(configText);
-            this.showToast('Configuration copied to clipboard', 'success');
+            this.showToast(this.t('modal.settings.env.copied', 'Configuration copied to clipboard'), 'success');
         } catch (error) {
             console.error('Failed to copy:', error);
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
         }
     }
 
