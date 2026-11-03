@@ -6349,7 +6349,7 @@ class MemoryDashboard {
 
             if (!data || !data.nodes || data.nodes.length === 0) {
                 this._clearGraphData();
-                container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+                container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
                 return;
             }
 
@@ -6370,7 +6370,7 @@ class MemoryDashboard {
             console.error('Failed to load graph visualization:', error);
             if (requestId !== this._graphLoadId) return;
             this._clearGraphData();
-            container.innerHTML = '<p class="error">Failed to load graph visualization</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.graphLoadFailed">${this.t('analytics.graphLoadFailed', 'Failed to load graph visualization')}</p>`;
         }
     }
 
@@ -6379,7 +6379,7 @@ class MemoryDashboard {
      */
     renderGraphVisualization(container, data) {
         if (!data.nodes || data.nodes.length === 0) {
-            container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+            container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
             return;
         }
 
@@ -6669,7 +6669,7 @@ class MemoryDashboard {
             .on('mouseover', (event, item) => {
                 tooltip.transition().duration(200).style('opacity', 1);
                 tooltip
-                    .html(this.formatGraphTooltip(item, 'Click to center; double-click for details'))
+                    .html(this.formatGraphTooltip(item, this.t('analytics.graphRingHint', 'Click to center; double-click for details')))
                     .style('left', (event.pageX + 10) + 'px')
                     .style('top', (event.pageY - 28) + 'px');
             })
@@ -7350,10 +7350,11 @@ class MemoryDashboard {
     }
 
     _updateRotateButton() {
-        const text = this.graphRotationPaused ? 'Play' : 'Pause';
+        const [key, fallback] = this.graphRotationPaused
+            ? ['analytics.rotatePlay', 'Play']
+            : ['analytics.rotatePause', 'Pause'];
         ['graphRotateLabel', 'graphFullscreenRotateLabel'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = text;
+            this.setTranslatedText(document.getElementById(id), key, fallback);
         });
         const enabled = Boolean(this.use3DGraph) && this.graphLayout !== 'rings';
         ['graphRotateBtn', 'graphFullscreenRotateBtn'].forEach(id => {
@@ -7550,7 +7551,7 @@ class MemoryDashboard {
     /**
      * Format enhanced tooltip with quality score, timestamps, and metadata
      */
-    formatGraphTooltip(d, interactionHint = 'Click node to view full memory') {
+    formatGraphTooltip(d, interactionHint = this.t('analytics.graphNodeHint', 'Click node to view full memory')) {
         const qualityClass = d.quality_score >= 0.7 ? 'high' : d.quality_score >= 0.4 ? 'medium' : 'low';
         const qualityColor = qualityClass === 'high' ? '#50C878' : qualityClass === 'medium' ? '#F39C12' : '#E24A4A';
 

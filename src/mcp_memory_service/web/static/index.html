@@ -885,7 +885,7 @@
                                                     <option value="1000" selected>1000</option>
                                                     <option value="2500">2500</option>
                                                     <option value="5000">5000</option>
-                                                    <option value="10000">All</option>
+                                                    <option value="10000" data-i18n="analytics.graphNodesAll">All</option>
                                                 </select>
                                             </label>
                                             <label for="graphMinConnectionsSelect" title="Load only memories with at least N links in the database. Reloads the graph." data-i18n-title="analytics.minConnectionsTip">
@@ -908,17 +908,17 @@
                                                 </svg>
                                                 <span data-i18n="analytics.refresh">Refresh</span>
                                             </button>
-                                            <button id="graphDimensionBtn" class="btn btn-secondary" title="Toggle 3D / 2D rendering">
+                                            <button id="graphDimensionBtn" class="btn btn-secondary" title="Toggle 3D / 2D rendering" data-i18n-title="analytics.graphDimensionTip">
                                                 <span id="graphDimensionLabel">3D</span>
                                             </button>
-                                            <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                                            <div class="graph-layout-toggle" role="group" aria-label="Graph layout" data-i18n-aria="analytics.graphLayoutLabel">
                                                 <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
                                                 <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
                                             </div>
-                                            <button id="graphRotateBtn" class="btn btn-secondary" title="Pause / resume auto-rotation (3D only)">
-                                                <span id="graphRotateLabel">Pause</span>
+                                            <button id="graphRotateBtn" class="btn btn-secondary" title="Pause / resume auto-rotation (3D only)" data-i18n-title="analytics.rotateTip">
+                                                <span id="graphRotateLabel" data-i18n="analytics.rotatePause">Pause</span>
                                             </button>
-                                            <button id="graphFullscreenBtn" class="btn btn-secondary" title="Fullscreen Mode">
+                                            <button id="graphFullscreenBtn" class="btn btn-secondary" title="Fullscreen Mode" data-i18n-title="analytics.fullscreenTip">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                     <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
                                                 </svg>
@@ -926,7 +926,7 @@
                                         </div>
                                         <div class="graph-filter-bar">
                                             <span class="graph-filter-label" data-i18n="analytics.filterByType">Filter by type:</span>
-                                            <div id="graphTypeFilterBar" class="graph-type-pills" title="Click a type to show/hide its nodes"></div>
+                                            <div id="graphTypeFilterBar" class="graph-type-pills" title="Click a type to show/hide its nodes" data-i18n-title="analytics.typeFilterTip"></div>
                                         </div>
                                         <div id="graphVisualizationContainer" class="graph-container">
                                             <div class="loading-spinner"></div>
@@ -1258,22 +1258,22 @@
                     <h3 data-i18n="analytics.graphVisualization">Interactive Graph Visualization</h3>
                     <div class="graph-fullscreen-controls">
                         <span id="graphFullscreenNodeCount" class="graph-node-count"></span>
-                        <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                        <div class="graph-layout-toggle" role="group" aria-label="Graph layout" data-i18n-aria="analytics.graphLayoutLabel">
                             <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
                             <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
                         </div>
-                        <button class="btn btn-secondary" id="graphFullscreenRotateBtn" title="Pause / resume rotation">
-                            <span id="graphFullscreenRotateLabel">Pause</span>
+                        <button class="btn btn-secondary" id="graphFullscreenRotateBtn" title="Pause / resume rotation" data-i18n-title="analytics.fullscreenRotateTip">
+                            <span id="graphFullscreenRotateLabel" data-i18n="analytics.rotatePause">Pause</span>
                         </button>
-                        <button class="btn btn-secondary" id="graphFullscreenLegendBtn" title="Show / hide legend">Legend</button>
-                        <button class="btn btn-secondary" id="graphExitFullscreenBtn" title="Exit Fullscreen (Esc)">
+                        <button class="btn btn-secondary" id="graphFullscreenLegendBtn" title="Show / hide legend" data-i18n-title="analytics.legendTip" data-i18n="analytics.legend">Legend</button>
+                        <button class="btn btn-secondary" id="graphExitFullscreenBtn" title="Exit Fullscreen (Esc)" data-i18n-title="analytics.exitFullscreenTip">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
                             </svg>
                         </button>
                     </div>
                 </div>
-                <div id="graphFullscreenFilterBar" class="graph-type-pills graph-fullscreen-filters" title="Click a type to show/hide its nodes"></div>
+                <div id="graphFullscreenFilterBar" class="graph-type-pills graph-fullscreen-filters" title="Click a type to show/hide its nodes" data-i18n-title="analytics.typeFilterTip"></div>
                 <div id="graphFullscreenContainer"></div>
                 <div id="graphFullscreenLegend" class="graph-legend graph-legend-overlay"></div>
             </div>
