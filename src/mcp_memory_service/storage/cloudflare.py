@@ -1274,6 +1274,7 @@ class CloudflareStorage(MemoryStorage):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and optional time filtering."""
         return await self._search_by_tags_internal(
@@ -1283,7 +1284,7 @@ class CloudflareStorage(MemoryStorage):
             time_end=time_end
         )
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:  # include_superseded: interface parity (#1803); not filtered here
         """Search memories by tags with optional time filtering (legacy OR behavior)."""
         return await self._search_by_tags_internal(
             tags=tags,

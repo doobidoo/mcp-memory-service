@@ -89,12 +89,15 @@ AGENT_ID_CONTRACT_METHODS = [
     "search_memories",
 ]
 
-# Methods that services/memory_service.py::list_memories calls with
-# `include_superseded=` (#1803), so memory_list and the dashboard list only show
-# current versions. Every backend must accept the keyword.
+# Methods that services/memory_service.py (list_memories, search_by_tag) and
+# web/api/search.py call with `include_superseded=` (#1803), so the list and tag
+# searches only show current versions. Every backend must accept the keyword.
 INCLUDE_SUPERSEDED_CONTRACT_METHODS = [
     "get_all_memories",
     "count_all_memories",
+    # MemoryService.search_by_tag (the search_by_tag MCP handler) passes it too.
+    "search_by_tag",
+    "search_by_tags",
 ]
 
 # Methods that web/api/*.py calls on `storage` WITHOUT a hasattr guard, i.e.
@@ -435,7 +438,7 @@ def test_milvus_graph_storage_matches_graph_storage_signature(method_name):
 
 @pytest.mark.parametrize("method_name", INCLUDE_SUPERSEDED_CONTRACT_METHODS)
 def test_all_backends_accept_include_superseded_kwarg(method_name):
-    """Each backend and the base interface accept the `include_superseded` list_memories passes."""
+    """Each backend and the base interface accept the `include_superseded` callers pass."""
     offenders = []
     for name, cls in [("MemoryStorage", MemoryStorage)] + [
         (name, cls) for name, cls, err in BACKENDS if cls is not None
@@ -449,5 +452,5 @@ def test_all_backends_accept_include_superseded_kwarg(method_name):
             offenders.append(name)
     assert not offenders, (
         f"{method_name}() is missing the `include_superseded` keyword on: "
-        f"{offenders}. list_memories passes it (issue #1803)."
+        f"{offenders}. MemoryService and the REST tag search pass it (issue #1803)."
     )

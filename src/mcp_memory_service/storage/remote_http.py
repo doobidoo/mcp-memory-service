@@ -710,11 +710,11 @@ class RemoteHTTPStorage(MemoryStorage):
         """Retrieve is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('retrieve not serviceable over RemoteHTTPStorage')
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
         """search_by_tag is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('search_by_tag not serviceable over RemoteHTTPStorage')
 
-    async def search_by_tags(self, tags: List[str], operation: str = "AND", time_start: Optional[float] = None, time_end: Optional[float] = None) -> List[Memory]:
+    async def search_by_tags(self, tags: List[str], operation: str = "AND", time_start: Optional[float] = None, time_end: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
         """search_by_tags is not serviceable over RemoteHTTPStorage."""
         raise NotImplementedError('search_by_tags not serviceable over RemoteHTTPStorage')
 

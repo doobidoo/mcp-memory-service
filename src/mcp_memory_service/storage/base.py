@@ -331,12 +331,15 @@ class MemoryStorage(ABC):
         return candidates[:n_results]
 
     @abstractmethod
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
         """Search memories by tags with optional time filtering.
 
         Args:
             tags: List of tags to search for
             time_start: Optional Unix timestamp (in seconds) to filter memories created after this time
+            include_superseded: If False, leave out memories replaced by a newer
+                version, as ``retrieve()`` does. Default True keeps every live
+                row for internal callers (#1803)
 
         Returns:
             List of Memory objects matching the tag criteria and time filter
@@ -351,6 +354,7 @@ class MemoryStorage(ABC):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR semantics and time range filtering.
 
@@ -359,6 +363,7 @@ class MemoryStorage(ABC):
             operation: "AND" (all tags must match) or "OR" (any tag matches)
             time_start: Optional Unix timestamp for inclusive range start
             time_end: Optional Unix timestamp for inclusive range end
+            include_superseded: Same meaning as in ``search_by_tag`` (#1803)
 
         Returns:
             List of Memory objects matching the criteria

@@ -2244,7 +2244,7 @@ class HybridMemoryStorage(MemoryStorage):
         """Search memories in primary storage."""
         return await self.primary.search(query, n_results)
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
         """Search memories by tags in primary storage with optional time filtering.
 
         This method performs an OR search for tags. The `match_all` (AND) logic
@@ -2257,7 +2257,9 @@ class HybridMemoryStorage(MemoryStorage):
         Returns:
             List of Memory objects matching the tag criteria and time filter
         """
-        return await self.primary.search_by_tag(tags, time_start=time_start)
+        return await self.primary.search_by_tag(
+            tags, time_start=time_start, include_superseded=include_superseded
+        )
 
     async def search_by_tags(
         self,
@@ -2266,6 +2268,7 @@ class HybridMemoryStorage(MemoryStorage):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Search memories by tags using consistent operation parameter across backends."""
         normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
@@ -2279,6 +2282,7 @@ class HybridMemoryStorage(MemoryStorage):
             time_start=time_start,
             time_end=time_end,
             include_pending=include_pending,
+            include_superseded=include_superseded,
         )
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:

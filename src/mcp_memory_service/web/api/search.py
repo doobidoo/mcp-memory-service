@@ -361,6 +361,7 @@ async def tag_search(
             tags=request.tags,
             tag_match="all" if request.match_all else "any",
             exclude_pending=True,  # search surface: hide possibly-stale vectors (ADR-0016)
+            include_superseded=False,  # search surface: current versions only (#1803)
         )
         if time_start is not None:
             memories = [

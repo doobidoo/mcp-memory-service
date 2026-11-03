@@ -178,3 +178,74 @@ async def test_get_all_memories_default_keeps_superseded(storage, versioned):
     current = await storage.get_all_memories(include_superseded=False)
     assert [m.content_hash for m in current] == [v2]
     assert await storage.count_all_memories(include_superseded=False) == 1
+
+
+@pytest_asyncio.fixture
+async def chain(storage):
+    """"A v1" tagged demo plus two versioned updates. Returns (v1, v2, v3)."""
+    content = "A v1 demo"
+    v1 = Memory(content=content, content_hash=generate_content_hash(content), tags=["demo", "rule"])
+    assert (await storage.store(v1, skip_semantic_dedup=True))[0]
+    ok, msg, v2 = await storage.update_memory_versioned(v1.content_hash, "A v2 demo")
+    assert ok, msg
+    ok, msg, v3 = await storage.update_memory_versioned(v2, "A v3 demo")
+    assert ok, msg
+    return v1.content_hash, v2, v3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("match_all", [False, True])
+async def test_rest_tag_search_hides_superseded(storage, chain, match_all):
+    """POST /api/search/by-tag (the dashboard's tag search) returns current versions only."""
+    from fastapi.testclient import TestClient
+
+    from mcp_memory_service.web.app import app
+    from mcp_memory_service.web.dependencies import set_storage
+    from mcp_memory_service.web.oauth.middleware import (
+        AuthenticationResult,
+        get_current_user,
+        require_read_access,
+        require_write_access,
+    )
+
+    async def _user():
+        return AuthenticationResult(
+            authenticated=True, client_id="test_client",
+            scope="read write admin", auth_method="test",
+        )
+
+    _v1, _v2, v3 = chain
+    set_storage(storage)
+    for dep in (get_current_user, require_read_access, require_write_access):
+        app.dependency_overrides[dep] = _user
+    try:
+        response = TestClient(app).post(
+            "/api/search/by-tag",
+            json={"tags": ["demo", "rule"], "match_all": match_all, "limit": 10},
+        )
+        assert response.status_code == 200, response.text
+        hashes = [r["memory"]["content_hash"] for r in response.json()["results"]]
+        assert hashes == [v3]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("match_all", [False, True])
+async def test_service_search_by_tag_hides_superseded(storage, chain, match_all):
+    """MemoryService.search_by_tag backs the search_by_tag MCP handler."""
+    _v1, _v2, v3 = chain
+    result = await MemoryService(storage).search_by_tag(tags=["demo", "rule"], match_all=match_all)
+    assert [m["content_hash"] for m in result["memories"]] == [v3]
+    assert result["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_storage_tag_search_keeps_superseded_by_default(storage, chain):
+    """Internal callers (consolidation, quarantine, manage) still see every live row."""
+    v1, v2, v3 = chain
+    assert {m.content_hash for m in await storage.search_by_tag(["demo"])} == {v1, v2, v3}
+    assert {m.content_hash for m in await storage.search_by_tags(["demo", "rule"])} == {v1, v2, v3}
+    assert [m.content_hash for m in await storage.search_by_tag(["demo"], include_superseded=False)] == [v3]
+    current = await storage.search_by_tags(["demo", "rule"], operation="OR", include_superseded=False)
+    assert [m.content_hash for m in current] == [v3]

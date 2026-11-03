@@ -929,10 +929,15 @@ class MemoryService:
             tags = normalize_tags(tags)
 
             # Preserve the existing ANY search, including its result ordering.
+            # Current versions only, like memory_search (#1803).
             if match_all:
-                memories = await self.storage.search_by_tags(tags=tags, operation="AND")
+                memories = await self.storage.search_by_tags(
+                    tags=tags, operation="AND", include_superseded=False
+                )
             else:
-                memories = await self.storage.search_by_tag(tags=tags)
+                memories = await self.storage.search_by_tag(
+                    tags=tags, include_superseded=False
+                )
 
             # Format results
             results = []

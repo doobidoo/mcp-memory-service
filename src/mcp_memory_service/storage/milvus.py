@@ -1765,6 +1765,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         tags: List[str],
         time_start: Optional[float] = None,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> List[Memory]:
         if not tags or not self._ensure_initialized():
             return []
@@ -1807,6 +1808,7 @@ class MilvusMemoryStorage(MemoryStorage):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> List[Memory]:
         if not tags or not self._ensure_initialized():
             return []
