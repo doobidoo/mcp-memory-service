@@ -359,16 +359,22 @@ def _closes_only_other_issues(source: dict, repo: str, number: int) -> bool:
     if not match or not isinstance(source.get("number"), int):
         return False  # cannot tell: stay conservative
     owner, name = match.groups()
-    data = json.loads(
-        gh(
-            "api", "graphql", "-f", f"query={_PR_CLOSES_QUERY}",
-            "-f", f"owner={owner}", "-f", f"name={name}",
-            "-F", f"number={source['number']}",
+    # An unreadable repository, a null result or a malformed node must not
+    # stop the claim: it is uncertain, so it falls through to manual review.
+    try:
+        data = json.loads(
+            gh(
+                "api", "graphql", "-f", f"query={_PR_CLOSES_QUERY}",
+                "-f", f"owner={owner}", "-f", f"name={name}",
+                "-F", f"number={source['number']}",
+            )
         )
-    )
-    # ponytail: first 100 closing refs only; a PR closing more is not a mention
-    nodes = data["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["nodes"]
-    closes = {(n["repository"]["nameWithOwner"].lower(), n["number"]) for n in nodes}
+        # ponytail: first 100 closing refs only; a PR closing more is not a mention
+        pr = data["data"]["repository"]["pullRequest"]
+        nodes = pr["closingIssuesReferences"]["nodes"]
+        closes = {(n["repository"]["nameWithOwner"].lower(), n["number"]) for n in nodes}
+    except (subprocess.CalledProcessError, ValueError, KeyError, TypeError):
+        return False
     return bool(closes) and (repo.lower(), number) not in closes
 
 

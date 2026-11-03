@@ -44,6 +44,7 @@ class GitHub:
         self.open_pr = False
         self.timeline = []
         self.referencing_pr_closes = []
+        self.pr_lookup = "ok"
         self.fail_comment = False
         self.silent_assignment = False
         self.before_assign = None
@@ -54,6 +55,10 @@ class GitHub:
     def gh(self, *args, stdin=None):
         self.calls.append((args, stdin))
         if args[:2] == ("api", "graphql") and any("pullRequest(" in a for a in args):
+            if self.pr_lookup == "error":
+                raise subprocess.CalledProcessError(1, "gh")
+            if self.pr_lookup == "null":
+                return json.dumps({"data": {"repository": None}})
             nodes = [
                 {"number": n, "repository": {"nameWithOwner": "owner/repo"}}
                 for n in self.referencing_pr_closes
@@ -340,6 +345,8 @@ PR_FIELDS = {"number": 7, "repository_url": "https://api.github.com/repos/owner/
         "referencing-pr",
         "referencing-pr-closes-nothing",
         "referencing-pr-closes-this",
+        "referencing-pr-lookup-error",
+        "referencing-pr-lookup-null",
     ],
 )
 def test_ambiguous_or_existing_work_stays_manual(tmp_path, monkeypatch, reason):
@@ -357,6 +364,10 @@ def test_ambiguous_or_existing_work_stays_manual(tmp_path, monkeypatch, reason):
     if reason == "referencing-pr-closes-this":
         api.timeline = referencing_pr(**PR_FIELDS)
         api.referencing_pr_closes = [42, 99]
+    if reason.startswith("referencing-pr-lookup-"):
+        api.timeline = referencing_pr(**PR_FIELDS)
+        api.referencing_pr_closes = [99]
+        api.pr_lookup = reason.rsplit("-", 1)[1]
     run_cli(tmp_path, monkeypatch, api)
     assert not api.issue["assignees"]
     assert any("maintainer" in r for r in api.replies)
