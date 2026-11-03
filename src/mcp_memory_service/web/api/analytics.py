@@ -115,7 +115,8 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
             breakdown.append(ActivityBreakdown(
                 period="hourly",
                 count=count,
-                label=label
+                label=label,
+                hour=hour
             ))
 
     elif granularity == "daily":
@@ -129,7 +130,8 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
             breakdown.append(ActivityBreakdown(
                 period="daily",
                 count=count,
-                label=day_name
+                label=day_name,
+                weekday=i
             ))
 
     else:  # weekly
@@ -151,7 +153,9 @@ def calculate_activity_time_ranges(timestamps: List[float], granularity: str) ->
             breakdown.append(ActivityBreakdown(
                 period="weekly",
                 count=count,
-                label=f"Week {week_num} ({year})"
+                label=f"Week {week_num} ({year})",
+                iso_year=year,
+                iso_week=week_num
             ))
 
     return breakdown, active_days, activity_dates
@@ -331,13 +335,19 @@ class ActivityBreakdown(BaseModel):
     """Activity breakdown by time period."""
     period: str  # hour, day, week, month
     count: int
-    label: str  # e.g., "Monday", "10 AM", etc.
+    label: str  # English display text, e.g. "Monday", "14:00", "Week 44 (2026)"
+    # Machine-readable period, so clients can render the label in their own language.
+    hour: Optional[int] = None  # hourly: 0-23 (UTC)
+    weekday: Optional[int] = None  # daily: 0 = Monday ... 6 = Sunday
+    iso_year: Optional[int] = None  # weekly
+    iso_week: Optional[int] = None  # weekly
 
 
 class ActivityReport(BaseModel):
     """Comprehensive activity report."""
     breakdown: List[ActivityBreakdown]
-    peak_times: List[str]
+    peak_times: List[str]  # English labels of peak_periods, kept for existing clients
+    peak_periods: List[ActivityBreakdown] = []
     active_days: int
     total_days: int
     current_streak: int
@@ -1022,7 +1032,8 @@ async def get_activity_breakdown(
 
         # Find peak times (top 3)
         sorted_breakdown = sorted(breakdown, key=lambda x: x.count, reverse=True)
-        peak_times = [item.label for item in sorted_breakdown[:3]]
+        peak_periods = sorted_breakdown[:3]
+        peak_times = [item.label for item in peak_periods]
 
         # Calculate total_days as the span from oldest to newest memory
         total_days = (activity_dates[-1] - activity_dates[0]).days + 1 if len(activity_dates) >= 2 else len(activity_dates)
@@ -1030,6 +1041,7 @@ async def get_activity_breakdown(
         return ActivityReport(
             breakdown=breakdown,
             peak_times=peak_times,
+            peak_periods=peak_periods,
             active_days=len(active_days),
             total_days=total_days,
             current_streak=current_streak,
