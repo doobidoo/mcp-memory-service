@@ -18,54 +18,56 @@ class MemoryDashboard {
             // authenticated /api/health/detailed endpoint, which is already
             // fetched by loadSystemInfo().
             sources: [{ path: 'version', api: 'detailedHealth' }],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsBackend: {
             sources: [
                 { path: 'storage.storage_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsPrimaryBackend: {
             sources: [
                 { path: 'storage.primary_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingModel: {
             sources: [
                 { path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' },
                 { path: 'storage.embedding_model', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingDim: {
             sources: [
                 { path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' },
                 { path: 'storage.embedding_dimension', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsDbSize: {
             sources: [
                 { path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' },
                 { path: 'storage.database_size_mb', api: 'detailedHealth' }
             ],
-            formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
+            formatter: (value, app) => (value != null) ? `${value.toFixed(2)} MB` : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsTotalMemories: {
             sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? value.toLocaleString() : 'N/A'
+            formatter: (value, app) => (value != null) ? value.toLocaleString() : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
+            formatter: (value, app) => (value != null) ? app.formatUptime(value) : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsOAuthEnabled: {
             sources: [{ path: 'oauth_enabled', api: 'oauthStatus' }],
-            formatter: (value) => (value === true) ? '✓ Enabled' : (value === false) ? 'Disabled' : 'N/A'
+            formatter: (value, app) => (value === true) ? app.t('modal.settings.system.enabled', '✓ Enabled')
+                : (value === false) ? app.t('modal.settings.system.disabled', 'Disabled')
+                : app.t('modal.settings.system.notAvailable', 'N/A')
         }
     };
 
@@ -143,7 +145,7 @@ class MemoryDashboard {
         // Check for secure context
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
             console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
-            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+            this.showToast(this.t('toast.connectionInsecure', 'Warning: Connection not secure. Please use HTTPS in production.'), 'warning');
         }
 
         // Detect authentication requirement before loading data or starting
@@ -409,6 +411,26 @@ class MemoryDashboard {
     }
 
     /**
+     * Set text that is not a single catalog string (a date, a size, a value
+     * from the server) and drop any data-i18n key, so a language switch
+     * leaves it alone.
+     */
+    setValueText(el, text) {
+        if (!el) return;
+        el.textContent = text;
+        delete el.dataset.i18n;
+    }
+
+    /**
+     * Markup for an element whose whole text is one catalog string. It carries
+     * the key, so a language switch translates it again without a re-render.
+     */
+    staticTextHtml(tag, className, key, fallback, style = '') {
+        const styleAttr = style ? ` style="${style}"` : '';
+        return `<${tag} class="${className}"${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -451,6 +473,19 @@ class MemoryDashboard {
             modeText.textContent = this.liveSearchEnabled
                 ? this.t('search.modeLive', modeText.textContent)
                 : this.t('search.modeManual', modeText.textContent);
+        }
+
+        // Compact sync control: the widget's data-i18n key is the initial
+        // "Checking..." default. Re-render the live status word from the
+        // control's state class, so switching languages does not reset a
+        // running sync to "Checking..." until the next poll.
+        const syncStatusText = document.getElementById('syncStatusText');
+        if (syncStatusText) {
+            const syncState = syncStatusText.closest('.sync-control-compact')
+                ?.className.match(/\b(paused|syncing|pending|error|synced)\b/)?.[1];
+            if (syncState) {
+                syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
+            }
         }
 
         // 更新语言按钮状态
@@ -1045,7 +1080,7 @@ class MemoryDashboard {
         // Update sync status display
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.textContent = 'Synced';
+            syncStatus.textContent = this.t('sync.status.synced', 'Synced');
             syncStatus.className = 'sync-status synced';
         }
 
@@ -1891,28 +1926,28 @@ class MemoryDashboard {
 
             // Determine status and update UI (dot color is handled by CSS classes)
             if (isPaused) {
-                statusText.textContent = 'Paused';
+                statusText.textContent = this.t('sync.status.paused', 'Paused');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact paused';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'syncing') {
-                statusText.textContent = 'Syncing';
-                syncProgress.textContent = syncStatus.operations_pending > 0 ? `${syncStatus.operations_pending} pending` : '';
+                statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+                syncProgress.textContent = syncStatus.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: syncStatus.operations_pending }) : '';
                 syncControl.className = 'sync-control-compact syncing';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'pending') {
-                statusText.textContent = 'Pending';
-                syncProgress.textContent = `${syncStatus.operations_pending} ops`;
+                statusText.textContent = this.t('sync.status.pending', 'Pending');
+                syncProgress.textContent = this.t('sync.opsCount', '{count} ops', { count: syncStatus.operations_pending });
                 syncControl.className = 'sync-control-compact pending';
                 if (syncButton) syncButton.disabled = false;
             } else if (syncStatus.status === 'error') {
-                statusText.textContent = 'Error';
-                syncProgress.textContent = `${syncStatus.operations_failed} failed`;
+                statusText.textContent = this.t('sync.status.error', 'Error');
+                syncProgress.textContent = this.t('sync.failedCount', '{count} failed', { count: syncStatus.operations_failed });
                 syncControl.className = 'sync-control-compact error';
                 if (syncButton) syncButton.disabled = false;
             } else {
                 // synced status
-                statusText.textContent = 'Synced';
+                statusText.textContent = this.t('sync.status.synced', 'Synced');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact synced';
                 if (syncButton) syncButton.disabled = false;
@@ -1924,7 +1959,7 @@ class MemoryDashboard {
             const deltaControl = document.getElementById('deltaSyncControl');
             if (deltaControl && deltaControl.style.display !== 'none') {
                 deltaControl.className = 'sync-control-compact delta-sync-control error';
-                document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
+                document.getElementById('deltaSyncStatus').textContent = this.t('sync.statusUnavailable', 'Status unavailable');
             }
             // Hide sync control on error (likely not hybrid mode)
             const syncControl = document.getElementById('syncControl');
@@ -1943,14 +1978,14 @@ class MemoryDashboard {
         if (!delta?.configured) return;
         const state = delta.status || 'disabled';
         panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
-        document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        document.getElementById('deltaSyncStatus').textContent = this.t(`sync.status.${state}`, state.charAt(0).toUpperCase() + state.slice(1));
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
+        const cadence = this.formatDuration(delta.interval_seconds);
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
-            ? `Every ${this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '')} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
-            : `Automatic sync disabled · Schedule: ${delta.schedule}`;
+            ? this.t('sync.scheduleEveryNext', 'Every {interval} · Next: {time}', { interval: cadence, time: next ? next.toLocaleTimeString() : this.t('sync.notScheduled', 'not scheduled') })
+            : this.t('sync.automaticDisabled', 'Automatic sync disabled · Schedule: {schedule}', { schedule: delta.schedule });
         if (delta.enabled && delta.next_run_at) {
-            const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
-            this._startSyncCountdown(delta.next_run_at, `Every ${cadence} · `);
+            this._startSyncCountdown(delta.next_run_at, this.t('sync.every', 'Every {interval} · ', { interval: cadence }));
         }
         const container = document.getElementById('deltaSyncPeers');
         // Keep the disclosure open across live refreshes, including keyboard focus.
@@ -1958,15 +1993,18 @@ class MemoryDashboard {
             .map(details => details.dataset.peerId));
         const focusedPeer = document.activeElement?.closest('details')?.dataset.peerId;
         container.replaceChildren();
-        const text = (parent, tag, value, className) => {
+        const text = (parent, tag, value, className, i18nKey) => {
             const el = document.createElement(tag);
             if (className) el.className = className;
+            // Static labels carry their key so applyTranslations() re-translates
+            // them after a language switch (#1806); dynamic values do not.
+            if (i18nKey) el.dataset.i18n = i18nKey;
             el.textContent = value;
             parent.appendChild(el);
             return el;
         };
         const peers = delta.peers || [];
-        if (!peers.length) text(container, 'p', 'No peers configured', 'delta-sync-meta');
+        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta', 'sync.noPeers');
         for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
@@ -1977,27 +2015,27 @@ class MemoryDashboard {
             if (peers.length > 1) {
                 text(heading, 'span', peer.health || peer.status, 'delta-sync-meta');
             }
-            text(row, 'p', peer.url || 'URL not configured', 'delta-sync-url');
+            text(row, 'p', peer.url || this.t('sync.urlNotConfigured', 'URL not configured'), 'delta-sync-url');
 
             const metrics = document.createElement('dl');
             metrics.className = 'delta-sync-metrics';
             row.appendChild(metrics);
-            const metric = (label, value, note) => {
+            const metric = (label, value, note, labelKey) => {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 const result = text(group, 'dd', value);
                 text(result, 'span', note, 'delta-sync-meta');
                 metrics.appendChild(group);
             };
-            metric('Pull', peer.pull ? String(peer.pull.received ?? 'Unknown') : '—',
-                peer.pull ? `received · ${peer.pull.applied} applied` : 'No cycle yet');
-            metric('Push', peer.push ? String(peer.push.pushed) : '—',
-                peer.push ? 'sent to peer' : 'No cycle yet');
+            metric(this.t('sync.pull', 'Pull'), peer.pull ? String(peer.pull.received ?? this.t('sync.unknown', 'Unknown')) : '—',
+                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.pull');
+            metric(this.t('sync.push', 'Push'), peer.push ? String(peer.push.pushed) : '—',
+                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.push');
 
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             const lastCycle = text(row, 'p', completed
-                ? `Last cycle ${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))}`
-                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle', 'delta-sync-meta');
+                ? this.t('sync.lastCycle', 'Last cycle {time}', { time: this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000))) })
+                : peer.cycle_status === 'syncing' ? this.t('sync.status.syncing', 'Syncing…') : this.t('sync.waitingFirstCycle', 'Waiting for first cycle'), 'delta-sync-meta');
             if (completed) lastCycle.title = completed.toLocaleString();
             if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
                 text(row, 'p', peer.last_error || peer.message, 'delta-sync-error');
@@ -2007,15 +2045,15 @@ class MemoryDashboard {
             details.className = 'delta-sync-details';
             details.dataset.peerId = peer.peer_id;
             details.open = openPeers.has(peer.peer_id);
-            const summary = text(details, 'summary', 'Sync details');
+            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'), undefined, 'sync.details');
             const diagnostics = document.createElement('dl');
-            for (const [label, value] of [
-                ['Pull cursor', peer.pull?.cursor ?? 'Not available'],
-                ['Push cursor', peer.push?.cursor ?? 'Not available'],
-                ['Backlog', peer.backlog ?? 'Unknown']
+            for (const [labelKey, label, value] of [
+                ['sync.pullCursor', this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.pushCursor', this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.backlog', this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
             ]) {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 text(group, 'dd', String(value));
                 diagnostics.appendChild(group);
             }
@@ -2026,11 +2064,19 @@ class MemoryDashboard {
         }
     }
 
+    /**
+     * A duration in its largest whole unit: "45s", "5m", "3h", "2d". The sync
+     * cadence shows it on its own; formatTimeDelta() wraps it in "{time} ago".
+     */
+    formatDuration(seconds) {
+        if (seconds < 60) return this.t('time.seconds', '{count}s', { count: seconds });
+        if (seconds < 3600) return this.t('time.minutes', '{count}m', { count: Math.floor(seconds / 60) });
+        if (seconds < 86400) return this.t('time.hours', '{count}h', { count: Math.floor(seconds / 3600) });
+        return this.t('time.days', '{count}d', { count: Math.floor(seconds / 86400) });
+    }
+
     formatTimeDelta(seconds) {
-        if (seconds < 60) return `${seconds}s ago`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
+        return this.t('time.ago', '{time} ago', { time: this.formatDuration(seconds) });
     }
 
     /**
@@ -2041,9 +2087,9 @@ class MemoryDashboard {
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);
         const s = total % 60;
-        if (h > 0) return `Next sync in ${h}h ${String(m).padStart(2, '0')}m`;
-        if (m > 0) return `Next sync in ${m}m ${String(s).padStart(2, '0')}s`;
-        return `Next sync in ${s}s`;
+        if (h > 0) return this.t('sync.nextSyncInHm', 'Next sync in {hours}h {minutes}m', { hours: h, minutes: String(m).padStart(2, '0') });
+        if (m > 0) return this.t('sync.nextSyncInMs', 'Next sync in {minutes}m {seconds}s', { minutes: m, seconds: String(s).padStart(2, '0') });
+        return this.t('sync.nextSyncInS', 'Next sync in {seconds}s', { seconds: s });
     }
 
     /**
@@ -2060,7 +2106,7 @@ class MemoryDashboard {
         this._stopSyncCountdown();
         if (!progressEl) return;
         if (!nextRunAt || Number.isNaN(nextAt)) {
-            progressEl.textContent = 'Schedule paused';
+            progressEl.textContent = this.t('sync.schedulePaused', 'Schedule paused');
             return;
         }
 
@@ -2069,7 +2115,7 @@ class MemoryDashboard {
             if (remainingMs <= 0) {
                 // A due timestamp does not prove that a cycle is running.
                 // The next status response supplies the next scheduled run.
-                progressEl.textContent = `${prefix}Scheduled sync due`;
+                progressEl.textContent = prefix + this.t('sync.scheduledDue', 'Scheduled sync due');
                 this._stopSyncCountdown();
                 return;
             }
@@ -2103,7 +2149,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'none';
                 if (resumeButton) resumeButton.style.display = 'flex';
-                if (statusText) statusText.textContent = 'Paused';
+                if (statusText) statusText.textContent = this.t('sync.status.paused', 'Paused');
                 if (syncControl) syncControl.className = 'sync-control-compact paused';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2138,7 +2184,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'flex';
                 if (resumeButton) resumeButton.style.display = 'none';
-                if (statusText) statusText.textContent = 'Synced';
+                if (statusText) statusText.textContent = this.t('sync.status.synced', 'Synced');
                 if (syncControl) syncControl.className = 'sync-control-compact synced';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2169,18 +2215,18 @@ class MemoryDashboard {
             const nextBackup = document.getElementById('settingsNextBackup');
 
             if (!backupStatus.enabled) {
-                if (lastBackup) lastBackup.textContent = 'Backups disabled';
+                this.setTranslatedText(lastBackup, 'modal.settings.backup.disabled', 'Backups disabled');
                 if (backupCount) backupCount.textContent = '-';
-                if (nextBackup) nextBackup.textContent = '-';
+                this.setValueText(nextBackup, '-');
                 return;
             }
 
-            // Update last backup time
+            // Update last backup time. formatTimeDelta() already says "ago".
             if (lastBackup) {
                 if (backupStatus.time_since_last_seconds) {
-                    lastBackup.textContent = this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)) + ' ago';
+                    this.setValueText(lastBackup, this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)));
                 } else {
-                    lastBackup.textContent = 'Never';
+                    this.setTranslatedText(lastBackup, 'modal.settings.never', 'Never');
                 }
             }
 
@@ -2193,9 +2239,11 @@ class MemoryDashboard {
             // Update next scheduled backup
             if (nextBackup && backupStatus.next_backup_at) {
                 const nextDate = new Date(backupStatus.next_backup_at);
-                nextBackup.textContent = nextDate.toLocaleString();
-            } else if (nextBackup) {
-                nextBackup.textContent = backupStatus.scheduler_running ? 'Scheduled' : 'Not scheduled';
+                this.setValueText(nextBackup, nextDate.toLocaleString());
+            } else if (backupStatus.scheduler_running) {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.scheduled', 'Scheduled');
+            } else {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.notScheduled', 'Not scheduled');
             }
 
         } catch (error) {
@@ -2250,7 +2298,7 @@ class MemoryDashboard {
         // Show loading state
         const listEl = document.getElementById('backupsList');
         const summaryEl = document.getElementById('backupsSummary');
-        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (listEl) listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loading', 'Loading backups...');
         if (summaryEl) summaryEl.innerHTML = '';
 
         this.openModal(modal);
@@ -2276,9 +2324,16 @@ class MemoryDashboard {
             const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
             const backupDir = status?.backup_directory || '';
 
-            // Render summary
+            // Render summary. The values are inserted as HTML after the
+            // translated sentence is escaped, so they keep their <strong>.
             if (summaryEl) {
-                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                const sentence = totalCount === 1
+                    ? this.t('modal.backups.summaryOne', '{count} backup · {size} total')
+                    : this.t('modal.backups.summaryMany', '{count} backups · {size} total');
+                let html = this.replacePlaceholders(this.escapeHtml(sentence), {
+                    count: `<strong>${this.escapeHtml(totalCount)}</strong>`,
+                    size: `<strong>${this.escapeHtml(totalSizeMB)} MB</strong>`
+                });
                 if (backupDir) {
                     html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
                 }
@@ -2287,15 +2342,22 @@ class MemoryDashboard {
 
             // Render backup list
             if (backups.length === 0) {
-                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                const empty = this.t('modal.backups.empty', 'No backups found. Create one using "{button}".', {
+                    button: this.t('modal.settings.backupNow', 'Create Backup Now')
+                });
+                listEl.innerHTML = `<p class="loading-text">${this.escapeHtml(empty)}</p>`;
                 return;
             }
 
             listEl.innerHTML = backups.map(backup => {
                 const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
-                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const createdDate = backup.created_at
+                    ? new Date(backup.created_at).toLocaleString()
+                    : this.t('modal.backups.unknownDate', 'Unknown');
                 const ageDays = backup.age_days != null ? backup.age_days : '?';
-                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+                const ageLabel = ageDays === 1
+                    ? this.t('modal.backups.ageOne', '1 day ago')
+                    : this.t('modal.backups.ageDays', '{days} days ago', { days: ageDays });
 
                 return `
                     <div class="backup-item">
@@ -2303,7 +2365,7 @@ class MemoryDashboard {
                         <div class="backup-meta">
                             <span>${sizeMB} MB</span>
                             <span>${this.escapeHtml(createdDate)}</span>
-                            <span>${ageLabel}</span>
+                            <span>${this.escapeHtml(ageLabel)}</span>
                         </div>
                     </div>
                 `;
@@ -2311,7 +2373,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error loading backups list:', error);
-            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
+            listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loadFailed', 'Failed to load backups.', 'color: var(--error);');
         }
     }
 
@@ -2360,8 +2422,8 @@ class MemoryDashboard {
             const syncProgress = document.getElementById('syncProgress');
             const syncControl = document.getElementById('syncControl');
 
-            if (statusText) statusText.textContent = 'Syncing';
-            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? `${statusBefore.operations_pending} pending` : '';
+            if (statusText) statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: statusBefore.operations_pending }) : '';
             if (syncControl) syncControl.className = 'sync-control-compact syncing';
 
             // Show toast when sync starts
@@ -3898,19 +3960,19 @@ class MemoryDashboard {
 
             switch (status) {
                 case 'connected':
-                    text.textContent = 'Connected';
+                    text.textContent = this.t('status.connected', 'Connected');
                     // Connected uses default green color (no additional class needed)
                     break;
                 case 'connecting':
-                    text.textContent = 'Connecting...';
+                    text.textContent = this.t('status.connecting', 'Connecting...');
                     indicator.classList.add('connecting');
                     break;
                 case 'disconnected':
-                    text.textContent = 'Disconnected';
+                    text.textContent = this.t('status.disconnected', 'Disconnected');
                     indicator.classList.add('disconnected');
                     break;
                 default:
-                    text.textContent = 'Unknown';
+                    text.textContent = this.t('status.unknown', 'Unknown');
                     indicator.classList.add('disconnected');
             }
         }
@@ -3943,7 +4005,7 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error('Authentication required');
+            throw new Error(this.t('error.authRequired', 'Authentication required'));
         }
 
         if (!response.ok) {
@@ -3993,7 +4055,7 @@ class MemoryDashboard {
             if (!this._lastAuthFailureToast || (now - this._lastAuthFailureToast) > 30000) {
                 this._lastAuthFailureToast = now;
                 console.warn('Got 401 despite being authenticated — credentials may have been invalidated');
-                this.showToast('Session expired or credentials changed. Please refresh the page.', 'warning');
+                this.showToast(this.t('toast.authSessionExpired', 'Session expired or credentials changed. Please refresh the page.'), 'warning');
             }
             // Mark as unauthenticated so the next 401 triggers the full
             // re-auth flow (clear credentials + show modal) instead of
@@ -4060,12 +4122,12 @@ class MemoryDashboard {
             await this.loadDashboardData();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
-            this.showToast('Authentication successful', 'success');
+            this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
 
             return true;
         } catch (error) {
             // Key is invalid — clean up
-            this.showToast('Authentication failed. Please check your API key.', 'error');
+            this.showToast(this.t('toast.authFailed', 'Authentication failed. Please check your API key.'), 'error');
             this._clearCredentials();
             return false;
         }
@@ -4742,13 +4804,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Reset system info fields to loading state
+     * Reset system info fields to loading state. data-loading marks a field
+     * that has no value yet; the text cannot, since it is translated.
      */
     resetSystemInfoLoadingState() {
         Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
             const element = document.getElementById(id);
             if (element) {
-                element.textContent = 'Loading...';
+                this.setTranslatedText(element, 'status.loading', 'Loading...');
+                element.dataset.loading = 'true';
             }
         });
     }
@@ -4785,7 +4849,8 @@ class MemoryDashboard {
                     }
                 }
 
-                element.textContent = config.formatter(value);
+                this.setValueText(element, config.formatter(value, this));
+                delete element.dataset.loading;
             });
 
             // Populate OAuth detail fields (conditionally shown when enabled)
@@ -4795,10 +4860,11 @@ class MemoryDashboard {
                 showRow('oauthBackendRow');
                 showRow('oauthClientsRow');
                 showRow('oauthTokensRow');
+                const notAvailable = this.t('modal.settings.system.notAvailable', 'N/A');
                 const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-                setVal('settingsOAuthBackend', oauthData.storage_backend || 'N/A');
-                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? 'N/A');
-                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? 'N/A');
+                setVal('settingsOAuthBackend', oauthData.storage_backend || notAvailable);
+                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? notAvailable);
+                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? notAvailable);
             }
 
             // Log warnings for failed API calls
@@ -4816,8 +4882,9 @@ class MemoryDashboard {
             // Set all system info fields that are still in loading state to error
             Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
                 const element = document.getElementById(id);
-                if (element && element.textContent === 'Loading...') {
-                    element.textContent = 'Error';
+                if (element && element.dataset.loading === 'true') {
+                    this.setTranslatedText(element, 'modal.settings.system.error', 'Error');
+                    delete element.dataset.loading;
                 }
             });
         }
@@ -4838,17 +4905,17 @@ class MemoryDashboard {
      * @param {number} seconds - Uptime in seconds
      * @returns {string} Formatted uptime string
      */
-    static formatUptime(seconds) {
+    formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
 
         const parts = [];
-        if (days > 0) parts.push(`${days}d`);
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
+        if (days > 0) parts.push(this.t('time.days', '{count}d', { count: days }));
+        if (hours > 0) parts.push(this.t('time.hours', '{count}h', { count: hours }));
+        if (minutes > 0) parts.push(this.t('time.minutes', '{count}m', { count: minutes }));
 
-        return parts.length > 0 ? parts.join(' ') : '< 1m';
+        return parts.length > 0 ? parts.join(' ') : this.t('time.underAMinute', '< 1m');
     }
 
     /**
@@ -5057,12 +5124,12 @@ class MemoryDashboard {
         const testBtn = document.getElementById('credTestBtn');
 
         if (!tokenVal || !accountVal) {
-            this._showCredResult('error', 'API Token and Account ID are required.');
+            this._showCredResult('error', this.t('settings.credentials.required', 'API Token and Account ID are required.'));
             return;
         }
 
         testBtn.disabled = true;
-        testBtn.textContent = 'Testing…';
+        testBtn.textContent = this.t('settings.credentials.testing', 'Testing…');
         if (resultEl) { resultEl.style.display = 'none'; }
 
         try {
@@ -5072,21 +5139,25 @@ class MemoryDashboard {
             });
 
             if (data.valid) {
-                const expires = data.expires_on
-                    ? ` · Expires ${new Date(data.expires_on).toLocaleDateString()}`
-                    : '';
-                this._showCredResult('success', `✓ Token active${expires}`);
+                const message = data.expires_on
+                    ? this.t(
+                        'settings.credentials.tokenActiveExpires',
+                        '✓ Token active · Expires {date}',
+                        { date: new Date(data.expires_on).toLocaleDateString() }
+                    )
+                    : this.t('settings.credentials.tokenActive', '✓ Token active');
+                this._showCredResult('success', message);
                 this._credTestedToken = tokenVal;
             } else {
-                this._showCredResult('error', `✗ ${data.error || 'Invalid token'}`);
+                this._showCredResult('error', `✗ ${data.error || this.t('settings.credentials.invalidToken', 'Invalid token')}`);
                 this._credTestedToken = null;
             }
         } catch (e) {
-            this._showCredResult('error', `✗ Request failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.credentials.requestFailed', '✗ Request failed: {error}', { error: e.message }));
             this._credTestedToken = null;
         } finally {
             testBtn.disabled = false;
-            testBtn.textContent = 'Test Connection';
+            testBtn.textContent = this.t('settings.credentials.testButton', 'Test Connection');
             this._updateCredSaveBtn();
         }
     }
@@ -5102,12 +5173,12 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('credSaveBtn');
 
         if (!this._credTestedToken || this._credTestedToken !== tokenVal) {
-            this._showCredResult('error', 'Run "Test Connection" first.');
+            this._showCredResult('error', this.t('settings.credentials.testFirst', 'Run "Test Connection" first.'));
             return;
         }
 
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
+        saveBtn.textContent = this.t('settings.quality.saving', 'Saving…');
 
         try {
             const syncOwnerVal = (document.getElementById('cred-sync-owner')?.value || 'http');
@@ -5122,13 +5193,13 @@ class MemoryDashboard {
                     tested_token: this._credTestedToken,
                 })
             });
-            this._showCredResult('success', '✓ Credentials saved. Server restarting…');
+            this._showCredResult('success', this.t('settings.credentials.saved', '✓ Credentials saved. Server restarting…'));
             this.closeModal(document.getElementById('settingsModal'));
             this.showRestartOverlay();
         } catch (e) {
-            this._showCredResult('error', `✗ Save failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.quality.saveFailed', '✗ Save failed: {error}', { error: e.message }));
             saveBtn.disabled = false;
-            saveBtn.textContent = 'Save & Restart';
+            saveBtn.textContent = this.t('settings.quality.save', 'Save & Restart');
         }
     }
 
@@ -5257,7 +5328,7 @@ class MemoryDashboard {
                             <div class="env-param-row">
                                 <div class="env-param-key">
                                     <strong>${this.escapeHtml(param.key)}</strong>
-                                    ${param.sensitive ? '<span class="sensitive-badge">Sensitive</span>' : ''}
+                                    ${param.sensitive ? this.staticTextHtml('span', 'sensitive-badge', 'modal.settings.env.sensitive', 'Sensitive') : ''}
                                 </div>
                                 <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
                                     ${this.renderParamValue(param)}
@@ -5278,7 +5349,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load environment config:', error);
-            container.innerHTML = '<p class="error">Failed to load configuration</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'modal.settings.env.loadFailed', 'Failed to load configuration');
         }
     }
 
@@ -5289,7 +5360,7 @@ class MemoryDashboard {
      */
     renderParamValue(param) {
         if (!param.value) {
-            return '<span class="env-value-empty">(not set)</span>';
+            return this.staticTextHtml('span', 'env-value-empty', 'modal.settings.env.notSet', '(not set)');
         }
 
         if (param.sensitive) {
@@ -5298,11 +5369,14 @@ class MemoryDashboard {
 
         if (param.type === 'boolean') {
             const isTrue = param.value === 'true' || param.value === true;
-            return `<span class="env-value-boolean ${isTrue ? 'true' : 'false'}">${isTrue ? '✓ Enabled' : '✗ Disabled'}</span>`;
+            return isTrue
+                ? this.staticTextHtml('span', 'env-value-boolean true', 'modal.settings.env.enabled', '✓ Enabled')
+                : this.staticTextHtml('span', 'env-value-boolean false', 'modal.settings.env.disabled', '✗ Disabled');
         }
 
         if (param.choices && param.choices.length > 0) {
-            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">(options: ${param.choices.map(c => this.escapeHtml(c)).join(', ')})</span>`;
+            const options = this.t('modal.settings.env.options', '(options: {options})', { options: param.choices.join(', ') });
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">${this.escapeHtml(options)}</span>`;
         }
 
         return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
@@ -5313,7 +5387,7 @@ class MemoryDashboard {
      */
     async copyEnvironmentConfig() {
         if (!this.currentEnvConfig) {
-            this.showToast('No configuration loaded', 'error');
+            this.showToast(this.t('modal.settings.env.noConfig', 'No configuration loaded'), 'error');
             return;
         }
 
@@ -5344,10 +5418,10 @@ class MemoryDashboard {
 
         try {
             await navigator.clipboard.writeText(configText);
-            this.showToast('Configuration copied to clipboard', 'success');
+            this.showToast(this.t('modal.settings.env.copied', 'Configuration copied to clipboard'), 'success');
         } catch (error) {
             console.error('Failed to copy:', error);
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
         }
     }
 
