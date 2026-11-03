@@ -1,1 +1,0 @@
-- **French introduction on mcpmemory.services (#1774).** The website now has a French entry page at `/fr/`, linked from the other language pages, the sitemap and the README.

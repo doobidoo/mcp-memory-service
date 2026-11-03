@@ -18,54 +18,56 @@ class MemoryDashboard {
             // authenticated /api/health/detailed endpoint, which is already
             // fetched by loadSystemInfo().
             sources: [{ path: 'version', api: 'detailedHealth' }],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsBackend: {
             sources: [
                 { path: 'storage.storage_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsPrimaryBackend: {
             sources: [
                 { path: 'storage.primary_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingModel: {
             sources: [
                 { path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' },
                 { path: 'storage.embedding_model', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingDim: {
             sources: [
                 { path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' },
                 { path: 'storage.embedding_dimension', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsDbSize: {
             sources: [
                 { path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' },
                 { path: 'storage.database_size_mb', api: 'detailedHealth' }
             ],
-            formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
+            formatter: (value, app) => (value != null) ? `${value.toFixed(2)} MB` : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsTotalMemories: {
             sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? value.toLocaleString() : 'N/A'
+            formatter: (value, app) => (value != null) ? value.toLocaleString() : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
+            formatter: (value, app) => (value != null) ? app.formatUptime(value) : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsOAuthEnabled: {
             sources: [{ path: 'oauth_enabled', api: 'oauthStatus' }],
-            formatter: (value) => (value === true) ? '✓ Enabled' : (value === false) ? 'Disabled' : 'N/A'
+            formatter: (value, app) => (value === true) ? app.t('modal.settings.system.enabled', '✓ Enabled')
+                : (value === false) ? app.t('modal.settings.system.disabled', 'Disabled')
+                : app.t('modal.settings.system.notAvailable', 'N/A')
         }
     };
 
@@ -143,7 +145,7 @@ class MemoryDashboard {
         // Check for secure context
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
             console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
-            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+            this.showToast(this.t('toast.connectionInsecure', 'Warning: Connection not secure. Please use HTTPS in production.'), 'warning');
         }
 
         // Detect authentication requirement before loading data or starting
@@ -393,6 +395,42 @@ class MemoryDashboard {
     }
 
     /**
+     * Set an element's text from the catalog. Text without values keeps its
+     * key in data-i18n, so applyTranslations() translates it again after a
+     * language switch. Text with values drops the key, so a switch cannot put
+     * back the element's earlier text.
+     */
+    setTranslatedText(el, key, fallback, vars) {
+        if (!el) return;
+        el.textContent = this.t(key, fallback, vars);
+        if (vars) {
+            delete el.dataset.i18n;
+        } else {
+            el.dataset.i18n = key;
+        }
+    }
+
+    /**
+     * Set text that is not a single catalog string (a date, a size, a value
+     * from the server) and drop any data-i18n key, so a language switch
+     * leaves it alone.
+     */
+    setValueText(el, text) {
+        if (!el) return;
+        el.textContent = text;
+        delete el.dataset.i18n;
+    }
+
+    /**
+     * Markup for an element whose whole text is one catalog string. It carries
+     * the key, so a language switch translates it again without a re-render.
+     */
+    staticTextHtml(tag, className, key, fallback, style = '') {
+        const styleAttr = style ? ` style="${style}"` : '';
+        return `<${tag} class="${className}"${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -437,6 +475,19 @@ class MemoryDashboard {
                 : this.t('search.modeManual', modeText.textContent);
         }
 
+        // Compact sync control: the widget's data-i18n key is the initial
+        // "Checking..." default. Re-render the live status word from the
+        // control's state class, so switching languages does not reset a
+        // running sync to "Checking..." until the next poll.
+        const syncStatusText = document.getElementById('syncStatusText');
+        if (syncStatusText) {
+            const syncState = syncStatusText.closest('.sync-control-compact')
+                ?.className.match(/\b(paused|syncing|pending|error|synced)\b/)?.[1];
+            if (syncState) {
+                syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
+            }
+        }
+
         // 更新语言按钮状态
         this.updateLanguageSwitcher();
     }
@@ -448,7 +499,50 @@ class MemoryDashboard {
         if (!this.supportedLanguages.includes(lang) || lang === this.currentLang) return;
         await this.loadTranslations(lang);
         await this.applyTranslations();
+        await this.rerenderActiveView();
         this.showToast(this.t('toast.languageSwitched', 'Language switched'), 'success', 2000);
+    }
+
+    /**
+     * Re-render the JavaScript-built text of the active view after a language
+     * switch (#1807). applyTranslations() only reaches data-i18n elements.
+     * Cached views re-render without a request; the others re-run the loader
+     * they use on open. The knowledge graph is left alone to keep its camera.
+     * Browse is skipped: its tag cloud has no translated text, and re-rendering
+     * it would hide the memories of a selected tag. No scroll restore: every
+     * renderer swaps its content in one step, so the page height holds.
+     */
+    async rerenderActiveView() {
+        try {
+            switch (this.currentView) {
+                case 'dashboard':
+                    this.renderRecentMemories(this.memories);
+                    break;
+                case 'search':
+                    if (this.searchResults.length) this.renderSearchResults(this.searchResults);
+                    break;
+                case 'analytics':
+                    await Promise.all([
+                        this.loadAnalyticsOverview(),
+                        this.loadMemoryGrowthChart(),
+                        this.loadTagUsageChart(),
+                        this.loadMemoryTypesChart(),
+                        this.loadActivityHeatmapChart(),
+                        this.loadTopTagsReport(),
+                        this.loadRecentActivityReport(),
+                        this.loadStorageReport(),
+                        this.loadRelationshipTypesChart()
+                    ]);
+                    break;
+                case 'documents':
+                case 'manage':
+                case 'qualityAnalytics':
+                    await this.loadViewData(this.currentView);
+                    break;
+            }
+        } catch (error) {
+            console.warn('Re-render after language switch failed:', error);
+        }
     }
 
     /**
@@ -986,7 +1080,7 @@ class MemoryDashboard {
         // Update sync status display
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.textContent = 'Synced';
+            syncStatus.textContent = this.t('sync.status.synced', 'Synced');
             syncStatus.className = 'sync-status synced';
         }
 
@@ -1088,6 +1182,7 @@ class MemoryDashboard {
             if (typeFilter) {
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
+                allOpt.dataset.i18n = 'search.filters.type.all';
                 allOpt.textContent = this.t('search.filters.type.all') || 'All types';
                 const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
@@ -1831,28 +1926,28 @@ class MemoryDashboard {
 
             // Determine status and update UI (dot color is handled by CSS classes)
             if (isPaused) {
-                statusText.textContent = 'Paused';
+                statusText.textContent = this.t('sync.status.paused', 'Paused');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact paused';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'syncing') {
-                statusText.textContent = 'Syncing';
-                syncProgress.textContent = syncStatus.operations_pending > 0 ? `${syncStatus.operations_pending} pending` : '';
+                statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+                syncProgress.textContent = syncStatus.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: syncStatus.operations_pending }) : '';
                 syncControl.className = 'sync-control-compact syncing';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'pending') {
-                statusText.textContent = 'Pending';
-                syncProgress.textContent = `${syncStatus.operations_pending} ops`;
+                statusText.textContent = this.t('sync.status.pending', 'Pending');
+                syncProgress.textContent = this.t('sync.opsCount', '{count} ops', { count: syncStatus.operations_pending });
                 syncControl.className = 'sync-control-compact pending';
                 if (syncButton) syncButton.disabled = false;
             } else if (syncStatus.status === 'error') {
-                statusText.textContent = 'Error';
-                syncProgress.textContent = `${syncStatus.operations_failed} failed`;
+                statusText.textContent = this.t('sync.status.error', 'Error');
+                syncProgress.textContent = this.t('sync.failedCount', '{count} failed', { count: syncStatus.operations_failed });
                 syncControl.className = 'sync-control-compact error';
                 if (syncButton) syncButton.disabled = false;
             } else {
                 // synced status
-                statusText.textContent = 'Synced';
+                statusText.textContent = this.t('sync.status.synced', 'Synced');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact synced';
                 if (syncButton) syncButton.disabled = false;
@@ -1864,7 +1959,7 @@ class MemoryDashboard {
             const deltaControl = document.getElementById('deltaSyncControl');
             if (deltaControl && deltaControl.style.display !== 'none') {
                 deltaControl.className = 'sync-control-compact delta-sync-control error';
-                document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
+                document.getElementById('deltaSyncStatus').textContent = this.t('sync.statusUnavailable', 'Status unavailable');
             }
             // Hide sync control on error (likely not hybrid mode)
             const syncControl = document.getElementById('syncControl');
@@ -1883,14 +1978,14 @@ class MemoryDashboard {
         if (!delta?.configured) return;
         const state = delta.status || 'disabled';
         panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
-        document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        document.getElementById('deltaSyncStatus').textContent = this.t(`sync.status.${state}`, state.charAt(0).toUpperCase() + state.slice(1));
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
+        const cadence = this.formatDuration(delta.interval_seconds);
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
-            ? `Every ${this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '')} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
-            : `Automatic sync disabled · Schedule: ${delta.schedule}`;
+            ? this.t('sync.scheduleEveryNext', 'Every {interval} · Next: {time}', { interval: cadence, time: next ? next.toLocaleTimeString() : this.t('sync.notScheduled', 'not scheduled') })
+            : this.t('sync.automaticDisabled', 'Automatic sync disabled · Schedule: {schedule}', { schedule: delta.schedule });
         if (delta.enabled && delta.next_run_at) {
-            const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
-            this._startSyncCountdown(delta.next_run_at, `Every ${cadence} · `);
+            this._startSyncCountdown(delta.next_run_at, this.t('sync.every', 'Every {interval} · ', { interval: cadence }));
         }
         const container = document.getElementById('deltaSyncPeers');
         // Keep the disclosure open across live refreshes, including keyboard focus.
@@ -1898,15 +1993,18 @@ class MemoryDashboard {
             .map(details => details.dataset.peerId));
         const focusedPeer = document.activeElement?.closest('details')?.dataset.peerId;
         container.replaceChildren();
-        const text = (parent, tag, value, className) => {
+        const text = (parent, tag, value, className, i18nKey) => {
             const el = document.createElement(tag);
             if (className) el.className = className;
+            // Static labels carry their key so applyTranslations() re-translates
+            // them after a language switch (#1806); dynamic values do not.
+            if (i18nKey) el.dataset.i18n = i18nKey;
             el.textContent = value;
             parent.appendChild(el);
             return el;
         };
         const peers = delta.peers || [];
-        if (!peers.length) text(container, 'p', 'No peers configured', 'delta-sync-meta');
+        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta', 'sync.noPeers');
         for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
@@ -1917,27 +2015,27 @@ class MemoryDashboard {
             if (peers.length > 1) {
                 text(heading, 'span', peer.health || peer.status, 'delta-sync-meta');
             }
-            text(row, 'p', peer.url || 'URL not configured', 'delta-sync-url');
+            text(row, 'p', peer.url || this.t('sync.urlNotConfigured', 'URL not configured'), 'delta-sync-url');
 
             const metrics = document.createElement('dl');
             metrics.className = 'delta-sync-metrics';
             row.appendChild(metrics);
-            const metric = (label, value, note) => {
+            const metric = (label, value, note, labelKey) => {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 const result = text(group, 'dd', value);
                 text(result, 'span', note, 'delta-sync-meta');
                 metrics.appendChild(group);
             };
-            metric('Pull', peer.pull ? String(peer.pull.received ?? 'Unknown') : '—',
-                peer.pull ? `received · ${peer.pull.applied} applied` : 'No cycle yet');
-            metric('Push', peer.push ? String(peer.push.pushed) : '—',
-                peer.push ? 'sent to peer' : 'No cycle yet');
+            metric(this.t('sync.pull', 'Pull'), peer.pull ? String(peer.pull.received ?? this.t('sync.unknown', 'Unknown')) : '—',
+                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.pull');
+            metric(this.t('sync.push', 'Push'), peer.push ? String(peer.push.pushed) : '—',
+                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.push');
 
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             const lastCycle = text(row, 'p', completed
-                ? `Last cycle ${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))}`
-                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle', 'delta-sync-meta');
+                ? this.t('sync.lastCycle', 'Last cycle {time}', { time: this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000))) })
+                : peer.cycle_status === 'syncing' ? this.t('sync.status.syncing', 'Syncing…') : this.t('sync.waitingFirstCycle', 'Waiting for first cycle'), 'delta-sync-meta');
             if (completed) lastCycle.title = completed.toLocaleString();
             if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
                 text(row, 'p', peer.last_error || peer.message, 'delta-sync-error');
@@ -1947,15 +2045,15 @@ class MemoryDashboard {
             details.className = 'delta-sync-details';
             details.dataset.peerId = peer.peer_id;
             details.open = openPeers.has(peer.peer_id);
-            const summary = text(details, 'summary', 'Sync details');
+            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'), undefined, 'sync.details');
             const diagnostics = document.createElement('dl');
-            for (const [label, value] of [
-                ['Pull cursor', peer.pull?.cursor ?? 'Not available'],
-                ['Push cursor', peer.push?.cursor ?? 'Not available'],
-                ['Backlog', peer.backlog ?? 'Unknown']
+            for (const [labelKey, label, value] of [
+                ['sync.pullCursor', this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.pushCursor', this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.backlog', this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
             ]) {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 text(group, 'dd', String(value));
                 diagnostics.appendChild(group);
             }
@@ -1966,11 +2064,19 @@ class MemoryDashboard {
         }
     }
 
+    /**
+     * A duration in its largest whole unit: "45s", "5m", "3h", "2d". The sync
+     * cadence shows it on its own; formatTimeDelta() wraps it in "{time} ago".
+     */
+    formatDuration(seconds) {
+        if (seconds < 60) return this.t('time.seconds', '{count}s', { count: seconds });
+        if (seconds < 3600) return this.t('time.minutes', '{count}m', { count: Math.floor(seconds / 60) });
+        if (seconds < 86400) return this.t('time.hours', '{count}h', { count: Math.floor(seconds / 3600) });
+        return this.t('time.days', '{count}d', { count: Math.floor(seconds / 86400) });
+    }
+
     formatTimeDelta(seconds) {
-        if (seconds < 60) return `${seconds}s ago`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
+        return this.t('time.ago', '{time} ago', { time: this.formatDuration(seconds) });
     }
 
     /**
@@ -1981,9 +2087,9 @@ class MemoryDashboard {
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);
         const s = total % 60;
-        if (h > 0) return `Next sync in ${h}h ${String(m).padStart(2, '0')}m`;
-        if (m > 0) return `Next sync in ${m}m ${String(s).padStart(2, '0')}s`;
-        return `Next sync in ${s}s`;
+        if (h > 0) return this.t('sync.nextSyncInHm', 'Next sync in {hours}h {minutes}m', { hours: h, minutes: String(m).padStart(2, '0') });
+        if (m > 0) return this.t('sync.nextSyncInMs', 'Next sync in {minutes}m {seconds}s', { minutes: m, seconds: String(s).padStart(2, '0') });
+        return this.t('sync.nextSyncInS', 'Next sync in {seconds}s', { seconds: s });
     }
 
     /**
@@ -2000,7 +2106,7 @@ class MemoryDashboard {
         this._stopSyncCountdown();
         if (!progressEl) return;
         if (!nextRunAt || Number.isNaN(nextAt)) {
-            progressEl.textContent = 'Schedule paused';
+            progressEl.textContent = this.t('sync.schedulePaused', 'Schedule paused');
             return;
         }
 
@@ -2009,7 +2115,7 @@ class MemoryDashboard {
             if (remainingMs <= 0) {
                 // A due timestamp does not prove that a cycle is running.
                 // The next status response supplies the next scheduled run.
-                progressEl.textContent = `${prefix}Scheduled sync due`;
+                progressEl.textContent = prefix + this.t('sync.scheduledDue', 'Scheduled sync due');
                 this._stopSyncCountdown();
                 return;
             }
@@ -2043,7 +2149,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'none';
                 if (resumeButton) resumeButton.style.display = 'flex';
-                if (statusText) statusText.textContent = 'Paused';
+                if (statusText) statusText.textContent = this.t('sync.status.paused', 'Paused');
                 if (syncControl) syncControl.className = 'sync-control-compact paused';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2078,7 +2184,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'flex';
                 if (resumeButton) resumeButton.style.display = 'none';
-                if (statusText) statusText.textContent = 'Synced';
+                if (statusText) statusText.textContent = this.t('sync.status.synced', 'Synced');
                 if (syncControl) syncControl.className = 'sync-control-compact synced';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2109,18 +2215,18 @@ class MemoryDashboard {
             const nextBackup = document.getElementById('settingsNextBackup');
 
             if (!backupStatus.enabled) {
-                if (lastBackup) lastBackup.textContent = 'Backups disabled';
+                this.setTranslatedText(lastBackup, 'modal.settings.backup.disabled', 'Backups disabled');
                 if (backupCount) backupCount.textContent = '-';
-                if (nextBackup) nextBackup.textContent = '-';
+                this.setValueText(nextBackup, '-');
                 return;
             }
 
-            // Update last backup time
+            // Update last backup time. formatTimeDelta() already says "ago".
             if (lastBackup) {
                 if (backupStatus.time_since_last_seconds) {
-                    lastBackup.textContent = this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)) + ' ago';
+                    this.setValueText(lastBackup, this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)));
                 } else {
-                    lastBackup.textContent = 'Never';
+                    this.setTranslatedText(lastBackup, 'modal.settings.never', 'Never');
                 }
             }
 
@@ -2133,9 +2239,11 @@ class MemoryDashboard {
             // Update next scheduled backup
             if (nextBackup && backupStatus.next_backup_at) {
                 const nextDate = new Date(backupStatus.next_backup_at);
-                nextBackup.textContent = nextDate.toLocaleString();
-            } else if (nextBackup) {
-                nextBackup.textContent = backupStatus.scheduler_running ? 'Scheduled' : 'Not scheduled';
+                this.setValueText(nextBackup, nextDate.toLocaleString());
+            } else if (backupStatus.scheduler_running) {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.scheduled', 'Scheduled');
+            } else {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.notScheduled', 'Not scheduled');
             }
 
         } catch (error) {
@@ -2190,7 +2298,7 @@ class MemoryDashboard {
         // Show loading state
         const listEl = document.getElementById('backupsList');
         const summaryEl = document.getElementById('backupsSummary');
-        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (listEl) listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loading', 'Loading backups...');
         if (summaryEl) summaryEl.innerHTML = '';
 
         this.openModal(modal);
@@ -2216,9 +2324,16 @@ class MemoryDashboard {
             const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
             const backupDir = status?.backup_directory || '';
 
-            // Render summary
+            // Render summary. The values are inserted as HTML after the
+            // translated sentence is escaped, so they keep their <strong>.
             if (summaryEl) {
-                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                const sentence = totalCount === 1
+                    ? this.t('modal.backups.summaryOne', '{count} backup · {size} total')
+                    : this.t('modal.backups.summaryMany', '{count} backups · {size} total');
+                let html = this.replacePlaceholders(this.escapeHtml(sentence), {
+                    count: `<strong>${this.escapeHtml(totalCount)}</strong>`,
+                    size: `<strong>${this.escapeHtml(totalSizeMB)} MB</strong>`
+                });
                 if (backupDir) {
                     html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
                 }
@@ -2227,15 +2342,22 @@ class MemoryDashboard {
 
             // Render backup list
             if (backups.length === 0) {
-                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                const empty = this.t('modal.backups.empty', 'No backups found. Create one using "{button}".', {
+                    button: this.t('modal.settings.backupNow', 'Create Backup Now')
+                });
+                listEl.innerHTML = `<p class="loading-text">${this.escapeHtml(empty)}</p>`;
                 return;
             }
 
             listEl.innerHTML = backups.map(backup => {
                 const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
-                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const createdDate = backup.created_at
+                    ? new Date(backup.created_at).toLocaleString()
+                    : this.t('modal.backups.unknownDate', 'Unknown');
                 const ageDays = backup.age_days != null ? backup.age_days : '?';
-                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+                const ageLabel = ageDays === 1
+                    ? this.t('modal.backups.ageOne', '1 day ago')
+                    : this.t('modal.backups.ageDays', '{days} days ago', { days: ageDays });
 
                 return `
                     <div class="backup-item">
@@ -2243,7 +2365,7 @@ class MemoryDashboard {
                         <div class="backup-meta">
                             <span>${sizeMB} MB</span>
                             <span>${this.escapeHtml(createdDate)}</span>
-                            <span>${ageLabel}</span>
+                            <span>${this.escapeHtml(ageLabel)}</span>
                         </div>
                     </div>
                 `;
@@ -2251,7 +2373,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error loading backups list:', error);
-            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
+            listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loadFailed', 'Failed to load backups.', 'color: var(--error);');
         }
     }
 
@@ -2300,8 +2422,8 @@ class MemoryDashboard {
             const syncProgress = document.getElementById('syncProgress');
             const syncControl = document.getElementById('syncControl');
 
-            if (statusText) statusText.textContent = 'Syncing';
-            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? `${statusBefore.operations_pending} pending` : '';
+            if (statusText) statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: statusBefore.operations_pending }) : '';
             if (syncControl) syncControl.className = 'sync-control-compact syncing';
 
             // Show toast when sync starts
@@ -3838,19 +3960,19 @@ class MemoryDashboard {
 
             switch (status) {
                 case 'connected':
-                    text.textContent = 'Connected';
+                    text.textContent = this.t('status.connected', 'Connected');
                     // Connected uses default green color (no additional class needed)
                     break;
                 case 'connecting':
-                    text.textContent = 'Connecting...';
+                    text.textContent = this.t('status.connecting', 'Connecting...');
                     indicator.classList.add('connecting');
                     break;
                 case 'disconnected':
-                    text.textContent = 'Disconnected';
+                    text.textContent = this.t('status.disconnected', 'Disconnected');
                     indicator.classList.add('disconnected');
                     break;
                 default:
-                    text.textContent = 'Unknown';
+                    text.textContent = this.t('status.unknown', 'Unknown');
                     indicator.classList.add('disconnected');
             }
         }
@@ -4093,7 +4215,7 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Checking for updates...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.checking', 'Checking for updates...');
 
         try {
             const data = await this.apiCall('/server/version/check');
@@ -4101,24 +4223,24 @@ class MemoryDashboard {
 
             if (data.update_available) {
                 if (statusEl) {
-                    statusEl.textContent = `Yes - ${data.commits_behind} commit(s) available`;
+                    this.setTranslatedText(statusEl, 'modal.settings.server.commitsAvailable', 'Yes - {count} commit(s) available', { count: data.commits_behind });
                     statusEl.style.color = 'var(--success, #10b981)';
                     statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
-                this.showToast(`${data.commits_behind} update(s) available`, 'info');
+                this.showToast(this.t('modal.settings.server.updatesAvailable', '{count} update(s) available', { count: data.commits_behind }), 'info');
             } else {
                 if (statusEl) {
-                    statusEl.textContent = 'Up to date';
+                    this.setTranslatedText(statusEl, 'modal.settings.server.upToDate', 'Up to date');
                     statusEl.style.color = 'var(--text-secondary)';
                 }
                 if (updateBtn) { updateBtn.style.display = 'none'; }
-                this.showToast('Already up to date.', 'success');
+                this.showToast(this.t('modal.settings.server.alreadyUpToDate', 'Already up to date.'), 'success');
             }
         } catch (error) {
             if (actionStatus) { actionStatus.style.display = 'none'; }
-            if (statusEl) { statusEl.textContent = 'Check failed'; }
-            this.showToast('Failed to check for updates: ' + error.message, 'error');
+            this.setTranslatedText(statusEl, 'modal.settings.server.checkFailed', 'Check failed');
+            this.showToast(this.t('modal.settings.server.checkFailedWithError', 'Failed to check for updates: {error}', { error: error.message }), 'error');
         }
     }
 
@@ -4131,7 +4253,7 @@ class MemoryDashboard {
      * the process actually rolled over instead of trusting /api/health.
      */
     async updateAndRestart(force = false) {
-        if (!force && !confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+        if (!force && !confirm(this.t('modal.settings.server.confirmUpdate', 'This will pull the latest code, install dependencies, and restart the server. Continue?'))) {
             return;
         }
 
@@ -4139,12 +4261,12 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.pulling', 'Pulling updates and installing...');
 
         try {
             const data = await this.apiCall('/server/update', 'POST', { confirm: true, force });
 
-            if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
+            this.setTranslatedText(actionText, 'modal.settings.server.updateComplete', 'Update complete. Server restarting...');
             // Show captured git/pip output in console for diagnostics
             if (data.git_output) { console.info('git pull:\n' + data.git_output); }
             if (data.pip_output) { console.info('pip install:\n' + data.pip_output); }
@@ -4158,14 +4280,14 @@ class MemoryDashboard {
             // substring-matching the message — error wording can change
             // between releases and gets translated, status codes don't.
             if (error.status === 409) {
-                this.showToast('Update blocked: ' + msg, 'error');
-                if (confirm('The server has uncommitted local changes that will block the pull.\n\n' + msg + '\n\nForce-pull anyway? (Local changes may be overwritten.)')) {
+                this.showToast(this.t('modal.settings.server.updateBlocked', 'Update blocked: {error}', { error: msg }), 'error');
+                if (confirm(this.t('modal.settings.server.confirmForcePull', 'The server has uncommitted local changes that will block the pull.\n\n{error}\n\nForce-pull anyway? (Local changes may be overwritten.)', { error: msg }))) {
                     return this.updateAndRestart(true);
                 }
                 return;
             }
 
-            this.showToast('Update failed: ' + msg, 'error');
+            this.showToast(this.t('modal.settings.server.updateFailed', 'Update failed: {error}', { error: msg }), 'error');
         }
     }
 
@@ -4174,7 +4296,7 @@ class MemoryDashboard {
      * so pollServerHealth can verify the process actually rolled over.
      */
     async restartServer() {
-        if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
+        if (!confirm(this.t('modal.settings.server.confirmRestart', 'Are you sure you want to restart the server? This will temporarily disconnect all clients.'))) {
             return;
         }
 
@@ -4186,7 +4308,7 @@ class MemoryDashboard {
             if (error.message && error.message.includes('fetch')) {
                 this.showRestartOverlay(null, null);
             } else {
-                this.showToast('Restart failed: ' + error.message, 'error');
+                this.showToast(this.t('modal.settings.server.restartFailed', 'Restart failed: {error}', { error: error.message }), 'error');
             }
         }
     }
@@ -4205,6 +4327,13 @@ class MemoryDashboard {
         const statusEl = document.getElementById('restartStatus');
 
         if (overlay) { overlay.style.display = 'flex'; }
+        // "Reconnecting in {seconds}s": the countdown span moves to wherever
+        // the language puts {seconds}, and the interval below keeps updating it.
+        const countdownLine = countdownEl ? countdownEl.parentElement : null;
+        if (countdownLine) {
+            const [before, after = ''] = this.t('modal.settings.server.reconnectingIn', 'Reconnecting in {seconds}s').split('{seconds}');
+            countdownLine.replaceChildren(before, countdownEl, after);
+        }
 
         let countdown = 5;
         let attempts = 0;
@@ -4227,14 +4356,14 @@ class MemoryDashboard {
      */
     async pollServerHealth(statusEl, overlay, attempts, maxAttempts, preRestartPid, preRestartVersion) {
         if (attempts >= maxAttempts) {
-            if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
+            this.setTranslatedText(statusEl, 'modal.settings.server.notBackOnline', 'Server did not come back online. Please check manually.');
             setTimeout(() => {
                 if (overlay) { overlay.style.display = 'none'; }
             }, 5000);
             return;
         }
 
-        if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
+        this.setTranslatedText(statusEl, 'modal.settings.server.attempt', 'Attempt {attempt}/{max} - Waiting for server...', { attempt: attempts + 1, max: maxAttempts });
 
         try {
             // Probe /server/status (auth-protected); fall back to /api/health
@@ -4253,7 +4382,7 @@ class MemoryDashboard {
                 }
 
                 if (restarted) {
-                    if (statusEl) { statusEl.textContent = `Server is back online (v${status.version}, pid ${status.pid})! Reloading...`; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnline', 'Server is back online (v{version}, pid {pid})! Reloading...', { version: status.version, pid: status.pid });
                     setTimeout(() => {
                         window.location.reload();
                     }, 1500);
@@ -4262,9 +4391,7 @@ class MemoryDashboard {
                 // Status responded but pid+version unchanged — process didn't actually restart.
                 // Keep polling; on the final attempt we surface a warning below.
                 if (attempts === maxAttempts - 1) {
-                    if (statusEl) {
-                        statusEl.textContent = `Process did not restart (still pid ${status.pid}, v${status.version}). The update may have failed silently — check server logs.`;
-                    }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.didNotRestart', 'Process did not restart (still pid {pid}, v{version}). The update may have failed silently — check server logs.', { pid: status.pid, version: status.version });
                     setTimeout(() => {
                         if (overlay) { overlay.style.display = 'none'; }
                     }, 8000);
@@ -4274,7 +4401,7 @@ class MemoryDashboard {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
                 const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
-                    if (statusEl) { statusEl.textContent = 'Server is back online, reloading'; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnlineReloading', 'Server is back online, reloading');
                     setTimeout(() => { window.location.reload(); }, 1500);
                     return;
                 }
@@ -4677,13 +4804,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Reset system info fields to loading state
+     * Reset system info fields to loading state. data-loading marks a field
+     * that has no value yet; the text cannot, since it is translated.
      */
     resetSystemInfoLoadingState() {
         Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
             const element = document.getElementById(id);
             if (element) {
-                element.textContent = 'Loading...';
+                this.setTranslatedText(element, 'status.loading', 'Loading...');
+                element.dataset.loading = 'true';
             }
         });
     }
@@ -4720,7 +4849,8 @@ class MemoryDashboard {
                     }
                 }
 
-                element.textContent = config.formatter(value);
+                this.setValueText(element, config.formatter(value, this));
+                delete element.dataset.loading;
             });
 
             // Populate OAuth detail fields (conditionally shown when enabled)
@@ -4730,10 +4860,11 @@ class MemoryDashboard {
                 showRow('oauthBackendRow');
                 showRow('oauthClientsRow');
                 showRow('oauthTokensRow');
+                const notAvailable = this.t('modal.settings.system.notAvailable', 'N/A');
                 const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-                setVal('settingsOAuthBackend', oauthData.storage_backend || 'N/A');
-                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? 'N/A');
-                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? 'N/A');
+                setVal('settingsOAuthBackend', oauthData.storage_backend || notAvailable);
+                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? notAvailable);
+                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? notAvailable);
             }
 
             // Log warnings for failed API calls
@@ -4751,8 +4882,9 @@ class MemoryDashboard {
             // Set all system info fields that are still in loading state to error
             Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
                 const element = document.getElementById(id);
-                if (element && element.textContent === 'Loading...') {
-                    element.textContent = 'Error';
+                if (element && element.dataset.loading === 'true') {
+                    this.setTranslatedText(element, 'modal.settings.system.error', 'Error');
+                    delete element.dataset.loading;
                 }
             });
         }
@@ -4773,17 +4905,17 @@ class MemoryDashboard {
      * @param {number} seconds - Uptime in seconds
      * @returns {string} Formatted uptime string
      */
-    static formatUptime(seconds) {
+    formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
 
         const parts = [];
-        if (days > 0) parts.push(`${days}d`);
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
+        if (days > 0) parts.push(this.t('time.days', '{count}d', { count: days }));
+        if (hours > 0) parts.push(this.t('time.hours', '{count}h', { count: hours }));
+        if (minutes > 0) parts.push(this.t('time.minutes', '{count}m', { count: minutes }));
 
-        return parts.length > 0 ? parts.join(' ') : '< 1m';
+        return parts.length > 0 ? parts.join(' ') : this.t('time.underAMinute', '< 1m');
     }
 
     /**
@@ -5192,7 +5324,7 @@ class MemoryDashboard {
                             <div class="env-param-row">
                                 <div class="env-param-key">
                                     <strong>${this.escapeHtml(param.key)}</strong>
-                                    ${param.sensitive ? '<span class="sensitive-badge">Sensitive</span>' : ''}
+                                    ${param.sensitive ? this.staticTextHtml('span', 'sensitive-badge', 'modal.settings.env.sensitive', 'Sensitive') : ''}
                                 </div>
                                 <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
                                     ${this.renderParamValue(param)}
@@ -5213,7 +5345,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load environment config:', error);
-            container.innerHTML = '<p class="error">Failed to load configuration</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'modal.settings.env.loadFailed', 'Failed to load configuration');
         }
     }
 
@@ -5224,7 +5356,7 @@ class MemoryDashboard {
      */
     renderParamValue(param) {
         if (!param.value) {
-            return '<span class="env-value-empty">(not set)</span>';
+            return this.staticTextHtml('span', 'env-value-empty', 'modal.settings.env.notSet', '(not set)');
         }
 
         if (param.sensitive) {
@@ -5233,11 +5365,14 @@ class MemoryDashboard {
 
         if (param.type === 'boolean') {
             const isTrue = param.value === 'true' || param.value === true;
-            return `<span class="env-value-boolean ${isTrue ? 'true' : 'false'}">${isTrue ? '✓ Enabled' : '✗ Disabled'}</span>`;
+            return isTrue
+                ? this.staticTextHtml('span', 'env-value-boolean true', 'modal.settings.env.enabled', '✓ Enabled')
+                : this.staticTextHtml('span', 'env-value-boolean false', 'modal.settings.env.disabled', '✗ Disabled');
         }
 
         if (param.choices && param.choices.length > 0) {
-            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">(options: ${param.choices.map(c => this.escapeHtml(c)).join(', ')})</span>`;
+            const options = this.t('modal.settings.env.options', '(options: {options})', { options: param.choices.join(', ') });
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">${this.escapeHtml(options)}</span>`;
         }
 
         return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
@@ -5248,7 +5383,7 @@ class MemoryDashboard {
      */
     async copyEnvironmentConfig() {
         if (!this.currentEnvConfig) {
-            this.showToast('No configuration loaded', 'error');
+            this.showToast(this.t('modal.settings.env.noConfig', 'No configuration loaded'), 'error');
             return;
         }
 
@@ -5279,10 +5414,10 @@ class MemoryDashboard {
 
         try {
             await navigator.clipboard.writeText(configText);
-            this.showToast('Configuration copied to clipboard', 'success');
+            this.showToast(this.t('modal.settings.env.copied', 'Configuration copied to clipboard'), 'success');
         } catch (error) {
             console.error('Failed to copy:', error);
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
         }
     }
 
@@ -5332,6 +5467,7 @@ class MemoryDashboard {
             const data = await this.apiCall('/manage/tags/stats');
             const select = document.getElementById('deleteTagSelect');
             if (!select) return;
+            const selected = select.value;
 
             // Clear existing options except the first
             while (select.children.length > 1) {
@@ -5346,6 +5482,7 @@ class MemoryDashboard {
                 option.dataset.count = tagStat.count;  // Store count in data attribute
                 select.appendChild(option);
             });
+            if (data.tags.some(tagStat => tagStat.tag === selected)) select.value = selected;
         } catch (error) {
             console.error('Failed to load tag options:', error);
         }
@@ -5394,8 +5531,8 @@ class MemoryDashboard {
         html += '</tbody></table>';
         container.innerHTML = html;
 
-        // Add event listeners for tag actions
-        container.addEventListener('click', (e) => {
+        // Assigned, not added: the table re-renders on every visit and language switch.
+        container.onclick = (e) => {
             const button = e.target.closest('[data-action]');
             if (!button) return;
 
@@ -5408,7 +5545,7 @@ class MemoryDashboard {
                 const count = parseInt(button.dataset.count, 10);
                 this.deleteTag(tag, count);
             }
-        });
+        };
     }
 
     /**
