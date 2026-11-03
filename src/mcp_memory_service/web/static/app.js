@@ -461,7 +461,50 @@ class MemoryDashboard {
         if (!this.supportedLanguages.includes(lang) || lang === this.currentLang) return;
         await this.loadTranslations(lang);
         await this.applyTranslations();
+        await this.rerenderActiveView();
         this.showToast(this.t('toast.languageSwitched', 'Language switched'), 'success', 2000);
+    }
+
+    /**
+     * Re-render the JavaScript-built text of the active view after a language
+     * switch (#1807). applyTranslations() only reaches data-i18n elements.
+     * Cached views re-render without a request; the others re-run the loader
+     * they use on open. The knowledge graph is left alone to keep its camera.
+     * Browse is skipped: its tag cloud has no translated text, and re-rendering
+     * it would hide the memories of a selected tag. No scroll restore: every
+     * renderer swaps its content in one step, so the page height holds.
+     */
+    async rerenderActiveView() {
+        try {
+            switch (this.currentView) {
+                case 'dashboard':
+                    this.renderRecentMemories(this.memories);
+                    break;
+                case 'search':
+                    if (this.searchResults.length) this.renderSearchResults(this.searchResults);
+                    break;
+                case 'analytics':
+                    await Promise.all([
+                        this.loadAnalyticsOverview(),
+                        this.loadMemoryGrowthChart(),
+                        this.loadTagUsageChart(),
+                        this.loadMemoryTypesChart(),
+                        this.loadActivityHeatmapChart(),
+                        this.loadTopTagsReport(),
+                        this.loadRecentActivityReport(),
+                        this.loadStorageReport(),
+                        this.loadRelationshipTypesChart()
+                    ]);
+                    break;
+                case 'documents':
+                case 'manage':
+                case 'qualityAnalytics':
+                    await this.loadViewData(this.currentView);
+                    break;
+            }
+        } catch (error) {
+            console.warn('Re-render after language switch failed:', error);
+        }
     }
 
     /**
@@ -1101,6 +1144,7 @@ class MemoryDashboard {
             if (typeFilter) {
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
+                allOpt.dataset.i18n = 'search.filters.type.all';
                 allOpt.textContent = this.t('search.filters.type.all') || 'All types';
                 const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
@@ -5348,6 +5392,7 @@ class MemoryDashboard {
             const data = await this.apiCall('/manage/tags/stats');
             const select = document.getElementById('deleteTagSelect');
             if (!select) return;
+            const selected = select.value;
 
             // Clear existing options except the first
             while (select.children.length > 1) {
@@ -5362,6 +5407,7 @@ class MemoryDashboard {
                 option.dataset.count = tagStat.count;  // Store count in data attribute
                 select.appendChild(option);
             });
+            if (data.tags.some(tagStat => tagStat.tag === selected)) select.value = selected;
         } catch (error) {
             console.error('Failed to load tag options:', error);
         }
@@ -5410,8 +5456,8 @@ class MemoryDashboard {
         html += '</tbody></table>';
         container.innerHTML = html;
 
-        // Add event listeners for tag actions
-        container.addEventListener('click', (e) => {
+        // Assigned, not added: the table re-renders on every visit and language switch.
+        container.onclick = (e) => {
             const button = e.target.closest('[data-action]');
             if (!button) return;
 
@@ -5424,7 +5470,7 @@ class MemoryDashboard {
                 const count = parseInt(button.dataset.count, 10);
                 this.deleteTag(tag, count);
             }
-        });
+        };
     }
 
     /**
