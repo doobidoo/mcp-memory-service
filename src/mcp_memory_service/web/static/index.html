@@ -1565,28 +1565,28 @@
 
                     <!-- Server Tab -->
                     <div id="serverTab" class="settings-tab-content" style="display: none;">
-                        <h4 class="settings-section-heading">Server Management</h4>
+                        <h4 class="settings-section-heading" data-i18n="modal.settings.server.title">Server Management</h4>
                         <div class="server-management">
                             <div class="info-row">
-                                <span class="info-label">Server PID:</span>
+                                <span class="info-label" data-i18n="modal.settings.server.pid">Server PID:</span>
                                 <span class="info-value" id="settingsServerPid">-</span>
                             </div>
                             <div class="info-row">
-                                <span class="info-label">Platform:</span>
+                                <span class="info-label" data-i18n="modal.settings.server.platform">Platform:</span>
                                 <span class="info-value" id="settingsServerPlatform">-</span>
                             </div>
                             <div class="info-row">
-                                <span class="info-label">Update Available:</span>
-                                <span class="info-value" id="settingsUpdateAvailable">Not checked yet</span>
+                                <span class="info-label" data-i18n="modal.settings.server.updateAvailable">Update Available:</span>
+                                <span class="info-value" id="settingsUpdateAvailable" data-i18n="modal.settings.server.notChecked">Not checked yet</span>
                             </div>
                             <div class="server-actions">
-                                <button type="button" id="checkUpdatesBtn" class="btn btn-sm btn-secondary">Check for Updates</button>
-                                <button type="button" id="updateServerBtn" class="btn btn-sm btn-primary" style="display:none;">Update &amp; Restart</button>
-                                <button type="button" id="restartServerBtn" class="btn btn-sm btn-warning">Restart Server</button>
+                                <button type="button" id="checkUpdatesBtn" class="btn btn-sm btn-secondary" data-i18n="modal.settings.server.checkUpdates">Check for Updates</button>
+                                <button type="button" id="updateServerBtn" class="btn btn-sm btn-primary" style="display:none;" data-i18n="modal.settings.server.updateRestart">Update &amp; Restart</button>
+                                <button type="button" id="restartServerBtn" class="btn btn-sm btn-warning" data-i18n="modal.settings.server.restart">Restart Server</button>
                             </div>
                             <div id="serverActionStatus" class="server-action-status" style="display:none;">
                                 <div class="action-spinner"></div>
-                                <span id="serverActionText">Processing...</span>
+                                <span id="serverActionText" data-i18n="modal.settings.server.processing">Processing...</span>
                             </div>
                         </div>
                     </div>
@@ -1627,8 +1627,8 @@
         <div id="restartOverlay" class="restart-overlay" style="display:none;">
             <div class="restart-content">
                 <div class="restart-spinner"></div>
-                <h3>Server Restarting...</h3>
-                <p id="restartStatus">Waiting for server to come back online...</p>
+                <h3 data-i18n="modal.settings.server.restarting">Server Restarting...</h3>
+                <p id="restartStatus" data-i18n="modal.settings.server.waiting">Waiting for server to come back online...</p>
                 <p class="restart-countdown">Reconnecting in <span id="restartCountdown">5</span>s</p>
             </div>
         </div>
