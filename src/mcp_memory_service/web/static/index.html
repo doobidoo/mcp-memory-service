@@ -61,7 +61,7 @@
                                data-i18n-placeholder="search.placeholder"
                                placeholder="Search memories"
                                autocomplete="off">
-                        <button class="search-btn" type="button" aria-label="Search">
+                        <button class="search-btn" type="button" aria-label="Search" data-i18n-aria="header.searchLabel">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
                             </svg>
@@ -71,13 +71,13 @@
 
                 <!-- Action Buttons -->
                 <div class="action-buttons">
-                    <button id="addMemoryBtn" class="btn btn-primary" title="Add New Memory">
+                    <button id="addMemoryBtn" class="btn btn-primary" title="Add New Memory" data-i18n-title="header.addMemoryTitle">
                         <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                         </svg>
                         <span class="btn-text" data-i18n="actions.addMemory">Add Memory</span>
                     </button>
-                    <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Dark Mode">
+                    <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Dark Mode" data-i18n-title="header.toggleDarkMode">
                         <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="5"/>
                             <line x1="12" y1="1" x2="12" y2="3"/>
@@ -93,13 +93,13 @@
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                         </svg>
                     </button>
-                    <button id="settingsBtn" class="btn btn-secondary" title="Settings">
+                    <button id="settingsBtn" class="btn btn-secondary" title="Settings" data-i18n-title="header.settingsTitle">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12.647 10.942 11.657 9.953c0.362 -0.553 0.627 -1.18 0.759 -1.847h1.411v-2.4h-1.411c-0.152 -0.666 -0.402 -1.293 -0.759 -1.847l0.989 -0.989L10.971 1.2l-0.989 0.989c-0.553 -0.362 -1.18 -0.627 -1.847 -0.759V0h-2.4v1.411c-0.666 0.152 -1.293 0.402 -1.847 0.759L2.904 1.18 1.21 2.856l0.989 0.989c-0.362 0.553 -0.627 1.18 -0.759 1.847H0.029v2.38h1.411c0.152 0.666 0.402 1.293 0.759 1.847l-0.989 0.989 1.675 1.675 0.989 -0.989c0.553 0.362 1.18 0.627 1.847 0.759V13.763h2.38v-1.411c0.666 -0.152 1.293 -0.402 1.847 -0.759l0.989 0.989zm-5.731 -0.798c-1.788 0 -3.252 -1.464 -3.252 -3.252s1.464 -3.252 3.252 -3.252 3.252 1.445 3.252 3.252 -1.44 3.252 -3.252 3.252"/>
                             <path d="m22.658 16.217 1.313 -0.514 -0.877 -2.209 -1.313 0.514c-0.382 -0.573 -0.857 -1.048 -1.391 -1.445l0.553 -1.293 -2.189 -0.95 -0.529 1.288c-0.647 -0.132 -1.332 -0.152 -1.998 -0.039l-0.534 -1.293 -2.209 0.877 0.514 1.313c-0.573 0.382 -1.048 0.857 -1.445 1.391l-1.293 -0.553 -0.95 2.189 1.293 0.553c-0.132 0.647 -0.152 1.332 -0.039 1.998l-1.313 0.514 0.877 2.209 1.313 -0.514c0.382 0.573 0.857 1.048 1.391 1.445L13.273 22.991l2.189 0.95 0.553 -1.293c0.647 0.132 1.332 0.152 1.998 0.039l0.514 1.313 2.209 -0.877 -0.514 -1.313c0.573 -0.382 1.048 -0.857 1.445 -1.391l1.293 0.553 0.95 -2.189 -1.293 -0.553c0.132 -0.661 0.152 -1.327 0.039 -2.013M18.318 20.155c-1.675 0.666 -3.561 -0.152 -4.227 -1.827s0.152 -3.561 1.827 -4.227 3.561 0.152 4.227 1.827 -0.152 3.561 -1.827 4.227"/>
                         </svg>
                     </button>
-                    <div class="language-selector" aria-label="Language">
+                    <div class="language-selector" aria-label="Language" data-i18n-aria="header.languageLabel">
                         <button type="button" class="lang-dropdown-trigger" aria-haspopup="true" aria-expanded="false">
                             <svg class="lang-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
@@ -234,13 +234,13 @@
                             </button>
                         </div>
 
-                        <section id="deltaSyncControl" class="sync-control-compact delta-sync-control" style="display: none" aria-label="Delta sync">
+                        <section id="deltaSyncControl" class="sync-control-compact delta-sync-control" style="display: none" aria-label="Delta sync" data-i18n-aria="sync.deltaSync">
                             <div class="delta-sync-header">
                                 <div class="delta-sync-heading">
                                     <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
                                     </svg>
-                                    <span>Delta sync</span>
+                                    <span data-i18n="sync.deltaSync">Delta sync</span>
                                 </div>
                                 <span class="delta-sync-badge"><span class="sync-dot" aria-hidden="true"></span><span id="deltaSyncStatus" role="status"></span></span>
                             </div>
@@ -253,21 +253,21 @@
                             <div class="sync-row">
                                 <div class="sync-status">
                                     <span id="syncStatusDot" class="sync-dot"></span>
-                                    <span id="syncStatusText" class="sync-text-sm">Checking...</span>
+                                    <span id="syncStatusText" class="sync-text-sm" data-i18n="sync.checking">Checking...</span>
                                 </div>
                                 <span id="syncProgress" class="sync-progress-sm"></span>
                                 <div class="sync-buttons-sm">
-                                    <button type="button" id="pauseSyncButton" class="btn-icon-sm" title="Pause sync">
+                                    <button type="button" id="pauseSyncButton" class="btn-icon-sm" title="Pause sync" data-i18n-title="sync.pauseTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
                                         </svg>
                                     </button>
-                                    <button type="button" id="resumeSyncButton" class="btn-icon-sm" title="Resume sync">
+                                    <button type="button" id="resumeSyncButton" class="btn-icon-sm" title="Resume sync" data-i18n-title="sync.resumeTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M8 5v14l11-7z"/>
                                         </svg>
                                     </button>
-                                    <button type="button" id="forceSyncButton" class="btn-icon-sm btn-icon-primary" title="Sync now">
+                                    <button type="button" id="forceSyncButton" class="btn-icon-sm btn-icon-primary" title="Sync now" data-i18n-title="sync.nowTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
                                         </svg>
