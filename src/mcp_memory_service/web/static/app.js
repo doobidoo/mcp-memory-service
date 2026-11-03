@@ -4005,7 +4005,7 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error('Authentication required');
+            throw new Error(this.t('error.authRequired', 'Authentication required'));
         }
 
         if (!response.ok) {
@@ -4055,7 +4055,7 @@ class MemoryDashboard {
             if (!this._lastAuthFailureToast || (now - this._lastAuthFailureToast) > 30000) {
                 this._lastAuthFailureToast = now;
                 console.warn('Got 401 despite being authenticated — credentials may have been invalidated');
-                this.showToast('Session expired or credentials changed. Please refresh the page.', 'warning');
+                this.showToast(this.t('toast.authSessionExpired', 'Session expired or credentials changed. Please refresh the page.'), 'warning');
             }
             // Mark as unauthenticated so the next 401 triggers the full
             // re-auth flow (clear credentials + show modal) instead of
@@ -4122,12 +4122,12 @@ class MemoryDashboard {
             await this.loadDashboardData();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
-            this.showToast('Authentication successful', 'success');
+            this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
 
             return true;
         } catch (error) {
             // Key is invalid — clean up
-            this.showToast('Authentication failed. Please check your API key.', 'error');
+            this.showToast(this.t('toast.authFailed', 'Authentication failed. Please check your API key.'), 'error');
             this._clearCredentials();
             return false;
         }
