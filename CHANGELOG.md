@@ -48,8 +48,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   migration runner's baseline recovery now also probes v20, so an upgrade after a
   Part-A-only rollback (column retained, registry row removed) re-stamps the migration
   and restores the pending index instead of re-running `ADD COLUMN` and failing
-  duplicate-column. Pure DDL — no code produces or reads the column yet; that arrives
-  with the producer + re-rank consumer in a follow-up.
+  duplicate-column. The migration itself is pure DDL; the column is filled by belief
+  creation and the consolidation backfill, and read by the dedup entry below.
 - **Opt-in semantic dedup of beliefs by embedding cosine — library layer (#1733, filhocf).**
   `BeliefService.dedup_beliefs(dry_run)` groups active/candidate beliefs whose stored
   `embedding` (migration 020, #1729) has cosine ≥ `MCP_BELIEF_DEDUP_THRESHOLD`
@@ -59,11 +59,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   (never deletes), one transaction per group. A cap of 0 or less (`MCP_BELIEF_DEDUP_CAP`)
   returns before grouping. Greedy single-linkage over the persisted embeddings, stable
   via `ORDER BY belief_hash`.
-  This PR is the **library layer only — nothing calls it yet**: `dedup_beliefs()` and
-  `backfill_belief_embeddings()` are wired into the consolidation run in a follow-up PR
-  (backfill → dedup, dry-run default, a separate apply switch, plus the three variables
-  in `.env.example`). Beliefs created before that follow-up keep a NULL embedding until
-  its backfill runs. Setting `MCP_BELIEF_DEDUP=true` has no effect on its own until then.
+  The consolidation job calls `backfill_belief_embeddings()` and then `dedup_beliefs()`
+  when `MCP_BELIEF_DEDUP=true` (see the wiring entry below); dedup is a dry run unless
+  `MCP_BELIEF_DEDUP_APPLY=true`. Beliefs created before this release keep a NULL embedding
+  until the first backfill runs.
   Note: `_create_belief` now computes an embedding for every new belief regardless of
   `MCP_BELIEF_DEDUP` (per #1728, "compute the embedding on belief create"), so expect one
   extra embedding inference per belief created. Part 2 of #1728.
