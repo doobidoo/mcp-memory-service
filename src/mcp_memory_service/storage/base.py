@@ -1032,6 +1032,7 @@ class MemoryStorage(ABC):
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
@@ -1050,6 +1051,10 @@ class MemoryStorage(ABC):
                 stages. Backends without local embeddings (e.g. Cloudflare)
                 MAY ignore the flag. Default False keeps the CRUD cost
                 envelope unchanged.
+            include_superseded: If False, leave out memories replaced by a
+                newer version (``superseded_by`` set), the way ``retrieve()``
+                does by default. Default True keeps every live row for the
+                sync, export and maintenance callers (#1803).
 
         Returns:
             List of Memory objects ordered by created_at DESC, optionally filtered by type and tags
@@ -1065,13 +1070,15 @@ class MemoryStorage(ABC):
         """
         return ["default"]
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
         """
         Get total count of memories in storage.
 
         Args:
             memory_type: Optional filter by memory type
             tags: Optional filter by tags (memories matching ANY of the tags)
+            include_superseded: If False, do not count superseded versions;
+                same meaning as in ``get_all_memories`` (#1803)
 
         Returns:
             Total number of memories, optionally filtered by type and/or tags
@@ -1291,6 +1298,18 @@ class MemoryStorage(ABC):
                 _sanitize_log_value(str(e)),
             )
             return results
+
+    async def _drop_superseded(
+        self, results: List[MemoryQueryResult], store: Optional[str] = None
+    ) -> List[MemoryQueryResult]:
+        """Leave out superseded versions on the paths that bypass retrieve() (#1803).
+
+        retrieve() hides superseded rows by default; the exact, tag-only and
+        time-only search paths build their results from raw Memory objects, so
+        they backfill the lineage first and apply the same rule here.
+        """
+        results = await self._enrich_supersession(results, store=store)
+        return [r for r in results if not r.superseded_by]
 
     async def search_memories(
         self,
@@ -1523,11 +1542,13 @@ class MemoryStorage(ABC):
                 # Issue #1724 follow-up: exact matches never flow through
                 # retrieve(), so backfill supersession lineage (for the status
                 # flags below) and apply the point-in-time bound. Without
-                # as_of/include_superseded the path is byte-for-byte unchanged.
+                # either, superseded versions are hidden as retrieve() does (#1803).
                 if as_of_ts is not None or include_superseded:
                     results = await self._enrich_supersession(results, store=store)
                 if as_of_ts is not None:
                     results = self._post_filter_as_of(results, as_of_ts)
+                elif not include_superseded:
+                    results = await self._drop_superseded(results, store=store)
                 pre_filter_count = len(results)
 
             elif mode in ("semantic", "hybrid"):
@@ -1637,6 +1658,10 @@ class MemoryStorage(ABC):
                         results = await self._enrich_supersession(results, store=store)
                     if as_of_ts is not None:
                         results = self._post_filter_as_of(results, as_of_ts)
+                        pre_filter_count = len(results)
+                    elif not include_superseded:
+                        # Issue #1803: hide superseded versions, as retrieve() does.
+                        results = await self._drop_superseded(results, store=store)
                         pre_filter_count = len(results)
 
             # Apply time filters

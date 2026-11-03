@@ -2591,6 +2591,7 @@ class HybridMemoryStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Get all memories from primary storage.
 
@@ -2608,15 +2609,16 @@ class HybridMemoryStorage(MemoryStorage):
             store=store,
             agent_id=agent_id,
             exclude_pending=exclude_pending,
+            include_superseded=include_superseded,
         )
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash from primary storage."""
         return await self.primary.get_by_hash(content_hash, store=store)
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
         """Get total count of memories from primary storage."""
-        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, tag_match=tag_match, stale_days=stale_days, store=store, agent_id=agent_id)
+        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, tag_match=tag_match, stale_days=stale_days, store=store, agent_id=agent_id, include_superseded=include_superseded)
 
     async def get_memories_by_time_range(
         self,

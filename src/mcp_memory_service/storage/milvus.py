@@ -3784,6 +3784,7 @@ class MilvusMemoryStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> List[Memory]:
         if agent_id is not None:
             raise NotImplementedError(
@@ -3832,6 +3833,7 @@ class MilvusMemoryStorage(MemoryStorage):
         stale_days: Optional[int] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
         agent_id: Optional[str] = None,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> int:
         if agent_id is not None:
             raise NotImplementedError(

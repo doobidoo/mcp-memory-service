@@ -2409,6 +2409,7 @@ class CloudflareStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,  # interface parity (#1803); not filtered here
     ) -> List[Memory]:
         """
         Get all memories in storage ordered by creation time (newest first).
@@ -2754,13 +2755,14 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Error getting memories by time range: %s", _sanitize_log_value(str(e)))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
         """
         Get total count of memories in storage.
 
         Args:
             memory_type: Optional filter by memory type
             tags: Optional filter by tags (tag_match controls AND/OR logic)
+            include_superseded: Interface parity (#1803); not filtered here
 
         Returns:
             Total number of memories, optionally filtered by type and/or tags

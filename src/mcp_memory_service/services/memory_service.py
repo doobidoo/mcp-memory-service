@@ -317,6 +317,7 @@ class MemoryService:
         stale_days: Optional[int] = None,
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
+        include_superseded: bool = False,
     ) -> Union[ListMemoriesSuccess, ListMemoriesError]:
         """
         List memories with pagination and optional filtering.
@@ -333,6 +334,8 @@ class MemoryService:
             memory_type: Filter by memory type
             stale_days: Filter to memories not accessed in the last N days.
                 Uses COALESCE(last_accessed, created_at) for memories never read.
+            include_superseded: Also list memories replaced by a newer version.
+                Default False lists current versions only, like search (#1803).
 
         Returns:
             Dictionary with memories and pagination info
@@ -353,6 +356,7 @@ class MemoryService:
                 stale_days=stale_days,
                 store=store,
                 agent_id=agent_id,
+                include_superseded=include_superseded,
             )
 
             # Get accurate total count for pagination
@@ -363,6 +367,7 @@ class MemoryService:
                 stale_days=stale_days,
                 store=store,
                 agent_id=agent_id,
+                include_superseded=include_superseded,
             )
 
             # Format results for API response

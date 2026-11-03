@@ -698,12 +698,15 @@ class RetrieveMixin:
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Get all memories in storage ordered by creation time (newest first).
 
         exclude_pending=True hides embedding_pending rows — use it when this method
         backs a SEARCH surface (e.g. the /search/by-tag endpoint). Default False keeps
         the full listing for sync/reconciliation/export paths (they must see pending).
+        include_superseded=False hides rows replaced by a newer version, as
+        retrieve() does (#1803); default True keeps them for the same paths.
         """
         try:
             await self.initialize()
@@ -723,6 +726,9 @@ class RetrieveMixin:
 
             if exclude_pending:
                 where_conditions.append('(m.embedding_pending IS NULL OR m.embedding_pending = 0)')
+
+            if not include_superseded:
+                where_conditions.append("(m.superseded_by IS NULL OR m.superseded_by = '')")
 
             if store is not None:
                 where_conditions.append('m.store = ?')
@@ -880,8 +886,8 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
-        """Get total count of memories in storage."""
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
+        """Get total count of memories in storage (see get_all_memories for include_superseded)."""
         try:
             await self.initialize()
 
@@ -915,6 +921,9 @@ class RetrieveMixin:
                 params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
+
+            if not include_superseded:
+                conditions.append("(superseded_by IS NULL OR superseded_by = '')")
 
             conditions.append('deleted_at IS NULL')
             count_query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)
