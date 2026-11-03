@@ -4992,12 +4992,12 @@ class MemoryDashboard {
         const testBtn = document.getElementById('credTestBtn');
 
         if (!tokenVal || !accountVal) {
-            this._showCredResult('error', 'API Token and Account ID are required.');
+            this._showCredResult('error', this.t('settings.credentials.required', 'API Token and Account ID are required.'));
             return;
         }
 
         testBtn.disabled = true;
-        testBtn.textContent = 'Testing…';
+        testBtn.textContent = this.t('settings.credentials.testing', 'Testing…');
         if (resultEl) { resultEl.style.display = 'none'; }
 
         try {
@@ -5007,21 +5007,25 @@ class MemoryDashboard {
             });
 
             if (data.valid) {
-                const expires = data.expires_on
-                    ? ` · Expires ${new Date(data.expires_on).toLocaleDateString()}`
-                    : '';
-                this._showCredResult('success', `✓ Token active${expires}`);
+                const message = data.expires_on
+                    ? this.t(
+                        'settings.credentials.tokenActiveExpires',
+                        '✓ Token active · Expires {date}',
+                        { date: new Date(data.expires_on).toLocaleDateString() }
+                    )
+                    : this.t('settings.credentials.tokenActive', '✓ Token active');
+                this._showCredResult('success', message);
                 this._credTestedToken = tokenVal;
             } else {
-                this._showCredResult('error', `✗ ${data.error || 'Invalid token'}`);
+                this._showCredResult('error', `✗ ${data.error || this.t('settings.credentials.invalidToken', 'Invalid token')}`);
                 this._credTestedToken = null;
             }
         } catch (e) {
-            this._showCredResult('error', `✗ Request failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.credentials.requestFailed', '✗ Request failed: {error}', { error: e.message }));
             this._credTestedToken = null;
         } finally {
             testBtn.disabled = false;
-            testBtn.textContent = 'Test Connection';
+            testBtn.textContent = this.t('settings.credentials.testButton', 'Test Connection');
             this._updateCredSaveBtn();
         }
     }
@@ -5037,12 +5041,12 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('credSaveBtn');
 
         if (!this._credTestedToken || this._credTestedToken !== tokenVal) {
-            this._showCredResult('error', 'Run "Test Connection" first.');
+            this._showCredResult('error', this.t('settings.credentials.testFirst', 'Run "Test Connection" first.'));
             return;
         }
 
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
+        saveBtn.textContent = this.t('settings.quality.saving', 'Saving…');
 
         try {
             const syncOwnerVal = (document.getElementById('cred-sync-owner')?.value || 'http');
@@ -5057,13 +5061,13 @@ class MemoryDashboard {
                     tested_token: this._credTestedToken,
                 })
             });
-            this._showCredResult('success', '✓ Credentials saved. Server restarting…');
+            this._showCredResult('success', this.t('settings.credentials.saved', '✓ Credentials saved. Server restarting…'));
             this.closeModal(document.getElementById('settingsModal'));
             this.showRestartOverlay();
         } catch (e) {
-            this._showCredResult('error', `✗ Save failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.quality.saveFailed', '✗ Save failed: {error}', { error: e.message }));
             saveBtn.disabled = false;
-            saveBtn.textContent = 'Save & Restart';
+            saveBtn.textContent = this.t('settings.quality.save', 'Save & Restart');
         }
     }
 
