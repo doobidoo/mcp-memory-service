@@ -210,6 +210,22 @@ def test_script_sites_reference_their_keys():
     sync_block = blocks[1]
     assert "`sync.status.${state}`" in sync_block
 
+    # Static labels created by updateDeltaSyncStatus() carry their data-i18n
+    # key (the text() helper's i18nKey argument) so applyTranslations()
+    # re-translates them after a language switch.
+    assert "el.dataset.i18n = i18nKey" in sync_block
+    tagged = [
+        ("sync.noPeers", ", 'delta-sync-meta', 'sync.noPeers')"),
+        ("sync.pull", ", 'sync.pull')"),
+        ("sync.push", ", 'sync.push')"),
+        ("sync.details", ", undefined, 'sync.details')"),
+        ("sync.pullCursor", "['sync.pullCursor',"),
+        ("sync.pushCursor", "['sync.pushCursor',"),
+        ("sync.backlog", "['sync.backlog',"),
+    ]
+    for key, call in tagged:
+        assert call in sync_block, f"{key} not tagged as data-i18n"
+
     # No status word or panel label is assigned as a bare English literal.
     stripped = re.sub(r"this\.t\([^)]*\)", "", sync_block)
     for literal in (

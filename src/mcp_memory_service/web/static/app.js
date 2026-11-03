@@ -1911,15 +1911,18 @@ class MemoryDashboard {
             .map(details => details.dataset.peerId));
         const focusedPeer = document.activeElement?.closest('details')?.dataset.peerId;
         container.replaceChildren();
-        const text = (parent, tag, value, className) => {
+        const text = (parent, tag, value, className, i18nKey) => {
             const el = document.createElement(tag);
             if (className) el.className = className;
+            // Static labels carry their key so applyTranslations() re-translates
+            // them after a language switch (#1806); dynamic values do not.
+            if (i18nKey) el.dataset.i18n = i18nKey;
             el.textContent = value;
             parent.appendChild(el);
             return el;
         };
         const peers = delta.peers || [];
-        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta');
+        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta', 'sync.noPeers');
         for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
@@ -1935,17 +1938,17 @@ class MemoryDashboard {
             const metrics = document.createElement('dl');
             metrics.className = 'delta-sync-metrics';
             row.appendChild(metrics);
-            const metric = (label, value, note) => {
+            const metric = (label, value, note, labelKey) => {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 const result = text(group, 'dd', value);
                 text(result, 'span', note, 'delta-sync-meta');
                 metrics.appendChild(group);
             };
             metric(this.t('sync.pull', 'Pull'), peer.pull ? String(peer.pull.received ?? this.t('sync.unknown', 'Unknown')) : '—',
-                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'));
+                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.pull');
             metric(this.t('sync.push', 'Push'), peer.push ? String(peer.push.pushed) : '—',
-                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'));
+                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.push');
 
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             const lastCycle = text(row, 'p', completed
@@ -1960,15 +1963,15 @@ class MemoryDashboard {
             details.className = 'delta-sync-details';
             details.dataset.peerId = peer.peer_id;
             details.open = openPeers.has(peer.peer_id);
-            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'));
+            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'), undefined, 'sync.details');
             const diagnostics = document.createElement('dl');
-            for (const [label, value] of [
-                [this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
-                [this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
-                [this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
+            for (const [labelKey, label, value] of [
+                ['sync.pullCursor', this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.pushCursor', this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.backlog', this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
             ]) {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 text(group, 'dd', String(value));
                 diagnostics.appendChild(group);
             }
