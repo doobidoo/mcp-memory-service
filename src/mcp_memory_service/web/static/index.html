@@ -1452,57 +1452,56 @@
 
                     <!-- Credentials Tab -->
                     <div id="credentialsTab" class="settings-tab-content" style="display: none;">
-                        <h4 class="settings-section-heading">Cloudflare Credentials</h4>
-                        <p class="settings-description">Saved to <code>.env</code> — shared by the MCP server and HTTP server. A connection test is required before saving.</p>
+                        <h4 class="settings-section-heading" data-i18n="settings.credentials.title">Cloudflare Credentials</h4>
+                        <p class="settings-description" data-i18n-html="settings.credentials.description">Saved to <code>.env</code> — shared by the MCP server and HTTP server. A connection test is required before saving.</p>
                         <div class="credentials-form">
                             <div class="credential-field">
-                                <label for="cred-api-token">API Token</label>
+                                <label for="cred-api-token" data-i18n="settings.credentials.apiToken">API Token</label>
                                 <div class="token-input-group">
-                                    <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide" data-i18n="common.show">Show</button>
+                                    <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" data-i18n-placeholder="settings.credentials.apiTokenPlaceholder" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide" data-i18n-title="settings.credentials.showHide" data-i18n="common.show">Show</button>
                                 </div>
-                                <small class="form-text">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
+                                <small class="form-text" data-i18n="settings.credentials.apiTokenHelp">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
                             </div>
                             <div class="credential-field">
-                                <label for="cred-account-id">Account ID</label>
+                                <label for="cred-account-id" data-i18n="settings.credentials.accountId">Account ID</label>
                                 <div class="token-input-group">
-                                    <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide" data-i18n="common.show">Show</button>
+                                    <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" data-i18n-placeholder="settings.credentials.accountIdPlaceholder" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide" data-i18n-title="settings.credentials.showHide" data-i18n="common.show">Show</button>
                                 </div>
                             </div>
                             <div class="credential-field">
-                                <label for="cred-d1-id">D1 Database ID</label>
-                                <input type="text" id="cred-d1-id" class="form-control" placeholder="D1 Database ID" autocomplete="off" spellcheck="false">
+                                <label for="cred-d1-id" data-i18n="settings.credentials.d1Id">D1 Database ID</label>
+                                <input type="text" id="cred-d1-id" class="form-control" placeholder="D1 Database ID" data-i18n-placeholder="settings.credentials.d1Id" autocomplete="off" spellcheck="false">
                             </div>
                             <div class="credential-field">
-                                <label for="cred-vectorize">Vectorize Index Name</label>
-                                <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" autocomplete="off" spellcheck="false">
+                                <label for="cred-vectorize" data-i18n="settings.credentials.vectorizeName">Vectorize Index Name</label>
+                                <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" data-i18n-placeholder="settings.credentials.vectorizePlaceholder" autocomplete="off" spellcheck="false">
                             </div>
                         </div>
                         <hr class="settings-divider">
 
-                        <h4 class="settings-section-heading">Sync Configuration</h4>
+                        <h4 class="settings-section-heading" data-i18n="settings.credentials.syncTitle">Sync Configuration</h4>
                         <div class="credential-field">
-                            <label for="cred-sync-owner">Cloudflare Sync Owner</label>
+                            <label for="cred-sync-owner" data-i18n="settings.credentials.syncOwner">Cloudflare Sync Owner</label>
                             <select id="cred-sync-owner" class="form-select">
-                                <option value="http">HTTP server only (recommended)</option>
-                                <option value="both">Both servers</option>
-                                <option value="mcp">MCP server only</option>
+                                <option value="http" data-i18n="settings.credentials.syncOwnerHttp">HTTP server only (recommended)</option>
+                                <option value="both" data-i18n="settings.credentials.syncOwnerBoth">Both servers</option>
+                                <option value="mcp" data-i18n="settings.credentials.syncOwnerMcp">MCP server only</option>
                             </select>
                             <small class="form-text">
-                                <strong>HTTP server only</strong> — Claude Desktop uses SQLite-Vec directly (fast, no Cloudflare token needed there).
-                                The HTTP server handles all background sync via <code>.env</code>.<br>
-                                <strong>Both</strong> — each server maintains its own sync queue (legacy default).<br>
-                                <strong>MCP only</strong> — HTTP server skips sync, MCP server syncs.
+                                <span data-i18n-html="settings.credentials.syncHelpHttp"><strong>HTTP server only</strong> — Claude Desktop uses SQLite-Vec directly (fast, no Cloudflare token needed there). The HTTP server handles all background sync via <code>.env</code>.</span><br>
+                                <span data-i18n-html="settings.credentials.syncHelpBoth"><strong>Both</strong> — each server maintains its own sync queue (legacy default).</span><br>
+                                <span data-i18n-html="settings.credentials.syncHelpMcp"><strong>MCP only</strong> — HTTP server skips sync, MCP server syncs.</span>
                             </small>
                         </div>
 
                         <div id="credTestResult" class="cred-test-result" style="display:none;"></div>
                         <div class="credentials-actions">
-                            <button type="button" id="credTestBtn" class="btn btn-secondary">Test Connection</button>
-                            <button type="button" id="credSaveBtn" class="btn btn-primary" disabled>Save &amp; Restart</button>
+                            <button type="button" id="credTestBtn" class="btn btn-secondary" data-i18n="settings.credentials.testButton">Test Connection</button>
+                            <button type="button" id="credSaveBtn" class="btn btn-primary" data-i18n="settings.quality.save" disabled>Save &amp; Restart</button>
                         </div>
-                        <p class="settings-hint">Token shown as partial reveal. Use Show to see the full value.</p>
+                        <p class="settings-hint" data-i18n="settings.credentials.hint">Token shown as partial reveal. Use Show to see the full value.</p>
                     </div>
 
                     <!-- Quality Tab -->
