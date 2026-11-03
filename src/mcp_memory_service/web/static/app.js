@@ -143,7 +143,7 @@ class MemoryDashboard {
         // Check for secure context
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
             console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
-            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+            this.showToast(this.t('toast.connectionInsecure', 'Warning: Connection not secure. Please use HTTPS in production.'), 'warning');
         }
 
         // Detect authentication requirement before loading data or starting
@@ -435,6 +435,19 @@ class MemoryDashboard {
             modeText.textContent = this.liveSearchEnabled
                 ? this.t('search.modeLive', modeText.textContent)
                 : this.t('search.modeManual', modeText.textContent);
+        }
+
+        // Compact sync control: the widget's data-i18n key is the initial
+        // "Checking..." default. Re-render the live status word from the
+        // control's state class, so switching languages does not reset a
+        // running sync to "Checking..." until the next poll.
+        const syncStatusText = document.getElementById('syncStatusText');
+        if (syncStatusText) {
+            const syncState = syncStatusText.closest('.sync-control-compact')
+                ?.className.match(/\b(paused|syncing|pending|error|synced)\b/)?.[1];
+            if (syncState) {
+                syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
+            }
         }
 
         // 更新语言按钮状态
@@ -986,7 +999,7 @@ class MemoryDashboard {
         // Update sync status display
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.textContent = 'Synced';
+            syncStatus.textContent = this.t('sync.status.synced', 'Synced');
             syncStatus.className = 'sync-status synced';
         }
 
@@ -1831,28 +1844,28 @@ class MemoryDashboard {
 
             // Determine status and update UI (dot color is handled by CSS classes)
             if (isPaused) {
-                statusText.textContent = 'Paused';
+                statusText.textContent = this.t('sync.status.paused', 'Paused');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact paused';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'syncing') {
-                statusText.textContent = 'Syncing';
-                syncProgress.textContent = syncStatus.operations_pending > 0 ? `${syncStatus.operations_pending} pending` : '';
+                statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+                syncProgress.textContent = syncStatus.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: syncStatus.operations_pending }) : '';
                 syncControl.className = 'sync-control-compact syncing';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'pending') {
-                statusText.textContent = 'Pending';
-                syncProgress.textContent = `${syncStatus.operations_pending} ops`;
+                statusText.textContent = this.t('sync.status.pending', 'Pending');
+                syncProgress.textContent = this.t('sync.opsCount', '{count} ops', { count: syncStatus.operations_pending });
                 syncControl.className = 'sync-control-compact pending';
                 if (syncButton) syncButton.disabled = false;
             } else if (syncStatus.status === 'error') {
-                statusText.textContent = 'Error';
-                syncProgress.textContent = `${syncStatus.operations_failed} failed`;
+                statusText.textContent = this.t('sync.status.error', 'Error');
+                syncProgress.textContent = this.t('sync.failedCount', '{count} failed', { count: syncStatus.operations_failed });
                 syncControl.className = 'sync-control-compact error';
                 if (syncButton) syncButton.disabled = false;
             } else {
                 // synced status
-                statusText.textContent = 'Synced';
+                statusText.textContent = this.t('sync.status.synced', 'Synced');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact synced';
                 if (syncButton) syncButton.disabled = false;
@@ -1864,7 +1877,7 @@ class MemoryDashboard {
             const deltaControl = document.getElementById('deltaSyncControl');
             if (deltaControl && deltaControl.style.display !== 'none') {
                 deltaControl.className = 'sync-control-compact delta-sync-control error';
-                document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
+                document.getElementById('deltaSyncStatus').textContent = this.t('sync.statusUnavailable', 'Status unavailable');
             }
             // Hide sync control on error (likely not hybrid mode)
             const syncControl = document.getElementById('syncControl');
@@ -1883,14 +1896,14 @@ class MemoryDashboard {
         if (!delta?.configured) return;
         const state = delta.status || 'disabled';
         panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
-        document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        document.getElementById('deltaSyncStatus').textContent = this.t(`sync.status.${state}`, state.charAt(0).toUpperCase() + state.slice(1));
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
+        const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
-            ? `Every ${this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '')} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
-            : `Automatic sync disabled · Schedule: ${delta.schedule}`;
+            ? this.t('sync.scheduleEveryNext', 'Every {interval} · Next: {time}', { interval: cadence, time: next ? next.toLocaleTimeString() : this.t('sync.notScheduled', 'not scheduled') })
+            : this.t('sync.automaticDisabled', 'Automatic sync disabled · Schedule: {schedule}', { schedule: delta.schedule });
         if (delta.enabled && delta.next_run_at) {
-            const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
-            this._startSyncCountdown(delta.next_run_at, `Every ${cadence} · `);
+            this._startSyncCountdown(delta.next_run_at, this.t('sync.every', 'Every {interval} · ', { interval: cadence }));
         }
         const container = document.getElementById('deltaSyncPeers');
         // Keep the disclosure open across live refreshes, including keyboard focus.
@@ -1906,7 +1919,7 @@ class MemoryDashboard {
             return el;
         };
         const peers = delta.peers || [];
-        if (!peers.length) text(container, 'p', 'No peers configured', 'delta-sync-meta');
+        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta');
         for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
@@ -1917,7 +1930,7 @@ class MemoryDashboard {
             if (peers.length > 1) {
                 text(heading, 'span', peer.health || peer.status, 'delta-sync-meta');
             }
-            text(row, 'p', peer.url || 'URL not configured', 'delta-sync-url');
+            text(row, 'p', peer.url || this.t('sync.urlNotConfigured', 'URL not configured'), 'delta-sync-url');
 
             const metrics = document.createElement('dl');
             metrics.className = 'delta-sync-metrics';
@@ -1929,15 +1942,15 @@ class MemoryDashboard {
                 text(result, 'span', note, 'delta-sync-meta');
                 metrics.appendChild(group);
             };
-            metric('Pull', peer.pull ? String(peer.pull.received ?? 'Unknown') : '—',
-                peer.pull ? `received · ${peer.pull.applied} applied` : 'No cycle yet');
-            metric('Push', peer.push ? String(peer.push.pushed) : '—',
-                peer.push ? 'sent to peer' : 'No cycle yet');
+            metric(this.t('sync.pull', 'Pull'), peer.pull ? String(peer.pull.received ?? this.t('sync.unknown', 'Unknown')) : '—',
+                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'));
+            metric(this.t('sync.push', 'Push'), peer.push ? String(peer.push.pushed) : '—',
+                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'));
 
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             const lastCycle = text(row, 'p', completed
-                ? `Last cycle ${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))}`
-                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle', 'delta-sync-meta');
+                ? this.t('sync.lastCycle', 'Last cycle {time}', { time: this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000))) })
+                : peer.cycle_status === 'syncing' ? this.t('sync.status.syncing', 'Syncing…') : this.t('sync.waitingFirstCycle', 'Waiting for first cycle'), 'delta-sync-meta');
             if (completed) lastCycle.title = completed.toLocaleString();
             if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
                 text(row, 'p', peer.last_error || peer.message, 'delta-sync-error');
@@ -1947,12 +1960,12 @@ class MemoryDashboard {
             details.className = 'delta-sync-details';
             details.dataset.peerId = peer.peer_id;
             details.open = openPeers.has(peer.peer_id);
-            const summary = text(details, 'summary', 'Sync details');
+            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'));
             const diagnostics = document.createElement('dl');
             for (const [label, value] of [
-                ['Pull cursor', peer.pull?.cursor ?? 'Not available'],
-                ['Push cursor', peer.push?.cursor ?? 'Not available'],
-                ['Backlog', peer.backlog ?? 'Unknown']
+                [this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                [this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                [this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
             ]) {
                 const group = document.createElement('div');
                 text(group, 'dt', label);
@@ -1981,9 +1994,9 @@ class MemoryDashboard {
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);
         const s = total % 60;
-        if (h > 0) return `Next sync in ${h}h ${String(m).padStart(2, '0')}m`;
-        if (m > 0) return `Next sync in ${m}m ${String(s).padStart(2, '0')}s`;
-        return `Next sync in ${s}s`;
+        if (h > 0) return this.t('sync.nextSyncInHm', 'Next sync in {hours}h {minutes}m', { hours: h, minutes: String(m).padStart(2, '0') });
+        if (m > 0) return this.t('sync.nextSyncInMs', 'Next sync in {minutes}m {seconds}s', { minutes: m, seconds: String(s).padStart(2, '0') });
+        return this.t('sync.nextSyncInS', 'Next sync in {seconds}s', { seconds: s });
     }
 
     /**
@@ -2000,7 +2013,7 @@ class MemoryDashboard {
         this._stopSyncCountdown();
         if (!progressEl) return;
         if (!nextRunAt || Number.isNaN(nextAt)) {
-            progressEl.textContent = 'Schedule paused';
+            progressEl.textContent = this.t('sync.schedulePaused', 'Schedule paused');
             return;
         }
 
@@ -2009,7 +2022,7 @@ class MemoryDashboard {
             if (remainingMs <= 0) {
                 // A due timestamp does not prove that a cycle is running.
                 // The next status response supplies the next scheduled run.
-                progressEl.textContent = `${prefix}Scheduled sync due`;
+                progressEl.textContent = prefix + this.t('sync.scheduledDue', 'Scheduled sync due');
                 this._stopSyncCountdown();
                 return;
             }
@@ -2043,7 +2056,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'none';
                 if (resumeButton) resumeButton.style.display = 'flex';
-                if (statusText) statusText.textContent = 'Paused';
+                if (statusText) statusText.textContent = this.t('sync.status.paused', 'Paused');
                 if (syncControl) syncControl.className = 'sync-control-compact paused';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2078,7 +2091,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'flex';
                 if (resumeButton) resumeButton.style.display = 'none';
-                if (statusText) statusText.textContent = 'Synced';
+                if (statusText) statusText.textContent = this.t('sync.status.synced', 'Synced');
                 if (syncControl) syncControl.className = 'sync-control-compact synced';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2300,8 +2313,8 @@ class MemoryDashboard {
             const syncProgress = document.getElementById('syncProgress');
             const syncControl = document.getElementById('syncControl');
 
-            if (statusText) statusText.textContent = 'Syncing';
-            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? `${statusBefore.operations_pending} pending` : '';
+            if (statusText) statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: statusBefore.operations_pending }) : '';
             if (syncControl) syncControl.className = 'sync-control-compact syncing';
 
             // Show toast when sync starts
@@ -3838,19 +3851,19 @@ class MemoryDashboard {
 
             switch (status) {
                 case 'connected':
-                    text.textContent = 'Connected';
+                    text.textContent = this.t('status.connected', 'Connected');
                     // Connected uses default green color (no additional class needed)
                     break;
                 case 'connecting':
-                    text.textContent = 'Connecting...';
+                    text.textContent = this.t('status.connecting', 'Connecting...');
                     indicator.classList.add('connecting');
                     break;
                 case 'disconnected':
-                    text.textContent = 'Disconnected';
+                    text.textContent = this.t('status.disconnected', 'Disconnected');
                     indicator.classList.add('disconnected');
                     break;
                 default:
-                    text.textContent = 'Unknown';
+                    text.textContent = this.t('status.unknown', 'Unknown');
                     indicator.classList.add('disconnected');
             }
         }
