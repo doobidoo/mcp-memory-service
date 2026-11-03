@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<!-- Generated localized introduction. -->
+<html lang="zh-cn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>面向 AI 助手的持久记忆 | MCP Memory Service</title>
+<meta name="description" content="为 Claude Code 等 AI 助手保存项目知识，并在以后重新检索。自行部署 MCP Memory Service：支持语义检索、MCP 和 REST API。">
+<meta property="og:title" content="面向 AI 助手的持久记忆 | MCP Memory Service">
+<meta property="og:description" content="为 Claude Code 等 AI 助手保存项目知识，并在以后重新检索。自行部署 MCP Memory Service：支持语义检索、MCP 和 REST API。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mcpmemory.services/zh-cn/">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="面向 AI 助手的持久记忆 | MCP Memory Service">
+<meta name="twitter:description" content="为 Claude Code 等 AI 助手保存项目知识，并在以后重新检索。自行部署 MCP Memory Service：支持语义检索、MCP 和 REST API。">
+<meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<link rel="canonical" href="https://mcpmemory.services/zh-cn/">
+<link rel="alternate" hreflang="en" href="https://mcpmemory.services/">
+<link rel="alternate" hreflang="de" href="https://mcpmemory.services/de/">
+<link rel="alternate" hreflang="es" href="https://mcpmemory.services/es/">
+<link rel="alternate" hreflang="fr" href="https://mcpmemory.services/fr/">
+<link rel="alternate" hreflang="ja" href="https://mcpmemory.services/ja/">
+<link rel="alternate" hreflang="pt-br" href="https://mcpmemory.services/pt-br/">
+<link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
+<link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
+<link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/localized.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="band">
+  <div class="wrap">
+    <nav class="nav" aria-label="主导航">
+      <a class="brand" href="/zh-cn/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a href="#install">安装</a>
+    </nav>
+    <nav class="language-switcher" aria-label="选择语言"><a href="/" lang="en" hreflang="en">English</a>
+<a href="/de/" lang="de" hreflang="de">Deutsch</a>
+<a href="/es/" lang="es" hreflang="es">Español</a>
+<a href="/fr/" lang="fr" hreflang="fr">Français</a>
+<a href="/ja/" lang="ja" hreflang="ja">日本語</a>
+<a href="/pt-br/" lang="pt-br" hreflang="pt-br">Português (Brasil)</a>
+<a href="/zh-cn/" lang="zh-cn" hreflang="zh-cn" aria-current="page">简体中文</a>
+<a href="/zh-tw/" lang="zh-tw" hreflang="zh-tw">繁體中文</a></nav>
+  </div>
+  <header class="wrap locale-hero">
+    <div>
+      <p class="eyebrow">MCP Memory Service</p>
+      <h1>为你的 AI 助手配上持久记忆</h1>
+      <p class="intro">项目里的决定、偏好和解决方案，在下一次会话里也该随手可得。MCP Memory Service 把这些知识保存在你自己的系统上，让 Claude Code 等 AI 助手可以随时检索。</p>
+      <div class="btns">
+        <a class="btn" href="#install">开始配置</a>
+        <a href="https://github.com/doobidoo/mcp-memory-service">在 GitHub 上查看项目</a>
+      </div>
+    </div>
+    <aside class="memory-example" aria-label="向 AI 客户端提问的示例">
+      <p class="eyebrow">向 AI 客户端提问的示例</p>
+      <h2>今天先存下来</h2>
+      <p>“记住：这个项目用 PostgreSQL，测试用 pytest。”</p>
+      <h2>下次会话里取回来</h2>
+      <p>“这个项目用的是哪个数据库，测试工具是什么？”</p>
+      <p class="example-note">保存和检索都需要客户端去调用记忆工具。上面这些句子只是提问示例，并不是固定的命令。</p>
+    </aside>
+  </header>
+</div>
+<main id="main">
+  <section class="sec">
+    <div class="wrap">
+      <h2>把项目知识留下来，不必每次重新交代一遍</h2>
+      <p class="lede">与 AI 助手协作时共用的一份知识库，可以通过 MCP、REST API 或命令行访问。</p>
+      <div class="locale-cards">
+        <article><h3>找回当初的决定</h3><p>记下为什么选了某个库、为什么改了架构。以后直接检索当初的理由，不用再翻旧的聊天记录。</p></article>
+        <article><h3>按语义检索</h3><p>即使换一种说法提问，也能找到已经存下的解决方案。用标签可以把检索范围缩小到某个项目或主题。</p></article>
+        <article><h3>放在自己的机器上运行</h3><p>用 SQLite 加向量检索就能在本地起步。这种配置既不需要云存储服务，也不需要付费的 Embedding API 密钥。</p></article>
+      </div>
+    </div>
+  </section>
+  <section class="sec" id="install">
+    <div class="wrap locale-install">
+      <h2>在 Claude Code 中配置</h2>
+      <p class="lede">需要 Python 3.10 或更高版本，以及已经装好的 Claude Code 客户端。其他客户端也可以通过 MCP 接入，配置方法见英文指南。</p>
+      <ol class="install-steps">
+        <li><h3>安装 Memory Service</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>把这个包安装到客户端能够调用其命令的 Python 环境里。</p></li>
+        <li><h3>添加为 MCP 服务器</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>在项目目录下执行这条命令，然后重启 Claude Code。首次启动时会下载本地 Embedding 模型。</p></li>
+        <li><h3>保存第一条记忆</h3><p>让客户端存下一条项目里的约定。确认工具调用成功之后，在一个新会话里再问一次这条约定，就能验证保存和检索都正常。</p></li>
+      </ol>
+      <div class="btns">
+        <a class="btn" href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md">完整配置指南（英文）</a>
+        <a href="/demo/">试用浏览器演示（英文）</a>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="wrap locale-faq">
+      <h2>常见问题</h2>
+      <details><summary>会自动保存所有聊天内容吗？</summary><p>仅仅通过 MCP 接上服务，并不会自动保存全部对话，还需要客户端去调用工具。可选的钩子和会话导入功能各有自己的配置步骤。</p></details>
+      <details><summary>记忆会留在我自己的机器上吗？</summary><p>在本地 SQLite 配置下，记忆保存在你自己的系统上，Embedding 也在本地计算。至于 AI 客户端向模型提供方发送了哪些数据，取决于客户端本身的行为。Cloudflare 存储和同步都是需要另行配置的可选项。</p></details>
+      <details><summary>只能和 Claude 一起用吗？</summary><p>不是。除了 MCP，服务还提供 REST API 和命令行。其他兼容的客户端以及你自己写的应用都可以接入。</p></details>
+      <details><summary>MCP Memory Service 是免费的吗？</summary><p>服务以 Apache 2.0 许可证开源，可以自行部署。AI 客户端的使用费、托管费用以及可选的外部服务，都可能产生额外成本。</p></details>
+    </div>
+  </section>
+</main>
+<footer><div class="wrap">
+  <p>MCP Memory Service 是开源项目。更多文档以英文提供。 <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md">参与贡献</a></p>
+</div></footer>
+<!-- Cloudflare Web Analytics is injected at the proxy; do not add a second beacon. -->
+</body>
+</html>

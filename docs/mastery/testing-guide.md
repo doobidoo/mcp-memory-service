@@ -4,7 +4,7 @@ This guide explains how to run, understand, and extend the test suites.
 
 ## Prerequisites
 
-- Python ≥ 3.10 (3.12 recommended; 3.13 may lack prebuilt `sqlite-vec` wheels).
+- Python ≥ 3.11 (3.12 recommended; 3.13 may lack prebuilt `sqlite-vec` wheels).
 - Install dependencies (uv recommended):
   - `uv sync` (respects `pyproject.toml` and `uv.lock`), or
   - `pip install -e .` plus extras as needed.

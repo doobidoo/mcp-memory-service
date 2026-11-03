@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta, timezone
 
 # Skip tests if sqlite-vec is not available
 try:
-    import sqlite_vec
+    import sqlite_vec  # inline import: optional extension availability check
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
@@ -2091,15 +2091,14 @@ class TestSemanticDeduplication:
         assert len(results) >= 2, "Should have both different memories"
 
     @pytest.mark.asyncio
-    async def test_semantic_duplicate_threshold_configuration(self):
+    async def test_semantic_duplicate_threshold_configuration(self, monkeypatch):
         """Test that similarity threshold can be configured."""
         temp_dir = tempfile.mkdtemp()
         db_path = os.path.join(temp_dir, "test_threshold.db")
 
         # Set high threshold (0.95) - only very similar content will be rejected
-        original_threshold = os.environ.get('MCP_SEMANTIC_DEDUP_THRESHOLD')
-        os.environ['MCP_SEMANTIC_DEDUP_THRESHOLD'] = '0.95'
-        os.environ['MCP_SEMANTIC_DEDUP_ENABLED'] = 'true'
+        monkeypatch.setenv('MCP_SEMANTIC_DEDUP_THRESHOLD', '0.95')
+        monkeypatch.setenv('MCP_SEMANTIC_DEDUP_ENABLED', 'true')
 
         try:
             storage = SqliteVecMemoryStorage(db_path)
@@ -2126,16 +2125,10 @@ class TestSemanticDeduplication:
             # With 0.95 threshold, moderately similar content should be allowed
             # (it's only rejected if similarity > 0.95)
 
-            storage.close()
+            await storage.close()
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            # Restore original env var
-            if original_threshold is None:
-                os.environ.pop('MCP_SEMANTIC_DEDUP_THRESHOLD', None)
-            else:
-                os.environ['MCP_SEMANTIC_DEDUP_THRESHOLD'] = original_threshold
-            os.environ.pop('MCP_SEMANTIC_DEDUP_ENABLED', None)
 
     @pytest.mark.asyncio
     async def test_semantic_duplicate_exact_match_takes_precedence(self, storage):

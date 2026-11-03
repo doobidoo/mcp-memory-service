@@ -1172,15 +1172,11 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
 
         try:
-            # Query all contradicts edges
-            rows = await graph._call_client(
-                "query",
-                collection_name=graph.collection_name,
-                filter='relationship_type == "contradicts"',
-                output_fields=[
-                    "source_hash", "target_hash", "similarity", "metadata",
-                ],
-                limit=_MILVUS_MAX_LIMIT,
+            # Query all contradicts edges. A full scan: one query() stops at
+            # 16384 rows without saying so (#1785).
+            rows = await graph._drain_edges(
+                'relationship_type == "contradicts"',
+                ["source_hash", "target_hash", "similarity", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to query conflict edges: %s", _sanitize_log_value(exc))
@@ -1711,6 +1707,7 @@ class MilvusMemoryStorage(MemoryStorage):
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         store: Optional[str] = None,
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
         # Single-collection backend — see store() for the full rationale.
@@ -1742,6 +1739,17 @@ class MilvusMemoryStorage(MemoryStorage):
                 r for r in results
                 if not r.memory.metadata.get("superseded_by")
             ]
+        # Issue #1724 follow-up: always load the replacement lineage, not only
+        # when as_of is set — include_superseded status flags need it too.
+        # Milvus tracks superseded_by in metadata but not the replacement
+        # moment, so superseded_at stays None (conservative in as_of queries).
+        for r in results:
+            r.superseded_by = r.memory.metadata.get("superseded_by") or None
+        # Issue #1724: best-effort point-in-time filter. Milvus tracks
+        # superseded_by in metadata but not the replacement moment, so
+        # superseded rows are conservatively excluded from as_of queries.
+        if as_of is not None:
+            results = self._post_filter_as_of(results, as_of)
         results = results[:n_results]
 
         # Async update last_accessed for hit memories (non-blocking)
@@ -1757,7 +1765,14 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         tags: List[str],
         time_start: Optional[float] = None,
+        include_superseded: bool = True,
     ) -> List[Memory]:
+        """Memories carrying any of ``tags``, newest first.
+
+        ``include_superseded=False`` hides versions replaced by a newer one,
+        as the tag-search surfaces ask for (#1803, #1824). The default keeps
+        every live row for maintenance callers.
+        """
         if not tags or not self._ensure_initialized():
             return []
 
@@ -1769,8 +1784,9 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
+            drop_superseded=not include_superseded,
         )
 
     @staticmethod
@@ -1799,7 +1815,13 @@ class MilvusMemoryStorage(MemoryStorage):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
+        """Memories matching ``tags`` with AND/OR semantics, newest update first.
+
+        ``include_superseded=False`` hides versions replaced by a newer one
+        (#1803, #1824); the default keeps every live row.
+        """
         if not tags or not self._ensure_initialized():
             return []
 
@@ -1815,8 +1837,9 @@ class MilvusMemoryStorage(MemoryStorage):
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="updated_at",
+            drop_superseded=not include_superseded,
         )
 
     # -- Delete --------------------------------------------------------------
@@ -2113,7 +2136,7 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr = f'content_lower like "%{safe}%"'
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
         )
 
@@ -2672,6 +2695,7 @@ class MilvusMemoryStorage(MemoryStorage):
         quality_weight: Optional[float] = None,
         include_superseded: bool = False,
         store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List["MemoryQueryResult"]:
         """Quality-boosted retrieval using Milvus native hybrid search.
 
@@ -2692,14 +2716,14 @@ class MilvusMemoryStorage(MemoryStorage):
         if not quality_boost:
             return await self.retrieve(
                 query, n_results, tags=tags, include_superseded=include_superseded,
-                store=store,
+                store=store, as_of=as_of,
             )
 
         # Over-fetch for reranking pool
         oversample = 3
         candidates = await self.retrieve(
             query, n_results * oversample, tags=tags,
-            include_superseded=include_superseded, store=store,
+            include_superseded=include_superseded, store=store, as_of=as_of,
         )
         if not candidates:
             return []
@@ -2791,6 +2815,7 @@ class MilvusMemoryStorage(MemoryStorage):
         ranking_weights: Optional[Dict[str, float]] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
         agent_id: Optional[str] = None,
+        as_of: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Unified memory search with Milvus-native filtering.
 
@@ -2801,6 +2826,11 @@ class MilvusMemoryStorage(MemoryStorage):
         ``agent_id`` is accepted because the MCP search handler always passes
         it (issue #1650). Filtering by agent is not implemented for Milvus, so
         a non-None value returns an error result, like the other failures here.
+
+        Issue #1724: as_of is a point-in-time bound (same format as the base
+        class). It is applied as a best-effort post-filter: Milvus tracks
+        superseded_by in metadata but not the replacement moment, so
+        superseded rows are conservatively excluded from as_of queries.
         """
         if agent_id is not None:
             return {"memories": [], "total": 0, "query": query, "mode": mode,
@@ -2845,6 +2875,17 @@ class MilvusMemoryStorage(MemoryStorage):
                     return {"memories": [], "total": 0, "query": query, "mode": mode,
                             "error": f"Invalid before date: {before}"}
 
+        # Issue #1724: point-in-time bound, parsed like the base class. Invalid
+        # values fail the call rather than silently returning present-time data.
+        as_of_ts: Optional[float] = None
+        if as_of is not None:
+            try:
+                from ..utils.time_parser import parse_as_of  # inline import
+                as_of_ts = parse_as_of(as_of)
+            except ValueError:
+                return {"memories": [], "total": 0, "query": query, "mode": mode,
+                        "error": f"Invalid as_of date format: {as_of}. Use YYYY, YYYY-MM, or an ISO date/datetime"}
+
         # -- Build Milvus filter expression (push filters server-side) --
         filter_parts: List[str] = []
         if start_time is not None:
@@ -2881,7 +2922,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 )
                 matched_memories = await self._query_memories(
                     filter_expr=final_filter,
-                    limit=_MILVUS_MAX_LIMIT,
+                    limit=None,
                     sort_desc_key="created_at",
                 )
                 results = [
@@ -2950,24 +2991,40 @@ class MilvusMemoryStorage(MemoryStorage):
                     weights = RankedSearchWeights.from_dict(ranking_weights)
                     results = apply_ranked_rerank(results, weights=weights)
             else:
-                # Time/tag only — use Milvus query with filter
-                try:
-                    rows = await self._call_client(
-                        "query",
-                        collection_name=self.collection_name,
-                        filter=combined_filter,
-                        output_fields=list(self._OUTPUT_FIELDS),
-                        limit=min(limit * 3, _MILVUS_MAX_LIMIT),
+                # Time/tag only. Milvus has no server-side ORDER BY, so a single
+                # query(limit=...) returned whichever rows the server scanned
+                # first, which in practice are the oldest. Read the matching set
+                # newest first, as sqlite_vec does, and let the superseded filter
+                # and the limit below trim it (#1782).
+                # Bound by as_of server-side too: the newest-first slice below
+                # would otherwise keep only rows newer than as_of, which
+                # _post_filter_as_of then drops, leaving nothing.
+                scan_filter = combined_filter
+                if as_of_ts is not None:
+                    scan_filter = self._combine_filter(
+                        combined_filter, f"created_at <= {as_of_ts}"
                     )
-                    for row in (rows or []):
-                        mem = self._entity_to_memory(row)
-                        if mem:
-                            results.append(
-                                MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
-                            )
+                try:
+                    matched_memories = await self._query_memories(
+                        filter_expr=scan_filter,
+                        limit=None,
+                        sort_desc_key="created_at",
+                    )
+                    results = [
+                        MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
+                        for mem in matched_memories
+                    ]
                     pre_filter_count = len(results)
                 except Exception as exc:  # noqa: BLE001
                     logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
+
+        # Issue #1724: always load the replacement lineage (needed by the
+        # status flags below, independently of as_of), then apply the
+        # point-in-time bound, then the plain superseded filter.
+        for r in results:
+            r.superseded_by = r.memory.metadata.get("superseded_by") or None
+        if as_of_ts is not None:
+            results = self._post_filter_as_of(results, as_of_ts)
 
         # Filter superseded
         if not include_superseded:
@@ -2983,6 +3040,12 @@ class MilvusMemoryStorage(MemoryStorage):
             mem_dict["similarity_score"] = r.relevance_score
             if r.debug_info:
                 mem_dict["debug_info"] = r.debug_info
+            # Issue #1724: status flags, mirroring the base class.
+            if include_superseded:
+                sup_by = r.superseded_by
+                mem_dict["status"] = "superseded" if sup_by else "current"
+                if sup_by:
+                    mem_dict["superseded_by"] = sup_by
             memories.append(mem_dict)
 
         response: Dict[str, Any] = {
@@ -3023,7 +3086,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not matched:
             return []
 
-        effective_limit = limit if limit is not None else _MILVUS_MAX_LIMIT
+        effective_limit = limit
         return await self._query_memories(
             filter_expr=tag_filter,
             limit=effective_limit,
@@ -3173,7 +3236,7 @@ class MilvusMemoryStorage(MemoryStorage):
         async with lock:
             if self.client is None:
                 return []
-            return await asyncio.to_thread(
+            return await self._scan_with_lite_retry(
                 self._drain_query_rows, filter_expr, output_fields,
             )
 
@@ -3225,13 +3288,9 @@ class MilvusMemoryStorage(MemoryStorage):
         # Milvus can't filter on JSON sub-fields easily, so we need to
         # scan for memories with deleted_at in metadata
         try:
-            # Get all memories created before cutoff
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=f"created_at <= {cutoff}",
-                output_fields=["id", "metadata"],
-                limit=_MILVUS_MAX_LIMIT,
+            # Get all memories created before cutoff (full scan, #1785)
+            rows = await self._drain_rows(
+                f"created_at <= {cutoff}", ["id", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("purge_deleted: query failed: %s", _sanitize_log_value(exc))
@@ -3346,13 +3405,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return []
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter="",
-                output_fields=["tags"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            # Full scan: one query() stops at 16384 rows without saying so (#1785).
+            rows = await self._drain_rows("", ["tags"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("tag scan failed: %s", _sanitize_log_value(exc))
             return []
@@ -3387,7 +3441,7 @@ class MilvusMemoryStorage(MemoryStorage):
         """
         if not self._ensure_initialized():
             return []
-        memories = await self._query_memories(filter_expr="", limit=_MILVUS_MAX_LIMIT)
+        memories = await self._query_memories(filter_expr="", limit=None)
         memories.sort(key=lambda m: len(m.content or ""), reverse=True)
         return memories[:n]
 
@@ -3745,7 +3799,15 @@ class MilvusMemoryStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
+        """List memories newest first, optionally filtered and paged.
+
+        ``include_superseded=False`` hides versions replaced by a newer one
+        before paging, so ``memory_list`` pages hold current versions only
+        (#1803, #1824). The default keeps every live row for export, sync and
+        consolidation.
+        """
         if agent_id is not None:
             raise NotImplementedError(
                 "agent_id filtering is not implemented for the Milvus backend "
@@ -3775,14 +3837,16 @@ class MilvusMemoryStorage(MemoryStorage):
             return await self._get_stale_memories(
                 filter_expr, stale_days, limit=limit, offset=offset,
                 include_embeddings=include_embeddings,
+                drop_superseded=not include_superseded,
             )
 
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=limit if limit is not None else _MILVUS_MAX_LIMIT,
+            limit=limit,
             offset=offset,
             sort_desc_key="created_at",
             include_embeddings=include_embeddings,
+            drop_superseded=not include_superseded,
         )
 
     async def count_all_memories(
@@ -3793,7 +3857,14 @@ class MilvusMemoryStorage(MemoryStorage):
         stale_days: Optional[int] = None,
         store: str = "default",  # interface parity (issue #133); single-collection, not partitioned
         agent_id: Optional[str] = None,
+        include_superseded: bool = True,
     ) -> int:
+        """Count memories matching the filters.
+
+        ``include_superseded=False`` leaves out versions replaced by a newer
+        one, matching ``get_all_memories`` so ``memory_list`` totals and
+        ``has_more`` agree with its pages (#1803, #1824).
+        """
         if agent_id is not None:
             raise NotImplementedError(
                 "agent_id filtering is not implemented for the Milvus backend "
@@ -3818,7 +3889,20 @@ class MilvusMemoryStorage(MemoryStorage):
 
         # When stale_days is set, perform cross-collection filtering
         if stale_days is not None and stale_days > 0:
-            return await self._count_stale_memories(filter_expr, stale_days)
+            return await self._count_stale_memories(
+                filter_expr, stale_days, drop_superseded=not include_superseded,
+            )
+
+        if not include_superseded:
+            # superseded_by lives in the metadata JSON, which Milvus cannot
+            # filter on, so count(*) would include old versions. Scan the
+            # metadata and count the current ones instead.
+            try:
+                rows = await self._drain_rows(filter_expr, ["id", "metadata"])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
+                return 0
+            return sum(1 for row in rows if not self._row_is_superseded(row))
 
         try:
             rows = await self._call_client(
@@ -3832,7 +3916,15 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
-    async def _count_stale_memories(self, base_filter: str, stale_days: int) -> int:
+    @staticmethod
+    def _row_is_superseded(row: Dict[str, Any]) -> bool:
+        """True for a raw row whose metadata names a replacing version."""
+        metadata = _safe_json_loads(row.get("metadata", ""), "milvus_superseded_row")
+        return bool(metadata.get("superseded_by"))
+
+    async def _count_stale_memories(
+        self, base_filter: str, stale_days: int, drop_superseded: bool = False,
+    ) -> int:
         """Count memories not accessed in the last ``stale_days`` days.
 
         Cross-references the ``_access`` side-collection to determine which
@@ -3850,8 +3942,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 if self.client is None:
                     return 0
                 all_rows = await asyncio.to_thread(
-                    self._drain_main_ids_and_created_at, base_filter,
+                    self._drain_main_ids_and_created_at, base_filter, drop_superseded,
                 )
+                if drop_superseded:
+                    all_rows = [r for r in all_rows if not self._row_is_superseded(r)]
                 active_rows: List[Dict[str, Any]] = []
                 if self._has_access_collection:
                     active_rows = await asyncio.to_thread(
@@ -3887,6 +3981,7 @@ class MilvusMemoryStorage(MemoryStorage):
         limit: Optional[int] = None,
         offset: int = 0,
         include_embeddings: bool = False,
+        drop_superseded: bool = False,
     ) -> List[Memory]:
         """Return memories not accessed in the last ``stale_days`` days.
 
@@ -3902,8 +3997,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 if self.client is None:
                     return []
                 all_rows = await asyncio.to_thread(
-                    self._drain_main_ids_and_created_at, base_filter,
+                    self._drain_main_ids_and_created_at, base_filter, drop_superseded,
                 )
+                if drop_superseded:
+                    all_rows = [r for r in all_rows if not self._row_is_superseded(r)]
                 active_rows: List[Dict[str, Any]] = []
                 if self._has_access_collection:
                     active_rows = await asyncio.to_thread(
@@ -3967,7 +4064,7 @@ class MilvusMemoryStorage(MemoryStorage):
         filter_expr = f"created_at >= {start_time} and created_at <= {end_time}"
         return await self._query_memories(
             filter_expr=filter_expr,
-            limit=_MILVUS_MAX_LIMIT,
+            limit=None,
             sort_desc_key="created_at",
             include_embeddings=include_embeddings,
         )
@@ -3982,13 +4079,8 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr = f"created_at >= {cutoff}"
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=filter_expr,
-                output_fields=["created_at"],
-                limit=_MILVUS_MAX_LIMIT,
-            )
+            # Full scan: one query() stops at 16384 rows without saying so (#1785).
+            rows = await self._drain_rows(filter_expr, ["created_at"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_memory_timestamps failed: %s", _sanitize_log_value(exc))
             return []
@@ -4113,13 +4205,17 @@ class MilvusMemoryStorage(MemoryStorage):
                 pass
         return rows
 
-    def _drain_main_ids_and_created_at(self, filter_expr: str) -> List[Dict[str, Any]]:
-        """Sync helper that drains id + created_at from the main collection."""
+    def _drain_main_ids_and_created_at(
+        self, filter_expr: str, include_metadata: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Sync helper that drains id + created_at (and optionally metadata)
+        from the main collection."""
         assert self.client is not None
+        fields = ["id", "created_at", "metadata"] if include_metadata else ["id", "created_at"]
         iterator = self.client.query_iterator(
             collection_name=self.collection_name,
             filter=filter_expr or "",
-            output_fields=["id", "created_at"],
+            output_fields=fields,
             batch_size=self._QUERY_ITER_BATCH,
         )
         rows: List[Dict[str, Any]] = []
@@ -4523,10 +4619,11 @@ class MilvusMemoryStorage(MemoryStorage):
     async def _query_memories(
         self,
         filter_expr: str,
-        limit: int,
+        limit: Optional[int],
         offset: int = 0,
         sort_desc_key: Optional[str] = None,
         include_embeddings: bool = False,
+        drop_superseded: bool = False,
     ) -> List[Memory]:
         """Stream rows via ``QueryIterator`` and return sorted, sliced ``Memory``
         objects.
@@ -4539,12 +4636,20 @@ class MilvusMemoryStorage(MemoryStorage):
         to the full matching set rather than to a random subset.
 
         Args:
+            limit: Maximum number of memories to return after sorting and
+                ``offset``. ``None`` returns every match. Callers that mean
+                "all" must pass ``None``: passing ``_MILVUS_MAX_LIMIT`` threw
+                away everything past 16384 rows after draining it (#1785).
             include_embeddings: If True, request the ``vector`` field from
                 Milvus and populate ``Memory.embedding`` on the returned
                 objects. Used by the consolidation pipeline. Default False
                 keeps the CRUD cost envelope unchanged.
+            drop_superseded: If True, leave out memories replaced by a newer
+                version (``metadata.superseded_by`` set). Applied before
+                ``offset`` and ``limit`` so a page is filled with current
+                versions, like the SQL predicate on sqlite-vec (#1824).
         """
-        if limit <= 0:
+        if limit is not None and limit <= 0:
             return []
         rows = await self._iterate_all_rows(
             filter_expr, include_embeddings=include_embeddings,
@@ -4561,12 +4666,15 @@ class MilvusMemoryStorage(MemoryStorage):
         if include_embeddings:
             self._log_hydration_stats(memories, hydrated)
 
+        if drop_superseded:
+            memories = [m for m in memories if not m.metadata.get("superseded_by")]
+
         if sort_desc_key:
             memories.sort(key=lambda m: getattr(m, sort_desc_key) or 0.0, reverse=True)
 
         if offset:
             memories = memories[offset:]
-        return memories[:limit]
+        return memories if limit is None else memories[:limit]
 
     def _log_hydration_stats(
         self,
@@ -4611,9 +4719,32 @@ class MilvusMemoryStorage(MemoryStorage):
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
-            return await asyncio.to_thread(
+            return await self._scan_with_lite_retry(
                 self._drain_query_iterator, filter_expr, include_embeddings,
             )
+
+    async def _scan_with_lite_retry(self, drain, *args):
+        """Run a sync ``QueryIterator`` drain in a worker thread, recovering a
+        dead Milvus Lite channel once.
+
+        Gives full scans the recovery ``_call_client`` gives single RPCs: on
+        Milvus Lite a channel that died while idle (milvus-lite #334) gets one
+        reconnect and the scan starts over (#1782). Any other error, and any
+        error on a remote server, propagates. The caller must hold
+        ``self._write_lock``.
+        """
+        try:
+            return await asyncio.to_thread(drain, *args)
+        except Exception as exc:
+            if not (getattr(self, "_is_lite", False) and self._is_lite_dead_channel_error(exc)):
+                raise
+            logger.warning(
+                "Milvus Lite channel died during query_iterator (%s) — "
+                "reconnecting and rescanning once (upstream milvus-lite issue #334)",
+                _sanitize_log_value(exc),
+            )
+            self._reconnect_lite_client()
+            return await asyncio.to_thread(drain, *args)
 
     def _drain_query_iterator(
         self,

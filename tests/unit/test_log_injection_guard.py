@@ -95,6 +95,9 @@ GUARDED_MODULES = [
     "mcp_memory_service/reasoning/multi_strategy.py",
     "mcp_memory_service/harvest/parser.py",
     "mcp_memory_service/harvest/patterns/__init__.py",
+    "mcp_memory_service/harvest/harvester.py",
+    "mcp_memory_service/harvest/extractor.py",
+    "mcp_memory_service/harvest/auto_capture.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.

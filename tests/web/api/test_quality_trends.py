@@ -8,6 +8,7 @@ which was never implemented), so every call returned HTTP 500 with
 """
 
 import time
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -85,7 +86,12 @@ def test_trends_passes_window_bounds_to_storage(client, mock_storage):
     call = mock_storage.get_memories_by_time_range.await_args
     start = call.kwargs["start_time"]
     end = call.kwargs["end_time"]
-    assert end - start == pytest.approx(30 * 86400, rel=1e-3)
+    # The window is host-local by design (#1157): "the last 30 days" means 30 days
+    # on the user's calendar, so across a DST switch it is 30 * 86400 +/- 3600
+    # seconds (#1742). Derive the expected start from the end the endpoint chose,
+    # the same way it does, instead of assuming a fixed-length span.
+    expected_start = (datetime.fromtimestamp(end) - timedelta(days=30)).timestamp()
+    assert start == pytest.approx(expected_start, abs=1e-3)
 
 
 def test_trends_reflects_storage_window(client):

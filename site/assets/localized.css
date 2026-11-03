@@ -1,0 +1,36 @@
+/* Shared layout for the introductory language pages. */
+.language-switcher{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:1rem;padding:.8rem 0;font-family:var(--display);font-size:1rem}
+.language-switcher [aria-current=page]{text-decoration:underline;text-decoration-color:var(--cyan);text-underline-offset:.3em}
+.skip-link{position:absolute;top:-5rem;left:1rem;z-index:2;background:var(--panel);padding:.5rem 1rem}
+.skip-link:focus{top:1rem}
+.locale-hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:3rem;align-items:center;padding-block:3rem 5rem}
+.locale-hero h1{font-size:clamp(2.4rem,5vw,4.6rem);line-height:1.07;overflow-wrap:anywhere;margin-bottom:1.5rem}
+.eyebrow{font-family:var(--mono);font-size:.8rem;margin-bottom:1rem;color:var(--band-muted)}
+.intro{font-size:1.25rem;color:var(--band-text);max-width:55ch}
+.locale-hero .btn{border-color:var(--band-text)}
+.memory-example{border:1px solid var(--band-line);border-radius:8px;padding:1.8rem;background:var(--console)}
+.memory-example h2{font-size:1.25rem;margin:1.2rem 0 .6rem}
+.memory-example p{overflow-wrap:anywhere}
+.memory-example .example-note{color:var(--band-muted);font-size:1rem;margin-top:1.5rem}
+.locale-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2rem}
+.locale-cards h3{font-size:1.4rem;margin-bottom:.8rem}
+.locale-cards p,.install-steps p,.locale-faq p{color:var(--muted)}
+.locale-install{max-width:900px}
+.install-steps{padding-left:1.4rem}
+.install-steps li{padding-left:.5rem;margin-bottom:2rem}
+.install-steps h3{font-size:1.3rem;margin-bottom:.8rem}
+.install-steps pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:1rem;margin-bottom:.8rem;font-family:var(--mono);font-size:.9rem}
+.install-steps code{font:inherit}
+.locale-faq{max-width:900px}
+.locale-faq details{border-bottom:1px solid var(--line);padding:1.2rem 0}
+.locale-faq summary{font-family:var(--display);font-weight:600;cursor:pointer}
+.locale-faq p{margin-top:1rem}
+@media(max-width:880px){
+  .locale-hero{grid-template-columns:minmax(0,1fr);gap:2rem;padding-block:2rem 3.5rem}
+  .locale-cards{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:480px){
+  .nav{gap:.6rem;flex-wrap:wrap}
+  .brand{font-size:.85rem}
+  .memory-example{padding:1.2rem}
+}

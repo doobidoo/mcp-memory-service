@@ -489,7 +489,7 @@ async def get_env_configuration(user = Depends(require_read_access)):
 
     if env_path.exists():
         try:
-            with open(env_path) as f:
+            with open(env_path, encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
@@ -611,7 +611,7 @@ def _read_env_file_dict(env_path: Path) -> dict:
     if not env_path.exists():
         return result
     try:
-        with open(env_path) as f:
+        with open(env_path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#') and '=' in line:

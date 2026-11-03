@@ -24,7 +24,7 @@ from collections import Counter
 from typing import List, Optional, Dict, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...storage.base import MemoryStorage
 from ...storage.mixins.base import deserialize_embedding
@@ -63,6 +63,14 @@ class MemoryCreateRequest(BaseModel):
     conversation_id: Optional[str] = Field(None, description="Optional conversation identifier. When provided, semantic deduplication is skipped, allowing multiple incremental memories from the same conversation to be stored even if their content is topically similar.")
     store: str = Field("default", description="Target store partition (default: 'default'). Use 'all' only for read scopes.")
     restore_deleted: bool = Field(False, description="Bring back content that has a delete on record. Default false: re-sending content this server deleted is refused with status 409 (the delete's event_id, HLC and date are in the detail) instead of silently reviving it. Set true to purge the tombstone and store it again as a deliberate re-create.")
+
+    @field_validator("content")
+    @classmethod
+    def _content_must_not_be_blank(cls, value: str) -> str:
+        """Reject blank content before it becomes a zero-vector memory (#1791)."""
+        if not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
 
 
 class MemoryUpdateRequest(BaseModel):

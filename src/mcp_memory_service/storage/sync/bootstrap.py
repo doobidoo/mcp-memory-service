@@ -56,7 +56,8 @@ def _read_snapshot(storage: MemoryStorage):
             rows = s.conn.execute(
                 """
                 SELECT content_hash, content, tags, memory_type, metadata,
-                       created_at, updated_at, deleted_at, store, superseded_by
+                       created_at, updated_at, deleted_at, store, superseded_by,
+                       superseded_at
                 FROM memories
                 ORDER BY id
                 """
@@ -113,11 +114,11 @@ def _row_to_baseline_event(r, hlc_by_hash) -> Dict[str, Any]:
     """Convert one memories row into a baseline event (helper keeps generate_baseline under
     the repo's complexity limit — Greptile P2-2). Access by position: upstream rows are plain
     tuples (DictRow is fork-only). SELECT order: content_hash, content, tags, memory_type,
-    metadata, created_at, updated_at, deleted_at, store, superseded_by.
+    metadata, created_at, updated_at, deleted_at, store, superseded_by, superseded_at.
     """
     (content_hash, content, tags_str, memory_type, metadata_str,
-     created_at, updated_at, deleted_at, store, superseded_by) = (
-        r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9],
+     created_at, updated_at, deleted_at, store, superseded_by, superseded_at) = (
+        r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
     )
     try:
         metadata = json.loads(metadata_str) if metadata_str else {}
@@ -152,6 +153,9 @@ def _row_to_baseline_event(r, hlc_by_hash) -> Dict[str, Any]:
             # Greptile P1-4: carry superseded_by so a replaced memory is NOT re-exposed as a
             # searchable create on the target (retrieve filters on this column).
             "superseded_by": superseded_by,
+            # #1724: the replacement moment, so as_of queries on the target use the real
+            # supersede time instead of falling back to the successor's created_at.
+            "superseded_at": superseded_at,
         }
 
     return {

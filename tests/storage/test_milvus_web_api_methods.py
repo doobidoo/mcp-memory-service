@@ -93,7 +93,7 @@ class TestGetAllTagsWithCounts:
     @pytest.mark.asyncio
     async def test_counts_occurrences_across_memories(self):
         storage = _make_storage()
-        storage._call_client = AsyncMock(
+        storage._drain_rows = AsyncMock(
             return_value=_tag_rows(",alpha,beta,", ",alpha,", ",beta,gamma,")
         )
 
@@ -109,7 +109,7 @@ class TestGetAllTagsWithCounts:
     async def test_sorted_by_count_desc_then_tag(self):
         """The /api/tags contract documents descending count order."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(
+        storage._drain_rows = AsyncMock(
             return_value=_tag_rows(",zulu,", ",alpha,", ",alpha,", ",alpha,", ",mike,", ",mike,")
         )
 
@@ -123,7 +123,7 @@ class TestGetAllTagsWithCounts:
         """Both readers must see the same tags — they share one row scan."""
         rows = _tag_rows(",alpha,beta,", ",beta,", "", None)
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=rows)
+        storage._drain_rows = AsyncMock(return_value=rows)
 
         with_counts = await storage.get_all_tags_with_counts()
         plain = await storage.get_all_tags()
@@ -133,7 +133,7 @@ class TestGetAllTagsWithCounts:
     @pytest.mark.asyncio
     async def test_empty_collection_returns_empty_list(self):
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[])
+        storage._drain_rows = AsyncMock(return_value=[])
 
         assert await storage.get_all_tags_with_counts() == []
 
@@ -141,7 +141,7 @@ class TestGetAllTagsWithCounts:
     async def test_query_failure_returns_empty_list(self):
         """A backend error must not surface as a 500 on the Browse tab."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(side_effect=RuntimeError("milvus down"))
+        storage._drain_rows = AsyncMock(side_effect=RuntimeError("milvus down"))
 
         assert await storage.get_all_tags_with_counts() == []
 
@@ -337,7 +337,7 @@ class TestRecall:
 async def test_tags_with_counts_shape_matches_the_api_response_model():
     """web/api/memories.py builds TagResponse(tag=..., count=...) from each item."""
     storage = _make_storage()
-    storage._call_client = AsyncMock(return_value=_tag_rows(",alpha,"))
+    storage._drain_rows = AsyncMock(return_value=_tag_rows(",alpha,"))
 
     item = (await storage.get_all_tags_with_counts())[0]
 
@@ -606,6 +606,62 @@ class TestRecallSoftDeletedRows:
         results = await storage.recall(query="probe", n_results=1)
 
         assert [result.memory.content_hash for result in results] == ["live"]
+
+
+class TestFullScanLiteReconnect:
+    """Tag, timestamp and purge scans moved from one capped query() to a full
+    iterator drain (#1785). They keep the Lite dead-channel recovery the single
+    RPC had through _call_client."""
+
+    @staticmethod
+    def _storage_with_dead_then_live_client(monkeypatch, rows):
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+
+        dead_iterator = MagicMock()
+        dead_iterator.next.side_effect = ValueError("Cannot invoke RPC on closed channel!")
+        dead_client = MagicMock()
+        dead_client.query_iterator.return_value = dead_iterator
+
+        live_iterator = MagicMock()
+        live_iterator.next.side_effect = [rows, []]
+        live_client = MagicMock()
+        live_client.query_iterator.return_value = live_iterator
+
+        storage.client = dead_client
+        factory = MagicMock(return_value=live_client)
+        monkeypatch.setattr(milvus_module, "MilvusClient", factory)
+        return storage, live_client, factory
+
+    @pytest.mark.asyncio
+    async def test_tag_scan_reconnects_after_channel_death(self, monkeypatch):
+        storage, live_client, factory = self._storage_with_dead_then_live_client(
+            monkeypatch, [{"id": "h1", "tags": ",alpha,"}],
+        )
+
+        assert await storage.get_all_tags() == ["alpha"]
+        assert storage.client is live_client
+        factory.assert_called_once_with(uri=storage.uri)
+
+    @pytest.mark.asyncio
+    async def test_timestamp_scan_reconnects_after_channel_death(self, monkeypatch):
+        storage, live_client, _factory = self._storage_with_dead_then_live_client(
+            monkeypatch, [{"id": "h1", "created_at": 10.0}, {"id": "h2", "created_at": 20.0}],
+        )
+
+        assert await storage.get_memory_timestamps() == [20.0, 10.0]
+        assert storage.client is live_client
+
+    @pytest.mark.asyncio
+    async def test_remote_scan_does_not_reconnect(self, monkeypatch):
+        storage, _live, factory = self._storage_with_dead_then_live_client(monkeypatch, [])
+        storage._is_lite = False
+
+        assert await storage.get_all_tags() == []
+        factory.assert_not_called()
 
 
 class TestPagedTimeWindowIterator:

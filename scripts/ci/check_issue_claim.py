@@ -42,6 +42,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 LABEL = "unclaimed"
 NO_ISSUE_LABEL = "no-issue"
@@ -235,18 +236,32 @@ def check_pr(repo: str, number: int, dry_run: bool) -> int:
     return 1
 
 
-def rerun_for_issue(repo: str, number: int, dry_run: bool) -> int:
+def latest_claim_run(repo: str, sha: str, wait_seconds: int = 0) -> dict | None:
+    """Find a claim run, optionally waiting for an in-flight check to finish."""
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        runs = [r for r in json.loads(gh(
+            "api", f"repos/{repo}/actions/runs?event=pull_request_target&head_sha={sha}"
+        ))["workflow_runs"] if r["path"] == WORKFLOW]
+        if not runs:
+            return None
+        run = runs[0]
+        if run["conclusion"] is not None or not wait_seconds:
+            return run
+        if time.monotonic() >= deadline:
+            raise RuntimeError("claim check is still active; retry the claim workflow")
+        time.sleep(2)
+
+
+def rerun_for_issue(repo: str, number: int, dry_run: bool, wait_seconds: int = 0) -> int:
     prs = graphql(ISSUE_QUERY, repo, number)["issue"]["closedByPullRequestsReferences"]["nodes"]
     # includeClosedPrs: false still returns merged PRs.
     for pr in (p for p in prs if p["state"] == "OPEN"):
-        runs = [r for r in json.loads(gh(
-            "api", f"repos/{repo}/actions/runs"
-            f"?event=pull_request_target&head_sha={pr['headRefOid']}"
-        ))["workflow_runs"] if r["path"] == WORKFLOW]
-        if runs and runs[0]["conclusion"] in ("failure", "success"):
-            print(f"Issue #{number}: re-running claim check {runs[0]['id']} of PR #{pr['number']}")
+        run = latest_claim_run(repo, pr["headRefOid"], 0 if dry_run else wait_seconds)
+        if run and run["conclusion"] in ("failure", "success"):
+            print(f"Issue #{number}: re-running claim check {run['id']} of PR #{pr['number']}")
             if not dry_run:
-                gh("api", "-X", "POST", f"repos/{repo}/actions/runs/{runs[0]['id']}/rerun")
+                gh("api", "-X", "POST", f"repos/{repo}/actions/runs/{run['id']}/rerun")
     return 0
 
 
@@ -254,11 +269,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("pr", type=int, nargs="?", help="pull request number")
     parser.add_argument("--issue", type=int, help="re-run the checks of open PRs closing this issue")
+    parser.add_argument("--wait-for-check", action="store_true",
+                        help="wait up to 30 seconds for an active claim check before re-running")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "doobidoo/mcp-memory-service"))
     parser.add_argument("--dry-run", action="store_true", help="print the verdict, change nothing")
     args = parser.parse_args()
     if args.issue:
-        return rerun_for_issue(args.repo, args.issue, args.dry_run)
+        return rerun_for_issue(args.repo, args.issue, args.dry_run,
+                               wait_seconds=30 if args.wait_for_check else 0)
     if args.pr is None:
         parser.error("a pull request number or --issue is required")
     return check_pr(args.repo, args.pr, args.dry_run)

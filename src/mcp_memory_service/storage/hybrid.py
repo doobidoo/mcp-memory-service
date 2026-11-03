@@ -2200,7 +2200,7 @@ class HybridMemoryStorage(MemoryStorage):
 
         return success, message
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default") -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories from primary storage (fast)."""
         return await self.primary.retrieve(
             query,
@@ -2211,6 +2211,7 @@ class HybridMemoryStorage(MemoryStorage):
             start_time=start_time,
             end_time=end_time,
             store=store,
+            as_of=as_of,
         )
 
     async def retrieve_hybrid(
@@ -2221,6 +2222,7 @@ class HybridMemoryStorage(MemoryStorage):
         semantic_weight: Optional[float] = None,
         include_superseded: bool = False,
         store: Optional[str] = "default",
+        as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
         """BM25 + vector search on primary storage (#1576).
 
@@ -2235,13 +2237,14 @@ class HybridMemoryStorage(MemoryStorage):
             semantic_weight=semantic_weight,
             include_superseded=include_superseded,
             store=store,
+            as_of=as_of,
         )
 
     async def search(self, query: str, n_results: int = 5, min_similarity: float = 0.0) -> List[MemoryQueryResult]:
         """Search memories in primary storage."""
         return await self.primary.search(query, n_results)
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
         """Search memories by tags in primary storage with optional time filtering.
 
         This method performs an OR search for tags. The `match_all` (AND) logic
@@ -2254,7 +2257,9 @@ class HybridMemoryStorage(MemoryStorage):
         Returns:
             List of Memory objects matching the tag criteria and time filter
         """
-        return await self.primary.search_by_tag(tags, time_start=time_start)
+        return await self.primary.search_by_tag(
+            tags, time_start=time_start, include_superseded=include_superseded
+        )
 
     async def search_by_tags(
         self,
@@ -2263,6 +2268,7 @@ class HybridMemoryStorage(MemoryStorage):
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Search memories by tags using consistent operation parameter across backends."""
         normalized_operation = operation.strip().upper() if isinstance(operation, str) else "AND"
@@ -2276,6 +2282,7 @@ class HybridMemoryStorage(MemoryStorage):
             time_start=time_start,
             time_end=time_end,
             include_pending=include_pending,
+            include_superseded=include_superseded,
         )
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
@@ -2334,6 +2341,13 @@ class HybridMemoryStorage(MemoryStorage):
     async def get_by_exact_content(self, content: str, store: Optional[str] = None) -> List[Memory]:
         """Retrieve memories by exact content match from primary storage."""
         return await self.primary.get_by_exact_content(content, store=store)
+
+    async def _get_supersession_map(self, content_hashes, store=None):
+        """Delegate the issue-#1724 lineage lookup to the primary SQLite storage."""
+        delegate = getattr(self.primary, "_get_supersession_map", None)
+        if delegate is not None:
+            return await delegate(content_hashes, store=store)
+        return {}
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range in primary storage and queue for secondary sync."""
@@ -2454,7 +2468,10 @@ class HybridMemoryStorage(MemoryStorage):
             "unique_tags": primary_stats.get("unique_tags", 0),
             "memories_this_week": primary_stats.get("memories_this_week", 0),
             "database_size_bytes": primary_stats.get("database_size_bytes", 0),
-            "database_size_mb": primary_stats.get("database_size_mb", 0),
+            # No default: when the primary cannot read the database it returns only
+            # {"error": ...}, and a filled-in 0 would be indistinguishable from an
+            # empty database. None means "unknown" all the way to the UI.
+            "database_size_mb": primary_stats.get("database_size_mb"),
             "primary_stats": primary_stats,
             "sync_enabled": self.sync_service is not None
         }
@@ -2578,6 +2595,7 @@ class HybridMemoryStorage(MemoryStorage):
         store: str = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Get all memories from primary storage.
 
@@ -2595,15 +2613,16 @@ class HybridMemoryStorage(MemoryStorage):
             store=store,
             agent_id=agent_id,
             exclude_pending=exclude_pending,
+            include_superseded=include_superseded,
         )
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash from primary storage."""
         return await self.primary.get_by_hash(content_hash, store=store)
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
         """Get total count of memories from primary storage."""
-        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, tag_match=tag_match, stale_days=stale_days, store=store, agent_id=agent_id)
+        return await self.primary.count_all_memories(memory_type=memory_type, tags=tags, tag_match=tag_match, stale_days=stale_days, store=store, agent_id=agent_id, include_superseded=include_superseded)
 
     async def get_memories_by_time_range(
         self,

@@ -60,8 +60,15 @@ def _escape_like(value: str) -> str:
 class RetrieveMixin:
     """Mixin providing memory retrieval and search operations."""
 
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = 'default') -> List[MemoryQueryResult]:
-        """Retrieve memories using semantic search."""
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = 'default', as_of: Optional[float] = None) -> List[MemoryQueryResult]:
+        """Retrieve memories using semantic search.
+
+        as_of (epoch seconds, issue #1724): point-in-time query with
+        knowledge-time semantics — return memories with created_at <= as_of
+        that had not yet been superseded at as_of. Rows superseded before
+        migration 021 have no superseded_at; their replacement moment is
+        approximated with the successor's created_at.
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -99,6 +106,7 @@ class RetrieveMixin:
 
             def search_memories():
                 tag_conditions = ""
+                tag_params: list = []
                 params = [serialize_float32(query_embedding), k_value]
 
                 # Add store filter to vec0 query
@@ -117,7 +125,7 @@ class RetrieveMixin:
                         tag_clauses.append(
                             "(',' || m.tags || ',') LIKE ? ESCAPE '\\'"
                         )
-                        params.append(f"%,{_escape_like(stripped)},%")
+                        tag_params.append(f"%,{_escape_like(stripped)},%")
 
                     if not tag_clauses:
                         logger.warning("Tag filter provided but contained no valid tags. Returning empty results.")
@@ -125,20 +133,50 @@ class RetrieveMixin:
 
                     tag_conditions = " AND (" + " OR ".join(tag_clauses) + ")"
 
-                superseded_filter = "" if include_superseded else " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+                # Issue #1724: point-in-time predicate. A memory is visible at
+                # as_of when it already existed (created_at <= as_of) and its
+                # supersede — if any — happened strictly after as_of. The
+                # supersede moment is superseded_at when known (migration 021),
+                # otherwise approximated by the successor's created_at. When
+                # as_of is given it subsumes the plain superseded_filter: rows
+                # superseded after as_of were still current then.
+                as_of_params: list = []
+                as_of_filter = ""
+                if as_of is not None:
+                    as_of_filter = (
+                        " AND m.created_at <= ?"
+                        " AND (m.superseded_by IS NULL OR m.superseded_by = ''"
+                        " OR COALESCE(m.superseded_at,"
+                        " (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) > ?)"
+                    )
+                    as_of_params = [as_of, as_of]
+
+                superseded_filter = ""
+                if as_of is None and not include_superseded:
+                    superseded_filter = " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
 
                 time_conditions = ""
+                time_params: list = []
                 if start_time is not None:
                     time_conditions += " AND m.created_at >= ?"
-                    params.append(start_time)
+                    time_params.append(start_time)
                 if end_time is not None:
                     time_conditions += " AND m.created_at <= ?"
-                    params.append(end_time)
+                    time_params.append(end_time)
+
+                # Params must follow the placeholder order in the SQL below:
+                # MATCH, k, store, as_of..., tags..., time...
+                params.extend(as_of_params)
+                params.extend(tag_params)
+                params.extend(time_params)
 
                 sql = f'''
                     SELECT m.content_hash, m.content, m.tags, m.memory_type, m.metadata,
                            m.created_at, m.updated_at, m.created_at_iso, m.updated_at_iso,
-                           e.distance
+                           e.distance, m.superseded_by, m.superseded_at,
+                           COALESCE(m.superseded_at,
+                                    (SELECT s.created_at FROM memories s WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)
+                           ) AS eff_superseded_at
                     FROM memories m
                     INNER JOIN (
                         SELECT rowid, distance
@@ -146,7 +184,7 @@ class RetrieveMixin:
                         WHERE content_embedding MATCH ? AND k = ?{store_condition}
                           AND rowid IN (
                               SELECT m.id FROM memories m
-                              WHERE m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}{tag_conditions}{time_conditions}
+                              WHERE m.deleted_at IS NULL AND (m.embedding_pending IS NULL OR m.embedding_pending = 0){superseded_filter}{as_of_filter}{tag_conditions}{time_conditions}
                           )
                     ) e ON m.id = e.rowid
                     ORDER BY e.distance
@@ -169,7 +207,13 @@ class RetrieveMixin:
             for row in search_results:
                 try:
                     content_hash, content, tags_str, memory_type, metadata_str = row[:5]
-                    created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:]
+                    created_at, updated_at, created_at_iso, updated_at_iso, distance = row[5:10]
+                    # Issue #1724: supersession lineage for status flags. The
+                    # effective replacement moment is exact for rows superseded
+                    # after migration 021, approximated via the successor's
+                    # created_at for older rows.
+                    superseded_by, _superseded_at_raw, eff_superseded_at = row[10:13]
+                    superseded_by = superseded_by or None
 
                     tags_list = [tag.strip() for tag in tags_str.split(",") if tag.strip()] if tags_str else []
                     metadata = self._safe_json_loads(metadata_str, "memory_metadata")
@@ -198,6 +242,8 @@ class RetrieveMixin:
                     results.append(MemoryQueryResult(
                         memory=memory,
                         relevance_score=relevance_score,
+                        superseded_by=superseded_by,
+                        superseded_at=eff_superseded_at,
                         debug_info={
                             "distance": distance,
                             "backend": "sqlite-vec",
@@ -231,8 +277,12 @@ class RetrieveMixin:
             logger.error(traceback.format_exc())
             return []
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
-        """Search memories by tags with optional time filtering."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
+        """Search memories by tags with optional time filtering.
+
+        include_superseded=False hides rows replaced by a newer version, as
+        retrieve() does (#1803); default True keeps them for internal callers.
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -246,6 +296,8 @@ class RetrieveMixin:
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)"
+            if not include_superseded:
+                where_clause += " AND (superseded_by IS NULL OR superseded_by = '')"
             if time_start is not None:
                 where_clause += " AND created_at >= ?"
                 tag_params.append(time_start)
@@ -304,6 +356,7 @@ class RetrieveMixin:
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR operation and optional time filtering.
 
@@ -311,6 +364,8 @@ class RetrieveMixin:
         collect hashes to queue for the secondary backend (a pending row deleted on the primary
         must still be queued for deletion remotely, or other devices keep the copy — Greptile P1).
         Default False excludes pending (this is a SEARCH surface for users).
+        include_superseded=False hides rows replaced by a newer version (#1803);
+        default True keeps them for the delete and maintenance callers.
         """
         try:
             if not self.conn:
@@ -333,6 +388,8 @@ class RetrieveMixin:
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             pending_pred = "" if include_pending else " AND (embedding_pending IS NULL OR embedding_pending = 0)"
             where_conditions.append(f"deleted_at IS NULL{pending_pred}")
+            if not include_superseded:
+                where_conditions.append("(superseded_by IS NULL OR superseded_by = '')")
             if time_start is not None:
                 where_conditions.append("created_at >= ?")
                 tag_params.append(time_start)
@@ -601,6 +658,45 @@ class RetrieveMixin:
             logger.error("Error in exact content match: %s", _sanitize_log_value(e))
             return []
 
+    async def _get_supersession_map(
+        self, content_hashes: list, store: Optional[str] = None
+    ) -> Dict[str, Tuple[Optional[str], Optional[float]]]:
+        """SQLite implementation of the batched supersession-lineage lookup (issue #1724).
+
+        Returns content_hash -> (superseded_by, effective superseded_at), where
+        the effective time is superseded_at when known (migration 021), else
+        the successor's created_at. Deleted rows and deleted successors are
+        excluded (repository rule: successor lookups must be live-row only).
+        """
+        mapping: Dict[str, Tuple[Optional[str], Optional[float]]] = {}
+        if not content_hashes or not self.conn:
+            return mapping
+        try:
+            for batch_start in range(0, len(content_hashes), 999):
+                batch = content_hashes[batch_start:batch_start + 999]
+                placeholders = ",".join("?" for _ in batch)
+                store_pred = " AND m.store = ?" if store is not None else ""
+                params = list(batch) + ([store] if store is not None else [])
+
+                def _lookup(ph=placeholders, sp=store_pred, p=tuple(params)):
+                    return self.conn.execute(
+                        "SELECT m.content_hash, m.superseded_by, "
+                        "COALESCE(m.superseded_at, (SELECT s.created_at FROM memories s "
+                        "WHERE s.content_hash = m.superseded_by AND s.deleted_at IS NULL)) "
+                        f"FROM memories m WHERE m.content_hash IN ({ph}) "
+                        f"AND m.deleted_at IS NULL{sp}",
+                        p,
+                    ).fetchall()
+
+                for h, sup_by, sup_at in await self._execute_with_retry(_lookup):
+                    mapping[h] = (sup_by or None, sup_at)
+        except Exception as e:
+            logger.warning(
+                "Supersession lineage lookup failed, continuing without: %s",
+                _sanitize_log_value(str(e)),
+            )
+        return mapping
+
     async def get_all_memories(
         self,
         limit: int = None,
@@ -613,12 +709,15 @@ class RetrieveMixin:
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Get all memories in storage ordered by creation time (newest first).
 
         exclude_pending=True hides embedding_pending rows — use it when this method
         backs a SEARCH surface (e.g. the /search/by-tag endpoint). Default False keeps
         the full listing for sync/reconciliation/export paths (they must see pending).
+        include_superseded=False hides rows replaced by a newer version, as
+        retrieve() does (#1803); default True keeps them for the same paths.
         """
         try:
             await self.initialize()
@@ -638,6 +737,9 @@ class RetrieveMixin:
 
             if exclude_pending:
                 where_conditions.append('(m.embedding_pending IS NULL OR m.embedding_pending = 0)')
+
+            if not include_superseded:
+                where_conditions.append("(m.superseded_by IS NULL OR m.superseded_by = '')")
 
             if store is not None:
                 where_conditions.append('m.store = ?')
@@ -795,8 +897,8 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
-        """Get total count of memories in storage."""
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
+        """Get total count of memories in storage (see get_all_memories for include_superseded)."""
         try:
             await self.initialize()
 
@@ -830,6 +932,9 @@ class RetrieveMixin:
                 params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
+
+            if not include_superseded:
+                conditions.append("(superseded_by IS NULL OR superseded_by = '')")
 
             conditions.append('deleted_at IS NULL')
             count_query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)

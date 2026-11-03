@@ -2,9 +2,10 @@
 # unassigned claim is visible at once instead of only in the daily digest.
 # scripts/ci/mark_claim_pending.py has the rules (claim phrases, guards).
 #
-# The label is the whole signal: this never assigns anyone and never comments.
-# A maintainer still confirms every claim by hand; the issues: assigned path in
-# claim-check.yml removes the label when they do, so it does not go stale.
+# A standalone /claim also assigns and confirms issues with BOTH good first issue
+# and auto-assign. Other claims retain the manual label-only path. The script
+# reconciles history, removes the pending label and invokes the claim re-check
+# itself: GITHUB_TOKEN assignments do not trigger issues:assigned.
 #
 # issue_comment runs on the default branch with a write token, like
 # pull_request_target. It is safe only while no PR code is ever run here: the
@@ -20,28 +21,29 @@ on:
 permissions:
   contents: read
   issues: write
-
-concurrency:
-  # Serialize per issue so two comments do not race on the label, but NEVER cancel
-  # an in-flight run: a later non-claim reply would otherwise abort a /claim run
-  # before it labels (Greptile). Queueing keeps every claim processed.
-  group: claim-pending-${{ github.event.issue.number }}
-  cancel-in-progress: false
+  pull-requests: read
+  actions: write  # explicitly re-run Claim Check after a GITHUB_TOKEN assignment
 
 jobs:
   label:
     # Issue comments only. issue_comment also fires on pull request comments,
     # and the script skips those too, but gating here saves a runner.
-    if: github.event.issue.pull_request == null
+    if: github.event.issue.pull_request == null && github.event.comment.user.type == 'User'
     runs-on: ubuntu-latest
-    name: Mark an unassigned claim as pending
+    name: Confirm an opted-in claim or mark it as pending
     timeout-minutes: 5
+    concurrency:
+      # Never cancel a running write. Pending runs can be replaced; each run
+      # reconciles the complete history so the oldest claim still wins. Bot
+      # replies are excluded by the job condition before reaching this queue.
+      group: claim-pending-${{ github.event.issue.number }}
+      cancel-in-progress: false
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
 
-    - name: Label the issue if the comment is a claim
+    - name: Process issue claims
       env:
         GH_TOKEN: ${{ github.token }}
-      run: python3 scripts/ci/mark_claim_pending.py
+      run: python3 scripts/ci/mark_claim_pending.py --auto-assign
