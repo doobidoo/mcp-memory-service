@@ -277,8 +277,12 @@ class RetrieveMixin:
             logger.error(traceback.format_exc())
             return []
 
-    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None) -> List[Memory]:
-        """Search memories by tags with optional time filtering."""
+    async def search_by_tag(self, tags: List[str], time_start: Optional[float] = None, include_superseded: bool = True) -> List[Memory]:
+        """Search memories by tags with optional time filtering.
+
+        include_superseded=False hides rows replaced by a newer version, as
+        retrieve() does (#1803); default True keeps them for internal callers.
+        """
         try:
             if not self.conn:
                 logger.error("Database not initialized")
@@ -292,6 +296,8 @@ class RetrieveMixin:
             tag_params = [f"%,{_escape_like(tag)},%" for tag in stripped_tags]
 
             where_clause = f"WHERE ({tag_conditions}) AND deleted_at IS NULL AND (embedding_pending IS NULL OR embedding_pending = 0)"
+            if not include_superseded:
+                where_clause += " AND (superseded_by IS NULL OR superseded_by = '')"
             if time_start is not None:
                 where_clause += " AND created_at >= ?"
                 tag_params.append(time_start)
@@ -350,6 +356,7 @@ class RetrieveMixin:
         time_start: Optional[float] = None,
         time_end: Optional[float] = None,
         include_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Search memories by tags with AND/OR operation and optional time filtering.
 
@@ -357,6 +364,8 @@ class RetrieveMixin:
         collect hashes to queue for the secondary backend (a pending row deleted on the primary
         must still be queued for deletion remotely, or other devices keep the copy — Greptile P1).
         Default False excludes pending (this is a SEARCH surface for users).
+        include_superseded=False hides rows replaced by a newer version (#1803);
+        default True keeps them for the delete and maintenance callers.
         """
         try:
             if not self.conn:
@@ -379,6 +388,8 @@ class RetrieveMixin:
             where_conditions = [f"({tag_conditions})"] if tag_conditions else []
             pending_pred = "" if include_pending else " AND (embedding_pending IS NULL OR embedding_pending = 0)"
             where_conditions.append(f"deleted_at IS NULL{pending_pred}")
+            if not include_superseded:
+                where_conditions.append("(superseded_by IS NULL OR superseded_by = '')")
             if time_start is not None:
                 where_conditions.append("created_at >= ?")
                 tag_params.append(time_start)
@@ -698,12 +709,15 @@ class RetrieveMixin:
         store: Optional[str] = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
+        include_superseded: bool = True,
     ) -> List[Memory]:
         """Get all memories in storage ordered by creation time (newest first).
 
         exclude_pending=True hides embedding_pending rows — use it when this method
         backs a SEARCH surface (e.g. the /search/by-tag endpoint). Default False keeps
         the full listing for sync/reconciliation/export paths (they must see pending).
+        include_superseded=False hides rows replaced by a newer version, as
+        retrieve() does (#1803); default True keeps them for the same paths.
         """
         try:
             await self.initialize()
@@ -723,6 +737,9 @@ class RetrieveMixin:
 
             if exclude_pending:
                 where_conditions.append('(m.embedding_pending IS NULL OR m.embedding_pending = 0)')
+
+            if not include_superseded:
+                where_conditions.append("(m.superseded_by IS NULL OR m.superseded_by = '')")
 
             if store is not None:
                 where_conditions.append('m.store = ?')
@@ -880,8 +897,8 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None) -> int:
-        """Get total count of memories in storage."""
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
+        """Get total count of memories in storage (see get_all_memories for include_superseded)."""
         try:
             await self.initialize()
 
@@ -915,6 +932,9 @@ class RetrieveMixin:
                 params.extend([agent_id, f"%,agent:{_escape_like(agent_id.strip())},%"])
 
             self._apply_stale_days_filter(conditions, params, stale_days)
+
+            if not include_superseded:
+                conditions.append("(superseded_by IS NULL OR superseded_by = '')")
 
             conditions.append('deleted_at IS NULL')
             count_query = 'SELECT COUNT(*) FROM memories WHERE ' + ' AND '.join(conditions)
