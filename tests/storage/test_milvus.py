@@ -5,6 +5,7 @@ All tests use Milvus Lite (a single local file, no server required) via
 """
 
 import asyncio
+import json
 import os
 import uuid
 
@@ -402,6 +403,250 @@ async def test_exact_content_search_matches_underscore_literally(storage):
     # its own content_lower pattern; it must escape the query the same way.
     result = await storage.search_memories(query="my_package", mode="exact", tags=["plain"])
     assert {m["content_hash"] for m in result["memories"]} == {real.content_hash}
+
+
+@pytest.mark.asyncio
+async def test_full_reads_are_not_capped_at_the_query_limit(storage, monkeypatch, tmp_path):
+    """Regression for #1785: reads that mean "every match" return every match.
+
+    They sliced to ``_MILVUS_MAX_LIMIT`` (16384) after draining, or passed it to
+    a single ``query()``, which Milvus also caps there. A collection past 16384
+    rows lost the rest silently, in exports, tag counts and the forgetting pass
+    (which wants the oldest rows, exactly the ones the newest-first slice cut).
+    The constant is shrunk to 5 here so 12 rows reproduce it without inserting
+    16385; the fixed paths no longer read it at all.
+    """
+    import mcp_memory_service.storage.milvus as milvus_module
+    from mcp_memory_service.sync.exporter import MemoryExporter
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    total = 12
+    for i in range(total):
+        content = f"bulk_row {i:02d} " + "x" * i
+        ok, msg = await storage.store(
+            _tagged(content, ["bulk"]), skip_semantic_dedup=True,
+        )
+        assert ok, msg
+    oldest = generate_content_hash("bulk_row 00 ")
+    longest = generate_content_hash(f"bulk_row {total - 1:02d} " + "x" * (total - 1))
+
+    everything = await storage.get_all_memories()
+    assert len(everything) == total
+    in_range = await storage.get_memories_by_time_range(0.0, 4102444800.0)
+    assert oldest in {m.content_hash for m in in_range}
+    assert len(await storage.search_by_tag(["bulk"])) == total
+    assert len(await storage.search_by_tags(["bulk"])) == total
+    assert len(await storage.search_by_tag_chronological(["bulk"])) == total
+    assert len(await storage.get_by_exact_content("bulk_row")) == total
+    assert {"tag": "bulk", "count": total} in await storage.get_all_tags_with_counts()
+    assert len(await storage.get_memory_timestamps()) == total
+    assert (await storage.get_largest_memories(1))[0].content_hash == longest
+    exact = await storage.search_memories(query="bulk_row", mode="exact", tags=["bulk"], limit=100)
+    assert exact["total"] == total
+
+    export_file = tmp_path / "export.json"
+    await MemoryExporter(storage).export_to_json(export_file)
+    assert len(json.loads(export_file.read_text())["memories"]) == total
+
+
+@pytest.mark.asyncio
+async def test_purge_deleted_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: purge_deleted finds every old tombstone, not only
+    those in the first ``_MILVUS_MAX_LIMIT`` rows of one query()."""
+    import time
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    old = time.time() - 90 * 86400
+    total = 12
+    for i in range(total):
+        content = f"tombstoned memory {i:02d}"
+        memory = Memory(
+            content=content, content_hash=generate_content_hash(content),
+            tags=["gone"], created_at=old,
+        )
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        ok, msg = await storage.update_memory_metadata(
+            memory.content_hash, {"deleted_at": old}, preserve_timestamps=True,
+        )
+        assert ok, msg
+
+    assert await storage.purge_deleted(older_than_days=30) == total
+    assert await storage.count_all_memories() == 0
+
+
+@pytest.mark.asyncio
+async def test_get_conflicts_scans_past_the_query_limit(storage, monkeypatch):
+    """Regression for #1785: get_conflicts returns every unresolved pair, not
+    only those whose edges fit in one query()."""
+    import mcp_memory_service.storage.milvus as milvus_module
+
+    monkeypatch.setattr(milvus_module, "_MILVUS_MAX_LIMIT", 5)
+    graph = await storage._get_graph_storage()
+    pairs = 12
+    for i in range(pairs):
+        hashes = []
+        for side in ("a", "b"):
+            content = f"conflict pair {i:02d} side {side}"
+            memory = _tagged(content, ["conflict:unresolved"])
+            ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+            assert ok, msg
+            hashes.append(memory.content_hash)
+        assert await graph.store_association(
+            hashes[0], hashes[1], 0.97, ["semantic"], relationship_type="contradicts",
+        )
+
+    assert len(await storage.get_conflicts()) == pairs
+
+
+async def _store_versioned_chains(storage, chains=3):
+    """Store ``chains`` memories tagged ``vchain`` and give each one versioned
+    update. Returns (current_hashes, superseded_hashes)."""
+    current, superseded = [], []
+    for i in range(chains):
+        content = f"deploy runbook {i} uses make deploy-old"
+        memory = _tagged(content, ["vchain"])
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        ok, msg, new_hash = await storage.update_memory_versioned(
+            memory.content_hash, f"deploy runbook {i} uses make deploy",
+            reason="renamed target",
+        )
+        assert ok, msg
+        superseded.append(memory.content_hash)
+        current.append(new_hash)
+    return current, superseded
+
+
+@pytest.mark.asyncio
+async def test_listing_paths_hide_superseded_versions(storage):
+    """Regression for #1824: Milvus applies the #1803 rule.
+
+    #1805 hid superseded versions in memory_list and tag search on sqlite-vec,
+    but Milvus only accepted ``include_superseded`` and ignored it, so
+    memory_list kept listing the old versions and counting them in ``total``.
+    """
+    from mcp_memory_service.services.memory_service import MemoryService
+
+    current, superseded = await _store_versioned_chains(storage)
+    service = MemoryService(storage)
+
+    listed = await service.list_memories(page=1, page_size=20)
+    assert {m["content_hash"] for m in listed["memories"]} == set(current)
+    assert listed["total"] == len(current)
+
+    page1 = await service.list_memories(page=1, page_size=2)
+    page2 = await service.list_memories(page=2, page_size=2)
+    assert (page1["total"], page1["has_more"], len(page1["memories"])) == (3, True, 2)
+    assert (page2["has_more"], len(page2["memories"])) == (False, 1)
+    assert {m["content_hash"] for m in page1["memories"] + page2["memories"]} == set(current)
+
+    with_old = await service.list_memories(page=1, page_size=20, include_superseded=True)
+    assert with_old["total"] == len(current) + len(superseded)
+
+    for search in (storage.search_by_tag, storage.search_by_tags):
+        hidden = {m.content_hash for m in await search(["vchain"], include_superseded=False)}
+        assert hidden == set(current), search.__name__
+
+    assert await storage.count_all_memories(include_superseded=False) == len(current)
+    assert await storage.count_all_memories(tags=["vchain"], include_superseded=False) == len(current)
+
+
+@pytest.mark.asyncio
+async def test_storage_listing_keeps_superseded_by_default(storage):
+    """The storage default keeps every live row for export, sync and
+    consolidation callers (#1803); only an explicit False hides old versions."""
+    current, superseded = await _store_versioned_chains(storage)
+    everything = set(current) | set(superseded)
+
+    assert {m.content_hash for m in await storage.get_all_memories()} == everything
+    assert await storage.count_all_memories() == len(everything)
+    assert {m.content_hash for m in await storage.search_by_tag(["vchain"])} == everything
+    assert {m.content_hash for m in await storage.search_by_tags(["vchain"])} == everything
+
+
+@pytest.mark.asyncio
+async def test_stale_listing_hides_superseded_versions(storage):
+    """The stale_days path of get_all_memories/count_all_memories applies the
+    same rule (#1824)."""
+    import time
+
+    old = time.time() - 60 * 86400
+    hashes = []
+    for i in range(2):
+        content = f"stale note {i} before the rename"
+        memory = Memory(content=content, content_hash=generate_content_hash(content),
+                        tags=["stale"], created_at=old)
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        hashes.append(memory.content_hash)
+    ok, msg = await storage.update_memory_metadata(
+        hashes[0], {"metadata": {"superseded_by": "replacement"}},
+    )
+    assert ok, msg
+
+    stale = await storage.get_all_memories(stale_days=30, include_superseded=False)
+    assert [m.content_hash for m in stale] == [hashes[1]]
+    assert await storage.count_all_memories(stale_days=30, include_superseded=False) == 1
+    assert await storage.count_all_memories(stale_days=30) == 2
+
+
+async def _store_hourly_timeline(storage, count=10):
+    """Store ``count`` memories one hour apart, oldest first as real use writes
+    them. Returns their hashes ordered newest first."""
+    import time
+
+    now = time.time()
+    newest_first = []
+    for age in range(count - 1, -1, -1):
+        content = f"timeline entry written {age} hours ago"
+        memory = Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["timeline"],
+            created_at=now - age * 3600,
+        )
+        ok, msg = await storage.store(memory, skip_semantic_dedup=True)
+        assert ok, msg
+        newest_first.insert(0, memory.content_hash)
+    return newest_first
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filters", [
+    {"time_expr": "last 7 days"},
+    {"after": "2000-01-01"},
+    {"tags": ["timeline"]},
+])
+async def test_search_without_query_returns_newest_first(storage, filters):
+    """Regression for #1782: a time- or tag-only search returns the newest matches.
+
+    The branch used one unsorted ``query(limit=limit * 3)``, which on Milvus
+    returned the rows written first, so ``memory_search {"time_expr": "last
+    week", "limit": 3}`` answered with the three oldest memories in range.
+    """
+    newest_first = await _store_hourly_timeline(storage)
+
+    result = await storage.search_memories(limit=3, **filters)
+
+    assert [m["content_hash"] for m in result["memories"]] == newest_first[:3]
+
+
+@pytest.mark.asyncio
+async def test_search_without_query_skips_superseded_before_limit(storage):
+    """Superseded memories are dropped before the limit, so the newest live ones
+    still fill it (#1782)."""
+    newest_first = await _store_hourly_timeline(storage)
+    for content_hash in newest_first[:2]:
+        ok, msg = await storage.update_memory_metadata(
+            content_hash, {"metadata": {"superseded_by": "replacement"}},
+        )
+        assert ok, msg
+
+    result = await storage.search_memories(tags=["timeline"], limit=3)
+
+    assert [m["content_hash"] for m in result["memories"]] == newest_first[2:5]
 
 
 @pytest.mark.asyncio

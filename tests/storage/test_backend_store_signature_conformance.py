@@ -89,6 +89,17 @@ AGENT_ID_CONTRACT_METHODS = [
     "search_memories",
 ]
 
+# Methods that services/memory_service.py (list_memories, search_by_tag) and
+# web/api/search.py call with `include_superseded=` (#1803), so the list and tag
+# searches only show current versions. Every backend must accept the keyword.
+INCLUDE_SUPERSEDED_CONTRACT_METHODS = [
+    "get_all_memories",
+    "count_all_memories",
+    # MemoryService.search_by_tag (the search_by_tag MCP handler) passes it too.
+    "search_by_tag",
+    "search_by_tags",
+]
+
 # Methods that web/api/*.py calls on `storage` WITHOUT a hasattr guard, i.e.
 # every backend must implement them or the endpoint fails at runtime (issue
 # #213: Milvus lacked get_all_tags_with_counts -> AttributeError -> HTTP 501 on
@@ -422,4 +433,24 @@ def test_milvus_graph_storage_matches_graph_storage_signature(method_name):
     assert _signature_shape(milvus_method) == _signature_shape(sqlite_method), (
         f"MilvusGraphStorage.{method_name}{inspect.signature(milvus_method)} "
         f"does not match GraphStorage.{method_name}{inspect.signature(sqlite_method)}"
+    )
+
+
+@pytest.mark.parametrize("method_name", INCLUDE_SUPERSEDED_CONTRACT_METHODS)
+def test_all_backends_accept_include_superseded_kwarg(method_name):
+    """Each backend and the base interface accept the `include_superseded` callers pass."""
+    offenders = []
+    for name, cls in [("MemoryStorage", MemoryStorage)] + [
+        (name, cls) for name, cls, err in BACKENDS if cls is not None
+    ]:
+        method = getattr(cls, method_name, None)
+        assert method is not None, f"{name} is missing {method_name}()"
+        params = inspect.signature(method).parameters
+        if "include_superseded" not in params and not any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        ):
+            offenders.append(name)
+    assert not offenders, (
+        f"{method_name}() is missing the `include_superseded` keyword on: "
+        f"{offenders}. MemoryService and the REST tag search pass it (issue #1803)."
     )

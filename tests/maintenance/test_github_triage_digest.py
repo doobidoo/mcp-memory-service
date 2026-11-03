@@ -66,6 +66,16 @@ def test_pull_requests_are_not_counted_as_issues(digest):
     assert [p["number"] for p in data["open_pulls"]] == [7]
 
 
+def test_review_replies_get_priority_in_the_digest(digest):
+    data = digest.collect(fake_get([issue(n, days_old=0.1) for n in range(1, 9)], []), 14, NOW)
+    data["waiting_reviewer"] = [dict(issue(80), threads=[
+        "https://github.com/doobidoo/mcp-memory-service/pull/80#discussion_r1"])]
+    text = digest.render(data, 14, NOW)
+    assert text.index("Review threads awaiting reviewer reply") < text.index("New in the last 24h")
+    assert "[thread](https://github.com/doobidoo/mcp-memory-service/pull/80#discussion_r1)" in text
+    assert len(text.splitlines()) <= digest.MAX_LINES
+
+
 def test_digest_issue_is_excluded_everywhere(digest):
     get = fake_get([issue(1400, days_old=0.1), issue(2)], [])
     data = digest.collect(get, 14, NOW, digest_issue=1400)

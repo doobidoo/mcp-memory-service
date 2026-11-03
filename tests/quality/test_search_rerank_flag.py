@@ -159,7 +159,7 @@ async def test_reranker_model_env_is_passed_to_the_loader(monkeypatch):
     monkeypatch.setenv('MCP_RERANK_MODEL', 'ms-marco-MiniLM-L-6-v2')
     with patch(LOADER, return_value=stub) as loader:
         await rerank_candidates('q', _memories(2), _enabled_config())
-    loader.assert_called_once_with(model_name='ms-marco-MiniLM-L-6-v2')
+    loader.assert_called_once_with(model_name='ms-marco-MiniLM-L-6-v2', device='auto')
 
 
 # --- EARS 4: fail-open -------------------------------------------------------

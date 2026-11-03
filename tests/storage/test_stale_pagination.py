@@ -48,7 +48,7 @@ async def test_milvus_stale_page_sorts_created_at_and_id_before_offset():
     storage._write_lock = asyncio.Lock()
     storage.client = object()
     storage._has_access_collection = False
-    storage._drain_main_ids_and_created_at = lambda _filter: [
+    storage._drain_main_ids_and_created_at = lambda _filter, _include_metadata=False: [
         {"id": "a", "created_at": 1},
         {"id": "c", "created_at": 2},
         {"id": "b", "created_at": 2},

@@ -165,7 +165,7 @@ For Ubuntu 24 and other Linux distributions:
 ```bash
 # System dependencies
 sudo apt update
-sudo apt install python3.10 python3.10-venv python3.10-dev python3-pip
+sudo apt install python3 python3-venv python3-dev python3-pip
 sudo apt install build-essential libblas3 liblapack3 liblapack-dev libblas-dev gfortran
 ```
 

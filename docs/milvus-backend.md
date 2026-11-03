@@ -86,14 +86,20 @@ The collection is created once by `MilvusMemoryStorage.initialize()` with the fo
 |-------|------|-------|
 | `id` | VARCHAR (PK, 128) | The memory's content hash. Guarantees exact-hash deduplication for free. |
 | `vector` | FLOAT_VECTOR | Dimension matches the embedding model (384 for `all-MiniLM-L6-v2`). |
-| `content` | VARCHAR (65535) | Memory text. Milvus's VARCHAR hard cap. |
+| `content` | VARCHAR (65535) | Memory text. Milvus's VARCHAR hard cap. Analyzer enabled, so it can feed BM25. |
+| `content_lower` | VARCHAR (65535) | Lower-cased copy of `content`, written on every insert. Exact-content search filters it with `like`, which is case-sensitive. |
 | `tags` | VARCHAR (8192) | Comma-delimited with leading and trailing commas (`,tag1,tag2,`) for exact `like` matching. |
 | `memory_type` | VARCHAR (128) | Ontology-validated memory type. |
 | `metadata` | VARCHAR (65535) | JSON-serialized metadata dict. |
 | `created_at` / `updated_at` | DOUBLE | Unix timestamps. |
 | `created_at_iso` / `updated_at_iso` | VARCHAR (64) | ISO-8601 timestamp strings. |
+| `sparse_vector` | SPARSE_FLOAT_VECTOR | Filled from `content` by a server-side BM25 function. Only present when the collection was created with a pymilvus that supports BM25 (2.5+). |
 
-**Index**: single vector index on `vector` with `index_type=AUTOINDEX`, `metric_type=COSINE`. This works identically on Milvus Lite, self-hosted Milvus, and Zilliz Cloud.
+**Indexes**: a vector index on `vector` with `index_type=AUTOINDEX`, `metric_type=COSINE`, which works identically on Milvus Lite, self-hosted Milvus, and Zilliz Cloud. When `sparse_vector` exists, a `SPARSE_INVERTED_INDEX` with `metric_type=BM25` on it, and `memory_search` combines the two with RRF.
+
+Collections created by older versions may lack `content_lower` or `sparse_vector`; the schema is not migrated in place. Without `content_lower`, exact-content search falls back to a client-side scan. Without `sparse_vector`, search is vector-only.
+
+Two side collections sit next to the main one: `{collection}_graph` for associations and entity links, and `{collection}_access` for last-accessed timestamps.
 
 ## Semantics and limitations
 

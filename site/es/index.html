@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<!-- Generated localized introduction. -->
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memoria persistente para asistentes de IA | MCP Memory Service</title>
+<meta name="description" content="Guarda y recupera el contexto de tus proyectos en Claude Code y otros asistentes de IA. Aloja MCP Memory Service en tu equipo, con búsqueda semántica, MCP y API REST.">
+<meta property="og:title" content="Memoria persistente para asistentes de IA | MCP Memory Service">
+<meta property="og:description" content="Guarda y recupera el contexto de tus proyectos en Claude Code y otros asistentes de IA. Aloja MCP Memory Service en tu equipo, con búsqueda semántica, MCP y API REST.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mcpmemory.services/es/">
+<meta property="og:locale" content="es_ES">
+<meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Memoria persistente para asistentes de IA | MCP Memory Service">
+<meta name="twitter:description" content="Guarda y recupera el contexto de tus proyectos en Claude Code y otros asistentes de IA. Aloja MCP Memory Service en tu equipo, con búsqueda semántica, MCP y API REST.">
+<meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<link rel="canonical" href="https://mcpmemory.services/es/">
+<link rel="alternate" hreflang="en" href="https://mcpmemory.services/">
+<link rel="alternate" hreflang="de" href="https://mcpmemory.services/de/">
+<link rel="alternate" hreflang="es" href="https://mcpmemory.services/es/">
+<link rel="alternate" hreflang="fr" href="https://mcpmemory.services/fr/">
+<link rel="alternate" hreflang="ja" href="https://mcpmemory.services/ja/">
+<link rel="alternate" hreflang="pt-br" href="https://mcpmemory.services/pt-br/">
+<link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
+<link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
+<link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/localized.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Saltar al contenido</a>
+<div class="band">
+  <div class="wrap">
+    <nav class="nav" aria-label="Navegación principal">
+      <a class="brand" href="/es/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a href="#install">Instalación</a>
+    </nav>
+    <nav class="language-switcher" aria-label="Elegir idioma"><a href="/" lang="en" hreflang="en">English</a>
+<a href="/de/" lang="de" hreflang="de">Deutsch</a>
+<a href="/es/" lang="es" hreflang="es" aria-current="page">Español</a>
+<a href="/fr/" lang="fr" hreflang="fr">Français</a>
+<a href="/ja/" lang="ja" hreflang="ja">日本語</a>
+<a href="/pt-br/" lang="pt-br" hreflang="pt-br">Português (Brasil)</a>
+<a href="/zh-cn/" lang="zh-cn" hreflang="zh-cn">简体中文</a>
+<a href="/zh-tw/" lang="zh-tw" hreflang="zh-tw">繁體中文</a></nav>
+  </div>
+  <header class="wrap locale-hero">
+    <div>
+      <p class="eyebrow">MCP Memory Service</p>
+      <h1>Memoria persistente para tus asistentes de IA</h1>
+      <p class="intro">Las decisiones, preferencias y soluciones de un proyecto también deberían estar disponibles en la siguiente sesión. MCP Memory Service guarda ese conocimiento en tu propio sistema para que Claude Code y otros asistentes de IA puedan consultarlo.</p>
+      <div class="btns">
+        <a class="btn" href="#install">Configurar</a>
+        <a href="https://github.com/doobidoo/mcp-memory-service">Proyecto en GitHub</a>
+      </div>
+    </div>
+    <aside class="memory-example" aria-label="Ejemplo para tu cliente de IA">
+      <p class="eyebrow">Ejemplo para tu cliente de IA</p>
+      <h2>Guarda hoy</h2>
+      <p>«Recuerda que en este proyecto usamos PostgreSQL y hacemos las pruebas con pytest».</p>
+      <h2>Recupera en la siguiente sesión</h2>
+      <p>«¿Qué base de datos y qué herramienta de pruebas usamos en este proyecto?»</p>
+      <p class="example-note">Tu cliente debe invocar las herramientas de memoria para guardar y recuperar la información. Estas frases son ejemplos, no comandos fijos.</p>
+    </aside>
+  </header>
+</div>
+<main id="main">
+  <section class="sec">
+    <div class="wrap">
+      <h2>Conserva el contexto de tu proyecto sin explicarlo cada vez</h2>
+      <p class="lede">Un repositorio de conocimiento compartido para trabajar con asistentes de IA, accesible mediante MCP, la API REST o la CLI.</p>
+      <div class="locale-cards">
+        <article><h3>Recupera tus decisiones</h3><p>Guarda por qué elegiste una biblioteca o cambiaste la arquitectura. Consulta la explicación más adelante sin buscar en conversaciones antiguas.</p></article>
+        <article><h3>Busca por significado</h3><p>Encuentra soluciones guardadas aunque hagas la pregunta con otras palabras. Las etiquetas permiten limitar la búsqueda a un proyecto o tema.</p></article>
+        <article><h3>Aloja el servicio en tu equipo</h3><p>Empieza en local con SQLite y búsqueda vectorial. Para esta configuración no necesitas almacenamiento en la nube ni una API de pago para generar embeddings.</p></article>
+      </div>
+    </div>
+  </section>
+  <section class="sec" id="install">
+    <div class="wrap locale-install">
+      <h2>Configúralo en Claude Code</h2>
+      <p class="lede">Necesitas Python 3.10 o posterior y tener instalado Claude Code. También puedes conectar otros clientes mediante MCP; la guía en inglés explica cómo configurarlos.</p>
+      <ol class="install-steps">
+        <li><h3>Instala Memory Service</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>Instala el paquete en un entorno de Python cuyos comandos estén disponibles para tu cliente.</p></li>
+        <li><h3>Añádelo como servidor MCP</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>Ejecuta el comando desde el directorio del proyecto y reinicia Claude Code. En el primer inicio se descargará el modelo local de embeddings.</p></li>
+        <li><h3>Guarda tu primer recuerdo</h3><p>Pide a tu cliente que guarde una preferencia del proyecto. Comprueba que la llamada a la herramienta se haya completado correctamente y pregunta por esa preferencia en una nueva sesión. Así podrás verificar que la información se guarda y se recupera.</p></li>
+      </ol>
+      <div class="btns">
+        <a class="btn" href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md">Guía completa de configuración (en inglés)</a>
+        <a href="/demo/">Prueba la demo en el navegador (en inglés)</a>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="wrap locale-faq">
+      <h2>Preguntas frecuentes</h2>
+      <details><summary>¿El servicio guarda automáticamente todas las conversaciones?</summary><p>Conectar el servicio mediante MCP no guarda automáticamente todas las conversaciones. Tu cliente debe usar las herramientas. Los hooks opcionales y las funciones de importación de sesiones requieren su propia configuración.</p></details>
+      <details><summary>¿Mis recuerdos se quedan en mi equipo?</summary><p>Con la configuración local de SQLite, los recuerdos se guardan en tu sistema y los embeddings se calculan localmente. Los datos que tu cliente de IA envíe al proveedor del modelo dependen del propio cliente. El almacenamiento en Cloudflare y la sincronización son opciones que se configuran por separado.</p></details>
+      <details><summary>¿Solo funciona con Claude?</summary><p>No. Además de MCP, el servicio ofrece una API REST y una CLI. Puedes conectar otros clientes compatibles y tus propias aplicaciones.</p></details>
+      <details><summary>¿MCP Memory Service es gratuito?</summary><p>El servicio es de código abierto y se distribuye bajo la licencia Apache 2.0. Puedes alojarlo tú mismo. Tu cliente de IA, el alojamiento y los servicios externos opcionales pueden tener costes adicionales.</p></details>
+    </div>
+  </section>
+</main>
+<footer><div class="wrap">
+  <p>MCP Memory Service es de código abierto. La documentación adicional está en inglés. <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md">Contribuye al proyecto</a></p>
+</div></footer>
+<!-- Cloudflare Web Analytics is injected at the proxy; do not add a second beacon. -->
+</body>
+</html>

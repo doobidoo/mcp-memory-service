@@ -32,6 +32,7 @@ host services flip the flags without a process reload.
 """
 
 import asyncio
+import time
 import logging
 import os
 import threading
@@ -51,6 +52,7 @@ DEFAULT_RERANK_MODEL = 'Xenova/bge-reranker-base'
 DEFAULT_RERANK_CANDIDATES = 40
 
 _TRUTHY = frozenset(('true', '1', 'yes', 'on', 'enabled'))
+_DEVICES = ('auto', 'cpu', 'cuda', 'mps', 'directml')
 
 
 @dataclass(frozen=True)
@@ -60,10 +62,12 @@ class SearchRerankConfig:
     enabled: bool = False
     candidates: int = DEFAULT_RERANK_CANDIDATES
     model: str = DEFAULT_RERANK_MODEL
+    device: str = 'auto'
 
     @classmethod
     def from_env(cls) -> 'SearchRerankConfig':
-        """Read the three flags. Junk falls back to defaults, never raises."""
+        """Read the three flags and the shared quality device. Junk falls back
+        to defaults, never raises."""
         raw_candidates = (os.getenv('MCP_RERANK_CANDIDATES') or '').strip()
         candidates = DEFAULT_RERANK_CANDIDATES
         if raw_candidates:
@@ -75,10 +79,21 @@ class SearchRerankConfig:
                     _sanitize_log_value(raw_candidates),
                     DEFAULT_RERANK_CANDIDATES,
                 )
+        # Same knob as the quality evaluator (MCP_QUALITY_LOCAL_DEVICE): the
+        # reranker went through the loader with device='auto' regardless, so on
+        # Apple Silicon it always took the CoreML provider (issue #1669).
+        device = (os.getenv('MCP_QUALITY_LOCAL_DEVICE') or '').strip().lower() or 'auto'
+        if device not in _DEVICES:
+            logger.warning(
+                'Invalid MCP_QUALITY_LOCAL_DEVICE=%s for the reranker. Using auto',
+                _sanitize_log_value(device),
+            )
+            device = 'auto'
         return cls(
             enabled=(os.getenv('MCP_RERANK_ENABLED') or '').strip().lower() in _TRUTHY,
             candidates=candidates,
             model=(os.getenv('MCP_RERANK_MODEL') or '').strip() or DEFAULT_RERANK_MODEL,
+            device=device,
         )
 
 
@@ -113,7 +128,7 @@ _failure_logged = threading.Event()
 
 def _build_scorer(config: SearchRerankConfig) -> Any:
     """Resolve through the existing loader -- the single ONNX path."""
-    model = get_onnx_ranker_model(model_name=config.model)
+    model = get_onnx_ranker_model(model_name=config.model, device=config.device)
     if model is None:
         raise RuntimeError(
             f"ONNX ranker '{config.model}' could not be resolved through the existing loader"
@@ -147,19 +162,28 @@ def _log_failure_once(error: Exception) -> None:
 
 def _resolve_scorer(config: SearchRerankConfig) -> Optional[Any]:
     """Build once; a load failure latches for the process lifetime so callers
-    neither pay for a re-download nor re-log (EARS 4).
+    neither pay for a re-download nor re-log (EARS 4)."""
+    return _resolve_scorer_built(config)[0]
+
+
+def _resolve_scorer_built(config: SearchRerankConfig) -> tuple:
+    """``_resolve_scorer`` plus whether THIS call built the scorer, decided
+    inside the lock: of several searches arriving during the first load only
+    the one that ran ``_build_scorer`` reports ``True`` (issue #1669 timing).
 
     The once-log runs OUTSIDE ``_scorer_lock``: ``threading.Lock`` is not
     reentrant, so logging inside the critical section deadlocked every
     first-failure caller.
     """
     global _scorer
+    built = False
     if _load_failed.is_set():
-        return None
+        return None, built
     if _scorer is None:
         failure: Optional[Exception] = None
         with _scorer_lock:
             if _scorer is None:
+                built = True
                 try:
                     _scorer = _build_scorer(config)
                 except Exception as error:
@@ -167,28 +191,74 @@ def _resolve_scorer(config: SearchRerankConfig) -> Optional[Any]:
                     failure = error
         if failure is not None:
             _log_failure_once(failure)
-            return None
-    return _scorer
+            return None, built
+    return _scorer, built
+
+
+def _on_worker(fn, *args, **kwargs):
+    """Run ``fn`` on the worker and return (started_at, finished_at, result),
+    both clocks taken on the worker itself so the caller can tell the time
+    inside ``fn`` from the time spent waiting for the executor or the loop."""
+    started = time.perf_counter()
+    result = fn(*args, **kwargs)
+    return started, time.perf_counter(), result
+
+
+async def _timed_hop(record: Optional[dict], key: str, fn, *args, **kwargs):
+    """``asyncio.to_thread`` with, when ``record`` is given, ``<key>_ms`` (time
+    inside ``fn``, measured on the worker) and ``<key>_hop_ms`` (everything
+    else: the executor's queueing delay plus the wait for the event loop to
+    resume after ``fn`` returned) written to it. ``kwargs`` go to ``fn``
+    untouched (it may take a ``timing`` of its own)."""
+    if record is None:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    scheduled = time.perf_counter()
+    started, finished, result = await asyncio.to_thread(_on_worker, fn, *args, **kwargs)
+    done = time.perf_counter()
+    record[f'{key}_hop_ms'] = round(((started - scheduled) + (done - finished)) * 1000, 1)
+    record[f'{key}_ms'] = round((finished - started) * 1000, 1)
+    return result
 
 
 async def rerank_candidates(
-    query: Optional[str], memories: List[dict], config: SearchRerankConfig
+    query: Optional[str], memories: List[dict], config: SearchRerankConfig,
+    timing: Optional[dict] = None,
 ) -> Optional[List[dict]]:
     """Score candidates and return them reranked best-first, or ``None`` on
-    any failure so the caller can fall back to the unreranked order."""
+    any failure so the caller can fall back to the unreranked order.
+
+    ``timing`` (issue #1669): when a dict is given it is filled with the
+    per-stage wall-clock of this call -- ``scorer_cold`` (whether this call
+    built the scorer, decided inside the build lock), ``resolve_ms``/
+    ``score_ms`` (time on the worker) with ``resolve_hop_ms``/``score_hop_ms``
+    (time waiting for the executor and for the loop to resume), and ``chunks``
+    (one entry per ONNX inference call, from the ranker). Ordering and scores
+    are the same with or without it.
+    """
     if not memories:
         return None
     try:
         # The scorer build follows the loader path (session creation, and on a
         # cold cache an export) -- never on the event loop. Greptile P1 on #1661:
         # the first enabled search stalled every concurrent request otherwise.
-        instance = await asyncio.to_thread(_resolve_scorer, config)
+        if timing is None:
+            instance = await asyncio.to_thread(_resolve_scorer, config)
+        else:
+            timing['candidates'] = len(memories)
+            instance, built = await _timed_hop(timing, 'resolve', _resolve_scorer_built, config)
+            timing['scorer_cold'] = built
         if instance is None:
             return None
         contents = [memory.get('content') or '' for memory in memories]
-        scores = await asyncio.to_thread(
-            instance.score_quality_batch, [(query, content) for content in contents]
-        )
+        pairs = [(query, content) for content in contents]
+        if timing is None:
+            scores = await asyncio.to_thread(instance.score_quality_batch, pairs)
+        else:
+            chunks: List[dict] = []
+            scores = await _timed_hop(
+                timing, 'score', instance.score_quality_batch, pairs, timing=chunks
+            )
+            timing['chunks'] = chunks
         if scores is None or len(scores) != len(memories):
             raise RuntimeError(
                 'rerank scorer returned %r scores for %d candidates'
@@ -231,8 +301,14 @@ async def apply_search_rerank(
     if not rerank_active(arguments, config):
         return memories, total
     limit = arguments.get('limit', 10)
-    ordered = await rerank_candidates(query, memories, config)
+    # Stage timing (issue #1669) rides on the existing include_debug output:
+    # without it nothing is measured and the response is unchanged.
+    timing: Optional[dict] = {} if arguments.get('include_debug') else None
+    ordered = await rerank_candidates(query, memories, config, timing)
     final = (ordered or memories)[:limit]
     result['memories'] = final
     result['total'] = len(final)
+    if timing is not None:
+        timing['applied'] = ordered is not None
+        result.setdefault('debug', {})['rerank_timing'] = timing
     return final, len(final)

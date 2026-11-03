@@ -59,9 +59,9 @@
                                id="quickSearch"
                                class="search-input"
                                data-i18n-placeholder="search.placeholder"
-                               placeholder="🔍 Search your memories..."
+                               placeholder="Search memories"
                                autocomplete="off">
-                        <button class="search-btn" type="button" aria-label="Search">
+                        <button class="search-btn" type="button" aria-label="Search" data-i18n-aria="header.searchLabel">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M21.71 20.29L18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a1 1 0 0 0 1.42-1.42zM11 18a7 7 0 1 1 7-7 7 7 0 0 1-7 7z"/>
                             </svg>
@@ -71,13 +71,13 @@
 
                 <!-- Action Buttons -->
                 <div class="action-buttons">
-                    <button id="addMemoryBtn" class="btn btn-primary" title="Add New Memory">
+                    <button id="addMemoryBtn" class="btn btn-primary" title="Add New Memory" data-i18n-title="header.addMemoryTitle">
                         <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
                         </svg>
                         <span class="btn-text" data-i18n="actions.addMemory">Add Memory</span>
                     </button>
-                    <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Dark Mode">
+                    <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Dark Mode" data-i18n-title="header.toggleDarkMode">
                         <svg id="sunIcon" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="5"/>
                             <line x1="12" y1="1" x2="12" y2="3"/>
@@ -93,13 +93,13 @@
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                         </svg>
                     </button>
-                    <button id="settingsBtn" class="btn btn-secondary" title="Settings">
+                    <button id="settingsBtn" class="btn btn-secondary" title="Settings" data-i18n-title="header.settingsTitle">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12.647 10.942 11.657 9.953c0.362 -0.553 0.627 -1.18 0.759 -1.847h1.411v-2.4h-1.411c-0.152 -0.666 -0.402 -1.293 -0.759 -1.847l0.989 -0.989L10.971 1.2l-0.989 0.989c-0.553 -0.362 -1.18 -0.627 -1.847 -0.759V0h-2.4v1.411c-0.666 0.152 -1.293 0.402 -1.847 0.759L2.904 1.18 1.21 2.856l0.989 0.989c-0.362 0.553 -0.627 1.18 -0.759 1.847H0.029v2.38h1.411c0.152 0.666 0.402 1.293 0.759 1.847l-0.989 0.989 1.675 1.675 0.989 -0.989c0.553 0.362 1.18 0.627 1.847 0.759V13.763h2.38v-1.411c0.666 -0.152 1.293 -0.402 1.847 -0.759l0.989 0.989zm-5.731 -0.798c-1.788 0 -3.252 -1.464 -3.252 -3.252s1.464 -3.252 3.252 -3.252 3.252 1.445 3.252 3.252 -1.44 3.252 -3.252 3.252"/>
                             <path d="m22.658 16.217 1.313 -0.514 -0.877 -2.209 -1.313 0.514c-0.382 -0.573 -0.857 -1.048 -1.391 -1.445l0.553 -1.293 -2.189 -0.95 -0.529 1.288c-0.647 -0.132 -1.332 -0.152 -1.998 -0.039l-0.534 -1.293 -2.209 0.877 0.514 1.313c-0.573 0.382 -1.048 0.857 -1.445 1.391l-1.293 -0.553 -0.95 2.189 1.293 0.553c-0.132 0.647 -0.152 1.332 -0.039 1.998l-1.313 0.514 0.877 2.209 1.313 -0.514c0.382 0.573 0.857 1.048 1.391 1.445L13.273 22.991l2.189 0.95 0.553 -1.293c0.647 0.132 1.332 0.152 1.998 0.039l0.514 1.313 2.209 -0.877 -0.514 -1.313c0.573 -0.382 1.048 -0.857 1.445 -1.391l1.293 0.553 0.95 -2.189 -1.293 -0.553c0.132 -0.661 0.152 -1.327 0.039 -2.013M18.318 20.155c-1.675 0.666 -3.561 -0.152 -4.227 -1.827s0.152 -3.561 1.827 -4.227 3.561 0.152 4.227 1.827 -0.152 3.561 -1.827 4.227"/>
                         </svg>
                     </button>
-                    <div class="language-selector" aria-label="Language">
+                    <div class="language-selector" aria-label="Language" data-i18n-aria="header.languageLabel">
                         <button type="button" class="lang-dropdown-trigger" aria-haspopup="true" aria-expanded="false">
                             <svg class="lang-icon" width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
@@ -178,8 +178,8 @@
                 <div class="dashboard-grid">
                     <!-- Welcome Section -->
                     <section class="welcome-card">
-                        <h2 data-i18n="home.welcome">Welcome to your Memory Dashboard</h2>
-                        <p data-i18n="home.subtitle">Manage your AI memories with semantic search, real-time updates, and intelligent organization.</p>
+                        <h2 data-i18n="home.welcome">Overview</h2>
+                        <p data-i18n="home.subtitle">Decisions, fixes and notes your agents stored, searchable by meaning</p>
                         <div class="quick-stats">
                             <div class="stat-item">
                                 <span class="stat-number" id="totalMemories">—</span>
@@ -222,7 +222,7 @@
                             </button>
                             <button class="action-card" data-action="browse-tags">
                                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/>
+                                    <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16zM16 17H5V7h11l3.55 5L16 17z"/>
                                 </svg>
                                 <span data-i18n="actions.browseTags">Browse Tags</span>
                             </button>
@@ -234,13 +234,13 @@
                             </button>
                         </div>
 
-                        <section id="deltaSyncControl" class="sync-control-compact delta-sync-control" style="display: none" aria-label="Delta sync">
+                        <section id="deltaSyncControl" class="sync-control-compact delta-sync-control" style="display: none" aria-label="Delta sync" data-i18n-aria="sync.deltaSync">
                             <div class="delta-sync-header">
                                 <div class="delta-sync-heading">
                                     <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                         <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
                                     </svg>
-                                    <span>Delta sync</span>
+                                    <span data-i18n="sync.deltaSync">Delta sync</span>
                                 </div>
                                 <span class="delta-sync-badge"><span class="sync-dot" aria-hidden="true"></span><span id="deltaSyncStatus" role="status"></span></span>
                             </div>
@@ -253,21 +253,21 @@
                             <div class="sync-row">
                                 <div class="sync-status">
                                     <span id="syncStatusDot" class="sync-dot"></span>
-                                    <span id="syncStatusText" class="sync-text-sm">Checking...</span>
+                                    <span id="syncStatusText" class="sync-text-sm" data-i18n="sync.checking">Checking...</span>
                                 </div>
                                 <span id="syncProgress" class="sync-progress-sm"></span>
                                 <div class="sync-buttons-sm">
-                                    <button type="button" id="pauseSyncButton" class="btn-icon-sm" title="Pause sync">
+                                    <button type="button" id="pauseSyncButton" class="btn-icon-sm" title="Pause sync" data-i18n-title="sync.pauseTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
                                         </svg>
                                     </button>
-                                    <button type="button" id="resumeSyncButton" class="btn-icon-sm" title="Resume sync">
+                                    <button type="button" id="resumeSyncButton" class="btn-icon-sm" title="Resume sync" data-i18n-title="sync.resumeTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M8 5v14l11-7z"/>
                                         </svg>
                                     </button>
-                                    <button type="button" id="forceSyncButton" class="btn-icon-sm btn-icon-primary" title="Sync now">
+                                    <button type="button" id="forceSyncButton" class="btn-icon-sm btn-icon-primary" title="Sync now" data-i18n-title="sync.nowTitle">
                                         <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
                                         </svg>
@@ -403,7 +403,7 @@
                 <div class="documents-layout">
                     <!-- Document Upload Section -->
                     <section class="documents-section">
-                        <h2 data-i18n="documents.title">📄 Document Ingestion</h2>
+                        <h2 data-i18n="documents.title">Document Ingestion</h2>
                         <div class="upload-area">
                             <div id="dropZone" class="drop-zone">
                                 <div class="drop-zone-content">
@@ -428,7 +428,7 @@
 
                              <!-- Processing Mode Toggle (shown when multiple files selected) -->
                              <div class="config-section" id="processingModeSection" style="display: none;">
-                             <label data-i18n="documents.processingMode">Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation" data-i18n-aria="documents.processingTip">ℹ️</span></label>
+                             <label data-i18n="documents.processingMode">Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation" data-i18n-aria="documents.processingTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span></label>
                                  <div class="processing-mode-toggle">
                                      <button type="button" id="batchModeBtn" class="mode-btn active" data-mode="batch" data-i18n="documents.modeBatch">
                                           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
@@ -451,14 +451,14 @@
                                 <div class="config-section">
                                     <label for="chunkSize" data-i18n-html="documents.chunkSizeLabel">
                                         Chunk Size: <span id="chunkSizeValue">1000</span> chars
-                                        <span class="info-icon" title="Click for chunking recommendations" data-i18n-aria="documents.chunkSizeTip">ℹ️</span>
+                                        <span class="info-icon" title="Click for chunking recommendations" data-i18n-aria="documents.chunkSizeTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
                                     </label>
                                     <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
                                 </div>
                                 <div class="config-section">
                                     <label for="chunkOverlap" data-i18n-html="documents.chunkOverlapLabel">
                                         Overlap: <span id="chunkOverlapValue">200</span> chars
-                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation" data-i18n-aria="documents.chunkOverlapTip">ℹ️</span>
+                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation" data-i18n-aria="documents.chunkOverlapTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
                                     </label>
                                     <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
                                 </div>
@@ -467,7 +467,7 @@
                             <!-- Chunking Help Section (collapsible) -->
                             <div id="chunkingHelpSection" class="chunking-help" style="display: none;">
                                 <div class="help-header">
-                                    <strong data-i18n="documents.chunkHelp.title">📚 Chunking Configuration Guide</strong>
+                                    <strong data-i18n="documents.chunkHelp.title">Chunking Configuration Guide</strong>
                                     <button class="close-help" data-action="hideChunkingHelp">×</button>
                                 </div>
                                 <div class="help-content">
@@ -479,7 +479,7 @@
                                     <div class="help-recommendations">
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.chunkHelp.defaultTitle">✅ Default (1000 chars, 200 overlap)</strong>
+                                                <strong data-i18n="documents.chunkHelp.defaultTitle">Default (1000 chars, 200 overlap)</strong>
                                                 <span class="help-tag" data-i18n="documents.chunkHelp.recommended">Recommended</span>
                                             </div>
                                             <p data-i18n-html="documents.chunkHelp.defaultBest"><strong>Best for:</strong> Technical documentation, reference manuals, knowledge bases</p>
@@ -488,7 +488,7 @@
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.chunkHelp.smallTitle">🔍 Smaller Chunks (500 chars, 100 overlap)</strong>
+                                                <strong data-i18n="documents.chunkHelp.smallTitle">Smaller Chunks (500 chars, 100 overlap)</strong>
                                             </div>
                                             <p data-i18n-html="documents.chunkHelp.smallBest"><strong>Best for:</strong> Dense technical docs, code documentation, API references</p>
                                             <p data-i18n-html="documents.chunkHelp.smallTradeoff"><strong>Trade-off:</strong> More granular retrieval but may split paragraphs more aggressively</p>
@@ -496,7 +496,7 @@
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.chunkHelp.largeTitle">📖 Larger Chunks (2000 chars, 400 overlap)</strong>
+                                                <strong data-i18n="documents.chunkHelp.largeTitle">Larger Chunks (2000 chars, 400 overlap)</strong>
                                             </div>
                                             <p data-i18n-html="documents.chunkHelp.largeBest"><strong>Best for:</strong> Narrative documents, articles, blogs, long-form content</p>
                                             <p data-i18n-html="documents.chunkHelp.largeTradeoff"><strong>Trade-off:</strong> Better context but less precise retrieval</p>
@@ -504,7 +504,7 @@
                                     </div>
 
                                     <div class="help-tips">
-                                        <strong data-i18n="documents.chunkHelp.tipsTitle">💡 Tips:</strong>
+                                        <strong data-i18n="documents.chunkHelp.tipsTitle">Tips:</strong>
                                         <ul>
                                             <li data-i18n-html="documents.chunkHelp.tipOverlap"><strong>Overlap</strong> helps maintain context across chunk boundaries</li>
                                             <li data-i18n-html="documents.chunkHelp.tipHigherOverlap"><strong>Higher overlap</strong> = better continuity but more redundancy</li>
@@ -518,7 +518,7 @@
                             <!-- Overlap Help Section (collapsible) -->
                             <div id="overlapHelpSection" class="chunking-help overlap-help" style="display: none;">
                                 <div class="help-header">
-                                    <strong data-i18n="documents.overlapHelp.title">🔗 Chunk Overlap Explained</strong>
+                                    <strong data-i18n="documents.overlapHelp.title">Chunk Overlap Explained</strong>
                                     <button class="close-help" data-action="hideOverlapHelp">×</button>
                                 </div>
                                 <div class="help-content">
@@ -544,7 +544,7 @@
                                     <div class="help-recommendations">
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.overlapHelp.noneTitle">🎯 No Overlap (0 chars)</strong>
+                                                <strong data-i18n="documents.overlapHelp.noneTitle">No Overlap (0 chars)</strong>
                                             </div>
                                             <p data-i18n-html="documents.overlapHelp.noneBest"><strong>Best for:</strong> Maximum storage efficiency, no redundancy needed</p>
                                             <p data-i18n-html="documents.overlapHelp.noneTradeoff"><strong>Trade-off:</strong> Context may be lost at chunk boundaries</p>
@@ -552,7 +552,7 @@
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.overlapHelp.mediumTitle">✅ Medium Overlap (200 chars)</strong>
+                                                <strong data-i18n="documents.overlapHelp.mediumTitle">Medium Overlap (200 chars)</strong>
                                                 <span class="help-tag" data-i18n="documents.chunkHelp.recommended">Recommended</span>
                                             </div>
                                             <p data-i18n-html="documents.overlapHelp.mediumBest"><strong>Best for:</strong> Most documents - balances context and efficiency</p>
@@ -561,7 +561,7 @@
 
                                         <div class="help-option">
                                             <div class="help-option-header">
-                                                <strong data-i18n="documents.overlapHelp.highTitle">🔄 High Overlap (400+ chars)</strong>
+                                                <strong data-i18n="documents.overlapHelp.highTitle">High Overlap (400+ chars)</strong>
                                             </div>
                                             <p data-i18n-html="documents.overlapHelp.highBest"><strong>Best for:</strong> Complex technical content requiring maximum context</p>
                                             <p data-i18n-html="documents.overlapHelp.highTradeoff"><strong>Trade-off:</strong> More storage and processing, higher redundancy</p>
@@ -569,7 +569,7 @@
                                     </div>
 
                                     <div class="help-tips">
-                                        <strong data-i18n="documents.overlapHelp.tipsTitle">💡 Guidelines:</strong>
+                                        <strong data-i18n="documents.overlapHelp.tipsTitle">Guidelines:</strong>
                                         <ul>
                                             <li data-i18n-html="documents.overlapHelp.tipRule"><strong>Rule of thumb:</strong> Overlap should be 15-25% of chunk size</li>
                                             <li data-i18n-html="documents.overlapHelp.tipSmall"><strong>Small chunks (500)</strong> → Use 100-150 overlap</li>
@@ -585,7 +585,7 @@
                             <!-- Processing Mode Help Section (collapsible) -->
                              <div id="processingModeHelpSection" class="chunking-help processing-mode-help" style="display: none;">
                                  <div class="help-header">
-                                     <strong>⚙️ Processing Mode Options</strong>
+                                     <strong>Processing Mode Options</strong>
                                      <button class="close-help" data-action="hideProcessingModeHelp">×</button>
                                  </div>
                              <div class="help-content">
@@ -597,7 +597,7 @@
                                      <div class="help-recommendations">
                                          <div class="help-option">
                                              <div class="help-option-header">
-                                                 <strong data-i18n="documents.processingHelp.batchTitle">📦 Batch Processing</strong>
+                                                 <strong data-i18n="documents.processingHelp.batchTitle">Batch Processing</strong>
                                                  <span class="help-tag" data-i18n="documents.processingHelp.default">Default</span>
                                              </div>
                                              <p data-i18n-html="documents.processingHelp.batchWhat"><strong>What it does:</strong> Uploads all files together as one operation</p>
@@ -608,7 +608,7 @@
 
                                          <div class="help-option">
                                              <div class="help-option-header">
-                                                 <strong data-i18n="documents.processingHelp.individualTitle">🔄 Individual Processing</strong>
+                                                 <strong data-i18n="documents.processingHelp.individualTitle">Individual Processing</strong>
                                              </div>
                                              <p data-i18n-html="documents.processingHelp.individualWhat"><strong>What it does:</strong> Uploads each file separately with individual API calls</p>
                                              <p data-i18n-html="documents.processingHelp.individualBest"><strong>Best for:</strong> Mixed file types, when you want error isolation, or need individual progress tracking</p>
@@ -618,7 +618,7 @@
                                      </div>
 
                                          <div class="help-tips">
-                                             <strong data-i18n="documents.processingHelp.tipsTitle">💡 When to choose each mode:</strong>
+                                             <strong data-i18n="documents.processingHelp.tipsTitle">When to choose each mode:</strong>
                                              <ul>
                                                  <li data-i18n-html="documents.processingHelp.tipBatch"><strong>Batch mode:</strong> When files are similar and you want them processed quickly together</li>
                                                  <li data-i18n-html="documents.processingHelp.tipIndividual"><strong>Individual mode:</strong> When files might have different processing requirements or you want to ensure all files get processed even if some fail</li>
@@ -652,7 +652,7 @@
 
                     <!-- Upload Queue/History Section -->
                     <section class="documents-section">
-                        <h2 data-i18n="documents.historyTitle">📊 Upload History</h2>
+                        <h2 data-i18n="documents.historyTitle">Upload History</h2>
                         <div id="uploadHistory" class="upload-history">
                             <div class="loading-spinner"></div>
                             <p data-i18n="documents.historyLoading">Loading upload history...</p>
@@ -661,7 +661,7 @@
 
                     <!-- Document Content Search Section -->
                     <section class="documents-section">
-                        <h2 data-i18n="documents.searchTitle">🔍 Search Ingested Content</h2>
+                        <h2 data-i18n="documents.searchTitle">Search Ingested Content</h2>
                         <p class="section-description" data-i18n="documents.searchDesc">Search within your uploaded documents to verify content is indexed</p>
                         <div class="doc-search-container">
                             <input type="text"
@@ -713,7 +713,7 @@
                 <div class="manage-layout">
                     <!-- Bulk Operations Section -->
                     <section class="manage-section">
-                        <h2 data-i18n="manage.bulk.title">🧹 Bulk Operations</h2>
+                        <h2 data-i18n="manage.bulk.title">Bulk Operations</h2>
                         <div class="bulk-ops-grid">
                             <div class="bulk-op-card">
                                 <h3 data-i18n="manage.bulk.deleteTag.title">Delete by Tag</h3>
@@ -755,7 +755,7 @@
 
                     <!-- Tag Management Section -->
                     <section class="manage-section">
-                        <h2 data-i18n="manage.tags.title">🏷️ Tag Management</h2>
+                        <h2 data-i18n="manage.tags.title">Tag Management</h2>
                         <div id="tagManagementContainer">
                             <div class="loading-spinner"></div>
                             <p data-i18n="manage.tags.loading">Loading tag statistics...</p>
@@ -764,7 +764,7 @@
 
                     <!-- System Operations Section -->
                     <section class="manage-section">
-                        <h2 data-i18n="manage.system.title">⚙️ System Maintenance</h2>
+                        <h2 data-i18n="manage.system.title">System Maintenance</h2>
                         <div class="system-ops-grid">
                             <div class="system-op-card">
                                 <h3 data-i18n="manage.system.dbOpt.title">Database Optimization</h3>
@@ -787,7 +787,7 @@
                 <div class="analytics-layout">
                     <!-- Key Metrics Cards -->
                     <section class="analytics-section">
-                        <h2 data-i18n="analytics.keyMetrics">📊 Key Metrics</h2>
+                        <h2 data-i18n="analytics.keyMetrics">Key Metrics</h2>
                         <div class="metrics-grid">
                             <div class="metric-card">
                                 <div class="metric-value" id="analyticsTotalMemories">-</div>
@@ -810,7 +810,7 @@
 
                     <!-- Charts Section -->
                     <section class="analytics-section">
-                        <h2 data-i18n="analytics.trends">📈 Trends & Charts</h2>
+                        <h2 data-i18n="analytics.trends">Trends & Charts</h2>
                         <div class="charts-grid">
                             <div class="chart-card">
                                 <h3 data-i18n="analytics.growth">Memory Growth Over Time</h3>
@@ -862,7 +862,7 @@
 
                             <!-- Knowledge Graph Section (v9.2.0) -->
                             <section class="analytics-section">
-                                <h2 data-i18n="analytics.knowledgeGraph">🧬 Knowledge Graph</h2>
+                                <h2 data-i18n="analytics.knowledgeGraph">Knowledge Graph</h2>
                                 <p class="section-description" data-i18n="analytics.knowledgeGraphDescription">Explore typed relationships between your memories</p>
                                 <div class="charts-grid">
                                     <div class="chart-card">
@@ -959,7 +959,7 @@
 
                             <!-- Detailed Analytics -->
                             <section class="analytics-section">
-                            <h2 data-i18n="analytics.reports">📋 Detailed Reports</h2>
+                            <h2 data-i18n="analytics.reports">Detailed Reports</h2>
                             <div class="reports-grid">
                             <div class="report-card">
                             <h3 data-i18n="analytics.topTags">Top Tags</h3>
@@ -1007,8 +1007,8 @@
             <!-- Quality Analytics View -->
             <div id="qualityAnalyticsView" class="view-container">
                 <div class="quality-analytics-section">
-                    <h2 data-i18n="quality.analytics.title">⭐ Memory Quality Analytics</h2>
-                    <p data-i18n="quality.analytics.subtitle">Track and improve your memory quality with AI-powered scoring</p>
+                    <h2 data-i18n="quality.analytics.title">Memory Quality Analytics</h2>
+                    <p data-i18n="quality.analytics.subtitle">Quality score of each memory and how the scores are distributed</p>
 
                     <!-- Quality Distribution Summary -->
                     <div class="quality-summary">
@@ -1052,13 +1052,13 @@
 
                     <!-- Top Performers -->
                     <div class="top-performers">
-                        <h3 data-i18n="quality.top.title">🏆 Top Quality Memories</h3>
+                        <h3 data-i18n="quality.top.title">Top Quality Memories</h3>
                         <div id="quality-top-memories-list"></div>
                     </div>
 
                     <!-- Bottom Performers (for improvement) -->
                     <div class="bottom-performers">
-                        <h3 data-i18n="quality.bottom.title">📈 Memories for Improvement</h3>
+                        <h3 data-i18n="quality.bottom.title">Memories for Improvement</h3>
                         <div id="quality-bottom-memories-list"></div>
                     </div>
                 </div>
@@ -1067,8 +1067,8 @@
             <!-- API Documentation View -->
             <div id="apiDocsView" class="view-container">
                 <div class="api-docs-header">
-                    <h2 data-i18n="api.title">🔗 API Documentation</h2>
-                    <p data-i18n="api.subtitle">Comprehensive REST API endpoints for MCP Memory Service</p>
+                    <h2 data-i18n="api.title">API Documentation</h2>
+                    <p data-i18n="api.subtitle">REST endpoints of this server</p>
                     <div class="api-docs-links">
                         <a href="api/docs" target="_blank" class="btn btn-primary" data-i18n="api.link.swagger">
                             <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
@@ -1082,19 +1082,13 @@
                             </svg>
                             ReDoc Documentation
                         </a>
-                        <a href="api-overview" target="_blank" class="btn btn-secondary" data-i18n="api.link.overview">
-                            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z"/>
-                            </svg>
-                            API Overview Page
-                        </a>
                     </div>
                 </div>
 
                 <div class="api-endpoints-grid">
                     <!-- Memory Management -->
                     <div class="endpoint-section">
-                        <h3 data-i18n="api.section.memory">💾 Memory Management</h3>
+                        <h3 data-i18n="api.section.memory">Memory Management</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
@@ -1121,7 +1115,7 @@
 
                     <!-- Search Operations -->
                     <div class="endpoint-section">
-                        <h3 data-i18n="api.section.search">🔍 Search Operations</h3>
+                        <h3 data-i18n="api.section.search">Search Operations</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method post">POST</span>
@@ -1148,7 +1142,7 @@
 
                     <!-- Real-time Events -->
                     <div class="endpoint-section">
-                        <h3 data-i18n="api.section.events">📡 Real-time Events</h3>
+                        <h3 data-i18n="api.section.events">Real-time Events</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
@@ -1165,7 +1159,7 @@
 
                     <!-- Health & Status -->
                     <div class="endpoint-section">
-                        <h3 data-i18n="api.section.health">🏥 Health & Status</h3>
+                        <h3 data-i18n="api.section.health">Health & Status</h3>
                         <div class="endpoint-list">
                             <div class="endpoint-item">
                                 <span class="method get">GET</span>
@@ -1189,9 +1183,9 @@
                 <div class="footer-section">
                     <h4 data-i18n="footer.docs.title">Documentation</h4>
                     <ul class="footer-links">
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener" data-i18n="footer.docs.wiki">📚 Wiki Home</a></li>
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING" target="_blank" rel="noopener" data-i18n="footer.docs.troubleshoot">🔧 Troubleshooting Guide</a></li>
-                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues" target="_blank" rel="noopener" data-i18n="footer.docs.config">⚙️ Configuration Issues</a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener" data-i18n="footer.docs.wiki">Wiki Home</a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING" target="_blank" rel="noopener" data-i18n="footer.docs.troubleshoot">Troubleshooting Guide</a></li>
+                        <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki/07-TROUBLESHOOTING#backend-configuration-issues" target="_blank" rel="noopener" data-i18n="footer.docs.config">Configuration Issues</a></li>
                     </ul>
                 </div>
 
@@ -1205,10 +1199,10 @@
                             GitHub Repository
                         </a></li>
                         <li><a href="https://doobidoo.github.io" target="_blank" rel="noopener" data-i18n="footer.resources.portfolio">
-                            🌐 Portfolio
+                            Portfolio
                         </a></li>
                         <li><a href="api/docs" target="_blank" data-i18n="footer.resources.apiDoc">
-                            📖 API Documentation
+                            API Documentation
                         </a></li>
                     </ul>
                 </div>
@@ -1338,13 +1332,13 @@
 
                 <!-- Tab Navigation -->
                 <div class="settings-tabs">
-                    <button class="settings-tab active" data-tab="preferences">Preferences</button>
-                    <button class="settings-tab" data-tab="credentials">Credentials</button>
-                    <button class="settings-tab" data-tab="environment">Environment</button>
-                    <button class="settings-tab" data-tab="system">System Info</button>
-                    <button class="settings-tab" data-tab="quality">Quality</button>
-                    <button class="settings-tab" data-tab="backup">Backup</button>
-                    <button class="settings-tab" data-tab="server">Server</button>
+                    <button class="settings-tab active" data-tab="preferences" data-i18n="modal.settings.tabs.preferences">Preferences</button>
+                    <button class="settings-tab" data-tab="credentials" data-i18n="modal.settings.tabs.credentials">Credentials</button>
+                    <button class="settings-tab" data-tab="environment" data-i18n="modal.settings.tabs.environment">Environment</button>
+                    <button class="settings-tab" data-tab="system" data-i18n="modal.settings.tabs.system">System Info</button>
+                    <button class="settings-tab" data-tab="quality" data-i18n="modal.settings.tabs.quality">Quality</button>
+                    <button class="settings-tab" data-tab="backup" data-i18n="modal.settings.tabs.backup">Backup</button>
+                    <button class="settings-tab" data-tab="server" data-i18n="modal.settings.tabs.server">Server</button>
                 </div>
 
                 <div class="modal-body">
@@ -1377,7 +1371,7 @@
                     <!-- Environment Configuration Tab -->
                     <div id="environmentTab" class="settings-tab-content" style="display: none;">
                         <div class="env-config-header">
-                            <p class="env-config-description">
+                            <p class="env-config-description" data-i18n="modal.settings.env.description">
                                 View your current environment configuration.
                                 To change settings, edit your .env file and restart the server.
                             </p>
@@ -1385,7 +1379,7 @@
                                 <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
                                 </svg>
-                                Copy Configuration
+                                <span data-i18n="modal.settings.env.copy">Copy Configuration</span>
                             </button>
                         </div>
 
@@ -1465,7 +1459,7 @@
                                 <label for="cred-api-token">API Token</label>
                                 <div class="token-input-group">
                                     <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide">&#128065;</button>
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide" data-i18n="common.show">Show</button>
                                 </div>
                                 <small class="form-text">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
                             </div>
@@ -1473,7 +1467,7 @@
                                 <label for="cred-account-id">Account ID</label>
                                 <div class="token-input-group">
                                     <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide">&#128065;</button>
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide" data-i18n="common.show">Show</button>
                                 </div>
                             </div>
                             <div class="credential-field">
@@ -1508,7 +1502,7 @@
                             <button type="button" id="credTestBtn" class="btn btn-secondary">Test Connection</button>
                             <button type="button" id="credSaveBtn" class="btn btn-primary" disabled>Save &amp; Restart</button>
                         </div>
-                        <p class="settings-hint">&#8505;&#65039; Token shown as partial reveal. Use the &#128065; button to see the full value.</p>
+                        <p class="settings-hint">Token shown as partial reveal. Use Show to see the full value.</p>
                     </div>
 
                     <!-- Quality Tab -->
@@ -1571,28 +1565,28 @@
 
                     <!-- Server Tab -->
                     <div id="serverTab" class="settings-tab-content" style="display: none;">
-                        <h4 class="settings-section-heading">Server Management</h4>
+                        <h4 class="settings-section-heading" data-i18n="modal.settings.server.title">Server Management</h4>
                         <div class="server-management">
                             <div class="info-row">
-                                <span class="info-label">Server PID:</span>
+                                <span class="info-label" data-i18n="modal.settings.server.pid">Server PID:</span>
                                 <span class="info-value" id="settingsServerPid">-</span>
                             </div>
                             <div class="info-row">
-                                <span class="info-label">Platform:</span>
+                                <span class="info-label" data-i18n="modal.settings.server.platform">Platform:</span>
                                 <span class="info-value" id="settingsServerPlatform">-</span>
                             </div>
                             <div class="info-row">
-                                <span class="info-label">Update Available:</span>
-                                <span class="info-value" id="settingsUpdateAvailable">Not checked yet</span>
+                                <span class="info-label" data-i18n="modal.settings.server.updateAvailable">Update Available:</span>
+                                <span class="info-value" id="settingsUpdateAvailable" data-i18n="modal.settings.server.notChecked">Not checked yet</span>
                             </div>
                             <div class="server-actions">
-                                <button type="button" id="checkUpdatesBtn" class="btn btn-sm btn-secondary">Check for Updates</button>
-                                <button type="button" id="updateServerBtn" class="btn btn-sm btn-primary" style="display:none;">Update &amp; Restart</button>
-                                <button type="button" id="restartServerBtn" class="btn btn-sm btn-warning">Restart Server</button>
+                                <button type="button" id="checkUpdatesBtn" class="btn btn-sm btn-secondary" data-i18n="modal.settings.server.checkUpdates">Check for Updates</button>
+                                <button type="button" id="updateServerBtn" class="btn btn-sm btn-primary" style="display:none;" data-i18n="modal.settings.server.updateRestart">Update &amp; Restart</button>
+                                <button type="button" id="restartServerBtn" class="btn btn-sm btn-warning" data-i18n="modal.settings.server.restart">Restart Server</button>
                             </div>
                             <div id="serverActionStatus" class="server-action-status" style="display:none;">
                                 <div class="action-spinner"></div>
-                                <span id="serverActionText">Processing...</span>
+                                <span id="serverActionText" data-i18n="modal.settings.server.processing">Processing...</span>
                             </div>
                         </div>
                     </div>
@@ -1608,17 +1602,17 @@
         <div id="viewBackupsModal" class="modal-overlay">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3>Backup History</h3>
+                    <h3 data-i18n="modal.backups.title">Backup History</h3>
                     <button class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div id="backupsSummary" class="backup-summary"></div>
                     <div id="backupsList" class="backups-list">
-                        <p class="loading-text">Loading backups...</p>
+                        <p class="loading-text" data-i18n="modal.backups.loading">Loading backups...</p>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary">Close</button>
+                    <button type="button" id="viewBackupsCloseButton" class="btn btn-secondary" data-i18n="modal.backups.close">Close</button>
                 </div>
             </div>
         </div>
@@ -1633,8 +1627,8 @@
         <div id="restartOverlay" class="restart-overlay" style="display:none;">
             <div class="restart-content">
                 <div class="restart-spinner"></div>
-                <h3>Server Restarting...</h3>
-                <p id="restartStatus">Waiting for server to come back online...</p>
+                <h3 data-i18n="modal.settings.server.restarting">Server Restarting...</h3>
+                <p id="restartStatus" data-i18n="modal.settings.server.waiting">Waiting for server to come back online...</p>
                 <p class="restart-countdown">Reconnecting in <span id="restartCountdown">5</span>s</p>
             </div>
         </div>
@@ -1653,7 +1647,7 @@
     <div id="memoryViewerModal" class="modal" style="display: none;">
         <div class="modal-content memory-viewer-content">
             <div class="modal-header">
-                <h2 data-i18n="modal.memoryViewer.title">📝 Document Memory Chunks</h2>
+                <h2 data-i18n="modal.memoryViewer.title">Document Memory Chunks</h2>
                 <button class="modal-close" data-action="closeMemoryViewer">&times;</button>
             </div>
             <div class="modal-body">
@@ -1677,7 +1671,7 @@
     <div id="authModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>🔐 Authentication Required</h3>
+                <h3>Authentication Required</h3>
             </div>
             <div class="modal-body">
                 <p>The dashboard requires authentication to access memory operations.</p>

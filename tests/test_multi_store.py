@@ -1,6 +1,7 @@
 """Tests for multi-store partition key support (Issue #57)."""
 import pytest
 import os
+import uuid
 
 os.environ.setdefault('MCP_MEMORY_STORAGE_BACKEND', 'sqlite_vec')
 
@@ -195,20 +196,36 @@ class TestMultiStoreToolWiring:
         """memory_search tool respects store parameter."""
         from mcp_memory_service.server import MemoryServer
         server = MemoryServer()
-        # Store in specific store
+        # The default store is shared with every earlier test in this process
+        # (and semantic search returns its nearest matches whatever they are),
+        # so assert that *this* memory is absent, not that the results are
+        # empty. The marker leads the content because results show only a
+        # short preview of each memory, and stays out of the query because
+        # the response echoes the query.
+        marker = f"msiso-{uuid.uuid4().hex[:12]}"
+        query = "unique multi-store test content alpha"
         await server.call_tool("memory_store", {
-            "content": "Unique multi-store test content alpha",
+            "content": f"{marker} {query}",
             "metadata": {"tags": "test"},
             "store": "isolated"
         })
         # Search in different store should not find it
         result = await server.call_tool("memory_search", {
-            "query": "unique multi-store test content alpha",
+            "query": query,
             "store": "default"
         })
         text = result[0].text
-        # Should either be empty results or not contain our content
-        assert "no memories found" in text.lower() or "0 memories" in text.lower() or '"memories": []' in text
+        # An "Error: ..." reply would not contain the marker either, so the
+        # search itself has to have succeeded before absence means anything.
+        assert text.startswith(("Found ", "No memories found")), text
+        assert marker not in text
+        # Control: the same search in its own store does find it, so the
+        # absence above is not just a search that matched nothing.
+        result = await server.call_tool("memory_search", {
+            "query": query,
+            "store": "isolated"
+        })
+        assert marker in result[0].text
 
 
 async def _build_pre_62_db(db_path):

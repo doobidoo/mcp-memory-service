@@ -50,7 +50,7 @@ curl http://127.0.0.1:8000/api/consolidation/status | jq '.jobs_executed'
 ### Required Software
 
 - MCP Memory Service v8.51.0+
-- Python 3.10+
+- Python 3.11+
 - SQLite 3.35+ (for recursive CTEs)
 - Disk space: ~10% of current database size (for migration overhead)
 

@@ -20,4 +20,13 @@
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
   </url>
+<!-- locale-pages:start -->
+  <url><loc>https://mcpmemory.services/de/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/es/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/fr/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/ja/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/pt-br/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/zh-cn/</loc><changefreq>monthly</changefreq></url>
+  <url><loc>https://mcpmemory.services/zh-tw/</loc><changefreq>monthly</changefreq></url>
+<!-- locale-pages:end -->
 </urlset>

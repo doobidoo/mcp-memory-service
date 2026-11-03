@@ -7,7 +7,7 @@ integration's pattern classifier and understands Codex rollout messages.
 ## Requirements
 
 - A current local Codex runtime with native lifecycle hooks and `/hooks`.
-- Node.js 18 or newer and Python 3.10 or newer for installation.
+- Node.js 18 or newer and Python 3.11 or newer for installation.
 - A running MCP Memory Service HTTP endpoint.
 - A checkout of this repository; these scripts are not installed by the Python package.
 

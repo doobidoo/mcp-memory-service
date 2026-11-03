@@ -274,7 +274,9 @@ def status(storage_backend, deep):
 
             if stats:
                 click.echo(f"   Memories: {stats.get('total_memories', 'Unknown')}")
-                click.echo(f"   Database size: {stats.get('database_size_mb', 'Unknown')} MB")
+                size_mb = stats.get('database_size_mb')
+                # None means the backend could not read the database, not "zero".
+                click.echo(f"   Database size: {size_mb} MB" if size_mb is not None else "   Database size: Unknown")
                 click.echo(f"   Unique tags: {stats.get('unique_tags', 'Unknown')}")
 
             # ── Embedding backend ────────────────────────────────────────────

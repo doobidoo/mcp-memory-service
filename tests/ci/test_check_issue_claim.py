@@ -266,6 +266,28 @@ def test_assignment_changes_do_not_rerun_an_active_check(monkeypatch):
     assert fake.writes() == []
 
 
+def test_auto_assignment_waits_for_an_active_check_before_rerunning(monkeypatch):
+    fake = FakeGh(runs=[{**FAILED_CLAIM_RUN, "conclusion": None}])
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN")))
+    monkeypatch.setattr(claim.time, "sleep", lambda seconds: fake.runs.__setitem__(
+        slice(None), [FAILED_CLAIM_RUN]))
+    claim.rerun_for_issue("o/r", 1458, dry_run=False, wait_seconds=30)
+    assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
+
+
+def test_auto_assignment_reports_a_check_that_never_completes(monkeypatch):
+    fake = FakeGh(runs=[{**FAILED_CLAIM_RUN, "conclusion": None}])
+    monkeypatch.setattr(claim, "gh", fake)
+    monkeypatch.setattr(claim, "graphql", issue_closed_by((7, "OPEN")))
+    clock = iter([0, 0, 31])
+    monkeypatch.setattr(claim.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(claim.time, "sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="still active"):
+        claim.rerun_for_issue("o/r", 1458, dry_run=False, wait_seconds=30)
+    assert fake.writes() == []
+
+
 def test_pr_without_issue_is_labelled_and_commented_once_but_passes(monkeypatch):
     code, fake = run_check(monkeypatch, with_state(pr([])))
     assert code == 0

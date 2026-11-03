@@ -93,6 +93,11 @@ GUARDED_MODULES = [
     "mcp_memory_service/reasoning/entity_linker.py",
     "mcp_memory_service/reasoning/nli.py",
     "mcp_memory_service/reasoning/multi_strategy.py",
+    "mcp_memory_service/harvest/parser.py",
+    "mcp_memory_service/harvest/patterns/__init__.py",
+    "mcp_memory_service/harvest/harvester.py",
+    "mcp_memory_service/harvest/extractor.py",
+    "mcp_memory_service/harvest/auto_capture.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -192,6 +197,11 @@ EXTERNAL_NAMES = frozenset({
     # the name bare in a %-style call, so listing it decides for nobody else.
     # `error_msg` above already covers the stderr of the semtools subprocess.
     "file_path",
+    # What harvest/parser.py and harvest/patterns/ log about files they did not
+    # name: the session or pattern file (`filepath`) and the `memory_type` key
+    # read out of a pattern YAML. No other guarded module logs either bare.
+    "filepath",
+    "memory_type",
     # An entity name EntityExtractor pulled out of a memory's content or tags
     # (reasoning/entity_linker.py logs it when the lookup fails and when the
     # per-entity link cap is hit). No guarded module logs the name bare in a
