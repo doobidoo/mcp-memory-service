@@ -1671,27 +1671,27 @@
     <div id="authModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Authentication Required</h3>
+                <h3 data-i18n="modal.auth.title">Authentication Required</h3>
             </div>
             <div class="modal-body">
-                <p>The dashboard requires authentication to access memory operations.</p>
+                <p data-i18n="modal.auth.description">The dashboard requires authentication to access memory operations.</p>
 
                 <div class="auth-options">
                     <div class="auth-option">
-                        <h4>API Key</h4>
-                        <input type="password" id="apiKeyInput" placeholder="Enter your API key" autocomplete="off" spellcheck="false" />
-                        <button id="authWithApiKey" class="btn btn-primary">Authenticate</button>
+                        <h4 data-i18n="modal.auth.apiKeyTitle">API Key</h4>
+                        <input type="password" id="apiKeyInput" placeholder="Enter your API key" data-i18n-placeholder="modal.auth.apiKeyPlaceholder" autocomplete="off" spellcheck="false" />
+                        <button id="authWithApiKey" class="btn btn-primary" data-i18n="modal.auth.authenticate">Authenticate</button>
                     </div>
 
                     <div class="auth-option">
-                        <h4>OAuth</h4>
-                        <p>Use OAuth for team collaboration.</p>
-                        <button id="authWithOAuth" class="btn btn-secondary">Login with OAuth</button>
+                        <h4 data-i18n="modal.auth.oauthTitle">OAuth</h4>
+                        <p data-i18n="modal.auth.oauthDescription">Use OAuth for team collaboration.</p>
+                        <button id="authWithOAuth" class="btn btn-secondary" data-i18n="modal.auth.oauthLogin">Login with OAuth</button>
                     </div>
                 </div>
 
                 <div class="auth-footer">
-                    <p><strong>For local development:</strong> Set <code>MCP_ALLOW_ANONYMOUS_ACCESS=true</code> in your environment. This grants full read+write access without credentials.</p>
+                    <p data-i18n-html="modal.auth.localDevNote"><strong>For local development:</strong> Set <code>MCP_ALLOW_ANONYMOUS_ACCESS=true</code> in your environment. This grants full read+write access without credentials.</p>
                 </div>
             </div>
         </div>
