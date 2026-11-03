@@ -25,6 +25,7 @@
   "analytics.period.quarter": "Trimestre Dernier",
   "analytics.period.week": "Semaine Dernière",
   "analytics.period.year": "Année Dernière",
+  "analytics.weekLabel": "Semaine {week} ({year})",
   "analytics.recentActivity": "Activité Récente",
   "analytics.reports": "Rapports Détaillés",
   "analytics.storage": "Rapport de Stockage",

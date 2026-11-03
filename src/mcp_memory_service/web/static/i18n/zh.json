@@ -269,6 +269,7 @@
   "analytics.period.month": "上月",
   "analytics.period.quarter": "上季度",
   "analytics.period.year": "去年",
+  "analytics.weekLabel": "{year}年第{week}周",
   "analytics.period.90d": "近 90 天",
   "analytics.period.180d": "近 6 个月",
   "analytics.period.7d": "近 7 天",

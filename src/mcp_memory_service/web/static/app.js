@@ -5883,6 +5883,27 @@ class MemoryDashboard {
     }
 
     /**
+    * Render an activity period in the dashboard language. The API sends English
+    * labels plus the hour, weekday or ISO week; older servers send labels only.
+    */
+    formatActivityPeriod(item) {
+        const lang = this.currentLang || undefined;
+        if (item.hour != null) {
+            return new Intl.DateTimeFormat(lang, { hour: 'numeric', timeZone: 'UTC' })
+                .format(Date.UTC(2024, 0, 1, item.hour));
+        }
+        if (item.weekday != null) {
+            // 2024-01-01 is a Monday, matching the API's 0 = Monday.
+            return new Intl.DateTimeFormat(lang, { weekday: 'long', timeZone: 'UTC' })
+                .format(Date.UTC(2024, 0, 1 + item.weekday));
+        }
+        if (item.iso_week != null) {
+            return this.t('analytics.weekLabel', 'Week {week} ({year})', { week: item.iso_week, year: item.iso_year });
+        }
+        return item.label;
+    }
+
+    /**
     * Render recent activity report
     */
     renderRecentActivityReport(container, data) {
@@ -5898,7 +5919,7 @@ class MemoryDashboard {
     if (data.peak_times && data.peak_times.length > 0) {
     html += '<div class="peak-times">';
         html += '<strong>Peak Times:</strong> ';
-        html += data.peak_times.join(', ');
+        html += (data.peak_periods?.length ? data.peak_periods.map(p => this.formatActivityPeriod(p)) : data.peak_times).join(', ');
             html += '</div>';
     }
 
@@ -5917,7 +5938,7 @@ class MemoryDashboard {
                 const barWidth = totalCount > 0 ? (item.count / maxCount * 100) : 0;
 
                 html += `<div class="activity-bar-row">
-                    <span class="activity-label">${item.label}</span>
+                    <span class="activity-label">${this.formatActivityPeriod(item)}</span>
                     <div class="activity-bar" style="width: ${barWidth}%" title="${item.count} memories (${percentage.toFixed(1)}%)"></div>
                     <span class="activity-count">${item.count} (${percentage.toFixed(1)}%)</span>
                 </div>`;
@@ -5978,7 +5999,7 @@ class MemoryDashboard {
         // Render each month
         Object.keys(months).sort().reverse().forEach(monthKey => {
             const [year, month] = monthKey.split('-');
-            const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'short' });
+            const monthName = new Date(year, month - 1).toLocaleString(this.currentLang || undefined, { month: 'short' });
 
             html += `<div class="heatmap-month">`;
             html += `<div class="month-label">${monthName} ${year}</div>`;

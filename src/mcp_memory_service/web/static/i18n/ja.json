@@ -25,6 +25,7 @@
   "analytics.period.quarter": "前四半期",
   "analytics.period.week": "先週",
   "analytics.period.year": "昨年",
+  "analytics.weekLabel": "{year}年 第{week}週",
   "analytics.recentActivity": "最近のアクティビティ",
   "analytics.reports": "詳細レポート",
   "analytics.storage": "ストレージレポート",
