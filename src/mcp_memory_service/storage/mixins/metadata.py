@@ -16,6 +16,7 @@ except ImportError:
 from ...models.memory import Memory, MemoryQueryResult
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
+from ..shared import _exclude_versioned_parent
 
 logger = logging.getLogger(__name__)
 
@@ -469,7 +470,12 @@ class MetadataMixin:
         return round((confidence if confidence is not None else 1.0) * decay, 4)
 
     def _detect_conflicts(
-        self, new_hash: str, new_content: str, embedding, store: str = "default"
+        self,
+        new_hash: str,
+        new_content: str,
+        embedding,
+        store: str = "default",
+        exclude_hash: Optional[str] = None,
     ) -> list:
         """Detect conflicting active memories for a newly stored memory."""
         from difflib import SequenceMatcher
@@ -488,11 +494,17 @@ class MetadataMixin:
                    JOIN memory_embeddings me ON m.rowid = me.rowid
                    WHERE m.deleted_at IS NULL
                      AND (m.superseded_by IS NULL OR m.superseded_by = '')
-                     AND m.content_hash != ?
+                     AND m.content_hash NOT IN (?, ?)
                      AND m.store = ? AND me.store = ?
                    ORDER BY distance ASC
                    LIMIT 5""",
-                (serialize_float32(embedding), new_hash, store, store),
+                (
+                    serialize_float32(embedding),
+                    new_hash,
+                    exclude_hash if exclude_hash is not None else new_hash,
+                    store,
+                    store,
+                ),
             )
             candidates = cursor.fetchall()
         except Exception as e:
@@ -798,9 +810,10 @@ class MetadataMixin:
             )
             # The new version lives in the old one's store partition, or it drops
             # out of that store's searches once the old row is superseded.
-            store_ok, store_msg = await self.store(
-                new_memory, skip_semantic_dedup=True, store=old_store or "default"
-            )
+            with _exclude_versioned_parent(old_hash):
+                store_ok, store_msg = await self.store(
+                    new_memory, skip_semantic_dedup=True, store=old_store or "default"
+                )
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
@@ -873,7 +886,13 @@ class MetadataMixin:
 
             logger.info("Memory evolved: %s → %s (v%d)",
                         _sanitize_log_value(old_hash[:8]), _sanitize_log_value(new_hash[:8]), new_version)
-            return True, "Memory versioned successfully", new_hash
+            versioned_message = "Memory versioned successfully"
+            store_note = store_msg.removeprefix("Memory stored successfully").strip()
+            if store_note:
+                versioned_message += f" {store_note}"
+            elif not store_msg.startswith("Memory stored successfully"):
+                versioned_message += f" ({store_msg})"
+            return True, versioned_message, new_hash
 
         except Exception as e:
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(str(e)))

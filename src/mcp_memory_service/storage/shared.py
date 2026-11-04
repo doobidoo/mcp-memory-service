@@ -9,9 +9,24 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
+
+_versioned_conflict_exclusion: ContextVar[Optional[str]] = ContextVar(
+    "versioned_conflict_exclusion", default=None
+)
+
+
+@contextmanager
+def _exclude_versioned_parent(content_hash: str) -> Iterator[None]:
+    token = _versioned_conflict_exclusion.set(content_hash)
+    try:
+        yield
+    finally:
+        _versioned_conflict_exclusion.reset(token)
 
 # ---------------------------------------------------------------------------
 # Bounded LRU embedding cache
