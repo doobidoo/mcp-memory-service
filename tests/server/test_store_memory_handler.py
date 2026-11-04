@@ -5,8 +5,11 @@ must echo a clear warning when Memory.__post_init__ silently rewrites an
 unknown memory_type, so callers don't see "success" while their type
 filter quietly breaks.
 """
-import pytest
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 def _make_server(stored_memory_type: str = "note"):
@@ -159,3 +162,72 @@ async def test_store_memory_nli_checks_keep_the_requested_store(monkeypatch):
     check.assert_awaited_once_with(
         server.storage, belief, "A store-scoped note.", "abc123", store="work"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("background", [False, True])
+async def test_default_store_handler_still_challenges_contradicted_beliefs(
+    monkeypatch, background
+):
+    from mcp_memory_service.consolidation import belief_service, quarantine
+    from mcp_memory_service.reasoning import nli
+    from mcp_memory_service.reasoning.nli import NLIResult
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.setenv("MCP_NLI_ON_STORE_ASYNC", "true" if background else "false")
+    monkeypatch.setenv("MCP_NLI_ON_STORE_BUDGET_S", "30")
+    monkeypatch.setattr(quarantine, "CONTRADICTION_THRESHOLD", 1)
+    challenged = asyncio.Event()
+
+    class Beliefs:
+        async def get_beliefs(self, **kwargs):
+            assert kwargs["store"] == "default"
+            return [{
+                "belief_hash": "belief-default",
+                "content": "the feature is enabled",
+                "confidence": 0.9,
+                "status": "active",
+            }]
+
+        async def challenge_belief(self, belief_hash):
+            assert belief_hash == "belief-default"
+            challenged.set()
+
+    class ContradictingClassifier:
+        backend = "cascade"
+
+        async def classify(self, premise, hypothesis):
+            return NLIResult(label="contradiction", confidence=0.95)
+
+        def max_achievable_confidence(self):
+            return 0.95
+
+    storage = MagicMock()
+    storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
+    storage.get_all_memories = AsyncMock(return_value=[
+        SimpleNamespace(metadata={"contradicted_belief": "belief-default"})
+    ])
+    server = _make_server()
+    server.storage = storage
+    monkeypatch.setattr(belief_service, "BeliefService", lambda _: Beliefs())
+    monkeypatch.setattr(
+        nli,
+        "detect_contradictions_nli",
+        AsyncMock(return_value={"pairs_detected": 0}),
+    )
+    monkeypatch.setattr(
+        nli, "NLIClassifier", lambda backend="auto": ContradictingClassifier()
+    )
+
+    await handle_store_memory(server, {
+        "content": "the feature is disabled",
+        "metadata": {},
+        "auto_extract": False,
+    })
+    await asyncio.wait_for(challenged.wait(), timeout=2)
+    while quarantine._background_state.active:
+        await asyncio.sleep(0)
+
+    server.memory_service.store_memory.assert_awaited_once()
+    assert server.memory_service.store_memory.await_args.kwargs["store"] == "default"

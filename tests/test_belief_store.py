@@ -280,6 +280,52 @@ async def test_get_beliefs_empty(mock_storage):
 
 
 @pytest.mark.asyncio
+async def test_get_beliefs_store_scope_keeps_beliefs_with_deleted_sources(
+    mock_storage, belief_db
+):
+    belief_db.execute(
+        "CREATE TABLE memories (content_hash TEXT, store TEXT, deleted_at REAL)"
+    )
+    belief_db.executemany(
+        "INSERT INTO memories (content_hash, store, deleted_at) VALUES (?, ?, ?)",
+        [
+            ("deleted-projectA", "projectA", 1.0),
+            ("deleted-projectB", "projectB", 1.0),
+            ("live-projectB", "projectB", None),
+        ],
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    beliefs = [
+        ("deleted-derived", "deleted source", ["deleted-projectA"], []),
+        ("deleted-contradiction", "deleted contradiction", [], ["deleted-projectB"]),
+        ("empty-sources", "no recorded sources", [], []),
+        ("foreign-source", "foreign source", ["live-projectB"], []),
+        ("foreign-contradiction", "foreign contradiction", [], ["live-projectB"]),
+    ]
+    belief_db.executemany(
+        "INSERT INTO beliefs "
+        "(belief_hash, content, confidence, status, created_at, updated_at, "
+        "derived_from, contradicted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                key, content, 0.9, "active", now, now,
+                json.dumps(derived), json.dumps(contradicted),
+            )
+            for key, content, derived, contradicted in beliefs
+        ],
+    )
+    belief_db.commit()
+
+    result = await BeliefService(mock_storage).get_beliefs(store="projectA")
+
+    assert {belief["belief_hash"] for belief in result} == {
+        "deleted-derived",
+        "deleted-contradiction",
+        "empty-sources",
+    }
+
+
+@pytest.mark.asyncio
 async def test_derive_beliefs_no_observations(mock_storage):
     svc = BeliefService(mock_storage)
     stats = await svc.derive_beliefs()

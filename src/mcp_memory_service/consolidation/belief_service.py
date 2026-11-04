@@ -383,28 +383,23 @@ class BeliefService:
                 params: list[str | float] = [status, min_confidence]
                 if store is not None:
                     sql += """
-                        AND json_array_length(derived_from) > 0
                         AND NOT EXISTS (
                             SELECT 1 FROM json_each(beliefs.derived_from) source
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM memories m
-                                WHERE m.content_hash = source.value AND m.store = ?
-                                  AND m.deleted_at IS NULL
-                            )
+                            JOIN memories m ON m.content_hash = source.value
+                            WHERE m.store <> ? AND m.deleted_at IS NULL
                         )
                         AND NOT EXISTS (
                             SELECT 1 FROM json_each(beliefs.contradicted_by) contrary
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM memories m
-                                WHERE m.content_hash = contrary.value AND m.store = ?
-                                  AND m.deleted_at IS NULL
-                            )
+                            JOIN memories m ON m.content_hash = contrary.value
+                            WHERE m.store <> ? AND m.deleted_at IS NULL
                         )
                     """
                     params.extend((store, store))
                 sql += " ORDER BY confidence DESC"
                 cursor = conn.execute(sql, tuple(params))
                 rows = cursor.fetchall()
+            # Keep legacy auto-statistics out of reads without reapplying
+            # derivation heuristics.
             return [
                 {
                     "belief_hash": r[0],

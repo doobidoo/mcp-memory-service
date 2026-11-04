@@ -242,10 +242,12 @@ async def check_beliefs_on_store(
                 contradiction_count = await _count_quarantined_for_belief(
                     storage, belief["belief_hash"], store=store_filter
                 )
-                # Beliefs are global rows, not store-partitioned. A scoped
-                # on-store check may quarantine within its store, but must not
-                # change the shared belief status from store-local evidence.
-                if store_filter is None and contradiction_count >= CONTRADICTION_THRESHOLD:
+                # Named-store checks have only local evidence and must not
+                # challenge shared beliefs; the legacy default store is global.
+                if (
+                    store_filter in (None, "default")
+                    and contradiction_count >= CONTRADICTION_THRESHOLD
+                ):
                     await belief_service.challenge_belief(belief["belief_hash"])
                     logger.info(
                         "Belief %s challenged after %s contradictions",
