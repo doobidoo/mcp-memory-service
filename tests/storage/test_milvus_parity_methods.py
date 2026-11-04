@@ -89,6 +89,31 @@ def _memory(content_hash: str, content: str = "body", **kw) -> Memory:
     )
 
 
+@pytest.mark.asyncio
+async def test_milvus_conflict_detection_excludes_parent_but_keeps_other_candidates():
+    storage = _make_storage()
+    other_content = "The billing service uses MySQL and exports invoices each Friday."
+    storage._call_client = AsyncMock(return_value=[[
+        {
+            "id": "other-hash",
+            "distance": 0.98,
+            "entity": {"id": "other-hash", "content": other_content},
+        }
+    ]])
+
+    conflicts = await storage._detect_conflicts(
+        "new-hash",
+        "The shipping service uses PostgreSQL and retains audit records every month.",
+        [0.1, 0.2, 0.3, 0.4],
+        exclude_hash="parent-hash",
+    )
+
+    assert [conflict["existing_hash"] for conflict in conflicts] == ["other-hash"]
+    assert storage._call_client.await_args.kwargs["filter"] == (
+        'id != "new-hash" and id != "parent-hash"'
+    )
+
+
 # -- get_relationship_type_distribution ---------------------------------------
 
 
@@ -496,7 +521,9 @@ class TestUpdateMemoryVersioned:
         storage = _make_storage()
         original = _memory("oldhash", "v1", tags=["a"], memory_type="note")
         storage.get_by_hash = AsyncMock(return_value=original)
-        storage.store = AsyncMock(return_value=(True, "ok"))
+        storage.store = AsyncMock(
+            return_value=(True, "Memory stored successfully 1 conflict(s) detected.")
+        )
         storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
 
         ok, message, new_hash = await storage.update_memory_versioned(
@@ -505,6 +532,8 @@ class TestUpdateMemoryVersioned:
 
         assert ok is True, message
         assert new_hash and new_hash != "oldhash"
+        assert "1 conflict(s) detected" in message
+        assert storage.store.await_args.kwargs["_exclude_conflict_hash"] == "oldhash"
 
         # Old memory is annotated, not overwritten.
         meta_args = storage.update_memory_metadata.await_args

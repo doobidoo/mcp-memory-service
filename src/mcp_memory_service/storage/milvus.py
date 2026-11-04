@@ -998,7 +998,11 @@ class MilvusMemoryStorage(MemoryStorage):
             )
 
     async def _detect_conflicts(
-        self, new_hash: str, new_content: str, embedding: List[float]
+        self,
+        new_hash: str,
+        new_content: str,
+        embedding: List[float],
+        exclude_hash: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Detect conflicting active memories for a newly stored memory.
 
@@ -1013,12 +1017,15 @@ class MilvusMemoryStorage(MemoryStorage):
 
         # Find top-5 nearest memories (excluding self)
         try:
+            filters = [f'id != "{new_hash}"']
+            if exclude_hash is not None:
+                filters.append(f'id != "{exclude_hash}"')
             results = await self._call_client(
                 "search",
                 collection_name=self.collection_name,
                 data=[embedding],
                 anns_field="vector",
-                filter=f'id != "{new_hash}"',
+                filter=" and ".join(filters),
                 limit=5,
                 output_fields=["id", "content"],
                 search_params={"metric_type": "COSINE"},
@@ -1392,7 +1399,8 @@ class MilvusMemoryStorage(MemoryStorage):
     # -- Store ---------------------------------------------------------------
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
-                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
+                    recreate: Optional[bool] = None,
+                    _exclude_conflict_hash: Optional[str] = None) -> Tuple[bool, str]:
         # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
         # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
@@ -1438,7 +1446,10 @@ class MilvusMemoryStorage(MemoryStorage):
             # --- Conflict detection (post-commit) ---
             try:
                 conflict_infos = await self._detect_conflicts(
-                    memory.content_hash, memory.content, embedding
+                    memory.content_hash,
+                    memory.content,
+                    embedding,
+                    _exclude_conflict_hash,
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)
@@ -2397,7 +2408,9 @@ class MilvusMemoryStorage(MemoryStorage):
                     metadata=inherited_metadata,
                 )
                 store_ok, store_msg = await self.store(
-                    new_memory, skip_semantic_dedup=True,
+                    new_memory,
+                    skip_semantic_dedup=True,
+                    _exclude_conflict_hash=content_hash,
                 )
                 if not store_ok:
                     return False, f"Failed to store new version: {store_msg}", None
@@ -2427,7 +2440,13 @@ class MilvusMemoryStorage(MemoryStorage):
                     _sanitize_log_value(content_hash[:8]),
                     _sanitize_log_value(new_hash[:8]),
                 )
-                return True, "Memory versioned successfully", new_hash
+                versioned_message = "Memory versioned successfully"
+                store_note = store_msg.removeprefix("Memory stored successfully").strip()
+                if store_note:
+                    versioned_message += f" {store_note}"
+                elif not store_msg.startswith("Memory stored successfully"):
+                    versioned_message += f" ({store_msg})"
+                return True, versioned_message, new_hash
 
         except Exception as exc:  # noqa: BLE001
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(exc))

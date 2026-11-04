@@ -175,7 +175,8 @@ class StoreMixin:
         return False, None
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default',
-                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
+                    recreate: Optional[bool] = None,
+                    _exclude_conflict_hash: Optional[str] = None) -> Tuple[bool, str]:
         """Store a memory in the SQLite-vec database.
 
         ``recreate`` (#1560, tri-state — see ``MemoryStorage.store``): ``None`` keeps
@@ -320,7 +321,11 @@ class StoreMixin:
             # Conflict detection (P3) — runs after commit, outside the lock
             try:
                 conflict_infos = await self._run_in_thread(
-                    self._detect_conflicts, memory.content_hash, memory.content, embedding
+                    self._detect_conflicts,
+                    memory.content_hash,
+                    memory.content,
+                    embedding,
+                    _exclude_conflict_hash,
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)
