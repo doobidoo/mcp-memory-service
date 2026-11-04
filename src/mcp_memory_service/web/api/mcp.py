@@ -149,11 +149,21 @@ def _get_memory_server():
 
 def _tool_to_dict(tool) -> Dict[str, Any]:
     """Convert an `mcp.types.Tool` to the wire shape MCP-over-HTTP returns."""
-    return {
+    out: Dict[str, Any] = {
         "name": tool.name,
         "description": tool.description,
         "inputSchema": tool.inputSchema,
     }
+    # The stdio transport serializes annotations through the SDK; this shim
+    # used to drop them, so remote clients never saw readOnlyHint /
+    # destructiveHint and could not pre-classify write tools the way stdio
+    # clients can.
+    if tool.annotations is not None:
+        if hasattr(tool.annotations, "model_dump"):
+            out["annotations"] = tool.annotations.model_dump(exclude_none=True)
+        else:
+            out["annotations"] = dict(tool.annotations)
+    return out
 
 
 def _wrap_tool_result(result, is_error: bool = False) -> Dict[str, Any]:
@@ -217,6 +227,11 @@ async def mcp_endpoint(
                     },
                 },
             )
+            return JSONResponse(content=response.model_dump(exclude_none=True))
+
+        elif request.method == "ping":
+            # MCP liveness check: the spec requires an empty result object.
+            response = MCPResponse(id=request.id, result={})
             return JSONResponse(content=response.model_dump(exclude_none=True))
 
         elif request.method == "tools/list":
