@@ -8,6 +8,8 @@ used to slip through.
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -27,7 +29,12 @@ NEW_STRINGS = {
     "toast.noUntaggedMemories": "No untagged memories to delete",
     "toast.deleteUntaggedFailed": "Delete untagged operation failed",
     "toast.operationFailed": "Operation failed",
+    "search.results.count.one": "{count} result",
+    "modal.memoryViewer.chunksFound.one": "{count} chunk found",
 }
+
+# Locales whose existing plural string is a different word from the singular.
+PLURAL_MARKING = ("de.json", "en.json", "es.json", "fr.json", "pt.json")
 
 # Existing keys the listed sites start using.
 REUSED_KEYS = (
@@ -159,8 +166,6 @@ def test_app_js_references_the_listed_keys_with_fallbacks():
         "manage.tags.rename": "Rename",
         "manage.tags.delete": "Delete",
         "manage.tags.loadFailed": "Failed to load tag statistics",
-        "search.results.count": "{count} results",
-        "modal.memoryViewer.chunksFound": "{count} chunks found",
         "search.filters.type.all": "All types",
         "manage.bulk.deleteUntagged.desc": "Remove memories without any tags ({count} found)",
         "manage.bulk.deleteUntagged.confirm": "Delete {count} memories without tags?",
@@ -196,3 +201,121 @@ def test_app_js_has_no_english_left_at_the_listed_sites():
     js = APP_JS.read_text(encoding="utf-8")
     left = [literal for literal in OLD_LITERALS if literal in js]
     assert left == []
+
+
+def test_plural_marking_locales_use_a_different_singular():
+    pairs = (
+        ("search.results.count.one", "search.results.count"),
+        ("modal.memoryViewer.chunksFound.one", "modal.memoryViewer.chunksFound"),
+    )
+    for name in PLURAL_MARKING:
+        catalog = _catalog(name)
+        for singular, plural in pairs:
+            assert catalog[singular] != catalog[plural], (name, singular)
+
+
+def _method(js, name):
+    match = re.search(rf"^    (?:async )?{name}\([^)]*\) \{{\n.*?^    \}}\n", js, re.S | re.M)
+    assert match, f"{name}() not found in app.js"
+    return match.group(0).strip()
+
+
+def test_one_result_and_one_chunk_stay_singular_after_a_language_switch():
+    """updateResultsCount and viewDocumentMemory pick .one only for count 1.
+
+    applyTranslations() then repeats that stored key, so a switch does not
+    turn "1 result" back into the plural catalog string.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    js = APP_JS.read_text(encoding="utf-8")
+    english = json.dumps(_catalog("en.json"), ensure_ascii=False)
+    german = json.dumps(_catalog("de.json"), ensure_ascii=False)
+    methods = ",\n".join(_method(js, name) for name in (
+        "replacePlaceholders", "t", "setCountedText", "applyTranslations",
+        "updateResultsCount", "viewDocumentMemory",
+    ))
+    script = f"""
+const en = {english};
+const de = {german};
+const attrs = {{}};
+function makeEl() {{
+  const own = {{}};
+  return {{
+    style: {{}},
+    innerHTML: '',
+    textContent: '',
+    dataset: new Proxy(own, {{
+      get: (t, k) => t['data-' + String(k).replace(/[A-Z]/g, m => '-' + m.toLowerCase())],
+      set: (t, k, v) => {{ t['data-' + String(k).replace(/[A-Z]/g, m => '-' + m.toLowerCase())] = String(v); return true; }},
+      deleteProperty: (t, k) => {{ delete t['data-' + String(k).replace(/[A-Z]/g, m => '-' + m.toLowerCase())]; return true; }}
+    }}),
+    hasAttribute: name => Object.prototype.hasOwnProperty.call(own, name),
+    getAttribute: name => own[name] ?? null
+  }};
+}}
+const nodes = {{
+  resultsCount: makeEl(),
+  memoryViewerModal: makeEl(),
+  memoryViewerFilename: makeEl(),
+  memoryViewerStats: makeEl(),
+  memoryChunksList: makeEl()
+}};
+const document = {{
+  title: '',
+  querySelectorAll: () => Object.values(nodes),
+  querySelector: () => null,
+  getElementById: id => nodes[id] || null
+}};
+const app = {{
+  translations: en,
+  fallbackTranslations: en,
+  escapeHtml: s => s,
+  setLoading() {{}},
+  showToast() {{}},
+  updateLanguageSwitcher() {{}},
+  async apiCall() {{ return {{ status: 'success', filename: 'notes.md', total_found: app._found, memories: [] }}; }},
+  {methods}
+}};
+const snap = el => ({{ key: el.dataset.i18n, count: el.dataset.count, text: el.textContent }});
+(async () => {{
+  app.updateResultsCount(1);
+  const one = snap(nodes.resultsCount);
+  app.translations = de;
+  await app.applyTranslations();
+  const oneDe = snap(nodes.resultsCount);
+  app.updateResultsCount(2);
+  const manyDe = snap(nodes.resultsCount);
+  app.updateResultsCount(0);
+  const zeroDe = snap(nodes.resultsCount);
+  app.translations = en;
+  await app.applyTranslations();
+  const zeroEn = snap(nodes.resultsCount);
+  app._found = 1;
+  await app.viewDocumentMemory('demo');
+  const chunkOne = snap(nodes.memoryViewerStats);
+  app.translations = de;
+  await app.applyTranslations();
+  const chunkOneDe = snap(nodes.memoryViewerStats);
+  app._found = 2;
+  await app.viewDocumentMemory('demo');
+  const chunkManyDe = snap(nodes.memoryViewerStats);
+  app._found = 0;
+  await app.viewDocumentMemory('demo');
+  const chunkZeroDe = snap(nodes.memoryViewerStats);
+  console.log(JSON.stringify({{ one, oneDe, manyDe, zeroDe, zeroEn, chunkOne, chunkOneDe, chunkManyDe, chunkZeroDe }}));
+}})();
+"""
+    result = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["one"] == {"key": "search.results.count.one", "count": "1", "text": "1 result"}
+    assert out["oneDe"] == {"key": "search.results.count.one", "count": "1", "text": "1 Ergebnis"}
+    assert out["manyDe"] == {"key": "search.results.count", "count": "2", "text": "2 Ergebnisse"}
+    assert out["zeroDe"] == {"key": "search.results.count", "count": "0", "text": "0 Ergebnisse"}
+    assert out["zeroEn"] == {"key": "search.results.count", "count": "0", "text": "0 results"}
+    assert out["chunkOne"] == {"key": "modal.memoryViewer.chunksFound.one", "count": "1", "text": "1 chunk found"}
+    assert out["chunkOneDe"] == {"key": "modal.memoryViewer.chunksFound.one", "count": "1", "text": "1 Chunk gefunden"}
+    assert out["chunkManyDe"] == {"key": "modal.memoryViewer.chunksFound", "count": "2", "text": "2 Chunks gefunden"}
+    assert out["chunkZeroDe"] == {"key": "modal.memoryViewer.chunksFound", "count": "0", "text": "0 Chunks gefunden"}

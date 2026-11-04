@@ -3776,12 +3776,11 @@ class MemoryDashboard {
      * Update search results count
      */
     updateResultsCount(count) {
-        this.setCountedText(
-            document.getElementById('resultsCount'),
-            'search.results.count',
-            '{count} results',
-            count
-        );
+        // Same split as searchDocumentContent(): the stored key is what a
+        // later language switch fills, so 1 and every other count stay apart.
+        const key = count === 1 ? 'search.results.count.one' : 'search.results.count';
+        const fallback = count === 1 ? '{count} result' : '{count} results';
+        this.setCountedText(document.getElementById('resultsCount'), key, fallback, count);
     }
 
     /**
@@ -4508,12 +4507,12 @@ class MemoryDashboard {
                 const chunksList = document.getElementById('memoryChunksList');
 
                 filename.textContent = response.filename || 'Document';
-                this.setCountedText(
-                    stats,
-                    'modal.memoryViewer.chunksFound',
-                    '{count} chunks found',
-                    response.total_found
-                );
+                const found = response.total_found;
+                const key = found === 1
+                    ? 'modal.memoryViewer.chunksFound.one'
+                    : 'modal.memoryViewer.chunksFound';
+                const fallback = found === 1 ? '{count} chunk found' : '{count} chunks found';
+                this.setCountedText(stats, key, fallback, found);
 
                 // Render chunks
                 if (response.memories && response.memories.length > 0) {
