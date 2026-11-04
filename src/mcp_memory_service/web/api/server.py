@@ -192,22 +192,38 @@ def _format_uptime(seconds: float) -> str:
         return f"{seconds/86400:.1f} days"
 
 
+def _get_restart_args() -> List[str]:
+    """
+    Return command arguments for restarting the server process.
+
+    Rebuilds the command from sys.orig_argv (Python 3.10+) to preserve the
+    original invocation (e.g. `python -m uvicorn ...` and interpreter options),
+    falling back to sys.argv when orig_argv is missing.
+    """
+    orig_argv = getattr(sys, "orig_argv", None)
+    if orig_argv:
+        return [sys.executable] + list(orig_argv[1:])
+    return [sys.executable] + list(sys.argv)
+
+
 async def _restart_server_delayed():
     """Restart the server after a delay to allow HTTP response to complete."""
     await asyncio.sleep(RESTART_DELAY_SECONDS)
 
     logger.warning("AUDIT: Server process restart initiated")
 
+    args = _get_restart_args()
+
     try:
         if sys.platform == 'win32':
             # Windows: Start a new process, then exit
             subprocess.Popen(
-                [sys.executable] + sys.argv,
+                args,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
             )
         else:
             # Linux/Mac: Replace process with execv
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            os.execv(sys.executable, args)
 
         # Exit current process (Windows only reaches here)
         sys.exit(0)
