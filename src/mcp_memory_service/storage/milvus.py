@@ -93,8 +93,9 @@ from .base import MemoryStorage
 from .milvus_expr import escape_expr_value
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
+    _exclude_versioned_parent,
     _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
-    _safe_json_loads,
+    _safe_json_loads, _versioned_conflict_exclusion,
 )
 from ..models.memory import Memory, MemoryQueryResult
 from ..utils.hashing import generate_content_hash
@@ -1399,8 +1400,7 @@ class MilvusMemoryStorage(MemoryStorage):
     # -- Store ---------------------------------------------------------------
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = "default",
-                    recreate: Optional[bool] = None,
-                    _exclude_conflict_hash: Optional[str] = None) -> Tuple[bool, str]:
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
         # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
         # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
         # `store` accepted for BaseStorage parity (multi-store, issue #133).
@@ -1449,7 +1449,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     memory.content_hash,
                     memory.content,
                     embedding,
-                    _exclude_conflict_hash,
+                    _versioned_conflict_exclusion.get(),
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)
@@ -2407,11 +2407,10 @@ class MilvusMemoryStorage(MemoryStorage):
                     memory_type=resolved_type,
                     metadata=inherited_metadata,
                 )
-                store_ok, store_msg = await self.store(
-                    new_memory,
-                    skip_semantic_dedup=True,
-                    _exclude_conflict_hash=content_hash,
-                )
+                with _exclude_versioned_parent(content_hash):
+                    store_ok, store_msg = await self.store(
+                        new_memory, skip_semantic_dedup=True
+                    )
                 if not store_ok:
                     return False, f"Failed to store new version: {store_msg}", None
 

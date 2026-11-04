@@ -38,6 +38,7 @@ import pytest
 
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.milvus import MilvusDeleteError, MilvusMemoryStorage
+from mcp_memory_service.storage.shared import _versioned_conflict_exclusion
 
 
 def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
@@ -521,8 +522,14 @@ class TestUpdateMemoryVersioned:
         storage = _make_storage()
         original = _memory("oldhash", "v1", tags=["a"], memory_type="note")
         storage.get_by_hash = AsyncMock(return_value=original)
+        observed_exclusion = []
+
+        async def store_in_version_context(*_args, **_kwargs):
+            observed_exclusion.append(_versioned_conflict_exclusion.get())
+            return True, "Memory stored successfully 1 conflict(s) detected."
+
         storage.store = AsyncMock(
-            return_value=(True, "Memory stored successfully 1 conflict(s) detected.")
+            side_effect=store_in_version_context
         )
         storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
 
@@ -533,7 +540,8 @@ class TestUpdateMemoryVersioned:
         assert ok is True, message
         assert new_hash and new_hash != "oldhash"
         assert "1 conflict(s) detected" in message
-        assert storage.store.await_args.kwargs["_exclude_conflict_hash"] == "oldhash"
+        assert observed_exclusion == ["oldhash"]
+        assert _versioned_conflict_exclusion.get() is None
 
         # Old memory is annotated, not overwritten.
         meta_args = storage.update_memory_metadata.await_args

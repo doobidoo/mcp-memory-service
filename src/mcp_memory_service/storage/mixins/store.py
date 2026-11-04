@@ -17,6 +17,7 @@ except ImportError:
 from ...compat import _sanitize_log_value
 from ...models.memory import Memory
 from ..base import RecreateRefused
+from ..shared import _versioned_conflict_exclusion
 
 logger = logging.getLogger(__name__)
 
@@ -175,8 +176,7 @@ class StoreMixin:
         return False, None
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default',
-                    recreate: Optional[bool] = None,
-                    _exclude_conflict_hash: Optional[str] = None) -> Tuple[bool, str]:
+                    recreate: Optional[bool] = None) -> Tuple[bool, str]:
         """Store a memory in the SQLite-vec database.
 
         ``recreate`` (#1560, tri-state — see ``MemoryStorage.store``): ``None`` keeps
@@ -325,7 +325,7 @@ class StoreMixin:
                     memory.content_hash,
                     memory.content,
                     embedding,
-                    _exclude_conflict_hash,
+                    _versioned_conflict_exclusion.get(),
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)

@@ -16,6 +16,7 @@ except ImportError:
 from ...models.memory import Memory, MemoryQueryResult
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
+from ..shared import _exclude_versioned_parent
 
 logger = logging.getLogger(__name__)
 
@@ -764,12 +765,10 @@ class MetadataMixin:
             )
             # The new version lives in the old one's store partition, or it drops
             # out of that store's searches once the old row is superseded.
-            store_ok, store_msg = await self.store(
-                new_memory,
-                skip_semantic_dedup=True,
-                store=old_store or "default",
-                _exclude_conflict_hash=old_hash,
-            )
+            with _exclude_versioned_parent(old_hash):
+                store_ok, store_msg = await self.store(
+                    new_memory, skip_semantic_dedup=True, store=old_store or "default"
+                )
             if not store_ok:
                 return False, f"Failed to store new version: {store_msg}", None
 
