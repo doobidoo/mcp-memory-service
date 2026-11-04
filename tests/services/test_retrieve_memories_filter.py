@@ -23,9 +23,11 @@ class _StubStorage:
     def __init__(self, resultados: list[MemoryQueryResult]):
         self._resultados = resultados
         self.chamadas: list[int] = []
+        self.stores: list[str | None] = []
 
-    async def retrieve(self, query: str, n_results: int = 10):  # noqa: D401
+    async def retrieve(self, query: str, n_results: int = 10, **kwargs):  # noqa: D401
         self.chamadas.append(n_results)
+        self.stores.append(kwargs.get("store", "<omitted>"))
         return self._resultados[:n_results]
 
 
@@ -56,6 +58,7 @@ def test_filtro_por_tipo_encontra_memoria_fora_da_janela_inicial():
         f"resultado veio com {resultado['count']} itens"
     )
     assert resultado["memories"][0]["content"].startswith("memoria 9")
+    assert storage.stores == [None]
 
 
 def test_resposta_respeita_n_results_mesmo_com_muitos_casando():
@@ -106,3 +109,13 @@ def test_filtro_por_tag_sozinho_tambem_amplia_a_busca():
         "filtro por tag perdeu as memorias marcadas fora da janela inicial; veio "
         f"{resultado['count']} itens (storage recebeu n_results={storage.chamadas})"
     )
+    assert storage.stores == [None]
+
+
+def test_particao_nomeada_e_encaminhada_ao_storage():
+    storage = _StubStorage(_resultados())
+    service = MemoryService(storage)
+
+    asyncio.run(service.retrieve_memories("planejamento", store="projectA"))
+
+    assert storage.stores == ["projectA"]

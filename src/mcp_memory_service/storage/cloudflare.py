@@ -171,6 +171,7 @@ class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
     get_by_hash_is_store_scoped = True
+    supports_store_scoped_resources = True
 
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
@@ -1059,7 +1060,7 @@ class CloudflareStorage(MemoryStorage):
         if response.status_code not in [200, 201]:
             raise ValueError(f"Failed to store content in R2: {response.status_code}")
     
-    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: str = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
+    async def retrieve(self, query: str, n_results: int = 5, tags: Optional[List[str]] = None, min_confidence: float = 0.0, include_superseded: bool = False, start_time: Optional[float] = None, end_time: Optional[float] = None, store: Optional[str] = "default", as_of: Optional[float] = None) -> List[MemoryQueryResult]:
         """Retrieve memories by semantic search."""
         try:
             # Generate query embedding
@@ -1091,9 +1092,11 @@ class CloudflareStorage(MemoryStorage):
             candidates_not_loaded = 0
             dropped_by_tag_filter = 0
             for match in matches:
-                memory = await self._load_memory_from_match(match)
+                # shortcut: D1 filters Vectorize's global topK and can underfill; migrate vectors to per-store namespaces for full recall.
+                memory = await self._load_memory_from_match(match, store=store)
                 if not memory:
-                    candidates_not_loaded += 1
+                    if store is None:
+                        candidates_not_loaded += 1
                     continue
 
                 # Filter by tags if specified
@@ -1115,19 +1118,26 @@ class CloudflareStorage(MemoryStorage):
                 truncated_to_n_results = max(0, len(results) - n_results)
                 results = results[:n_results]
 
-            retrieval_info = _recall_ceiling_info(
-                n_results=n_results,
-                candidates_wanted=candidates_wanted,
-                candidates_requested=top_k,
-                candidates_returned=len(matches),
-                candidates_not_loaded=candidates_not_loaded,
-                dropped_by_tag_filter=dropped_by_tag_filter,
-                truncated_to_n_results=truncated_to_n_results,
-                results_returned=len(results),
-            )
+            if store is None:
+                retrieval_info = _recall_ceiling_info(
+                    n_results=n_results,
+                    candidates_wanted=candidates_wanted,
+                    candidates_requested=top_k,
+                    candidates_returned=len(matches),
+                    candidates_not_loaded=candidates_not_loaded,
+                    dropped_by_tag_filter=dropped_by_tag_filter,
+                    truncated_to_n_results=truncated_to_n_results,
+                    results_returned=len(results),
+                )
+            else:
+                # Vectorize's global match counts are not safe to disclose to a store-scoped caller.
+                retrieval_info = {
+                    "results_returned": len(results),
+                    "recall_may_be_incomplete": True,
+                }
             for result in results:
                 result.debug_info["retrieval"] = dict(retrieval_info)
-            if retrieval_info["recall_may_be_incomplete"]:
+            if store is None and retrieval_info["recall_may_be_incomplete"]:
                 # Also logged because an empty result list has nowhere to
                 # carry debug_info, and that is the worst case of #1236.
                 logger.warning(
@@ -1204,7 +1214,9 @@ class CloudflareStorage(MemoryStorage):
             )
             return results
 
-    async def _load_memory_from_match(self, match: Dict[str, Any]) -> Optional[Memory]:
+    async def _load_memory_from_match(
+        self, match: Dict[str, Any], store: Optional[str] = None
+    ) -> Optional[Memory]:
         """Load full memory from a Vectorize match id."""
         try:
             vector_id = match.get("id")
@@ -1221,12 +1233,17 @@ class CloudflareStorage(MemoryStorage):
             # on failure, so delete() can tombstone D1 while the vector
             # survives, and a match on it must not resurface the memory.
             sql = "SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL"
-            payload = {"sql": sql, "params": [vector_id]}
+            params = [vector_id]
+            if store is not None:
+                sql += " AND store = ?"
+                params.append(store)
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
             if not result.get("success") or not result.get("result", [{}])[0].get("results"):
-                logger.warning("Memory not found in D1: %s", _sanitize_log_value(vector_id))
+                if store is None:
+                    logger.warning("Memory not found in D1: %s", _sanitize_log_value(vector_id))
                 return None
             
             row = result["result"][0]["results"][0]
@@ -2166,14 +2183,26 @@ class CloudflareStorage(MemoryStorage):
     async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all tags with their usage counts."""
         try:
-            sql = """
-                SELECT t.name as tag, COUNT(mt.memory_id) as count
-                FROM tags t
-                LEFT JOIN memory_tags mt ON t.id = mt.tag_id
-                GROUP BY t.id
-                ORDER BY count DESC, t.name ASC
-            """
-            payload = {"sql": sql}
+            if store is None:
+                sql = """
+                    SELECT t.name as tag, COUNT(mt.memory_id) as count
+                    FROM tags t
+                    LEFT JOIN memory_tags mt ON t.id = mt.tag_id
+                    GROUP BY t.id
+                    ORDER BY count DESC, t.name ASC
+                """
+                payload = {"sql": sql}
+            else:
+                sql = """
+                    SELECT t.name as tag, COUNT(mt.memory_id) as count
+                    FROM tags t
+                    JOIN memory_tags mt ON t.id = mt.tag_id
+                    JOIN memories m ON m.id = mt.memory_id
+                    WHERE m.store = ? AND m.deleted_at IS NULL
+                    GROUP BY t.id
+                    ORDER BY count DESC, t.name ASC
+                """
+                payload = {"sql": sql, "params": [store]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -2442,7 +2471,7 @@ class CloudflareStorage(MemoryStorage):
         tag_match: str = "any",
         stale_days: Optional[int] = None,
         include_embeddings: bool = False,
-        store: str = "default",
+        store: Optional[str] = "default",
         agent_id: Optional[str] = None,
         exclude_pending: bool = False,
         include_superseded: bool = True,  # interface parity (#1803); not filtered here
@@ -2473,6 +2502,10 @@ class CloudflareStorage(MemoryStorage):
 
             # Always filter out soft-deleted records
             where_conditions.append("m.deleted_at IS NULL")
+
+            if store is not None:
+                where_conditions.append("m.store = ?")
+                params.append(store)
 
             if memory_type is not None:
                 where_conditions.append("m.memory_type = ?")
@@ -2791,7 +2824,7 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Error getting memories by time range: %s", _sanitize_log_value(str(e)))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: str = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
+    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
         """
         Get total count of memories in storage.
 
@@ -2814,6 +2847,10 @@ class CloudflareStorage(MemoryStorage):
             joins = ""
             conditions = []
             params: List[Any] = []
+
+            if store is not None:
+                conditions.append("m.store = ?")
+                params.append(store)
 
             if memory_type is not None:
                 conditions.append('m.memory_type = ?')

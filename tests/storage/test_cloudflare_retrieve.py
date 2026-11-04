@@ -175,7 +175,7 @@ async def test_retrieve_surfaces_recall_ceiling_when_tag_filter_page_is_full(cap
     storage = _storage_with_matches(matches, memories)
 
     with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
-        results = await storage.retrieve("query", n_results=40, tags=["wanted"])
+        results = await storage.retrieve("query", n_results=40, tags=["wanted"], store=None)
 
     assert [r.memory.content for r in results] == ["m7"]
     info = results[0].debug_info["retrieval"]
@@ -205,7 +205,7 @@ async def test_retrieve_reports_complete_recall_when_page_is_not_full():
     ]
     storage = _storage_with_matches(matches, memories)
 
-    results = await storage.retrieve("query", n_results=1, tags=["wanted"])
+    results = await storage.retrieve("query", n_results=1, tags=["wanted"], store=None)
 
     info = results[0].debug_info["retrieval"]
     assert info["candidates_wanted"] == 3
@@ -223,11 +223,15 @@ async def test_retrieve_untagged_exact_page_is_complete_but_clamped_is_not():
     matches = [{"id": f"m{i}", "score": 0.9} for i in range(100)]
     memories = [Memory(content=f"m{i}", content_hash=f"m{i}") for i in range(100)]
 
-    exact = await _storage_with_matches(matches, memories).retrieve("query", n_results=100)
+    exact = await _storage_with_matches(matches, memories).retrieve(
+        "query", n_results=100, store=None
+    )
     assert exact[0].debug_info["retrieval"]["neighbour_ceiling_reached"] is True
     assert exact[0].debug_info["retrieval"]["recall_may_be_incomplete"] is False
 
-    clamped = await _storage_with_matches(matches, memories).retrieve("query", n_results=120)
+    clamped = await _storage_with_matches(matches, memories).retrieve(
+        "query", n_results=120, store=None
+    )
     assert clamped[0].debug_info["retrieval"]["candidates_wanted"] == 120
     assert clamped[0].debug_info["retrieval"]["candidates_requested"] == 100
     assert clamped[0].debug_info["retrieval"]["recall_may_be_incomplete"] is True
@@ -242,7 +246,9 @@ async def test_retrieve_warns_when_tag_filter_starves_to_zero_at_the_ceiling(cap
     storage = _storage_with_matches(matches, memories)
 
     with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
-        results = await storage.retrieve("query", n_results=5, tags=["wanted"])
+        results = await storage.retrieve(
+            "query", n_results=5, tags=["wanted"], store=None
+        )
 
     assert results == []
     warning = next(rec for rec in caplog.records if "recall may be incomplete" in rec.getMessage())
@@ -259,7 +265,7 @@ async def test_retrieve_full_page_with_enough_tag_matches_is_complete(caplog):
     storage = _storage_with_matches(matches, memories)
 
     with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
-        results = await storage.retrieve("query", n_results=40, tags=["wanted"])
+        results = await storage.retrieve("query", n_results=40, tags=["wanted"], store=None)
 
     assert len(results) == 40
     info = results[0].debug_info["retrieval"]
@@ -281,12 +287,16 @@ async def test_retrieve_full_page_boundary_at_exactly_n_results():
             for i in range(100)
         ]
 
-    exact = await _storage_with_matches(matches, memories(40)).retrieve("query", n_results=40, tags=["wanted"])
+    exact = await _storage_with_matches(matches, memories(40)).retrieve(
+        "query", n_results=40, tags=["wanted"], store=None
+    )
     assert len(exact) == 40
     assert exact[0].debug_info["retrieval"]["dropped_by_tag_filter"] == 60
     assert exact[0].debug_info["retrieval"]["recall_may_be_incomplete"] is False
 
-    short = await _storage_with_matches(matches, memories(39)).retrieve("query", n_results=40, tags=["wanted"])
+    short = await _storage_with_matches(matches, memories(39)).retrieve(
+        "query", n_results=40, tags=["wanted"], store=None
+    )
     assert len(short) == 39
     assert short[0].debug_info["retrieval"]["recall_may_be_incomplete"] is True
 

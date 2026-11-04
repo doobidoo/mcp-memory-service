@@ -108,6 +108,50 @@ async def test_store_scoped_reads_pass_partition_to_storage(
 
 
 @pytest.mark.asyncio
+async def test_global_search_resource_passes_explicit_unscoped_store(server):
+    await _invoke(
+        server,
+        types.ReadResourceRequest,
+        types.ReadResourceRequest(
+            params=types.ReadResourceRequestParams(uri="memory://search/needle")
+        ),
+        "read",
+    )
+
+    server.storage.retrieve.assert_awaited_once_with(
+        "needle", n_results=10, store=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_global_bootstrap_passes_unscoped_store_to_memory_reads(server, monkeypatch):
+    monkeypatch.setenv("MCP_BOOTSTRAP_ENABLED", "true")
+    monkeypatch.setattr(
+        "mcp_memory_service.consolidation.belief_service.BeliefService.get_beliefs",
+        AsyncMock(return_value=[]),
+    )
+    server.memory_service = SimpleNamespace(
+        list_memories=AsyncMock(return_value={"memories": []}),
+        retrieve_memories=AsyncMock(return_value={"memories": []}),
+    )
+
+    await server.handle_get_bootstrap_profile(
+        {"agent_ids": ["test-agent"], "task_summary": "task"}
+    )
+
+    assert server.memory_service.list_memories.await_count == 2
+    assert server.memory_service.retrieve_memories.await_count == 5
+    assert all(
+        call.kwargs["store"] is None
+        for call in server.memory_service.list_memories.await_args_list
+    )
+    assert all(
+        call.kwargs["store"] is None
+        for call in server.memory_service.retrieve_memories.await_args_list
+    )
+
+
+@pytest.mark.asyncio
 async def test_store_scoped_grant_cannot_read_global_or_other_store_uri(server):
     with pytest.raises(PermissionError, match="store-scoped resources require"):
         await _invoke(
@@ -134,6 +178,8 @@ async def test_store_scoped_grant_cannot_read_global_or_other_store_uri(server):
 
 @pytest.mark.asyncio
 async def test_store_scoped_resource_listing_uses_partition_tags(server):
+    server.storage.supports_store_scoped_access = False
+    server.storage.supports_store_scoped_resources = True
     response = await _invoke(
         server,
         types.ListResourcesRequest,
@@ -162,3 +208,22 @@ async def test_scoped_listing_fails_closed_when_backend_cannot_confine(server):
     uris = {str(resource.uri) for resource in response.root.resources}
     assert uris == {"memory://onboarding/generic"}
     server.storage.get_all_tags_with_counts.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resource_specific_capability_does_not_enable_other_store_apis(server):
+    server.storage.supports_store_scoped_access = False
+    server.storage.supports_store_scoped_resources = True
+
+    response = await _invoke(
+        server,
+        types.ReadResourceRequest,
+        types.ReadResourceRequest(
+            params=types.ReadResourceRequestParams(uri="memory://store/projectA/stats")
+        ),
+        "read:projectA",
+    )
+
+    payload = json.loads(response.root.contents[0].text)
+    assert payload == {"store": "projectA", "total_memories": 2, "unique_tags": 1}
+    assert server.storage.supports_store_scoped_access is False

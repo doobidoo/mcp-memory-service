@@ -857,18 +857,15 @@ class MemoryService:
         """
         try:
             # Retrieve memories using semantic search.
-            # Note: storage.retrieve() only supports query and n_results, so the
-            # tags/type filters below are applied AFTER retrieval. Fetching only
-            # ``n_results`` and then filtering throws away the whole result set
-            # whenever the matching rows are not in that first window — that is
-            # why ``mistake_note_search`` returned empty over a populated table.
+            # Apply service-level tag/type filters after retrieval. Fetching only
+            # ``n_results`` and then filtering can discard every match when the
+            # matching rows are not in that first window.
             fetch_n = n_results
             if tags or memory_type:
                 fetch_n = max(n_results * 10, n_results + 50)
-            retrieve_kwargs = {"query": query, "n_results": fetch_n}
-            if store is not None:
-                retrieve_kwargs["store"] = store
-            memories = await self.storage.retrieve(**retrieve_kwargs)
+            memories = await self.storage.retrieve(
+                query=query, n_results=fetch_n, store=store
+            )
 
             # Apply optional post-filtering
             filtered_memories = memories

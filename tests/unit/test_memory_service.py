@@ -5,13 +5,15 @@ These tests verify the MemoryService class centralizes memory operations
 correctly and provides consistent behavior across all interfaces.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+import hashlib
 from datetime import datetime
 from typing import List
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from mcp_memory_service.services.memory_service import MemoryService
+import pytest
+
 from mcp_memory_service.models.memory import Memory, MemoryQueryResult
+from mcp_memory_service.services.memory_service import MemoryService, normalize_tags
 from mcp_memory_service.storage.base import MemoryStorage
 
 
@@ -332,10 +334,11 @@ async def test_retrieve_memories_basic(memory_service, mock_storage, sample_memo
     assert result["count"] == 3
     assert len(result["memories"]) == 3
 
-    # After fix: storage.retrieve() only accepts query and n_results
+    # None is explicit: this service call is not restricted to one store.
     mock_storage.retrieve.assert_called_once_with(
         query="test query",
-        n_results=3
+        n_results=3,
+        store=None,
     )
 
 
@@ -344,8 +347,6 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
     """Test retrieval with tag and type filters."""
     # Return memories that will be filtered by MemoryService
     # Create a memory with matching tags for filtering
-    from mcp_memory_service.models.memory import Memory
-    import hashlib
     content_hash = hashlib.sha256("test content".encode()).hexdigest()
     matching_memory = Memory(
         content="test content",
@@ -366,12 +367,12 @@ async def test_retrieve_memories_with_filters(memory_service, mock_storage, samp
         memory_type="note"
     )
 
-    # storage.retrieve() only accepts query and n_results, so filtering happens in
-    # MemoryService after retrieval. When a filter is present the fetch is widened
-    # (max(n*10, n+50)) so matches outside the first `n_results` window are not lost.
+    # Filtering happens in MemoryService after retrieval. When a filter is present
+    # the fetch is widened so matches outside the first window are not lost.
     mock_storage.retrieve.assert_called_once_with(
         query="test",
-        n_results=55
+        n_results=55,
+        store=None,
     )
 
 
@@ -737,8 +738,6 @@ async def test_chunked_storage_partial_success(mock_storage):
 
 def test_normalize_tags_case_insensitive():
     """Test that normalize_tags() handles case variations."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Test case variations
     result = normalize_tags(["Tag", "tag", "TAG", "TaG"])
     assert result == ["tag"], f"Expected ['tag'], got {result}"
@@ -754,16 +753,12 @@ def test_normalize_tags_case_insensitive():
 
 def test_normalize_tags_comma_separated():
     """Test that comma-separated strings are normalized."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     result = normalize_tags("Python,JAVA,JavaScript,java")
     assert result == ["python", "java", "javascript"], f"Expected ['python', 'java', 'javascript'], got {result}"
 
 
 def test_normalize_tags_whitespace_handling():
     """Test that whitespace is handled correctly."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Leading/trailing whitespace
     result = normalize_tags(["  Python  ", " Java ", "JavaScript"])
     assert result == ["python", "java", "javascript"]
@@ -775,8 +770,6 @@ def test_normalize_tags_whitespace_handling():
 
 def test_normalize_tags_none_and_empty():
     """Test that None and empty inputs return empty list."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     assert normalize_tags(None) == []
     assert normalize_tags("") == []
     assert normalize_tags("   ") == []
@@ -785,16 +778,12 @@ def test_normalize_tags_none_and_empty():
 
 def test_normalize_tags_preserves_order():
     """Test that first occurrence order is preserved."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     result = normalize_tags(["zebra", "apple", "ZEBRA", "banana", "Apple"])
     assert result == ["zebra", "apple", "banana"], "Should preserve order of first occurrence"
 
 
 def test_normalize_tags_non_string_elements():
     """Test that non-string elements are filtered out."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Mixed types should be filtered
     result = normalize_tags(["tag1", 123, "tag2", None, "tag3"])
     assert result == ["tag1", "tag2", "tag3"]
@@ -807,8 +796,6 @@ def test_normalize_tags_json_encoded_array():
     protocol may deserialize array values as JSON strings rather than
     native lists. normalize_tags should handle this transparently.
     """
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Single-element JSON array
     result = normalize_tags('["preference"]')
     assert result == ["preference"]
@@ -846,8 +833,6 @@ def test_normalize_tags_comma_sanitization():
     the LIKE '%,tag,%' pattern matching breaks. Commas should be replaced
     with hyphens to preserve semantic meaning.
     """
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Single tag with comma
     result = normalize_tags(['machine,learning'])
     assert result == ['machine-learning']
@@ -863,8 +848,6 @@ def test_normalize_tags_comma_sanitization():
 
 def test_normalize_tags_length_limiting():
     """Test that excessively long tags and too many tags are limited."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Single very long tag (>100 chars)
     long_tag = 'a' * 150
     result = normalize_tags([long_tag])
@@ -879,8 +862,6 @@ def test_normalize_tags_length_limiting():
 
 def test_normalize_tags_recursion_error_handling():
     """Test that deeply nested JSON structures don't crash the server."""
-    from mcp_memory_service.services.memory_service import normalize_tags
-
     # Deeply nested JSON (would trigger RecursionError without proper handling)
     deeply_nested = '[' * 500 + ']' * 500
     result = normalize_tags(deeply_nested)

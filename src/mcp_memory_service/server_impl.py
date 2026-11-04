@@ -67,6 +67,14 @@ def _split_store_resource_uri(uri: str) -> tuple[Optional[str], str]:
     return unquote(store_part), f"memory://{resource_path}"
 
 
+def _supports_store_scoped_resources(storage) -> bool:
+    """Allow resource-scoped access without enabling every store-scoped API."""
+    return (
+        getattr(storage, "supports_store_scoped_resources", False) is True
+        or getattr(storage, "supports_store_scoped_access", False) is True
+    )
+
+
 def _read_store_grants(scope: Optional[str]) -> list[str]:
     """Extract per-store read grants from an MCP scope string."""
     return [token[len("read:"):] for token in (scope or "").split()
@@ -998,7 +1006,7 @@ class MemoryServer:
             scope = self._caller_scope_str()
             has_global_read = scope is None or "read" in (scope or "").split()
             stores = [] if has_global_read else _read_store_grants(scope)
-            if stores and not getattr(self.storage, "supports_store_scoped_access", False):
+            if stores and not _supports_store_scoped_resources(self.storage):
                 stores = []
 
             resources = [types.Resource(
@@ -1109,7 +1117,7 @@ class MemoryServer:
                             "insufficient_scope: resource URI store is not covered by this token"
                         )
                     storage = await self._ensure_storage_initialized()
-                    if not getattr(storage, "supports_store_scoped_access", False):
+                    if not _supports_store_scoped_resources(storage):
                         raise PermissionError(
                             "insufficient_scope: this backend cannot confine resource reads to a store"
                         )
@@ -1123,7 +1131,7 @@ class MemoryServer:
                     )
             elif store is not None:
                 storage = await self._ensure_storage_initialized()
-                if not getattr(storage, "supports_store_scoped_access", False):
+                if not _supports_store_scoped_resources(storage):
                     raise PermissionError(
                         "store-scoped resources are not supported on this backend"
                     )
@@ -1181,12 +1189,9 @@ class MemoryServer:
                 elif uri.startswith("memory://search/"):
                     # Dynamic search
                     query = unquote(uri.split("/", 3)[-1])
-                    if store is None:
-                        results = await self.storage.search(query, n_results=10)
-                    else:
-                        results = await self.storage.retrieve(
-                            query, n_results=10, store=store
-                        )
+                    results = await self.storage.retrieve(
+                        query, n_results=10, store=store
+                    )
                     return json.dumps({
                         "query": query,
                         "results": [r.to_dict() for r in results],
@@ -1224,7 +1229,7 @@ class MemoryServer:
                     for store in _read_store_grants(scope)
                 ]
                 storage = await self._ensure_storage_initialized()
-                if not getattr(storage, "supports_store_scoped_access", False):
+                if not _supports_store_scoped_resources(storage):
                     prefixes = []
             return [
                 types.ResourceTemplate(
@@ -2836,7 +2841,7 @@ class MemoryServer:
 
         agent_ids = arguments.get("agent_ids", [])
         store = arguments.get("store")
-        store_kwargs = {"store": store} if store is not None else {}
+        store_kwargs = {"store": store}
         max_tokens = arguments.get("max_tokens", int(os.getenv("MCP_BOOTSTRAP_MAX_TOKENS", "2048")))
         task_summary = arguments.get("task_summary")
         budget_tokens = arguments.get("budget_tokens") or max_tokens

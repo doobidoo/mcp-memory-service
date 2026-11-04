@@ -64,6 +64,10 @@ class TestCloudflareStorage:
         assert cloudflare_storage.d1_database_id == "test-db"
         assert cloudflare_storage.r2_bucket == "test-bucket"
         assert not cloudflare_storage._initialized
+
+    def test_store_scoped_resources_do_not_enable_general_store_access(self, cloudflare_storage):
+        assert cloudflare_storage.supports_store_scoped_resources is True
+        assert cloudflare_storage.supports_store_scoped_access is False
         
     @pytest.mark.asyncio
     async def test_get_client(self, cloudflare_storage):
@@ -433,7 +437,7 @@ class TestCloudflareStorage:
             sql_payload = mock_request.call_args_list[0].kwargs["json"]
             sql_text = sql_payload["sql"].upper()
             assert "JOIN MEMORY_TAGS" in sql_text and "GROUP BY M.ID" in sql_text
-            assert sql_payload["params"] == ["status:initialized", 10]
+            assert sql_payload["params"] == ["default", "status:initialized", 10]
 
     @pytest.mark.asyncio
     async def test_count_all_memories_with_tag_filter(self, cloudflare_storage):
@@ -451,7 +455,7 @@ class TestCloudflareStorage:
             sql_payload = mock_request.call_args.kwargs["json"]
             sql_text = sql_payload["sql"].upper()
             assert "COUNT(*) AS COUNT FROM" in sql_text and "GROUP BY M.ID" in sql_text
-            assert sql_payload["params"] == ["alpha", "beta"]
+            assert sql_payload["params"] == ["default", "alpha", "beta"]
 
     @pytest.mark.asyncio
     async def test_delete_memory(self, cloudflare_storage):
@@ -946,6 +950,165 @@ async def test_restore_deleted_memory_sql_lifecycle(cloudflare_storage, monkeypa
             assert (await cloudflare_storage.delete(memory.content_hash))[0]
     finally:
         db.close()
+
+
+@pytest.mark.asyncio
+async def test_store_scoped_cloudflare_resource_queries_filter_store(cloudflare_storage, monkeypatch):
+    queries = []
+
+    async def query_d1(method, url, **kwargs):
+        assert method == "POST" and url == f"{cloudflare_storage.d1_url}/query"
+        queries.append(kwargs["json"])
+        return Mock(json=Mock(return_value={
+            "success": True, "result": [{"results": []}],
+        }))
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", query_d1)
+    await cloudflare_storage.get_all_tags_with_counts(store="projectA")
+    await cloudflare_storage.get_all_memories(store="projectA")
+    await cloudflare_storage.count_all_memories(store="projectA")
+
+    assert len(queries) == 3
+    for query in queries:
+        assert "store = ?" in query["sql"]
+        assert "projectA" in query["params"]
+
+
+@pytest.mark.asyncio
+async def test_store_scoped_cloudflare_retrieve_passes_store_to_match_loader(
+    cloudflare_storage, monkeypatch
+):
+    match = {"id": "vector-id"}
+    response = Mock(json=Mock(return_value={
+        "success": True, "result": {"matches": [match]},
+    }))
+    monkeypatch.setattr(
+        cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1])
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_retry_request", AsyncMock(return_value=response)
+    )
+    loader = AsyncMock(return_value=None)
+    monkeypatch.setattr(cloudflare_storage, "_load_memory_from_match", loader)
+
+    assert await cloudflare_storage.retrieve("query", store="projectA") == []
+    loader.assert_awaited_once_with(match, store="projectA")
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_retrieve_defaults_to_default_store(cloudflare_storage, monkeypatch):
+    match = {"id": "vector-id"}
+    response = Mock(json=Mock(return_value={
+        "success": True, "result": {"matches": [match]},
+    }))
+    monkeypatch.setattr(
+        cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1])
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_retry_request", AsyncMock(return_value=response)
+    )
+    loader = AsyncMock(return_value=None)
+    monkeypatch.setattr(cloudflare_storage, "_load_memory_from_match", loader)
+
+    await cloudflare_storage.retrieve("query")
+
+    loader.assert_awaited_once_with(match, store="default")
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_memory_listing_and_count_default_to_default_store(
+    cloudflare_storage, monkeypatch
+):
+    queries = []
+
+    async def query_d1(method, url, **kwargs):
+        queries.append(kwargs["json"])
+        return Mock(json=Mock(return_value={
+            "success": True, "result": [{"results": []}],
+        }))
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", query_d1)
+    await cloudflare_storage.get_all_memories()
+    await cloudflare_storage.count_all_memories()
+
+    assert len(queries) == 2
+    for query in queries:
+        assert "m.store = ?" in query["sql"]
+        assert "default" in query["params"]
+
+
+@pytest.mark.asyncio
+async def test_store_scoped_cloudflare_retrieve_hides_global_match_counts(
+    cloudflare_storage, monkeypatch
+):
+    matches = [{"id": "project-a"}, {"id": "project-b"}]
+    response = Mock(json=Mock(return_value={
+        "success": True, "result": {"matches": matches},
+    }))
+    memory = Memory(content="authorized", content_hash="project-a")
+    monkeypatch.setattr(
+        cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1])
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_retry_request", AsyncMock(return_value=response)
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_load_memory_from_match",
+        AsyncMock(side_effect=[memory, None]),
+    )
+    monkeypatch.setattr(cloudflare_storage, "_persist_access_metadata", AsyncMock())
+
+    results = await cloudflare_storage.retrieve("query", store="projectA")
+
+    assert [result.memory.content_hash for result in results] == ["project-a"]
+    retrieval = results[0].debug_info["retrieval"]
+    assert retrieval == {"results_returned": 1, "recall_may_be_incomplete": True}
+
+
+@pytest.mark.asyncio
+async def test_empty_store_scoped_retrieve_does_not_log_global_match_counts(
+    cloudflare_storage, monkeypatch, caplog
+):
+    matches = [{"id": f"foreign-{index}"} for index in range(5)]
+    response = Mock(json=Mock(return_value={
+        "success": True, "result": {"matches": matches},
+    }))
+    monkeypatch.setattr(
+        cloudflare_storage, "_generate_embedding", AsyncMock(return_value=[0.1])
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_retry_request", AsyncMock(return_value=response)
+    )
+    monkeypatch.setattr(
+        cloudflare_storage, "_load_memory_from_match", AsyncMock(return_value=None)
+    )
+
+    with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
+        results = await cloudflare_storage.retrieve("query", n_results=5, store="projectA")
+
+    assert results == []
+    assert not any(
+        "Vectorize recall may be incomplete" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_store_scoped_cloudflare_match_query_filters_d1_row(cloudflare_storage, monkeypatch):
+    queries = []
+
+    async def query_d1(method, url, **kwargs):
+        queries.append(kwargs["json"])
+        return Mock(json=Mock(return_value={
+            "success": True, "result": [{"results": []}],
+        }))
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", query_d1)
+    assert await cloudflare_storage._load_memory_from_match(
+        {"id": "vector-id"}, store="projectA"
+    ) is None
+    assert "store = ?" in queries[0]["sql"]
+    assert queries[0]["params"] == ["vector-id", "projectA"]
 
 
 @pytest.mark.asyncio
