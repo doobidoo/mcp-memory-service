@@ -435,6 +435,7 @@
   "modal.settings.systemInfo": "시스템 정보",
   "modal.settings.theme": "테마",
   "modal.settings.themeDark": "다크",
+  "modal.settings.themeSystem": "시스템",
   "modal.settings.themeLight": "라이트",
   "modal.settings.title": "설정",
   "modal.settings.totalMemories": "전체 메모리:",

@@ -435,6 +435,7 @@
   "modal.settings.systemInfo": "システム情報",
   "modal.settings.theme": "テーマ",
   "modal.settings.themeDark": "ダーク",
+  "modal.settings.themeSystem": "システム",
   "modal.settings.themeLight": "ライト",
   "modal.settings.title": "設定",
   "modal.settings.totalMemories": "総メモリー数:",
