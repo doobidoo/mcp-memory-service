@@ -163,8 +163,10 @@ via `memory_graph`. If that returns `{"entities": [], "total": 0}`, the two-phas
 have nothing to work with, and the fix is one of:
 
 - **Batch, for memories you already have** — `memory_quality` with
-  `{"action": "maintain", "dry_run": false}`. The `dry_run` default is `true`, which counts
-  candidate entities and stores none, so a default call looks like it did nothing.
+  `{"action": "rebuild_entities"}` previews a full entity-graph rebuild. Review the
+  report, then use `{"action": "rebuild_entities", "dry_run": false}` to apply it.
+  See [Rebuilding the entity graph](#rebuilding-the-entity-graph) before applying.
+  `maintain` can also populate `has_entity`, but does not create `shares_entity`.
 - **Ongoing, for memories stored from now on** — set `MCP_ENTITY_LINKING_ENABLED=1`. This
   links at store time and does not touch existing memories.
 - **A single memory** — `memory_graph` with
@@ -207,8 +209,8 @@ each a comma-separated list of `fnmatch` patterns matched case-insensitively:
 - `MCP_ENTITY_TAG_EXCLUDE` — matching tags never do.
 
 When both are set, include is applied first, then exclude. Unset keeps every tag. Entities
-found in the content (`#hashtags`, `@mentions`, URLs, paths) are not filtered. Existing
-graph edges are not rebuilt: the filter applies to extraction from then on.
+found in the content (`#hashtags`, `@mentions`, URLs, paths) are not filtered. The filter
+applies to extraction from then on; use `rebuild_entities` to update existing edges.
 
 ```bash
 MCP_ENTITY_TAG_INCLUDE=task:*
@@ -221,6 +223,57 @@ of the patterns above, tags do most of the work — which is why tags being drop
 
 For domain-specific extraction, `MCP_ENTITY_EXTRACTOR_MODULES` accepts comma-separated
 `module.path:ClassName` entries implementing the `DomainExtractor` protocol.
+
+### Rebuilding the entity graph
+
+After changing entity filters or custom terms, correcting old extraction errors, or
+enabling linking on an existing store, preview a complete rebuild with `memory_quality`:
+
+```json
+{"action": "rebuild_entities"}
+```
+
+This defaults to `dry_run: true` and changes no memories or edges. `edges_before` counts
+the rows that would be deleted, and `edges_after` counts the replacement rows. Both
+contain `has_entity` and `shares_entity`. A `shares_entity` pair uses two directed rows;
+`shares_entity_pairs_before` and `shares_entity_pairs_after` count pairs instead.
+`memories_scanned` counts all live memories across all named stores, including
+superseded versions, in creation order. `MCP_MAINTAIN_SCAN_LIMIT` does not apply.
+The graph is selected from the server's active storage, including Hybrid's primary,
+and a Milvus preview leaves a missing graph collection absent. A read failure stops
+the operation before deleting any edges.
+
+Back up the database first and pause other writers and consolidation jobs for the
+entire preview/apply window. Restart the server to load changed extraction settings,
+then review the preview and apply:
+
+```json
+{"action": "rebuild_entities", "dry_run": false}
+```
+
+The operation deletes only `has_entity` and `shares_entity` edges, then recreates them
+using the current extractor and `EntityLinker`. Other relationships and their metadata
+and timestamps are preserved. If a pair already has a non-entity relationship, the
+rebuild skips a `shares_entity` pair that would overwrite it; `protected_edges` reports
+the number of non-entity rows retained. Memory contents, hashes, timestamps, tags, and
+store assignments are unchanged. Rebuilding explicitly does not require
+`MCP_ENTITY_LINKING_ENABLED` to be enabled; that flag controls future store-time linking.
+
+The newest-first entity lookup window and linking cap are the same as at store time.
+Equal creation timestamps are ordered by content hash for repeatable results. The
+result reproduces linking with today's settings, rather than preserving historical
+entity edges. The old SQLite-only backfill script has been replaced by this action.
+
+SQLite, Hybrid (its local graph), and Milvus are supported. Cloudflare reports an
+unsupported graph backend and does nothing. This is a write operation requiring OAuth
+write scope, even for a preview. Only a boolean `dry_run: false` applies changes.
+
+The full memory scan, graph snapshot, and replacement plan are held in memory before
+any deletion. Large stores require proportionally more RAM, and Milvus performs an RPC
+per edge write, so a rebuild can take a while. Pause other writers: the process-local
+rebuild lock does not coordinate separate servers, and this is not a cross-backend
+transaction. A write failure returns `success: false`, errors and progress counters;
+the graph may be partially rebuilt. Fix the failure and rerun, or restore the backup.
 
 ### What `summary` actually is
 

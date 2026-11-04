@@ -20,7 +20,7 @@ these twelve (`grep -c 'ToolDef(' src/mcp_memory_service/tools/registry.py`):
 | `memory_update` | Update memory metadata (replaces `update_memory_metadata`) |
 | `memory_cleanup` | Remove duplicates / orphans (replaces `cleanup_duplicates`) |
 | `memory_consolidate` | Run/manage consolidation (replaces `trigger_consolidation`, `scheduler_status`) |
-| `memory_quality` | Rate / get / analyze quality (replaces `rate_memory`, `get_memory_quality`, `analyze_quality_distribution`) |
+| `memory_quality` | Rate / get / analyze quality (replaces `rate_memory`, `get_memory_quality`, `analyze_quality_distribution`); maintain or rebuild all entity edges (`rebuild_entities`, dry-run by default) |
 | `memory_ingest` | Ingest documents (PDF/DOCX/TXT/JSON) |
 | `memory_graph` | Knowledge-graph queries (`connected`, `path`, `subgraph`, `extract_entities`, `infer`, `suggest`, `abduct`, `list_entities`, `entity_profile`) |
 | `memory_explore` | Knowledge map of entities for a query, with ranked chunks per entity |
