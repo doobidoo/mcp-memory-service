@@ -47,7 +47,11 @@ logger = logging.getLogger(__name__)
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
     async def get_all_memories(
-        self, memory_type: Optional[str] = None
+        self,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        store: Optional[str] = "default",
+        exclude_pending: bool = False,
     ) -> List[Memory]: pass
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float, include_embeddings: bool = False

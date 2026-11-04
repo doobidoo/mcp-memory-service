@@ -589,7 +589,9 @@ class MemoryService:
                 # it as a contradiction, instead of dropping it.
                 contradicted_hash = None
                 if not success:
-                    contradicted_hash = await self._contradiction_behind_duplicate(memory, message)
+                    contradicted_hash = await self._contradiction_behind_duplicate(
+                        memory, message, store=store
+                    )
                     if contradicted_hash:
                         success, message = await self.storage.store(
                             memory, skip_semantic_dedup=True, store=store,
@@ -621,7 +623,7 @@ class MemoryService:
                     }
                     if contradicted_hash:
                         filed_ok, filing = await self._file_contradiction(
-                            memory.content_hash, contradicted_hash
+                            memory.content_hash, contradicted_hash, store=store
                         )
                         # Never report a filing that did not happen: a failed
                         # quarantine leaves the memory stored *and* active.
@@ -749,7 +751,7 @@ class MemoryService:
         await self._maybe_link_entities(memory)
         await self._plugin_registry.fire('on_store', self._format_memory_response(memory))
 
-    async def _contradiction_behind_duplicate(self, memory, reject_message):
+    async def _contradiction_behind_duplicate(self, memory, reject_message, store=None):
         """Return the hash of the near-duplicate ``memory`` contradicts, or None.
 
         Issue #1216 (1b): only fires when on-store NLI is enabled, the rejection
@@ -768,7 +770,7 @@ class MemoryService:
             if not match:
                 return None
             existing_hash = match.group(1)
-            existing = await self.storage.get_by_hash(existing_hash)
+            existing = await self.storage.get_by_hash(existing_hash, store=store)
             if not existing or not getattr(existing, "content", None):
                 return None
             from ..reasoning.nli import NLIClassifier
@@ -789,7 +791,7 @@ class MemoryService:
             logger.debug(f"Contradiction-behind-duplicate check failed: {_sanitize_log_value(str(e))}")
         return None
 
-    async def _file_contradiction(self, content_hash, contradicted_hash):
+    async def _file_contradiction(self, content_hash, contradicted_hash, store=None):
         """Quarantine a rescued value-swap against the *memory* it contradicts.
 
         Returns ``(ok, filing)``: ``filing`` always names the contradicted hash
@@ -810,6 +812,7 @@ class MemoryService:
                     f"filed as contradiction instead of dropped as duplicate (#1216)"
                 ),
                 contradicted_memory_hash=contradicted_hash,
+                store=store,
             )
         except Exception as e:
             q = {"status": "error", "message": str(e)}

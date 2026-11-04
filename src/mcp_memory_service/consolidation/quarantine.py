@@ -110,6 +110,7 @@ async def quarantine_memory(
     contradicted_belief_hash: Optional[str],
     reason: str = "",
     contradicted_memory_hash: Optional[str] = None,
+    store: Optional[str] = None,
 ) -> dict:
     """Quarantine a memory that contradicts an active belief — or, for a
     value-swap rescued from semantic dedup (issue #1216), another *memory*.
@@ -130,10 +131,12 @@ async def quarantine_memory(
         if contradicted_memory_hash:
             quarantine_meta["contradicted_memory"] = contradicted_memory_hash
             result["memory"] = contradicted_memory_hash
+        store_kwargs = {"store": store} if store is not None else {}
         ok, msg = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates={"metadata": quarantine_meta, "tags": ["quarantined"]},
             preserve_timestamps=True,
+            **store_kwargs,
         )
         if not ok:
             # update_memory_metadata reports ordinary failures by returning
@@ -233,10 +236,16 @@ async def check_beliefs_on_store(
                 q_result = await quarantine_memory(
                     storage, content_hash, belief["belief_hash"],
                     reason=f"Contradicts belief: {belief['content'][:100]}",
+                    store=store_filter,
                 )
 
-                contradiction_count = await _count_quarantined_for_belief(storage, belief["belief_hash"])
-                if contradiction_count >= CONTRADICTION_THRESHOLD:
+                contradiction_count = await _count_quarantined_for_belief(
+                    storage, belief["belief_hash"], store=store_filter
+                )
+                # Beliefs are global rows, not store-partitioned. A scoped
+                # on-store check may quarantine within its store, but must not
+                # change the shared belief status from store-local evidence.
+                if store_filter is None and contradiction_count >= CONTRADICTION_THRESHOLD:
                     await belief_service.challenge_belief(belief["belief_hash"])
                     logger.info(
                         "Belief %s challenged after %s contradictions",
@@ -288,10 +297,15 @@ async def check_beliefs_on_store(
             )
 
 
-async def _count_quarantined_for_belief(storage, belief_hash: str) -> int:
+async def _count_quarantined_for_belief(storage, belief_hash: str, store=None) -> int:
     """Count memories quarantined due to a specific belief."""
     try:
-        results = await storage.search_by_tag(["quarantined"])
+        if store is None:
+            results = await storage.search_by_tag(["quarantined"])
+        else:
+            results = await storage.get_all_memories(
+                tags=["quarantined"], store=store, exclude_pending=True
+            )
         count = 0
         for mem in results:
             meta = mem.metadata if hasattr(mem, "metadata") else {}

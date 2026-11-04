@@ -173,11 +173,14 @@ class _RescueStorage:
 
     max_content_length = None  # no auto-split -> single-memory path
 
-    def __init__(self, existing_hash, existing_content):
+    def __init__(self, existing_hash, existing_content, existing_store="default"):
         self.existing_hash = existing_hash
         self._m = {existing_hash: _FakeMem(existing_content, existing_hash)}
+        self._stores = {existing_hash: existing_store}
         self.stored = []
         self.updates = []
+        self.get_by_hash_calls = []
+        self.update_store_calls = []
 
     async def store(self, memory, skip_semantic_dedup=False, store="default"):
         if not skip_semantic_dedup:
@@ -186,11 +189,15 @@ class _RescueStorage:
         self.stored.append(memory)
         return (True, "stored")
 
-    async def get_by_hash(self, h):
+    async def get_by_hash(self, h, store=None):
+        self.get_by_hash_calls.append((h, store))
+        if store is not None and self._stores.get(h) != store:
+            return None
         return self._m.get(h)
 
-    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True):
+    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True, store=None):
         self.updates.append((content_hash, updates))
+        self.update_store_calls.append(store)
         if content_hash in self._m:
             self._m[content_hash].metadata.update(updates.get("metadata", {}))
             for t in updates.get("tags", []):
@@ -219,6 +226,40 @@ async def test_value_swap_is_filed_not_dropped(monkeypatch):
     # Actually stored (bypassing dedup) and quarantined.
     assert len(storage.stored) == 1
     assert any("quarantined" in upd.get("tags", []) for _, upd in storage.updates)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("existing_store", "expected_success"), [("other", False), ("docs", True)]
+)
+async def test_on_store_duplicate_check_is_confined_to_target_store(
+    monkeypatch, existing_store, expected_success
+):
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.setenv("MCP_QUARANTINE_NLI_THRESHOLD", "0.5")
+    storage = _RescueStorage(
+        "aaaa1111bbbb2222", "The router IP is 192.168.7.1", existing_store=existing_store
+    )
+    service = MemoryService(storage)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier") as MockNLI:
+        MockNLI.return_value.classify = AsyncMock(
+            return_value=NLIResult(label="contradiction", confidence=0.9)
+        )
+        MockNLI.return_value.max_achievable_confidence = lambda: 0.9
+        result = await service.store_memory(
+            content="The router IP is 192.168.9.1", store="docs"
+        )
+
+    assert result["success"] is expected_success
+    assert storage.get_by_hash_calls == [("aaaa1111bbbb2222", "docs")]
+    if expected_success:
+        assert result["filed_as_contradiction"]["quarantine"]["status"] == "quarantined"
+        assert storage.update_store_calls == ["docs"]
+        MockNLI.return_value.classify.assert_awaited_once()
+    else:
+        assert storage.update_store_calls == []
+        MockNLI.return_value.classify.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -311,7 +352,7 @@ async def test_rescue_path_warns_when_gate_unreachable(monkeypatch, caplog):
 class _QuarantineFailsStorage(_RescueStorage):
     """The store succeeds, the metadata update behind quarantine does not."""
 
-    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True):
+    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True, store=None):
         raise RuntimeError("metadata backend unavailable")
 
 
@@ -347,7 +388,7 @@ class _QuarantineReturnsFalseStorage(_RescueStorage):
     ordinary failure by *returning* ``(False, message)`` instead of raising —
     which is how ``update_memory_metadata`` signals failure (storage/base.py)."""
 
-    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True):
+    async def update_memory_metadata(self, content_hash, updates, preserve_timestamps=True, store=None):
         return (False, "sqlite: database is locked")
 
 
@@ -405,6 +446,7 @@ async def test_memory_collision_is_recorded_as_memory_not_belief(monkeypatch):
 
     filing = result["filed_as_contradiction"]
     assert filing["quarantine"]["status"] == "quarantined"
+    assert storage.update_store_calls == ["default"]
     assert filing["quarantine"]["memory"] == "aaaa1111bbbb2222"
     assert filing["quarantine"]["belief"] is None
     new_hash = storage.stored[0].content_hash

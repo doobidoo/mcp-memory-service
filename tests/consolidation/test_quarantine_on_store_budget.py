@@ -20,17 +20,29 @@ import pytest
 
 from mcp_memory_service.consolidation import quarantine as quarantine_mod
 from mcp_memory_service.consolidation.quarantine import check_beliefs_on_store
+from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.reasoning.nli import NLIResult
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+
+@pytest.fixture
+async def storage(temp_db_path):
+    storage = SqliteVecMemoryStorage(f"{temp_db_path}/quarantine_store_scope.db")
+    await storage.initialize()
+    yield storage
+    await storage.close()
 
 
 class _FakeBeliefs:
     def __init__(self, beliefs):
         self._b = beliefs
+        self.challenged = []
 
-    async def get_beliefs(self, status="active", min_confidence=0.35):
+    async def get_beliefs(self, status="active", min_confidence=0.35, store=None):
         return [b for b in self._b if b.get("status", "active") == status]
 
     async def challenge_belief(self, belief_hash):
+        self.challenged.append(belief_hash)
         return {"belief_hash": belief_hash, "new_status": "disputed"}
 
 
@@ -267,6 +279,86 @@ class TestStopReasonAndCap:
 
         avisos = [r.getMessage() for r in caplog.records if "MCP_QUARANTINE_MAX_BELIEFS" in r.getMessage()]
         assert avisos, "o cap por contagem precisa ser visível"
+
+
+class TestStoreIsolation:
+    @pytest.mark.asyncio
+    async def test_other_store_quarantines_do_not_challenge_scoped_belief(
+        self, storage, monkeypatch
+    ):
+        monkeypatch.setenv("MCP_NLI_ON_STORE_BUDGET_S", "30")
+        monkeypatch.setattr(quarantine_mod, "CONTRADICTION_THRESHOLD", 3)
+        belief_hash = "belief-in-docs"
+        for index in range(2):
+            await storage.store(
+                Memory(
+                    content=f"other-store quarantine {index}",
+                    content_hash=f"other-quarantine-{index}",
+                    tags=["quarantined"],
+                    metadata={"contradicted_belief": belief_hash},
+                ),
+                store="other",
+            )
+        await storage.store(
+            Memory(content="new scoped contradiction", content_hash="new-doc-memory"),
+            store="docs",
+        )
+
+        beliefs = _FakeBeliefs([{
+            "belief_hash": belief_hash,
+            "content": "docs belief",
+            "confidence": 0.9,
+            "status": "active",
+        }])
+        update_calls = []
+        real_update = storage.update_memory_metadata
+
+        async def record_update(*args, **kwargs):
+            update_calls.append(kwargs)
+            return await real_update(*args, **kwargs)
+
+        monkeypatch.setattr(storage, "update_memory_metadata", record_update)
+        with _patch_classifier(
+            _CountingClassifier(delay=0, label="contradiction", confidence=0.95)
+        ):
+            result = await check_beliefs_on_store(
+                storage, beliefs, "new scoped contradiction", "new-doc-memory", store="docs"
+            )
+
+        assert result["status"] == "quarantined"
+        scoped_quarantines = await storage.get_all_memories(
+            tags=["quarantined"], store="docs", exclude_pending=True
+        )
+        assert len(scoped_quarantines) == 1
+        assert update_calls[0]["store"] == "docs"
+        assert beliefs.challenged == []
+
+    @pytest.mark.asyncio
+    async def test_scoped_contradiction_does_not_challenge_global_belief(
+        self, storage, monkeypatch
+    ):
+        monkeypatch.setenv("MCP_NLI_ON_STORE_BUDGET_S", "30")
+        monkeypatch.setattr(quarantine_mod, "CONTRADICTION_THRESHOLD", 1)
+        await storage.store(
+            Memory(content="docs contradiction", content_hash="docs-contradiction"),
+            store="docs",
+        )
+        beliefs = _FakeBeliefs([{
+            "belief_hash": "shared-belief",
+            "content": "shared belief",
+            "confidence": 0.9,
+            "status": "active",
+        }])
+
+        with _patch_classifier(
+            _CountingClassifier(delay=0, label="contradiction", confidence=0.95)
+        ):
+            result = await check_beliefs_on_store(
+                storage, beliefs, "docs contradiction", "docs-contradiction", store="docs"
+            )
+
+        assert result["status"] == "quarantined"
+        assert beliefs.challenged == []
 
 
 class TestBackgroundBounded:
