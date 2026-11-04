@@ -514,6 +514,9 @@ class MemoryDashboard {
      */
     async rerenderActiveView() {
         try {
+            // The active-filter chips sit in the search view but keep their
+            // text while another view is open, so rebuild them on every switch.
+            this.updateActiveFilters();
             switch (this.currentView) {
                 case 'dashboard':
                     this.renderRecentMemories(this.memories);
@@ -3774,8 +3777,10 @@ class MemoryDashboard {
         if (dateFilter) {
             const dateLabels = {
                 'today': this.t('search.filters.date.today', 'Today'),
+                'yesterday': this.t('search.filters.date.yesterday', 'Yesterday'),
                 'week': this.t('search.filters.date.week', 'This week'),
                 'month': this.t('search.filters.date.month', 'This month'),
+                'quarter': this.t('search.filters.date.quarter', 'This quarter'),
                 'year': this.t('search.filters.date.year', 'This year')
             };
             filters.push({
@@ -3814,15 +3819,16 @@ class MemoryDashboard {
             </div>
         `).join('');
 
-        // Add event listeners for filter removal
-        filtersList.addEventListener('click', (e) => {
+        // Assigned, not added: this runs on every filter change and language
+        // switch, and each added listener would remove the filter once more.
+        filtersList.onclick = (e) => {
             const button = e.target.closest('.remove-filter');
             if (!button) return;
 
             const type = button.dataset.filterType;
             const value = button.dataset.filterValue;
             this.removeFilter(type, value);
-        });
+        };
     }
 
     /**

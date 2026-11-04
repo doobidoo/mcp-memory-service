@@ -59,8 +59,10 @@ REUSED_STRINGS = {
     "modal.addMemory.save": "Save Memory",
     "modal.memoryDetails.title": "Memory Details",
     "search.filters.date.today": "Today",
+    "search.filters.date.yesterday": "Yesterday",
     "search.filters.date.week": "This week",
     "search.filters.date.month": "This month",
+    "search.filters.date.quarter": "This quarter",
     "search.filters.date.year": "This year",
     "search.filters.type.note": "Notes",
     "search.filters.type.code": "Code",
@@ -330,3 +332,102 @@ def test_active_filter_chips_use_the_selected_language(german_run):
     assert de["search.filters.activeType"].replace("{type}", de["search.filters.type.idea"]) in filters
     for english in ("Date: ", "Type: ", "This week", "Ideas"):
         assert english not in filters, english
+
+
+# Every value the search filter <select>s offer, read from the real markup.
+def _filter_options(select_id):
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    block = re.search(rf'<select[^>]*id="{select_id}".*?</select>', html, re.S).group(0)
+    return re.findall(r'<option value="(\w+)" data-i18n="([\w.]+)"', block)
+
+
+DATE_OPTIONS = _filter_options("dateFilter")
+TYPE_OPTIONS = _filter_options("typeFilter")
+
+FILTER_HARNESS = r"""
+const de = __DE__, en = __EN__;
+const mk = () => ({ value: '', innerHTML: '', style: {}, listeners: 0, onclick: null,
+                    addEventListener() { this.listeners++; } });
+const els = { activeFilters: mk(), activeFiltersList: mk(), tagFilter: mk(), dateFilter: mk(), typeFilter: mk() };
+globalThis.document = { getElementById: id => els[id] || null };
+class App {
+__METHODS__
+}
+const app = new App();
+const input = __INPUT__;
+const out = { chips: [] };
+app.fallbackTranslations = en;
+app.currentView = input.view;
+app.searchResults = [];
+for (const [date, type] of input.filters) {
+  app.translations = input.switchFrom === 'en' ? en : de;
+  els.tagFilter.value = 'work'; els.dateFilter.value = date; els.typeFilter.value = type;
+  app.updateActiveFilters();
+  if (input.switchFrom === 'en') {
+    app.translations = de;
+    await app.rerenderActiveView();
+  }
+  out.chips.push(els.activeFiltersList.innerHTML);
+}
+app.updateActiveFilters();
+out.listeners = els.activeFiltersList.listeners;
+out.hasOnclick = typeof els.activeFiltersList.onclick === 'function';
+console.log(JSON.stringify(out));
+"""
+
+
+def _run_filters(filters, switch_from=None, view="search"):
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    js = APP_JS.read_text(encoding="utf-8")
+    methods = "".join(_method(js, name) for name in ("t", "replacePlaceholders", "escapeHtml", "updateActiveFilters"))
+    rerender = re.search(r"^    async rerenderActiveView\(\) \{\n.*?^    \}\n", js, re.S | re.M)
+    assert rerender, "rerenderActiveView"
+    methods += rerender.group(0)
+    for name in ("renderRecentMemories", "renderSearchResults", "loadViewData"):
+        methods += f"    {name}() {{}}\n"
+    de, en = _catalog("de.json"), _catalog("en.json")
+    script = (FILTER_HARNESS.replace("__DE__", json.dumps(de)).replace("__EN__", json.dumps(en))
+              .replace("__METHODS__", methods)
+              .replace("__INPUT__", json.dumps({"filters": filters, "switchFrom": switch_from, "view": view})))
+    run = subprocess.run(["node", "--input-type=module", "-"], input=script, capture_output=True,
+                         text=True, encoding="utf-8")
+    assert run.returncode == 0, run.stderr
+    return json.loads(run.stdout), de
+
+
+def test_filter_markup_offers_the_expected_choices():
+    assert [v for v, _ in DATE_OPTIONS] == ["today", "yesterday", "week", "month", "quarter", "year"]
+    assert [v for v, _ in TYPE_OPTIONS] == ["note", "code", "reference", "idea"]
+
+
+@pytest.mark.parametrize("value,key", DATE_OPTIONS)
+def test_every_date_choice_gets_a_translated_chip(value, key):
+    out, de = _run_filters([[value, ""]])
+    assert de["search.filters.activeDate"].replace("{date}", de[key]) in out["chips"][0]
+
+
+@pytest.mark.parametrize("value,key", TYPE_OPTIONS)
+def test_every_type_choice_gets_a_translated_chip(value, key):
+    out, de = _run_filters([["", value]])
+    assert de["search.filters.activeType"].replace("{type}", de[key]) in out["chips"][0]
+
+
+@pytest.mark.parametrize("view", ["search", "dashboard", "analytics"])
+def test_language_switch_rebuilds_the_active_filter_chips(view):
+    # The chips keep their text while another view is open, so every switch rebuilds them.
+    out, de = _run_filters([["quarter", "idea"]], switch_from="en", view=view)
+    chips = out["chips"][0]
+    assert de["search.filters.activeTag"].replace("{tag}", "work") in chips
+    assert de["search.filters.activeDate"].replace("{date}", de["search.filters.date.quarter"]) in chips
+    assert de["search.filters.activeType"].replace("{type}", de["search.filters.type.idea"]) in chips
+    # German keeps "Tag: {tag}", so the tag chip is checked through its catalog value above
+    for english in ("Date: ", "Type: ", "This quarter", "Ideas"):
+        assert english not in chips, english
+
+
+def test_rebuilding_the_chips_keeps_one_click_handler():
+    # Before, every rebuild added one more listener, so one click removed the filter once per rebuild.
+    out, _ = _run_filters([["today", "note"], ["week", "code"]], switch_from="en")
+    assert out["listeners"] == 0
+    assert out["hasOnclick"]
