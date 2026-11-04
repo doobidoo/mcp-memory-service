@@ -291,7 +291,7 @@
   "analytics.topTagsLoadFailed": "Не удалось загрузить популярные теги",
   "analytics.topTagsEmpty": "Теги не найдены",
   "analytics.reportPeriod": "Период: {period}",
-  "analytics.memoriesPercent": "{count}%",
+  "analytics.memoriesPercent": "Записей: {count} ({percent}%)",
   "analytics.oftenWith": "Часто встречается вместе с:",
   "analytics.recentActivityLoadFailed": "Не удалось загрузить данные о недавней активности",
   "analytics.activeDays": "Активные дни:",
