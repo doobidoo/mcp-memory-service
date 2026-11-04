@@ -10,6 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# The single source of truth for memory_graph actions. The schema enum below
+# and the write-scope exemption in server_impl both build on this list, so an
+# action added here is everywhere; tests/web/api/test_transport_consistency.py
+# pins the derivation.
+from ..server.handlers.graph import GRAPH_ACTIONS
+
 
 @dataclass(frozen=True)
 class ToolDef:
@@ -1027,7 +1033,7 @@ Examples:
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduct", "list_entities", "entity_profile"],
+                    "enum": list(GRAPH_ACTIONS),
                     "description": "Graph operation to perform",
                 },
                 "hash": {

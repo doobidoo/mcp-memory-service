@@ -38,6 +38,8 @@ async def initialized_storage(temp_db, monkeypatch):
 
 @pytest.fixture
 def test_app(initialized_storage, monkeypatch):
+    from mcp_memory_service.web import dependencies as web_dependencies
+    from mcp_memory_service.web.api import mcp as mcp_api
     from mcp_memory_service.web.oauth import middleware
     monkeypatch.setattr(middleware, "API_KEY", None)
     monkeypatch.setattr(middleware, "OAUTH_ENABLED", False)
@@ -48,6 +50,11 @@ def test_app(initialized_storage, monkeypatch):
         get_current_user, require_read_access, AuthenticationResult,
     )
 
+    # The shim caches a MemoryServer against the module-global storage; save
+    # both so teardown leaves other tests' globals intact instead of pointing
+    # at this fixture's closed storage.
+    prev_storage = web_dependencies._storage
+    prev_server = mcp_api._memory_server
     set_storage(initialized_storage)
 
     async def mock_user():
@@ -59,6 +66,8 @@ def test_app(initialized_storage, monkeypatch):
     app.dependency_overrides[require_read_access] = mock_user
     yield app
     app.dependency_overrides.clear()
+    web_dependencies._storage = prev_storage
+    mcp_api._memory_server = prev_server
 
 
 def _graph_tool_def():
