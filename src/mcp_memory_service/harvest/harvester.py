@@ -14,12 +14,22 @@ from .extractor import PatternExtractor
 from .patterns import load_filters
 from ..compat import _sanitize_log_value
 from ..config.locale import get_active_locales
+from ..utils.time_parser import statement_time
 
 logger = logging.getLogger(__name__)
 
 # Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging,
 # re-harvest safety, session digest). Increment when the harvest pipeline changes materially.
-HARVEST_PIPELINE_VERSION = 3
+# 4: metadata.source_time and time-aware evolution (#1858).
+HARVEST_PIPELINE_VERSION = 4
+
+
+def _mtime_or_zero(path: Path) -> float:
+    """Sort key for session files; a file that vanished sorts first and fails later, where it is handled."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 class SessionHarvester:
@@ -302,7 +312,26 @@ class SessionHarvester:
             "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
             "harvest_session_id": session_id,
         }
+        source_time = getattr(candidate, "source_time", None)
+        if source_time is not None:
+            metadata["source_time"] = datetime.fromtimestamp(source_time, tz=timezone.utc).isoformat()
         return tags, metadata
+
+    @staticmethod
+    def _is_older_statement(candidate, existing) -> bool:
+        """True when the candidate was said before the existing memory (#1858).
+
+        The existing memory's statement time is its ``metadata.source_time`` when
+        harvest recorded one, else its ``created_at`` (a memory stored live was
+        said when it was stored). Unknown on either side keeps the old behaviour.
+        """
+        candidate_time = getattr(candidate, "source_time", None)
+        if candidate_time is None:
+            return False
+        existing_time = statement_time((existing.metadata or {}).get("source_time"))
+        if existing_time is None:
+            existing_time = statement_time(existing.created_at)
+        return existing_time is not None and candidate_time < existing_time
 
     async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None):
         """Check for similar active memory; if found, evolve it.
@@ -332,7 +361,13 @@ class SessionHarvester:
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
             return False, None
 
-        existing_hash = similar[0].memory.content_hash
+        existing = similar[0].memory
+        existing_hash = existing.content_hash
+        if self._is_older_statement(candidate, existing):
+            # An older statement must not become the current version of a newer
+            # memory (#1858). Store it as its own memory instead.
+            logger.debug("Not evolving %s: candidate is the older statement", existing_hash[:8])
+            return False, None
         try:
             # Same provenance as the store path. Evolve through the service,
             # not storage.update_memory_versioned(), so the new version gets
@@ -457,15 +492,21 @@ class SessionHarvester:
         }
 
     def _resolve_sessions(self, config: HarvestConfig) -> List[Path]:
-        """Find session files based on config."""
+        """Find session files based on config, oldest first.
+
+        Oldest first so that, within one run, a later session's statement evolves
+        an earlier one and never the other way round (#1858). find_sessions picks
+        the newest ``count`` but returns them newest first.
+        """
         if config.session_ids:
             resolved: List[Path] = []
             for sid in config.session_ids:
                 path = self._resolve_session_id(sid, self.project_dir)
                 if path is not None:
                     resolved.append(path)
-            return resolved
-        return self.parser.find_sessions(self.project_dir, count=config.sessions)
+        else:
+            resolved = self.parser.find_sessions(self.project_dir, count=config.sessions)
+        return sorted(resolved, key=_mtime_or_zero)
 
     def _harvest_file(self, filepath: Path, config: HarvestConfig) -> HarvestResult:
         """Extract candidates from a single session file."""
@@ -480,6 +521,9 @@ class SessionHarvester:
         rewrite_dropped = 0
         for msg in messages:
             candidates = self.extractor.extract(msg, role_filter=use_role_filter)
+            msg_time = statement_time(msg.timestamp)
+            for candidate in candidates:
+                candidate.source_time = msg_time
             all_candidates.extend(candidates)
 
         # Apply regex-level filters
@@ -520,6 +564,7 @@ class SessionHarvester:
                             source_line=candidate.source_line,
                             harvest_method="llm",
                             harvest_model=_model,
+                            source_time=candidate.source_time,
                         ))
                 logger.info(
                     "LLM rewrite: %d → %d candidates (%d skipped)",
