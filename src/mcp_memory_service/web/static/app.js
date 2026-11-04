@@ -108,7 +108,7 @@ class MemoryDashboard {
 
         // Settings with defaults
         this.settings = {
-            theme: 'light',
+            theme: 'system',
             viewDensity: 'comfortable',
             previewLines: 3
         };
@@ -139,6 +139,7 @@ class MemoryDashboard {
         await this.initI18n();
         this.loadSettings();
         this.applyTheme();
+        this.watchSystemColorScheme();
         this.setupEventListeners();
         this.setupAuthListeners();
 
@@ -4760,10 +4761,46 @@ class MemoryDashboard {
     }
 
     /**
+     * The OS dark-mode media query, or null where matchMedia is unavailable.
+     */
+    systemColorSchemeQuery() {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+            return null;
+        }
+        return window.matchMedia('(prefers-color-scheme: dark)');
+    }
+
+    /**
+     * Resolve a theme setting ('light', 'dark' or 'system') to 'light' or 'dark'.
+     */
+    resolveTheme(theme = this.settings.theme) {
+        if (theme === 'dark' || theme === 'light') {
+            return theme;
+        }
+        const query = this.systemColorSchemeQuery();
+        return query && query.matches ? 'dark' : 'light';
+    }
+
+    /**
+     * Re-apply the theme when the OS scheme changes, as long as the user follows it.
+     */
+    watchSystemColorScheme() {
+        const query = this.systemColorSchemeQuery();
+        if (!query || typeof query.addEventListener !== 'function') {
+            return;
+        }
+        query.addEventListener('change', () => {
+            if (this.settings.theme === 'system') {
+                this.applyTheme();
+            }
+        });
+    }
+
+    /**
      * Apply theme to the page
      */
     applyTheme(theme = this.settings.theme) {
-        const isDark = theme === 'dark';
+        const isDark = this.resolveTheme(theme) === 'dark';
         document.body.classList.toggle('dark-mode', isDark);
 
         // Configure Chart.js colors for dark mode
@@ -4813,10 +4850,12 @@ class MemoryDashboard {
     }
 
     /**
-     * Toggle between light and dark theme
+     * Toggle between light and dark theme. The result is saved as an explicit
+     * choice, so the dashboard stops following the system until 'system' is
+     * picked again in settings.
      */
     toggleTheme() {
-        const newTheme = this.settings.theme === 'dark' ? 'light' : 'dark';
+        const newTheme = this.resolveTheme() === 'dark' ? 'light' : 'dark';
         this.settings.theme = newTheme;
         this.applyTheme(newTheme);
         this.saveSettingsToStorage();

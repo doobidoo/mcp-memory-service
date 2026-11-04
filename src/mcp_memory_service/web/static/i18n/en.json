@@ -467,6 +467,7 @@
   "modal.settings.theme": "Theme",
   "modal.settings.themeLight": "Light",
   "modal.settings.themeDark": "Dark",
+  "modal.settings.themeSystem": "System",
   "modal.settings.viewDensity": "View Density",
   "modal.settings.viewDensityComfortable": "Comfortable",
   "modal.settings.viewDensityCompact": "Compact",
