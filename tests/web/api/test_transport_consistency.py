@@ -6,19 +6,19 @@ enum, the handler's accepted actions and the write-scope exemption), and
 checks the HTTP shim carries tool annotations and answers ``ping``.
 """
 
+import os
+import tempfile
+
 import pytest
 import pytest_asyncio
-import tempfile
-import os
 from fastapi.testclient import TestClient
-
-from mcp_memory_service.web.dependencies import set_storage
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-from mcp_memory_service.tools.registry import TOOL_REGISTRY
 from mcp_memory_service.server.handlers.graph import (
     GRAPH_ACTIONS,
     GRAPH_READ_ACTIONS,
 )
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.tools.registry import TOOL_REGISTRY
+from mcp_memory_service.web.dependencies import set_storage
 
 
 @pytest.fixture
@@ -47,7 +47,9 @@ def test_app(initialized_storage, monkeypatch):
 
     from mcp_memory_service.web.app import app
     from mcp_memory_service.web.oauth.middleware import (
-        get_current_user, require_read_access, AuthenticationResult,
+        AuthenticationResult,
+        get_current_user,
+        require_read_access,
     )
 
     # The shim caches a MemoryServer against the module-global storage; save
@@ -89,6 +91,14 @@ def test_read_actions_exclude_only_entity_extraction():
     assert set(GRAPH_READ_ACTIONS) == set(GRAPH_ACTIONS) - {"extract_entities"}
 
 
+def test_write_capable_tool_is_not_annotated_read_only():
+    # memory_graph advertises extract_entities, which writes entity links
+    # (GHSA-2mw6-h564-86wv). A read-only hint would let a client auto-approve
+    # that write without asking the user, on stdio as well as HTTP (#1852).
+    annotations = _graph_tool_def().annotations
+    assert annotations.get("readOnlyHint") is False
+
+
 @pytest.mark.asyncio
 async def test_write_scope_follows_the_action_table(initialized_storage):
     from mcp_memory_service.server_impl import MemoryServer
@@ -123,7 +133,7 @@ def test_http_tools_list_carries_annotations(test_app):
     by_name = {t["name"]: t for t in tools}
     assert by_name["memory_search"]["annotations"].get("readOnlyHint") is True
     assert by_name["memory_delete"]["annotations"].get("destructiveHint") is True
-    assert by_name["memory_graph"]["annotations"].get("readOnlyHint") is True
+    assert by_name["memory_graph"]["annotations"].get("readOnlyHint") is False
 
 
 def test_http_ping_answers_empty_result(test_app):
