@@ -167,6 +167,26 @@ async def test_harvested_memory_records_its_statement_time(tmp_path, memory_serv
     assert memories[0].metadata.get("source_content_hash") == memories[0].content_hash
 
 
+async def test_split_harvest_memory_keeps_its_statement_time(monkeypatch, memory_service):
+    """store_memory splits long content; every chunk must still carry a readable source_time."""
+    from mcp_memory_service.harvest.models import HarvestCandidate
+    from mcp_memory_service.storage.mixins import base as storage_base
+    from mcp_memory_service.utils.time_parser import memory_statement_time, statement_time
+
+    monkeypatch.setattr(storage_base, "SQLITEVEC_MAX_CONTENT_LENGTH", 120)
+    content = " ".join([OLD, NEW, OLD.replace("8010", "8030")])  # ~300 chars, three sentences
+    candidate = HarvestCandidate(content=content, memory_type="decision", source_time=statement_time(OLD_TS))
+    harvester = SessionHarvester(project_dir=Path("."), memory_service=memory_service)
+    tags, metadata = harvester._provenance(candidate, "long-session")
+
+    resp = await memory_service.store_memory(content=content, tags=tags, memory_type="decision", metadata=metadata)
+    assert resp["success"]
+
+    chunks = await memory_service.storage.get_all_memories()
+    assert len(chunks) > 1, "the content must actually be split for this test to mean anything"
+    assert {memory_statement_time(m) for m in chunks} == {statement_time(OLD_TS)}
+
+
 async def test_resolve_sessions_still_returns_the_newest_first(tmp_path, memory_service):
     """The tracker paths take pending[:page_size] from this list; it must start at the newest."""
     _write_session(tmp_path, "older", OLD, OLD_TS, mtime=1_000_000)
