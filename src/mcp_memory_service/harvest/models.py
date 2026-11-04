@@ -22,6 +22,12 @@ class HarvestCandidate:
     # Provenance (RFC-harvest-provenance Phase 1)
     harvest_method: str = "heuristic"  # "llm" | "heuristic"
     harvest_model: Optional[str] = None  # "<provider>/<model>" when method == "llm"
+    # Epoch of the transcript message the candidate came from (#1858). None when
+    # the transcript carries no usable timestamp.
+    source_time: Optional[float] = None
+    # Set by SessionHarvester._try_evolve when the closest memory was said later:
+    # the candidate is stored next to it, past semantic dedup (#1858).
+    older_than_match: bool = False
 
 
 @dataclass
