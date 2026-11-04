@@ -80,6 +80,23 @@ test('opt-in contextual capture stores a short reply with its immediately preced
     assert.match(updatedWrites[1].body.content, /User: Change it now\./);
 });
 
+test('contextual capture does not duplicate an answer captured on the previous Stop', async t => {
+    const f = await fixture(t);
+    const config = { ...f.config, contextualCapture: true, minCaptureLength: 100 };
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer')]);
+    await runHook(f.event, config);
+
+    await f.write([message('user', 'Choose storage.'), message('assistant', decision, 'final_answer'),
+        message('user', 'Ok go.'), message('assistant', 'Done.', 'final_answer')]);
+    await runHook(f.event, config);
+
+    const captures = f.requests.filter(request => request.url === '/api/memories'
+        && request.body.memory_type !== 'session');
+    assert.equal(captures.length, 1);
+    assert.equal(captures[0].body.metadata.role, 'assistant');
+    assert.doesNotMatch(captures[0].body.content, /User: Ok go\./);
+});
+
 test('contextual capture preserves later assistant outcomes after the capture cap', async t => {
     const f = await fixture(t);
     await f.write([

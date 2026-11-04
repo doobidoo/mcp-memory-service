@@ -230,7 +230,7 @@ async function retrieve(config, project, state, deadline) {
     return contextOutput(context, context?.length === state.context?.length ? state.contextCount : undefined, cached);
 }
 
-function contextualReplyPairs(messages, event, config) {
+function contextualReplyPairs(messages, event, config, captured) {
     const pairsByUserTurn = new Map();
     const pairedAssistantTurns = new Set();
     if (!config.autoCapture || !config.contextualCapture) {
@@ -252,12 +252,13 @@ function contextualReplyPairs(messages, event, config) {
         const user = messages[index];
         if (assistant.role !== 'assistant' || user.role !== 'user'
             || skippedTurns.has(assistant.turnIndex) || skippedTurns.has(user.turnIndex)) continue;
+        const assistantContent = stripCode(assistant.content).replace(/#remember\b/gi, '').trim();
+        if (captured.has(hash(`assistant\n${assistantContent}`))) continue;
 
         const overrides = hasUserOverride(user.content);
         if (overrides.forceRemember || overrides.forceSkip) continue;
         const userContent = stripCode(user.content).trim();
         if (!userContent || userContent.length >= config.minCaptureLength) continue;
-        const assistantContent = stripCode(assistant.content).trim();
         if (!assistantContent) continue;
 
         const candidate = `Assistant: ${assistantContent}\n\nUser: ${userContent}`;
@@ -309,8 +310,8 @@ async function capture(event, config, project, state, deadline, persist) {
     const stat = await fs.stat(event.transcript_path);
     if (!stat.isFile() || stat.size > 32 * 1024 * 1024) throw new Error('Transcript unavailable or too large');
     const messages = parseTranscript(await fs.readFile(event.transcript_path, 'utf8'));
-    const { pairsByUserTurn, pairedAssistantTurns } = contextualReplyPairs(messages, event, config);
     const captured = new Set(state.captured || []), summarized = new Set(state.summarized || []);
+    const { pairsByUserTurn, pairedAssistantTurns } = contextualReplyPairs(messages, event, config, captured);
     const outcomes = new Map();
     let overrides = {}, captures = 0, saved = 0, summary = false;
     for (const message of messages) {
