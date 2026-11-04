@@ -1088,7 +1088,7 @@ Examples:
             },
             "required": ["action"],
         },
-        annotations={"readOnlyHint": True},
+        annotations={"readOnlyHint": False},
     ),
     ToolDef(
         name="memory_conflicts",
