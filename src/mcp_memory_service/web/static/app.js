@@ -580,8 +580,8 @@ class MemoryDashboard {
                 if (textDiv && textDiv.classList.contains('detail-content-text')) {
                     textDiv.classList.toggle('detail-content-collapsed');
                     e.target.textContent = textDiv.classList.contains('detail-content-collapsed')
-                        ? '▼ Show full content'
-                        : '▲ Collapse';
+                        ? `▼ ${this.t('modal.memoryDetails.showFullContent', 'Show full content')}`
+                        : `▲ ${this.t('modal.memoryDetails.collapse', 'Collapse')}`;
                 }
             }
         });
@@ -2486,7 +2486,7 @@ class MemoryDashboard {
         taggedContainer.style.display = 'none';
 
         if (!this.tags || this.tags.length === 0) {
-            container.innerHTML = '<p class="text-neutral-600">No tags found. Start adding tags to your memories to see them here.</p>';
+            container.innerHTML = `<p class="text-neutral-600" data-i18n="browse.noTags">${this.escapeHtml(this.t('browse.noTags', 'No tags found. Start adding tags to your memories to see them here.'))}</p>`;
             return;
         }
 
@@ -2641,7 +2641,7 @@ class MemoryDashboard {
      */
     renderMemoriesInContainer(memories, container) {
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="empty-state">No memories found with this tag.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="browse.noTaggedMemories">${this.escapeHtml(this.t('browse.noTaggedMemories', 'No memories found with this tag.'))}</p>`;
             return;
         }
 
@@ -2965,8 +2965,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Reset modal title and button text
-        title.textContent = 'Add New Memory';
-        saveBtn.textContent = 'Save Memory';
+        this.setTranslatedText(title, 'modal.addMemory.title', 'Add New Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.save', 'Save Memory');
 
         // Clear form
         document.getElementById('addMemoryForm').reset();
@@ -3019,7 +3019,7 @@ class MemoryDashboard {
                     };
 
                     response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
-                    successMessage = 'Memory updated successfully';
+                    successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
                 } else {
                     // Content changed - use create-delete approach (but with proper error handling)
 
@@ -3029,7 +3029,7 @@ class MemoryDashboard {
 
                         // CRITICAL: Only proceed with deletion if creation actually succeeded
                         if (response.success) {
-                            successMessage = 'Memory updated successfully';
+                            successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
 
                             try {
                                 // Step 2: Delete original memory (only after successful creation)
@@ -3055,7 +3055,7 @@ class MemoryDashboard {
             } else {
                 // Create new memory
                 response = await this.apiCall('/memories', 'POST', payload);
-                successMessage = 'Memory saved successfully';
+                successMessage = this.t('toast.memorySavedSuccess', 'Memory saved successfully');
             }
 
             this.closeModal(document.getElementById('addMemoryModal'));
@@ -3102,7 +3102,7 @@ class MemoryDashboard {
         const title = document.getElementById('modalTitle');
         const content = document.getElementById('modalContent');
 
-        title.textContent = 'Memory Details';
+        this.setTranslatedText(title, 'modal.memoryDetails.title', 'Memory Details');
         content.innerHTML = this.renderMemoryDetails(memory);
 
         // Set up action buttons
@@ -3123,21 +3123,21 @@ class MemoryDashboard {
         return `
             <div class="memory-detail">
                 <div class="memory-meta">
-                    <p><strong>Created:</strong> ${createdDate}</p>
-                    ${updatedDate ? `<p><strong>Updated:</strong> ${updatedDate}</p>` : ''}
-                    <p><strong>Type:</strong> ${memory.memory_type || 'note'}</p>
-                    <p><strong>ID:</strong> ${memory.content_hash}</p>
+                    <p><strong data-i18n="modal.memoryDetails.created">${this.escapeHtml(this.t('modal.memoryDetails.created', 'Created:'))}</strong> ${createdDate}</p>
+                    ${updatedDate ? `<p><strong data-i18n="modal.memoryDetails.updated">${this.escapeHtml(this.t('modal.memoryDetails.updated', 'Updated:'))}</strong> ${updatedDate}</p>` : ''}
+                    <p><strong data-i18n="modal.memoryDetails.type">${this.escapeHtml(this.t('modal.memoryDetails.type', 'Type:'))}</strong> ${memory.memory_type || 'note'}</p>
+                    <p><strong data-i18n="modal.memoryDetails.id">${this.escapeHtml(this.t('modal.memoryDetails.id', 'ID:'))}</strong> ${memory.content_hash}</p>
                 </div>
 
                 <div class="memory-detail-section">
-                    <h4>Content</h4>
+                    <h4 data-i18n="modal.memoryDetails.content">${this.escapeHtml(this.t('modal.memoryDetails.content', 'Content'))}</h4>
                     <div class="content-text detail-content-text${memory.content && memory.content.length > 200 ? ' detail-content-collapsed' : ''}">${this.escapeHtml(memory.content)}</div>
-                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ Show full content</button>' : ''}
+                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ ' + this.escapeHtml(this.t('modal.memoryDetails.showFullContent', 'Show full content')) + '</button>' : ''}
                 </div>
 
                 ${memory.tags && memory.tags.length > 0 ? `
                     <div class="memory-tags-section">
-                        <h4>Tags</h4>
+                        <h4 data-i18n="modal.memoryDetails.tags">${this.escapeHtml(this.t('modal.memoryDetails.tags', 'Tags'))}</h4>
                         <div class="memory-tags">
                             ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
                         </div>
@@ -3147,7 +3147,7 @@ class MemoryDashboard {
                 ${memory.metadata ? `
                     <div class="memory-metadata">
                         <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
-                            <span class="toggle-icon">▶</span> Metadata
+                            <span class="toggle-icon">▶</span> <span data-i18n="modal.memoryDetails.metadata">${this.escapeHtml(this.t('modal.memoryDetails.metadata', 'Metadata'))}</span>
                         </h4>
                         <div class="metadata-content">
                             ${this.renderMetadata(memory.metadata)}
@@ -3163,7 +3163,7 @@ class MemoryDashboard {
      */
     renderMetadata(metadata) {
         if (!metadata || typeof metadata !== 'object') {
-            return '<p class="metadata-empty">No metadata available</p>';
+            return `<p class="metadata-empty" data-i18n="modal.memoryDetails.noMetadata">${this.escapeHtml(this.t('modal.memoryDetails.noMetadata', 'No metadata available'))}</p>`;
         }
 
         let html = '<div class="metadata-items">';
@@ -3201,7 +3201,7 @@ class MemoryDashboard {
      * Delete memory
      */
     async deleteMemory(memory) {
-        if (!confirm('Are you sure you want to delete this memory? This action cannot be undone.')) {
+        if (!confirm(this.t('modal.memoryDetails.confirmDelete', 'Are you sure you want to delete this memory? This action cannot be undone.'))) {
             return;
         }
 
@@ -3239,8 +3239,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Update modal for editing
-        title.textContent = 'Edit Memory';
-        saveBtn.textContent = 'Update Memory';
+        this.setTranslatedText(title, 'modal.addMemory.editTitle', 'Edit Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.update', 'Update Memory');
 
         // Pre-fill the form with existing data
         document.getElementById('memoryContent').value = memory.content || '';
@@ -3279,7 +3279,7 @@ class MemoryDashboard {
         // Try to use Web Share API if available
         if (navigator.share) {
             navigator.share({
-                title: 'Memory from MCP Memory Service',
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
                 text: memory.content,
                 url: window.location.href
             }).catch(err => {
@@ -3383,7 +3383,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
+    container.innerHTML = `<p class="empty-state"><span data-i18n="sections.recentMemoriesEmpty">${this.escapeHtml(this.t('sections.recentMemoriesEmpty', 'No memories found.'))}</span> <a href="#" data-action="add-memory" data-i18n="sections.addFirstMemory">${this.escapeHtml(this.t('sections.addFirstMemory', 'Add your first memory'))}</a></p>`;
     return;
     }
 
@@ -3625,7 +3625,7 @@ class MemoryDashboard {
         }
 
         if (!tags || tags.length === 0) {
-            container.innerHTML = '<div class="no-tags">No tags found.</div>';
+            container.innerHTML = `<div class="no-tags" data-i18n="browse.noTagsShort">${this.escapeHtml(this.t('browse.noTagsShort', 'No tags found.'))}</div>`;
             return;
         }
 
@@ -3656,7 +3656,7 @@ class MemoryDashboard {
         const container = document.getElementById('searchResultsList');
 
         if (!results || results.length === 0) {
-            container.innerHTML = '<p class="empty-state">No results found. Try a different search term.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="search.results.none">${this.escapeHtml(this.t('search.results.none', 'No results found. Try a different search term.'))}</p>`;
             return;
         }
 
@@ -3766,36 +3766,36 @@ class MemoryDashboard {
                 filters.push({
                     type: 'tag',
                     value: tag,
-                    label: `Tag: ${tag}`
+                    label: this.t('search.filters.activeTag', 'Tag: {tag}', { tag })
                 });
             });
         }
 
         if (dateFilter) {
             const dateLabels = {
-                'today': 'Today',
-                'week': 'This week',
-                'month': 'This month',
-                'year': 'This year'
+                'today': this.t('search.filters.date.today', 'Today'),
+                'week': this.t('search.filters.date.week', 'This week'),
+                'month': this.t('search.filters.date.month', 'This month'),
+                'year': this.t('search.filters.date.year', 'This year')
             };
             filters.push({
                 type: 'date',
                 value: dateFilter,
-                label: `Date: ${dateLabels[dateFilter] || dateFilter}`
+                label: this.t('search.filters.activeDate', 'Date: {date}', { date: dateLabels[dateFilter] || dateFilter })
             });
         }
 
         if (typeFilter) {
             const typeLabels = {
-                'note': 'Notes',
-                'code': 'Code',
-                'reference': 'References',
-                'idea': 'Ideas'
+                'note': this.t('search.filters.type.note', 'Notes'),
+                'code': this.t('search.filters.type.code', 'Code'),
+                'reference': this.t('search.filters.type.reference', 'References'),
+                'idea': this.t('search.filters.type.idea', 'Ideas')
             };
             filters.push({
                 type: 'type',
                 value: typeFilter,
-                label: `Type: ${typeLabels[typeFilter] || typeFilter}`
+                label: this.t('search.filters.activeType', 'Type: {type}', { type: typeLabels[typeFilter] || typeFilter })
             });
         }
 
@@ -7475,12 +7475,12 @@ class MemoryDashboard {
     async handleGraph3DNodeClick(node) {
         if (!node) return;
         try {
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
             const memory = await this.apiCall(`/memories/${node.id}`);
             this.showMemoryDetails(memory);
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7610,7 +7610,7 @@ class MemoryDashboard {
 
         try {
             // Show loading indicator
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
 
             // Fetch full memory details
             const memory = await this.apiCall(`/memories/${nodeData.id}`);
@@ -7620,7 +7620,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7973,7 +7973,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -7998,7 +7998,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -8030,7 +8030,7 @@ class MemoryDashboard {
         return `
             <div class="quality-badge quality-tier-${tier}"
                  data-quality-score="${score.toFixed(2)}"
-                 title="Quality score ${score.toFixed(2)} (${this.escapeHtml(provider)})">
+                 title="${this.escapeHtml(this.t('quality.badgeTitle', 'Quality score {score} ({provider})', { score: score.toFixed(2), provider }))}">
                 <span class="quality-score">${score.toFixed(2)}</span>
             </div>
         `;
@@ -8045,14 +8045,14 @@ class MemoryDashboard {
                     rating: rating,
                     feedback: ''
                 });
-            this.showToast(`Rating saved, quality score is now ${result.new_quality_score.toFixed(2)}`, 'success');
+            this.showToast(this.t('toast.ratingSaved', 'Rating saved, quality score is now {score}', { score: result.new_quality_score.toFixed(2) }), 'success');
 
             // Refresh memory display if viewing details
             // This would refresh the modal or current view
 
         } catch (error) {
             console.error('Failed to rate memory:', error);
-            this.showToast('Failed to save rating', 'error');
+            this.showToast(this.t('toast.ratingSaveFailed', 'Failed to save rating'), 'error');
         }
     }
 
