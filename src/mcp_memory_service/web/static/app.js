@@ -426,8 +426,9 @@ class MemoryDashboard {
      * the key, so a language switch translates it again without a re-render.
      */
     staticTextHtml(tag, className, key, fallback, style = '') {
+        const classAttr = className ? ` class="${className}"` : '';
         const styleAttr = style ? ` style="${style}"` : '';
-        return `<${tag} class="${className}"${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
+        return `<${tag}${classAttr}${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
     }
 
     /**
@@ -5794,7 +5795,7 @@ class MemoryDashboard {
             this.renderMemoryGrowthChart(container, data);
         } catch (error) {
             console.error('Failed to load memory growth:', error);
-            container.innerHTML = '<p class="error">Failed to load growth chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.growthLoadFailed">${this.t('analytics.growthLoadFailed', 'Failed to load growth chart')}</p>`;
         }
     }
 
@@ -5803,7 +5804,7 @@ class MemoryDashboard {
      */
     renderMemoryGrowthChart(container, data) {
         if (!data.data_points || data.data_points.length === 0) {
-            container.innerHTML = '<p>No growth data available</p>';
+            container.innerHTML = `<p data-i18n="analytics.noGrowthData">${this.t('analytics.noGrowthData', 'No growth data available')}</p>`;
             return;
         }
 
@@ -5857,7 +5858,7 @@ class MemoryDashboard {
             this.renderTagUsageChart(container, data);
         } catch (error) {
             console.error('Failed to load tag usage:', error);
-            container.innerHTML = '<p class="error">Failed to load tag usage chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.tagUsageLoadFailed">${this.t('analytics.tagUsageLoadFailed', 'Failed to load tag usage chart')}</p>`;
         }
     }
 
@@ -5866,7 +5867,7 @@ class MemoryDashboard {
      */
     renderTagUsageChart(container, data) {
         if (!data.tags || data.tags.length === 0) {
-            container.innerHTML = '<p>No tags found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noTagUsage">${this.t('analytics.noTagUsage', 'No tags found')}</p>`;
             return;
         }
 
@@ -5895,9 +5896,12 @@ class MemoryDashboard {
         // percentage out; there is no honest percentage for a set of overlapping tags.
         if (minorTags.length > 0) {
             const assignmentCount = minorTags.reduce((sum, t) => sum + t.count, 0);
+            const minorTagsTip = this.t('analytics.minorTagsTip',
+                '{assignments} tag assignments across {count} tags with 10 or fewer memories each',
+                { assignments: assignmentCount, count: minorTags.length });
             html += `<div class="chart-row">
-                <span class="chart-value">${minorTags.length} tags</span>
-                <span class="chart-label" title="${assignmentCount} tag assignments across ${minorTags.length} tags with 10 or fewer memories each">more tags (≤10 memories each)</span>
+                <span class="chart-value">${this.escapeHtml(this.t('analytics.minorTagsCount', '{count} tags', { count: minorTags.length }))}</span>
+                <span class="chart-label" title="${this.escapeHtml(minorTagsTip)}" data-i18n="analytics.minorTagsLabel">${this.escapeHtml(this.t('analytics.minorTagsLabel', 'more tags (≤10 memories each)'))}</span>
             </div>`;
         }
 
@@ -5917,7 +5921,7 @@ class MemoryDashboard {
             this.renderMemoryTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load memory types:', error);
-            container.innerHTML = '<p class="error">Failed to load memory types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.memoryTypesLoadFailed">${this.t('analytics.memoryTypesLoadFailed', 'Failed to load memory types chart')}</p>`;
         }
     }
 
@@ -5926,7 +5930,7 @@ class MemoryDashboard {
      */
     renderMemoryTypesChart(container, data) {
         if (!data.types || data.types.length === 0) {
-            container.innerHTML = '<p>No memory types found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noMemoryTypes">${this.t('analytics.noMemoryTypes', 'No memory types found')}</p>`;
             return;
         }
 
@@ -5955,7 +5959,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTypes.length} types with ≤10 memories each">diverse (${minorTypes.length} types)</span>
+                <span class="chart-label" title="${this.escapeHtml(this.t('analytics.minorTypesTip', '{count} types with ≤10 memories each', { count: minorTypes.length }))}">${this.escapeHtml(this.t('analytics.minorTypesLabel', 'diverse ({count} types)', { count: minorTypes.length }))}</span>
             </div>`;
         }
 
@@ -5976,7 +5980,7 @@ class MemoryDashboard {
         this.renderTopTagsReport(container, data);
     } catch (error) {
     console.error('Failed to load top tags:', error);
-        container.innerHTML = '<p class="error">Failed to load top tags</p>';
+        container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.topTagsLoadFailed', 'Failed to load top tags');
         }
     }
 
@@ -5985,12 +5989,13 @@ class MemoryDashboard {
     */
     renderTopTagsReport(container, data) {
     if (!data.tags || data.tags.length === 0) {
-    container.innerHTML = '<p>No tags found</p>';
+    container.innerHTML = this.staticTextHtml('p', '', 'analytics.topTagsEmpty', 'No tags found');
     return;
     }
 
     let html = '<div class="enhanced-tags-report">';
-    html += `<div class="report-period">Period: ${data.period}</div>`;
+    const periodLabel = this.t(`analytics.period.${data.period}`, data.period);
+    html += `<div class="report-period">${this.escapeHtml(this.t('analytics.reportPeriod', 'Period: {period}', { period: periodLabel }))}</div>`;
     html += '<ul class="tags-list">';
     data.tags.slice(0, 10).forEach(tag => {
         const trendIcon = tag.trending ? ` <span class="tag-trending">${this.escapeHtml(this.t('analytics.trending', 'trending'))}</span>` : '';
@@ -5998,10 +6003,10 @@ class MemoryDashboard {
         html += `<li>
                 <div class="tag-header">
                     <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
-                    <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
+                    <span class="tag-count">${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: tag.count, percent: tag.percentage }))}${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
-                html += '<div class="tag-cooccurrence">Often with: ';
+                html += `<div class="tag-cooccurrence">${this.escapeHtml(this.t('analytics.oftenWith', 'Often with:'))} `;
                 html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
@@ -6025,7 +6030,7 @@ class MemoryDashboard {
     this.renderRecentActivityReport(container, data);
     } catch (error) {
     console.error('Failed to load recent activity:', error);
-    container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+    container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.recentActivityLoadFailed', 'Failed to load recent activity');
     }
     }
 
@@ -6058,14 +6063,14 @@ class MemoryDashboard {
 
     // Summary stats
     html += '<div class="activity-summary">';
-        html += `<div class="activity-stat"><strong>Active Days:</strong> ${data.active_days}/${data.total_days}</div>`;
-    html += `<div class="activity-stat"><strong>Current Streak:</strong> ${data.current_streak} days</div>`;
-    html += `<div class="activity-stat"><strong>Longest Streak:</strong> ${data.longest_streak} days</div>`;
+        html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.activeDays', 'Active Days:')} ${data.active_days}/${data.total_days}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.currentStreak', 'Current Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.current_streak }))}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.longestStreak', 'Longest Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.longest_streak }))}</div>`;
     html += '</div>';
 
     if (data.peak_times && data.peak_times.length > 0) {
     html += '<div class="peak-times">';
-        html += '<strong>Peak Times:</strong> ';
+        html += `${this.staticTextHtml('strong', '', 'analytics.peakTimes', 'Peak Times:')} `;
         html += (data.peak_periods?.length ? data.peak_periods.map(p => this.formatActivityPeriod(p)) : data.peak_times).join(', ');
             html += '</div>';
     }
@@ -6086,7 +6091,7 @@ class MemoryDashboard {
 
                 html += `<div class="activity-bar-row">
                     <span class="activity-label">${this.formatActivityPeriod(item)}</span>
-                    <div class="activity-bar" style="width: ${barWidth}%" title="${item.count} memories (${percentage.toFixed(1)}%)"></div>
+                    <div class="activity-bar" style="width: ${barWidth}%" title="${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: item.count, percent: percentage.toFixed(1) }))}"></div>
                     <span class="activity-count">${item.count} (${percentage.toFixed(1)}%)</span>
                 </div>`;
             });
@@ -6112,7 +6117,7 @@ class MemoryDashboard {
             this.renderActivityHeatmapChart(container, data);
         } catch (error) {
             console.error('Failed to load activity heatmap:', error);
-            container.innerHTML = '<p class="error">Failed to load activity heatmap</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.heatmapLoadFailed', 'Failed to load activity heatmap');
         }
     }
 
@@ -6121,15 +6126,15 @@ class MemoryDashboard {
      */
     renderActivityHeatmapChart(container, data) {
         if (!data.data || data.data.length === 0) {
-            container.innerHTML = '<p>No activity data available</p>';
+            container.innerHTML = this.staticTextHtml('p', '', 'analytics.heatmapEmpty', 'No activity data available');
             return;
         }
 
         // Create calendar grid
         let html = '<div class="activity-heatmap">';
         html += '<div class="heatmap-stats">';
-        html += `<span>${data.total_days} active days</span>`;
-        html += `<span>Max: ${data.max_count} memories/day</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapActiveDays', '{count} active days', { count: data.total_days }))}</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapMaxPerDay', 'Max: {count} memories/day', { count: data.max_count }))}</span>`;
         html += '</div>';
 
         // Group by months
@@ -6166,7 +6171,7 @@ class MemoryDashboard {
             // Add cells for each day
             monthData.forEach(day => {
                 const level = day.level;
-                const tooltip = `${day.date}: ${day.count} memories`;
+                const tooltip = this.escapeHtml(this.t('analytics.heatmapDayTip', '{date}: {count} memories', { date: day.date, count: day.count }));
                 html += `<div class="heatmap-cell level-${level}" title="${tooltip}"></div>`;
             });
 
@@ -6175,11 +6180,11 @@ class MemoryDashboard {
 
         // Legend
         html += '<div class="heatmap-legend">';
-        html += '<span>Less</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapLess', 'Less');
         for (let i = 0; i <= 4; i++) {
             html += `<div class="legend-cell level-${i}"></div>`;
         }
-        html += '<span>More</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapMore', 'More');
         html += '</div>';
 
         html += '</div>';
@@ -6219,7 +6224,7 @@ class MemoryDashboard {
             this.renderStorageReport(container, data);
         } catch (error) {
             console.error('Failed to load storage report:', error);
-            container.innerHTML = '<p class="error">Failed to load storage report</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.storageLoadFailed">${this.t('analytics.storageLoadFailed', 'Failed to load storage report')}</p>`;
         }
     }
 
@@ -6231,24 +6236,27 @@ class MemoryDashboard {
 
         // Summary stats
         html += '<div class="storage-summary">';
-        html += `<div class="storage-stat"><strong>Total Size:</strong> ${data.total_size_mb} MB</div>`;
-        html += `<div class="storage-stat"><strong>Average Memory:</strong> ${data.average_memory_size} chars</div>`;
-        html += `<div class="storage-stat"><strong>Efficiency:</strong> ${data.storage_efficiency}%</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageTotalSize">${this.t('analytics.storageTotalSize', 'Total Size:')}</strong> ${this.t('analytics.storageSizeMb', '{size} MB', { size: data.total_size_mb })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageAverageMemory">${this.t('analytics.storageAverageMemory', 'Average Memory:')}</strong> ${this.t('analytics.storageAverageChars', '{count} chars', { count: data.average_memory_size })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageEfficiency">${this.t('analytics.storageEfficiency', 'Efficiency:')}</strong> ${data.storage_efficiency}%</div>`;
         html += '</div>';
 
         // Largest memories
         if (data.largest_memories && data.largest_memories.length > 0) {
-            html += '<h4>Largest Memories</h4>';
+            html += `<h4 data-i18n="analytics.largestMemories">${this.t('analytics.largestMemories', 'Largest Memories')}</h4>`;
             html += '<ul class="largest-memories">';
             data.largest_memories.slice(0, 5).forEach(memory => {
                 // Backend provides created_at as ISO string, not timestamp
-                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : 'Unknown';
+                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : this.t('analytics.storageUnknownDate', 'Unknown');
                 // Backend provides size_kb and preview (not size and content_preview)
-                const sizeDisplay = memory.size_kb ? `${memory.size_kb} KB` : `${memory.size_bytes || 0} bytes`;
+                const sizeDisplay = memory.size_kb
+                    ? this.t('analytics.storageSizeKb', '{size} KB', { size: memory.size_kb })
+                    : this.t('analytics.storageSizeBytes', '{size} bytes', { size: memory.size_bytes || 0 });
+                const tagList = memory.tags.join(', ') || this.t('analytics.storageNoTags', 'none');
                 html += `<li>
                     <div class="memory-size">${sizeDisplay}</div>
                     <div class="memory-preview">${this.escapeHtml(memory.preview || '')}</div>
-                    <div class="memory-meta">${date} • Tags: ${memory.tags.join(', ') || 'none'}</div>
+                    <div class="memory-meta">${date} • ${this.escapeHtml(this.t('analytics.storageTags', 'Tags: {tags}', { tags: tagList }))}</div>
                 </li>`;
             });
             html += '</ul>';
@@ -6279,7 +6287,7 @@ class MemoryDashboard {
             this.renderRelationshipTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load relationship types:', error);
-            container.innerHTML = '<p class="error">Failed to load relationship types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.relationshipTypesLoadFailed">${this.t('analytics.relationshipTypesLoadFailed', 'Failed to load relationship types chart')}</p>`;
         }
     }
 
@@ -6288,7 +6296,7 @@ class MemoryDashboard {
      */
     renderRelationshipTypesChart(container, data) {
         if (!data || Object.keys(data).length === 0) {
-            container.innerHTML = '<p>No relationships found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noRelationshipTypes">${this.t('analytics.noRelationshipTypes', 'No relationships found')}</p>`;
             return;
         }
 
@@ -7804,7 +7812,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load quality analytics:', error);
-            this.showToast('Failed to load quality analytics', 'error');
+            this.showToast(this.t('quality.analytics.loadFailed', 'Failed to load quality analytics'), 'error');
         }
     }
 
@@ -7828,9 +7836,13 @@ class MemoryDashboard {
         this.qualityDistributionChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Low (<0.5)', 'Medium (0.5-0.7)', 'High (≥0.7)'],
+                labels: [
+                    this.t('quality.chart.distribution.low', 'Low (<0.5)'),
+                    this.t('quality.chart.distribution.medium', 'Medium (0.5-0.7)'),
+                    this.t('quality.chart.distribution.high', 'High (≥0.7)')
+                ],
                 datasets: [{
-                    label: 'Number of Memories',
+                    label: this.t('quality.chart.distribution.memoriesLabel', 'Number of Memories'),
                     data: [
                         data.low_quality_count,
                         data.medium_quality_count,
@@ -7857,7 +7869,7 @@ class MemoryDashboard {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: 'Count',
+                            text: this.t('quality.chart.distribution.countLabel', 'Count'),
                             color: textColor
                         },
                         ticks: {
@@ -7903,14 +7915,14 @@ class MemoryDashboard {
         // Friendly provider names
         const friendlyLabels = labels.map(label => {
             switch(label) {
-                case 'ONNXRankerModel': return 'Local SLM';
+                case 'ONNXRankerModel': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'GroqEvaluator': return 'Groq API';
                 case 'GeminiEvaluator': return 'Gemini API';
-                case 'ImplicitSignalsEvaluator': return 'Implicit Only';
-                case 'local': return 'Local SLM';
+                case 'ImplicitSignalsEvaluator': return this.t('quality.chart.providers.implicit', 'Implicit Only');
+                case 'local': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'groq': return 'Groq API';
                 case 'gemini': return 'Gemini API';
-                case 'implicit': return 'Implicit Only';
+                case 'implicit': return this.t('quality.chart.providers.implicit', 'Implicit Only');
                 default: return label;
             }
         });
