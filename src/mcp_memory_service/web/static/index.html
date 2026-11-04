@@ -385,7 +385,7 @@
                         <div class="search-header">
                             <h2 data-i18n="search.results.title">Search Results</h2>
                             <div class="results-meta">
-                                <span id="resultsCount">0 results</span>
+                                <span id="resultsCount" data-i18n="search.results.count" data-count="0">0 results</span>
                                 <div class="view-options">
                                     <button class="view-btn active" data-view="grid" data-i18n="search.view.grid">Grid</button>
                                     <button class="view-btn" data-view="list" data-i18n="search.view.list">List</button>
@@ -675,7 +675,7 @@
                         <div id="docSearchResults" class="doc-search-results" style="display: none;">
                             <div class="search-results-header">
                                 <h3>Search Results</h3>
-                                <span id="docSearchCount" class="results-count">0 results</span>
+                                <span id="docSearchCount" class="results-count" data-i18n="search.results.count" data-count="0">0 results</span>
                             </div>
                             <div id="docSearchResultsList" class="search-results-list">
                                 <!-- Results will be populated here -->
@@ -746,7 +746,7 @@
 
                             <div id="deleteUntaggedCard" class="bulk-op-card" style="display: none;">
                                 <h3 data-i18n="manage.bulk.deleteUntagged.title">Delete Untagged</h3>
-                                <p>Remove memories without any tags (<span id="untaggedCount">0</span> found)</p>
+                                <p id="untaggedCount" data-i18n="manage.bulk.deleteUntagged.desc" data-count="0">Remove memories without any tags (0 found)</p>
                                 <div class="op-controls">
                                     <button id="deleteUntaggedBtn" class="btn btn-danger" data-i18n="manage.bulk.delete">Delete</button>
                                 </div>
@@ -1653,7 +1653,7 @@
             <div class="modal-body">
                 <div class="document-info">
                     <h3 id="memoryViewerFilename" data-i18n="status.loading">Loading...</h3>
-                    <p id="memoryViewerStats" class="text-muted">0 chunks found</p>
+                    <p id="memoryViewerStats" class="text-muted" data-i18n="modal.memoryViewer.chunksFound" data-count="0">0 chunks found</p>
                 </div>
                 <div class="memory-chunks-container">
                     <div id="memoryChunksList" class="memory-chunks-list">

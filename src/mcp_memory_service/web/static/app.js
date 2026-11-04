@@ -432,6 +432,25 @@ class MemoryDashboard {
     }
 
     /**
+     * Set a {count} string and keep the key. data-count (and data-extra) let
+     * the next applyTranslations() fill the same numbers in the new language
+     * instead of leaving the {count} placeholder.
+     */
+    setCountedText(el, key, fallback, count, extra) {
+        if (!el) return;
+        const vars = { count };
+        el.dataset.i18n = key;
+        el.dataset.count = String(count);
+        if (extra === undefined) {
+            delete el.dataset.extra;
+        } else {
+            vars.extra = extra;
+            el.dataset.extra = extra;
+        }
+        el.textContent = this.t(key, fallback, vars);
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -440,7 +459,21 @@ class MemoryDashboard {
             const { i18n, i18nHtml, i18nPlaceholder, i18nAria, i18nTitle } = el.dataset;
 
             if (i18n) {
-                const text = this.t(i18n, el.textContent?.trim() || '');
+                const fallback = el.textContent?.trim() || '';
+                // A {count} string keeps its number in data-count. Without that,
+                // this pass would write the placeholder, and on a parent it
+                // would erase a child that held the number.
+                const template = this.translations?.[i18n]
+                    || this.fallbackTranslations?.[i18n]
+                    || fallback;
+                const vars = {};
+                if (template.includes('{count}') && el.hasAttribute('data-count')) {
+                    vars.count = el.getAttribute('data-count');
+                }
+                if (template.includes('{extra}') && el.hasAttribute('data-extra')) {
+                    vars.extra = el.getAttribute('data-extra');
+                }
+                const text = this.t(i18n, fallback, vars);
                 if (text) el.textContent = text;
             }
 
@@ -1187,7 +1220,7 @@ class MemoryDashboard {
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
                 allOpt.dataset.i18n = 'search.filters.type.all';
-                allOpt.textContent = this.t('search.filters.type.all') || 'All types';
+                allOpt.textContent = this.t('search.filters.type.all', 'All types');
                 const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
                     opt.value = t;
@@ -3743,10 +3776,12 @@ class MemoryDashboard {
      * Update search results count
      */
     updateResultsCount(count) {
-        const element = document.getElementById('resultsCount');
-        if (element) {
-            element.textContent = `${count} result${count !== 1 ? 's' : ''}`;
-        }
+        this.setCountedText(
+            document.getElementById('resultsCount'),
+            'search.results.count',
+            '{count} results',
+            count
+        );
     }
 
     /**
@@ -4473,7 +4508,12 @@ class MemoryDashboard {
                 const chunksList = document.getElementById('memoryChunksList');
 
                 filename.textContent = response.filename || 'Document';
-                stats.textContent = `${response.total_found} chunk${response.total_found !== 1 ? 's' : ''} found`;
+                this.setCountedText(
+                    stats,
+                    'modal.memoryViewer.chunksFound',
+                    '{count} chunks found',
+                    response.total_found
+                );
 
                 // Render chunks
                 if (response.memories && response.memories.length > 0) {
@@ -4611,8 +4651,8 @@ class MemoryDashboard {
                 const extra = count > 20 ? ' (showing top 20)' : '';
                 const key = count === 1 ? 'documents.search.count.one' : 'documents.search.count.other';
                 const fallback = count === 1 ? '{count} result{extra}' : '{count} results{extra}';
-                const baseCount = this.t(key, fallback, { count, extra });
-                resultsCount.textContent = baseCount;
+                // Replaces the idle search.results.count label. One element, one count.
+                this.setCountedText(resultsCount, key, fallback, count, extra);
 
                 if (displayResults.length > 0) {
                     const resultsHtml = displayResults.map(result => {
@@ -5456,12 +5496,13 @@ class MemoryDashboard {
         try {
             const data = await this.apiCall('/manage/untagged/count');
             const count = data.count || 0;
-            const countSpan = document.getElementById('untaggedCount');
             const card = document.getElementById('deleteUntaggedCard');
-
-            if (countSpan) {
-                countSpan.textContent = count;
-            }
+            this.setCountedText(
+                document.getElementById('untaggedCount'),
+                'manage.bulk.deleteUntagged.desc',
+                'Remove memories without any tags ({count} found)',
+                count
+            );
             if (card) {
                 card.style.display = count > 0 ? '' : 'none';
             }
@@ -5511,7 +5552,7 @@ class MemoryDashboard {
             this.renderTagManagementTable(data);
         } catch (error) {
             console.error('Failed to load tag management stats:', error);
-            container.innerHTML = '<p class="error">Failed to load tag statistics</p>';
+            container.innerHTML = `<p class="error" data-i18n="manage.tags.loadFailed">${this.escapeHtml(this.t('manage.tags.loadFailed', 'Failed to load tag statistics'))}</p>`;
         }
     }
 
@@ -5524,9 +5565,9 @@ class MemoryDashboard {
 
         let html = '<table class="tag-stats-table">';
         html += '<thead><tr>';
-        html += '<th>Tag</th>';
-        html += '<th>Count</th>';
-        html += '<th>Actions</th>';
+        html += `<th data-i18n="manage.tags.column.tag">${this.escapeHtml(this.t('manage.tags.column.tag', 'Tag'))}</th>`;
+        html += `<th data-i18n="manage.tags.column.count">${this.escapeHtml(this.t('manage.tags.column.count', 'Count'))}</th>`;
+        html += `<th data-i18n="manage.tags.column.actions">${this.escapeHtml(this.t('manage.tags.column.actions', 'Actions'))}</th>`;
         html += '</tr></thead><tbody>';
 
         data.tags.forEach(tagStat => {
@@ -5534,8 +5575,8 @@ class MemoryDashboard {
         html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;
         html += '<td class="tag-actions">';
-        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
-        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}">Delete</button>`;
+        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
+        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
         html += '</td></tr>';
         });
 
@@ -5670,15 +5711,15 @@ class MemoryDashboard {
      */
     async handleDeleteUntagged() {
         // Get current count
-        const countSpan = document.getElementById('untaggedCount');
-        const count = parseInt(countSpan?.textContent || '0', 10);
+        const countEl = document.getElementById('untaggedCount');
+        const count = parseInt(countEl?.dataset.count || '0', 10);
 
         if (count === 0) {
-            this.showToast('No untagged memories to delete', 'info');
+            this.showToast(this.t('toast.noUntaggedMemories', 'No untagged memories to delete'), 'info');
             return;
         }
 
-        if (!await this.confirmBulkOperation(`Delete ${count} memories without tags?`)) {
+        if (!await this.confirmBulkOperation(this.t('manage.bulk.deleteUntagged.confirm', 'Delete {count} memories without tags?', { count }))) {
             return;
         }
 
@@ -5691,11 +5732,11 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this.showToast(result.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
             }
         } catch (error) {
             console.error('Delete untagged failed:', error);
-            this.showToast('Delete untagged operation failed', 'error');
+            this.showToast(this.t('toast.deleteUntaggedFailed', 'Delete untagged operation failed'), 'error');
         } finally {
             this.setLoading(false);
         }
