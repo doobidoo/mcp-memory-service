@@ -1,12 +1,14 @@
 """Tests for Memory Evolution P3: Conflict Detection."""
-import os
-import time
 import hashlib
+import os
+import shutil
+import tempfile
+import time
+from difflib import SequenceMatcher
+from math import cos, radians, sin
+
 import pytest
 import pytest_asyncio
-import tempfile
-import shutil
-from difflib import SequenceMatcher
 
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -43,6 +45,14 @@ async def storage(temp_storage_dir):
             s.conn.commit()
     except Exception:
         pass
+    await s.close()
+
+
+@pytest_asyncio.fixture
+async def versioned_storage(temp_db_path):
+    s = SqliteVecMemoryStorage(os.path.join(temp_db_path, "versioned.db"))
+    await s.initialize()
+    yield s
     await s.close()
 
 
@@ -179,3 +189,117 @@ class TestConflictIntegration:
             remaining = {(c["hash_a"], c["hash_b"]) for c in conflicts_after}
             assert (h1, h2) not in remaining
             assert (h2, h1) not in remaining
+
+
+class TestVersionedUpdateConflictDetection:
+    @pytest.mark.asyncio
+    async def test_versioned_update_does_not_conflict_with_its_parent(
+        self, versioned_storage, monkeypatch
+    ):
+        prefix = (
+            "The service plan records the release owner, rollback procedure, support "
+            "channel, dependency matrix, backup schedule, approval chain, and "
+            "operational review for each deployment. "
+        ) * 12
+        prefix = prefix[:1050]
+        original = prefix + (
+            "The previous control plane operates in western region, transmits reports "
+            "each Friday, retains archives for ninety days, and allows one supervisor "
+            "to approve every release. "
+        ) * 3
+        updated = prefix + (
+            "The replacement ingestion cluster stores images on eastern hardware, runs "
+            "audits each Monday, expires snapshots after seven months, and requires two "
+            "engineers to release changes. "
+        ) * 3
+        original, updated = original[:1400], updated[:1400]
+        assert len(original.split()) > 128
+        assert 1 - SequenceMatcher(None, original.lower(), updated.lower()).ratio() >= 0.20
+
+        generate_embedding = versioned_storage._generate_embedding
+        shared_prefix_embedding = generate_embedding(prefix[:500])
+        monkeypatch.setattr(
+            versioned_storage,
+            "_generate_embedding",
+            lambda content: (
+                shared_prefix_embedding
+                if content.startswith(prefix[:500])
+                else generate_embedding(content)
+            ),
+        )
+
+        parent_hash = await _store(versioned_storage, original)
+        ok, message, new_hash = await versioned_storage.update_memory_versioned(
+            parent_hash, updated
+        )
+
+        assert ok, message
+        assert new_hash
+        for content_hash in (parent_hash, new_hash):
+            tags = versioned_storage.conn.execute(
+                "SELECT tags FROM memories WHERE content_hash = ?", (content_hash,)
+            ).fetchone()[0]
+            assert "conflict:unresolved" not in tags.split(",")
+
+        pair = versioned_storage.conn.execute(
+            "SELECT 1 FROM memory_graph WHERE relationship_type = 'contradicts' "
+            "AND ((source_hash = ? AND target_hash = ?) "
+            "OR (source_hash = ? AND target_hash = ?))",
+            (parent_hash, new_hash, new_hash, parent_hash),
+        ).fetchone()
+        assert pair is None
+
+    @pytest.mark.asyncio
+    async def test_versioned_update_keeps_other_conflicts_and_reports_them(
+        self, versioned_storage, monkeypatch
+    ):
+        prefix = (
+            "The service plan records the release owner, rollback procedure, support "
+            "channel, dependency matrix, backup schedule, approval chain, and "
+            "operational review for each deployment. "
+        ) * 12
+        prefix = prefix[:1050]
+        tails = [
+            ("The previous control plane operates in western region, transmits reports "
+             "each Friday, retains archives for ninety days, and allows one supervisor "
+             "to approve every release. " * 3)[:350],
+            ("The replacement ingestion cluster stores images on eastern hardware, runs "
+             "audits each Monday, expires snapshots after seven months, and requires two "
+             "engineers to release changes. " * 3)[:350],
+            ("The billing gateway serves customers in southern district, exports invoices "
+             "after quarter end, preserves records for thirteen months, and routes "
+             "incidents to finance staff. " * 3)[:350],
+        ]
+        other, original, updated = [prefix + tail for tail in tails]
+        dimension = versioned_storage.embedding_dimension
+
+        def embedding_at(degrees):
+            angle = radians(degrees)
+            return [cos(angle), sin(angle), *([0.0] * (dimension - 2))]
+
+        embeddings = {
+            other: embedding_at(35),
+            original: embedding_at(0),
+            updated: embedding_at(17),
+        }
+        monkeypatch.setattr(
+            versioned_storage, "_generate_embedding", lambda content: embeddings[content]
+        )
+
+        other_hash = await _store(versioned_storage, other)
+        parent_hash = await _store(versioned_storage, original)
+        ok, message, new_hash = await versioned_storage.update_memory_versioned(
+            parent_hash, updated
+        )
+
+        assert ok, message
+        assert new_hash
+        assert "1 conflict(s) detected" in message
+        pairs = set(versioned_storage.conn.execute(
+            "SELECT source_hash, target_hash FROM memory_graph "
+            "WHERE relationship_type = 'contradicts'"
+        ))
+        assert (new_hash, other_hash) in pairs
+        assert (other_hash, new_hash) in pairs
+        assert (new_hash, parent_hash) not in pairs
+        assert (parent_hash, new_hash) not in pairs

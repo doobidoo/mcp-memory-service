@@ -22,6 +22,7 @@ STUBS = [
     "loadAnalyticsOverview", "loadMemoryGrowthChart", "loadTagUsageChart", "loadMemoryTypesChart",
     "loadActivityHeatmapChart", "loadTopTagsReport", "loadRecentActivityReport", "loadStorageReport",
     "loadRelationshipTypesChart", "loadGraphVisualization", "loadMemoryTypes",
+    "updateActiveFilters",
 ]
 
 
@@ -70,6 +71,12 @@ def test_dashboard_rerenders_cached_memories_without_a_request():
     calls = _switch_language("dashboard", {"memories": [{"content_hash": "a"}]})
     assert "renderRecentMemories" in calls
     assert not [c for c in calls if c.startswith("load") and c != "loadTranslations"]
+
+
+@pytest.mark.parametrize("view", ["dashboard", "search", "browse", "analytics", "manage"])
+def test_every_switch_rebuilds_the_active_filter_chips(view):
+    # The chips keep their text while another view is open (#1815).
+    assert "updateActiveFilters" in _switch_language(view)
 
 
 def test_search_rerenders_from_cache():

@@ -18,54 +18,56 @@ class MemoryDashboard {
             // authenticated /api/health/detailed endpoint, which is already
             // fetched by loadSystemInfo().
             sources: [{ path: 'version', api: 'detailedHealth' }],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsBackend: {
             sources: [
                 { path: 'storage.storage_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsPrimaryBackend: {
             sources: [
                 { path: 'storage.primary_backend', api: 'detailedHealth' },
                 { path: 'storage.backend', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingModel: {
             sources: [
                 { path: 'storage.primary_stats.embedding_model', api: 'detailedHealth' },
                 { path: 'storage.embedding_model', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsEmbeddingDim: {
             sources: [
                 { path: 'storage.primary_stats.embedding_dimension', api: 'detailedHealth' },
                 { path: 'storage.embedding_dimension', api: 'detailedHealth' }
             ],
-            formatter: (value) => value || 'N/A'
+            formatter: (value, app) => value || app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsDbSize: {
             sources: [
                 { path: 'storage.primary_stats.database_size_mb', api: 'detailedHealth' },
                 { path: 'storage.database_size_mb', api: 'detailedHealth' }
             ],
-            formatter: (value) => (value != null) ? `${value.toFixed(2)} MB` : 'N/A'
+            formatter: (value, app) => (value != null) ? `${value.toFixed(2)} MB` : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsTotalMemories: {
             sources: [{ path: 'storage.total_memories', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? value.toLocaleString() : 'N/A'
+            formatter: (value, app) => (value != null) ? value.toLocaleString() : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsUptime: {
             sources: [{ path: 'uptime_seconds', api: 'detailedHealth' }],
-            formatter: (value) => (value != null) ? MemoryDashboard.formatUptime(value) : 'N/A'
+            formatter: (value, app) => (value != null) ? app.formatUptime(value) : app.t('modal.settings.system.notAvailable', 'N/A')
         },
         settingsOAuthEnabled: {
             sources: [{ path: 'oauth_enabled', api: 'oauthStatus' }],
-            formatter: (value) => (value === true) ? '✓ Enabled' : (value === false) ? 'Disabled' : 'N/A'
+            formatter: (value, app) => (value === true) ? app.t('modal.settings.system.enabled', '✓ Enabled')
+                : (value === false) ? app.t('modal.settings.system.disabled', 'Disabled')
+                : app.t('modal.settings.system.notAvailable', 'N/A')
         }
     };
 
@@ -143,7 +145,7 @@ class MemoryDashboard {
         // Check for secure context
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
             console.warn('⚠️ Insecure connection detected. Credentials should be transmitted over HTTPS.');
-            this.showToast('Warning: Connection not secure. Please use HTTPS in production.', 'warning');
+            this.showToast(this.t('toast.connectionInsecure', 'Warning: Connection not secure. Please use HTTPS in production.'), 'warning');
         }
 
         // Detect authentication requirement before loading data or starting
@@ -393,6 +395,43 @@ class MemoryDashboard {
     }
 
     /**
+     * Set an element's text from the catalog. Text without values keeps its
+     * key in data-i18n, so applyTranslations() translates it again after a
+     * language switch. Text with values drops the key, so a switch cannot put
+     * back the element's earlier text.
+     */
+    setTranslatedText(el, key, fallback, vars) {
+        if (!el) return;
+        el.textContent = this.t(key, fallback, vars);
+        if (vars) {
+            delete el.dataset.i18n;
+        } else {
+            el.dataset.i18n = key;
+        }
+    }
+
+    /**
+     * Set text that is not a single catalog string (a date, a size, a value
+     * from the server) and drop any data-i18n key, so a language switch
+     * leaves it alone.
+     */
+    setValueText(el, text) {
+        if (!el) return;
+        el.textContent = text;
+        delete el.dataset.i18n;
+    }
+
+    /**
+     * Markup for an element whose whole text is one catalog string. It carries
+     * the key, so a language switch translates it again without a re-render.
+     */
+    staticTextHtml(tag, className, key, fallback, style = '') {
+        const classAttr = className ? ` class="${className}"` : '';
+        const styleAttr = style ? ` style="${style}"` : '';
+        return `<${tag}${classAttr}${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -437,6 +476,19 @@ class MemoryDashboard {
                 : this.t('search.modeManual', modeText.textContent);
         }
 
+        // Compact sync control: the widget's data-i18n key is the initial
+        // "Checking..." default. Re-render the live status word from the
+        // control's state class, so switching languages does not reset a
+        // running sync to "Checking..." until the next poll.
+        const syncStatusText = document.getElementById('syncStatusText');
+        if (syncStatusText) {
+            const syncState = syncStatusText.closest('.sync-control-compact')
+                ?.className.match(/\b(paused|syncing|pending|error|synced)\b/)?.[1];
+            if (syncState) {
+                syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
+            }
+        }
+
         // 更新语言按钮状态
         this.updateLanguageSwitcher();
     }
@@ -463,6 +515,9 @@ class MemoryDashboard {
      */
     async rerenderActiveView() {
         try {
+            // The active-filter chips sit in the search view but keep their
+            // text while another view is open, so rebuild them on every switch.
+            this.updateActiveFilters();
             switch (this.currentView) {
                 case 'dashboard':
                     this.renderRecentMemories(this.memories);
@@ -529,8 +584,8 @@ class MemoryDashboard {
                 if (textDiv && textDiv.classList.contains('detail-content-text')) {
                     textDiv.classList.toggle('detail-content-collapsed');
                     e.target.textContent = textDiv.classList.contains('detail-content-collapsed')
-                        ? '▼ Show full content'
-                        : '▲ Collapse';
+                        ? `▼ ${this.t('modal.memoryDetails.showFullContent', 'Show full content')}`
+                        : `▲ ${this.t('modal.memoryDetails.collapse', 'Collapse')}`;
                 }
             }
         });
@@ -1029,7 +1084,7 @@ class MemoryDashboard {
         // Update sync status display
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.textContent = 'Synced';
+            syncStatus.textContent = this.t('sync.status.synced', 'Synced');
             syncStatus.className = 'sync-status synced';
         }
 
@@ -1875,28 +1930,28 @@ class MemoryDashboard {
 
             // Determine status and update UI (dot color is handled by CSS classes)
             if (isPaused) {
-                statusText.textContent = 'Paused';
+                statusText.textContent = this.t('sync.status.paused', 'Paused');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact paused';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'syncing') {
-                statusText.textContent = 'Syncing';
-                syncProgress.textContent = syncStatus.operations_pending > 0 ? `${syncStatus.operations_pending} pending` : '';
+                statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+                syncProgress.textContent = syncStatus.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: syncStatus.operations_pending }) : '';
                 syncControl.className = 'sync-control-compact syncing';
                 if (syncButton) syncButton.disabled = true;
             } else if (syncStatus.status === 'pending') {
-                statusText.textContent = 'Pending';
-                syncProgress.textContent = `${syncStatus.operations_pending} ops`;
+                statusText.textContent = this.t('sync.status.pending', 'Pending');
+                syncProgress.textContent = this.t('sync.opsCount', '{count} ops', { count: syncStatus.operations_pending });
                 syncControl.className = 'sync-control-compact pending';
                 if (syncButton) syncButton.disabled = false;
             } else if (syncStatus.status === 'error') {
-                statusText.textContent = 'Error';
-                syncProgress.textContent = `${syncStatus.operations_failed} failed`;
+                statusText.textContent = this.t('sync.status.error', 'Error');
+                syncProgress.textContent = this.t('sync.failedCount', '{count} failed', { count: syncStatus.operations_failed });
                 syncControl.className = 'sync-control-compact error';
                 if (syncButton) syncButton.disabled = false;
             } else {
                 // synced status
-                statusText.textContent = 'Synced';
+                statusText.textContent = this.t('sync.status.synced', 'Synced');
                 syncProgress.textContent = '';
                 syncControl.className = 'sync-control-compact synced';
                 if (syncButton) syncButton.disabled = false;
@@ -1908,7 +1963,7 @@ class MemoryDashboard {
             const deltaControl = document.getElementById('deltaSyncControl');
             if (deltaControl && deltaControl.style.display !== 'none') {
                 deltaControl.className = 'sync-control-compact delta-sync-control error';
-                document.getElementById('deltaSyncStatus').textContent = 'Status unavailable';
+                document.getElementById('deltaSyncStatus').textContent = this.t('sync.statusUnavailable', 'Status unavailable');
             }
             // Hide sync control on error (likely not hybrid mode)
             const syncControl = document.getElementById('syncControl');
@@ -1927,14 +1982,14 @@ class MemoryDashboard {
         if (!delta?.configured) return;
         const state = delta.status || 'disabled';
         panel.className = `sync-control-compact delta-sync-control ${state === 'disabled' ? 'paused' : state}`;
-        document.getElementById('deltaSyncStatus').textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        document.getElementById('deltaSyncStatus').textContent = this.t(`sync.status.${state}`, state.charAt(0).toUpperCase() + state.slice(1));
         const next = delta.next_run_at ? new Date(delta.next_run_at) : null;
+        const cadence = this.formatDuration(delta.interval_seconds);
         document.getElementById('deltaSyncSchedule').textContent = delta.enabled
-            ? `Every ${this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '')} · Next: ${next ? next.toLocaleTimeString() : 'not scheduled'}`
-            : `Automatic sync disabled · Schedule: ${delta.schedule}`;
+            ? this.t('sync.scheduleEveryNext', 'Every {interval} · Next: {time}', { interval: cadence, time: next ? next.toLocaleTimeString() : this.t('sync.notScheduled', 'not scheduled') })
+            : this.t('sync.automaticDisabled', 'Automatic sync disabled · Schedule: {schedule}', { schedule: delta.schedule });
         if (delta.enabled && delta.next_run_at) {
-            const cadence = this.formatTimeDelta(delta.interval_seconds).replace(/ ago$/, '');
-            this._startSyncCountdown(delta.next_run_at, `Every ${cadence} · `);
+            this._startSyncCountdown(delta.next_run_at, this.t('sync.every', 'Every {interval} · ', { interval: cadence }));
         }
         const container = document.getElementById('deltaSyncPeers');
         // Keep the disclosure open across live refreshes, including keyboard focus.
@@ -1942,15 +1997,18 @@ class MemoryDashboard {
             .map(details => details.dataset.peerId));
         const focusedPeer = document.activeElement?.closest('details')?.dataset.peerId;
         container.replaceChildren();
-        const text = (parent, tag, value, className) => {
+        const text = (parent, tag, value, className, i18nKey) => {
             const el = document.createElement(tag);
             if (className) el.className = className;
+            // Static labels carry their key so applyTranslations() re-translates
+            // them after a language switch (#1806); dynamic values do not.
+            if (i18nKey) el.dataset.i18n = i18nKey;
             el.textContent = value;
             parent.appendChild(el);
             return el;
         };
         const peers = delta.peers || [];
-        if (!peers.length) text(container, 'p', 'No peers configured', 'delta-sync-meta');
+        if (!peers.length) text(container, 'p', this.t('sync.noPeers', 'No peers configured'), 'delta-sync-meta', 'sync.noPeers');
         for (const peer of peers) {
             const row = document.createElement('div');
             row.className = 'delta-sync-peer';
@@ -1961,27 +2019,27 @@ class MemoryDashboard {
             if (peers.length > 1) {
                 text(heading, 'span', peer.health || peer.status, 'delta-sync-meta');
             }
-            text(row, 'p', peer.url || 'URL not configured', 'delta-sync-url');
+            text(row, 'p', peer.url || this.t('sync.urlNotConfigured', 'URL not configured'), 'delta-sync-url');
 
             const metrics = document.createElement('dl');
             metrics.className = 'delta-sync-metrics';
             row.appendChild(metrics);
-            const metric = (label, value, note) => {
+            const metric = (label, value, note, labelKey) => {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 const result = text(group, 'dd', value);
                 text(result, 'span', note, 'delta-sync-meta');
                 metrics.appendChild(group);
             };
-            metric('Pull', peer.pull ? String(peer.pull.received ?? 'Unknown') : '—',
-                peer.pull ? `received · ${peer.pull.applied} applied` : 'No cycle yet');
-            metric('Push', peer.push ? String(peer.push.pushed) : '—',
-                peer.push ? 'sent to peer' : 'No cycle yet');
+            metric(this.t('sync.pull', 'Pull'), peer.pull ? String(peer.pull.received ?? this.t('sync.unknown', 'Unknown')) : '—',
+                peer.pull ? this.t('sync.pullReceived', 'received · {count} applied', { count: peer.pull.applied }) : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.pull');
+            metric(this.t('sync.push', 'Push'), peer.push ? String(peer.push.pushed) : '—',
+                peer.push ? this.t('sync.pushSent', 'sent to peer') : this.t('sync.noCycleYet', 'No cycle yet'), 'sync.push');
 
             const completed = peer.last_cycle_at ? new Date(peer.last_cycle_at) : null;
             const lastCycle = text(row, 'p', completed
-                ? `Last cycle ${this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000)))}`
-                : peer.cycle_status === 'syncing' ? 'Syncing…' : 'Waiting for first cycle', 'delta-sync-meta');
+                ? this.t('sync.lastCycle', 'Last cycle {time}', { time: this.formatTimeDelta(Math.max(0, Math.floor((Date.now() - completed.getTime()) / 1000))) })
+                : peer.cycle_status === 'syncing' ? this.t('sync.status.syncing', 'Syncing…') : this.t('sync.waitingFirstCycle', 'Waiting for first cycle'), 'delta-sync-meta');
             if (completed) lastCycle.title = completed.toLocaleString();
             if (peer.last_error || ['error', 'incompatible', 'unavailable'].includes(peer.status)) {
                 text(row, 'p', peer.last_error || peer.message, 'delta-sync-error');
@@ -1991,15 +2049,15 @@ class MemoryDashboard {
             details.className = 'delta-sync-details';
             details.dataset.peerId = peer.peer_id;
             details.open = openPeers.has(peer.peer_id);
-            const summary = text(details, 'summary', 'Sync details');
+            const summary = text(details, 'summary', this.t('sync.details', 'Sync details'), undefined, 'sync.details');
             const diagnostics = document.createElement('dl');
-            for (const [label, value] of [
-                ['Pull cursor', peer.pull?.cursor ?? 'Not available'],
-                ['Push cursor', peer.push?.cursor ?? 'Not available'],
-                ['Backlog', peer.backlog ?? 'Unknown']
+            for (const [labelKey, label, value] of [
+                ['sync.pullCursor', this.t('sync.pullCursor', 'Pull cursor'), peer.pull?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.pushCursor', this.t('sync.pushCursor', 'Push cursor'), peer.push?.cursor ?? this.t('sync.notAvailable', 'Not available')],
+                ['sync.backlog', this.t('sync.backlog', 'Backlog'), peer.backlog ?? this.t('sync.unknown', 'Unknown')]
             ]) {
                 const group = document.createElement('div');
-                text(group, 'dt', label);
+                text(group, 'dt', label, undefined, labelKey);
                 text(group, 'dd', String(value));
                 diagnostics.appendChild(group);
             }
@@ -2010,11 +2068,19 @@ class MemoryDashboard {
         }
     }
 
+    /**
+     * A duration in its largest whole unit: "45s", "5m", "3h", "2d". The sync
+     * cadence shows it on its own; formatTimeDelta() wraps it in "{time} ago".
+     */
+    formatDuration(seconds) {
+        if (seconds < 60) return this.t('time.seconds', '{count}s', { count: seconds });
+        if (seconds < 3600) return this.t('time.minutes', '{count}m', { count: Math.floor(seconds / 60) });
+        if (seconds < 86400) return this.t('time.hours', '{count}h', { count: Math.floor(seconds / 3600) });
+        return this.t('time.days', '{count}d', { count: Math.floor(seconds / 86400) });
+    }
+
     formatTimeDelta(seconds) {
-        if (seconds < 60) return `${seconds}s ago`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
+        return this.t('time.ago', '{time} ago', { time: this.formatDuration(seconds) });
     }
 
     /**
@@ -2025,9 +2091,9 @@ class MemoryDashboard {
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);
         const s = total % 60;
-        if (h > 0) return `Next sync in ${h}h ${String(m).padStart(2, '0')}m`;
-        if (m > 0) return `Next sync in ${m}m ${String(s).padStart(2, '0')}s`;
-        return `Next sync in ${s}s`;
+        if (h > 0) return this.t('sync.nextSyncInHm', 'Next sync in {hours}h {minutes}m', { hours: h, minutes: String(m).padStart(2, '0') });
+        if (m > 0) return this.t('sync.nextSyncInMs', 'Next sync in {minutes}m {seconds}s', { minutes: m, seconds: String(s).padStart(2, '0') });
+        return this.t('sync.nextSyncInS', 'Next sync in {seconds}s', { seconds: s });
     }
 
     /**
@@ -2044,7 +2110,7 @@ class MemoryDashboard {
         this._stopSyncCountdown();
         if (!progressEl) return;
         if (!nextRunAt || Number.isNaN(nextAt)) {
-            progressEl.textContent = 'Schedule paused';
+            progressEl.textContent = this.t('sync.schedulePaused', 'Schedule paused');
             return;
         }
 
@@ -2053,7 +2119,7 @@ class MemoryDashboard {
             if (remainingMs <= 0) {
                 // A due timestamp does not prove that a cycle is running.
                 // The next status response supplies the next scheduled run.
-                progressEl.textContent = `${prefix}Scheduled sync due`;
+                progressEl.textContent = prefix + this.t('sync.scheduledDue', 'Scheduled sync due');
                 this._stopSyncCountdown();
                 return;
             }
@@ -2087,7 +2153,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'none';
                 if (resumeButton) resumeButton.style.display = 'flex';
-                if (statusText) statusText.textContent = 'Paused';
+                if (statusText) statusText.textContent = this.t('sync.status.paused', 'Paused');
                 if (syncControl) syncControl.className = 'sync-control-compact paused';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2122,7 +2188,7 @@ class MemoryDashboard {
 
                 if (pauseButton) pauseButton.style.display = 'flex';
                 if (resumeButton) resumeButton.style.display = 'none';
-                if (statusText) statusText.textContent = 'Synced';
+                if (statusText) statusText.textContent = this.t('sync.status.synced', 'Synced');
                 if (syncControl) syncControl.className = 'sync-control-compact synced';
 
                 // Small delay to allow backend state to propagate before checking status
@@ -2153,18 +2219,18 @@ class MemoryDashboard {
             const nextBackup = document.getElementById('settingsNextBackup');
 
             if (!backupStatus.enabled) {
-                if (lastBackup) lastBackup.textContent = 'Backups disabled';
+                this.setTranslatedText(lastBackup, 'modal.settings.backup.disabled', 'Backups disabled');
                 if (backupCount) backupCount.textContent = '-';
-                if (nextBackup) nextBackup.textContent = '-';
+                this.setValueText(nextBackup, '-');
                 return;
             }
 
-            // Update last backup time
+            // Update last backup time. formatTimeDelta() already says "ago".
             if (lastBackup) {
                 if (backupStatus.time_since_last_seconds) {
-                    lastBackup.textContent = this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)) + ' ago';
+                    this.setValueText(lastBackup, this.formatTimeDelta(Math.floor(backupStatus.time_since_last_seconds)));
                 } else {
-                    lastBackup.textContent = 'Never';
+                    this.setTranslatedText(lastBackup, 'modal.settings.never', 'Never');
                 }
             }
 
@@ -2177,9 +2243,11 @@ class MemoryDashboard {
             // Update next scheduled backup
             if (nextBackup && backupStatus.next_backup_at) {
                 const nextDate = new Date(backupStatus.next_backup_at);
-                nextBackup.textContent = nextDate.toLocaleString();
-            } else if (nextBackup) {
-                nextBackup.textContent = backupStatus.scheduler_running ? 'Scheduled' : 'Not scheduled';
+                this.setValueText(nextBackup, nextDate.toLocaleString());
+            } else if (backupStatus.scheduler_running) {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.scheduled', 'Scheduled');
+            } else {
+                this.setTranslatedText(nextBackup, 'modal.settings.backup.notScheduled', 'Not scheduled');
             }
 
         } catch (error) {
@@ -2234,7 +2302,7 @@ class MemoryDashboard {
         // Show loading state
         const listEl = document.getElementById('backupsList');
         const summaryEl = document.getElementById('backupsSummary');
-        if (listEl) listEl.innerHTML = '<p class="loading-text">Loading backups...</p>';
+        if (listEl) listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loading', 'Loading backups...');
         if (summaryEl) summaryEl.innerHTML = '';
 
         this.openModal(modal);
@@ -2260,9 +2328,16 @@ class MemoryDashboard {
             const totalSizeMB = (totalSizeBytes / 1024 / 1024).toFixed(2);
             const backupDir = status?.backup_directory || '';
 
-            // Render summary
+            // Render summary. The values are inserted as HTML after the
+            // translated sentence is escaped, so they keep their <strong>.
             if (summaryEl) {
-                let html = `<strong>${totalCount}</strong> backup${totalCount !== 1 ? 's' : ''} &middot; <strong>${totalSizeMB} MB</strong> total`;
+                const sentence = totalCount === 1
+                    ? this.t('modal.backups.summaryOne', '{count} backup · {size} total')
+                    : this.t('modal.backups.summaryMany', '{count} backups · {size} total');
+                let html = this.replacePlaceholders(this.escapeHtml(sentence), {
+                    count: `<strong>${this.escapeHtml(totalCount)}</strong>`,
+                    size: `<strong>${this.escapeHtml(totalSizeMB)} MB</strong>`
+                });
                 if (backupDir) {
                     html += `<br><span class="backup-directory-path">${this.escapeHtml(backupDir)}</span>`;
                 }
@@ -2271,15 +2346,22 @@ class MemoryDashboard {
 
             // Render backup list
             if (backups.length === 0) {
-                listEl.innerHTML = '<p class="loading-text">No backups found. Create one using "Create Backup Now".</p>';
+                const empty = this.t('modal.backups.empty', 'No backups found. Create one using "{button}".', {
+                    button: this.t('modal.settings.backupNow', 'Create Backup Now')
+                });
+                listEl.innerHTML = `<p class="loading-text">${this.escapeHtml(empty)}</p>`;
                 return;
             }
 
             listEl.innerHTML = backups.map(backup => {
                 const sizeMB = (backup.size_bytes / 1024 / 1024).toFixed(2);
-                const createdDate = backup.created_at ? new Date(backup.created_at).toLocaleString() : 'Unknown';
+                const createdDate = backup.created_at
+                    ? new Date(backup.created_at).toLocaleString()
+                    : this.t('modal.backups.unknownDate', 'Unknown');
                 const ageDays = backup.age_days != null ? backup.age_days : '?';
-                const ageLabel = ageDays === 1 ? '1 day ago' : `${ageDays} days ago`;
+                const ageLabel = ageDays === 1
+                    ? this.t('modal.backups.ageOne', '1 day ago')
+                    : this.t('modal.backups.ageDays', '{days} days ago', { days: ageDays });
 
                 return `
                     <div class="backup-item">
@@ -2287,7 +2369,7 @@ class MemoryDashboard {
                         <div class="backup-meta">
                             <span>${sizeMB} MB</span>
                             <span>${this.escapeHtml(createdDate)}</span>
-                            <span>${ageLabel}</span>
+                            <span>${this.escapeHtml(ageLabel)}</span>
                         </div>
                     </div>
                 `;
@@ -2295,7 +2377,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Error loading backups list:', error);
-            listEl.innerHTML = '<p class="loading-text" style="color: var(--error);">Failed to load backups.</p>';
+            listEl.innerHTML = this.staticTextHtml('p', 'loading-text', 'modal.backups.loadFailed', 'Failed to load backups.', 'color: var(--error);');
         }
     }
 
@@ -2344,8 +2426,8 @@ class MemoryDashboard {
             const syncProgress = document.getElementById('syncProgress');
             const syncControl = document.getElementById('syncControl');
 
-            if (statusText) statusText.textContent = 'Syncing';
-            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? `${statusBefore.operations_pending} pending` : '';
+            if (statusText) statusText.textContent = this.t('sync.status.syncing', 'Syncing');
+            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: statusBefore.operations_pending }) : '';
             if (syncControl) syncControl.className = 'sync-control-compact syncing';
 
             // Show toast when sync starts
@@ -2408,7 +2490,7 @@ class MemoryDashboard {
         taggedContainer.style.display = 'none';
 
         if (!this.tags || this.tags.length === 0) {
-            container.innerHTML = '<p class="text-neutral-600">No tags found. Start adding tags to your memories to see them here.</p>';
+            container.innerHTML = `<p class="text-neutral-600" data-i18n="browse.noTags">${this.escapeHtml(this.t('browse.noTags', 'No tags found. Start adding tags to your memories to see them here.'))}</p>`;
             return;
         }
 
@@ -2563,7 +2645,7 @@ class MemoryDashboard {
      */
     renderMemoriesInContainer(memories, container) {
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="empty-state">No memories found with this tag.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="browse.noTaggedMemories">${this.escapeHtml(this.t('browse.noTaggedMemories', 'No memories found with this tag.'))}</p>`;
             return;
         }
 
@@ -2887,8 +2969,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Reset modal title and button text
-        title.textContent = 'Add New Memory';
-        saveBtn.textContent = 'Save Memory';
+        this.setTranslatedText(title, 'modal.addMemory.title', 'Add New Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.save', 'Save Memory');
 
         // Clear form
         document.getElementById('addMemoryForm').reset();
@@ -2941,7 +3023,7 @@ class MemoryDashboard {
                     };
 
                     response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
-                    successMessage = 'Memory updated successfully';
+                    successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
                 } else {
                     // Content changed - use create-delete approach (but with proper error handling)
 
@@ -2951,7 +3033,7 @@ class MemoryDashboard {
 
                         // CRITICAL: Only proceed with deletion if creation actually succeeded
                         if (response.success) {
-                            successMessage = 'Memory updated successfully';
+                            successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
 
                             try {
                                 // Step 2: Delete original memory (only after successful creation)
@@ -2977,7 +3059,7 @@ class MemoryDashboard {
             } else {
                 // Create new memory
                 response = await this.apiCall('/memories', 'POST', payload);
-                successMessage = 'Memory saved successfully';
+                successMessage = this.t('toast.memorySavedSuccess', 'Memory saved successfully');
             }
 
             this.closeModal(document.getElementById('addMemoryModal'));
@@ -3024,7 +3106,7 @@ class MemoryDashboard {
         const title = document.getElementById('modalTitle');
         const content = document.getElementById('modalContent');
 
-        title.textContent = 'Memory Details';
+        this.setTranslatedText(title, 'modal.memoryDetails.title', 'Memory Details');
         content.innerHTML = this.renderMemoryDetails(memory);
 
         // Set up action buttons
@@ -3045,21 +3127,21 @@ class MemoryDashboard {
         return `
             <div class="memory-detail">
                 <div class="memory-meta">
-                    <p><strong>Created:</strong> ${createdDate}</p>
-                    ${updatedDate ? `<p><strong>Updated:</strong> ${updatedDate}</p>` : ''}
-                    <p><strong>Type:</strong> ${memory.memory_type || 'note'}</p>
-                    <p><strong>ID:</strong> ${memory.content_hash}</p>
+                    <p><strong data-i18n="modal.memoryDetails.created">${this.escapeHtml(this.t('modal.memoryDetails.created', 'Created:'))}</strong> ${createdDate}</p>
+                    ${updatedDate ? `<p><strong data-i18n="modal.memoryDetails.updated">${this.escapeHtml(this.t('modal.memoryDetails.updated', 'Updated:'))}</strong> ${updatedDate}</p>` : ''}
+                    <p><strong data-i18n="modal.memoryDetails.type">${this.escapeHtml(this.t('modal.memoryDetails.type', 'Type:'))}</strong> ${memory.memory_type || 'note'}</p>
+                    <p><strong data-i18n="modal.memoryDetails.id">${this.escapeHtml(this.t('modal.memoryDetails.id', 'ID:'))}</strong> ${memory.content_hash}</p>
                 </div>
 
                 <div class="memory-detail-section">
-                    <h4>Content</h4>
+                    <h4 data-i18n="modal.memoryDetails.content">${this.escapeHtml(this.t('modal.memoryDetails.content', 'Content'))}</h4>
                     <div class="content-text detail-content-text${memory.content && memory.content.length > 200 ? ' detail-content-collapsed' : ''}">${this.escapeHtml(memory.content)}</div>
-                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ Show full content</button>' : ''}
+                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ ' + this.escapeHtml(this.t('modal.memoryDetails.showFullContent', 'Show full content')) + '</button>' : ''}
                 </div>
 
                 ${memory.tags && memory.tags.length > 0 ? `
                     <div class="memory-tags-section">
-                        <h4>Tags</h4>
+                        <h4 data-i18n="modal.memoryDetails.tags">${this.escapeHtml(this.t('modal.memoryDetails.tags', 'Tags'))}</h4>
                         <div class="memory-tags">
                             ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
                         </div>
@@ -3069,7 +3151,7 @@ class MemoryDashboard {
                 ${memory.metadata ? `
                     <div class="memory-metadata">
                         <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
-                            <span class="toggle-icon">▶</span> Metadata
+                            <span class="toggle-icon">▶</span> <span data-i18n="modal.memoryDetails.metadata">${this.escapeHtml(this.t('modal.memoryDetails.metadata', 'Metadata'))}</span>
                         </h4>
                         <div class="metadata-content">
                             ${this.renderMetadata(memory.metadata)}
@@ -3085,7 +3167,7 @@ class MemoryDashboard {
      */
     renderMetadata(metadata) {
         if (!metadata || typeof metadata !== 'object') {
-            return '<p class="metadata-empty">No metadata available</p>';
+            return `<p class="metadata-empty" data-i18n="modal.memoryDetails.noMetadata">${this.escapeHtml(this.t('modal.memoryDetails.noMetadata', 'No metadata available'))}</p>`;
         }
 
         let html = '<div class="metadata-items">';
@@ -3123,7 +3205,7 @@ class MemoryDashboard {
      * Delete memory
      */
     async deleteMemory(memory) {
-        if (!confirm('Are you sure you want to delete this memory? This action cannot be undone.')) {
+        if (!confirm(this.t('modal.memoryDetails.confirmDelete', 'Are you sure you want to delete this memory? This action cannot be undone.'))) {
             return;
         }
 
@@ -3161,8 +3243,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Update modal for editing
-        title.textContent = 'Edit Memory';
-        saveBtn.textContent = 'Update Memory';
+        this.setTranslatedText(title, 'modal.addMemory.editTitle', 'Edit Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.update', 'Update Memory');
 
         // Pre-fill the form with existing data
         document.getElementById('memoryContent').value = memory.content || '';
@@ -3201,7 +3283,7 @@ class MemoryDashboard {
         // Try to use Web Share API if available
         if (navigator.share) {
             navigator.share({
-                title: 'Memory from MCP Memory Service',
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
                 text: memory.content,
                 url: window.location.href
             }).catch(err => {
@@ -3305,7 +3387,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
+    container.innerHTML = `<p class="empty-state"><span data-i18n="sections.recentMemoriesEmpty">${this.escapeHtml(this.t('sections.recentMemoriesEmpty', 'No memories found.'))}</span> <a href="#" data-action="add-memory" data-i18n="sections.addFirstMemory">${this.escapeHtml(this.t('sections.addFirstMemory', 'Add your first memory'))}</a></p>`;
     return;
     }
 
@@ -3547,7 +3629,7 @@ class MemoryDashboard {
         }
 
         if (!tags || tags.length === 0) {
-            container.innerHTML = '<div class="no-tags">No tags found.</div>';
+            container.innerHTML = `<div class="no-tags" data-i18n="browse.noTagsShort">${this.escapeHtml(this.t('browse.noTagsShort', 'No tags found.'))}</div>`;
             return;
         }
 
@@ -3578,7 +3660,7 @@ class MemoryDashboard {
         const container = document.getElementById('searchResultsList');
 
         if (!results || results.length === 0) {
-            container.innerHTML = '<p class="empty-state">No results found. Try a different search term.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="search.results.none">${this.escapeHtml(this.t('search.results.none', 'No results found. Try a different search term.'))}</p>`;
             return;
         }
 
@@ -3688,36 +3770,38 @@ class MemoryDashboard {
                 filters.push({
                     type: 'tag',
                     value: tag,
-                    label: `Tag: ${tag}`
+                    label: this.t('search.filters.activeTag', 'Tag: {tag}', { tag })
                 });
             });
         }
 
         if (dateFilter) {
             const dateLabels = {
-                'today': 'Today',
-                'week': 'This week',
-                'month': 'This month',
-                'year': 'This year'
+                'today': this.t('search.filters.date.today', 'Today'),
+                'yesterday': this.t('search.filters.date.yesterday', 'Yesterday'),
+                'week': this.t('search.filters.date.week', 'This week'),
+                'month': this.t('search.filters.date.month', 'This month'),
+                'quarter': this.t('search.filters.date.quarter', 'This quarter'),
+                'year': this.t('search.filters.date.year', 'This year')
             };
             filters.push({
                 type: 'date',
                 value: dateFilter,
-                label: `Date: ${dateLabels[dateFilter] || dateFilter}`
+                label: this.t('search.filters.activeDate', 'Date: {date}', { date: dateLabels[dateFilter] || dateFilter })
             });
         }
 
         if (typeFilter) {
             const typeLabels = {
-                'note': 'Notes',
-                'code': 'Code',
-                'reference': 'References',
-                'idea': 'Ideas'
+                'note': this.t('search.filters.type.note', 'Notes'),
+                'code': this.t('search.filters.type.code', 'Code'),
+                'reference': this.t('search.filters.type.reference', 'References'),
+                'idea': this.t('search.filters.type.idea', 'Ideas')
             };
             filters.push({
                 type: 'type',
                 value: typeFilter,
-                label: `Type: ${typeLabels[typeFilter] || typeFilter}`
+                label: this.t('search.filters.activeType', 'Type: {type}', { type: typeLabels[typeFilter] || typeFilter })
             });
         }
 
@@ -3736,15 +3820,16 @@ class MemoryDashboard {
             </div>
         `).join('');
 
-        // Add event listeners for filter removal
-        filtersList.addEventListener('click', (e) => {
+        // Assigned, not added: this runs on every filter change and language
+        // switch, and each added listener would remove the filter once more.
+        filtersList.onclick = (e) => {
             const button = e.target.closest('.remove-filter');
             if (!button) return;
 
             const type = button.dataset.filterType;
             const value = button.dataset.filterValue;
             this.removeFilter(type, value);
-        });
+        };
     }
 
     /**
@@ -3882,19 +3967,19 @@ class MemoryDashboard {
 
             switch (status) {
                 case 'connected':
-                    text.textContent = 'Connected';
+                    text.textContent = this.t('status.connected', 'Connected');
                     // Connected uses default green color (no additional class needed)
                     break;
                 case 'connecting':
-                    text.textContent = 'Connecting...';
+                    text.textContent = this.t('status.connecting', 'Connecting...');
                     indicator.classList.add('connecting');
                     break;
                 case 'disconnected':
-                    text.textContent = 'Disconnected';
+                    text.textContent = this.t('status.disconnected', 'Disconnected');
                     indicator.classList.add('disconnected');
                     break;
                 default:
-                    text.textContent = 'Unknown';
+                    text.textContent = this.t('status.unknown', 'Unknown');
                     indicator.classList.add('disconnected');
             }
         }
@@ -3927,7 +4012,7 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error('Authentication required');
+            throw new Error(this.t('error.authRequired', 'Authentication required'));
         }
 
         if (!response.ok) {
@@ -3977,7 +4062,7 @@ class MemoryDashboard {
             if (!this._lastAuthFailureToast || (now - this._lastAuthFailureToast) > 30000) {
                 this._lastAuthFailureToast = now;
                 console.warn('Got 401 despite being authenticated — credentials may have been invalidated');
-                this.showToast('Session expired or credentials changed. Please refresh the page.', 'warning');
+                this.showToast(this.t('toast.authSessionExpired', 'Session expired or credentials changed. Please refresh the page.'), 'warning');
             }
             // Mark as unauthenticated so the next 401 triggers the full
             // re-auth flow (clear credentials + show modal) instead of
@@ -4044,12 +4129,12 @@ class MemoryDashboard {
             await this.loadDashboardData();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
-            this.showToast('Authentication successful', 'success');
+            this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
 
             return true;
         } catch (error) {
             // Key is invalid — clean up
-            this.showToast('Authentication failed. Please check your API key.', 'error');
+            this.showToast(this.t('toast.authFailed', 'Authentication failed. Please check your API key.'), 'error');
             this._clearCredentials();
             return false;
         }
@@ -4137,7 +4222,7 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Checking for updates...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.checking', 'Checking for updates...');
 
         try {
             const data = await this.apiCall('/server/version/check');
@@ -4145,24 +4230,24 @@ class MemoryDashboard {
 
             if (data.update_available) {
                 if (statusEl) {
-                    statusEl.textContent = `Yes - ${data.commits_behind} commit(s) available`;
+                    this.setTranslatedText(statusEl, 'modal.settings.server.commitsAvailable', 'Yes - {count} commit(s) available', { count: data.commits_behind });
                     statusEl.style.color = 'var(--success, #10b981)';
                     statusEl.style.fontWeight = '600';
                 }
                 if (updateBtn) { updateBtn.style.display = 'inline-flex'; }
-                this.showToast(`${data.commits_behind} update(s) available`, 'info');
+                this.showToast(this.t('modal.settings.server.updatesAvailable', '{count} update(s) available', { count: data.commits_behind }), 'info');
             } else {
                 if (statusEl) {
-                    statusEl.textContent = 'Up to date';
+                    this.setTranslatedText(statusEl, 'modal.settings.server.upToDate', 'Up to date');
                     statusEl.style.color = 'var(--text-secondary)';
                 }
                 if (updateBtn) { updateBtn.style.display = 'none'; }
-                this.showToast('Already up to date.', 'success');
+                this.showToast(this.t('modal.settings.server.alreadyUpToDate', 'Already up to date.'), 'success');
             }
         } catch (error) {
             if (actionStatus) { actionStatus.style.display = 'none'; }
-            if (statusEl) { statusEl.textContent = 'Check failed'; }
-            this.showToast('Failed to check for updates: ' + error.message, 'error');
+            this.setTranslatedText(statusEl, 'modal.settings.server.checkFailed', 'Check failed');
+            this.showToast(this.t('modal.settings.server.checkFailedWithError', 'Failed to check for updates: {error}', { error: error.message }), 'error');
         }
     }
 
@@ -4175,7 +4260,7 @@ class MemoryDashboard {
      * the process actually rolled over instead of trusting /api/health.
      */
     async updateAndRestart(force = false) {
-        if (!force && !confirm('This will pull the latest code, install dependencies, and restart the server. Continue?')) {
+        if (!force && !confirm(this.t('modal.settings.server.confirmUpdate', 'This will pull the latest code, install dependencies, and restart the server. Continue?'))) {
             return;
         }
 
@@ -4183,12 +4268,12 @@ class MemoryDashboard {
         const actionText = document.getElementById('serverActionText');
 
         if (actionStatus) { actionStatus.style.display = 'flex'; }
-        if (actionText) { actionText.textContent = 'Pulling updates and installing...'; }
+        this.setTranslatedText(actionText, 'modal.settings.server.pulling', 'Pulling updates and installing...');
 
         try {
             const data = await this.apiCall('/server/update', 'POST', { confirm: true, force });
 
-            if (actionText) { actionText.textContent = 'Update complete. Server restarting...'; }
+            this.setTranslatedText(actionText, 'modal.settings.server.updateComplete', 'Update complete. Server restarting...');
             // Show captured git/pip output in console for diagnostics
             if (data.git_output) { console.info('git pull:\n' + data.git_output); }
             if (data.pip_output) { console.info('pip install:\n' + data.pip_output); }
@@ -4202,14 +4287,14 @@ class MemoryDashboard {
             // substring-matching the message — error wording can change
             // between releases and gets translated, status codes don't.
             if (error.status === 409) {
-                this.showToast('Update blocked: ' + msg, 'error');
-                if (confirm('The server has uncommitted local changes that will block the pull.\n\n' + msg + '\n\nForce-pull anyway? (Local changes may be overwritten.)')) {
+                this.showToast(this.t('modal.settings.server.updateBlocked', 'Update blocked: {error}', { error: msg }), 'error');
+                if (confirm(this.t('modal.settings.server.confirmForcePull', 'The server has uncommitted local changes that will block the pull.\n\n{error}\n\nForce-pull anyway? (Local changes may be overwritten.)', { error: msg }))) {
                     return this.updateAndRestart(true);
                 }
                 return;
             }
 
-            this.showToast('Update failed: ' + msg, 'error');
+            this.showToast(this.t('modal.settings.server.updateFailed', 'Update failed: {error}', { error: msg }), 'error');
         }
     }
 
@@ -4218,7 +4303,7 @@ class MemoryDashboard {
      * so pollServerHealth can verify the process actually rolled over.
      */
     async restartServer() {
-        if (!confirm('Are you sure you want to restart the server? This will temporarily disconnect all clients.')) {
+        if (!confirm(this.t('modal.settings.server.confirmRestart', 'Are you sure you want to restart the server? This will temporarily disconnect all clients.'))) {
             return;
         }
 
@@ -4230,7 +4315,7 @@ class MemoryDashboard {
             if (error.message && error.message.includes('fetch')) {
                 this.showRestartOverlay(null, null);
             } else {
-                this.showToast('Restart failed: ' + error.message, 'error');
+                this.showToast(this.t('modal.settings.server.restartFailed', 'Restart failed: {error}', { error: error.message }), 'error');
             }
         }
     }
@@ -4249,6 +4334,13 @@ class MemoryDashboard {
         const statusEl = document.getElementById('restartStatus');
 
         if (overlay) { overlay.style.display = 'flex'; }
+        // "Reconnecting in {seconds}s": the countdown span moves to wherever
+        // the language puts {seconds}, and the interval below keeps updating it.
+        const countdownLine = countdownEl ? countdownEl.parentElement : null;
+        if (countdownLine) {
+            const [before, after = ''] = this.t('modal.settings.server.reconnectingIn', 'Reconnecting in {seconds}s').split('{seconds}');
+            countdownLine.replaceChildren(before, countdownEl, after);
+        }
 
         let countdown = 5;
         let attempts = 0;
@@ -4271,14 +4363,14 @@ class MemoryDashboard {
      */
     async pollServerHealth(statusEl, overlay, attempts, maxAttempts, preRestartPid, preRestartVersion) {
         if (attempts >= maxAttempts) {
-            if (statusEl) { statusEl.textContent = 'Server did not come back online. Please check manually.'; }
+            this.setTranslatedText(statusEl, 'modal.settings.server.notBackOnline', 'Server did not come back online. Please check manually.');
             setTimeout(() => {
                 if (overlay) { overlay.style.display = 'none'; }
             }, 5000);
             return;
         }
 
-        if (statusEl) { statusEl.textContent = `Attempt ${attempts + 1}/${maxAttempts} - Waiting for server...`; }
+        this.setTranslatedText(statusEl, 'modal.settings.server.attempt', 'Attempt {attempt}/{max} - Waiting for server...', { attempt: attempts + 1, max: maxAttempts });
 
         try {
             // Probe /server/status (auth-protected); fall back to /api/health
@@ -4297,7 +4389,7 @@ class MemoryDashboard {
                 }
 
                 if (restarted) {
-                    if (statusEl) { statusEl.textContent = `Server is back online (v${status.version}, pid ${status.pid})! Reloading...`; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnline', 'Server is back online (v{version}, pid {pid})! Reloading...', { version: status.version, pid: status.pid });
                     setTimeout(() => {
                         window.location.reload();
                     }, 1500);
@@ -4306,9 +4398,7 @@ class MemoryDashboard {
                 // Status responded but pid+version unchanged — process didn't actually restart.
                 // Keep polling; on the final attempt we surface a warning below.
                 if (attempts === maxAttempts - 1) {
-                    if (statusEl) {
-                        statusEl.textContent = `Process did not restart (still pid ${status.pid}, v${status.version}). The update may have failed silently — check server logs.`;
-                    }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.didNotRestart', 'Process did not restart (still pid {pid}, v{version}). The update may have failed silently — check server logs.', { pid: status.pid, version: status.version });
                     setTimeout(() => {
                         if (overlay) { overlay.style.display = 'none'; }
                     }, 8000);
@@ -4318,7 +4408,7 @@ class MemoryDashboard {
                 // /server/status unavailable (server still down or auth-gated) — try /api/health as a liveness probe
                 const response = await fetch('api/health');
                 if (response.ok && preRestartPid == null && preRestartVersion == null) {
-                    if (statusEl) { statusEl.textContent = 'Server is back online, reloading'; }
+                    this.setTranslatedText(statusEl, 'modal.settings.server.backOnlineReloading', 'Server is back online, reloading');
                     setTimeout(() => { window.location.reload(); }, 1500);
                     return;
                 }
@@ -4721,13 +4811,15 @@ class MemoryDashboard {
     }
 
     /**
-     * Reset system info fields to loading state
+     * Reset system info fields to loading state. data-loading marks a field
+     * that has no value yet; the text cannot, since it is translated.
      */
     resetSystemInfoLoadingState() {
         Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
             const element = document.getElementById(id);
             if (element) {
-                element.textContent = 'Loading...';
+                this.setTranslatedText(element, 'status.loading', 'Loading...');
+                element.dataset.loading = 'true';
             }
         });
     }
@@ -4764,7 +4856,8 @@ class MemoryDashboard {
                     }
                 }
 
-                element.textContent = config.formatter(value);
+                this.setValueText(element, config.formatter(value, this));
+                delete element.dataset.loading;
             });
 
             // Populate OAuth detail fields (conditionally shown when enabled)
@@ -4774,10 +4867,11 @@ class MemoryDashboard {
                 showRow('oauthBackendRow');
                 showRow('oauthClientsRow');
                 showRow('oauthTokensRow');
+                const notAvailable = this.t('modal.settings.system.notAvailable', 'N/A');
                 const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-                setVal('settingsOAuthBackend', oauthData.storage_backend || 'N/A');
-                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? 'N/A');
-                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? 'N/A');
+                setVal('settingsOAuthBackend', oauthData.storage_backend || notAvailable);
+                setVal('settingsOAuthClients', oauthData.registered_clients_count ?? notAvailable);
+                setVal('settingsOAuthTokens', oauthData.active_tokens_count ?? notAvailable);
             }
 
             // Log warnings for failed API calls
@@ -4795,8 +4889,9 @@ class MemoryDashboard {
             // Set all system info fields that are still in loading state to error
             Object.keys(MemoryDashboard.SYSTEM_INFO_CONFIG).forEach(id => {
                 const element = document.getElementById(id);
-                if (element && element.textContent === 'Loading...') {
-                    element.textContent = 'Error';
+                if (element && element.dataset.loading === 'true') {
+                    this.setTranslatedText(element, 'modal.settings.system.error', 'Error');
+                    delete element.dataset.loading;
                 }
             });
         }
@@ -4817,17 +4912,17 @@ class MemoryDashboard {
      * @param {number} seconds - Uptime in seconds
      * @returns {string} Formatted uptime string
      */
-    static formatUptime(seconds) {
+    formatUptime(seconds) {
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
 
         const parts = [];
-        if (days > 0) parts.push(`${days}d`);
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
+        if (days > 0) parts.push(this.t('time.days', '{count}d', { count: days }));
+        if (hours > 0) parts.push(this.t('time.hours', '{count}h', { count: hours }));
+        if (minutes > 0) parts.push(this.t('time.minutes', '{count}m', { count: minutes }));
 
-        return parts.length > 0 ? parts.join(' ') : '< 1m';
+        return parts.length > 0 ? parts.join(' ') : this.t('time.underAMinute', '< 1m');
     }
 
     /**
@@ -5036,12 +5131,12 @@ class MemoryDashboard {
         const testBtn = document.getElementById('credTestBtn');
 
         if (!tokenVal || !accountVal) {
-            this._showCredResult('error', 'API Token and Account ID are required.');
+            this._showCredResult('error', this.t('settings.credentials.required', 'API Token and Account ID are required.'));
             return;
         }
 
         testBtn.disabled = true;
-        testBtn.textContent = 'Testing…';
+        testBtn.textContent = this.t('settings.credentials.testing', 'Testing…');
         if (resultEl) { resultEl.style.display = 'none'; }
 
         try {
@@ -5051,21 +5146,25 @@ class MemoryDashboard {
             });
 
             if (data.valid) {
-                const expires = data.expires_on
-                    ? ` · Expires ${new Date(data.expires_on).toLocaleDateString()}`
-                    : '';
-                this._showCredResult('success', `✓ Token active${expires}`);
+                const message = data.expires_on
+                    ? this.t(
+                        'settings.credentials.tokenActiveExpires',
+                        '✓ Token active · Expires {date}',
+                        { date: new Date(data.expires_on).toLocaleDateString() }
+                    )
+                    : this.t('settings.credentials.tokenActive', '✓ Token active');
+                this._showCredResult('success', message);
                 this._credTestedToken = tokenVal;
             } else {
-                this._showCredResult('error', `✗ ${data.error || 'Invalid token'}`);
+                this._showCredResult('error', `✗ ${data.error || this.t('settings.credentials.invalidToken', 'Invalid token')}`);
                 this._credTestedToken = null;
             }
         } catch (e) {
-            this._showCredResult('error', `✗ Request failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.credentials.requestFailed', '✗ Request failed: {error}', { error: e.message }));
             this._credTestedToken = null;
         } finally {
             testBtn.disabled = false;
-            testBtn.textContent = 'Test Connection';
+            testBtn.textContent = this.t('settings.credentials.testButton', 'Test Connection');
             this._updateCredSaveBtn();
         }
     }
@@ -5081,12 +5180,12 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('credSaveBtn');
 
         if (!this._credTestedToken || this._credTestedToken !== tokenVal) {
-            this._showCredResult('error', 'Run "Test Connection" first.');
+            this._showCredResult('error', this.t('settings.credentials.testFirst', 'Run "Test Connection" first.'));
             return;
         }
 
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
+        saveBtn.textContent = this.t('settings.quality.saving', 'Saving…');
 
         try {
             const syncOwnerVal = (document.getElementById('cred-sync-owner')?.value || 'http');
@@ -5101,13 +5200,13 @@ class MemoryDashboard {
                     tested_token: this._credTestedToken,
                 })
             });
-            this._showCredResult('success', '✓ Credentials saved. Server restarting…');
+            this._showCredResult('success', this.t('settings.credentials.saved', '✓ Credentials saved. Server restarting…'));
             this.closeModal(document.getElementById('settingsModal'));
             this.showRestartOverlay();
         } catch (e) {
-            this._showCredResult('error', `✗ Save failed: ${e.message}`);
+            this._showCredResult('error', this.t('settings.quality.saveFailed', '✗ Save failed: {error}', { error: e.message }));
             saveBtn.disabled = false;
-            saveBtn.textContent = 'Save & Restart';
+            saveBtn.textContent = this.t('settings.quality.save', 'Save & Restart');
         }
     }
 
@@ -5236,7 +5335,7 @@ class MemoryDashboard {
                             <div class="env-param-row">
                                 <div class="env-param-key">
                                     <strong>${this.escapeHtml(param.key)}</strong>
-                                    ${param.sensitive ? '<span class="sensitive-badge">Sensitive</span>' : ''}
+                                    ${param.sensitive ? this.staticTextHtml('span', 'sensitive-badge', 'modal.settings.env.sensitive', 'Sensitive') : ''}
                                 </div>
                                 <div class="env-param-value ${param.sensitive ? 'masked' : ''}">
                                     ${this.renderParamValue(param)}
@@ -5257,7 +5356,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load environment config:', error);
-            container.innerHTML = '<p class="error">Failed to load configuration</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'modal.settings.env.loadFailed', 'Failed to load configuration');
         }
     }
 
@@ -5268,7 +5367,7 @@ class MemoryDashboard {
      */
     renderParamValue(param) {
         if (!param.value) {
-            return '<span class="env-value-empty">(not set)</span>';
+            return this.staticTextHtml('span', 'env-value-empty', 'modal.settings.env.notSet', '(not set)');
         }
 
         if (param.sensitive) {
@@ -5277,11 +5376,14 @@ class MemoryDashboard {
 
         if (param.type === 'boolean') {
             const isTrue = param.value === 'true' || param.value === true;
-            return `<span class="env-value-boolean ${isTrue ? 'true' : 'false'}">${isTrue ? '✓ Enabled' : '✗ Disabled'}</span>`;
+            return isTrue
+                ? this.staticTextHtml('span', 'env-value-boolean true', 'modal.settings.env.enabled', '✓ Enabled')
+                : this.staticTextHtml('span', 'env-value-boolean false', 'modal.settings.env.disabled', '✗ Disabled');
         }
 
         if (param.choices && param.choices.length > 0) {
-            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">(options: ${param.choices.map(c => this.escapeHtml(c)).join(', ')})</span>`;
+            const options = this.t('modal.settings.env.options', '(options: {options})', { options: param.choices.join(', ') });
+            return `<code class="env-value">${this.escapeHtml(param.value)}</code> <span class="env-choices">${this.escapeHtml(options)}</span>`;
         }
 
         return `<code class="env-value">${this.escapeHtml(param.value)}</code>`;
@@ -5292,7 +5394,7 @@ class MemoryDashboard {
      */
     async copyEnvironmentConfig() {
         if (!this.currentEnvConfig) {
-            this.showToast('No configuration loaded', 'error');
+            this.showToast(this.t('modal.settings.env.noConfig', 'No configuration loaded'), 'error');
             return;
         }
 
@@ -5323,10 +5425,10 @@ class MemoryDashboard {
 
         try {
             await navigator.clipboard.writeText(configText);
-            this.showToast('Configuration copied to clipboard', 'success');
+            this.showToast(this.t('modal.settings.env.copied', 'Configuration copied to clipboard'), 'success');
         } catch (error) {
             console.error('Failed to copy:', error);
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
         }
     }
 
@@ -5693,7 +5795,7 @@ class MemoryDashboard {
             this.renderMemoryGrowthChart(container, data);
         } catch (error) {
             console.error('Failed to load memory growth:', error);
-            container.innerHTML = '<p class="error">Failed to load growth chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.growthLoadFailed">${this.t('analytics.growthLoadFailed', 'Failed to load growth chart')}</p>`;
         }
     }
 
@@ -5702,7 +5804,7 @@ class MemoryDashboard {
      */
     renderMemoryGrowthChart(container, data) {
         if (!data.data_points || data.data_points.length === 0) {
-            container.innerHTML = '<p>No growth data available</p>';
+            container.innerHTML = `<p data-i18n="analytics.noGrowthData">${this.t('analytics.noGrowthData', 'No growth data available')}</p>`;
             return;
         }
 
@@ -5756,7 +5858,7 @@ class MemoryDashboard {
             this.renderTagUsageChart(container, data);
         } catch (error) {
             console.error('Failed to load tag usage:', error);
-            container.innerHTML = '<p class="error">Failed to load tag usage chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.tagUsageLoadFailed">${this.t('analytics.tagUsageLoadFailed', 'Failed to load tag usage chart')}</p>`;
         }
     }
 
@@ -5765,7 +5867,7 @@ class MemoryDashboard {
      */
     renderTagUsageChart(container, data) {
         if (!data.tags || data.tags.length === 0) {
-            container.innerHTML = '<p>No tags found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noTagUsage">${this.t('analytics.noTagUsage', 'No tags found')}</p>`;
             return;
         }
 
@@ -5794,9 +5896,12 @@ class MemoryDashboard {
         // percentage out; there is no honest percentage for a set of overlapping tags.
         if (minorTags.length > 0) {
             const assignmentCount = minorTags.reduce((sum, t) => sum + t.count, 0);
+            const minorTagsTip = this.t('analytics.minorTagsTip',
+                '{assignments} tag assignments across {count} tags with 10 or fewer memories each',
+                { assignments: assignmentCount, count: minorTags.length });
             html += `<div class="chart-row">
-                <span class="chart-value">${minorTags.length} tags</span>
-                <span class="chart-label" title="${assignmentCount} tag assignments across ${minorTags.length} tags with 10 or fewer memories each">more tags (≤10 memories each)</span>
+                <span class="chart-value">${this.escapeHtml(this.t('analytics.minorTagsCount', '{count} tags', { count: minorTags.length }))}</span>
+                <span class="chart-label" title="${this.escapeHtml(minorTagsTip)}" data-i18n="analytics.minorTagsLabel">${this.escapeHtml(this.t('analytics.minorTagsLabel', 'more tags (≤10 memories each)'))}</span>
             </div>`;
         }
 
@@ -5816,7 +5921,7 @@ class MemoryDashboard {
             this.renderMemoryTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load memory types:', error);
-            container.innerHTML = '<p class="error">Failed to load memory types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.memoryTypesLoadFailed">${this.t('analytics.memoryTypesLoadFailed', 'Failed to load memory types chart')}</p>`;
         }
     }
 
@@ -5825,7 +5930,7 @@ class MemoryDashboard {
      */
     renderMemoryTypesChart(container, data) {
         if (!data.types || data.types.length === 0) {
-            container.innerHTML = '<p>No memory types found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noMemoryTypes">${this.t('analytics.noMemoryTypes', 'No memory types found')}</p>`;
             return;
         }
 
@@ -5854,7 +5959,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTypes.length} types with ≤10 memories each">diverse (${minorTypes.length} types)</span>
+                <span class="chart-label" title="${this.escapeHtml(this.t('analytics.minorTypesTip', '{count} types with ≤10 memories each', { count: minorTypes.length }))}">${this.escapeHtml(this.t('analytics.minorTypesLabel', 'diverse ({count} types)', { count: minorTypes.length }))}</span>
             </div>`;
         }
 
@@ -5875,7 +5980,7 @@ class MemoryDashboard {
         this.renderTopTagsReport(container, data);
     } catch (error) {
     console.error('Failed to load top tags:', error);
-        container.innerHTML = '<p class="error">Failed to load top tags</p>';
+        container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.topTagsLoadFailed', 'Failed to load top tags');
         }
     }
 
@@ -5884,12 +5989,13 @@ class MemoryDashboard {
     */
     renderTopTagsReport(container, data) {
     if (!data.tags || data.tags.length === 0) {
-    container.innerHTML = '<p>No tags found</p>';
+    container.innerHTML = this.staticTextHtml('p', '', 'analytics.topTagsEmpty', 'No tags found');
     return;
     }
 
     let html = '<div class="enhanced-tags-report">';
-    html += `<div class="report-period">Period: ${data.period}</div>`;
+    const periodLabel = this.t(`analytics.period.${data.period}`, data.period);
+    html += `<div class="report-period">${this.escapeHtml(this.t('analytics.reportPeriod', 'Period: {period}', { period: periodLabel }))}</div>`;
     html += '<ul class="tags-list">';
     data.tags.slice(0, 10).forEach(tag => {
         const trendIcon = tag.trending ? ` <span class="tag-trending">${this.escapeHtml(this.t('analytics.trending', 'trending'))}</span>` : '';
@@ -5897,10 +6003,10 @@ class MemoryDashboard {
         html += `<li>
                 <div class="tag-header">
                     <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
-                    <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
+                    <span class="tag-count">${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: tag.count, percent: tag.percentage }))}${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
-                html += '<div class="tag-cooccurrence">Often with: ';
+                html += `<div class="tag-cooccurrence">${this.escapeHtml(this.t('analytics.oftenWith', 'Often with:'))} `;
                 html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
@@ -5924,7 +6030,7 @@ class MemoryDashboard {
     this.renderRecentActivityReport(container, data);
     } catch (error) {
     console.error('Failed to load recent activity:', error);
-    container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+    container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.recentActivityLoadFailed', 'Failed to load recent activity');
     }
     }
 
@@ -5957,14 +6063,14 @@ class MemoryDashboard {
 
     // Summary stats
     html += '<div class="activity-summary">';
-        html += `<div class="activity-stat"><strong>Active Days:</strong> ${data.active_days}/${data.total_days}</div>`;
-    html += `<div class="activity-stat"><strong>Current Streak:</strong> ${data.current_streak} days</div>`;
-    html += `<div class="activity-stat"><strong>Longest Streak:</strong> ${data.longest_streak} days</div>`;
+        html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.activeDays', 'Active Days:')} ${data.active_days}/${data.total_days}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.currentStreak', 'Current Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.current_streak }))}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.longestStreak', 'Longest Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.longest_streak }))}</div>`;
     html += '</div>';
 
     if (data.peak_times && data.peak_times.length > 0) {
     html += '<div class="peak-times">';
-        html += '<strong>Peak Times:</strong> ';
+        html += `${this.staticTextHtml('strong', '', 'analytics.peakTimes', 'Peak Times:')} `;
         html += (data.peak_periods?.length ? data.peak_periods.map(p => this.formatActivityPeriod(p)) : data.peak_times).join(', ');
             html += '</div>';
     }
@@ -5985,7 +6091,7 @@ class MemoryDashboard {
 
                 html += `<div class="activity-bar-row">
                     <span class="activity-label">${this.formatActivityPeriod(item)}</span>
-                    <div class="activity-bar" style="width: ${barWidth}%" title="${item.count} memories (${percentage.toFixed(1)}%)"></div>
+                    <div class="activity-bar" style="width: ${barWidth}%" title="${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: item.count, percent: percentage.toFixed(1) }))}"></div>
                     <span class="activity-count">${item.count} (${percentage.toFixed(1)}%)</span>
                 </div>`;
             });
@@ -6011,7 +6117,7 @@ class MemoryDashboard {
             this.renderActivityHeatmapChart(container, data);
         } catch (error) {
             console.error('Failed to load activity heatmap:', error);
-            container.innerHTML = '<p class="error">Failed to load activity heatmap</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.heatmapLoadFailed', 'Failed to load activity heatmap');
         }
     }
 
@@ -6020,15 +6126,15 @@ class MemoryDashboard {
      */
     renderActivityHeatmapChart(container, data) {
         if (!data.data || data.data.length === 0) {
-            container.innerHTML = '<p>No activity data available</p>';
+            container.innerHTML = this.staticTextHtml('p', '', 'analytics.heatmapEmpty', 'No activity data available');
             return;
         }
 
         // Create calendar grid
         let html = '<div class="activity-heatmap">';
         html += '<div class="heatmap-stats">';
-        html += `<span>${data.total_days} active days</span>`;
-        html += `<span>Max: ${data.max_count} memories/day</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapActiveDays', '{count} active days', { count: data.total_days }))}</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapMaxPerDay', 'Max: {count} memories/day', { count: data.max_count }))}</span>`;
         html += '</div>';
 
         // Group by months
@@ -6065,7 +6171,7 @@ class MemoryDashboard {
             // Add cells for each day
             monthData.forEach(day => {
                 const level = day.level;
-                const tooltip = `${day.date}: ${day.count} memories`;
+                const tooltip = this.escapeHtml(this.t('analytics.heatmapDayTip', '{date}: {count} memories', { date: day.date, count: day.count }));
                 html += `<div class="heatmap-cell level-${level}" title="${tooltip}"></div>`;
             });
 
@@ -6074,11 +6180,11 @@ class MemoryDashboard {
 
         // Legend
         html += '<div class="heatmap-legend">';
-        html += '<span>Less</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapLess', 'Less');
         for (let i = 0; i <= 4; i++) {
             html += `<div class="legend-cell level-${i}"></div>`;
         }
-        html += '<span>More</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapMore', 'More');
         html += '</div>';
 
         html += '</div>';
@@ -6118,7 +6224,7 @@ class MemoryDashboard {
             this.renderStorageReport(container, data);
         } catch (error) {
             console.error('Failed to load storage report:', error);
-            container.innerHTML = '<p class="error">Failed to load storage report</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.storageLoadFailed">${this.t('analytics.storageLoadFailed', 'Failed to load storage report')}</p>`;
         }
     }
 
@@ -6130,24 +6236,27 @@ class MemoryDashboard {
 
         // Summary stats
         html += '<div class="storage-summary">';
-        html += `<div class="storage-stat"><strong>Total Size:</strong> ${data.total_size_mb} MB</div>`;
-        html += `<div class="storage-stat"><strong>Average Memory:</strong> ${data.average_memory_size} chars</div>`;
-        html += `<div class="storage-stat"><strong>Efficiency:</strong> ${data.storage_efficiency}%</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageTotalSize">${this.t('analytics.storageTotalSize', 'Total Size:')}</strong> ${this.t('analytics.storageSizeMb', '{size} MB', { size: data.total_size_mb })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageAverageMemory">${this.t('analytics.storageAverageMemory', 'Average Memory:')}</strong> ${this.t('analytics.storageAverageChars', '{count} chars', { count: data.average_memory_size })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageEfficiency">${this.t('analytics.storageEfficiency', 'Efficiency:')}</strong> ${data.storage_efficiency}%</div>`;
         html += '</div>';
 
         // Largest memories
         if (data.largest_memories && data.largest_memories.length > 0) {
-            html += '<h4>Largest Memories</h4>';
+            html += `<h4 data-i18n="analytics.largestMemories">${this.t('analytics.largestMemories', 'Largest Memories')}</h4>`;
             html += '<ul class="largest-memories">';
             data.largest_memories.slice(0, 5).forEach(memory => {
                 // Backend provides created_at as ISO string, not timestamp
-                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : 'Unknown';
+                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : this.t('analytics.storageUnknownDate', 'Unknown');
                 // Backend provides size_kb and preview (not size and content_preview)
-                const sizeDisplay = memory.size_kb ? `${memory.size_kb} KB` : `${memory.size_bytes || 0} bytes`;
+                const sizeDisplay = memory.size_kb
+                    ? this.t('analytics.storageSizeKb', '{size} KB', { size: memory.size_kb })
+                    : this.t('analytics.storageSizeBytes', '{size} bytes', { size: memory.size_bytes || 0 });
+                const tagList = memory.tags.join(', ') || this.t('analytics.storageNoTags', 'none');
                 html += `<li>
                     <div class="memory-size">${sizeDisplay}</div>
                     <div class="memory-preview">${this.escapeHtml(memory.preview || '')}</div>
-                    <div class="memory-meta">${date} • Tags: ${memory.tags.join(', ') || 'none'}</div>
+                    <div class="memory-meta">${date} • ${this.escapeHtml(this.t('analytics.storageTags', 'Tags: {tags}', { tags: tagList }))}</div>
                 </li>`;
             });
             html += '</ul>';
@@ -6178,7 +6287,7 @@ class MemoryDashboard {
             this.renderRelationshipTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load relationship types:', error);
-            container.innerHTML = '<p class="error">Failed to load relationship types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.relationshipTypesLoadFailed">${this.t('analytics.relationshipTypesLoadFailed', 'Failed to load relationship types chart')}</p>`;
         }
     }
 
@@ -6187,7 +6296,7 @@ class MemoryDashboard {
      */
     renderRelationshipTypesChart(container, data) {
         if (!data || Object.keys(data).length === 0) {
-            container.innerHTML = '<p>No relationships found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noRelationshipTypes">${this.t('analytics.noRelationshipTypes', 'No relationships found')}</p>`;
             return;
         }
 
@@ -6254,7 +6363,7 @@ class MemoryDashboard {
 
             if (!data || !data.nodes || data.nodes.length === 0) {
                 this._clearGraphData();
-                container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+                container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
                 return;
             }
 
@@ -6275,7 +6384,7 @@ class MemoryDashboard {
             console.error('Failed to load graph visualization:', error);
             if (requestId !== this._graphLoadId) return;
             this._clearGraphData();
-            container.innerHTML = '<p class="error">Failed to load graph visualization</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.graphLoadFailed">${this.t('analytics.graphLoadFailed', 'Failed to load graph visualization')}</p>`;
         }
     }
 
@@ -6284,7 +6393,7 @@ class MemoryDashboard {
      */
     renderGraphVisualization(container, data) {
         if (!data.nodes || data.nodes.length === 0) {
-            container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+            container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
             return;
         }
 
@@ -6574,7 +6683,7 @@ class MemoryDashboard {
             .on('mouseover', (event, item) => {
                 tooltip.transition().duration(200).style('opacity', 1);
                 tooltip
-                    .html(this.formatGraphTooltip(item, 'Click to center; double-click for details'))
+                    .html(this.formatGraphTooltip(item, this.t('analytics.graphRingHint', 'Click to center; double-click for details')))
                     .style('left', (event.pageX + 10) + 'px')
                     .style('top', (event.pageY - 28) + 'px');
             })
@@ -7255,10 +7364,11 @@ class MemoryDashboard {
     }
 
     _updateRotateButton() {
-        const text = this.graphRotationPaused ? 'Play' : 'Pause';
+        const [key, fallback] = this.graphRotationPaused
+            ? ['analytics.rotatePlay', 'Play']
+            : ['analytics.rotatePause', 'Pause'];
         ['graphRotateLabel', 'graphFullscreenRotateLabel'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = text;
+            this.setTranslatedText(document.getElementById(id), key, fallback);
         });
         const enabled = Boolean(this.use3DGraph) && this.graphLayout !== 'rings';
         ['graphRotateBtn', 'graphFullscreenRotateBtn'].forEach(id => {
@@ -7379,12 +7489,12 @@ class MemoryDashboard {
     async handleGraph3DNodeClick(node) {
         if (!node) return;
         try {
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
             const memory = await this.apiCall(`/memories/${node.id}`);
             this.showMemoryDetails(memory);
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7455,7 +7565,7 @@ class MemoryDashboard {
     /**
      * Format enhanced tooltip with quality score, timestamps, and metadata
      */
-    formatGraphTooltip(d, interactionHint = 'Click node to view full memory') {
+    formatGraphTooltip(d, interactionHint = this.t('analytics.graphNodeHint', 'Click node to view full memory')) {
         const qualityClass = d.quality_score >= 0.7 ? 'high' : d.quality_score >= 0.4 ? 'medium' : 'low';
         const qualityColor = qualityClass === 'high' ? '#50C878' : qualityClass === 'medium' ? '#F39C12' : '#E24A4A';
 
@@ -7514,7 +7624,7 @@ class MemoryDashboard {
 
         try {
             // Show loading indicator
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
 
             // Fetch full memory details
             const memory = await this.apiCall(`/memories/${nodeData.id}`);
@@ -7524,7 +7634,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7702,7 +7812,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load quality analytics:', error);
-            this.showToast('Failed to load quality analytics', 'error');
+            this.showToast(this.t('quality.analytics.loadFailed', 'Failed to load quality analytics'), 'error');
         }
     }
 
@@ -7726,9 +7836,13 @@ class MemoryDashboard {
         this.qualityDistributionChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Low (<0.5)', 'Medium (0.5-0.7)', 'High (≥0.7)'],
+                labels: [
+                    this.t('quality.chart.distribution.low', 'Low (<0.5)'),
+                    this.t('quality.chart.distribution.medium', 'Medium (0.5-0.7)'),
+                    this.t('quality.chart.distribution.high', 'High (≥0.7)')
+                ],
                 datasets: [{
-                    label: 'Number of Memories',
+                    label: this.t('quality.chart.distribution.memoriesLabel', 'Number of Memories'),
                     data: [
                         data.low_quality_count,
                         data.medium_quality_count,
@@ -7755,7 +7869,7 @@ class MemoryDashboard {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: 'Count',
+                            text: this.t('quality.chart.distribution.countLabel', 'Count'),
                             color: textColor
                         },
                         ticks: {
@@ -7801,14 +7915,14 @@ class MemoryDashboard {
         // Friendly provider names
         const friendlyLabels = labels.map(label => {
             switch(label) {
-                case 'ONNXRankerModel': return 'Local SLM';
+                case 'ONNXRankerModel': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'GroqEvaluator': return 'Groq API';
                 case 'GeminiEvaluator': return 'Gemini API';
-                case 'ImplicitSignalsEvaluator': return 'Implicit Only';
-                case 'local': return 'Local SLM';
+                case 'ImplicitSignalsEvaluator': return this.t('quality.chart.providers.implicit', 'Implicit Only');
+                case 'local': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'groq': return 'Groq API';
                 case 'gemini': return 'Gemini API';
-                case 'implicit': return 'Implicit Only';
+                case 'implicit': return this.t('quality.chart.providers.implicit', 'Implicit Only');
                 default: return label;
             }
         });
@@ -7877,7 +7991,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -7902,7 +8016,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -7934,7 +8048,7 @@ class MemoryDashboard {
         return `
             <div class="quality-badge quality-tier-${tier}"
                  data-quality-score="${score.toFixed(2)}"
-                 title="Quality score ${score.toFixed(2)} (${this.escapeHtml(provider)})">
+                 title="${this.escapeHtml(this.t('quality.badgeTitle', 'Quality score {score} ({provider})', { score: score.toFixed(2), provider }))}">
                 <span class="quality-score">${score.toFixed(2)}</span>
             </div>
         `;
@@ -7949,14 +8063,14 @@ class MemoryDashboard {
                     rating: rating,
                     feedback: ''
                 });
-            this.showToast(`Rating saved, quality score is now ${result.new_quality_score.toFixed(2)}`, 'success');
+            this.showToast(this.t('toast.ratingSaved', 'Rating saved, quality score is now {score}', { score: result.new_quality_score.toFixed(2) }), 'success');
 
             // Refresh memory display if viewing details
             // This would refresh the modal or current view
 
         } catch (error) {
             console.error('Failed to rate memory:', error);
-            this.showToast('Failed to save rating', 'error');
+            this.showToast(this.t('toast.ratingSaveFailed', 'Failed to save rating'), 'error');
         }
     }
 
