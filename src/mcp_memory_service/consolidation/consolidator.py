@@ -40,14 +40,14 @@ from ..config import (
 from .relationship_inference import RelationshipInferenceEngine, apply_review_band
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
-from ..utils.time_parser import statement_time
+from ..utils.time_parser import memory_statement_time
 
 logger = logging.getLogger(__name__)
 
 
 def _said_at(memory: Memory) -> float:
-    """When a memory was said: harvest's ``metadata.source_time``, else ``created_at`` (#1858)."""
-    return statement_time((memory.metadata or {}).get("source_time")) or memory.created_at or 0.0
+    """When a memory was said (see memory_statement_time), 0.0 if unknown (#1858)."""
+    return memory_statement_time(memory) or 0.0
 
 
 def _supersede_pair(source: Memory, target: Memory) -> Tuple[str, str]:

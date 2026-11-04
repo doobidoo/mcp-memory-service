@@ -120,6 +120,43 @@ async def test_backfill_of_an_older_session_does_not_evolve_a_live_stored_memory
     assert NEW in current
 
 
+async def test_older_statement_is_kept_with_semantic_dedup_enabled(tmp_path, memory_service):
+    """tests/conftest.py turns semantic dedup off; production has it on (0.85, 24h).
+
+    The older candidate is stored right after a newer memory it matches above
+    0.85, which is exactly what dedup rejects unless the store skips it.
+    """
+    await _require_similarity(memory_service)
+    memory_service.storage.semantic_dedup_enabled = True
+    _write_session(tmp_path, "older", OLD, OLD_TS, mtime=1_000_000)
+    _write_session(tmp_path, "newer", NEW, NEW_TS, mtime=2_000_000)
+
+    await _harvest(tmp_path, memory_service, session_ids=["newer"])
+    await _harvest(tmp_path, memory_service, session_ids=["older"])
+
+    current = await _current_contents(memory_service)
+    assert NEW in current
+    assert OLD in current
+
+
+async def test_backfill_does_not_replace_a_live_edit_of_a_harvested_memory(tmp_path, memory_service):
+    """An edit inherits metadata.source_time; it must not keep the old text's time."""
+    await _require_similarity(memory_service)
+    _write_session(tmp_path, "oldest", OLD, "2026-09-01T10:00:00Z", mtime=1_000_000)
+    await _harvest(tmp_path, memory_service, session_ids=["oldest"])
+    harvested = (await memory_service.storage.get_all_memories())[0]
+
+    ok, _msg, edited_hash = await memory_service.storage.update_memory_versioned(harvested.content_hash, NEW)
+    assert ok
+
+    # Said after the harvested text (Sep 1), before the edit (now).
+    _write_session(tmp_path, "middle", OLD.replace("8010", "8015"), OLD_TS, mtime=2_000_000)
+    await _harvest(tmp_path, memory_service, session_ids=["middle"])
+
+    current = await _current_contents(memory_service)
+    assert NEW in current
+
+
 async def test_harvested_memory_records_its_statement_time(tmp_path, memory_service):
     _write_session(tmp_path, "older", OLD, OLD_TS, mtime=1_000_000)
 
@@ -127,6 +164,18 @@ async def test_harvested_memory_records_its_statement_time(tmp_path, memory_serv
 
     memories = await memory_service.storage.get_all_memories()
     assert [m.metadata.get("source_time") for m in memories] == ["2026-10-01T10:00:00+00:00"]
+    assert memories[0].metadata.get("source_content_hash") == memories[0].content_hash
+
+
+async def test_resolve_sessions_still_returns_the_newest_first(tmp_path, memory_service):
+    """The tracker paths take pending[:page_size] from this list; it must start at the newest."""
+    _write_session(tmp_path, "older", OLD, OLD_TS, mtime=1_000_000)
+    _write_session(tmp_path, "newer", NEW, NEW_TS, mtime=2_000_000)
+    harvester = SessionHarvester(project_dir=tmp_path, memory_service=memory_service)
+
+    resolved = harvester._resolve_sessions(HarvestConfig(sessions=9999, project_path=str(tmp_path)))
+
+    assert [p.stem for p in resolved] == ["newer", "older"]
 
 
 @pytest.mark.parametrize(
@@ -151,7 +200,7 @@ def test_statement_time_parses_transcript_timestamps(raw, expected):
 
 
 def _memory(content, created_at, source_time=None):
-    metadata = {"source_time": source_time} if source_time else {}
+    metadata = {"source_time": source_time, "source_content_hash": content[:8]} if source_time else {}
     return Memory(content=content, content_hash=content[:8], created_at=created_at, metadata=metadata)
 
 
@@ -163,6 +212,16 @@ def test_supersede_keeps_the_later_statement_not_the_later_ingest():
     new = _memory("new-stmt", created_at=1_791_000_000)  # 2026-10-03, after old's source_time
     assert _supersede_pair(old, new) == (new.content_hash, old.content_hash)
     assert _supersede_pair(new, old) == (new.content_hash, old.content_hash)
+
+
+def test_supersede_ignores_a_source_time_inherited_by_an_edit():
+    from mcp_memory_service.consolidation.consolidator import _supersede_pair
+
+    # Harvested on Oct 1, edited on Oct 20: the inherited hash names the old text.
+    edited = _memory("edited-x", created_at=1_792_490_000, source_time="2026-10-01T10:00:00+00:00")
+    edited.metadata["source_content_hash"] = "old-text"
+    backfill = _memory("backfill", created_at=1_793_000_000, source_time="2026-10-10T10:00:00+00:00")
+    assert _supersede_pair(backfill, edited) == (edited.content_hash, backfill.content_hash)
 
 
 def test_supersede_without_source_time_orders_by_created_at_as_before():

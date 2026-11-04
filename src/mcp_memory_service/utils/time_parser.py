@@ -855,6 +855,22 @@ def statement_time(value) -> Optional[float]:
     return None
 
 
+def memory_statement_time(memory) -> Optional[float]:
+    """When a stored memory was said, or None if unknown (#1858).
+
+    ``metadata.source_time`` counts only while ``metadata.source_content_hash``
+    still names the memory's content: a versioned update inherits custom
+    metadata, so after an edit the inherited time would describe text that is
+    gone. Otherwise ``created_at``, the time the current content was written.
+    """
+    metadata = getattr(memory, "metadata", None)
+    if isinstance(metadata, dict) and metadata.get("source_content_hash") == memory.content_hash:
+        said = statement_time(metadata.get("source_time"))
+        if said is not None:
+            return said
+    return statement_time(getattr(memory, "created_at", None))
+
+
 def parse_as_of(value: str) -> float:
     """Epoch for an ``as_of`` point-in-time query (issue #1724).
 
