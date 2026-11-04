@@ -241,7 +241,8 @@ contain `has_entity` and `shares_entity`. A `shares_entity` pair uses two direct
 superseded versions, in creation order. `MCP_MAINTAIN_SCAN_LIMIT` does not apply.
 The graph is selected from the server's active storage, including Hybrid's primary,
 and a Milvus preview leaves a missing graph collection absent. A read failure stops
-the operation before deleting any edges.
+the operation before deleting any edges. Rebuilds load configured domain extractors
+afresh and stop before deletion if a plugin fails to load or extract entities.
 
 Back up the database first and pause other writers and consolidation jobs for the
 entire preview/apply window. Restart the server to load changed extraction settings,

@@ -15,6 +15,7 @@ from fastapi import FastAPI
 
 import mcp_memory_service.config as cfg
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.reasoning import entities as entity_module
 from mcp_memory_service.server.handlers import graph as graph_handlers
 from mcp_memory_service.server_impl import MemoryServer
 from mcp_memory_service.services.memory_service import MemoryService
@@ -265,6 +266,102 @@ async def test_extraction_failure_does_not_delete_old_edges(backend, monkeypatch
     assert result["errors"]
     assert result["edges_deleted"] == 0
     assert await _rows(graph) == before
+
+
+@pytest.fixture
+def domain_plugin(tmp_path, monkeypatch):
+    """Load actual plugin classes through the configured module path."""
+    module_name = "rebuild_domain_plugin"
+    (tmp_path / f"{module_name}.py").write_text('''
+from mcp_memory_service.reasoning.entities import Entity
+
+class ValidExtractor:
+    def extract(self, content, metadata=None):
+        return [Entity("domain:shared", "domain", "domain")]
+
+class InvalidExtractor:
+    pass
+
+class BadInit(ValidExtractor):
+    def __init__(self):
+        raise RuntimeError("plugin initialization failed")
+
+class FailingExtractor(ValidExtractor):
+    def extract(self, content, metadata=None):
+        if "number 2" in content:
+            raise RuntimeError("plugin extraction failed")
+        return super().extract(content, metadata)
+
+class FailingGenerator(ValidExtractor):
+    def extract(self, content, metadata=None):
+        yield from super().extract(content, metadata)
+        if "number 2" in content:
+            raise RuntimeError("plugin iteration failed")
+''', encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
+    monkeypatch.setattr(entity_module, "_DOMAIN_EXTRACTOR_CACHE", None)
+    yield module_name
+    sys.modules.pop(module_name, None)
+
+
+@pytest.mark.parametrize("extractor", [
+    "missing_module:Extractor", "MissingClass", "BadInit", "InvalidExtractor",
+    "FailingExtractor", "FailingGenerator",
+])
+async def test_domain_plugin_failure_preserves_graph(
+    backend, domain_plugin, extractor, monkeypatch
+):
+    storage, primary, graph = backend
+    a = await _store(primary, 1, [])
+    b = await _store(primary, 2, [])
+    for memory in (a, b):
+        assert await graph.store_entity_link(
+            memory.content_hash, "old:domain", "domain"
+        )
+    assert await graph.store_association(
+        a.content_hash, b.content_hash, 0.8, ["entity"],
+        {"entities": ["old:domain"]}, relationship_type="shares_entity"
+    )
+    before = await _rows(graph)
+    spec = extractor if ":" in extractor else f"{domain_plugin}:{extractor}"
+    monkeypatch.setenv("MCP_ENTITY_EXTRACTOR_MODULES", spec)
+    # Normal extraction may already have cached an incomplete plugin list.
+    entity_module.EntityExtractor.get_domain_extractors()
+    for dry_run in (True, False):
+        report = await _run(storage, dry_run=dry_run)
+        assert report["success"] is False, report
+        assert "domain extractor" in report["errors"][0].lower()
+        assert report["edges_deleted"] == 0
+        assert report["edges_created"] == {"has_entity": 0, "shares_entity": 0}
+        assert await _rows(graph) == before
+
+
+async def test_rebuild_reloads_domain_plugins_after_a_cached_failure(
+    backend, domain_plugin, monkeypatch
+):
+    storage, primary, graph = backend
+    monkeypatch.setattr(cfg, "MCP_ENTITY_TAG_EXCLUDE", "untagged")
+    a = await _store(primary, 1, [])
+    b = await _store(primary, 2, [])
+    monkeypatch.setenv("MCP_ENTITY_EXTRACTOR_MODULES", "missing_module:Extractor")
+    assert entity_module.EntityExtractor.get_domain_extractors() == []
+    failed = await _run(storage, dry_run=False)
+    assert failed["success"] is False
+    monkeypatch.setenv(
+        "MCP_ENTITY_EXTRACTOR_MODULES", f"{domain_plugin}.ValidExtractor"
+    )
+    preview = await _run(storage)
+    assert preview["success"], preview
+    assert await _rows(graph) == []
+    applied = await _run(storage, dry_run=False)
+    assert applied["success"], applied
+    assert applied["edges_created"] == {"has_entity": 2, "shares_entity": 2}
+    assert await graph.find_memories_by_entity("domain:shared") == [
+        b.content_hash, a.content_hash,
+    ]
+    # Rebuilds must not change the ordinary fail-soft cache.
+    assert entity_module.EntityExtractor.get_domain_extractors() == []
 
 
 async def test_failed_write_reports_partial_rebuild_and_can_be_retried(backend):

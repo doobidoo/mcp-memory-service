@@ -91,8 +91,10 @@ class EntityRebuildPlan:
 
     async def build(self, memories: list) -> None:
         """Replay all live memories oldest first with current extraction settings."""
+        # Reload strictly: the fail-soft cache may omit failed plugins.
         extractor = EntityExtractor(
-            domain_extractors=EntityExtractor.get_domain_extractors()
+            domain_extractors=EntityExtractor.load_domain_extractors(strict=True),
+            strict=True,
         )
         linker = EntityLinker()
         memories.sort(key=lambda m: (m.created_at or 0, m.content_hash))
