@@ -63,7 +63,9 @@ MCP_OAUTH_SQLITE_PATH=./data/oauth.db
 - WAL (Write-Ahead Logging) mode for concurrent access
 - Atomic `UPDATE WHERE consumed=0` for replay attack prevention
 - Indexes on `expires_at` and `consumed` columns for fast queries
-- Foreign key constraints for referential integrity
+- Foreign keys enforced (`PRAGMA foreign_keys=ON`): a code or token can only be
+  stored for a registered client, and deleting a client deletes its
+  authorization codes, access tokens and refresh tokens
 
 ## Programmatic Usage
 
