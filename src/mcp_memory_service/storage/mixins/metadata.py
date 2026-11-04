@@ -468,7 +468,9 @@ class MetadataMixin:
         decay = max(0.0, 1.0 - staleness * decay_rate)
         return round((confidence if confidence is not None else 1.0) * decay, 4)
 
-    def _detect_conflicts(self, new_hash: str, new_content: str, embedding) -> list:
+    def _detect_conflicts(
+        self, new_hash: str, new_content: str, embedding, store: str = "default"
+    ) -> list:
         """Detect conflicting active memories for a newly stored memory."""
         from difflib import SequenceMatcher
 
@@ -487,9 +489,10 @@ class MetadataMixin:
                    WHERE m.deleted_at IS NULL
                      AND (m.superseded_by IS NULL OR m.superseded_by = '')
                      AND m.content_hash != ?
+                     AND m.store = ? AND me.store = ?
                    ORDER BY distance ASC
                    LIMIT 5""",
-                (serialize_float32(embedding), new_hash),
+                (serialize_float32(embedding), new_hash, store, store),
             )
             candidates = cursor.fetchall()
         except Exception as e:
@@ -516,13 +519,22 @@ class MetadataMixin:
 
         return conflicts
 
-    async def _record_conflicts(self, new_hash: str, conflicts: list) -> None:
+    async def _record_conflicts(
+        self, new_hash: str, conflicts: list, store: str = "default"
+    ) -> None:
         """Tag conflicting memories and create graph edges."""
         import json as _json
 
         def _record_all_conflicts():
             for c in conflicts:
                 existing_hash = c["existing_hash"]
+                rows = self.conn.execute(
+                    """SELECT content_hash FROM memories
+                       WHERE content_hash IN (?, ?) AND store = ?""",
+                    (new_hash, existing_hash, store),
+                ).fetchall()
+                if {row[0] for row in rows} != {new_hash, existing_hash}:
+                    continue
                 metadata = _json.dumps({
                     "similarity": c["similarity"],
                     "divergence": c["divergence"],
@@ -531,7 +543,8 @@ class MetadataMixin:
 
                 for h in (new_hash, existing_hash):
                     cursor = self.conn.execute(
-                        "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                        "SELECT tags FROM memories WHERE content_hash = ? AND store = ?",
+                        (h, store),
                     )
                     row = cursor.fetchone()
                     if row:
@@ -539,8 +552,9 @@ class MetadataMixin:
                         if "conflict:unresolved" not in tags:
                             new_tags = f"{tags},conflict:unresolved" if tags else "conflict:unresolved"
                             self.conn.execute(
-                                "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                                (new_tags, h),
+                                "UPDATE memories SET tags = ? WHERE content_hash = ? "
+                                "AND deleted_at IS NULL AND store = ?",
+                                (new_tags, h, store),
                             )
 
                 connection_types_json = _json.dumps(["semantic"])

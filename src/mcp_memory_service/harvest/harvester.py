@@ -304,7 +304,13 @@ class SessionHarvester:
         }
         return tags, metadata
 
-    async def _try_evolve(self, candidate, config: "HarvestConfig", metadata=None):
+    async def _try_evolve(
+        self,
+        candidate,
+        config: "HarvestConfig",
+        metadata=None,
+        store: Optional[str] = None,
+    ):
         """Check for similar active memory; if found, evolve it.
 
         Returns ``(evolved, new_hash)``. ``evolved`` is True when an existing
@@ -320,10 +326,12 @@ class SessionHarvester:
             return False, None
 
         try:
+            store_kwargs = {"store": store} if store is not None else {}
             similar = await self.memory_service.storage.retrieve(
                 candidate.content,
                 n_results=1,
                 min_confidence=config.min_confidence_to_evolve,
+                **store_kwargs,
             )
         except Exception as e:
             logger.debug("Similarity check failed, falling back to store: %s", _sanitize_log_value(str(e)))
@@ -345,6 +353,7 @@ class SessionHarvester:
                 memory_type=candidate.memory_type,
                 metadata=metadata if metadata is not None else default_metadata,
                 reason=f"Session harvest: {datetime.now(timezone.utc).isoformat()}",
+                **store_kwargs,
             )
             if ok:
                 logger.info("Evolved memory %s→%s", existing_hash[:8], new_hash[:8] if new_hash else "?")

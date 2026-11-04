@@ -86,6 +86,7 @@ class AutoCaptureService:
         dry_run: bool = True,
         link_parent: bool = True,
         harvest_config: Optional[HarvestConfig] = None,
+        store: Optional[str] = None,
     ) -> AutoCaptureResult:
         """Extract candidates and optionally store them with graph links."""
         candidates = self.extract_from_text(text, role=role)
@@ -106,7 +107,9 @@ class AutoCaptureService:
 
         for candidate in candidates:
             try:
-                evolved, child_hash = await self._harvester._try_evolve(candidate, config)
+                evolved, child_hash = await self._harvester._try_evolve(
+                    candidate, config, store=store
+                )
                 if evolved:
                     result.evolved += 1
                     result.stored += 1
@@ -123,6 +126,7 @@ class AutoCaptureService:
                 if parent_hash:
                     tags.append(f"source:{parent_hash[:12]}")
 
+                store_kwargs = {"store": store} if store is not None else {}
                 resp = await self.memory_service.store_memory(
                     content=candidate.content,
                     tags=tags,
@@ -133,6 +137,7 @@ class AutoCaptureService:
                         "extracted_from": parent_hash,
                     },
                     conversation_id=conversation_id,
+                    **store_kwargs,
                 )
 
                 if not (isinstance(resp, dict) and resp.get("success")):

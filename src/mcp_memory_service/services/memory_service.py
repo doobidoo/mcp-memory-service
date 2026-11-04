@@ -666,6 +666,7 @@ class MemoryService:
         memory_type: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """Versioned update that gets the same post-store steps as store_memory().
 
@@ -677,20 +678,24 @@ class MemoryService:
 
         Returns:
             ``(success, message, new_hash)``, as from update_memory_versioned().
+
+        ``store`` scopes lookup and evolution when supplied.
         """
         if not hasattr(self.storage, "update_memory_versioned"):
             return False, "Storage backend does not support versioned updates", None
+        store_kwargs = {"store": store} if store is not None else {}
         # Storage inherits omitted tags/type from the old version; keep that
         # version around so the re-read fallback below can do the same.
         previous = None
         if tags is None or memory_type is None:
-            previous = await self.storage.get_by_hash(existing_hash)
+            previous = await self.storage.get_by_hash(existing_hash, **store_kwargs)
         ok, msg, new_hash = await self.storage.update_memory_versioned(
             existing_hash,
             content,
             new_tags=tags,
             new_memory_type=memory_type,
             reason=reason,
+            **store_kwargs,
         )
         if not ok or not new_hash:
             return ok, msg, new_hash
@@ -710,7 +715,10 @@ class MemoryService:
         # is reported and worked around rather than turned into a failed evolve.
         if final_metadata:
             meta_ok, meta_msg = await self.storage.update_memory_metadata(
-                new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                new_hash,
+                {"metadata": final_metadata},
+                preserve_timestamps=True,
+                **store_kwargs,
             )
             if not meta_ok:
                 logger.warning(
@@ -719,7 +727,7 @@ class MemoryService:
                 )
                 msg = f"{msg} (metadata update failed: {meta_msg})"
 
-        memory = await self.storage.get_by_hash(new_hash)
+        memory = await self.storage.get_by_hash(new_hash, **store_kwargs)
         if memory is None:
             # Re-read failed; score the version as written instead of skipping it.
             memory = self._as_written(new_hash, content, tags, memory_type, final_metadata, previous)

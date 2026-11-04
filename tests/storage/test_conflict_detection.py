@@ -46,14 +46,52 @@ async def storage(temp_storage_dir):
     await s.close()
 
 
-async def _store(storage, content, tags=None):
+async def _store(storage, content, tags=None, store="default"):
     mem = _make_memory(content, tags)
-    ok, msg = await storage.store(mem, skip_semantic_dedup=True)
+    ok, msg = await storage.store(mem, skip_semantic_dedup=True, store=store)
     assert ok, f"Failed to store: {msg}"
     return mem.content_hash
 
 
 class TestDetectConflicts:
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("existing_store", "new_store", "expect_conflict"),
+        [("default", "docs", False), ("docs", "docs", True)],
+    )
+    async def test_conflict_side_effects_stay_in_requested_store(
+        self, storage, monkeypatch, existing_store, new_store, expect_conflict
+    ):
+        """Cross-store similarity must not tag memories or create graph edges."""
+        vector = storage._generate_embedding("stable embedding for conflict isolation")
+        monkeypatch.setattr(storage, "_generate_embedding", lambda _text: vector)
+
+        existing_hash = await _store(
+            storage, "Database: PostgreSQL.", store=existing_store
+        )
+        new_hash = await _store(
+            storage,
+            "MySQL is the only persistent store; PostgreSQL is absent.",
+            store=new_store,
+        )
+
+        rows = [
+            storage.conn.execute(
+                "SELECT tags FROM memories WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            for content_hash in (existing_hash, new_hash)
+        ]
+        assert all(rows)
+        assert all(("conflict:unresolved" in row[0]) is expect_conflict for row in rows)
+
+        edges = storage.conn.execute(
+            """SELECT source_hash, target_hash FROM memory_graph
+               WHERE (source_hash = ? AND target_hash = ?)
+                  OR (source_hash = ? AND target_hash = ?)""",
+            (existing_hash, new_hash, new_hash, existing_hash),
+        ).fetchall()
+        assert bool(edges) is expect_conflict
 
     @pytest.mark.asyncio
     async def test_conflicting_memories_detected(self, storage):

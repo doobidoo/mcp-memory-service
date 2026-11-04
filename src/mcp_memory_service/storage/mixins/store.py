@@ -320,10 +320,16 @@ class StoreMixin:
             # Conflict detection (P3) — runs after commit, outside the lock
             try:
                 conflict_infos = await self._run_in_thread(
-                    self._detect_conflicts, memory.content_hash, memory.content, embedding
+                    self._detect_conflicts,
+                    memory.content_hash,
+                    memory.content,
+                    embedding,
+                    store,
                 )
                 if conflict_infos:
-                    await self._record_conflicts(memory.content_hash, conflict_infos)
+                    await self._record_conflicts(
+                        memory.content_hash, conflict_infos, store=store
+                    )
                     conflict_msg = f" {len(conflict_infos)} conflict(s) detected."
                 else:
                     conflict_msg = ""

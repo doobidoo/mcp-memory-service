@@ -426,6 +426,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                     parent_hash=parent_hash,
                     conversation_id=conversation_id,
                     dry_run=False,
+                    store=store,
                 )
                 if capture.candidates:
                     message += (

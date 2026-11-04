@@ -11,6 +11,7 @@ These tests leave ``_try_evolve`` unpatched and run it on a real
 the one the method really produces.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -136,3 +137,113 @@ async def test_hashless_evolution_is_not_stored_twice(memory_service):
     assert second.evolved == len(second.candidates) >= 1
     store_spy.assert_not_awaited()
     link.assert_not_awaited()  # no child hash to link
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_store", ["default", "docs"])
+async def test_capture_and_evolution_stay_in_requested_store(
+    memory_service, monkeypatch, existing_store
+):
+    """Auto-capture must not evolve a similar memory in another store."""
+    storage = memory_service.storage
+    vector = storage._generate_embedding("stable embedding for store isolation")
+    monkeypatch.setattr(storage, "_generate_embedding", lambda _text: vector)
+
+    existing_content = (
+        "The existing store contains a prior SQLite concurrency decision."
+    )
+    existing = await memory_service.store_memory(
+        content=existing_content,
+        tags=["existing"],
+        store=existing_store,
+    )
+    assert existing["success"]
+    existing_hash = existing["memory"]["content_hash"]
+
+    service = AutoCaptureService(memory_service=memory_service, min_confidence=0.6)
+    result = await service.capture(
+        TEXT,
+        parent_hash=None,
+        dry_run=False,
+        link_parent=False,
+        store="docs",
+        harvest_config=CONFIG,
+    )
+
+    assert result.candidates
+    assert result.stored == len(result.candidates)
+    assert result.evolved == (len(result.candidates) if existing_store == "docs" else 0)
+
+    old_row = storage.conn.execute(
+        "SELECT content, store, superseded_by FROM memories WHERE content_hash = ?",
+        (existing_hash,),
+    ).fetchone()
+    assert old_row[0] == existing_content
+    assert old_row[1] == existing_store
+    assert bool(old_row[2]) is (existing_store == "docs")
+
+    for candidate in result.candidates:
+        rows = storage.conn.execute(
+            "SELECT store FROM memories WHERE content = ? AND deleted_at IS NULL",
+            (candidate.content,),
+        ).fetchall()
+        assert rows
+        assert {row[0] for row in rows} == {"docs"}
+
+
+@pytest.mark.asyncio
+async def test_store_handler_keeps_auto_capture_in_requested_store(
+    memory_service, monkeypatch
+):
+    """The MCP store handler must carry its store into real auto-capture."""
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    handler_text = TEXT + " The migration starts next week."
+    candidates = AutoCaptureService(
+        memory_service=memory_service, min_confidence=0.6
+    ).extract_from_text(handler_text)
+    assert candidates
+
+    storage = memory_service.storage
+    vector = storage._generate_embedding("stable embedding for store isolation")
+    monkeypatch.setattr(storage, "_generate_embedding", lambda _text: vector)
+
+    existing_content = "A prior default-store SQLite concurrency decision."
+    existing = await memory_service.store_memory(
+        content=existing_content, tags=["existing"], store="default"
+    )
+    assert existing["success"]
+    existing_hash = existing["memory"]["content_hash"]
+
+    monkeypatch.setattr(
+        "mcp_memory_service.harvest.auto_capture._get_graph_instance_async",
+        AsyncMock(return_value=None),
+    )
+    server = SimpleNamespace(
+        _ensure_storage_initialized=AsyncMock(),
+        memory_service=memory_service,
+        storage=storage,
+    )
+    response = await handle_store_memory(
+        server,
+        {
+            "content": handler_text,
+            "store": "docs",
+            "auto_extract": True,
+            "min_extract_confidence": 0.6,
+        },
+    )
+
+    assert "Auto-capture:" in response[0].text
+    row = storage.conn.execute(
+        "SELECT store, superseded_by FROM memories WHERE content_hash = ?",
+        (existing_hash,),
+    ).fetchone()
+    assert row == ("default", None)
+    for candidate in candidates:
+        rows = storage.conn.execute(
+            "SELECT store FROM memories WHERE content = ? AND deleted_at IS NULL",
+            (candidate.content,),
+        ).fetchall()
+        assert rows
+        assert {store for (store,) in rows} == {"docs"}
