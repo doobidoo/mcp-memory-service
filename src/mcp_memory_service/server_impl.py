@@ -1791,10 +1791,11 @@ class MemoryServer:
         if not name:
             return False
         if name == "memory_graph":
-            return not (arguments and arguments.get("action") in (
-                "connected", "path", "subgraph", "infer", "suggest", "abduct",
-                "list_entities", "entity_profile",
-            ))
+            # Derived from the handler's action table so the two lists cannot
+            # drift apart (GHSA-2mw6-h564-86wv); extract_entities writes entity
+            # links and stays out of the read set.
+            from mcp_memory_service.server.handlers.graph import GRAPH_READ_ACTIONS
+            return not (arguments and arguments.get("action") in GRAPH_READ_ACTIONS)
         try:
             tools = await self.list_tools()
         except Exception:

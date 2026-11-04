@@ -75,6 +75,20 @@ async def get_graph_storage() -> Optional[GraphStorage]:
     return None
 
 
+# Every action handle_memory_graph accepts. The tool schema enum in
+# tools/registry.py and the write-scope exemption in server_impl.py both
+# derive from this list — tests/web/api/test_mcp_transport_consistency.py
+# pins the three against each other so they cannot drift again.
+GRAPH_ACTIONS = [
+    "connected", "path", "subgraph", "extract_entities", "infer",
+    "suggest", "abduct", "list_entities", "entity_profile",
+]
+
+# Actions that only read the graph. extract_entities stores entity links,
+# so it is deliberately absent (GHSA-2mw6-h564-86wv).
+GRAPH_READ_ACTIONS = tuple(a for a in GRAPH_ACTIONS if a != "extract_entities")
+
+
 async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for graph operations."""
     action = arguments.get("action")
@@ -83,7 +97,7 @@ async def handle_memory_graph(server, arguments: dict) -> List[types.TextContent
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["connected", "path", "subgraph", "extract_entities", "infer", "suggest", "abduct", "list_entities", "entity_profile"]
+    valid_actions = GRAPH_ACTIONS
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
