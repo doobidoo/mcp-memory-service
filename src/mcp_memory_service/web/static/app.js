@@ -426,8 +426,9 @@ class MemoryDashboard {
      * the key, so a language switch translates it again without a re-render.
      */
     staticTextHtml(tag, className, key, fallback, style = '') {
+        const classAttr = className ? ` class="${className}"` : '';
         const styleAttr = style ? ` style="${style}"` : '';
-        return `<${tag} class="${className}"${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
+        return `<${tag}${classAttr}${styleAttr} data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</${tag}>`;
     }
 
     /**
@@ -514,6 +515,9 @@ class MemoryDashboard {
      */
     async rerenderActiveView() {
         try {
+            // The active-filter chips sit in the search view but keep their
+            // text while another view is open, so rebuild them on every switch.
+            this.updateActiveFilters();
             switch (this.currentView) {
                 case 'dashboard':
                     this.renderRecentMemories(this.memories);
@@ -580,8 +584,8 @@ class MemoryDashboard {
                 if (textDiv && textDiv.classList.contains('detail-content-text')) {
                     textDiv.classList.toggle('detail-content-collapsed');
                     e.target.textContent = textDiv.classList.contains('detail-content-collapsed')
-                        ? '▼ Show full content'
-                        : '▲ Collapse';
+                        ? `▼ ${this.t('modal.memoryDetails.showFullContent', 'Show full content')}`
+                        : `▲ ${this.t('modal.memoryDetails.collapse', 'Collapse')}`;
                 }
             }
         });
@@ -2486,7 +2490,7 @@ class MemoryDashboard {
         taggedContainer.style.display = 'none';
 
         if (!this.tags || this.tags.length === 0) {
-            container.innerHTML = '<p class="text-neutral-600">No tags found. Start adding tags to your memories to see them here.</p>';
+            container.innerHTML = `<p class="text-neutral-600" data-i18n="browse.noTags">${this.escapeHtml(this.t('browse.noTags', 'No tags found. Start adding tags to your memories to see them here.'))}</p>`;
             return;
         }
 
@@ -2641,7 +2645,7 @@ class MemoryDashboard {
      */
     renderMemoriesInContainer(memories, container) {
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="empty-state">No memories found with this tag.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="browse.noTaggedMemories">${this.escapeHtml(this.t('browse.noTaggedMemories', 'No memories found with this tag.'))}</p>`;
             return;
         }
 
@@ -2965,8 +2969,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Reset modal title and button text
-        title.textContent = 'Add New Memory';
-        saveBtn.textContent = 'Save Memory';
+        this.setTranslatedText(title, 'modal.addMemory.title', 'Add New Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.save', 'Save Memory');
 
         // Clear form
         document.getElementById('addMemoryForm').reset();
@@ -3019,7 +3023,7 @@ class MemoryDashboard {
                     };
 
                     response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
-                    successMessage = 'Memory updated successfully';
+                    successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
                 } else {
                     // Content changed - use create-delete approach (but with proper error handling)
 
@@ -3029,7 +3033,7 @@ class MemoryDashboard {
 
                         // CRITICAL: Only proceed with deletion if creation actually succeeded
                         if (response.success) {
-                            successMessage = 'Memory updated successfully';
+                            successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
 
                             try {
                                 // Step 2: Delete original memory (only after successful creation)
@@ -3055,7 +3059,7 @@ class MemoryDashboard {
             } else {
                 // Create new memory
                 response = await this.apiCall('/memories', 'POST', payload);
-                successMessage = 'Memory saved successfully';
+                successMessage = this.t('toast.memorySavedSuccess', 'Memory saved successfully');
             }
 
             this.closeModal(document.getElementById('addMemoryModal'));
@@ -3102,7 +3106,7 @@ class MemoryDashboard {
         const title = document.getElementById('modalTitle');
         const content = document.getElementById('modalContent');
 
-        title.textContent = 'Memory Details';
+        this.setTranslatedText(title, 'modal.memoryDetails.title', 'Memory Details');
         content.innerHTML = this.renderMemoryDetails(memory);
 
         // Set up action buttons
@@ -3123,21 +3127,21 @@ class MemoryDashboard {
         return `
             <div class="memory-detail">
                 <div class="memory-meta">
-                    <p><strong>Created:</strong> ${createdDate}</p>
-                    ${updatedDate ? `<p><strong>Updated:</strong> ${updatedDate}</p>` : ''}
-                    <p><strong>Type:</strong> ${memory.memory_type || 'note'}</p>
-                    <p><strong>ID:</strong> ${memory.content_hash}</p>
+                    <p><strong data-i18n="modal.memoryDetails.created">${this.escapeHtml(this.t('modal.memoryDetails.created', 'Created:'))}</strong> ${createdDate}</p>
+                    ${updatedDate ? `<p><strong data-i18n="modal.memoryDetails.updated">${this.escapeHtml(this.t('modal.memoryDetails.updated', 'Updated:'))}</strong> ${updatedDate}</p>` : ''}
+                    <p><strong data-i18n="modal.memoryDetails.type">${this.escapeHtml(this.t('modal.memoryDetails.type', 'Type:'))}</strong> ${memory.memory_type || 'note'}</p>
+                    <p><strong data-i18n="modal.memoryDetails.id">${this.escapeHtml(this.t('modal.memoryDetails.id', 'ID:'))}</strong> ${memory.content_hash}</p>
                 </div>
 
                 <div class="memory-detail-section">
-                    <h4>Content</h4>
+                    <h4 data-i18n="modal.memoryDetails.content">${this.escapeHtml(this.t('modal.memoryDetails.content', 'Content'))}</h4>
                     <div class="content-text detail-content-text${memory.content && memory.content.length > 200 ? ' detail-content-collapsed' : ''}">${this.escapeHtml(memory.content)}</div>
-                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ Show full content</button>' : ''}
+                    ${memory.content && memory.content.length > 200 ? '<button class="content-toggle-btn" data-action="toggle-content">▼ ' + this.escapeHtml(this.t('modal.memoryDetails.showFullContent', 'Show full content')) + '</button>' : ''}
                 </div>
 
                 ${memory.tags && memory.tags.length > 0 ? `
                     <div class="memory-tags-section">
-                        <h4>Tags</h4>
+                        <h4 data-i18n="modal.memoryDetails.tags">${this.escapeHtml(this.t('modal.memoryDetails.tags', 'Tags'))}</h4>
                         <div class="memory-tags">
                             ${memory.tags.map(tag => `<span class="tag">${this.escapeHtml(tag)}</span>`).join('')}
                         </div>
@@ -3147,7 +3151,7 @@ class MemoryDashboard {
                 ${memory.metadata ? `
                     <div class="memory-metadata">
                         <h4 class="metadata-toggle" style="cursor: pointer; user-select: none;">
-                            <span class="toggle-icon">▶</span> Metadata
+                            <span class="toggle-icon">▶</span> <span data-i18n="modal.memoryDetails.metadata">${this.escapeHtml(this.t('modal.memoryDetails.metadata', 'Metadata'))}</span>
                         </h4>
                         <div class="metadata-content">
                             ${this.renderMetadata(memory.metadata)}
@@ -3163,7 +3167,7 @@ class MemoryDashboard {
      */
     renderMetadata(metadata) {
         if (!metadata || typeof metadata !== 'object') {
-            return '<p class="metadata-empty">No metadata available</p>';
+            return `<p class="metadata-empty" data-i18n="modal.memoryDetails.noMetadata">${this.escapeHtml(this.t('modal.memoryDetails.noMetadata', 'No metadata available'))}</p>`;
         }
 
         let html = '<div class="metadata-items">';
@@ -3201,7 +3205,7 @@ class MemoryDashboard {
      * Delete memory
      */
     async deleteMemory(memory) {
-        if (!confirm('Are you sure you want to delete this memory? This action cannot be undone.')) {
+        if (!confirm(this.t('modal.memoryDetails.confirmDelete', 'Are you sure you want to delete this memory? This action cannot be undone.'))) {
             return;
         }
 
@@ -3239,8 +3243,8 @@ class MemoryDashboard {
         const saveBtn = document.getElementById('saveMemoryBtn');
 
         // Update modal for editing
-        title.textContent = 'Edit Memory';
-        saveBtn.textContent = 'Update Memory';
+        this.setTranslatedText(title, 'modal.addMemory.editTitle', 'Edit Memory');
+        this.setTranslatedText(saveBtn, 'modal.addMemory.update', 'Update Memory');
 
         // Pre-fill the form with existing data
         document.getElementById('memoryContent').value = memory.content || '';
@@ -3279,7 +3283,7 @@ class MemoryDashboard {
         // Try to use Web Share API if available
         if (navigator.share) {
             navigator.share({
-                title: 'Memory from MCP Memory Service',
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
                 text: memory.content,
                 url: window.location.href
             }).catch(err => {
@@ -3383,7 +3387,7 @@ class MemoryDashboard {
     }
 
     if (!memories || memories.length === 0) {
-    container.innerHTML = '<p class="empty-state">No memories found. <a href="#" data-action="add-memory">Add your first memory</a></p>';
+    container.innerHTML = `<p class="empty-state"><span data-i18n="sections.recentMemoriesEmpty">${this.escapeHtml(this.t('sections.recentMemoriesEmpty', 'No memories found.'))}</span> <a href="#" data-action="add-memory" data-i18n="sections.addFirstMemory">${this.escapeHtml(this.t('sections.addFirstMemory', 'Add your first memory'))}</a></p>`;
     return;
     }
 
@@ -3625,7 +3629,7 @@ class MemoryDashboard {
         }
 
         if (!tags || tags.length === 0) {
-            container.innerHTML = '<div class="no-tags">No tags found.</div>';
+            container.innerHTML = `<div class="no-tags" data-i18n="browse.noTagsShort">${this.escapeHtml(this.t('browse.noTagsShort', 'No tags found.'))}</div>`;
             return;
         }
 
@@ -3656,7 +3660,7 @@ class MemoryDashboard {
         const container = document.getElementById('searchResultsList');
 
         if (!results || results.length === 0) {
-            container.innerHTML = '<p class="empty-state">No results found. Try a different search term.</p>';
+            container.innerHTML = `<p class="empty-state" data-i18n="search.results.none">${this.escapeHtml(this.t('search.results.none', 'No results found. Try a different search term.'))}</p>`;
             return;
         }
 
@@ -3766,36 +3770,38 @@ class MemoryDashboard {
                 filters.push({
                     type: 'tag',
                     value: tag,
-                    label: `Tag: ${tag}`
+                    label: this.t('search.filters.activeTag', 'Tag: {tag}', { tag })
                 });
             });
         }
 
         if (dateFilter) {
             const dateLabels = {
-                'today': 'Today',
-                'week': 'This week',
-                'month': 'This month',
-                'year': 'This year'
+                'today': this.t('search.filters.date.today', 'Today'),
+                'yesterday': this.t('search.filters.date.yesterday', 'Yesterday'),
+                'week': this.t('search.filters.date.week', 'This week'),
+                'month': this.t('search.filters.date.month', 'This month'),
+                'quarter': this.t('search.filters.date.quarter', 'This quarter'),
+                'year': this.t('search.filters.date.year', 'This year')
             };
             filters.push({
                 type: 'date',
                 value: dateFilter,
-                label: `Date: ${dateLabels[dateFilter] || dateFilter}`
+                label: this.t('search.filters.activeDate', 'Date: {date}', { date: dateLabels[dateFilter] || dateFilter })
             });
         }
 
         if (typeFilter) {
             const typeLabels = {
-                'note': 'Notes',
-                'code': 'Code',
-                'reference': 'References',
-                'idea': 'Ideas'
+                'note': this.t('search.filters.type.note', 'Notes'),
+                'code': this.t('search.filters.type.code', 'Code'),
+                'reference': this.t('search.filters.type.reference', 'References'),
+                'idea': this.t('search.filters.type.idea', 'Ideas')
             };
             filters.push({
                 type: 'type',
                 value: typeFilter,
-                label: `Type: ${typeLabels[typeFilter] || typeFilter}`
+                label: this.t('search.filters.activeType', 'Type: {type}', { type: typeLabels[typeFilter] || typeFilter })
             });
         }
 
@@ -3814,15 +3820,16 @@ class MemoryDashboard {
             </div>
         `).join('');
 
-        // Add event listeners for filter removal
-        filtersList.addEventListener('click', (e) => {
+        // Assigned, not added: this runs on every filter change and language
+        // switch, and each added listener would remove the filter once more.
+        filtersList.onclick = (e) => {
             const button = e.target.closest('.remove-filter');
             if (!button) return;
 
             const type = button.dataset.filterType;
             const value = button.dataset.filterValue;
             this.removeFilter(type, value);
-        });
+        };
     }
 
     /**
@@ -5786,7 +5793,7 @@ class MemoryDashboard {
             this.renderMemoryGrowthChart(container, data);
         } catch (error) {
             console.error('Failed to load memory growth:', error);
-            container.innerHTML = '<p class="error">Failed to load growth chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.growthLoadFailed">${this.t('analytics.growthLoadFailed', 'Failed to load growth chart')}</p>`;
         }
     }
 
@@ -5795,7 +5802,7 @@ class MemoryDashboard {
      */
     renderMemoryGrowthChart(container, data) {
         if (!data.data_points || data.data_points.length === 0) {
-            container.innerHTML = '<p>No growth data available</p>';
+            container.innerHTML = `<p data-i18n="analytics.noGrowthData">${this.t('analytics.noGrowthData', 'No growth data available')}</p>`;
             return;
         }
 
@@ -5849,7 +5856,7 @@ class MemoryDashboard {
             this.renderTagUsageChart(container, data);
         } catch (error) {
             console.error('Failed to load tag usage:', error);
-            container.innerHTML = '<p class="error">Failed to load tag usage chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.tagUsageLoadFailed">${this.t('analytics.tagUsageLoadFailed', 'Failed to load tag usage chart')}</p>`;
         }
     }
 
@@ -5858,7 +5865,7 @@ class MemoryDashboard {
      */
     renderTagUsageChart(container, data) {
         if (!data.tags || data.tags.length === 0) {
-            container.innerHTML = '<p>No tags found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noTagUsage">${this.t('analytics.noTagUsage', 'No tags found')}</p>`;
             return;
         }
 
@@ -5887,9 +5894,12 @@ class MemoryDashboard {
         // percentage out; there is no honest percentage for a set of overlapping tags.
         if (minorTags.length > 0) {
             const assignmentCount = minorTags.reduce((sum, t) => sum + t.count, 0);
+            const minorTagsTip = this.t('analytics.minorTagsTip',
+                '{assignments} tag assignments across {count} tags with 10 or fewer memories each',
+                { assignments: assignmentCount, count: minorTags.length });
             html += `<div class="chart-row">
-                <span class="chart-value">${minorTags.length} tags</span>
-                <span class="chart-label" title="${assignmentCount} tag assignments across ${minorTags.length} tags with 10 or fewer memories each">more tags (≤10 memories each)</span>
+                <span class="chart-value">${this.escapeHtml(this.t('analytics.minorTagsCount', '{count} tags', { count: minorTags.length }))}</span>
+                <span class="chart-label" title="${this.escapeHtml(minorTagsTip)}" data-i18n="analytics.minorTagsLabel">${this.escapeHtml(this.t('analytics.minorTagsLabel', 'more tags (≤10 memories each)'))}</span>
             </div>`;
         }
 
@@ -5909,7 +5919,7 @@ class MemoryDashboard {
             this.renderMemoryTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load memory types:', error);
-            container.innerHTML = '<p class="error">Failed to load memory types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.memoryTypesLoadFailed">${this.t('analytics.memoryTypesLoadFailed', 'Failed to load memory types chart')}</p>`;
         }
     }
 
@@ -5918,7 +5928,7 @@ class MemoryDashboard {
      */
     renderMemoryTypesChart(container, data) {
         if (!data.types || data.types.length === 0) {
-            container.innerHTML = '<p>No memory types found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noMemoryTypes">${this.t('analytics.noMemoryTypes', 'No memory types found')}</p>`;
             return;
         }
 
@@ -5947,7 +5957,7 @@ class MemoryDashboard {
             html += `<div class="chart-row">
                 <div class="chart-bar" style="width: ${barWidthPx}px"></div>
                 <span class="chart-value">${diverseCount} (${diversePercentage.toFixed(1)}%)</span>
-                <span class="chart-label" title="${minorTypes.length} types with ≤10 memories each">diverse (${minorTypes.length} types)</span>
+                <span class="chart-label" title="${this.escapeHtml(this.t('analytics.minorTypesTip', '{count} types with ≤10 memories each', { count: minorTypes.length }))}">${this.escapeHtml(this.t('analytics.minorTypesLabel', 'diverse ({count} types)', { count: minorTypes.length }))}</span>
             </div>`;
         }
 
@@ -5968,7 +5978,7 @@ class MemoryDashboard {
         this.renderTopTagsReport(container, data);
     } catch (error) {
     console.error('Failed to load top tags:', error);
-        container.innerHTML = '<p class="error">Failed to load top tags</p>';
+        container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.topTagsLoadFailed', 'Failed to load top tags');
         }
     }
 
@@ -5977,12 +5987,13 @@ class MemoryDashboard {
     */
     renderTopTagsReport(container, data) {
     if (!data.tags || data.tags.length === 0) {
-    container.innerHTML = '<p>No tags found</p>';
+    container.innerHTML = this.staticTextHtml('p', '', 'analytics.topTagsEmpty', 'No tags found');
     return;
     }
 
     let html = '<div class="enhanced-tags-report">';
-    html += `<div class="report-period">Period: ${data.period}</div>`;
+    const periodLabel = this.t(`analytics.period.${data.period}`, data.period);
+    html += `<div class="report-period">${this.escapeHtml(this.t('analytics.reportPeriod', 'Period: {period}', { period: periodLabel }))}</div>`;
     html += '<ul class="tags-list">';
     data.tags.slice(0, 10).forEach(tag => {
         const trendIcon = tag.trending ? ` <span class="tag-trending">${this.escapeHtml(this.t('analytics.trending', 'trending'))}</span>` : '';
@@ -5990,10 +6001,10 @@ class MemoryDashboard {
         html += `<li>
                 <div class="tag-header">
                     <strong>${this.escapeHtml(tag.tag)}</strong>${trendIcon}
-                    <span class="tag-count">${tag.count} memories (${tag.percentage}%)${growthText}</span>
+                    <span class="tag-count">${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: tag.count, percent: tag.percentage }))}${growthText}</span>
                 </div>`;
             if (tag.co_occurring_tags && tag.co_occurring_tags.length > 0) {
-                html += '<div class="tag-cooccurrence">Often with: ';
+                html += `<div class="tag-cooccurrence">${this.escapeHtml(this.t('analytics.oftenWith', 'Often with:'))} `;
                 html += tag.co_occurring_tags.slice(0, 3).map(co => `${this.escapeHtml(co.tag)} (${co.strength.toFixed(2)})`).join(', ');
                 html += '</div>';
             }
@@ -6017,7 +6028,7 @@ class MemoryDashboard {
     this.renderRecentActivityReport(container, data);
     } catch (error) {
     console.error('Failed to load recent activity:', error);
-    container.innerHTML = '<p class="error">Failed to load recent activity</p>';
+    container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.recentActivityLoadFailed', 'Failed to load recent activity');
     }
     }
 
@@ -6050,14 +6061,14 @@ class MemoryDashboard {
 
     // Summary stats
     html += '<div class="activity-summary">';
-        html += `<div class="activity-stat"><strong>Active Days:</strong> ${data.active_days}/${data.total_days}</div>`;
-    html += `<div class="activity-stat"><strong>Current Streak:</strong> ${data.current_streak} days</div>`;
-    html += `<div class="activity-stat"><strong>Longest Streak:</strong> ${data.longest_streak} days</div>`;
+        html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.activeDays', 'Active Days:')} ${data.active_days}/${data.total_days}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.currentStreak', 'Current Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.current_streak }))}</div>`;
+    html += `<div class="activity-stat">${this.staticTextHtml('strong', '', 'analytics.longestStreak', 'Longest Streak:')} ${this.escapeHtml(this.t('analytics.streakDays', '{count} days', { count: data.longest_streak }))}</div>`;
     html += '</div>';
 
     if (data.peak_times && data.peak_times.length > 0) {
     html += '<div class="peak-times">';
-        html += '<strong>Peak Times:</strong> ';
+        html += `${this.staticTextHtml('strong', '', 'analytics.peakTimes', 'Peak Times:')} `;
         html += (data.peak_periods?.length ? data.peak_periods.map(p => this.formatActivityPeriod(p)) : data.peak_times).join(', ');
             html += '</div>';
     }
@@ -6078,7 +6089,7 @@ class MemoryDashboard {
 
                 html += `<div class="activity-bar-row">
                     <span class="activity-label">${this.formatActivityPeriod(item)}</span>
-                    <div class="activity-bar" style="width: ${barWidth}%" title="${item.count} memories (${percentage.toFixed(1)}%)"></div>
+                    <div class="activity-bar" style="width: ${barWidth}%" title="${this.escapeHtml(this.t('analytics.memoriesPercent', '{count} memories ({percent}%)', { count: item.count, percent: percentage.toFixed(1) }))}"></div>
                     <span class="activity-count">${item.count} (${percentage.toFixed(1)}%)</span>
                 </div>`;
             });
@@ -6104,7 +6115,7 @@ class MemoryDashboard {
             this.renderActivityHeatmapChart(container, data);
         } catch (error) {
             console.error('Failed to load activity heatmap:', error);
-            container.innerHTML = '<p class="error">Failed to load activity heatmap</p>';
+            container.innerHTML = this.staticTextHtml('p', 'error', 'analytics.heatmapLoadFailed', 'Failed to load activity heatmap');
         }
     }
 
@@ -6113,15 +6124,15 @@ class MemoryDashboard {
      */
     renderActivityHeatmapChart(container, data) {
         if (!data.data || data.data.length === 0) {
-            container.innerHTML = '<p>No activity data available</p>';
+            container.innerHTML = this.staticTextHtml('p', '', 'analytics.heatmapEmpty', 'No activity data available');
             return;
         }
 
         // Create calendar grid
         let html = '<div class="activity-heatmap">';
         html += '<div class="heatmap-stats">';
-        html += `<span>${data.total_days} active days</span>`;
-        html += `<span>Max: ${data.max_count} memories/day</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapActiveDays', '{count} active days', { count: data.total_days }))}</span>`;
+        html += `<span>${this.escapeHtml(this.t('analytics.heatmapMaxPerDay', 'Max: {count} memories/day', { count: data.max_count }))}</span>`;
         html += '</div>';
 
         // Group by months
@@ -6158,7 +6169,7 @@ class MemoryDashboard {
             // Add cells for each day
             monthData.forEach(day => {
                 const level = day.level;
-                const tooltip = `${day.date}: ${day.count} memories`;
+                const tooltip = this.escapeHtml(this.t('analytics.heatmapDayTip', '{date}: {count} memories', { date: day.date, count: day.count }));
                 html += `<div class="heatmap-cell level-${level}" title="${tooltip}"></div>`;
             });
 
@@ -6167,11 +6178,11 @@ class MemoryDashboard {
 
         // Legend
         html += '<div class="heatmap-legend">';
-        html += '<span>Less</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapLess', 'Less');
         for (let i = 0; i <= 4; i++) {
             html += `<div class="legend-cell level-${i}"></div>`;
         }
-        html += '<span>More</span>';
+        html += this.staticTextHtml('span', '', 'analytics.heatmapMore', 'More');
         html += '</div>';
 
         html += '</div>';
@@ -6211,7 +6222,7 @@ class MemoryDashboard {
             this.renderStorageReport(container, data);
         } catch (error) {
             console.error('Failed to load storage report:', error);
-            container.innerHTML = '<p class="error">Failed to load storage report</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.storageLoadFailed">${this.t('analytics.storageLoadFailed', 'Failed to load storage report')}</p>`;
         }
     }
 
@@ -6223,24 +6234,27 @@ class MemoryDashboard {
 
         // Summary stats
         html += '<div class="storage-summary">';
-        html += `<div class="storage-stat"><strong>Total Size:</strong> ${data.total_size_mb} MB</div>`;
-        html += `<div class="storage-stat"><strong>Average Memory:</strong> ${data.average_memory_size} chars</div>`;
-        html += `<div class="storage-stat"><strong>Efficiency:</strong> ${data.storage_efficiency}%</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageTotalSize">${this.t('analytics.storageTotalSize', 'Total Size:')}</strong> ${this.t('analytics.storageSizeMb', '{size} MB', { size: data.total_size_mb })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageAverageMemory">${this.t('analytics.storageAverageMemory', 'Average Memory:')}</strong> ${this.t('analytics.storageAverageChars', '{count} chars', { count: data.average_memory_size })}</div>`;
+        html += `<div class="storage-stat"><strong data-i18n="analytics.storageEfficiency">${this.t('analytics.storageEfficiency', 'Efficiency:')}</strong> ${data.storage_efficiency}%</div>`;
         html += '</div>';
 
         // Largest memories
         if (data.largest_memories && data.largest_memories.length > 0) {
-            html += '<h4>Largest Memories</h4>';
+            html += `<h4 data-i18n="analytics.largestMemories">${this.t('analytics.largestMemories', 'Largest Memories')}</h4>`;
             html += '<ul class="largest-memories">';
             data.largest_memories.slice(0, 5).forEach(memory => {
                 // Backend provides created_at as ISO string, not timestamp
-                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : 'Unknown';
+                const date = memory.created_at ? new Date(memory.created_at).toLocaleDateString() : this.t('analytics.storageUnknownDate', 'Unknown');
                 // Backend provides size_kb and preview (not size and content_preview)
-                const sizeDisplay = memory.size_kb ? `${memory.size_kb} KB` : `${memory.size_bytes || 0} bytes`;
+                const sizeDisplay = memory.size_kb
+                    ? this.t('analytics.storageSizeKb', '{size} KB', { size: memory.size_kb })
+                    : this.t('analytics.storageSizeBytes', '{size} bytes', { size: memory.size_bytes || 0 });
+                const tagList = memory.tags.join(', ') || this.t('analytics.storageNoTags', 'none');
                 html += `<li>
                     <div class="memory-size">${sizeDisplay}</div>
                     <div class="memory-preview">${this.escapeHtml(memory.preview || '')}</div>
-                    <div class="memory-meta">${date} • Tags: ${memory.tags.join(', ') || 'none'}</div>
+                    <div class="memory-meta">${date} • ${this.escapeHtml(this.t('analytics.storageTags', 'Tags: {tags}', { tags: tagList }))}</div>
                 </li>`;
             });
             html += '</ul>';
@@ -6271,7 +6285,7 @@ class MemoryDashboard {
             this.renderRelationshipTypesChart(container, data);
         } catch (error) {
             console.error('Failed to load relationship types:', error);
-            container.innerHTML = '<p class="error">Failed to load relationship types chart</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.relationshipTypesLoadFailed">${this.t('analytics.relationshipTypesLoadFailed', 'Failed to load relationship types chart')}</p>`;
         }
     }
 
@@ -6280,7 +6294,7 @@ class MemoryDashboard {
      */
     renderRelationshipTypesChart(container, data) {
         if (!data || Object.keys(data).length === 0) {
-            container.innerHTML = '<p>No relationships found</p>';
+            container.innerHTML = `<p data-i18n="analytics.noRelationshipTypes">${this.t('analytics.noRelationshipTypes', 'No relationships found')}</p>`;
             return;
         }
 
@@ -6347,7 +6361,7 @@ class MemoryDashboard {
 
             if (!data || !data.nodes || data.nodes.length === 0) {
                 this._clearGraphData();
-                container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+                container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
                 return;
             }
 
@@ -6368,7 +6382,7 @@ class MemoryDashboard {
             console.error('Failed to load graph visualization:', error);
             if (requestId !== this._graphLoadId) return;
             this._clearGraphData();
-            container.innerHTML = '<p class="error">Failed to load graph visualization</p>';
+            container.innerHTML = `<p class="error" data-i18n="analytics.graphLoadFailed">${this.t('analytics.graphLoadFailed', 'Failed to load graph visualization')}</p>`;
         }
     }
 
@@ -6377,7 +6391,7 @@ class MemoryDashboard {
      */
     renderGraphVisualization(container, data) {
         if (!data.nodes || data.nodes.length === 0) {
-            container.innerHTML = '<p>No connected memories found. Try lowering the minimum connections filter.</p>';
+            container.innerHTML = `<p data-i18n="analytics.noConnectedMemories">${this.t('analytics.noConnectedMemories', 'No connected memories found. Try lowering the minimum connections filter.')}</p>`;
             return;
         }
 
@@ -6667,7 +6681,7 @@ class MemoryDashboard {
             .on('mouseover', (event, item) => {
                 tooltip.transition().duration(200).style('opacity', 1);
                 tooltip
-                    .html(this.formatGraphTooltip(item, 'Click to center; double-click for details'))
+                    .html(this.formatGraphTooltip(item, this.t('analytics.graphRingHint', 'Click to center; double-click for details')))
                     .style('left', (event.pageX + 10) + 'px')
                     .style('top', (event.pageY - 28) + 'px');
             })
@@ -7348,10 +7362,11 @@ class MemoryDashboard {
     }
 
     _updateRotateButton() {
-        const text = this.graphRotationPaused ? 'Play' : 'Pause';
+        const [key, fallback] = this.graphRotationPaused
+            ? ['analytics.rotatePlay', 'Play']
+            : ['analytics.rotatePause', 'Pause'];
         ['graphRotateLabel', 'graphFullscreenRotateLabel'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = text;
+            this.setTranslatedText(document.getElementById(id), key, fallback);
         });
         const enabled = Boolean(this.use3DGraph) && this.graphLayout !== 'rings';
         ['graphRotateBtn', 'graphFullscreenRotateBtn'].forEach(id => {
@@ -7472,12 +7487,12 @@ class MemoryDashboard {
     async handleGraph3DNodeClick(node) {
         if (!node) return;
         try {
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
             const memory = await this.apiCall(`/memories/${node.id}`);
             this.showMemoryDetails(memory);
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7548,7 +7563,7 @@ class MemoryDashboard {
     /**
      * Format enhanced tooltip with quality score, timestamps, and metadata
      */
-    formatGraphTooltip(d, interactionHint = 'Click node to view full memory') {
+    formatGraphTooltip(d, interactionHint = this.t('analytics.graphNodeHint', 'Click node to view full memory')) {
         const qualityClass = d.quality_score >= 0.7 ? 'high' : d.quality_score >= 0.4 ? 'medium' : 'low';
         const qualityColor = qualityClass === 'high' ? '#50C878' : qualityClass === 'medium' ? '#F39C12' : '#E24A4A';
 
@@ -7607,7 +7622,7 @@ class MemoryDashboard {
 
         try {
             // Show loading indicator
-            this.showToast('Loading memory details...', 'info');
+            this.showToast(this.t('toast.memoryDetailsLoading', 'Loading memory details...'), 'info');
 
             // Fetch full memory details
             const memory = await this.apiCall(`/memories/${nodeData.id}`);
@@ -7617,7 +7632,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load memory:', error);
-            this.showToast('Failed to load memory details', 'error');
+            this.showToast(this.t('toast.memoryDetailsLoadFailed', 'Failed to load memory details'), 'error');
         }
     }
 
@@ -7795,7 +7810,7 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Failed to load quality analytics:', error);
-            this.showToast('Failed to load quality analytics', 'error');
+            this.showToast(this.t('quality.analytics.loadFailed', 'Failed to load quality analytics'), 'error');
         }
     }
 
@@ -7819,9 +7834,13 @@ class MemoryDashboard {
         this.qualityDistributionChart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['Low (<0.5)', 'Medium (0.5-0.7)', 'High (≥0.7)'],
+                labels: [
+                    this.t('quality.chart.distribution.low', 'Low (<0.5)'),
+                    this.t('quality.chart.distribution.medium', 'Medium (0.5-0.7)'),
+                    this.t('quality.chart.distribution.high', 'High (≥0.7)')
+                ],
                 datasets: [{
-                    label: 'Number of Memories',
+                    label: this.t('quality.chart.distribution.memoriesLabel', 'Number of Memories'),
                     data: [
                         data.low_quality_count,
                         data.medium_quality_count,
@@ -7848,7 +7867,7 @@ class MemoryDashboard {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: 'Count',
+                            text: this.t('quality.chart.distribution.countLabel', 'Count'),
                             color: textColor
                         },
                         ticks: {
@@ -7894,14 +7913,14 @@ class MemoryDashboard {
         // Friendly provider names
         const friendlyLabels = labels.map(label => {
             switch(label) {
-                case 'ONNXRankerModel': return 'Local SLM';
+                case 'ONNXRankerModel': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'GroqEvaluator': return 'Groq API';
                 case 'GeminiEvaluator': return 'Gemini API';
-                case 'ImplicitSignalsEvaluator': return 'Implicit Only';
-                case 'local': return 'Local SLM';
+                case 'ImplicitSignalsEvaluator': return this.t('quality.chart.providers.implicit', 'Implicit Only');
+                case 'local': return this.t('quality.chart.providers.local', 'Local SLM');
                 case 'groq': return 'Groq API';
                 case 'gemini': return 'Gemini API';
-                case 'implicit': return 'Implicit Only';
+                case 'implicit': return this.t('quality.chart.providers.implicit', 'Implicit Only');
                 default: return label;
             }
         });
@@ -7970,7 +7989,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -7995,7 +8014,7 @@ class MemoryDashboard {
         if (!container) return;
 
         if (!memories || memories.length === 0) {
-            container.innerHTML = '<p class="text-muted">No memories available</p>';
+            container.innerHTML = `<p class="text-muted" data-i18n="quality.noMemories">${this.escapeHtml(this.t('quality.noMemories', 'No memories available'))}</p>`;
             return;
         }
 
@@ -8027,7 +8046,7 @@ class MemoryDashboard {
         return `
             <div class="quality-badge quality-tier-${tier}"
                  data-quality-score="${score.toFixed(2)}"
-                 title="Quality score ${score.toFixed(2)} (${this.escapeHtml(provider)})">
+                 title="${this.escapeHtml(this.t('quality.badgeTitle', 'Quality score {score} ({provider})', { score: score.toFixed(2), provider }))}">
                 <span class="quality-score">${score.toFixed(2)}</span>
             </div>
         `;
@@ -8042,14 +8061,14 @@ class MemoryDashboard {
                     rating: rating,
                     feedback: ''
                 });
-            this.showToast(`Rating saved, quality score is now ${result.new_quality_score.toFixed(2)}`, 'success');
+            this.showToast(this.t('toast.ratingSaved', 'Rating saved, quality score is now {score}', { score: result.new_quality_score.toFixed(2) }), 'success');
 
             // Refresh memory display if viewing details
             // This would refresh the modal or current view
 
         } catch (error) {
             console.error('Failed to rate memory:', error);
-            this.showToast('Failed to save rating', 'error');
+            this.showToast(this.t('toast.ratingSaveFailed', 'Failed to save rating'), 'error');
         }
     }
 
