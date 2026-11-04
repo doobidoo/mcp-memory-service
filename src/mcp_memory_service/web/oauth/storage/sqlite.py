@@ -145,6 +145,9 @@ class SQLiteOAuthStorage(OAuthStorage):
         await self._execute("PRAGMA journal_mode=WAL")
         await self._execute("PRAGMA synchronous=NORMAL")
         await self._execute("PRAGMA busy_timeout=5000")
+        # SQLite enforces FOREIGN KEY constraints (and ON DELETE CASCADE) only
+        # when this is on for the connection; it is off by default.
+        await self._execute("PRAGMA foreign_keys=ON")
 
         # Create oauth_clients table
         await self._execute("""
@@ -288,12 +291,25 @@ class SQLiteOAuthStorage(OAuthStorage):
                 else hash_client_secret(client.client_secret)
             )
 
+            # Upsert in place. INSERT OR REPLACE would delete the existing row
+            # first, and with foreign keys on that delete cascades to the
+            # client's authorization codes and tokens.
             await self._execute(
                 """
-                INSERT OR REPLACE INTO oauth_clients
+                INSERT INTO oauth_clients
                 (client_id, client_secret, client_name, redirect_uris, response_types,
                  grant_types, scope, token_endpoint_auth_method, created_at, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    client_secret = excluded.client_secret,
+                    client_name = excluded.client_name,
+                    redirect_uris = excluded.redirect_uris,
+                    response_types = excluded.response_types,
+                    grant_types = excluded.grant_types,
+                    scope = excluded.scope,
+                    token_endpoint_auth_method = excluded.token_endpoint_auth_method,
+                    created_at = excluded.created_at,
+                    metadata = excluded.metadata
                 """,
                 (
                     client.client_id,

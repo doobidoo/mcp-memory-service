@@ -64,6 +64,21 @@ async def storage(request):
     else:
         storage = create_oauth_storage("memory")
 
+    # Most tests store codes and tokens for "client_1". The SQLite backend
+    # enforces the client_id foreign key, so the client has to exist.
+    await storage.store_client(
+        RegisteredClient(
+            client_id="client_1",
+            client_secret="client_1_secret",
+            client_name="Fixture Client",
+            redirect_uris=["http://localhost/callback"],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="client_secret_basic",
+            created_at=time.time(),
+        )
+    )
+
     yield storage
 
     # Cleanup
@@ -675,7 +690,7 @@ class TestPKCE:
 
         await storage.store_authorization_code(
             code="pkce_code_123",
-            client_id="pkce_client",
+            client_id="client_1",
             redirect_uri="http://localhost/callback",
             scope="read write",
             expires_in=300,
@@ -686,7 +701,7 @@ class TestPKCE:
         code_data = await storage.get_authorization_code("pkce_code_123")
 
         assert code_data is not None
-        assert code_data["client_id"] == "pkce_client"
+        assert code_data["client_id"] == "client_1"
         assert code_data["code_challenge"] == challenge
         assert code_data["code_challenge_method"] == method
 
@@ -695,7 +710,7 @@ class TestPKCE:
         """Test that codes without PKCE still work (backward compat)."""
         await storage.store_authorization_code(
             code="no_pkce_code",
-            client_id="plain_client",
+            client_id="client_1",
             redirect_uri="http://localhost/callback",
             scope="read",
             expires_in=300,
@@ -704,7 +719,7 @@ class TestPKCE:
         code_data = await storage.get_authorization_code("no_pkce_code")
 
         assert code_data is not None
-        assert code_data["client_id"] == "plain_client"
+        assert code_data["client_id"] == "client_1"
         assert code_data.get("code_challenge") is None
         assert code_data.get("code_challenge_method") is None
 
