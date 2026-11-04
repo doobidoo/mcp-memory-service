@@ -17,6 +17,7 @@ except ImportError:
 from ...compat import _sanitize_log_value
 from ...models.memory import Memory
 from ..base import RecreateRefused
+from ..shared import _versioned_conflict_exclusion
 
 logger = logging.getLogger(__name__)
 
@@ -320,7 +321,11 @@ class StoreMixin:
             # Conflict detection (P3) — runs after commit, outside the lock
             try:
                 conflict_infos = await self._run_in_thread(
-                    self._detect_conflicts, memory.content_hash, memory.content, embedding
+                    self._detect_conflicts,
+                    memory.content_hash,
+                    memory.content,
+                    embedding,
+                    _versioned_conflict_exclusion.get(),
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)

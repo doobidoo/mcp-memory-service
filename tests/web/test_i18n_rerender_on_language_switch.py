@@ -22,6 +22,7 @@ STUBS = [
     "loadAnalyticsOverview", "loadMemoryGrowthChart", "loadTagUsageChart", "loadMemoryTypesChart",
     "loadActivityHeatmapChart", "loadTopTagsReport", "loadRecentActivityReport", "loadStorageReport",
     "loadRelationshipTypesChart", "loadGraphVisualization", "loadMemoryTypes",
+    "updateActiveFilters",
 ]
 
 
@@ -70,6 +71,12 @@ def test_dashboard_rerenders_cached_memories_without_a_request():
     calls = _switch_language("dashboard", {"memories": [{"content_hash": "a"}]})
     assert "renderRecentMemories" in calls
     assert not [c for c in calls if c.startswith("load") and c != "loadTranslations"]
+
+
+@pytest.mark.parametrize("view", ["dashboard", "search", "browse", "analytics", "manage"])
+def test_every_switch_rebuilds_the_active_filter_chips(view):
+    # The chips keep their text while another view is open (#1815).
+    assert "updateActiveFilters" in _switch_language(view)
 
 
 def test_search_rerenders_from_cache():
@@ -126,7 +133,7 @@ const data = { tags: [{ tag: 'alpha', count: 2 }, { tag: 'beta', count: 1 }] };
 def _run_manage_method(name, body):
     """Run a manage-view method from app.js against FAKE_DOM."""
     method = _method(APP_JS.read_text(encoding="utf-8"), name)
-    app = f"const app = {{ async apiCall() {{ return data; }}, escapeHtml: s => s, {method} }};"
+    app = f"const app = {{ async apiCall() {{ return data; }}, escapeHtml: s => s, t: (key, fallback) => fallback || key, {method} }};"
     return _run_node(f"{FAKE_DOM}\n{app}\n(async () => {{ {body} console.log(JSON.stringify(out)); }})();")
 
 

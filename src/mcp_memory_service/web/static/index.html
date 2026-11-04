@@ -30,6 +30,7 @@
     <script type="module" src="static/dashboard-bootstrap.js"></script>
 </head>
 <body>
+    <script src="static/theme-init.js"></script>
     <!-- Main Application Container -->
     <div id="app" class="app-container">
 
@@ -384,7 +385,7 @@
                         <div class="search-header">
                             <h2 data-i18n="search.results.title">Search Results</h2>
                             <div class="results-meta">
-                                <span id="resultsCount">0 results</span>
+                                <span id="resultsCount" data-i18n="search.results.count" data-count="0">0 results</span>
                                 <div class="view-options">
                                     <button class="view-btn active" data-view="grid" data-i18n="search.view.grid">Grid</button>
                                     <button class="view-btn" data-view="list" data-i18n="search.view.list">List</button>
@@ -674,7 +675,7 @@
                         <div id="docSearchResults" class="doc-search-results" style="display: none;">
                             <div class="search-results-header">
                                 <h3>Search Results</h3>
-                                <span id="docSearchCount" class="results-count">0 results</span>
+                                <span id="docSearchCount" class="results-count" data-i18n="search.results.count" data-count="0">0 results</span>
                             </div>
                             <div id="docSearchResultsList" class="search-results-list">
                                 <!-- Results will be populated here -->
@@ -745,7 +746,7 @@
 
                             <div id="deleteUntaggedCard" class="bulk-op-card" style="display: none;">
                                 <h3 data-i18n="manage.bulk.deleteUntagged.title">Delete Untagged</h3>
-                                <p>Remove memories without any tags (<span id="untaggedCount">0</span> found)</p>
+                                <p id="untaggedCount" data-i18n="manage.bulk.deleteUntagged.desc" data-count="0">Remove memories without any tags (0 found)</p>
                                 <div class="op-controls">
                                     <button id="deleteUntaggedBtn" class="btn btn-danger" data-i18n="manage.bulk.delete">Delete</button>
                                 </div>
@@ -885,7 +886,7 @@
                                                     <option value="1000" selected>1000</option>
                                                     <option value="2500">2500</option>
                                                     <option value="5000">5000</option>
-                                                    <option value="10000">All</option>
+                                                    <option value="10000" data-i18n="analytics.graphNodesAll">All</option>
                                                 </select>
                                             </label>
                                             <label for="graphMinConnectionsSelect" title="Load only memories with at least N links in the database. Reloads the graph." data-i18n-title="analytics.minConnectionsTip">
@@ -908,17 +909,17 @@
                                                 </svg>
                                                 <span data-i18n="analytics.refresh">Refresh</span>
                                             </button>
-                                            <button id="graphDimensionBtn" class="btn btn-secondary" title="Toggle 3D / 2D rendering">
+                                            <button id="graphDimensionBtn" class="btn btn-secondary" title="Toggle 3D / 2D rendering" data-i18n-title="analytics.graphDimensionTip">
                                                 <span id="graphDimensionLabel">3D</span>
                                             </button>
-                                            <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                                            <div class="graph-layout-toggle" role="group" aria-label="Graph layout" data-i18n-aria="analytics.graphLayoutLabel">
                                                 <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
                                                 <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
                                             </div>
-                                            <button id="graphRotateBtn" class="btn btn-secondary" title="Pause / resume auto-rotation (3D only)">
-                                                <span id="graphRotateLabel">Pause</span>
+                                            <button id="graphRotateBtn" class="btn btn-secondary" title="Pause / resume auto-rotation (3D only)" data-i18n-title="analytics.rotateTip">
+                                                <span id="graphRotateLabel" data-i18n="analytics.rotatePause">Pause</span>
                                             </button>
-                                            <button id="graphFullscreenBtn" class="btn btn-secondary" title="Fullscreen Mode">
+                                            <button id="graphFullscreenBtn" class="btn btn-secondary" title="Fullscreen Mode" data-i18n-title="analytics.fullscreenTip">
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                     <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
                                                 </svg>
@@ -926,7 +927,7 @@
                                         </div>
                                         <div class="graph-filter-bar">
                                             <span class="graph-filter-label" data-i18n="analytics.filterByType">Filter by type:</span>
-                                            <div id="graphTypeFilterBar" class="graph-type-pills" title="Click a type to show/hide its nodes"></div>
+                                            <div id="graphTypeFilterBar" class="graph-type-pills" title="Click a type to show/hide its nodes" data-i18n-title="analytics.typeFilterTip"></div>
                                         </div>
                                         <div id="graphVisualizationContainer" class="graph-container">
                                             <div class="loading-spinner"></div>
@@ -1258,22 +1259,22 @@
                     <h3 data-i18n="analytics.graphVisualization">Interactive Graph Visualization</h3>
                     <div class="graph-fullscreen-controls">
                         <span id="graphFullscreenNodeCount" class="graph-node-count"></span>
-                        <div class="graph-layout-toggle" role="group" aria-label="Graph layout">
+                        <div class="graph-layout-toggle" role="group" aria-label="Graph layout" data-i18n-aria="analytics.graphLayoutLabel">
                             <button type="button" class="active" data-graph-layout="force" aria-pressed="true" data-i18n="analytics.forceLayout">Force</button>
                             <button type="button" data-graph-layout="rings" aria-pressed="false" data-i18n="analytics.ringLayout">Rings</button>
                         </div>
-                        <button class="btn btn-secondary" id="graphFullscreenRotateBtn" title="Pause / resume rotation">
-                            <span id="graphFullscreenRotateLabel">Pause</span>
+                        <button class="btn btn-secondary" id="graphFullscreenRotateBtn" title="Pause / resume rotation" data-i18n-title="analytics.fullscreenRotateTip">
+                            <span id="graphFullscreenRotateLabel" data-i18n="analytics.rotatePause">Pause</span>
                         </button>
-                        <button class="btn btn-secondary" id="graphFullscreenLegendBtn" title="Show / hide legend">Legend</button>
-                        <button class="btn btn-secondary" id="graphExitFullscreenBtn" title="Exit Fullscreen (Esc)">
+                        <button class="btn btn-secondary" id="graphFullscreenLegendBtn" title="Show / hide legend" data-i18n-title="analytics.legendTip" data-i18n="analytics.legend">Legend</button>
+                        <button class="btn btn-secondary" id="graphExitFullscreenBtn" title="Exit Fullscreen (Esc)" data-i18n-title="analytics.exitFullscreenTip">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
                             </svg>
                         </button>
                     </div>
                 </div>
-                <div id="graphFullscreenFilterBar" class="graph-type-pills graph-fullscreen-filters" title="Click a type to show/hide its nodes"></div>
+                <div id="graphFullscreenFilterBar" class="graph-type-pills graph-fullscreen-filters" title="Click a type to show/hide its nodes" data-i18n-title="analytics.typeFilterTip"></div>
                 <div id="graphFullscreenContainer"></div>
                 <div id="graphFullscreenLegend" class="graph-legend graph-legend-overlay"></div>
             </div>
@@ -1452,57 +1453,56 @@
 
                     <!-- Credentials Tab -->
                     <div id="credentialsTab" class="settings-tab-content" style="display: none;">
-                        <h4 class="settings-section-heading">Cloudflare Credentials</h4>
-                        <p class="settings-description">Saved to <code>.env</code> — shared by the MCP server and HTTP server. A connection test is required before saving.</p>
+                        <h4 class="settings-section-heading" data-i18n="settings.credentials.title">Cloudflare Credentials</h4>
+                        <p class="settings-description" data-i18n-html="settings.credentials.description">Saved to <code>.env</code> — shared by the MCP server and HTTP server. A connection test is required before saving.</p>
                         <div class="credentials-form">
                             <div class="credential-field">
-                                <label for="cred-api-token">API Token</label>
+                                <label for="cred-api-token" data-i18n="settings.credentials.apiToken">API Token</label>
                                 <div class="token-input-group">
-                                    <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide" data-i18n="common.show">Show</button>
+                                    <input type="password" id="cred-api-token" class="form-control" placeholder="Cloudflare API Token" data-i18n-placeholder="settings.credentials.apiTokenPlaceholder" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-api-token" title="Show / Hide" data-i18n-title="settings.credentials.showHide" data-i18n="common.show">Show</button>
                                 </div>
-                                <small class="form-text">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
+                                <small class="form-text" data-i18n="settings.credentials.apiTokenHelp">Required. Must have D1:Edit and Vectorize:Edit permissions.</small>
                             </div>
                             <div class="credential-field">
-                                <label for="cred-account-id">Account ID</label>
+                                <label for="cred-account-id" data-i18n="settings.credentials.accountId">Account ID</label>
                                 <div class="token-input-group">
-                                    <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" autocomplete="off" spellcheck="false">
-                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide" data-i18n="common.show">Show</button>
+                                    <input type="password" id="cred-account-id" class="form-control" placeholder="Cloudflare Account ID" data-i18n-placeholder="settings.credentials.accountIdPlaceholder" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn-icon toggle-reveal" data-target="cred-account-id" title="Show / Hide" data-i18n-title="settings.credentials.showHide" data-i18n="common.show">Show</button>
                                 </div>
                             </div>
                             <div class="credential-field">
-                                <label for="cred-d1-id">D1 Database ID</label>
-                                <input type="text" id="cred-d1-id" class="form-control" placeholder="D1 Database ID" autocomplete="off" spellcheck="false">
+                                <label for="cred-d1-id" data-i18n="settings.credentials.d1Id">D1 Database ID</label>
+                                <input type="text" id="cred-d1-id" class="form-control" placeholder="D1 Database ID" data-i18n-placeholder="settings.credentials.d1Id" autocomplete="off" spellcheck="false">
                             </div>
                             <div class="credential-field">
-                                <label for="cred-vectorize">Vectorize Index Name</label>
-                                <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" autocomplete="off" spellcheck="false">
+                                <label for="cred-vectorize" data-i18n="settings.credentials.vectorizeName">Vectorize Index Name</label>
+                                <input type="text" id="cred-vectorize" class="form-control" placeholder="e.g. mcp-memory-index" data-i18n-placeholder="settings.credentials.vectorizePlaceholder" autocomplete="off" spellcheck="false">
                             </div>
                         </div>
                         <hr class="settings-divider">
 
-                        <h4 class="settings-section-heading">Sync Configuration</h4>
+                        <h4 class="settings-section-heading" data-i18n="settings.credentials.syncTitle">Sync Configuration</h4>
                         <div class="credential-field">
-                            <label for="cred-sync-owner">Cloudflare Sync Owner</label>
+                            <label for="cred-sync-owner" data-i18n="settings.credentials.syncOwner">Cloudflare Sync Owner</label>
                             <select id="cred-sync-owner" class="form-select">
-                                <option value="http">HTTP server only (recommended)</option>
-                                <option value="both">Both servers</option>
-                                <option value="mcp">MCP server only</option>
+                                <option value="http" data-i18n="settings.credentials.syncOwnerHttp">HTTP server only (recommended)</option>
+                                <option value="both" data-i18n="settings.credentials.syncOwnerBoth">Both servers</option>
+                                <option value="mcp" data-i18n="settings.credentials.syncOwnerMcp">MCP server only</option>
                             </select>
                             <small class="form-text">
-                                <strong>HTTP server only</strong> — Claude Desktop uses SQLite-Vec directly (fast, no Cloudflare token needed there).
-                                The HTTP server handles all background sync via <code>.env</code>.<br>
-                                <strong>Both</strong> — each server maintains its own sync queue (legacy default).<br>
-                                <strong>MCP only</strong> — HTTP server skips sync, MCP server syncs.
+                                <span data-i18n-html="settings.credentials.syncHelpHttp"><strong>HTTP server only</strong> — Claude Desktop uses SQLite-Vec directly (fast, no Cloudflare token needed there). The HTTP server handles all background sync via <code>.env</code>.</span><br>
+                                <span data-i18n-html="settings.credentials.syncHelpBoth"><strong>Both</strong> — each server maintains its own sync queue (legacy default).</span><br>
+                                <span data-i18n-html="settings.credentials.syncHelpMcp"><strong>MCP only</strong> — HTTP server skips sync, MCP server syncs.</span>
                             </small>
                         </div>
 
                         <div id="credTestResult" class="cred-test-result" style="display:none;"></div>
                         <div class="credentials-actions">
-                            <button type="button" id="credTestBtn" class="btn btn-secondary">Test Connection</button>
-                            <button type="button" id="credSaveBtn" class="btn btn-primary" disabled>Save &amp; Restart</button>
+                            <button type="button" id="credTestBtn" class="btn btn-secondary" data-i18n="settings.credentials.testButton">Test Connection</button>
+                            <button type="button" id="credSaveBtn" class="btn btn-primary" data-i18n="settings.quality.save" disabled>Save &amp; Restart</button>
                         </div>
-                        <p class="settings-hint">Token shown as partial reveal. Use Show to see the full value.</p>
+                        <p class="settings-hint" data-i18n="settings.credentials.hint">Token shown as partial reveal. Use Show to see the full value.</p>
                     </div>
 
                     <!-- Quality Tab -->
@@ -1653,7 +1653,7 @@
             <div class="modal-body">
                 <div class="document-info">
                     <h3 id="memoryViewerFilename" data-i18n="status.loading">Loading...</h3>
-                    <p id="memoryViewerStats" class="text-muted">0 chunks found</p>
+                    <p id="memoryViewerStats" class="text-muted" data-i18n="modal.memoryViewer.chunksFound" data-count="0">0 chunks found</p>
                 </div>
                 <div class="memory-chunks-container">
                     <div id="memoryChunksList" class="memory-chunks-list">
@@ -1671,27 +1671,27 @@
     <div id="authModal" class="modal-overlay">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Authentication Required</h3>
+                <h3 data-i18n="modal.auth.title">Authentication Required</h3>
             </div>
             <div class="modal-body">
-                <p>The dashboard requires authentication to access memory operations.</p>
+                <p data-i18n="modal.auth.description">The dashboard requires authentication to access memory operations.</p>
 
                 <div class="auth-options">
                     <div class="auth-option">
-                        <h4>API Key</h4>
-                        <input type="password" id="apiKeyInput" placeholder="Enter your API key" autocomplete="off" spellcheck="false" />
-                        <button id="authWithApiKey" class="btn btn-primary">Authenticate</button>
+                        <h4 data-i18n="modal.auth.apiKeyTitle">API Key</h4>
+                        <input type="password" id="apiKeyInput" placeholder="Enter your API key" data-i18n-placeholder="modal.auth.apiKeyPlaceholder" autocomplete="off" spellcheck="false" />
+                        <button id="authWithApiKey" class="btn btn-primary" data-i18n="modal.auth.authenticate">Authenticate</button>
                     </div>
 
                     <div class="auth-option">
-                        <h4>OAuth</h4>
-                        <p>Use OAuth for team collaboration.</p>
-                        <button id="authWithOAuth" class="btn btn-secondary">Login with OAuth</button>
+                        <h4 data-i18n="modal.auth.oauthTitle">OAuth</h4>
+                        <p data-i18n="modal.auth.oauthDescription">Use OAuth for team collaboration.</p>
+                        <button id="authWithOAuth" class="btn btn-secondary" data-i18n="modal.auth.oauthLogin">Login with OAuth</button>
                     </div>
                 </div>
 
                 <div class="auth-footer">
-                    <p><strong>For local development:</strong> Set <code>MCP_ALLOW_ANONYMOUS_ACCESS=true</code> in your environment. This grants full read+write access without credentials.</p>
+                    <p data-i18n-html="modal.auth.localDevNote"><strong>For local development:</strong> Set <code>MCP_ALLOW_ANONYMOUS_ACCESS=true</code> in your environment. This grants full read+write access without credentials.</p>
                 </div>
             </div>
         </div>
