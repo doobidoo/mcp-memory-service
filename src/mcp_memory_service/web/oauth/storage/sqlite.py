@@ -119,7 +119,15 @@ class SQLiteOAuthStorage(OAuthStorage):
             Exception: If query execution fails
         """
         conn = await self._get_connection()
-        return await conn.execute(query, params)
+        try:
+            return await conn.execute(query, params)
+        except Exception:
+            # A failed write (e.g. a rejected foreign key) leaves its implicit
+            # transaction open, holding the write lock and blocking every
+            # other process on this file until the next commit. Roll it back.
+            if conn.in_transaction:
+                await conn.rollback()
+            raise
 
     async def _commit(self):
         """

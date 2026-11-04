@@ -144,6 +144,30 @@ async def test_rejected_insert_does_not_block_later_writes(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_rejected_insert_does_not_block_another_worker(tmp_path):
+    """A rejected insert must not leave the write lock held: a second store
+    on the same file (another worker) has to be able to write right away."""
+    db_path = str(tmp_path / "oauth.db")
+    first = create_oauth_storage("sqlite", db_path=db_path)
+    second = create_oauth_storage("sqlite", db_path=db_path)
+    try:
+        await first.store_client(_client("real"))
+        with pytest.raises(sqlite3.IntegrityError):
+            await first.store_access_token(
+                token="orphan-token", client_id="no-such-client", expires_in=300
+            )
+        assert not (await first._get_connection()).in_transaction
+
+        await second.store_access_token(
+            token="second-worker-token", client_id="real", expires_in=300
+        )
+        assert (await _child_counts(second, "real"))["oauth_access_tokens"] == 1
+    finally:
+        await second.close()
+        await first.close()
+
+
+@pytest.mark.asyncio
 async def test_storing_an_existing_client_again_keeps_its_tokens(storage):
     await storage.store_client(_client("steady"))
     await _issue_everything(storage, "steady")
