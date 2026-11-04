@@ -467,6 +467,7 @@
   "modal.settings.theme": "Тема оформления",
   "modal.settings.themeLight": "Светлая",
   "modal.settings.themeDark": "Тёмная",
+  "modal.settings.themeSystem": "Системная",
   "modal.settings.viewDensity": "Плотность отображения",
   "modal.settings.viewDensityComfortable": "Комфортная",
   "modal.settings.viewDensityCompact": "Компактная",

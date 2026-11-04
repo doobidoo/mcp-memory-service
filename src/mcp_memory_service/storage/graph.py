@@ -815,6 +815,41 @@ class GraphStorage:
             logger.error(f"Failed to delete association: {_sanitize_log_value(e)}")
             return False
 
+    async def get_edge_snapshot(self) -> List[Dict[str, str]]:
+        """Read every edge identity and type. Errors propagate to maintenance."""
+        conn = await self._get_connection()
+        async with self._lock:
+            cursor = conn.execute(
+                "SELECT source_hash, target_hash, relationship_type FROM memory_graph"
+            )
+            try:
+                return [dict(row) for row in cursor.fetchall()]
+            finally:
+                cursor.close()
+
+    async def delete_edges_by_relationship_types(
+        self, relationship_types: List[str]
+    ) -> int:
+        """Delete only the requested edge types, returning the number of rows.
+
+        Empty input is a no-op. Database errors propagate rather than presenting
+        a failed deletion as an empty graph.
+        """
+        if not relationship_types:
+            return 0
+        conn = await self._get_connection()
+        placeholders = ",".join("?" for _ in relationship_types)
+        async with self._lock:
+            with conn:
+                cursor = conn.execute(
+                    f"DELETE FROM memory_graph WHERE relationship_type IN ({placeholders})",
+                    relationship_types,
+                )
+                try:
+                    return cursor.rowcount
+                finally:
+                    cursor.close()
+
     async def get_association_count(self, memory_hash: str) -> int:
         """
         Get count of direct associations for a memory.

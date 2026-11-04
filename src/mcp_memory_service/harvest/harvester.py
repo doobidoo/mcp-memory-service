@@ -14,12 +14,23 @@ from .extractor import PatternExtractor
 from .patterns import load_filters
 from ..compat import _sanitize_log_value
 from ..config.locale import get_active_locales
+from ..utils.hashing import generate_content_hash
+from ..utils.time_parser import memory_statement_time, statement_time
 
 logger = logging.getLogger(__name__)
 
 # Provenance: starts at 3 to align with RFC-harvest-provenance phases (provenance tagging,
 # re-harvest safety, session digest). Increment when the harvest pipeline changes materially.
-HARVEST_PIPELINE_VERSION = 3
+# 4: metadata.source_time and time-aware evolution (#1858).
+HARVEST_PIPELINE_VERSION = 4
+
+
+def _mtime_or_zero(path: Path) -> float:
+    """Sort key for session files; a file that vanished sorts first and fails later, where it is handled."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 class SessionHarvester:
@@ -213,39 +224,21 @@ class SessionHarvester:
             return []
 
         results = []
-        for filepath in session_files:
+        # Oldest first within the batch, so a later session's statement evolves
+        # an earlier one and never the other way round (#1858). Which sessions
+        # make up the batch stays the callers' choice (newest pending first).
+        for filepath in sorted(session_files, key=_mtime_or_zero):
             # _harvest_file does synchronous file I/O — offload so the event
             # loop stays responsive when harvest_and_store is called from HTTP.
             result = await asyncio.to_thread(self._harvest_file, filepath, config)
 
             if not config.dry_run and self.memory_service and result.candidates:
-                stored = 0
-                skipped = 0
-                for candidate in result.candidates:
-                    try:
-                        tags, metadata = self._provenance(candidate, result.session_id)
-                        evolved, _new_hash = await self._try_evolve(candidate, config, metadata)
-                        if evolved:
-                            stored += 1
-                        else:
-                            resp = await self.memory_service.store_memory(
-                                content=candidate.content,
-                                tags=tags,
-                                memory_type=candidate.memory_type,
-                                metadata=metadata,
-                            )
-                            if isinstance(resp, dict) and resp.get("success"):
-                                stored += 1
-                            elif isinstance(resp, dict) and resp.get("refused_recreate"):
-                                # #1560: deleted on the server — skipped, not stored,
-                                # not an error.
-                                skipped += 1
-                            elif hasattr(resp, "success") and resp.success:
-                                stored += 1
-                    except Exception as e:
-                        logger.warning("Failed to store harvest candidate: %s", _sanitize_log_value(str(e)))
-                result.stored = stored
-                result.skipped = skipped
+                outcomes = [
+                    await self._store_candidate(candidate, config, result.session_id)
+                    for candidate in result.candidates
+                ]
+                result.stored = outcomes.count("stored")
+                result.skipped = outcomes.count("skipped")
 
             results.append(result)
 
@@ -259,6 +252,33 @@ class SessionHarvester:
             result.coverage = coverage
 
         return results
+
+    async def _store_candidate(self, candidate, config: HarvestConfig, session_id) -> str:
+        """Evolve or store one candidate; returns ``stored``, ``skipped`` or ``failed``."""
+        try:
+            tags, metadata = self._provenance(candidate, session_id)
+            evolved, _new_hash = await self._try_evolve(candidate, config, metadata)
+            if evolved:
+                return "stored"
+            resp = await self.memory_service.store_memory(
+                content=candidate.content,
+                tags=tags,
+                memory_type=candidate.memory_type,
+                metadata=metadata,
+                # An older statement than its closest match is kept next to it.
+                # A conversation_id skips semantic dedup, which would otherwise
+                # reject it against that same match (#1858).
+                conversation_id=f"harvest:{session_id}" if candidate.older_than_match else None,
+            )
+        except Exception as e:
+            logger.warning("Failed to store harvest candidate: %s", _sanitize_log_value(str(e)))
+            return "failed"
+        if isinstance(resp, dict):
+            if resp.get("success"):
+                return "stored"
+            # #1560: deleted on the server — skipped, not stored, not an error.
+            return "skipped" if resp.get("refused_recreate") else "failed"
+        return "stored" if getattr(resp, "success", False) else "failed"
 
     def _format_coverage_summary(self, coverage: dict) -> str:
         """Format coverage report for readable logging."""
@@ -302,7 +322,25 @@ class SessionHarvester:
             "harvest_pipeline_version": HARVEST_PIPELINE_VERSION,
             "harvest_session_id": session_id,
         }
+        source_time = getattr(candidate, "source_time", None)
+        if source_time is not None:
+            # The time belongs to this text only; memory_statement_time ignores it
+            # once an edit has changed the content (#1858).
+            metadata["source_time"] = datetime.fromtimestamp(source_time, tz=timezone.utc).isoformat()
+            metadata["source_content_hash"] = generate_content_hash(candidate.content)
         return tags, metadata
+
+    @staticmethod
+    def _is_older_statement(candidate, existing) -> bool:
+        """True when the candidate was said before the existing memory (#1858).
+
+        Unknown on either side keeps the old behaviour (evolve).
+        """
+        candidate_time = getattr(candidate, "source_time", None)
+        if candidate_time is None:
+            return False
+        existing_time = memory_statement_time(existing)
+        return existing_time is not None and candidate_time < existing_time
 
     async def _try_evolve(
         self,
@@ -340,7 +378,14 @@ class SessionHarvester:
         if not similar or similar[0].relevance_score <= config.similarity_threshold:
             return False, None
 
-        existing_hash = similar[0].memory.content_hash
+        existing = similar[0].memory
+        existing_hash = existing.content_hash
+        if self._is_older_statement(candidate, existing):
+            # An older statement must not become the current version of a newer
+            # memory (#1858). The caller stores it as its own memory instead.
+            logger.debug("Not evolving %s: candidate is the older statement", existing_hash[:8])
+            candidate.older_than_match = True
+            return False, None
         try:
             # Same provenance as the store path. Evolve through the service,
             # not storage.update_memory_versioned(), so the new version gets
@@ -489,6 +534,9 @@ class SessionHarvester:
         rewrite_dropped = 0
         for msg in messages:
             candidates = self.extractor.extract(msg, role_filter=use_role_filter)
+            msg_time = statement_time(msg.timestamp)
+            for candidate in candidates:
+                candidate.source_time = msg_time
             all_candidates.extend(candidates)
 
         # Apply regex-level filters
@@ -529,6 +577,7 @@ class SessionHarvester:
                             source_line=candidate.source_line,
                             harvest_method="llm",
                             harvest_model=_model,
+                            source_time=candidate.source_time,
                         ))
                 logger.info(
                     "LLM rewrite: %d → %d candidates (%d skipped)",
