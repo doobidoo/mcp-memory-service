@@ -134,10 +134,11 @@ class MilvusGraphStorage:
 
     # -- Initialization ------------------------------------------------------
 
-    async def initialize(self) -> None:
-        """Connect to Milvus and ensure the association collection exists."""
+    async def initialize(self, create_if_missing: bool = True) -> None:
+        """Connect, optionally leaving an absent collection untouched for previews."""
         await asyncio.to_thread(self._connect_client)
-        await asyncio.to_thread(self._ensure_collection)
+        if create_if_missing:
+            await asyncio.to_thread(self._ensure_collection)
 
     def _connect_client(self) -> None:
         kwargs: Dict[str, Any] = {"uri": self.uri}
@@ -902,6 +903,39 @@ class MilvusGraphStorage:
                 collection_name=self.collection_name,
                 filter=f"source_hash in [{quoted}] or target_hash in [{quoted}]",
             )
+
+    async def get_edge_snapshot(self) -> List[Dict[str, str]]:
+        """Read every edge identity and type without a per-query row cap."""
+        if not self._ensure_ready():
+            raise RuntimeError("Milvus graph storage is not initialized")
+        if not await self._call_client(
+            "has_collection", collection_name=self.collection_name
+        ):
+            return []
+        return await self._drain_edges(
+            "", ["source_hash", "target_hash", "relationship_type"]
+        )
+
+    async def delete_edges_by_relationship_types(
+        self, relationship_types: List[str]
+    ) -> int:
+        """Delete only the requested edge types. RPC failures propagate."""
+        if not relationship_types:
+            return 0
+        if not self._ensure_ready():
+            raise RuntimeError("Milvus graph storage is not initialized")
+        quoted = ", ".join(
+            f'"{escape_expr_value(value)}"' for value in relationship_types
+        )
+        result = await self._call_client(
+            "delete",
+            collection_name=self.collection_name,
+            filter=f"relationship_type in [{quoted}]",
+        )
+        # Milvus Lite / older servers return the deleted primary keys instead.
+        if isinstance(result, list):
+            return len(result)
+        return int(result.get("delete_count", 0))
 
     async def get_association_count(self, memory_hash: str) -> int:
         """Get count of direct associations for a memory."""
