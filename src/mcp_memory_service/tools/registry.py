@@ -10,6 +10,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# The single source of truth for memory_graph actions. The schema enum below
+# and the write-scope exemption in server_impl both build on this list, so an
+# action added here is everywhere; tests/web/api/test_transport_consistency.py
+# pins the derivation.
+from ..server.handlers.graph import GRAPH_ACTIONS
+
 
 @dataclass(frozen=True)
 class ToolDef:
@@ -1008,8 +1014,12 @@ ACTIONS:
 - connected: Find memories connected via associations (BFS traversal)
 - path: Find shortest path between two memories
 - subgraph: Get graph structure around a memory for visualization
+- extract_entities: Manually extract and store entities for a memory (write). Params: hash (string)
 - infer: Find transitive relationships (A→B→C implies A→C). Params: rel_type (string), max_hops (int, default 2)
 - suggest: Suggest potential relationships for a memory based on shared neighbors. Params: hash (string)
+- abduct: Find plausible common-cause explanations for a memory's relationships. Params: hash (string)
+- list_entities: List known entities. Params: limit (int, default 50)
+- entity_profile: Show memories linked to one entity. Params: entity_name (string)
 
 Examples:
 {"action": "connected", "hash": "abc123", "max_hops": 2}
@@ -1023,7 +1033,7 @@ Examples:
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["connected", "path", "subgraph", "infer", "suggest"],
+                    "enum": list(GRAPH_ACTIONS),
                     "description": "Graph operation to perform",
                 },
                 "hash": {
@@ -1056,6 +1066,15 @@ Examples:
                 "rel_type": {
                     "type": "string",
                     "description": "For 'infer': relationship type to traverse",
+                },
+                "entity_name": {
+                    "type": "string",
+                    "description": "For 'entity_profile': entity to profile",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "For 'list_entities': max entities to return",
                 },
                 "as_of": {
                     "type": "string",
