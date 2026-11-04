@@ -535,6 +535,7 @@
   "modal.settings.theme": "主题",
   "modal.settings.themeLight": "浅色",
   "modal.settings.themeDark": "深色",
+  "modal.settings.themeSystem": "跟随系统",
   "modal.settings.viewDensity": "视图密度",
   "modal.settings.viewDensityComfortable": "舒适",
   "modal.settings.viewDensityCompact": "紧凑",
