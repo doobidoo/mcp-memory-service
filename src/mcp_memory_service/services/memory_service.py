@@ -187,6 +187,19 @@ class StoreMemoryFailure(TypedDict):
     refused_recreate: NotRequired[Dict[str, Any]]
 
 
+def _chunk_metadata(
+    metadata: Dict[str, Any], index: int, total: int, content_hash: str, chunk_hash: str
+) -> Dict[str, Any]:
+    """Metadata for one chunk of a split memory."""
+    chunk_metadata = dict(metadata, chunk_index=index, total_chunks=total, original_hash=content_hash)
+    # source_content_hash names the text a source_time belongs to (#1858). Each
+    # chunk carries the whole text's time, so it must name the chunk, or the
+    # time is read as describing other text.
+    if chunk_metadata.get("source_content_hash") == content_hash:
+        chunk_metadata["source_content_hash"] = chunk_hash
+    return chunk_metadata
+
+
 def _refused_recreate_failure(message: RecreateRefused) -> StoreMemoryFailure:
     """Turn the storage layer's refusal into the entry points' answer (#1560)."""
     return {
@@ -503,10 +516,7 @@ class MemoryService:
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
-                    chunk_metadata = final_metadata.copy()
-                    chunk_metadata["chunk_index"] = i
-                    chunk_metadata["total_chunks"] = len(chunks)
-                    chunk_metadata["original_hash"] = content_hash
+                    chunk_metadata = _chunk_metadata(final_metadata, i, len(chunks), content_hash, chunk_hash)
 
                     memory = Memory(
                         content=chunk,
