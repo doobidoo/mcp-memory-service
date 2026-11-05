@@ -33,7 +33,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import aiosqlite
 
@@ -396,10 +396,16 @@ class SQLiteOAuthStorage(OAuthStorage):
             return False
         # Transparently upgrade legacy plaintext rows to a hash on next use.
         if not is_hashed_secret(client.client_secret):
-            upgraded = client.model_copy(
-                update={"client_secret": hash_client_secret(client_secret)}
-            )
-            await self.store_client(upgraded)
+            # Update the existing row only. An upsert (store_client) would
+            # recreate a client that delete_client removed after the read.
+            async with self._lock:
+                cursor = await self._execute(
+                    "UPDATE oauth_clients SET client_secret = ? WHERE client_id = ?",
+                    (hash_client_secret(client_secret), client_id),
+                )
+                await self._commit()
+            if cursor.rowcount == 0:
+                return False
             logger.debug("Upgraded legacy plaintext client secret to hash")
         return True
 
@@ -750,6 +756,85 @@ class SQLiteOAuthStorage(OAuthStorage):
             )
             await self._commit()
             return cursor.rowcount > 0
+
+    async def list_clients(self) -> List[Dict]:
+        """List registered clients (no secrets) with refresh-token activity."""
+        async with self._lock:
+            cursor = await self._execute(
+                """
+                SELECT c.client_id, c.client_name, c.token_endpoint_auth_method,
+                       c.created_at,
+                       (SELECT COUNT(*) FROM oauth_refresh_tokens r
+                         WHERE r.client_id = c.client_id
+                           AND r.revoked = 0 AND r.expires_at > ?) AS active_refresh_tokens,
+                       (SELECT MAX(r.created_at) FROM oauth_refresh_tokens r
+                         WHERE r.client_id = c.client_id) AS last_refresh_token_at
+                FROM oauth_clients c
+                ORDER BY c.created_at DESC
+                """,
+                (time.time(),),
+            )
+            rows = await cursor.fetchall()
+            return [
+                {
+                    "client_id": row["client_id"],
+                    "client_name": row["client_name"],
+                    "token_endpoint_auth_method": row["token_endpoint_auth_method"],
+                    "created_at": row["created_at"],
+                    "active_refresh_tokens": row["active_refresh_tokens"],
+                    "last_refresh_token_at": row["last_refresh_token_at"],
+                }
+                for row in rows
+            ]
+
+    async def delete_client(self, client_id: str) -> Optional[Dict[str, int]]:
+        """
+        Delete a client; ON DELETE CASCADE removes its codes and tokens.
+
+        Returns how many authorization codes, access tokens and refresh
+        tokens went with it, or None for an unknown client. BEGIN IMMEDIATE
+        takes the write lock before counting, so another process (the
+        running server) cannot add a token between the count and the delete.
+        """
+        async with self._lock:
+            conn = await self._get_connection()
+            try:
+                if not conn.in_transaction:
+                    await self._execute("BEGIN IMMEDIATE")
+                counts = {}
+                for key, table in (
+                    ("authorization_codes", "oauth_authorization_codes"),
+                    ("access_tokens", "oauth_access_tokens"),
+                    ("refresh_tokens", "oauth_refresh_tokens"),
+                ):
+                    cur = await self._execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE client_id = ?",
+                        (client_id,),
+                    )
+                    counts[key] = (await cur.fetchone())[0]
+                cur = await self._execute(
+                    "DELETE FROM oauth_clients WHERE client_id = ?",
+                    (client_id,),
+                )
+                if cur.rowcount == 0:
+                    await conn.rollback()
+                    return None
+                await self._commit()
+            except BaseException:
+                # BaseException: a cancelled task must not leave BEGIN
+                # IMMEDIATE open, holding the write lock for every process.
+                await conn.rollback()
+                raise
+
+            logger.info(
+                "Deleted OAuth client %s (%d authorization codes, %d access tokens, "
+                "%d refresh tokens)",
+                _sanitize_log_value(client_id),
+                counts["authorization_codes"],
+                counts["access_tokens"],
+                counts["refresh_tokens"],
+            )
+            return counts
 
     async def cleanup_expired(self) -> Dict[str, int]:
         """

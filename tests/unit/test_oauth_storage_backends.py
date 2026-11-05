@@ -493,6 +493,172 @@ class TestOAuthStorageBackends:
         assert sum(1 for r in results if r is False) == 9
 
 
+def _client(client_id, created_at, name=None):
+    return RegisteredClient(
+        client_id=client_id,
+        client_secret=f"secret_{client_id}",
+        redirect_uris=["https://example.com/cb"],
+        client_name=name,
+        created_at=created_at,
+    )
+
+
+def _own(clients):
+    """Drop the client the shared fixture registers."""
+    return [c for c in clients if c["client_id"] != "client_1"]
+
+
+class TestClientAdmin:
+    """list_clients / delete_client on every backend."""
+
+    @pytest.mark.asyncio
+    async def test_list_clients_empty(self, storage):
+        assert _own(await storage.list_clients()) == []
+
+    @pytest.mark.asyncio
+    async def test_list_clients_reports_activity_without_secrets(self, storage):
+        now = time.time()
+        await storage.store_client(_client("old", now - 100, name="Old"))
+        await storage.store_client(_client("new", now, name="New"))
+        await storage.store_refresh_token(token="rt_live", client_id="old", expires_in=3600)
+        await storage.store_refresh_token(token="rt_revoked", client_id="old", expires_in=3600)
+        await storage.revoke_refresh_token("rt_revoked")
+        await storage.store_refresh_token(token="rt_expired", client_id="old", expires_in=-1)
+
+        clients = _own(await storage.list_clients())
+
+        assert [c["client_id"] for c in clients] == ["new", "old"]
+        for c in clients:
+            assert "client_secret" not in c
+            values = [str(v) for v in c.values()]
+            assert not any(f"secret_{c['client_id']}" in v for v in values)
+            assert not any("sha256$" in v for v in values)
+        new, old = clients
+        assert new["client_name"] == "New"
+        assert new["active_refresh_tokens"] == 0
+        assert new["last_refresh_token_at"] is None
+        assert old["active_refresh_tokens"] == 1
+        assert old["last_refresh_token_at"] == pytest.approx(time.time(), abs=60)
+        assert old["token_endpoint_auth_method"] == "client_secret_basic"
+
+    @pytest.mark.asyncio
+    async def test_delete_client_removes_client_codes_and_tokens(self, storage):
+        now = time.time()
+        await storage.store_client(_client("gone", now))
+        await storage.store_client(_client("kept", now))
+        for cid in ("gone", "kept"):
+            await storage.store_authorization_code(code=f"code_{cid}", client_id=cid)
+            await storage.store_access_token(token=f"at_{cid}", client_id=cid)
+            await storage.store_refresh_token(token=f"rt1_{cid}", client_id=cid)
+            await storage.store_refresh_token(token=f"rt2_{cid}", client_id=cid, parent_token=f"rt1_{cid}")
+        await storage.revoke_refresh_token("rt1_gone")
+
+        counts = await storage.delete_client("gone")
+
+        assert counts == {"authorization_codes": 1, "access_tokens": 1, "refresh_tokens": 2}
+        assert await storage.get_client("gone") is None
+        assert await storage.authenticate_client("gone", "secret_gone") is False
+        assert await storage.get_authorization_code("code_gone") is None
+        assert await storage.get_access_token("at_gone") is None
+        assert await storage.get_refresh_token("rt2_gone") is None
+        assert [c["client_id"] for c in _own(await storage.list_clients())] == ["kept"]
+
+        # The other client is untouched.
+        assert await storage.authenticate_client("kept", "secret_kept") is True
+        assert await storage.get_access_token("at_kept") is not None
+        assert await storage.get_refresh_token("rt2_kept") is not None
+        assert await storage.get_authorization_code("code_kept") is not None
+
+    @pytest.mark.asyncio
+    async def test_delete_unknown_client_returns_none(self, storage):
+        await storage.store_client(_client("kept", time.time()))
+        await storage.store_refresh_token(token="rt_kept", client_id="kept")
+
+        assert await storage.delete_client("missing") is None
+        assert await storage.get_client("kept") is not None
+        assert await storage.get_refresh_token("rt_kept") is not None
+
+    @pytest.mark.asyncio
+    async def test_delete_client_twice(self, storage):
+        await storage.store_client(_client("once", time.time()))
+        assert await storage.delete_client("once") == {
+            "authorization_codes": 0, "access_tokens": 0, "refresh_tokens": 0,
+        }
+        assert await storage.delete_client("once") is None
+
+    @pytest.mark.asyncio
+    async def test_delete_client_already_deleted_by_other_connection(self, storage):
+        """A second process that lost the race reports the client as unknown."""
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend has no second process")
+        await storage.store_client(_client("raced", time.time()))
+        other = create_oauth_storage("sqlite", db_path=storage.db_path)
+        try:
+            assert await other.delete_client("raced") is not None
+        finally:
+            await other.close()
+        assert await storage.delete_client("raced") is None
+
+    @pytest.mark.asyncio
+    async def test_secret_upgrade_does_not_recreate_deleted_client(self, storage):
+        """A client deleted between authenticate_client's read and its
+        plaintext-secret upgrade must stay deleted."""
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend reads and upgrades without yielding")
+        await storage.store_client(_client("legacy", time.time()))
+        await storage._execute(
+            "UPDATE oauth_clients SET client_secret = ? WHERE client_id = ?",
+            ("plaintext", "legacy"),
+        )
+        await storage._commit()
+        real_get = storage.get_client
+
+        async def get_then_delete(client_id):
+            client = await real_get(client_id)
+            other = create_oauth_storage("sqlite", db_path=storage.db_path)
+            try:
+                assert await other.delete_client(client_id) is not None
+            finally:
+                await other.close()
+            return client
+
+        storage.get_client = get_then_delete
+        try:
+            assert await storage.authenticate_client("legacy", "plaintext") is False
+        finally:
+            del storage.get_client
+        assert await storage.get_client("legacy") is None
+
+    @pytest.mark.asyncio
+    async def test_cancelled_delete_releases_write_lock(self, storage):
+        """A cancelled delete_client must roll back BEGIN IMMEDIATE, or every
+        other connection is locked out of writing."""
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend has no transactions")
+        await storage.store_client(_client("held", time.time()))
+        real_execute = storage._execute
+
+        async def cancel_on_delete(query, params=()):
+            if query.startswith("DELETE FROM oauth_clients"):
+                raise asyncio.CancelledError()
+            return await real_execute(query, params)
+
+        storage._execute = cancel_on_delete
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await storage.delete_client("held")
+        finally:
+            del storage._execute
+
+        assert not (await storage._get_connection()).in_transaction
+        other = create_oauth_storage("sqlite", db_path=storage.db_path)
+        try:
+            await other.store_access_token(token="after", client_id="held", expires_in=60)
+        finally:
+            await other.close()
+        assert await storage.get_client("held") is not None
+
+
 class TestSQLiteSpecific:
     """SQLite-specific tests (persistence, multi-process)."""
 
