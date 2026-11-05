@@ -492,6 +492,15 @@ async def handle_maintain(server, arguments: dict) -> List[types.TextContent]:
         report["errors"].append(f"conflicts: {e}")
         report["steps"]["conflicts"] = {"error": str(e)}
 
+    # Step 2b: clear conflict:unresolved tags whose conflict is gone (#1840). After
+    # auto-resolve, and guarded on its own so a failure keeps the totals above.
+    try:
+        stale_tags = await storage.reconcile_conflict_tags(dry_run=dry_run)
+    except Exception as e:
+        report["errors"].append(f"conflict_tags: {e}")
+        stale_tags = {"error": str(e)}
+    report["steps"].setdefault("conflicts", {})["stale_tags"] = stale_tags
+
     # Step 3: Stale memory detection
     try:
         stale_count = await storage.count_all_memories(stale_days=config["stale_days"])
