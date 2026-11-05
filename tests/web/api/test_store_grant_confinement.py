@@ -129,13 +129,35 @@ def test_store_grant_cannot_search_across_partitions(make_client):
     assert _refused(response)
 
 
+@pytest_asyncio.fixture
+async def beliefs_in_two_stores(storage):
+    """One belief backed by a projectA memory, one by a projectB memory."""
+    from datetime import datetime, timezone
+
+    from mcp_memory_service.consolidation.belief_service import BeliefService
+
+    svc = BeliefService(storage)
+    for store, text in (("projectA", "alpha deploys nightly"), ("projectB", "bravo deploys weekly")):
+        memory = Memory(content=text, content_hash=generate_content_hash(text), tags=["t"])
+        ok, _ = await storage.store(memory, store=store)
+        assert ok
+        await svc._create_belief(
+            f"belief-{store}", f"Belief from {store}", 0.9, "active",
+            [memory.content_hash], [], datetime.now(timezone.utc),
+        )
+
+
 @pytest.mark.integration
-def test_store_grant_searches_with_beliefs_in_its_own_store(make_client):
+def test_store_grant_searches_with_beliefs_in_its_own_store(make_client, beliefs_in_two_stores):
     # Beliefs are filtered by the claimed store since #1877.
     client = make_client("read:projectA")
-    response = _call(client, "memory_search", {"query": "x", "store": "projectA", "include_beliefs": True})
+    response = _call(client, "memory_search", {"query": "deploys", "store": "projectA", "include_beliefs": True})
     assert response.status_code == 200
-    assert "error" not in response.json()
+    body = response.json()
+    assert "error" not in body
+    text = "".join(c.get("text", "") for c in body["result"]["content"])
+    assert "Belief from projectA" in text
+    assert "Belief from projectB" not in text
 
 
 @pytest.mark.integration
