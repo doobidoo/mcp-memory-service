@@ -21,6 +21,14 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# A memory counts as untagged when its tag column is NULL, empty, or nothing
+# but whitespace. Shared by the count and the delete so the confirmation count
+# the caller is held to and the rows that go are decided by one predicate.
+_UNTAGGED_PREDICATE = (
+    "(tags IS NULL OR tags = '' OR length(trim(tags)) = 0) AND deleted_at IS NULL"
+)
+
+
 class DeleteMixin:
     """Mixin providing memory deletion operations."""
 
@@ -513,6 +521,102 @@ class DeleteMixin:
             error_msg = f"Failed to delete by tags: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg, []
+
+    async def count_untagged_memories(self) -> int:
+        """Count live memories that carry no tags."""
+        if not self.conn:
+            return 0
+
+        def _count_untagged():
+            cursor = self.conn.execute(
+                f'SELECT COUNT(*) FROM memories WHERE {_UNTAGGED_PREDICATE}'
+            )
+            return cursor.fetchone()[0]
+
+        return await self._execute_with_retry(_count_untagged)
+
+    async def delete_untagged_memories(self) -> Tuple[int, str]:
+        """Soft-delete every memory that carries no tags.
+
+        The tombstone is only part of a delete on this backend: graph edges
+        have to go with it, beliefs and summaries built on these hashes have
+        to be retracted (#1865), delta-sync peers need a delete event each,
+        and all of it belongs in one transaction under the connection lock —
+        the same shape as :meth:`delete_by_tags`.
+        """
+        try:
+            if not self.conn:
+                return 0, "Database not initialized"
+
+            def _delete_untagged():
+                cursor = self.conn.execute(
+                    f'SELECT id, content_hash FROM memories WHERE {_UNTAGGED_PREDICATE}'
+                )
+                rows = cursor.fetchall()
+                memory_ids = [row[0] for row in rows]
+                hashes = [row[1] for row in rows]
+
+                if not memory_ids:
+                    return 0
+
+                placeholders = ','.join('?' for _ in memory_ids)
+                try:
+                    self.conn.execute(f'DELETE FROM memory_embeddings WHERE rowid IN ({placeholders})', memory_ids)
+                except Exception as vec_err:
+                    logger.warning(
+                        "Batch embedding delete failed (%s) — retrying per-row to skip corrupted blobs.",
+                        _sanitize_log_value(vec_err),
+                    )
+                    for mid in memory_ids:
+                        try:
+                            self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (mid,))
+                        except Exception as row_err:
+                            logger.warning("Could not delete embedding rowid=%s (corrupted blob?): %s", mid, _sanitize_log_value(row_err))
+
+                for ch in hashes:
+                    self.conn.execute(
+                        'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                        (ch, ch)
+                    )
+
+                deleted_at = time.time()
+                cursor = self.conn.execute(
+                    f'UPDATE memories SET deleted_at = ? WHERE {_UNTAGGED_PREDICATE}',
+                    (deleted_at,)
+                )
+                if cursor.rowcount > 0:
+                    retract_sources_for_deleted_hashes(self.conn, hashes, sync=self)
+
+                    # One event per hash, between UPDATE and commit (ADR-0008),
+                    # so a delta-sync peer sees these deletes like any other.
+                    if hasattr(self, '_append_sync_event'):
+                        for ch in hashes:
+                            self._append_sync_event(
+                                self.conn, 'delete', ch,
+                                {'content_hash': ch, 'deleted_at': deleted_at},
+                            )
+
+                self.conn.commit()
+                return cursor.rowcount
+
+            def _guarded_delete_untagged():
+                return self._guard_delete(_delete_untagged)
+
+            count = await self._execute_with_retry(_guarded_delete_untagged)
+            logger.info("Soft-deleted %s memories without tags", count)
+
+            if count > 0:
+                return count, (
+                    f"Successfully soft-deleted {count} memories without tags "
+                    f"(tombstones created for multi-PC sync)"
+                )
+            return 0, "No untagged memories found"
+
+        except Exception as e:
+            await self._rollback_quietly()
+            error_msg = f"Failed to delete untagged memories: {str(e)}"
+            logger.error("%s", _sanitize_log_value(error_msg))
+            return 0, error_msg
 
     async def delete_by_timeframe(self, start_date: date, end_date: date, tag: Optional[str] = None) -> Tuple[int, str]:
         """Delete memories within a specific date range."""
