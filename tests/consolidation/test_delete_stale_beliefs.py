@@ -7,6 +7,7 @@ and association memories stale. They fail on main, where only memory_graph
 is cleaned.
 """
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -781,5 +782,129 @@ async def test_losing_peer_delete_cleanup_failure_rolls_back(
         assert "lost conflict" in retried.reason
         assert _event_saved(storage, "del-loser") is True
         _assert_retracted(storage, seeded)
+    finally:
+        await storage.close()
+
+
+def _raise_on_citation_cleanup(monkeypatch):
+    import mcp_memory_service.storage.mixins.delete as delete_mod
+
+    def _boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("citation cleanup failed")
+
+    monkeypatch.setattr(delete_mod, "retract_sources_for_deleted_hashes", _boom)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["delete", "tag", "tags"])
+async def test_failed_delete_rolls_back_before_another_waiter_can_commit(
+    temp_db_path, monkeypatch, how
+):
+    """Cleanup raises after the tombstone write. A waiter that grabs the
+    connection lock next must not be able to commit that tombstone."""
+    _raise_on_citation_cleanup(monkeypatch)
+    storage = await _storage(temp_db_path, f"rollback-lock-{how}.db")
+    try:
+        seeded = await _seed(storage)
+        gone = seeded["gone"]
+        real_run = storage._run_in_thread
+        seen = {}
+
+        async def _run_then_commit(operation, *args):
+            try:
+                return await real_run(operation, *args)
+            except Exception:
+                def _steal():
+                    with storage._conn_lock:
+                        storage.conn.commit()
+                        row = storage.conn.execute(
+                            "SELECT deleted_at FROM memories WHERE content_hash = ?",
+                            (gone,),
+                        ).fetchone()
+                        seen["deleted_at"] = row[0]
+
+                await asyncio.to_thread(_steal)
+                raise
+
+        storage._run_in_thread = _run_then_commit
+        if how == "delete":
+            ok, _message = await storage.delete(gone)
+            assert ok is False
+        elif how == "tag":
+            count, _message = await storage.delete_by_tag("drop-me")
+            assert count == 0
+        else:
+            count, _message, hashes = await storage.delete_by_tags(["drop-me"])
+            assert count == 0
+            assert hashes == []
+
+        assert seen["deleted_at"] is None
+        deleted_at = storage.conn.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?", (gone,)
+        ).fetchone()[0]
+        assert deleted_at is None
+        orphan = _read_belief(storage, seeded["orphan"])
+        assert orphan["status"] == "active"
+        assert gone in orphan["derived_from"]
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_derive_does_not_restore_sources_deleted_after_load(temp_db_path):
+    """Observations loaded for derivation can be deleted before the write.
+
+    Cleanup has already marked the belief ungrounded. Writing the cached
+    hashes back would promote it with nothing live behind them.
+    """
+    storage = await _storage(temp_db_path, "stale-derive.db")
+    try:
+        content = "The NAS share is the backup target at 02:00 UTC."
+        second_text = "The NAS share is the backup target at 02:00 UTC, confirmed."
+        first = await _store(
+            storage,
+            content,
+            memory_type="observation",
+            metadata={"observation_type": "user_correction"},
+        )
+        second = await _store(
+            storage,
+            second_text,
+            memory_type="observation",
+            metadata={"observation_type": "user_correction"},
+        )
+        now = datetime.now(timezone.utc)
+        belief_hash = _hash_content(content)
+        service = BeliefService(storage)
+        await service._create_belief(
+            belief_hash, content, 0.8, "active", [first, second], [], now
+        )
+        first_obs = await storage.get_by_hash(first)
+        second_obs = await storage.get_by_hash(second)
+
+        ok, message = await storage.delete(second)
+        assert ok, message
+        stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0}
+        await service._derive_group_belief(
+            content, [first_obs, second_obs], now, stats
+        )
+        partial = _read_belief(storage, belief_hash)
+        assert partial["derived_from"] == [first]
+        assert second not in partial["derived_from"]
+        assert partial["status"] == "active"
+        assert stats["promoted"] == 0
+
+        ok, message = await storage.delete(first)
+        assert ok, message
+        stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0}
+        await service._derive_group_belief(
+            content, [first_obs, second_obs], now, stats
+        )
+        emptied = _read_belief(storage, belief_hash)
+        assert emptied["status"] == "ungrounded"
+        assert emptied["derived_from"] == []
+        assert stats["promoted"] == 0
+        visible = {item["belief_hash"] for item in await service.get_beliefs()}
+        assert belief_hash not in visible
     finally:
         await storage.close()

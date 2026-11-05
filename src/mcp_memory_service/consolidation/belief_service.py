@@ -22,7 +22,11 @@ from .belief import (
     should_supersede,
 )
 from ..compat import _sanitize_log_value
-from ..storage.source_retraction import union_live_merged_sources
+from ..storage.source_retraction import (
+    UNGROUNDED_STATUS,
+    live_memory_hashes,
+    union_live_merged_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +191,30 @@ def _status_after_source_restore(
     return None
 
 
+def _status_for_live_evidence(status, confidence, support_count, has_evidence):
+    """Status to store after a derivation re-checks which sources are still live.
+
+    No remaining evidence stays ``ungrounded`` (a dedup ``superseded`` row stays
+    what it is). Live evidence uses the same promotion rules as a candidate.
+    """
+    if not has_evidence:
+        if status == "superseded":
+            return "superseded"
+        return UNGROUNDED_STATUS
+    restored = _status_after_source_restore(status, confidence, support_count)
+    if restored is None:
+        return status
+    return restored
+
+
+def _hash_is_live(source, live) -> bool:
+    return isinstance(source, str) and bool(source) and source in live
+
+
+def _has_live_hash(items) -> bool:
+    return any(isinstance(item, str) and item for item in items or [])
+
+
 def _sum_numeric_counters(target: dict, source: dict) -> None:
     """Add source's numeric counters into target in place (bool excluded).
 
@@ -307,21 +335,20 @@ class BeliefService:
         existing = await self._get_belief(belief_hash)
 
         if existing:
-            await self._update_belief(
-                belief_hash, confidence, supporting_hashes, contradicting_hashes, now
+            # Re-read liveness under the connection lock. The observations
+            # above were loaded earlier; a delete in between has already
+            # marked this belief ungrounded, and writing the cached hashes
+            # back would promote it with no live evidence.
+            outcome = await self._rewrite_belief_from_live_sources(
+                belief_hash, obs_dicts, contradicting, now
             )
+            if outcome is None:
+                return
             stats["updated"] += 1
-            new_status = _status_after_source_restore(
-                existing["status"], confidence, len(supporting_hashes)
-            )
-            if new_status is not None:
-                changed = await self._set_belief_status(
-                    belief_hash, new_status, now, expected_status=existing["status"]
-                )
-                if new_status == "active":
-                    stats["promoted"] += changed
-                elif new_status == "superseded":
-                    stats["superseded"] += changed
+            if outcome == "promoted":
+                stats["promoted"] += 1
+            elif outcome == "superseded":
+                stats["superseded"] += 1
         else:
             # Create new candidate
             status = "active" if should_promote(confidence, len(supporting_hashes)) else "candidate"
@@ -1072,6 +1099,110 @@ class BeliefService:
                 ),
             )
             conn.commit()
+
+    async def _rewrite_belief_from_live_sources(
+        self, belief_hash, obs_dicts, contradicting, now
+    ):
+        """Write sources, confidence, and status from hashes that are still live.
+
+        One connection-lock critical section, so a delete cannot commit between
+        the liveness read and the belief update. Returns ``promoted``,
+        ``superseded``, ``updated``, or None when the belief row is gone.
+        """
+        return await asyncio.to_thread(
+            self._rewrite_belief_from_live_sources_sync,
+            belief_hash, obs_dicts, contradicting, now,
+        )
+
+    def _rewrite_belief_from_live_sources_sync(
+        self, belief_hash, obs_dicts, contradicting, now
+    ):
+        with self._conn_lock_cm():
+            conn = self.storage.conn
+            row = conn.execute(
+                "SELECT status FROM beliefs WHERE belief_hash = ?", (belief_hash,)
+            ).fetchone()
+            if row is None:
+                return None
+            status = row[0]
+            supporting_hashes = [
+                obs.get("content_hash", "") for obs in obs_dicts or []
+            ]
+            contradicting_hashes = [
+                item.get("content_hash", "") for item in contradicting or []
+            ]
+            live_support, live_contra, support_obs, contra_obs = (
+                self._live_derivation_inputs(
+                    conn, supporting_hashes, contradicting_hashes,
+                    obs_dicts, contradicting,
+                )
+            )
+            confidence = derive_confidence(
+                supporting=support_obs,
+                contradicting=contra_obs,
+                current_time=now,
+                lambda_weight=LAMBDA,
+            )
+            derived, meta, write_meta = self._provenance_for_update(
+                conn, belief_hash, live_support
+            )
+            has_evidence = _has_live_hash(derived) or _has_live_hash(live_contra)
+            new_status = _status_for_live_evidence(
+                status, confidence, len(live_support), has_evidence
+            )
+            self._write_belief_evidence(
+                conn, belief_hash, confidence, derived, live_contra, now,
+                meta, write_meta, new_status,
+            )
+            if new_status == "active" and status != "active":
+                return "promoted"
+            if new_status == "superseded" and status != "superseded":
+                return "superseded"
+            return "updated"
+
+    def _live_derivation_inputs(
+        self, conn, supporting_hashes, contradicting_hashes, obs_dicts, contradicting
+    ):
+        """Drop hashes whose memory row is gone. None means liveness cannot be asked."""
+        live = live_memory_hashes(conn, list(supporting_hashes) + list(contradicting_hashes))
+        if live is None:
+            return supporting_hashes, contradicting_hashes, obs_dicts or [], contradicting or []
+        live_support = [h for h in supporting_hashes if _hash_is_live(h, live)]
+        live_contra = [h for h in contradicting_hashes if _hash_is_live(h, live)]
+        support_obs = [
+            obs for obs in obs_dicts or []
+            if _hash_is_live(obs.get("content_hash", ""), live)
+        ]
+        contra_obs = [
+            item for item in contradicting or []
+            if _hash_is_live(item.get("content_hash", ""), live)
+        ]
+        return live_support, live_contra, support_obs, contra_obs
+
+    def _write_belief_evidence(
+        self, conn, belief_hash, confidence, derived, contradicted, now,
+        meta, write_meta, status,
+    ):
+        """Commit provenance, confidence, and status together."""
+        when = now.isoformat()
+        derived_json = json.dumps(derived)
+        contradicted_json = json.dumps(contradicted)
+        if write_meta:
+            conn.execute(
+                "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, "
+                "metadata = ?, status = ?, updated_at = ? WHERE belief_hash = ?",
+                (
+                    confidence, derived_json, contradicted_json, json.dumps(meta),
+                    status, when, belief_hash,
+                ),
+            )
+        else:
+            conn.execute(
+                "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, "
+                "status = ?, updated_at = ? WHERE belief_hash = ?",
+                (confidence, derived_json, contradicted_json, status, when, belief_hash),
+            )
+        conn.commit()
 
     async def _update_belief(self, belief_hash, confidence, supporting_hashes, contradicting_hashes, now):
         """Update an existing belief's confidence and provenance.

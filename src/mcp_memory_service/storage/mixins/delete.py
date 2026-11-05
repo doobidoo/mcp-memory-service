@@ -38,6 +38,31 @@ class DeleteMixin:
             # to undo. A connection closed in between raises the same error.
             logger.debug("Delete rollback skipped: %s", _sanitize_log_value(exc))
 
+    def _abort_open_delete(self) -> None:
+        """Roll back a delete before the worker releases the connection lock.
+
+        Citation cleanup runs after the tombstone update and before commit.
+        Rolling back only after ``_execute_with_retry`` returns lets another
+        waiter take ``_conn_lock`` and commit the shared connection first.
+        The caller then sees a failed delete whose tombstone is already saved.
+        """
+        try:
+            if self.conn is None:
+                return
+            # A connection double without in_transaction still gets rollback.
+            if getattr(self.conn, "in_transaction", True):
+                self.conn.rollback()
+        except sqlite3.Error as exc:
+            logger.error("Could not roll back delete: %s", _sanitize_log_value(exc))
+
+    def _guard_delete(self, operation):
+        """Run a delete body and undo it before the connection lock drops."""
+        try:
+            return operation()
+        except Exception:
+            self._abort_open_delete()
+            raise
+
     async def get_sync_state_for_hash(
         self, content_hash: str
     ) -> tuple[float | None, float | None] | None:
@@ -236,7 +261,10 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            rowcount = await self._execute_with_retry(_delete_memory)
+            def _guarded_delete():
+                return self._guard_delete(_delete_memory)
+
+            rowcount = await self._execute_with_retry(_guarded_delete)
             if rowcount is None:
                 return False, f"Memory with hash {content_hash} not found"
             if rowcount > 0:
@@ -388,7 +416,10 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount
 
-            count = await self._execute_with_retry(_delete_by_tag)
+            def _guarded_delete_by_tag():
+                return self._guard_delete(_delete_by_tag)
+
+            count = await self._execute_with_retry(_guarded_delete_by_tag)
             logger.info("Soft-deleted %s memories with tag: %s", count, _sanitize_log_value(tag))
 
             if count > 0:
@@ -457,7 +488,10 @@ class DeleteMixin:
                 self.conn.commit()
                 return cursor.rowcount, hashes
 
-            count, deleted_hashes = await self._execute_with_retry(_delete_by_tags)
+            def _guarded_delete_by_tags():
+                return self._guard_delete(_delete_by_tags)
+
+            count, deleted_hashes = await self._execute_with_retry(_guarded_delete_by_tags)
             logger.info("Soft-deleted %s memories matching tags: %s", count, _sanitize_log_value(tags))
 
             if count > 0:
