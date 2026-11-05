@@ -85,7 +85,7 @@
   <section class="sec" id="install">
     <div class="wrap locale-install">
       <h2>Claude Codeにセットアップする</h2>
-      <p class="lede">Python 3.10以降と、インストール済みのClaude Codeクライアントが必要です。他のクライアントもMCP経由で接続できます。設定方法は英語のガイドに記載されています。</p>
+      <p class="lede">Python 3.11以降と、インストール済みのClaude Codeクライアントが必要です。他のクライアントもMCP経由で接続できます。設定方法は英語のガイドに記載されています。</p>
       <ol class="install-steps">
         <li><h3>Memory Serviceをインストール</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>クライアントからコマンドを利用できるPython環境に、パッケージをインストールします。</p></li>
         <li><h3>MCPサーバーとして追加</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>プロジェクトのディレクトリでコマンドを実行し、Claude Codeを再起動してください。初回起動時にローカルのEmbeddingモデルがダウンロードされます。</p></li>

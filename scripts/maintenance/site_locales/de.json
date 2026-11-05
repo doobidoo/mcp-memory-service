@@ -27,7 +27,7 @@
   "case_3_title": "Selbst hosten",
   "case_3_text": "Starte lokal mit SQLite und Vektorsuche. Für diesen Betrieb brauchst du weder einen Cloud-Speicherdienst noch einen kostenpflichtigen Embedding-API-Schlüssel.",
   "install_heading": "In Claude Code einrichten",
-  "install_intro": "Du brauchst Python 3.10 oder neuer und einen installierten Claude-Code-Client. Andere Clients lassen sich ebenfalls über MCP anbinden; die englische Anleitung beschreibt die Konfiguration.",
+  "install_intro": "Du brauchst Python 3.11 oder neuer und einen installierten Claude-Code-Client. Andere Clients lassen sich ebenfalls über MCP anbinden; die englische Anleitung beschreibt die Konfiguration.",
   "step_1_title": "Memory Service installieren",
   "step_1_text": "Installiere das Paket in einer Python-Umgebung, deren Befehle für deinen Client erreichbar sind.",
   "step_2_title": "Als MCP-Server hinzufügen",
