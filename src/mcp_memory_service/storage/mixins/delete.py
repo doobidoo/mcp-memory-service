@@ -7,6 +7,8 @@ import time
 from datetime import datetime, date
 from typing import List, Tuple, Optional
 
+from ..source_retraction import retract_sources_for_deleted_hashes
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,17 @@ def _escape_like(value: str) -> str:
 
 class DeleteMixin:
     """Mixin providing memory deletion operations."""
+
+    async def _rollback_quietly(self) -> None:
+        """Drop an open delete transaction after a failure.
+
+        The belief/summary retraction runs before commit. A failure there has
+        to undo the tombstone too, or the next statement inherits it.
+        """
+        try:
+            await self._run_in_thread(self.conn.rollback)
+        except sqlite3.OperationalError:
+            pass
 
     async def get_sync_state_for_hash(
         self, content_hash: str
@@ -115,6 +128,7 @@ class DeleteMixin:
                                     'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
                                     (content_hash, content_hash),
                                 )
+                                retract_sources_for_deleted_hashes(self.conn, [content_hash])
                                 if hasattr(self, '_append_sync_event'):
                                     self._append_sync_event(
                                         self.conn,
@@ -205,6 +219,8 @@ class DeleteMixin:
                     update_sql += ' AND store = ?'
                     update_params.append(store)
                 cursor = self.conn.execute(update_sql, tuple(update_params))
+                if cursor.rowcount > 0:
+                    retract_sources_for_deleted_hashes(self.conn, [content_hash])
 
                 # Append sync event between UPDATE and commit (ADR-0008)
                 if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
@@ -227,10 +243,7 @@ class DeleteMixin:
                 return False, f"Memory with hash {content_hash} not found"
 
         except Exception as e:
-            try:
-                await self._run_in_thread(self.conn.rollback)
-            except sqlite3.OperationalError:
-                pass
+            await self._rollback_quietly()
             error_msg = f"Failed to delete memory: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
             return False, error_msg
@@ -367,6 +380,8 @@ class DeleteMixin:
                     "UPDATE memories SET deleted_at = ? WHERE (',' || tags || ',') LIKE ? ESCAPE '\\' AND deleted_at IS NULL",
                     (time.time(), exact_match_pattern)
                 )
+                if cursor.rowcount > 0:
+                    retract_sources_for_deleted_hashes(self.conn, content_hashes)
                 self.conn.commit()
                 return cursor.rowcount
 
@@ -379,6 +394,7 @@ class DeleteMixin:
                 return 0, f"No memories found with tag '{tag}'"
 
         except Exception as e:
+            await self._rollback_quietly()
             error_msg = f"Failed to delete by tag: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg
@@ -433,6 +449,8 @@ class DeleteMixin:
                     )
 
                 cursor = self.conn.execute(update_query, [time.time()] + params + store_param)
+                if cursor.rowcount > 0:
+                    retract_sources_for_deleted_hashes(self.conn, hashes)
                 self.conn.commit()
                 return cursor.rowcount, hashes
 
@@ -445,6 +463,7 @@ class DeleteMixin:
                 return 0, f"No memories found matching any of the {len(tags)} tags", []
 
         except Exception as e:
+            await self._rollback_quietly()
             error_msg = f"Failed to delete by tags: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg, []

@@ -22,6 +22,7 @@ from .belief import (
     should_supersede,
 )
 from ..compat import _sanitize_log_value
+from ..storage.source_retraction import union_live_merged_sources
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +365,11 @@ class BeliefService:
     async def get_beliefs(
         self, status: str = "active", min_confidence: float = CONFIDENCE_FLOOR
     ) -> List[dict]:
-        """Get beliefs without waiting for the connection lock on the event loop."""
+        """Get beliefs without waiting for the connection lock on the event loop.
+
+        The default status is ``active``. A belief left with no live sources is
+        stored as ``ungrounded`` and stays out of this read.
+        """
         return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence)
 
     def _get_beliefs_sync(self, status, min_confidence):
@@ -1068,28 +1073,67 @@ class BeliefService:
         # section: dedup may add merged sources between any two SQL statements.
         with self._conn_lock_cm():
             conn = self.storage.conn
-            merged_df = list(supporting_hashes)
-            try:
-                row = conn.execute(
-                    "SELECT metadata FROM beliefs WHERE belief_hash = ?", (belief_hash,)
-                ).fetchone()
-                meta = json.loads(row[0] or "{}") if row and row[0] else {}
-                merged_from = meta.get("merged_from_hashes", [])
-                if merged_from:
-                    seen = set(merged_df)
-                    for h in merged_from:
-                        if h not in seen:
-                            merged_df.append(h)
-                            seen.add(h)
-            except (ValueError, TypeError):
-                # Malformed metadata -> fall back to the current group's hashes only.
-                merged_df = list(supporting_hashes)
+            merged_df, meta, write_meta = self._provenance_for_update(
+                conn, belief_hash, supporting_hashes
+            )
+            self._write_updated_belief(
+                conn, belief_hash, confidence, merged_df, contradicting_hashes,
+                now, meta, write_meta,
+            )
+
+    def _provenance_for_update(self, conn, belief_hash, supporting_hashes):
+        """Union merged_from_hashes, dropping hashes that are no longer live.
+
+        Returns ``(derived_from, metadata, write_metadata)``. Malformed metadata
+        falls back to the current group's hashes and does not rewrite metadata.
+        """
+        try:
+            return self._union_stored_merged_from(conn, belief_hash, supporting_hashes)
+        except (ValueError, TypeError):
+            return list(supporting_hashes), None, False
+
+    def _union_stored_merged_from(self, conn, belief_hash, supporting_hashes):
+        row = conn.execute(
+            "SELECT metadata FROM beliefs WHERE belief_hash = ?", (belief_hash,)
+        ).fetchone()
+        meta = json.loads(row[0] or "{}") if row and row[0] else {}
+        merged_from = meta.get("merged_from_hashes", [])
+        if not isinstance(merged_from, list) or not merged_from:
+            return list(supporting_hashes), meta, False
+        merged_df, kept, changed = union_live_merged_sources(
+            conn, supporting_hashes, merged_from
+        )
+        if not changed:
+            return merged_df, meta, False
+        if kept:
+            meta["merged_from_hashes"] = kept
+        else:
+            meta.pop("merged_from_hashes", None)
+        return merged_df, meta, True
+
+    def _write_updated_belief(
+        self, conn, belief_hash, confidence, merged_df, contradicting_hashes,
+        now, meta, write_meta,
+    ):
+        if write_meta:
+            conn.execute(
+                "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, "
+                "metadata = ?, updated_at = ? WHERE belief_hash = ?",
+                (
+                    confidence, json.dumps(merged_df), json.dumps(contradicting_hashes),
+                    json.dumps(meta), now.isoformat(), belief_hash,
+                ),
+            )
+        else:
             conn.execute(
                 "UPDATE beliefs SET confidence = ?, derived_from = ?, contradicted_by = ?, updated_at = ? "
                 "WHERE belief_hash = ?",
-                (confidence, json.dumps(merged_df), json.dumps(contradicting_hashes), now.isoformat(), belief_hash),
+                (
+                    confidence, json.dumps(merged_df), json.dumps(contradicting_hashes),
+                    now.isoformat(), belief_hash,
+                ),
             )
-            conn.commit()
+        conn.commit()
 
     async def _set_belief_status(
         self, belief_hash: str, status: str, now: datetime,
