@@ -78,14 +78,34 @@ class _Cursor:
         return [self._row] if self._row else []
 
 
+def _lookup_cursor(sql: str):
+    """Memory-id lookups return a row. Citation scans stay empty.
+
+    Delete now stages retracted hashes with ``executemany`` and then asks
+    which beliefs and summaries cite them. This double only covers log
+    injection, so those scans report nothing.
+    """
+    compact = " ".join(sql.split()).upper()
+    if "MEMORY_EMBEDDINGS" in compact and compact.startswith("DELETE"):
+        raise RuntimeError(f"corrupted blob\n{FORGED}")
+    if (
+        compact.startswith("SELECT")
+        and " FROM MEMORIES" in compact
+        and "SQLITE_MASTER" not in compact
+        and "JSON_" not in compact
+        and " FROM BELIEFS" not in compact
+    ):
+        return _Cursor(row=(1, "abc"))
+    return _Cursor()
+
+
 class _WorkingConn:
     """A connection whose statements succeed, except for the embedding delete."""
 
     def execute(self, sql, *_args):
-        if "memory_embeddings" in sql and sql.lstrip().startswith("DELETE"):
-            raise RuntimeError(f"corrupted blob\n{FORGED}")
-        if sql.lstrip().startswith("SELECT"):
-            return _Cursor(row=(1, "abc"))
+        return _lookup_cursor(sql)
+
+    def executemany(self, _sql, _rows):
         return _Cursor()
 
     def commit(self):

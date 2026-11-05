@@ -17,6 +17,7 @@ from typing import Dict, Any
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
+from ..source_retraction import retract_sources_for_deleted_hashes
 from .resolver import EventView, reduce_events, _winner_key
 
 logger = logging.getLogger(__name__)
@@ -268,37 +269,25 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
             if is_winner or op == "update_metadata":
                 try:
                     materialized = _materialize_event(storage, event)
+                    if not materialized:
+                        # Commit only the skippable empty create. Any other miss,
+                        # including a tombstone whose citation cleanup returned
+                        # False, rolls back so the retry is not a duplicate.
+                        return _unmaterialized_result(s, op, payload)
                     s.conn.commit()  # durability: persist event + materialization (ADR-0019/§8.5)
-                    if materialized:
-                        reason = ("Remote event won and materialized" if is_winner
-                                  else "update_metadata merged (field-level convergence)")
-                        if locals().get("_is_content_repair"):
-                            reason = "Empty-content create repaired with real content (via resolver)"
-                        return ApplyResult(applied=True, materialized=True, reason=reason)
-                    # A win that fails to materialize is NOT applied. A create whose content
-                    # is empty in BOTH the payload and the source table is permanently
-                    # non-materializable — mark it skippable so the orchestrator advances past
-                    # it instead of fail-stopping the whole feed (a few irrecoverable events
-                    # must not block thousands of good ones). Any other materialization miss
-                    # stays a transient failure the sender keeps retrying (Greptile P1).
-                    if op == "create" and not (payload.get("content") or ""):
-                        return ApplyResult(applied=False, materialized=False,
-                                           reason="Create event has no recoverable content — skipped",
-                                           skippable=True)
-                    return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
+                    reason = ("Remote event won and materialized" if is_winner
+                              else "update_metadata merged (field-level convergence)")
+                    if locals().get("_is_content_repair"):
+                        reason = "Empty-content create repaired with real content (via resolver)"
+                    return ApplyResult(applied=True, materialized=True, reason=reason)
                 except Exception as e:
                     # Roll back any pending write (e.g. a content-repair UPDATE to
-                    # sync_events) so a transient materialization failure does not leave
-                    # the stored payload mutated — otherwise the next retry would match
-                    # it as a duplicate and never re-attempt the memory write (Greptile
-                    # #1499 apply:181, exception path).
-                    try:
-                        s.conn.rollback()
-                    except Exception:
-                        # Best-effort rollback: if the connection cannot roll back (e.g.
-                        # no open transaction) there is nothing to undo; the original error
-                        # below is what matters.
-                        pass
+                    # sync_events, or a tombstone whose citation cleanup raised)
+                    # so a transient materialization failure does not leave the
+                    # stored payload mutated — otherwise the next retry would match
+                    # it as a duplicate and never re-attempt the memory write
+                    # (Greptile #1499 apply:181, and #1865 citation cleanup).
+                    _rollback_apply(s)
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))
                     return ApplyResult(applied=False, materialized=False, reason=f"Materialization error: {e}")
             else:
@@ -313,9 +302,21 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                 if op in ("create", "delete"):
                     try:
                         _reconcile_liveness(_sqlite(storage), content_hash)
-                    except Exception as e:  # noqa: BLE001 - never fail-stop the feed on reconcile
-                        logger.warning("liveness reconcile (loser) failed for %s: %s",
-                                       _sanitize_log_value(content_hash), _sanitize_log_value(e))
+                    except Exception as e:  # noqa: BLE001 - partial liveness write must not commit
+                        # The tombstone or its citation cleanup failed after the
+                        # event row was inserted. Committing would make the retry
+                        # a duplicate that never finishes the cleanup.
+                        _rollback_apply(s)
+                        logger.error(
+                            "liveness reconcile (loser) failed for %s: %s",
+                            _sanitize_log_value(content_hash),
+                            _sanitize_log_value(e),
+                        )
+                        return ApplyResult(
+                            applied=False,
+                            materialized=False,
+                            reason=f"Liveness reconcile failed: {e}",
+                        )
                 # This is a successful apply (a legitimate conflict loser), distinct from a failure.
                 s.conn.commit()
                 return ApplyResult(applied=True, materialized=False, reason="Remote event lost conflict resolution")
@@ -856,6 +857,10 @@ def _reconcile_liveness(s, content_hash: str) -> None:
     the resolver can still re-impose the tombstone (closes Greptile Fonte 1, Order B) and a
     stale recreate_of can never leave a resurrected row (Fonte 2). Writes the deleted_at of
     the dominant delete (deterministic), never time.time(). No-op if no row exists yet.
+
+    A DEAD result also retracts belief and summary citations in this same
+    transaction. Delta sync never calls DeleteMixin, so the tombstone alone
+    would leave those receipts pointing at the deleted hash.
     """
     state, deleted_at = recompute_liveness(_load_hash_events(s, content_hash))
     if state == _ABSENT:
@@ -866,7 +871,11 @@ def _reconcile_liveness(s, content_hash: str) -> None:
             (content_hash,),
         )
         return
-    # _DEAD: stamp the deterministic deleted_at from the dominant delete's payload.
+    _stamp_tombstone(s, content_hash, deleted_at)
+
+
+def _stamp_tombstone(s, content_hash: str, deleted_at) -> None:
+    """Write the dominant delete's timestamp and retract citations with it."""
     if deleted_at is None:
         # Invariant violation: the dominant delete carried no payload deleted_at, so we fall
         # back to wall-clock — which is NON-DETERMINISTIC across peers. This should never be
@@ -881,6 +890,37 @@ def _reconcile_liveness(s, content_hash: str) -> None:
         "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
         (deleted_at, content_hash),
     )
+    retract_sources_for_deleted_hashes(s.conn, [content_hash], sync=s)
+
+
+def _rollback_apply(s) -> None:
+    """Undo the open apply transaction. Nothing to do when none is open."""
+    try:
+        s.conn.rollback()
+    except Exception:
+        # Best-effort: if the connection cannot roll back (no open transaction)
+        # there is nothing to undo.
+        pass
+
+
+def _unmaterialized_result(s, op: str, payload: Dict[str, Any]) -> ApplyResult:
+    """Commit a permanently empty create. Roll back every other miss.
+
+    The empty create has to stay in ``sync_events`` so the feed can advance
+    and a later resend of the same identity can repair it. Any other False
+    is transient: a tombstone without its citation cleanup, for example.
+    Committing that row would make the retry a duplicate that never finishes.
+    """
+    if op == "create" and not ((payload or {}).get("content") or ""):
+        s.conn.commit()
+        return ApplyResult(
+            applied=False,
+            materialized=False,
+            reason="Create event has no recoverable content — skipped",
+            skippable=True,
+        )
+    _rollback_apply(s)
+    return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
 
 
 def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
@@ -1004,8 +1044,11 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
         return False
 
     except Exception as e:
+        # Propagate so the caller rolls the event and any partial tombstone
+        # back together. Returning False here used to let the caller commit
+        # both, and the retry then looked like a duplicate.
         logger.error("Error materializing event: %s", _sanitize_log_value(e))
-        return False
+        raise
 
 
 def advance_sync_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> None:
