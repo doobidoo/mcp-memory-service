@@ -27,7 +27,7 @@ storage backend (e.g., SQLite).
 
 import time
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from .base import OAuthStorage, hash_client_secret, is_hashed_secret, verify_client_secret
 from ..models import RegisteredClient
 from ....config import (
@@ -259,6 +259,7 @@ class MemoryOAuthStorage(OAuthStorage):
                 "expires_at": time.time() + expires_in,
                 "revoked": False,
                 "parent_token": parent_token,
+                "created_at": time.time(),
             }
 
     async def get_refresh_token(self, token: str) -> Optional[Dict]:
@@ -331,6 +332,47 @@ class MemoryOAuthStorage(OAuthStorage):
         """Remove refresh token record entirely."""
         async with self._lock:
             return self._refresh_tokens.pop(token, None) is not None
+
+    def _refresh_token_activity(self, client_id: str, now: float):
+        """Active refresh-token count and newest issue time for one client."""
+        tokens = [d for d in self._refresh_tokens.values() if d["client_id"] == client_id]
+        active = sum(1 for d in tokens if not d["revoked"] and d["expires_at"] > now)
+        return active, max((d["created_at"] for d in tokens), default=None)
+
+    async def list_clients(self) -> List[Dict]:
+        """List registered clients (no secrets) with refresh-token activity."""
+        async with self._lock:
+            now = time.time()
+            result = []
+            for client in self._clients.values():
+                active, last = self._refresh_token_activity(client.client_id, now)
+                result.append({
+                    "client_id": client.client_id,
+                    "client_name": client.client_name,
+                    "token_endpoint_auth_method": client.token_endpoint_auth_method,
+                    "created_at": client.created_at,
+                    "active_refresh_tokens": active,
+                    "last_refresh_token_at": last,
+                })
+            result.sort(key=lambda c: c["created_at"], reverse=True)
+            return result
+
+    async def delete_client(self, client_id: str) -> Optional[Dict[str, int]]:
+        """Delete a client and every code and token issued to it."""
+        async with self._lock:
+            if self._clients.pop(client_id, None) is None:
+                return None
+            counts = {}
+            for key, store in (
+                ("authorization_codes", self._authorization_codes),
+                ("access_tokens", self._access_tokens),
+                ("refresh_tokens", self._refresh_tokens),
+            ):
+                doomed = [k for k, data in store.items() if data["client_id"] == client_id]
+                for k in doomed:
+                    del store[k]
+                counts[key] = len(doomed)
+            return counts
 
     async def cleanup_expired(self) -> Dict[str, int]:
         """
