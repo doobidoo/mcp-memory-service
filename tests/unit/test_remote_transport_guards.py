@@ -177,3 +177,76 @@ class TestFastMCPEntryPointBind:
         value main() checks; it has to come from MCP_HTTP_HOST."""
         from mcp_memory_service import mcp_server
         assert mcp_server.mcp.settings.host == mcp_server.HTTP_HOST
+
+
+class TestBrowserReachability:
+    """GHSA-8p26-g7wp-65jw: an unauthenticated loopback server was reachable
+    from any web page (wildcard CORS preflight) and through DNS rebinding (no
+    Host/Origin check). These pin the allowlists both paths now share."""
+
+    @pytest.fixture
+    def so(self, monkeypatch):
+        import mcp_memory_service.config as config  # inline import: patched per test
+        from mcp_memory_service.utils import startup_orchestrator as so
+        monkeypatch.setattr(config, "OAUTH_ENABLED", False)
+        monkeypatch.setattr(config, "API_KEY", None)
+        monkeypatch.delenv("MCP_CORS_ORIGINS", raising=False)
+        return so
+
+    async def _validate(self, settings, host, origin=None):
+        """Run the SDK's own request check, the one the transports apply."""
+        from mcp.server.transport_security import TransportSecurityMiddleware
+        from starlette.requests import Request
+        headers = [(b"host", host.encode()), (b"content-type", b"application/json")]
+        if origin:
+            headers.append((b"origin", origin.encode()))
+        req = Request({"type": "http", "method": "POST", "path": "/mcp", "headers": headers})
+        resp = await TransportSecurityMiddleware(settings).validate_request(req, is_post=True)
+        return resp.status_code if resp else 200
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_server_rejects_rebinding_host(self, so):
+        assert await self._validate(so._transport_security_settings(), "evil.example:8765") == 421
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_server_rejects_foreign_origin(self, so):
+        status = await self._validate(so._transport_security_settings(), "127.0.0.1:8765", "https://evil.example")
+        assert status == 403
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_server_serves_local_clients(self, so):
+        settings = so._transport_security_settings()
+        assert await self._validate(settings, "127.0.0.1:8765") == 200
+        assert await self._validate(settings, "localhost:8765", "http://localhost:6274") == 200
+
+    def test_authenticated_server_leaves_host_unchecked(self, so, monkeypatch):
+        """Behind a reverse proxy Host is the public name; the token is the gate."""
+        import mcp_memory_service.config as config  # inline import: patched per test
+        monkeypatch.setattr(config, "API_KEY", "a-key")
+        assert so._transport_security_settings() is None
+
+    def test_preflight_grants_no_foreign_origin(self, so):
+        assert so._mcp_preflight_headers("https://evil.example") == {}
+        assert so._mcp_preflight_headers("") == {}
+
+    def test_preflight_reflects_local_origin(self, so):
+        headers = so._mcp_preflight_headers("http://localhost:6274")
+        assert headers["Access-Control-Allow-Origin"] == "http://localhost:6274"
+        assert headers["Vary"] == "Origin"
+
+    def test_configured_origin_is_allowed_on_both_paths(self, so, monkeypatch):
+        monkeypatch.setenv("MCP_CORS_ORIGINS", "https://app.example")
+        assert "https://app.example" in so._transport_security_settings().allowed_origins
+        assert so._mcp_preflight_headers("https://app.example")["Access-Control-Allow-Origin"] == "https://app.example"
+        assert so._mcp_preflight_headers("https://evil.example") == {}
+
+    def test_authenticated_server_keeps_wildcard_preflight(self, so, monkeypatch):
+        import mcp_memory_service.config as config  # inline import: patched per test
+        monkeypatch.setattr(config, "API_KEY", "a-key")
+        assert so._mcp_preflight_headers("https://anything.example")["Access-Control-Allow-Origin"] == "*"
+        monkeypatch.setenv("MCP_CORS_ORIGINS", "*")
+        assert so._mcp_preflight_headers("https://anything.example")["Access-Control-Allow-Origin"] == "*"
+
+    def test_explicit_wildcard_does_not_open_unauthenticated_server(self, so, monkeypatch):
+        monkeypatch.setenv("MCP_CORS_ORIGINS", "*")
+        assert so._mcp_preflight_headers("https://evil.example") == {}

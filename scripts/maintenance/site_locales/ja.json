@@ -27,7 +27,7 @@
   "case_3_title": "セルフホストで運用",
   "case_3_text": "SQLiteとベクトル検索でローカルに始められます。クラウドのストレージサービスも有償のEmbedding APIキーも不要です。",
   "install_heading": "Claude Codeにセットアップする",
-  "install_intro": "Python 3.10以降と、インストール済みのClaude Codeクライアントが必要です。他のクライアントもMCP経由で接続できます。設定方法は英語のガイドに記載されています。",
+  "install_intro": "Python 3.11以降と、インストール済みのClaude Codeクライアントが必要です。他のクライアントもMCP経由で接続できます。設定方法は英語のガイドに記載されています。",
   "step_1_title": "Memory Serviceをインストール",
   "step_1_text": "クライアントからコマンドを利用できるPython環境に、パッケージをインストールします。",
   "step_2_title": "MCPサーバーとして追加",
