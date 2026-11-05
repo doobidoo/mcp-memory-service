@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 
 CONFLICT_TAG = "conflict:unresolved"
 
+
+def _store_clause(store: Optional[str]) -> Tuple[str, Tuple[str, ...]]:
+    """SQL suffix confining a hash-addressed statement to one store (#1875).
+
+    ``None`` and ``"all"`` mean unscoped, the same as on the read paths.
+    """
+    if store is None or store == "all":
+        return "", ()
+    return " AND store = ?", (store,)
+
 # A memory's contradicts partners, read over edges in either direction: the graph
 # can hold a pair one-way (a later INSERT OR REPLACE of another relationship type
 # overwrites one direction), and get_conflicts() reads only the source < target
@@ -81,11 +91,23 @@ class MetadataMixin:
 
         await self._execute_with_retry(batch_update)
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata without recreating the entire memory entry."""
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata without recreating the entire memory entry.
+
+        With ``store`` set (other than ``"all"``), a memory in another store
+        is reported as not found and left untouched (#1875).
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized"
+
+            store_sql, store_params = _store_clause(store)
 
             def _read_current():
                 cursor = self.conn.execute(
@@ -93,8 +115,8 @@ class MetadataMixin:
                     SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
                            updated_at, updated_at_iso
                     FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-                """,
-                    (content_hash,),
+                """ + store_sql,
+                    (content_hash, *store_params),
                 )
                 return cursor.fetchone()
 
@@ -202,6 +224,7 @@ class MetadataMixin:
                     )
                     params.extend([new_superseded_by, now])
                 params.append(content_hash)
+                params.extend(store_params)
                 # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
                 # WITHIN this serialized operation — never with a bare rollback outside the
                 # lock, which could discard another worker's transaction (greptile P1).
@@ -210,7 +233,7 @@ class MetadataMixin:
                 try:
                     cur = self.conn.execute(
                         f"UPDATE memories SET {', '.join(set_clauses)} "
-                        "WHERE content_hash = ? AND deleted_at IS NULL",
+                        "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
                         tuple(params),
                     )
                     # Only emit an event if a live row was actually updated — if the memory
@@ -851,16 +874,24 @@ class MetadataMixin:
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
-        """Non-destructive versioned update using existing store/update infrastructure."""
+        """Non-destructive versioned update using existing store/update infrastructure.
+
+        With ``store`` set (other than ``"all"``), a memory in another store
+        is reported as not found and no new version is written (#1875).
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized", None
 
+            store_sql, store_params = _store_clause(store)
+
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                    (content_hash,),
+                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories "
+                    "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
+                    (content_hash, *store_params),
                 )
                 return cursor.fetchone()
 

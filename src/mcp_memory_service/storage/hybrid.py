@@ -2385,9 +2385,22 @@ class HybridMemoryStorage(MemoryStorage):
         # Only cleanup primary, secondary will sync naturally
         return await self.primary.cleanup_duplicates()
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata in primary storage and queue for secondary sync."""
-        success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata in primary storage and queue for secondary sync.
+
+        ``store`` confines the update in the primary. The queued operation needs
+        no store: content_hash is unique across stores, so the secondary applies
+        an update that the primary has already authorized to the same row.
+        """
+        success, message = await self.primary.update_memory_metadata(
+            content_hash, updates, preserve_timestamps, store=store
+        )
 
         # Skip enqueuing if sync is paused (v8.47.1 - fix consolidation hang)
         # Operations will be synced when sync resumes

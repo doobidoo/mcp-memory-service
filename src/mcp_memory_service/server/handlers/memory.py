@@ -1734,6 +1734,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # store-scoped update fails closed there (real storage-layer enforcement
         # is the follow-up issue, after which this pre-check can be removed).
         claimed_store = arguments.get("store")
+        # Handed to the storage calls below as well, so the lookup and the write
+        # themselves are confined (#1875). Only set after the capability check,
+        # so a backend that would ignore ``store`` never receives it.
+        scope: dict = {}
         if claimed_store is not None and claimed_store != "all":
             # Raise rather than return: a refused update must surface as a tool
             # error (isError=true), so a client checking the MCP success flag
@@ -1748,6 +1752,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 )
             if await storage.get_by_hash(content_hash, store=claimed_store) is None:
                 raise PermissionError("memory not found in the requested store")
+            scope = {"store": claimed_store}
 
         versioned = arguments.get("versioned", False)
 
@@ -1781,6 +1786,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 new_tags=updates.get("tags"),
                 new_memory_type=updates.get("memory_type"),
                 reason=updates.get("reason"),
+                **scope,
             )
 
             if success:
@@ -1801,7 +1807,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 overrides_applied = True
                 if final_metadata:
                     meta_ok, meta_msg = await storage.update_memory_metadata(
-                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True, **scope
                     )
                     overrides_applied = meta_ok
                     if not meta_ok:
@@ -1830,7 +1836,8 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=preserve_timestamps
+            preserve_timestamps=preserve_timestamps,
+            **scope,
         )
 
         if success:
