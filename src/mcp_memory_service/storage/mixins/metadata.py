@@ -264,8 +264,12 @@ class MetadataMixin:
                     # does not linger pending and leak into a later write (greptile P1).
                     self.conn.rollback()
                     raise
+                return cur.rowcount
 
-            await self._execute_with_retry(_do_update)
+            # Zero rows means the memory was deleted, or left the store, between
+            # the read and the write: report not found, not success (#1875).
+            if not await self._execute_with_retry(_do_update):
+                return False, f"Memory with hash {content_hash} not found"
 
             updated_fields = []
             if "tags" in updates:
@@ -959,8 +963,9 @@ class MetadataMixin:
                     # row still being current (superseded_by IS NULL) so concurrent
                     # versioned updates of the same memory don't fork history silently.
                     mcur = self.conn.execute(
-                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                        (old_hash,),
+                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
+                        + store_sql,
+                        (old_hash, *store_params),
                     )
                     mrow = mcur.fetchone()
                     old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
@@ -972,12 +977,15 @@ class MetadataMixin:
                         # update_memory_versioned this is exact: the new row is
                         # written in the same call, so now == its created_at.
                         "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
-                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
-                        (new_hash, time.time(), json.dumps(old_meta), old_hash),
+                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
+                        + store_sql,
+                        (new_hash, time.time(), json.dumps(old_meta), old_hash, *store_params),
                     )
                     if cur.rowcount == 0:
-                        # Another versioned update already superseded this row (or it
-                        # vanished). Abort rather than fork the chain.
+                        # Another versioned update already superseded this row, it
+                        # vanished, or sync moved it to another store while store()
+                        # ran (#1875). Abort rather than fork the chain or reach
+                        # across stores; the caller removes the new row.
                         raise RuntimeError(
                             f"old version {old_hash[:8]} is no longer current (concurrent update)"
                         )

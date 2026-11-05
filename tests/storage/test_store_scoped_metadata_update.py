@@ -98,6 +98,71 @@ async def test_versioned_update_in_own_store_succeeds(storage):
     assert new_hash and new_hash != h
 
 
+def _move_to_store(storage, content_hash, store):
+    storage.conn.execute(
+        "UPDATE memories SET store = ? WHERE content_hash = ?", (store, content_hash)
+    )
+    storage.conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_metadata_update_reports_not_found_when_row_leaves_store_mid_update(
+    storage, monkeypatch
+):
+    """The row moves to another store between the read and the UPDATE (sync can
+    do that). The write matches nothing, so the call must not report success."""
+    h = await _store(storage, "Store B owns the pager schedule.", "b")
+    original = storage._execute_with_retry
+    calls = []
+
+    async def move_before_write(fn, *args, **kwargs):
+        calls.append(fn)
+        if len(calls) == 2:  # 1st: read, 2nd: write
+            _move_to_store(storage, h, "c")
+        return await original(fn, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "_execute_with_retry", move_before_write)
+
+    ok, msg = await storage.update_memory_metadata(h, {"tags": ["hijacked"]}, store="b")
+
+    assert not ok
+    assert "not found" in msg
+    assert _tags_of(storage, h) == "orig"
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_aborts_when_old_row_leaves_store_during_store(
+    storage, monkeypatch
+):
+    """The old row moves to another store while the new version is written.
+    The supersede must not reach into that store, and the new row goes away."""
+    h = await _store(storage, "Store B patches on Mondays.", "b")
+    original_store = storage.store
+
+    async def store_then_move(memory, *args, **kwargs):
+        result = await original_store(memory, *args, **kwargs)
+        _move_to_store(storage, h, "c")
+        return result
+
+    monkeypatch.setattr(storage, "store", store_then_move)
+
+    ok, msg, new_hash = await storage.update_memory_versioned(
+        h, "Store B patches on Fridays.", store="b"
+    )
+
+    assert not ok
+    old = storage.conn.execute(
+        "SELECT superseded_by FROM memories WHERE content_hash = ?", (h,)
+    ).fetchone()
+    assert old[0] is None
+    new_hash = generate_content_hash("Store B patches on Fridays.")
+    live_new = storage.conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+        (new_hash,),
+    ).fetchone()[0]
+    assert live_new == 0
+
+
 def _hybrid_over(primary):
     # Only the primary path matters here; no Cloudflare secondary is set up.
     hybrid = object.__new__(HybridMemoryStorage)
