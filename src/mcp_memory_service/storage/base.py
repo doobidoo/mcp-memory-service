@@ -236,6 +236,13 @@ class MemoryStorage(ABC):
         """Resolve a conflict. Default: not supported."""
         return False, "Conflict resolution not supported by this backend"
 
+    async def reconcile_conflict_tags(self, dry_run: bool = True) -> Dict[str, Any]:
+        """Clear conflict:unresolved from current memories with no current partner (#1840).
+
+        Default: not supported. Reported as such, not as a clean result.
+        """
+        return {"supported": False}
+
     async def retrieve_with_quality_boost(
         self,
         query: str,

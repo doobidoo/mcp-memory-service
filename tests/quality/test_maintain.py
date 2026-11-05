@@ -43,6 +43,9 @@ def mock_server():
     storage.count_all_memories = AsyncMock(return_value=5)
     storage.get_all_memories = AsyncMock(return_value=[])
     storage.resolve_conflict = AsyncMock(return_value=(True, "resolved"))
+    storage.reconcile_conflict_tags = AsyncMock(
+        return_value={"supported": True, "found": 0, "cleared": 0, "hashes": []}
+    )
     storage.graph = None  # No graph storage in tests by default
 
     server._ensure_storage_initialized = AsyncMock(return_value=storage)
@@ -212,6 +215,25 @@ async def test_maintain_step_error_does_not_abort(mock_server):
     # but stale and quality still ran
     assert "stale" in report["steps"]
     assert "quality" in report["steps"]
+    assert report["success"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_maintain_conflict_tag_reconcile_error_keeps_conflict_totals(mock_server):
+    """A failing tag reconcile (#1840) is reported without losing the conflicts step."""
+    server, storage = mock_server
+    storage.get_conflicts = AsyncMock(return_value=[
+        {"hash_a": "a" * 64, "hash_b": "b" * 64, "similarity": 0.5},
+    ])
+    storage.reconcile_conflict_tags = AsyncMock(side_effect=RuntimeError("tag sweep failed"))
+    result = await handle_maintain(server, {})
+    report = json.loads(result[0].text)
+
+    conflicts = report["steps"]["conflicts"]
+    assert conflicts["total"] == 1
+    assert conflicts["stale_tags"] == {"error": "tag sweep failed"}
+    assert "conflict_tags: tag sweep failed" in report["errors"]
     assert report["success"] is False
 
 

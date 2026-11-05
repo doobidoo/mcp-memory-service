@@ -20,6 +20,28 @@ from ..shared import _exclude_versioned_parent
 
 logger = logging.getLogger(__name__)
 
+CONFLICT_TAG = "conflict:unresolved"
+
+# A memory's contradicts partners, read over edges in either direction: the graph
+# can hold a pair one-way (a later INSERT OR REPLACE of another relationship type
+# overwrites one direction), and get_conflicts() reads only the source < target
+# edge, so a pair can be listed through either row's outgoing edge.
+_CONTRADICTS_PARTNERS_SQL = (
+    "SELECT target_hash FROM memory_graph "
+    "WHERE relationship_type = 'contradicts' AND source_hash = :h AND target_hash != :h "
+    "UNION "
+    "SELECT source_hash FROM memory_graph "
+    "WHERE relationship_type = 'contradicts' AND target_hash = :h AND source_hash != :h"
+)
+
+# Whether any of those partners is current: neither soft-deleted nor superseded,
+# the same condition get_conflicts() applies to both sides of a pair.
+_HAS_CURRENT_PARTNER_SQL = (
+    f"SELECT 1 FROM memories p WHERE p.content_hash IN ({_CONTRADICTS_PARTNERS_SQL}) "
+    "AND p.deleted_at IS NULL AND (p.superseded_by IS NULL OR p.superseded_by = '') "
+    "LIMIT 1"
+)
+
 
 class MetadataMixin:
     """Mixin providing metadata updates, conflict detection, versioning, and staleness."""
@@ -400,6 +422,108 @@ class MetadataMixin:
         )
         if cur.rowcount > 0 and before is not None and before[0] != winner_hash:
             self._append_supersede_event(loser_hash)
+        if cur.rowcount > 0:
+            # Issue #1840: the loser no longer keeps its conflicts alive.
+            self._clear_stale_conflict_tags(self._contradicts_partners(loser_hash))
+
+    def _contradicts_partners(self, content_hash: str) -> List[str]:
+        """Hashes linked to ``content_hash`` by a contradicts edge, either direction."""
+        return [
+            row[0]
+            for row in self.conn.execute(_CONTRADICTS_PARTNERS_SQL, {"h": content_hash})
+        ]
+
+    def _find_stale_conflict_tags(self, hashes) -> List[Tuple[str, str]]:
+        """Current rows among ``hashes`` tagged conflict:unresolved with no current partner.
+
+        Returns ``(content_hash, tags_without_the_conflict_tag)`` pairs. Superseded and
+        deleted rows are skipped: they keep their own tags as history.
+        """
+        stale = []
+        for content_hash in dict.fromkeys(h for h in hashes if h):
+            row = self.conn.execute(
+                "SELECT tags FROM memories WHERE content_hash = ? AND deleted_at IS NULL "
+                "AND (superseded_by IS NULL OR superseded_by = '')",
+                (content_hash,),
+            ).fetchone()
+            if not row or not row[0]:
+                continue
+            tags = [t.strip() for t in row[0].split(",") if t.strip()]
+            if CONFLICT_TAG not in tags:
+                continue
+            if self.conn.execute(_HAS_CURRENT_PARTNER_SQL, {"h": content_hash}).fetchone():
+                continue
+            stale.append((content_hash, ",".join(t for t in tags if t != CONFLICT_TAG)))
+        return stale
+
+    def _clear_stale_conflict_tags(self, hashes) -> int:
+        """Issue #1840: drop conflict:unresolved where no current conflict partner remains.
+
+        Synchronous, on the caller's connection and inside the caller's transaction or
+        savepoint, so the clearing lands or vanishes with the supersede or delete that
+        caused it. Clear-only: it never adds the tag. Like _record_conflicts() and
+        resolve_conflict(), it logs no sync event and leaves updated_at alone. A peer
+        that applies the supersede or delete through sync does not clear inline; its
+        reconcile_conflict_tags() pass does.
+        """
+        stale = self._find_stale_conflict_tags(hashes)
+        for content_hash, tags in stale:
+            self.conn.execute(
+                "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                (tags, content_hash),
+            )
+        return len(stale)
+
+    async def reconcile_conflict_tags(self, dry_run: bool = True) -> Dict[str, Any]:
+        """Clear conflict:unresolved from current memories with no current partner (#1840).
+
+        Catches what the inline cleanup does not reach: tags written before the fix,
+        bulk deletes, sync-applied tombstones, and direct metadata supersedes.
+        dry_run=True (default) only reports.
+        """
+        if not self.conn:
+            return {"supported": False}
+
+        def _reconcile():
+            sp = f"reconcile_conflict_tags_{os.urandom(4).hex()}"
+            self.conn.execute(f"SAVEPOINT {sp}")
+            try:
+                candidates = [
+                    row[0]
+                    for row in self.conn.execute(
+                        "SELECT content_hash FROM memories WHERE deleted_at IS NULL "
+                        "AND (superseded_by IS NULL OR superseded_by = '') AND tags LIKE ?",
+                        (f"%{CONFLICT_TAG}%",),
+                    )
+                ]
+                stale = self._find_stale_conflict_tags(candidates)
+                if not dry_run:
+                    for content_hash, tags in stale:
+                        self.conn.execute(
+                            "UPDATE memories SET tags = ? WHERE content_hash = ? "
+                            "AND deleted_at IS NULL",
+                            (tags, content_hash),
+                        )
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+            except Exception:
+                self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+                self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+                raise
+            if not dry_run:
+                self.conn.commit()
+            return [content_hash for content_hash, _ in stale]
+
+        # Same lock StoreMixin holds across its INSERT/commit sequence, so the commit
+        # below cannot land between a concurrent store()'s insert and its commit.
+        async with self._savepoint_lock:
+            stale_hashes = await self._execute_with_retry(_reconcile)
+        return {
+            "supported": True,
+            "dry_run": dry_run,
+            "found": len(stale_hashes),
+            "cleared": 0 if dry_run else len(stale_hashes),
+            "hashes": [h[:12] for h in stale_hashes[:20]],
+        }
 
     async def mark_superseded_batch(self, pairs: list[tuple[str, str]]) -> int:
         """Mark memories as superseded in a single transaction."""
@@ -590,6 +714,8 @@ class MetadataMixin:
         try:
             if not self.conn:
                 return False, "Database not initialized"
+            if winner_hash == loser_hash:
+                return False, "Winner and loser must be different memories"
 
             def _check_both_exist():
                 for h, label in ((winner_hash, "Winner"), (loser_hash, "Loser")):
@@ -623,17 +749,21 @@ class MetadataMixin:
                         (int(now), winner_hash),
                     )
 
-                    for h in (winner_hash, loser_hash):
-                        cursor = self.conn.execute(
-                            "SELECT tags FROM memories WHERE content_hash = ?", (h,)
+                    # The loser is out of every conflict now. The winner keeps the tag
+                    # while it still contradicts another current memory (#1840);
+                    # _supersede_with_event() already cleared the loser's other partners.
+                    cursor = self.conn.execute(
+                        "SELECT tags FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                        (loser_hash,),
+                    )
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        tags = [t.strip() for t in row[0].split(",") if t.strip() != CONFLICT_TAG]
+                        self.conn.execute(
+                            "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
+                            (",".join(tags), loser_hash),
                         )
-                        row = cursor.fetchone()
-                        if row and row[0]:
-                            tags = [t.strip() for t in row[0].split(",") if t.strip() != "conflict:unresolved"]
-                            self.conn.execute(
-                                "UPDATE memories SET tags = ? WHERE content_hash = ? AND deleted_at IS NULL",
-                                (",".join(tags), h),
-                            )
+                    self._clear_stale_conflict_tags([winner_hash])
                     self.conn.execute(f"RELEASE SAVEPOINT {sp}")
                 except Exception:
                     self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
@@ -739,8 +869,12 @@ class MetadataMixin:
                 return False, f"Memory {content_hash} not found", None
 
             old_hash, old_tags_str, old_type, old_version, old_metadata_str, old_store = row
+            # The conflict marker is not inherited (#1840): store() below re-runs
+            # detection for the new version and tags it again only if it still
+            # contradicts a current memory.
             resolved_tags = new_tags if new_tags is not None else (
-                [t for t in old_tags_str.split(",") if t] if old_tags_str else []
+                [t for t in old_tags_str.split(",") if t and t.strip() != CONFLICT_TAG]
+                if old_tags_str else []
             )
             resolved_type = new_memory_type if new_memory_type is not None else old_type
 
@@ -819,6 +953,12 @@ class MetadataMixin:
                     # Issue #1773: the new version's create is already logged; log the
                     # supersede of the old row too, in this same transaction.
                     self._append_supersede_event(old_hash)
+                    # Issue #1840: the old version no longer keeps its conflicts alive,
+                    # and tags passed explicitly may echo a marker the new version has
+                    # no partner for.
+                    self._clear_stale_conflict_tags(
+                        [new_hash, *self._contradicts_partners(old_hash)]
+                    )
                     self.conn.commit()
                 except Exception:
                     self.conn.rollback()
