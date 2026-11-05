@@ -9,6 +9,7 @@ is cleaned.
 
 import json
 import os
+import sqlite3
 from datetime import date, datetime, timezone
 
 import pytest
@@ -656,5 +657,129 @@ async def test_peer_delete_retracts_citations_and_syncs_the_summary(
             (seeded["summary"],),
         ).fetchall()
         assert len(payloads) == 1
+    finally:
+        await storage.close()
+
+
+def _delete_event(content_hash, *, event_id, hlc_physical, deleted_at):
+    return {
+        "agent_id": "remote-peer",
+        "event_id": event_id,
+        "op": "delete",
+        "content_hash": content_hash,
+        "hlc_physical": hlc_physical,
+        "hlc_logical": 0,
+        "payload": {"content_hash": content_hash, "deleted_at": deleted_at},
+    }
+
+
+def _event_saved(storage, event_id):
+    row = storage.conn.execute(
+        "SELECT 1 FROM sync_events WHERE agent_id = ? AND event_id = ?",
+        ("remote-peer", event_id),
+    ).fetchone()
+    return row is not None
+
+
+def _fail_citation_cleanup_once(monkeypatch):
+    """First citation cleanup raises. The retry calls the real one."""
+    import mcp_memory_service.storage.sync.apply as apply_mod
+
+    real = apply_mod.retract_sources_for_deleted_hashes
+    state = {"calls": 0}
+
+    def flaky(conn, content_hashes, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise sqlite3.OperationalError("citation cleanup failed")
+        return real(conn, content_hashes, **kwargs)
+
+    monkeypatch.setattr(apply_mod, "retract_sources_for_deleted_hashes", flaky)
+    return state
+
+
+@pytest.mark.asyncio
+async def test_peer_delete_cleanup_failure_rolls_back_so_retry_can_finish(
+    temp_db_path, monkeypatch
+):
+    """A raised citation cleanup must not leave a committed tombstone plus event.
+
+    The next pull of the same delete would otherwise be a duplicate and skip
+    the cleanup that did not finish.
+    """
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
+    monkeypatch.setenv("MCP_AGENT_ID", "local-peer")
+    from mcp_memory_service.storage.sync.apply import apply_remote_event
+
+    _fail_citation_cleanup_once(monkeypatch)
+    storage = await _storage(temp_db_path, "peer-delete-rollback.db")
+    try:
+        seeded = await _seed(storage)
+        gone = seeded["gone"]
+        event = _delete_event(
+            gone, event_id="del-rollback", hlc_physical=9_000_000_000_000,
+            deleted_at=1_700_000_000.0,
+        )
+        failed = apply_remote_event(storage, event)
+        assert failed.applied is False
+        assert failed.materialized is False
+        assert "citation cleanup failed" in failed.reason
+
+        deleted_at = storage.conn.execute(
+            "SELECT deleted_at FROM memories WHERE content_hash = ?", (gone,)
+        ).fetchone()[0]
+        assert deleted_at is None
+        assert _event_saved(storage, "del-rollback") is False
+        orphan = _read_belief(storage, seeded["orphan"])
+        assert orphan["status"] == "active"
+        assert gone in orphan["derived_from"]
+
+        retried = apply_remote_event(storage, event)
+        assert retried.applied and retried.materialized, retried.reason
+        _assert_retracted(storage, seeded)
+        assert _event_saved(storage, "del-rollback") is True
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_losing_peer_delete_cleanup_failure_rolls_back(
+    temp_db_path, monkeypatch
+):
+    """A delete that loses still folds liveness. Cleanup failure must not commit it."""
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
+    monkeypatch.setenv("MCP_AGENT_ID", "local-peer")
+    from mcp_memory_service.storage.sync.apply import apply_remote_event
+
+    storage = await _storage(temp_db_path, "peer-delete-loser-rollback.db")
+    try:
+        seeded = await _seed(storage)
+        gone = seeded["gone"]
+        winner = _delete_event(
+            gone, event_id="del-winner", hlc_physical=9_000_000_000_000,
+            deleted_at=1_700_000_000.0,
+        )
+        won = apply_remote_event(storage, winner)
+        assert won.applied and won.materialized, won.reason
+        _assert_retracted(storage, seeded)
+
+        _fail_citation_cleanup_once(monkeypatch)
+        loser = _delete_event(
+            gone, event_id="del-loser", hlc_physical=1, deleted_at=1_600_000_000.0,
+        )
+        failed = apply_remote_event(storage, loser)
+        assert failed.applied is False
+        assert failed.materialized is False
+        assert "Liveness reconcile failed" in failed.reason
+        assert "citation cleanup failed" in failed.reason
+        assert _event_saved(storage, "del-loser") is False
+        _assert_retracted(storage, seeded)
+
+        retried = apply_remote_event(storage, loser)
+        assert retried.applied is True
+        assert retried.materialized is False
+        assert "lost conflict" in retried.reason
+        assert _event_saved(storage, "del-loser") is True
+        _assert_retracted(storage, seeded)
     finally:
         await storage.close()
