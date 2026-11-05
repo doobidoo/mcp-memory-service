@@ -8,7 +8,8 @@ caller *claims*. Three holes were left behind it:
 - tools that ignore ``store`` (memory_quality, memory_cleanup, memory_resolve,
   ...) accepted a claimed store and then acted on every partition;
 - memory_search's ``include_beliefs`` and ``fallback`` read across partitions
-  even when the main search is store-scoped;
+  even when the main search is store-scoped (``include_beliefs`` is filtered by
+  store since #1877, ``fallback`` still is not);
 - on backends whose ``get_by_hash`` ignores ``store`` (cloudflare, milvus,
   remote_http), hash-addressed REST routes returned another store's memory.
 
@@ -121,11 +122,20 @@ def test_store_grant_cannot_reach_a_tool_that_ignores_store(make_client, other_s
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("flag", ["include_beliefs", "fallback"])
-def test_store_grant_cannot_search_across_partitions(make_client, flag):
+def test_store_grant_cannot_search_across_partitions(make_client):
+    # The exact/tag fallback still ignores ``store`` (#1876).
     client = make_client("read:projectA")
-    response = _call(client, "memory_search", {"query": "x", "store": "projectA", flag: True})
+    response = _call(client, "memory_search", {"query": "x", "store": "projectA", "fallback": True})
     assert _refused(response)
+
+
+@pytest.mark.integration
+def test_store_grant_searches_with_beliefs_in_its_own_store(make_client):
+    # Beliefs are filtered by the claimed store since #1877.
+    client = make_client("read:projectA")
+    response = _call(client, "memory_search", {"query": "x", "store": "projectA", "include_beliefs": True})
+    assert response.status_code == 200
+    assert "error" not in response.json()
 
 
 @pytest.mark.integration

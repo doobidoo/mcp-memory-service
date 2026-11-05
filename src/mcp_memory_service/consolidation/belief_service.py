@@ -30,6 +30,18 @@ from ..storage.source_retraction import (
 
 logger = logging.getLogger(__name__)
 
+# Store filter for get_beliefs (#1877): no LIVE memory referenced by the belief's
+# JSON hash list sits in another store. ``column`` is one of two fixed names
+# (derived_from, contradicted_by), never caller input; the store is bound.
+# Deleted memories are skipped: retention removes sources all the time, and a
+# deleted memory leaks nothing. Rows from before the store column read as
+# 'default', the same as everywhere else.
+_NOT_IN_OTHER_STORE = (
+    " AND NOT EXISTS (SELECT 1 FROM json_each(beliefs.{column}) j "
+    "JOIN memories m ON m.content_hash = j.value "
+    "WHERE m.deleted_at IS NULL AND COALESCE(m.store, 'default') != ?)"
+)
+
 _NOISE_PREFIXES = (
     "Association between",
     "[CHECKPOINT]",
@@ -410,26 +422,39 @@ class BeliefService:
         }
 
     async def get_beliefs(
-        self, status: str = "active", min_confidence: float = CONFIDENCE_FLOOR
+        self,
+        status: str = "active",
+        min_confidence: float = CONFIDENCE_FLOOR,
+        store: Optional[str] = None,
     ) -> List[dict]:
         """Get beliefs without waiting for the connection lock on the event loop.
 
         The default status is ``active``. A belief left with no live sources is
         stored as ``ungrounded`` and stays out of this read.
-        """
-        return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence)
 
-    def _get_beliefs_sync(self, status, min_confidence):
+        With ``store`` set (other than ``"all"``), only beliefs with no live
+        source or contradicting memory in another store are returned (#1877).
+        Deleted memories don't count, so retention never hides a belief.
+        """
+        return await asyncio.to_thread(self._get_beliefs_sync, status, min_confidence, store)
+
+    def _get_beliefs_sync(self, status, min_confidence, store=None):
         """Read and decode beliefs under the shared connection lock in a worker."""
+        sql = (
+            "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
+            "derived_from, contradicted_by, metadata FROM beliefs "
+            "WHERE status = ? AND confidence >= ?"
+        )
+        params: list = [status, min_confidence]
+        if store is not None and store != "all":
+            sql += _NOT_IN_OTHER_STORE.format(column="derived_from")
+            sql += _NOT_IN_OTHER_STORE.format(column="contradicted_by")
+            params += [store, store]
+        sql += " ORDER BY confidence DESC"
         try:
             with self._conn_lock_cm():
                 conn = self.storage.conn
-                cursor = conn.execute(
-                    "SELECT belief_hash, content, confidence, status, created_at, updated_at, "
-                    "derived_from, contradicted_by, metadata FROM beliefs "
-                    "WHERE status = ? AND confidence >= ? ORDER BY confidence DESC",
-                    (status, min_confidence),
-                )
+                cursor = conn.execute(sql, tuple(params))
                 rows = cursor.fetchall()
             # Greptile P1 (#1727): beliefs stored BEFORE this filter existed stay
             # in the table — derive_beliefs no longer reaches them to supersede,
