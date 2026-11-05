@@ -14,6 +14,9 @@ from typing import List, Dict, Any, Optional, Sequence, Set, Tuple
 try:
     from sqlite_vec import serialize_float32
 except ImportError:
+    # Optional at import time only: initialize() calls _check_dependencies(),
+    # which raises when sqlite-vec is missing, so serialize_float32 is never
+    # reached unbound.
     pass
 
 from ...models.memory import Memory, MemoryQueryResult
