@@ -153,3 +153,36 @@ async def test_handler_passes_claimed_store_to_storage(storage, monkeypatch):
     )
 
     assert seen.get("store") == "b"
+
+
+class _RecordingStorage:
+    """Stand-in for a backend; records the update call's keyword arguments."""
+
+    def __init__(self, scoped):
+        self.get_by_hash_is_store_scoped = scoped
+        self.update_kwargs = None
+
+    async def get_by_hash(self, content_hash, store=None):
+        return Memory(content="x", content_hash=content_hash, tags=["orig"])
+
+    async def update_memory_metadata(self, **kwargs):
+        self.update_kwargs = kwargs
+        return False, "stop here"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoped, expected", [(True, "b"), (False, None)])
+async def test_rest_update_passes_store_only_to_scoped_backends(scoped, expected):
+    """PUT /memories/{hash} confines the write itself on backends that can.
+
+    A backend that ignores ``store`` (cloudflare, milvus, remote_http) does not
+    accept the keyword yet, so it must not receive it.
+    """
+    from mcp_memory_service.web.api.memories import MemoryUpdateRequest, update_memory
+
+    storage = _RecordingStorage(scoped)
+    await update_memory(
+        "abc", MemoryUpdateRequest(tags=["x"]), store="b", storage=storage, user=None
+    )
+
+    assert storage.update_kwargs.get("store") == expected
