@@ -17,6 +17,111 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.6.0] - 2026-11-05
+
+
+### Added
+
+- Rebuild existing entity graphs with `memory_quality(action="rebuild_entities")`, previewing changes by default and applying current extraction settings across all live memories on SQLite, Hybrid, and Milvus.
+- **The dashboard follows the system color scheme by default (#1737).** It used to
+  open in light mode whatever the OS was set to. A new `System` theme, the default
+  for anyone who never picked one, tracks `prefers-color-scheme` and updates live
+  when the OS switches. An explicit light or dark choice still wins, and the header
+  toggle keeps flipping between light and dark. `theme-init.js` applies the same rule
+  before first paint, so following a dark OS does not bring back the flash from #1705.
+- **`memory oauth list-clients` and `memory oauth delete-client` (#1804, timkjr).**
+  Registered OAuth clients, including ones that registered themselves through
+  Dynamic Client Registration, could only be removed by editing `oauth.db` by
+  hand. `list-clients` shows each client without its secret, with its newest
+  refresh token still on record. `delete-client` asks for confirmation (`--yes`
+  skips it) and removes the client with its authorization codes and tokens in
+  one transaction. Access tokens already issued as JWTs stay valid until they
+  expire, and while registration is open a deleted application can register
+  again. Both storage backends gain `list_clients()` and `delete_client()`.
+- Add Russian language support to the web dashboard with a complete translation catalog, automatic language discovery, and regression tests (#1763).
+
+### Fixed
+
+- **Prevent a light-theme flash when the dashboard reloads in dark mode (#1705).** A synchronous external initializer applies the saved theme before dashboard content is parsed; blocked or malformed storage keeps the default light theme.
+- **The SQLite OAuth store never enforced its foreign keys (#1804, timkjr).**
+  The schema declares `ON DELETE CASCADE` from authorization codes, access
+  tokens and refresh tokens to `oauth_clients`, but the backend never turned on
+  `PRAGMA foreign_keys`, so deleting a client left its codes and tokens behind
+  and a code or token could be stored for a client that did not exist. The
+  pragma is now set on the connection. `store_client` switched from
+  `INSERT OR REPLACE` to an upsert: REPLACE deletes the row first, and with
+  enforcement on, that delete would have wiped the client's tokens whenever
+  `authenticate_client` upgraded a legacy plaintext secret to a hash.
+- **The Manage tab and the search counts stayed in English in every language (#1808, ZYZ666-RGB).**
+  Tag column headers, Rename and Delete, both “0 results” labels and “0 chunks found”
+  already had catalog keys, and the page never read them. `Filter by type:` and
+  `Delete Untagged` named keys no catalog defined, so the English markup remained.
+  The tag-statistics error, the untagged-memory sentence and its delete prompts now
+  come from the catalogs too. A language switch keeps the numbers in those counts.
+  One search result reads “1 result”, and one document chunk reads “1 chunk found”;
+  zero and every larger count stay plural. The chosen key stays on the element, so
+  the next language switch does not put the plural wording back.
+- **The Analytics activity report, activity heatmap and top-tags report stayed English in every language (#1809).**
+  Their labels (`Period:`, `N memories (N%)`, `Often with:`, `Active Days:`, the streaks, `Peak Times:`,
+  the heatmap's `N active days`, `Max: N memories/day`, day tooltips, `Less`/`More`, and the empty and
+  load-error messages) were English literals in `app.js`. They now come from 18 new `analytics.*` keys
+  in all ten catalogs, and the top-tags period reads as its menu label (`Last 30 Days`) instead of `30d`.
+- **The storage report and several Analytics and Quality chart labels were English in every language (#1810).**
+  The storage report's labels, units, date fallback and tag line, the empty and error messages
+  of the growth, tag usage, memory types and relationship types charts and their aggregate
+  rows, the quality analytics load error, the score distribution labels and axis title, and the
+  Local SLM and Implicit Only provider names now come from the catalogs, in all ten languages.
+  The tags in the storage report are escaped now.
+- **The Knowledge Graph toolbar and its fullscreen view were English in every language (#1811, ppcvote).**
+  The node-limit `All` option, the 3D/2D, rotation, fullscreen, legend and exit tooltips, the
+  layout group's screen-reader name, the Pause/Play rotation toggle, the node tooltip hints and
+  the empty and error messages now come from the catalogs, in all ten languages. The rotation
+  toggle keeps its key, so a language switch shows Play or Pause in the new language.
+- **The memory detail, add and edit dialogs stayed in English in every language (#1815).**
+  Opening a memory showed `Memory Details`, `Created:`, `Content`, `Tags` and `Metadata`
+  in English; editing showed `Edit Memory` and `Update Memory`; the delete confirmation,
+  the save and rating toasts, the active-filter chips, the quality badge tooltip and the
+  empty states of the recent memories, tag cloud, tag view, search and quality lists did
+  the same. They now come from the catalogs, with 31 new keys in all ten. Switching to
+  edit also moves the title's and button's `data-i18n` key along, so a later language
+  switch no longer turns `Update Memory` back into `Save Memory`.
+- **The authentication dialog stayed English in every other language (#1818).**
+  The dialog the dashboard shows when it needs an API key or an OAuth login carried
+  no `data-i18n` attributes at all, so its heading, both section titles, the API key
+  field, the two buttons and the local-development note kept their English text after
+  a language switch; the four messages around a login attempt were hardcoded English
+  strings passed straight to `showToast`. The markup now names nine keys
+  (`modal.auth.*`, with `data-i18n-html` for the note so its `<strong>`/`<code>`
+  markup survives) and `app.js` looks the messages up through `this.t()`; all ten
+  catalogs carry the thirteen new strings.
+- **The Settings Credentials tab is now translated (#1813).** The Cloudflare credentials and sync-owner form, its hints, the connection test and the save messages were English-only in every language. They now read from the catalogs in all ten locales. `tests/web/test_i18n_credentials_tab.py` checks the keys, their placeholders and markup, and that the tab uses them.
+- **Versioned updates no longer flag their parent as a conflict (#1838).** They still detect and report conflicts with other memories.
+- **The HTTP /mcp shim served a weaker protocol than stdio (#1847).**
+  `tools/list` over HTTP dropped every tool's `annotations` (0/26 carried
+  readOnlyHint/destructiveHint vs 28/28 on stdio), `ping` answered
+  `-32601`, and the `memory_graph` schema enum advertised 5 of the 9 actions
+  the handler accepts — `abduct`, `list_entities` and `entity_profile` were
+  unreachable for schema-respecting clients. The shim now serializes
+  annotations, answers `ping` with an empty result, the enum lists all nine
+  actions, and the write-scope exemption derives from a single
+  `GRAPH_ACTIONS` constant so the three lists cannot drift (`extract_entities`
+  stays write-only, GHSA-2mw6-h564-86wv behavior unchanged).
+- **`memory_graph` was advertised as read-only although `extract_entities` writes entity links (#1852).** The tool annotation now sets `readOnlyHint: False` on both stdio and the HTTP `/mcp` shim, so clients no longer auto-approve a write that should require user confirmation.
+- **Harvest no longer lets an older statement replace a newer memory (#1858).** A multi-session harvest now processes sessions oldest first, harvested memories record when they were said in `metadata.source_time`, and evolution skips a candidate that is older than the memory it matched, storing it separately instead. Opt-in auto-supersede now orders a contradicting pair by that statement time instead of the ingest time. Harvest provenance version is now 4.
+- **Dashboard restart and update no longer crash servers started with `python -m uvicorn` (#1861).** The delayed restart helper previously rebuilt the command as `[sys.executable] + sys.argv`. Under `-m uvicorn`, `sys.argv[0]` points to `uvicorn/__main__.py`, causing the process to re-execute `__main__.py` as a script and placing `site-packages/uvicorn/` first on `sys.path`. uvicorn's internal `logging.py` then shadowed standard library `logging` on startup, crashing with an `AttributeError` circular import error. The restart command now rebuilds from `sys.orig_argv` on Python 3.10+, preserving the original `-m uvicorn` invocation and interpreter options on both Unix and Windows.
+- **Any web page could drive an unauthenticated local `--streamable-http` or `--sse` server (GHSA-8p26-g7wp-65jw, orshih6).**
+  With no API key or OAuth on a loopback bind, the `/mcp` preflight answered every origin
+  with `Access-Control-Allow-Origin: *`, and neither transport checked `Host` or `Origin`,
+  so a cross-origin page could call `memory_delete` or plant memories, and a DNS-rebinding
+  domain could also read the results. An unauthenticated server now only accepts loopback
+  `Host` values and loopback origins plus `MCP_CORS_ORIGINS` (403/421 otherwise), and the
+  preflight grants exactly those origins. Servers with an API key or OAuth keep their
+  current behaviour, including behind a reverse proxy.
+
+### Internal
+
+- Explain the optional `sqlite_vec` import guard in `storage/mixins/retrieve.py`, clearing CodeQL `py/empty-except` alert 639 (#1867).
+
 ## [12.5.0] - 2026-11-03
 
 **Python 3.10 is no longer supported.** This release requires Python 3.11 or newer (#1770); see Removed below before upgrading.
