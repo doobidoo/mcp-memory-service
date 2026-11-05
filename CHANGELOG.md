@@ -39,6 +39,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   expire, and while registration is open a deleted application can register
   again. Both storage backends gain `list_clients()` and `delete_client()`.
 - Add Russian language support to the web dashboard with a complete translation catalog, automatic language discovery, and regression tests (#1763).
+- Added a Korean introduction to the project website, including setup guidance and language navigation.
 
 ### Fixed
 
@@ -117,6 +118,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   `Host` values and loopback origins plus `MCP_CORS_ORIGINS` (403/421 otherwise), and the
   preflight grants exactly those origins. Servers with an API key or OAuth keep their
   current behaviour, including behind a reverse proxy.
+- **Deleting a memory left beliefs and consolidation summaries citing it (#1857, ZYZ666-RGB).**
+  Graph edges were removed in the delete transaction, but `derived_from`,
+  `contradicted_by` and `metadata.merged_from_hashes` kept the hash, and
+  compression and association memories kept it in `source_memory_hashes`.
+  Retention deletes this way all the time, so `get_beliefs` kept returning a
+  belief whose evidence was gone. The same transaction now drops the hash from
+  those lists, records `metadata.stale_sources` (how many, and when), and marks
+  a belief `ungrounded` when nothing is left. That status is not `superseded`.
+  Confidence is unchanged until the next `challenge_belief`. Summaries are
+  flagged and not rewritten. A later re-derivation does not union a merged
+  source that is no longer live. Re-deriving an ungrounded belief promotes it
+  back to candidate, or to active when the usual floors are met. A tombstone
+  applied through delta sync runs the same cleanup. A summary flag advances
+  `updated_at` and records an `update_metadata` event when the sync log is on.
+  If that cleanup fails, the delta-sync apply rolls the tombstone and the
+  event back, so a retry can finish instead of sticking as a duplicate. A
+  local delete rolls that same transaction back before it releases the
+  connection lock. Re-derivation writes only sources that are still live,
+  and saves that list with confidence and status together.
+- **Five localized website introductions still allowed Python 3.10 (#1868).** The
+  German, Spanish, French, Japanese and Simplified Chinese pages said Python 3.10 or
+  newer was enough after #1770 had retired 3.10. They now say 3.11, like the English,
+  Brazilian Portuguese, Traditional Chinese and Korean pages.
 
 ### Internal
 
