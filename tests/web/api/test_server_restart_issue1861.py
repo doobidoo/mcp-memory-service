@@ -124,7 +124,7 @@ def test_subprocess_restart_preserves_module_execution_with_shadow_logging(tmp_p
     # Ensure current python path / venv can import mcp_memory_service
     repo_root = str(Path(__file__).resolve().parents[3] / "src")
     existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = f"{repo_root}:{existing_pythonpath}" if existing_pythonpath else repo_root
+    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else repo_root
 
     proc = subprocess.run(
         [sys.executable, "-m", "shadow_pkg"],
