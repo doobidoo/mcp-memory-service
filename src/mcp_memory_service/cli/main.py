@@ -45,12 +45,13 @@ def _get_version():
         return "0.0.0.dev0"
 
 
-# Lazy command map for ingestion-related commands.
-# These commands pull in heavier dependencies and are imported only when needed.
+# Lazy command map: these commands are imported only when invoked
+# (ingestion pulls in heavier dependencies).
 LAZY_COMMANDS = {
     "ingest-document": ("mcp_memory_service.cli.ingestion", "ingest_document"),
     "ingest-directory": ("mcp_memory_service.cli.ingestion", "ingest_directory"),
     "list-formats": ("mcp_memory_service.cli.ingestion", "list_formats"),
+    "oauth": ("mcp_memory_service.cli.oauth", "oauth"),
 }
 
 

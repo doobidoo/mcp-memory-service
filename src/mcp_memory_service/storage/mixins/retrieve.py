@@ -14,9 +14,13 @@ from typing import List, Dict, Any, Optional, Sequence, Set, Tuple
 try:
     from sqlite_vec import serialize_float32
 except ImportError:
+    # Optional at import time only: initialize() calls _check_dependencies(),
+    # which raises when sqlite-vec is missing, so serialize_float32 is never
+    # reached unbound.
     pass
 
 from ...models.memory import Memory, MemoryQueryResult
+from ..read_policy import should_raise_read_error
 
 logger = logging.getLogger(__name__)
 
@@ -794,6 +798,8 @@ class RetrieveMixin:
 
         except Exception as e:
             logger.error("Error getting all memories: %s", _sanitize_log_value(e))
+            if should_raise_read_error():
+                raise
             return []
 
     async def get_stores(self) -> List[str]:
@@ -897,8 +903,17 @@ class RetrieveMixin:
             logger.error("Error getting memory timestamps: %s", _sanitize_log_value(e))
             return []
 
-    async def count_all_memories(self, memory_type: Optional[str] = None, tags: Optional[List[str]] = None, tag_match: str = "any", stale_days: Optional[int] = None, store: Optional[str] = "default", agent_id: Optional[str] = None, include_superseded: bool = True) -> int:
-        """Get total count of memories in storage (see get_all_memories for include_superseded)."""
+    async def count_all_memories(
+        self,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        tag_match: str = "any",
+        stale_days: Optional[int] = None,
+        store: Optional[str] = "default",
+        agent_id: Optional[str] = None,
+        include_superseded: bool = True,
+    ) -> int:
+        """Count memories, preserving read errors during destructive maintenance."""
         try:
             await self.initialize()
 
@@ -949,6 +964,8 @@ class RetrieveMixin:
 
         except Exception as e:
             logger.error("Error counting memories: %s", _sanitize_log_value(e))
+            if should_raise_read_error():
+                raise
             return 0
 
     async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:

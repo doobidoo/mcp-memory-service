@@ -91,6 +91,7 @@ except ImportError:
 
 from .base import MemoryStorage
 from .milvus_expr import escape_expr_value
+from .read_policy import should_raise_read_error
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
     _exclude_versioned_parent,
@@ -3882,6 +3883,7 @@ class MilvusMemoryStorage(MemoryStorage):
         ``include_superseded=False`` leaves out versions replaced by a newer
         one, matching ``get_all_memories`` so ``memory_list`` totals and
         ``has_more`` agree with its pages (#1803, #1824).
+        Destructive maintenance propagates count errors via its read policy.
         """
         if agent_id is not None:
             raise NotImplementedError(
@@ -3889,6 +3891,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 "(sqlite-vec only in this phase). See PR #1297."
             )
         if not self._ensure_initialized():
+            if should_raise_read_error():
+                raise RuntimeError("Milvus memory storage is not initialized")
             return 0
 
         filters: List[Optional[str]] = []
@@ -3919,6 +3923,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 rows = await self._drain_rows(filter_expr, ["id", "metadata"])
             except Exception as exc:  # noqa: BLE001
                 logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
+                if should_raise_read_error():
+                    raise
                 return 0
             return sum(1 for row in rows if not self._row_is_superseded(row))
 
@@ -3932,6 +3938,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return self._extract_count(rows)
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
+            if should_raise_read_error():
+                raise
             return 0
 
     @staticmethod

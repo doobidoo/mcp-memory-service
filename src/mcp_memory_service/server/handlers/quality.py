@@ -68,7 +68,9 @@ async def handle_memory_quality(server, arguments: dict) -> List[types.TextConte
         return [types.TextContent(type="text", text="Error: action parameter is required")]
 
     # Validate action
-    valid_actions = ["rate", "get", "analyze", "maintain", "maintain_status"]
+    valid_actions = [
+        "rate", "get", "analyze", "maintain", "maintain_status", "rebuild_entities"
+    ]
     if action not in valid_actions:
         return [types.TextContent(
             type="text",
@@ -76,6 +78,11 @@ async def handle_memory_quality(server, arguments: dict) -> List[types.TextConte
         )]
 
     try:
+        if action == "rebuild_entities":
+            # Keep optional maintenance backends out of ordinary quality calls.
+            from .entity_rebuild import handle_rebuild_entities  # inline import
+            return await handle_rebuild_entities(server, arguments)
+
         # Route to appropriate handler based on action
         if action == "rate":
             # Rate a memory
