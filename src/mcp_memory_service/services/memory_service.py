@@ -738,7 +738,8 @@ class MemoryService:
     def _as_written(new_hash, content, tags, memory_type, metadata, previous) -> Memory:
         """The evolved version as storage wrote it, for when it can't be re-read."""
         if tags is None and previous is not None:
-            tags = previous.tags
+            # Storage does not carry the conflict marker into a new version (#1840).
+            tags = [t for t in (previous.tags or []) if t != "conflict:unresolved"]
         if memory_type is None and previous is not None:
             memory_type = previous.memory_type
         return Memory(
