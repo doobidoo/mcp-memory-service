@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v12.5.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v12.6.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v12.5.0">
+<meta property="og:title" content="MCP Memory Service v12.6.0">
 <meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
@@ -207,7 +207,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
       <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
       <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
     </ul>
-    <span class="ver">v12.5</span>
+    <span class="ver">v12.6</span>
   </nav>
   <nav class="language-switcher" aria-label="Choose language">
 <!-- locale-navigation:start -->
@@ -250,7 +250,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
   <dl class="facts">
     <div><dd>5 ms</dd><dt>local read latency</dt></div>
     <div><dd>86%</dd><dt>LongMemEval R@5, session mode</dt></div>
-    <div><dd>5,884</dd><dt>tests</dt></div>
+    <div><dd>6,214</dd><dt>tests</dt></div>
     <div><dd>25+</dd><dt>AI apps supported</dt></div>
   </dl>
 </div>
@@ -282,53 +282,53 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 
 <section class="sec" id="features">
   <div class="wrap">
-    <h2>What's new in v12.5</h2>
-    <p class="lede">Python 3.11 minimum, belief deduplication, delta-sync status in the dashboard, and a wider set of languages.</p>
+    <h2>What's new in v12.6</h2>
+    <p class="lede">A security fix for unauthenticated local HTTP transports, entity graph rebuilds, OAuth client management, and a dashboard that follows your system theme.</p>
     <ul class="rel">
       <li>
-        <span class="tag">Breaking</span>
+        <span class="tag">Security</span>
         <div>
-          <h3>Python 3.11 or newer</h3>
-          <p>Python 3.10 reached end of life on October 1, 2026 and cannot install the patched filelock releases. Recreate your virtual environment on 3.11 or newer before upgrading.</p>
-        </div>
-      </li>
-      <li>
-        <span class="tag">Beliefs</span>
-        <div>
-          <h3>Semantic dedup of beliefs</h3>
-          <p>Consolidation backfills belief embeddings and, when <code>MCP_BELIEF_DEDUP</code> is on, reports duplicate groups by cosine similarity. It is a dry run until <code>MCP_BELIEF_DEDUP_APPLY=true</code>.</p>
-        </div>
-      </li>
-      <li>
-        <span class="tag">Sync</span>
-        <div>
-          <h3>Delta-sync status in the dashboard</h3>
-          <p>A panel shows peer destinations, scheduling, cycle results and errors, and the dashboard refreshes after each sync cycle.</p>
-        </div>
-      </li>
-      <li>
-        <span class="tag">Search</span>
-        <div>
-          <h3>Superseded versions stay hidden</h3>
-          <p>Searches without a query, tag searches and <code>memory_list</code> skip superseded versions on sqlite-vec and Milvus, and Milvus full reads are no longer capped at 16,384 rows.</p>
+          <h3>Local HTTP transports refuse cross-origin requests</h3>
+          <p>An unauthenticated loopback <code>--streamable-http</code> or <code>--sse</code> server now accepts only loopback <code>Host</code> values and loopback origins plus <code>MCP_CORS_ORIGINS</code>, closing a cross-origin and DNS-rebinding hole (GHSA-8p26-g7wp-65jw). Servers with an API key or OAuth are unchanged.</p>
         </div>
       </li>
       <li>
         <span class="tag">Entities</span>
         <div>
-          <h3>Choose which tags become entities</h3>
-          <p><code>MCP_ENTITY_TAG_INCLUDE</code> and <code>MCP_ENTITY_TAG_EXCLUDE</code> take <code>fnmatch</code> patterns, so generic tags stop linking every memory to every other.</p>
+          <h3>Rebuild existing entity graphs</h3>
+          <p><code>memory_quality(action="rebuild_entities")</code> previews by default and applies the current extraction settings to all live memories on SQLite, Hybrid and Milvus.</p>
         </div>
       </li>
       <li>
-        <span class="tag">Languages</span>
+        <span class="tag">OAuth</span>
         <div>
-          <h3>Dashboard and site in more languages</h3>
-          <p>The dashboard gains Hindi, Indonesian and Brazilian Portuguese, and the site gains German, Spanish, French, Japanese, Portuguese and Chinese introductions.</p>
+          <h3>List and delete registered clients</h3>
+          <p><code>memory oauth list-clients</code> and <code>memory oauth delete-client</code> replace editing <code>oauth.db</code> by hand. The SQLite store now enforces its foreign keys, so deleting a client removes its codes and tokens.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Dashboard</span>
+        <div>
+          <h3>System theme and Russian</h3>
+          <p>The dashboard follows <code>prefers-color-scheme</code> by default, and gains a Russian translation. Several tabs and dialogs that stayed in English now read from the catalogs.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Harvest</span>
+        <div>
+          <h3>Older statements no longer replace newer memories</h3>
+          <p>Harvest processes sessions oldest first and records when each statement was made, so evolution stores an older candidate separately instead of superseding a newer memory.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Fixes</span>
+        <div>
+          <h3>Restart under uvicorn, and a read-only flag that was wrong</h3>
+          <p>Dashboard restart no longer crashes servers started with <code>python -m uvicorn</code>, and <code>memory_graph</code> is no longer advertised as read-only although <code>extract_entities</code> writes.</p>
         </div>
       </li>
     </ul>
-    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v12.5.0" target="_blank" rel="noopener">Full release notes for v12.5.0</a></p>
+    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v12.6.0" target="_blank" rel="noopener">Full release notes for v12.6.0</a></p>
   </div>
 </section>
 
