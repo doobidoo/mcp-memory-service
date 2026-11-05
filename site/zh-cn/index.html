@@ -22,6 +22,7 @@
 <link rel="alternate" hreflang="es" href="https://mcpmemory.services/es/">
 <link rel="alternate" hreflang="fr" href="https://mcpmemory.services/fr/">
 <link rel="alternate" hreflang="ja" href="https://mcpmemory.services/ja/">
+<link rel="alternate" hreflang="ko" href="https://mcpmemory.services/ko/">
 <link rel="alternate" hreflang="pt-br" href="https://mcpmemory.services/pt-br/">
 <link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
 <link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
@@ -44,6 +45,7 @@
 <a href="/es/" lang="es" hreflang="es">Español</a>
 <a href="/fr/" lang="fr" hreflang="fr">Français</a>
 <a href="/ja/" lang="ja" hreflang="ja">日本語</a>
+<a href="/ko/" lang="ko" hreflang="ko">한국어</a>
 <a href="/pt-br/" lang="pt-br" hreflang="pt-br">Português (Brasil)</a>
 <a href="/zh-cn/" lang="zh-cn" hreflang="zh-cn" aria-current="page">简体中文</a>
 <a href="/zh-tw/" lang="zh-tw" hreflang="zh-tw">繁體中文</a></nav>
@@ -83,7 +85,7 @@
   <section class="sec" id="install">
     <div class="wrap locale-install">
       <h2>在 Claude Code 中配置</h2>
-      <p class="lede">需要 Python 3.10 或更高版本，以及已经装好的 Claude Code 客户端。其他客户端也可以通过 MCP 接入，配置方法见英文指南。</p>
+      <p class="lede">需要 Python 3.11 或更高版本，以及已经装好的 Claude Code 客户端。其他客户端也可以通过 MCP 接入，配置方法见英文指南。</p>
       <ol class="install-steps">
         <li><h3>安装 Memory Service</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>把这个包安装到客户端能够调用其命令的 Python 环境里。</p></li>
         <li><h3>添加为 MCP 服务器</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>在项目目录下执行这条命令，然后重启 Claude Code。首次启动时会下载本地 Embedding 模型。</p></li>
