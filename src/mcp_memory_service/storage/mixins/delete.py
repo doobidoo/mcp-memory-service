@@ -236,6 +236,12 @@ class DeleteMixin:
                         "proceeding with soft-delete; run purge_deleted() to clean orphan.",
                         _sanitize_log_value(content_hash), _sanitize_log_value(vec_err),
                     )
+                # Issue #1840: read the conflict partners before the edges go.
+                # Guarded like _append_sync_event: the helpers live on MetadataMixin.
+                cleans_conflict_tags = hasattr(self, '_clear_stale_conflict_tags')
+                conflict_partners = (
+                    self._contradicts_partners(content_hash) if cleans_conflict_tags else []
+                )
                 self.conn.execute(
                     'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
                     (content_hash, content_hash)
@@ -257,7 +263,10 @@ class DeleteMixin:
                         'deleted_at': deleted_at
                     }
                     self._append_sync_event(self.conn, 'delete', content_hash, payload)
-                
+
+                if conflict_partners and cursor.rowcount > 0:
+                    self._clear_stale_conflict_tags(conflict_partners)
+
                 self.conn.commit()
                 return cursor.rowcount
 

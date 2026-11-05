@@ -97,8 +97,9 @@ async def resolve_conflict(
     Resolve a conflict by choosing a winner.
 
     The winner memory gets its confidence boosted to 1.0. The loser memory
-    is marked as superseded by the winner. The conflict:unresolved tag is
-    removed from both memories.
+    is marked as superseded by the winner. The loser loses its
+    conflict:unresolved tag; the winner and the loser's other conflict
+    partners lose theirs once no current conflict partner remains.
     """
     try:
         ok, msg = await storage.resolve_conflict(request.winner_hash, request.loser_hash)
