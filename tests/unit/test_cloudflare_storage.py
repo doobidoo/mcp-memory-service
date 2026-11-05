@@ -770,7 +770,8 @@ class TestCloudflareTimeBasedDeletion:
                 assert count == 1
 
     @pytest.mark.asyncio
-    async def test_get_by_exact_content_d1_query(self, cloudflare_storage):
+    @pytest.mark.parametrize("store", [None, "docs"], ids=["default-store", "named-store"])
+    async def test_get_by_exact_content_d1_query(self, cloudflare_storage, store):
         """Test get_by_exact_content constructs correct D1 SQL query."""
         content = "Exact match test content"
 
@@ -799,13 +800,18 @@ class TestCloudflareTimeBasedDeletion:
         with patch.object(cloudflare_storage, '_retry_request') as mock_request:
             mock_request.side_effect = [mock_response, mock_tags_response]
 
-            memories = await cloudflare_storage.get_by_exact_content(content)
+            memories = await cloudflare_storage.get_by_exact_content(content, store=store)
 
             # Verify SQL query structure (now uses LIKE for substring matching)
             sql_payload = mock_request.call_args_list[0].kwargs["json"]
             assert "content LIKE" in sql_payload["sql"]
             assert "deleted_at IS NULL" in sql_payload["sql"]
-            assert sql_payload["params"] == [content]
+            if store is not None:
+                assert "AND store = ?" in sql_payload["sql"]
+                assert sql_payload["params"] == [content, store]
+            else:
+                assert "AND store = ?" not in sql_payload["sql"]
+                assert sql_payload["params"] == [content]
 
             # Verify result
             assert len(memories) == 1

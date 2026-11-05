@@ -1476,11 +1476,15 @@ class CloudflareStorage(MemoryStorage):
                 SELECT * FROM memories
                 WHERE content LIKE '%' || ? || '%' ESCAPE '\\'
                 AND deleted_at IS NULL
-                ORDER BY created_at DESC
             """
             # Escape LIKE wildcards so the query is matched literally.
             escaped = content.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            payload = {"sql": sql, "params": [escaped]}
+            params = [escaped]
+            if store is not None:
+                sql += " AND store = ?"
+                params.append(store)
+            sql += " ORDER BY created_at DESC"
+            payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
