@@ -172,9 +172,9 @@ class MilvusMemoryStorage(MemoryStorage):
         default — matches the rest of the project.
     """
 
-    # This backend is a single default partition. Named-store lookups fail closed
-    # rather than returning a row from that unpartitioned collection.
-    get_by_hash_is_store_scoped = True
+    # Older versions accepted but ignored `store`, so existing rows may be mixed.
+    get_by_hash_is_store_scoped = False
+    supports_store_scoped_access = False
 
     @property
     def max_content_length(self) -> Optional[int]:

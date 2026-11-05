@@ -457,26 +457,37 @@ def test_all_backends_accept_include_superseded_kwarg(method_name):
 
 
 @pytest.mark.parametrize(
-    ("method_name", "args", "expected"),
+    ("method_name", "args", "expected", "store"),
     [
-        ("list_entities", (), []),
-        ("find_memories_by_entity", ("Private",), []),
-        ("get_entities_for_memory", ("private-hash",), []),
-        ("get_entity_profile", ("Private",), {}),
-        ("common_neighbors", ("private-hash",), []),
+        (method, args, expected, store)
+        for store in ("default", "private")
+        for method, args, expected in [
+            ("list_entities", (), []),
+            ("find_memories_by_entity", ("Private",), []),
+            ("get_entities_for_memory", ("private-hash",), []),
+            ("get_entity_profile", ("Private",), {}),
+            ("common_neighbors", ("private-hash",), []),
+        ]
     ],
 )
 @pytest.mark.asyncio
-async def test_milvus_graph_store_queries_fail_closed(method_name, args, expected):
-    """Milvus has no per-edge store ownership, so scoped graph reads return none."""
+async def test_milvus_graph_store_queries_fail_closed(method_name, args, expected, store):
+    """Unpartitioned legacy graph edges cannot prove ownership for any store."""
     milvus_graph = _backend_class(
         "mcp_memory_service.storage.milvus_graph", "MilvusGraphStorage"
     )
     graph = milvus_graph.__new__(milvus_graph)
 
-    result = await getattr(graph, method_name)(*args, store="private")
+    result = await getattr(graph, method_name)(*args, store=store)
 
     assert result == expected
+
+
+def test_milvus_does_not_advertise_access_to_unpartitioned_legacy_data():
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+
+    assert milvus.get_by_hash_is_store_scoped is False
+    assert milvus.supports_store_scoped_access is False
 
 
 @pytest.mark.parametrize(

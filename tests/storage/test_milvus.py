@@ -64,11 +64,12 @@ async def storage(milvus_db_path):
 
 @pytest.mark.asyncio
 async def test_hash_lookup_fails_closed_for_unpartitioned_named_store(monkeypatch):
-    """Milvus is default-only; a named partition must never resolve globally."""
+    """Milvus legacy rows have unknown ownership, so scoped grants stay disabled."""
     instance = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
     monkeypatch.setattr(instance, "_ensure_initialized", lambda: True)
 
-    assert MilvusMemoryStorage.get_by_hash_is_store_scoped is True
+    assert MilvusMemoryStorage.get_by_hash_is_store_scoped is False
+    assert MilvusMemoryStorage.supports_store_scoped_access is False
     assert await instance.get_by_hash("known-hash", store="docs") is None
 
 

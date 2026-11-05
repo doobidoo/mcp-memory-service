@@ -1075,8 +1075,7 @@ class MilvusGraphStorage:
         Milvus has no GROUP BY, so the has_entity edges are drained and
         aggregated in Python — the same shape GraphStorage returns via SQL.
         """
-        # The Milvus graph collection does not retain store ownership for every
-        # edge, so it cannot safely answer a partition-scoped graph query.
+        # Older Milvus versions ignored `store`, so existing edges may be mixed.
         if store is not None:
             return []
         if not self._ensure_ready():
