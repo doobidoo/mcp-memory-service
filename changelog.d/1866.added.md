@@ -1,0 +1,1 @@
+- Added a Korean introduction to the project website, including setup guidance and language navigation.
