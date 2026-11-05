@@ -35,6 +35,7 @@ database is not evidence that the hash was deleted).
 import json
 import logging
 import sqlite3
+import time
 from datetime import datetime, timezone
 
 from mcp_memory_service.compat import _sanitize_log_value
@@ -162,8 +163,10 @@ def flag_summary_sources(metadata, *, live_ids, updated_at) -> dict:
     """Mark a compression or association memory whose sources have departed.
 
     ``source_memory_hashes`` is kept. The summary text is not this function's
-    concern. ``stale_sources.count`` is how many of those hashes are not live,
-    so repeating the call for the same gap does not increment it.
+    concern. ``stale_sources.count`` is how many of those hashes are not live.
+    Repeating the call for the same count does not increment it and does not
+    refresh ``updated_at``, so a later reconcile of an already-flagged summary
+    does not look like a new edit.
     """
     meta = dict(metadata or {})
     sources = meta.get("source_memory_hashes")
@@ -172,7 +175,11 @@ def flag_summary_sources(metadata, *, live_ids, updated_at) -> dict:
     departed = departed_sources(sources, live_ids)
     if not departed:
         return meta
-    meta["stale_sources"] = {"count": len(departed), "updated_at": updated_at}
+    count = len(departed)
+    prior = meta.get("stale_sources")
+    if isinstance(prior, dict) and prior.get("count") == count:
+        return meta
+    meta["stale_sources"] = {"count": count, "updated_at": updated_at}
     return meta
 
 
@@ -219,7 +226,7 @@ def live_memory_hashes(conn, hashes):
 
 
 def retract_sources_for_deleted_hashes(
-    conn, content_hashes, *, updated_at=None
+    conn, content_hashes, *, updated_at=None, sync=None
 ) -> None:
     """Update beliefs and consolidation summaries that cite these hashes.
 
@@ -229,6 +236,11 @@ def retract_sources_for_deleted_hashes(
     scan. Per-row JSON that cannot be parsed is skipped and logged. A failure
     while writing propagates so the caller's transaction can roll the delete
     back with the retraction.
+
+    ``sync`` is the storage that owns ``conn`` when the caller can record
+    events. A summary flag then goes out through ``_append_sync_event`` in
+    this same transaction. The memories ``updated_at`` column moves either way,
+    which is what hybrid sync compares.
     """
     deleted = _unique_strings(content_hashes)
     if not deleted:
@@ -236,7 +248,7 @@ def retract_sources_for_deleted_hashes(
     when = updated_at or datetime.now(timezone.utc).isoformat()
     _stage_hashes(conn, deleted)
     _retract_beliefs(conn, set(deleted), when)
-    _flag_summaries(conn, set(deleted), when)
+    _flag_summaries(conn, set(deleted), when, sync)
 
 
 def _without(items, removed: set) -> list:
@@ -380,9 +392,9 @@ def _parsed_belief(belief_hash, derived_raw, contradicted_raw, metadata_raw):
         return None
 
 
-def _flag_summaries(conn, deleted: set, updated_at: str) -> None:
+def _flag_summaries(conn, deleted: set, updated_at: str, sync=None) -> None:
     for row in _citing_summaries(conn, deleted):
-        _flag_one_summary(conn, row, updated_at)
+        _flag_one_summary(conn, row, updated_at, sync)
 
 
 def _citing_summaries(conn, deleted: set):
@@ -407,7 +419,7 @@ def _scan_summaries(conn, deleted: set):
     return [row for row in rows if _row_cites((row[1],), deleted)]
 
 
-def _flag_one_summary(conn, row, updated_at: str) -> None:
+def _flag_one_summary(conn, row, updated_at: str, sync=None) -> None:
     content_hash, metadata_raw, tags = row
     if _summary_kind(tags) is None:
         return
@@ -429,9 +441,44 @@ def _flag_one_summary(conn, row, updated_at: str) -> None:
     flagged = flag_summary_sources(metadata, live_ids=live, updated_at=updated_at)
     if flagged == metadata:
         return
+    _write_summary_flag(conn, content_hash, flagged, sync)
+
+
+def _write_summary_flag(conn, content_hash: str, flagged: dict, sync) -> None:
+    """Persist the flag and, when event logging is on, record it for peers."""
+    epoch = time.time()
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
     conn.execute(
-        "UPDATE memories SET metadata = ? WHERE content_hash = ? AND deleted_at IS NULL",
-        (json.dumps(flagged), content_hash),
+        "UPDATE memories SET metadata = ?, updated_at = ?, updated_at_iso = ? "
+        "WHERE content_hash = ? AND deleted_at IS NULL",
+        (json.dumps(flagged), epoch, iso, content_hash),
+    )
+    _record_summary_flag(sync, conn, content_hash, flagged, epoch)
+
+
+def _record_summary_flag(
+    sync, conn, content_hash: str, flagged: dict, epoch: float
+) -> None:
+    """Same payload shape as ``update_memory_metadata``: partial metadata, one key.
+
+    Delta sync merges ``updates.metadata`` per key, and the payload's
+    ``updated_at`` is the instant peers write. Hybrid sync never sees the
+    event; it compares the column this write just advanced.
+    """
+    if sync is None or not hasattr(sync, "_append_sync_event"):
+        return
+    warning = flagged.get("stale_sources")
+    if not isinstance(warning, dict):
+        return
+    sync._append_sync_event(
+        conn,
+        "update_metadata",
+        content_hash,
+        {
+            "content_hash": content_hash,
+            "updates": {"metadata": {"stale_sources": warning}},
+            "updated_at": epoch,
+        },
     )
 
 

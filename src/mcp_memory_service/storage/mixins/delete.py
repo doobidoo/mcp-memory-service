@@ -32,8 +32,11 @@ class DeleteMixin:
         """
         try:
             await self._run_in_thread(self.conn.rollback)
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            # Best-effort. "no transaction is active" means the failure
+            # happened before any statement opened one, so there is nothing
+            # to undo. A connection closed in between raises the same error.
+            logger.debug("Delete rollback skipped: %s", _sanitize_log_value(exc))
 
     async def get_sync_state_for_hash(
         self, content_hash: str
@@ -128,7 +131,7 @@ class DeleteMixin:
                                     'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
                                     (content_hash, content_hash),
                                 )
-                                retract_sources_for_deleted_hashes(self.conn, [content_hash])
+                                retract_sources_for_deleted_hashes(self.conn, [content_hash], sync=self)
                                 if hasattr(self, '_append_sync_event'):
                                     self._append_sync_event(
                                         self.conn,
@@ -220,7 +223,7 @@ class DeleteMixin:
                     update_params.append(store)
                 cursor = self.conn.execute(update_sql, tuple(update_params))
                 if cursor.rowcount > 0:
-                    retract_sources_for_deleted_hashes(self.conn, [content_hash])
+                    retract_sources_for_deleted_hashes(self.conn, [content_hash], sync=self)
 
                 # Append sync event between UPDATE and commit (ADR-0008)
                 if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
@@ -381,7 +384,7 @@ class DeleteMixin:
                     (time.time(), exact_match_pattern)
                 )
                 if cursor.rowcount > 0:
-                    retract_sources_for_deleted_hashes(self.conn, content_hashes)
+                    retract_sources_for_deleted_hashes(self.conn, content_hashes, sync=self)
                 self.conn.commit()
                 return cursor.rowcount
 
@@ -450,7 +453,7 @@ class DeleteMixin:
 
                 cursor = self.conn.execute(update_query, [time.time()] + params + store_param)
                 if cursor.rowcount > 0:
-                    retract_sources_for_deleted_hashes(self.conn, hashes)
+                    retract_sources_for_deleted_hashes(self.conn, hashes, sync=self)
                 self.conn.commit()
                 return cursor.rowcount, hashes
 

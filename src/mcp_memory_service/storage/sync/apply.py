@@ -17,6 +17,7 @@ from typing import Dict, Any
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
+from ..source_retraction import retract_sources_for_deleted_hashes
 from .resolver import EventView, reduce_events, _winner_key
 
 logger = logging.getLogger(__name__)
@@ -856,6 +857,10 @@ def _reconcile_liveness(s, content_hash: str) -> None:
     the resolver can still re-impose the tombstone (closes Greptile Fonte 1, Order B) and a
     stale recreate_of can never leave a resurrected row (Fonte 2). Writes the deleted_at of
     the dominant delete (deterministic), never time.time(). No-op if no row exists yet.
+
+    A DEAD result also retracts belief and summary citations in this same
+    transaction. Delta sync never calls DeleteMixin, so the tombstone alone
+    would leave those receipts pointing at the deleted hash.
     """
     state, deleted_at = recompute_liveness(_load_hash_events(s, content_hash))
     if state == _ABSENT:
@@ -866,7 +871,11 @@ def _reconcile_liveness(s, content_hash: str) -> None:
             (content_hash,),
         )
         return
-    # _DEAD: stamp the deterministic deleted_at from the dominant delete's payload.
+    _stamp_tombstone(s, content_hash, deleted_at)
+
+
+def _stamp_tombstone(s, content_hash: str, deleted_at) -> None:
+    """Write the dominant delete's timestamp and retract citations with it."""
     if deleted_at is None:
         # Invariant violation: the dominant delete carried no payload deleted_at, so we fall
         # back to wall-clock — which is NON-DETERMINISTIC across peers. This should never be
@@ -881,6 +890,7 @@ def _reconcile_liveness(s, content_hash: str) -> None:
         "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
         (deleted_at, content_hash),
     )
+    retract_sources_for_deleted_hashes(s.conn, [content_hash], sync=s)
 
 
 def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:

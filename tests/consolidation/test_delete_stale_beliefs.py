@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from mcp_memory_service.consolidation.belief_service import BeliefService
+from mcp_memory_service.consolidation.belief_service import BeliefService, _hash_content
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -144,9 +144,17 @@ def test_summary_flag_keeps_the_source_list_and_counts_departed_hashes():
     assert flagged["source_memory_hashes"] == ["dead", "live"]
     assert flagged["compression_ratio"] == 0.4
     assert flagged["stale_sources"] == {"count": 1, "updated_at": _WHEN}
-    # Absolute count: flagging the same gap again does not increment.
-    again = flag_summary_sources(flagged, live_ids={"live"}, updated_at=_WHEN)
-    assert again["stale_sources"]["count"] == 1
+    # Absolute count: the same gap does not increment, and a new timestamp
+    # does not count as a fresh edit.
+    again = flag_summary_sources(
+        flagged, live_ids={"live"}, updated_at="2026-11-05T04:00:00+00:00"
+    )
+    assert again["stale_sources"] == {"count": 1, "updated_at": _WHEN}
+    both_gone = flag_summary_sources(again, live_ids=set(), updated_at="2026-11-05T05:00:00+00:00")
+    assert both_gone["stale_sources"] == {
+        "count": 2,
+        "updated_at": "2026-11-05T05:00:00+00:00",
+    }
     assert original == {
         "source_memory_hashes": ["dead", "live"],
         "compression_ratio": 0.4,
@@ -420,8 +428,18 @@ async def test_deleting_a_source_retracts_beliefs_and_flags_summaries(
     storage = await _storage(temp_db_path, f"{how}.db")
     try:
         seeded = await _seed(storage)
+        summary_before = storage.conn.execute(
+            "SELECT updated_at FROM memories WHERE content_hash = ?",
+            (seeded["summary"],),
+        ).fetchone()[0]
         await _drop(storage, how, seeded["gone"])
         _assert_retracted(storage, seeded)
+        summary_after, summary_iso = storage.conn.execute(
+            "SELECT updated_at, updated_at_iso FROM memories WHERE content_hash = ?",
+            (seeded["summary"],),
+        ).fetchone()
+        assert float(summary_after) > float(summary_before)
+        assert summary_iso
 
         visible = await BeliefService(storage).get_beliefs()
         visible_hashes = {b["belief_hash"] for b in visible}
@@ -510,5 +528,133 @@ async def test_delete_then_rederive_does_not_restore_the_merged_hash(temp_db_pat
         assert belief["derived_from"] == [kept]
         assert gone not in belief["metadata"].get("merged_from_hashes", [])
         assert belief["confidence"] == 0.81
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_rederivation_promotes_an_ungrounded_belief(temp_db_path):
+    """One fresh source returns the belief to candidate. Two make it active."""
+    storage = await _storage(temp_db_path, "restore-belief.db")
+    try:
+        content = "The NAS share is the backup target at 02:00 UTC."
+        first = await _store(
+            storage,
+            content,
+            memory_type="observation",
+            metadata={"observation_type": "user_correction"},
+        )
+        second_text = "The NAS share is the backup target at 02:00 UTC, confirmed."
+        second = await _store(
+            storage,
+            second_text,
+            memory_type="observation",
+            metadata={"observation_type": "user_correction"},
+        )
+        now = datetime.now(timezone.utc)
+        belief_hash = _hash_content(content)
+        service = BeliefService(storage)
+        await service._create_belief(
+            belief_hash, content, 0.2, "ungrounded", [], [], now
+        )
+        first_obs = await storage.get_by_hash(first)
+        second_obs = await storage.get_by_hash(second)
+        stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0}
+
+        await service._derive_group_belief(content, [first_obs], now, stats)
+
+        restored = _read_belief(storage, belief_hash)
+        assert restored["status"] == "candidate"
+        assert restored["derived_from"] == [first]
+        assert stats["promoted"] == 0
+        visible = {item["belief_hash"] for item in await service.get_beliefs()}
+        assert belief_hash not in visible
+
+        storage.conn.execute(
+            "UPDATE beliefs SET status = 'ungrounded', derived_from = '[]' "
+            "WHERE belief_hash = ?",
+            (belief_hash,),
+        )
+        storage.conn.commit()
+        stats = {"created": 0, "updated": 0, "promoted": 0, "superseded": 0}
+        await service._derive_group_belief(
+            content, [first_obs, second_obs], now, stats
+        )
+
+        active = _read_belief(storage, belief_hash)
+        assert active["status"] == "active"
+        assert active["derived_from"] == [first, second]
+        assert stats["promoted"] == 1
+        visible = {item["belief_hash"] for item in await service.get_beliefs()}
+        assert belief_hash in visible
+    finally:
+        await storage.close()
+
+
+@pytest.mark.asyncio
+async def test_peer_delete_retracts_citations_and_syncs_the_summary(
+    temp_db_path, monkeypatch
+):
+    """A winning delta-sync delete never calls DeleteMixin. Cleanup still runs."""
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
+    monkeypatch.setenv("MCP_AGENT_ID", "local-peer")
+    from mcp_memory_service.storage.sync.apply import apply_remote_event
+
+    storage = await _storage(temp_db_path, "peer-delete.db")
+    try:
+        seeded = await _seed(storage)
+        summary_before = storage.conn.execute(
+            "SELECT updated_at FROM memories WHERE content_hash = ?",
+            (seeded["summary"],),
+        ).fetchone()[0]
+        gone = seeded["gone"]
+        result = apply_remote_event(
+            storage,
+            {
+                "agent_id": "remote-peer",
+                "event_id": "del-gone",
+                "op": "delete",
+                "content_hash": gone,
+                "hlc_physical": 9_000_000_000_000,
+                "hlc_logical": 0,
+                "payload": {"content_hash": gone, "deleted_at": 1_700_000_000.0},
+            },
+        )
+        assert result.applied and result.materialized, result.reason
+        _assert_retracted(storage, seeded)
+
+        summary_after, summary_iso = storage.conn.execute(
+            "SELECT updated_at, updated_at_iso FROM memories WHERE content_hash = ?",
+            (seeded["summary"],),
+        ).fetchone()
+        assert float(summary_after) > float(summary_before)
+        assert summary_iso
+        payloads = storage.conn.execute(
+            "SELECT payload FROM sync_events WHERE content_hash = ? AND op = 'update_metadata'",
+            (seeded["summary"],),
+        ).fetchall()
+        assert len(payloads) == 1
+        recorded = json.loads(payloads[0][0])
+        assert recorded["updates"]["metadata"]["stale_sources"]["count"] == 1
+        assert recorded["updated_at"] == summary_after
+
+        again = apply_remote_event(
+            storage,
+            {
+                "agent_id": "remote-peer",
+                "event_id": "del-gone-again",
+                "op": "delete",
+                "content_hash": gone,
+                "hlc_physical": 9_000_000_000_001,
+                "hlc_logical": 0,
+                "payload": {"content_hash": gone, "deleted_at": 1_700_000_001.0},
+            },
+        )
+        assert again.applied and again.materialized, again.reason
+        payloads = storage.conn.execute(
+            "SELECT payload FROM sync_events WHERE content_hash = ? AND op = 'update_metadata'",
+            (seeded["summary"],),
+        ).fetchall()
+        assert len(payloads) == 1
     finally:
         await storage.close()

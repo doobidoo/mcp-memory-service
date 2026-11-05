@@ -167,6 +167,26 @@ def _hash_content(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def _status_after_source_restore(
+    status: str, confidence: float, support_count: int
+) -> Optional[str]:
+    """Next status when derivation rewrites an existing belief's sources.
+
+    ``candidate`` promotes to ``active`` once the floors are met.
+    ``ungrounded`` is that same path once evidence exists again: ``active``
+    when the floors are met, otherwise ``candidate``. Left at ``ungrounded``,
+    the belief stays out of the default ``get_beliefs`` read. ``active`` moves
+    to ``superseded`` when confidence falls through the floor.
+    """
+    if status in ("candidate", "ungrounded") and should_promote(confidence, support_count):
+        return "active"
+    if status == "ungrounded":
+        return "candidate"
+    if status == "active" and should_supersede(confidence):
+        return "superseded"
+    return None
+
+
 def _sum_numeric_counters(target: dict, source: dict) -> None:
     """Add source's numeric counters into target in place (bool excluded).
 
@@ -291,17 +311,17 @@ class BeliefService:
                 belief_hash, confidence, supporting_hashes, contradicting_hashes, now
             )
             stats["updated"] += 1
-
-            # Promote or supersede
-            status = existing["status"]
-            if status == "candidate" and should_promote(confidence, len(supporting_hashes)):
-                stats["promoted"] += await self._set_belief_status(
-                    belief_hash, "active", now, expected_status=status
+            new_status = _status_after_source_restore(
+                existing["status"], confidence, len(supporting_hashes)
+            )
+            if new_status is not None:
+                changed = await self._set_belief_status(
+                    belief_hash, new_status, now, expected_status=existing["status"]
                 )
-            elif status == "active" and should_supersede(confidence):
-                stats["superseded"] += await self._set_belief_status(
-                    belief_hash, "superseded", now, expected_status=status
-                )
+                if new_status == "active":
+                    stats["promoted"] += changed
+                elif new_status == "superseded":
+                    stats["superseded"] += changed
         else:
             # Create new candidate
             status = "active" if should_promote(confidence, len(supporting_hashes)) else "candidate"
