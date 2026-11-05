@@ -880,7 +880,13 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """
         Update memory metadata without recreating the entire memory entry.
 
@@ -888,6 +894,10 @@ class MemoryStorage(ABC):
             content_hash: Hash of the memory to update
             updates: Dictionary of metadata fields to update
             preserve_timestamps: Whether to preserve original created_at timestamp
+            store: Confine the update to this store; a memory in another store
+                is reported as not found. ``None`` or ``"all"`` is unscoped.
+                Only backends with ``get_by_hash_is_store_scoped`` honor it
+                (#1683); callers pass it only to those.
 
         Returns:
             Tuple of (success, message)
