@@ -455,6 +455,7 @@ def test_all_backends_accept_include_superseded_kwarg(method_name):
         f"{offenders}. MemoryService and the REST tag search pass it (issue #1803)."
     )
 
+
 @pytest.mark.parametrize(
     ("method_name", "args", "expected"),
     [
@@ -476,3 +477,190 @@ async def test_milvus_graph_store_queries_fail_closed(method_name, args, expecte
     result = await getattr(graph, method_name)(*args, store="private")
 
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("method_name", "expected"),
+    [
+        ("get_by_hash", None),
+        ("retrieve", []),
+        ("retrieve_with_quality_boost", []),
+        ("get_by_exact_content", []),
+        (
+            "search_memories",
+            {
+                "memories": [],
+                "total": 0,
+                "query": "private query",
+                "mode": "semantic",
+                "error": "Milvus storage does not support named stores",
+            },
+        ),
+        ("recall", []),
+        ("get_all_tags_with_counts", []),
+        ("get_all_memories", []),
+        ("count_all_memories", 0),
+        ("get_memories_by_time_range", []),
+        ("get_memory_timestamps", []),
+        (
+            "get_graph_visualization_data",
+            {
+                "nodes": [],
+                "edges": [],
+                "meta": {
+                    "total_nodes": 0,
+                    "total_edges": 0,
+                    "min_connections": 1,
+                    "limit": 100,
+                },
+            },
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_milvus_store_reads_fail_closed_before_backend_access(
+    monkeypatch, method_name, expected
+):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(
+        storage,
+        "_ensure_initialized",
+        lambda: pytest.fail("unsupported named-store reads must fail before I/O"),
+    )
+    monkeypatch.setattr(
+        storage,
+        "_drain_all_graph_edges",
+        lambda *args, **kwargs: pytest.fail(
+            "unsupported graph reads must fail before I/O"
+        ),
+    )
+    args = {"store": "private"}
+    if method_name == "get_by_hash":
+        args["content_hash"] = "private-hash"
+    elif method_name in ("retrieve", "retrieve_with_quality_boost"):
+        args["query"] = "private query"
+        if method_name == "retrieve_with_quality_boost":
+            args["quality_boost"] = False
+    elif method_name == "get_by_exact_content":
+        args["content"] = "private query"
+    elif method_name == "search_memories":
+        args["query"] = "private query"
+    elif method_name == "get_memories_by_time_range":
+        args.update(start_time=0.0, end_time=1.0)
+    elif method_name == "get_memory_timestamps":
+        args["days"] = 1
+
+    result = await getattr(storage, method_name)(**args)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    ("method_name", "kwargs", "expected"),
+    [
+        (
+            "delete",
+            {"content_hash": "private-hash", "store": "private"},
+            (False, "Milvus storage does not support named stores"),
+        ),
+        (
+            "update_memory_metadata",
+            {"content_hash": "private-hash", "updates": {}, "store": "private"},
+            (False, "Milvus storage does not support named stores"),
+        ),
+        (
+            "update_memory_versioned",
+            {
+                "content_hash": "private-hash",
+                "new_content": "replacement",
+                "store": "private",
+            },
+            (False, "Milvus storage does not support named stores", None),
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_milvus_store_mutations_reject_named_store_before_backend_access(
+    monkeypatch, method_name, kwargs, expected
+):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(
+        storage,
+        "_ensure_initialized",
+        lambda: pytest.fail("unsupported named-store mutations must fail before I/O"),
+    )
+
+    result = await getattr(storage, method_name)(**kwargs)
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_milvus_store_rejects_named_store_before_backend_access(monkeypatch):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(
+        storage,
+        "_ensure_initialized",
+        lambda: pytest.fail("unsupported named-store writes must fail before I/O"),
+    )
+
+    ok, message = await storage.store(object(), store="private")
+
+    assert not ok
+    assert "does not support named stores" in message
+
+
+@pytest.mark.asyncio
+async def test_milvus_store_batch_rejects_named_store_before_backend_access(
+    monkeypatch,
+):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(
+        storage,
+        "_ensure_initialized",
+        lambda: pytest.fail("unsupported named-store writes must fail before I/O"),
+    )
+
+    results = await storage.store_batch([object(), object()], store="private")
+
+    assert len(results) == 2
+    assert all(
+        not ok and "does not support named stores" in message for ok, message in results
+    )
+
+
+@pytest.mark.asyncio
+async def test_milvus_delete_by_tags_rejects_named_store_before_backend_access(
+    monkeypatch,
+):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(
+        storage,
+        "_ensure_initialized",
+        lambda: pytest.fail("unsupported named-store deletes must fail before I/O"),
+    )
+
+    count, message, hashes = await storage.delete_by_tags(
+        ["private-tag"], store="private"
+    )
+
+    assert count == 0
+    assert "does not support named stores" in message
+    assert hashes == []
+
+
+@pytest.mark.parametrize("store", [None, "default"])
+@pytest.mark.asyncio
+async def test_milvus_delete_by_tags_keeps_default_store_path(monkeypatch, store):
+    milvus = _backend_class("mcp_memory_service.storage.milvus", "MilvusMemoryStorage")
+    storage = milvus.__new__(milvus)
+    monkeypatch.setattr(storage, "_ensure_initialized", lambda: False)
+
+    count, message, hashes = await storage.delete_by_tags(["tag"], store=store)
+
+    assert (count, message, hashes) == (0, "Milvus storage not initialized", [])

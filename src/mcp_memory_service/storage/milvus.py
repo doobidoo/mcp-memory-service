@@ -1408,10 +1408,9 @@ class MilvusMemoryStorage(MemoryStorage):
                     recreate: Optional[bool] = None) -> Tuple[bool, str]:
         # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
         # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
-        # `store` accepted for BaseStorage parity (multi-store, issue #133).
-        # The Milvus backend is single-collection and does not partition by
-        # store yet, so the value is intentionally not used (matches
-        # get_all_memories/count_all_memories/search_memories here).
+        # Milvus is single-collection and cannot safely write into a named store.
+        if store not in (None, "default"):
+            return False, "Milvus storage does not support named stores"
         # Explicit invariant log: if this ever reports True, something
         # outside ``close()`` has nulled out the client and that is a bug.
         logger.debug("store() entry — self.client is None: %r", self.client is None)
@@ -1510,10 +1509,13 @@ class MilvusMemoryStorage(MemoryStorage):
         self, memories: List[Memory], store: str = "default", recreate: Optional[bool] = None
     ) -> List[Tuple[bool, str]]:
         # `recreate` accepted for BaseStorage parity (#1560), unused — see store().
-        # `store` accepted for BaseStorage parity (multi-store, issue #133).
-        # Single-collection backend — see store() for the full rationale.
         if not memories:
             return []
+        if store not in (None, "default"):
+            return [
+                (False, "Milvus storage does not support named stores")
+                for _ in memories
+            ]
         if not self._ensure_initialized():
             return [(False, "Milvus storage not initialized")] * len(memories)
 
@@ -1725,8 +1727,9 @@ class MilvusMemoryStorage(MemoryStorage):
         store: Optional[str] = None,
         as_of: Optional[float] = None,
     ) -> List[MemoryQueryResult]:
-        # `store` accepted for BaseStorage parity (multi-store, issue #133).
-        # Single-collection backend — see store() for the full rationale.
+        # Named stores fail closed until this collection carries store ownership.
+        if store not in (None, "default"):
+            return []
         # MemoryStorage.search_memories/retrieve_with_quality_boost pass this
         # through; this backend overrides both today, but the signature has to
         # match so it stays substitutable if either override is ever dropped.
@@ -1861,6 +1864,8 @@ class MilvusMemoryStorage(MemoryStorage):
     # -- Delete --------------------------------------------------------------
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
+        if store not in (None, "default"):
+            return False, "Milvus storage does not support named stores"
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
@@ -1918,6 +1923,9 @@ class MilvusMemoryStorage(MemoryStorage):
         )
 
     async def delete_by_tags(self, tags: List[str], store: Optional[str] = None) -> Tuple[int, str, List[str]]:
+        # This collection has no store partition; never apply a scoped request globally.
+        if store not in (None, "default"):
+            return 0, "Milvus storage does not support named stores", []
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized", []
         if not tags:
@@ -2101,12 +2109,11 @@ class MilvusMemoryStorage(MemoryStorage):
     # -- Reads ---------------------------------------------------------------
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
-        if not self._ensure_initialized():
-            return None
-
         # Milvus currently stores one unpartitioned collection, equivalent to
         # the default store. Never let a named-store lookup fall through to it.
         if store is not None and store != "default":
+            return None
+        if not self._ensure_initialized():
             return None
 
         try:
@@ -2144,6 +2151,8 @@ class MilvusMemoryStorage(MemoryStorage):
         into Python. On legacy collections that predate ``content_lower``,
         falls back to a bounded client-side scan.
         """
+        if store not in (None, "default"):
+            return []
         if not self._ensure_initialized():
             return []
 
@@ -2313,6 +2322,8 @@ class MilvusMemoryStorage(MemoryStorage):
         preserve_timestamps: bool = True,
         store: Optional[str] = None,
     ) -> Tuple[bool, str]:
+        if store not in (None, "default"):
+            return False, "Milvus storage does not support named stores"
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
@@ -2382,6 +2393,8 @@ class MilvusMemoryStorage(MemoryStorage):
         annotated with ``superseded_by`` rather than overwritten, so
         ``memory_update`` with a versioned update works on this backend.
         """
+        if store not in (None, "default"):
+            return False, "Milvus storage does not support named stores", None
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized", None
 
@@ -2862,6 +2875,9 @@ class MilvusMemoryStorage(MemoryStorage):
         superseded_by in metadata but not the replacement moment, so
         superseded rows are conservatively excluded from as_of queries.
         """
+        if store not in (None, "default"):
+            return {"memories": [], "total": 0, "query": query, "mode": mode,
+                    "error": "Milvus storage does not support named stores"}
         if agent_id is not None:
             return {"memories": [], "total": 0, "query": query, "mode": mode,
                     "error": "agent_id filtering is not implemented for the Milvus backend "
@@ -3455,6 +3471,8 @@ class MilvusMemoryStorage(MemoryStorage):
         web/api/memories.py::get_tags calls this without a hasattr guard, so its
         absence surfaced as HTTP 501 on the dashboard Browse tab (issue #213).
         """
+        if store not in (None, "default"):
+            return []
         counts: Counter = Counter()
         for tags in await self._scan_tags():
             counts.update(tags)
@@ -3510,6 +3528,8 @@ class MilvusMemoryStorage(MemoryStorage):
         Called unguarded from web/api/search.py, so a missing override fails the
         endpoint the same way #213 failed /api/tags.
         """
+        if store not in (None, "default"):
+            return []
         if not self._ensure_initialized():
             return []
 
@@ -3838,6 +3858,8 @@ class MilvusMemoryStorage(MemoryStorage):
         (#1803, #1824). The default keeps every live row for export, sync and
         consolidation.
         """
+        if store not in (None, "default"):
+            return []
         if agent_id is not None:
             raise NotImplementedError(
                 "agent_id filtering is not implemented for the Milvus backend "
@@ -3896,6 +3918,8 @@ class MilvusMemoryStorage(MemoryStorage):
         ``has_more`` agree with its pages (#1803, #1824).
         Destructive maintenance propagates count errors via its read policy.
         """
+        if store not in (None, "default"):
+            return 0
         if agent_id is not None:
             raise NotImplementedError(
                 "agent_id filtering is not implemented for the Milvus backend "
@@ -4096,6 +4120,8 @@ class MilvusMemoryStorage(MemoryStorage):
         self, start_time: float, end_time: float,
         include_embeddings: bool = False, store: Optional[str] = None,
     ) -> List[Memory]:
+        if store not in (None, "default"):
+            return []
         if not self._ensure_initialized():
             return []
         filter_expr = f"created_at >= {start_time} and created_at <= {end_time}"
@@ -4107,6 +4133,8 @@ class MilvusMemoryStorage(MemoryStorage):
         )
 
     async def get_memory_timestamps(self, days: Optional[int] = None, store: Optional[str] = None) -> List[float]:
+        if store not in (None, "default"):
+            return []
         if not self._ensure_initialized():
             return []
 
@@ -4464,8 +4492,8 @@ class MilvusMemoryStorage(MemoryStorage):
     ) -> Dict[str, Any]:
         """Return D3-compatible graph data for the analytics dashboard.
 
-        ``store`` is accepted for BaseStorage parity; this single-collection
-        backend has no partition key to apply.
+        Named-store requests fail closed because this backend has no partition
+        key to apply.
 
         Node connection counts use DISTINCT targets per source, matching
         SQLite's ``COUNT(DISTINCT mg.target_hash)``. Edges are restricted to
@@ -4483,6 +4511,8 @@ class MilvusMemoryStorage(MemoryStorage):
             },
         }
 
+        if store not in (None, "default"):
+            return empty
         if limit <= 0:
             return empty
 
