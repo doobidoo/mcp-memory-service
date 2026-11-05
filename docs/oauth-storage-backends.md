@@ -74,12 +74,15 @@ clients that registered themselves through Dynamic Client Registration and were 
 used again. To see and remove clients:
 
 ```bash
-# Every client, without secrets, with the time it last received a refresh token
+# Every client, without secrets, with its newest refresh token on record
 memory oauth list-clients
 
 # Delete one client with its authorization codes, stored access tokens and refresh tokens
 memory oauth delete-client <client_id>          # asks for confirmation; --yes skips it
 ```
+
+The server deletes expired refresh tokens in its periodic cleanup, so a client whose
+newest refresh token is "none on record" may still have been used in the past.
 
 Both commands read `MCP_OAUTH_SQLITE_PATH` (or take `--db-path`) and can run while the
 server is up. A deleted client cannot obtain new tokens through any grant. Access

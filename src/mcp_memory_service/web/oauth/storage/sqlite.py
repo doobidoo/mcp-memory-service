@@ -396,10 +396,16 @@ class SQLiteOAuthStorage(OAuthStorage):
             return False
         # Transparently upgrade legacy plaintext rows to a hash on next use.
         if not is_hashed_secret(client.client_secret):
-            upgraded = client.model_copy(
-                update={"client_secret": hash_client_secret(client_secret)}
-            )
-            await self.store_client(upgraded)
+            # Update the existing row only. An upsert (store_client) would
+            # recreate a client that delete_client removed after the read.
+            async with self._lock:
+                cursor = await self._execute(
+                    "UPDATE oauth_clients SET client_secret = ? WHERE client_id = ?",
+                    (hash_client_secret(client_secret), client_id),
+                )
+                await self._commit()
+            if cursor.rowcount == 0:
+                return False
             logger.debug("Upgraded legacy plaintext client secret to hash")
         return True
 
@@ -814,7 +820,9 @@ class SQLiteOAuthStorage(OAuthStorage):
                     await conn.rollback()
                     return None
                 await self._commit()
-            except Exception:
+            except BaseException:
+                # BaseException: a cancelled task must not leave BEGIN
+                # IMMEDIATE open, holding the write lock for every process.
                 await conn.rollback()
                 raise
 

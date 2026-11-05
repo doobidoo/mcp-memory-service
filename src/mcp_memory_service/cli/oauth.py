@@ -36,9 +36,9 @@ def _run(coro):
         raise click.ClickException(f"OAuth database error: {e}")
 
 
-def _fmt_time(ts):
+def _fmt_time(ts, empty="-"):
     if not ts:
-        return "never"
+        return empty
     return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
@@ -98,7 +98,11 @@ def oauth():
 @click.option("--db-path", type=click.Path(dir_okay=False),
               help="OAuth SQLite database (default: MCP_OAUTH_SQLITE_PATH)")
 def list_clients(db_path):
-    """List registered OAuth clients and when each last received a refresh token."""
+    """List registered OAuth clients and their newest refresh token on record.
+
+    Expired refresh tokens are deleted by the server's periodic cleanup, so
+    "none on record" does not mean the client was never used.
+    """
     path = _resolve_db_path(db_path)
     clients = _run(_list(path))
     if not clients:
@@ -107,11 +111,17 @@ def list_clients(db_path):
 
     for c in clients:
         click.echo(_safe(c["client_id"]))
-        click.echo(f"  name:                 {_safe(c['client_name']) or '-'}")
-        click.echo(f"  auth method:          {_safe(c['token_endpoint_auth_method'])}")
-        click.echo(f"  registered:           {_fmt_time(c['created_at'])}")
-        click.echo(f"  last refresh token:   {_fmt_time(c['last_refresh_token_at'])}")
-        click.echo(f"  active refresh tokens: {c['active_refresh_tokens']}")
+        for label, value in (
+            ("name", _safe(c["client_name"]) or "-"),
+            ("auth method", _safe(c["token_endpoint_auth_method"])),
+            ("registered", _fmt_time(c["created_at"])),
+            ("newest refresh token on record",
+             _fmt_time(c["last_refresh_token_at"], "none on record")),
+            ("active refresh tokens", c["active_refresh_tokens"]),
+        ):
+            click.echo(f"  {label + ':':<32}{value}")
+    click.echo("(Expired refresh tokens are cleaned up, so 'none on record' "
+               "does not mean a client was never used.)")
 
 
 @oauth.command("delete-client")

@@ -599,6 +599,65 @@ class TestClientAdmin:
             await other.close()
         assert await storage.delete_client("raced") is None
 
+    @pytest.mark.asyncio
+    async def test_secret_upgrade_does_not_recreate_deleted_client(self, storage):
+        """A client deleted between authenticate_client's read and its
+        plaintext-secret upgrade must stay deleted."""
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend reads and upgrades without yielding")
+        await storage.store_client(_client("legacy", time.time()))
+        await storage._execute(
+            "UPDATE oauth_clients SET client_secret = ? WHERE client_id = ?",
+            ("plaintext", "legacy"),
+        )
+        await storage._commit()
+        real_get = storage.get_client
+
+        async def get_then_delete(client_id):
+            client = await real_get(client_id)
+            other = create_oauth_storage("sqlite", db_path=storage.db_path)
+            try:
+                assert await other.delete_client(client_id) is not None
+            finally:
+                await other.close()
+            return client
+
+        storage.get_client = get_then_delete
+        try:
+            assert await storage.authenticate_client("legacy", "plaintext") is False
+        finally:
+            del storage.get_client
+        assert await storage.get_client("legacy") is None
+
+    @pytest.mark.asyncio
+    async def test_cancelled_delete_releases_write_lock(self, storage):
+        """A cancelled delete_client must roll back BEGIN IMMEDIATE, or every
+        other connection is locked out of writing."""
+        if isinstance(storage, MemoryOAuthStorage):
+            pytest.skip("Memory backend has no transactions")
+        await storage.store_client(_client("held", time.time()))
+        real_execute = storage._execute
+
+        async def cancel_on_delete(query, params=()):
+            if query.startswith("DELETE FROM oauth_clients"):
+                raise asyncio.CancelledError()
+            return await real_execute(query, params)
+
+        storage._execute = cancel_on_delete
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await storage.delete_client("held")
+        finally:
+            del storage._execute
+
+        assert not (await storage._get_connection()).in_transaction
+        other = create_oauth_storage("sqlite", db_path=storage.db_path)
+        try:
+            await other.store_access_token(token="after", client_id="held", expires_in=60)
+        finally:
+            await other.close()
+        assert await storage.get_client("held") is not None
+
 
 class TestSQLiteSpecific:
     """SQLite-specific tests (persistence, multi-process)."""

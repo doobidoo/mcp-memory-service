@@ -319,7 +319,9 @@ class OAuthStorage(ABC):
             client_id, client_name, token_endpoint_auth_method, created_at,
             active_refresh_tokens (not revoked, not expired) and
             last_refresh_token_at (issue time of the client's newest refresh
-            token, None if it never received one).
+            token still stored, None if none is). Expired refresh tokens
+            are deleted by cleanup_expired(), so None does not prove the
+            client never received one.
 
         Raises:
             NotImplementedError: If the backend does not support listing.

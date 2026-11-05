@@ -1,6 +1,7 @@
 """Tests for `memory oauth list-clients` / `memory oauth delete-client`."""
 
 import asyncio
+import re
 import time
 
 import pytest
@@ -39,7 +40,7 @@ def test_list_clients(db_path):
     assert result.exit_code == 0, result.output
     assert "cli_a" in result.output and "cli_b" in result.output
     assert "Alpha" in result.output
-    assert "active refresh tokens: 1" in result.output
+    assert re.search(r"active refresh tokens:\s+1\n", result.output)
     assert "supersecret" not in result.output
     assert "sha256$" not in result.output
 
@@ -132,6 +133,27 @@ def test_list_clients_escapes_control_characters(tmp_path):
     assert "\nforged_client" not in result.output
     assert "\x1b" not in result.output
     assert "x\\nforged_client\\n  name: \\x1b[2Jfake" in result.output
+
+
+def test_list_clients_without_tokens_says_none_on_record(tmp_path):
+    """Cleanup deletes expired refresh tokens, so no token is not 'never'."""
+    path = str(tmp_path / "oauth.db")
+
+    async def seed():
+        storage = create_oauth_storage("sqlite", db_path=path)
+        try:
+            await storage.store_client(RegisteredClient(
+                client_id="quiet", client_secret="s", created_at=time.time(),
+            ))
+        finally:
+            await storage.close()
+
+    asyncio.run(seed())
+    result = CliRunner().invoke(cli, ["oauth", "list-clients", "--db-path", path])
+    assert result.exit_code == 0, result.output
+    assert "newest refresh token on record: none on record" in result.output
+    assert "does not mean a client was never used" in result.output
+    assert "never\n" not in result.output
 
 
 def test_database_error_is_reported_without_traceback(tmp_path):
