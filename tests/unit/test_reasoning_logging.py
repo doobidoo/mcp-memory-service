@@ -89,17 +89,36 @@ async def test_entity_linker_logs_do_not_carry_newlines(monkeypatch, caplog):
     monkeypatch.setattr(entity_linker_module, "MAX_LINKS_PER_ENTITY", 1)
     capped_graph = MagicMock()
     capped_graph.find_memories_by_entity = AsyncMock(return_value=["h1", "h2"])
+    capped_graph.get_association = AsyncMock(return_value=None)
     capped_graph.store_association = AsyncMock(return_value=True)
 
     edge_failing_graph = MagicMock()
     edge_failing_graph.find_memories_by_entity = AsyncMock(return_value=["h1"])
+    edge_failing_graph.get_association = AsyncMock(return_value=None)
     edge_failing_graph.store_association = _failing("edge said")
+
+    protected_graph = MagicMock()
+    protected_graph.find_memories_by_entity = AsyncMock(return_value=["h1"])
+    protected_graph.get_association = AsyncMock(
+        return_value={"relationship_type": f"contradicts\n{FORGED}"}
+    )
+    protected_graph.store_association = AsyncMock(return_value=True)
+
+    # A failed edge check skips the pair rather than risk overwriting it.
+    check_failing_graph = MagicMock()
+    check_failing_graph.find_memories_by_entity = AsyncMock(return_value=["h1"])
+    check_failing_graph.get_association = _failing("check said")
+    check_failing_graph.store_association = AsyncMock(return_value=True)
 
     with caplog.at_level(logging.DEBUG, logger=LOGGERS):
         assert await linker.link_by_entities("self", [forged_entity], failing_graph) == 0
         assert await linker.link_by_entities("self", [forged_entity], capped_graph) == 1
         assert await linker.link_by_entities("self", [forged_entity], edge_failing_graph) == 0
+        assert await linker.link_by_entities("self", [forged_entity], protected_graph) == 0
+        assert await linker.link_by_entities("self", [forged_entity], check_failing_graph) == 0
 
+    protected_graph.store_association.assert_not_awaited()
+    check_failing_graph.store_association.assert_not_awaited()
     shown = _escaped(forged_entity)
     _assert_clean(
         caplog,
@@ -107,6 +126,8 @@ async def test_entity_linker_logs_do_not_carry_newlines(monkeypatch, caplog):
         f"EntityLinker: hit cap (1) for entity '{shown}'",
         "EntityLinker: created 1 shares_entity edges for self",
         f"Failed to create shares_entity edge: edge said\\n{FORGED}",
+        f"EntityLinker: kept contradicts\\n{FORGED} edge self <-> h1",
+        f"Failed to check existing edge self <-> h1: check said\\n{FORGED}",
     )
 
 

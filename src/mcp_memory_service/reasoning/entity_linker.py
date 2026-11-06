@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # Cap to prevent O(N²) edge explosion for common entities
 MAX_LINKS_PER_ENTITY = 20
 
+# Edges the entity graph owns. Any other edge on a pair is never overwritten.
+ENTITY_RELATIONSHIPS = ("has_entity", "shares_entity")
+
 
 def is_entity_linking_enabled() -> bool:
     """Check if entity linking is enabled via environment variable."""
@@ -77,6 +80,29 @@ class EntityLinker:
                 # Canonical pair to avoid duplicates
                 pair = tuple(sorted([memory_hash, other_hash]))
                 if pair in seen_pairs:
+                    continue
+
+                # A pair holds one edge and store_association() replaces it, so
+                # never overwrite a non-entity edge such as contradicts (#1874).
+                # Same rule as EntityRebuildPlan. A failed check skips the pair.
+                try:
+                    existing = await graph_storage.get_association(memory_hash, other_hash)
+                except Exception as e:
+                    logger.debug(
+                        "Failed to check existing edge %s <-> %s: %s",
+                        _sanitize_log_value(memory_hash),
+                        _sanitize_log_value(other_hash),
+                        _sanitize_log_value(e),
+                    )
+                    continue
+                if existing and existing.get("relationship_type") not in ENTITY_RELATIONSHIPS:
+                    seen_pairs.add(pair)
+                    logger.debug(
+                        "EntityLinker: kept %s edge %s <-> %s",
+                        _sanitize_log_value(existing.get("relationship_type")),
+                        _sanitize_log_value(memory_hash),
+                        _sanitize_log_value(other_hash),
+                    )
                     continue
 
                 try:

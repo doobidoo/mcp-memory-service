@@ -4,9 +4,7 @@ from collections import Counter, defaultdict, deque
 from typing import Any, Callable
 
 from .entities import Entity, EntityExtractor
-from .entity_linker import EntityLinker, MAX_LINKS_PER_ENTITY
-
-ENTITY_RELATIONSHIPS = ("has_entity", "shares_entity")
+from .entity_linker import ENTITY_RELATIONSHIPS, EntityLinker, MAX_LINKS_PER_ENTITY
 
 
 def _tags(value: object) -> list[str]:
@@ -72,6 +70,9 @@ class EntityRebuildPlan:
     async def find_memories_by_entity(self, entity_name: str) -> list[str]:
         """Return the same capped candidate window used at store time."""
         return list(self.recent[self.entity_key(entity_name)])
+
+    async def get_association(self, source_hash: str, target_hash: str) -> None:
+        """Report no edge: store_association() checks the pair against the snapshot."""
 
     async def store_association(
         self, source_hash: str, target_hash: str, **edge: Any
