@@ -135,8 +135,8 @@ class SemanticCompressionEngine(ConsolidationBase):
         sentences = self._select_representative_sentences(memories, key_concepts)
         summary = await self._generate_thematic_summary(memories, key_concepts, sentences)
 
-        # Without a source sentence in it, the summary is the generated overview
-        # line alone: a pattern memory with nothing in it. A sentence can be
+        # Without a source excerpt in it, the summary is the generated overview
+        # line alone: a pattern memory with nothing in it. An excerpt can be
         # selected and still be dropped by the length limit, so check the summary.
         if not any(sentence in summary for sentence in sentences):
             self.logger.debug(
@@ -289,33 +289,32 @@ class SemanticCompressionEngine(ConsolidationBase):
         return filtered_concepts[:15]  # Limit to top 15 thematic concepts
     
     def _select_representative_sentences(self, memories: List[Memory], key_concepts: List[str]) -> List[str]:
-        """Pick sentences that cover key concepts, best coverage first."""
+        """Pick intact source memories covering key concepts, best coverage first.
+
+        A later sentence can qualify an earlier rule without introducing a new
+        concept. Keep each memory together so selection and the length budget
+        cannot detach a statement from its exceptions or conditions.
+        """
         representative_sentences = []
         concept_coverage = set()
         
         for memory in memories:
-            sentences = self._split_into_sentences(memory.content)
-            for sentence in sentences:
-                sentence_concepts = set()
-                sentence_lower = sentence.lower()
-                
-                # Check which concepts this sentence covers
-                for concept in key_concepts:
-                    if concept.lower() in sentence_lower:
-                        sentence_concepts.add(concept)
-                
-                # If this sentence covers new concepts, include it
-                new_concepts = sentence_concepts - concept_coverage
-                if new_concepts and len(sentence) > 20:  # Minimum sentence length
-                    representative_sentences.append({
-                        'sentence': sentence.strip(),
-                        'concepts': sentence_concepts,
-                        'new_concepts': new_concepts,
-                        'score': len(new_concepts) + len(sentence_concepts) * 0.1
-                    })
-                    concept_coverage.update(new_concepts)
-        
-        # Sort by score and select best sentences
+            # Source memories are atomic excerpts, including short caveats and
+            # qualifications in separate paragraphs.
+            excerpt = memory.content.strip()
+            excerpt_lower = excerpt.lower()
+            excerpt_concepts = {
+                concept for concept in key_concepts if concept.lower() in excerpt_lower
+            }
+            new_concepts = excerpt_concepts - concept_coverage
+            if new_concepts and len(excerpt) > 20:
+                representative_sentences.append({
+                    'sentence': excerpt,
+                    'score': len(new_concepts) + len(excerpt_concepts) * 0.1
+                })
+                concept_coverage.update(new_concepts)
+
+        # Sort by score and select best excerpts
         representative_sentences.sort(key=lambda x: x['score'], reverse=True)
         return [s['sentence'] for s in representative_sentences]
 
@@ -349,16 +348,16 @@ class SemanticCompressionEngine(ConsolidationBase):
         budget = self.max_summary_length - 100  # Reserve space for conclusion
 
         for sentence in representative_sentences:
-            if used_length + len(sentence) < budget:
+            if used_length + 1 + len(sentence) < budget:
                 summary_parts.append(sentence)
-                used_length += len(sentence)
+                used_length += 1 + len(sentence)
             else:
                 break
         
         # Add concept summary if space allows
         if used_length < self.max_summary_length - 50:
             concept_summary = f"Key concepts: {', '.join(key_concepts[:8])}."
-            if used_length + len(concept_summary) < self.max_summary_length:
+            if used_length + 1 + len(concept_summary) < self.max_summary_length:
                 summary_parts.append(concept_summary)
         
         summary = ' '.join(summary_parts)
