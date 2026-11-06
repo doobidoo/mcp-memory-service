@@ -19,6 +19,9 @@ async def consolidator(temp_db_path):
     storage = SqliteVecMemoryStorage(db_path)
     await storage.initialize()
     instance = DreamInspiredConsolidator(storage, ConsolidationConfig())
+    # These tests pin the review bands of typed edges, which are opt-in since
+    # #1883 (MCP_TYPED_EDGES_ENABLED defaults to false). Opt in explicitly.
+    instance.relationship_inference.typed_edges_enabled = True
     instance.graph_storage = GraphStorage(db_path)
     try:
         yield instance

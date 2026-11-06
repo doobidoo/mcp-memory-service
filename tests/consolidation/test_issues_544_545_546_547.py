@@ -171,12 +171,31 @@ class TestIssue547:
         monkeypatch.setattr(cfg, "CONSOLIDATION_STORE_ASSOCIATIONS", True)
         assert cfg.CONSOLIDATION_STORE_ASSOCIATIONS is True
 
-    def test_typed_edges_enabled_default_true(self, monkeypatch):
-        """Default value for TYPED_EDGES_ENABLED is True (backward compat)."""
-        import mcp_memory_service.config as cfg
-        monkeypatch.delenv("MCP_TYPED_EDGES_ENABLED", raising=False)
-        monkeypatch.setattr(cfg, "TYPED_EDGES_ENABLED", True)
-        assert cfg.TYPED_EDGES_ENABLED is True
+    @pytest.mark.parametrize(
+        "env_value, expected",
+        [(None, False), ("false", False), ("true", True), ("TRUE", True)],
+    )
+    def test_typed_edges_enabled_reads_env_default_false(self, env_value, expected):
+        """#1883: typed edges are off unless MCP_TYPED_EDGES_ENABLED=true.
+
+        Evaluated in a fresh interpreter so the module-level os.getenv() really
+        runs against the given environment instead of a patched attribute.
+        """
+        import os
+        import subprocess
+        import sys
+
+        env = {k: v for k, v in os.environ.items() if k != "MCP_TYPED_EDGES_ENABLED"}
+        if env_value is not None:
+            env["MCP_TYPED_EDGES_ENABLED"] = env_value
+        # The child sees the same import path as pytest, installed package or not.
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "from mcp_memory_service.config import graph; print(graph.TYPED_EDGES_ENABLED)"],
+            env=env, capture_output=True, text=True, check=True, timeout=60,
+        ).stdout.strip().splitlines()[-1]
+        assert out == str(expected)
 
     @pytest.mark.asyncio
     async def test_store_associations_false_skips_memory_table_writes(self):
