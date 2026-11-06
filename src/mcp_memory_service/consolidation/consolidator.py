@@ -37,7 +37,13 @@ from ..config import (
     CONSOLIDATION_STORE_ASSOCIATIONS,
     TYPED_EDGES_ENABLED,
 )
-from .relationship_inference import RelationshipInferenceEngine, apply_review_band
+from .relationship_inference import (
+    DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_MIN_TYPED_CONFIDENCE,
+    DEFAULT_MIN_TYPED_SIMILARITY,
+    RelationshipInferenceEngine,
+    apply_review_band,
+)
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
 from ..utils.time_parser import memory_statement_time
@@ -259,7 +265,9 @@ class DreamInspiredConsolidator:
         self.compression_engine = SemanticCompressionEngine(config)
         self.forgetting_engine = ControlledForgettingEngine(config)
         self.relationship_inference = RelationshipInferenceEngine(
-            min_confidence=getattr(config, "relationship_confidence_threshold", 0.6),
+            min_confidence=DEFAULT_MIN_CONFIDENCE,
+            min_typed_confidence=DEFAULT_MIN_TYPED_CONFIDENCE,
+            min_typed_similarity=DEFAULT_MIN_TYPED_SIMILARITY,
             typed_edges_enabled=TYPED_EDGES_ENABLED,
         )
 

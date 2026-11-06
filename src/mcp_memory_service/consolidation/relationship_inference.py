@@ -11,7 +11,8 @@ Analyzes memory pairs to determine appropriate relationship types based on:
 This enables rich knowledge graphs with meaningful relationship types beyond "related".
 
 Fixes for GitHub issue #541:
-- Raised similarity threshold for typed labels (min_typed_similarity=0.65)
+- Raised similarity threshold for typed labels (min_typed_similarity=0.65,
+  on the normalized (cos + 1) / 2 score)
 - Tightened contradiction detection: removed weak conjunctions ("but", "yet",
   "although", "however", "nevertheless") — only strong opposition indicators kept
 - Added min_typed_confidence parameter (default 0.75) for non-"related" edges
@@ -28,6 +29,14 @@ from ..models.ontology import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Gates for inferred edges, chosen in issue #1457 on three hand-checked stores.
+# They limit how many typed labels get written; they do not make a label right.
+# DEFAULT_MIN_TYPED_SIMILARITY is on the score consolidation passes in,
+# (cos + 1) / 2, so 0.65 is cosine 0.3.
+DEFAULT_MIN_CONFIDENCE = 0.6
+DEFAULT_MIN_TYPED_CONFIDENCE = 0.75
+DEFAULT_MIN_TYPED_SIMILARITY = 0.65
 
 # Consolidation review policy, not calibrated probabilities. In particular,
 # keyword-only contradictions score 0.75 and must remain in the review band.
@@ -117,10 +126,13 @@ class RelationshipInferenceEngine:
         Issue #541 fix: separates thresholds so "related" is easy to assign
         but typed labels require stronger evidence.
     min_typed_similarity : float
-        Minimum cosine similarity required before assigning any typed label
-        (default 0.65). When similarity is below this threshold the result
-        falls back to "related". Only applies when ``similarity`` is provided
-        to ``infer_relationship_type``. Issue #541 fix.
+        Minimum similarity required before assigning any typed label
+        (default 0.65). It is compared with the ``similarity`` argument of
+        ``infer_relationship_type``, which in consolidation is the normalized
+        association score ``(cos + 1) / 2``, so the default means cosine 0.3.
+        When similarity is below this threshold the result falls back to
+        "related". Only applies when ``similarity`` is provided. Issue #541
+        fix; value chosen in issue #1457.
     """
 
     # Content patterns for relationship detection
@@ -191,9 +203,9 @@ class RelationshipInferenceEngine:
 
     def __init__(
         self,
-        min_confidence: float = 0.5,
-        min_typed_confidence: float = 0.50,
-        min_typed_similarity: float = 0.45,
+        min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+        min_typed_confidence: float = DEFAULT_MIN_TYPED_CONFIDENCE,
+        min_typed_similarity: float = DEFAULT_MIN_TYPED_SIMILARITY,
         typed_edges_enabled: bool = True,
     ):
         """
@@ -201,14 +213,16 @@ class RelationshipInferenceEngine:
 
         Args:
             min_confidence: Minimum confidence score (0.0-1.0) to assign
-                any relationship type (including ``related``).
+                any relationship type (including ``related``). Defaults to
+                0.6.
             min_typed_confidence: Minimum confidence required specifically for
                 typed labels (``fixes``, ``causes``, ``supports``,
                 ``contradicts``, ``follows``). Must be >= min_confidence.
-                Defaults to 0.75 (issue #541).
-            min_typed_similarity: When a cosine similarity is supplied, typed
-                labels are only assigned when similarity >= this threshold.
-                Defaults to 0.65 (issue #541).
+                Defaults to 0.75 (issues #541, #1457).
+            min_typed_similarity: When a similarity is supplied, typed labels
+                are only assigned when similarity >= this threshold. On the
+                score consolidation passes, ``(cos + 1) / 2``. Defaults to
+                0.65, which is cosine 0.3 (issues #541, #1457).
             typed_edges_enabled: When False, all inferred relationships are
                 returned as "related" regardless of analysis results.
                 Set via MCP_TYPED_EDGES_ENABLED=false to opt out of typed
@@ -243,8 +257,10 @@ class RelationshipInferenceEngine:
             target_timestamp: Creation timestamp of target memory (epoch)
             source_tags: Tags on source memory
             target_tags: Tags on target memory
-            similarity: Optional cosine similarity score between memory
-                embeddings. When provided, typed labels are suppressed if
+            similarity: Optional similarity between the memory embeddings,
+                on the same scale as min_typed_similarity (consolidation
+                passes ``association.similarity_score``, ``(cos + 1) / 2``).
+                When provided, typed labels are suppressed if
                 similarity < min_typed_similarity (issue #541).
 
         Returns:
@@ -422,10 +438,9 @@ class RelationshipInferenceEngine:
         no valid_patterns entry allows, so it is gone.
 
         Issue #541 fix: confidence values here feed into the typed-label gate
-        (min_typed_confidence=0.75), so only combinations that were already
-        at or above 0.75 in the original code will pass through unchanged.
-        Lower-confidence combinations will be caught by the gate and fall
-        back to "related".
+        (min_typed_confidence=0.75), so only combinations at or above 0.75
+        pass through unchanged. Lower-confidence combinations will be caught
+        by the gate and fall back to "related".
 
         Returns:
             List of (relationship_type, confidence_score) candidates

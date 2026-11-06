@@ -13,7 +13,7 @@ from mcp_memory_service.consolidation.relationship_inference import Relationship
 @pytest.fixture
 def engine():
     """Create RelationshipInferenceEngine instance with default settings."""
-    return RelationshipInferenceEngine(min_confidence=0.5)
+    return RelationshipInferenceEngine()
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ class TestRelationshipInferenceEngineInit:
     def test_default_initialization(self):
         """Engine should initialize with default confidence threshold."""
         engine = RelationshipInferenceEngine()
-        assert engine.min_confidence == 0.5
+        assert engine.min_confidence == 0.6
 
     def test_custom_confidence_threshold(self):
         """Engine should accept custom confidence threshold."""
@@ -74,9 +74,8 @@ class TestTypeCombinaticAnalysis:
             target_timestamp=time.time() - 100
         )
         # error→error type combination gives "causes" at 0.6; resolution
-        # keyword gives "fixes" at 0.6; both above min_typed_confidence=0.50.
-        # Shared keywords ("database", "deadlock") pass the domain guard.
-        assert rel_type in ["fixes", "causes", "related"]
+        # keyword gives "fixes" at 0.6; both below min_typed_confidence=0.75.
+        assert rel_type == "related"
         assert confidence >= 0.0
 
     @pytest.mark.asyncio
@@ -684,7 +683,7 @@ class TestIssue541TypedLabelThresholds:
     @pytest.mark.asyncio
     async def test_low_similarity_downgrades_typed_label_to_related(self, engine):
         """
-        Issue #541: when cosine similarity < min_typed_similarity (0.65),
+        Issue #541: when similarity < min_typed_similarity (0.65),
         typed labels must be suppressed and fall back to 'related'.
         """
         rel_type, confidence = await engine.infer_relationship_type(
@@ -697,13 +696,13 @@ class TestIssue541TypedLabelThresholds:
             similarity=0.40,  # below default min_typed_similarity=0.65
         )
         assert rel_type == "related", (
-            "Issue #541: low cosine similarity must prevent typed labels"
+            "Issue #541: low similarity must prevent typed labels"
         )
 
     @pytest.mark.asyncio
     async def test_sufficient_similarity_allows_typed_label(self, engine):
         """
-        Issue #541: when cosine similarity >= min_typed_similarity (0.65),
+        Issue #541: when similarity >= min_typed_similarity (0.65),
         typed labels may be assigned (given other guards also pass).
         """
         rel_type, confidence = await engine.infer_relationship_type(
@@ -781,6 +780,6 @@ class TestIssue541TypedLabelThresholds:
     async def test_default_initialization_typed_params(self):
         """Issue #541: new parameters have correct defaults."""
         engine = RelationshipInferenceEngine()
-        assert engine.min_confidence == 0.5
-        assert engine.min_typed_confidence == 0.50
-        assert engine.min_typed_similarity == 0.45
+        assert engine.min_confidence == 0.6
+        assert engine.min_typed_confidence == 0.75
+        assert engine.min_typed_similarity == 0.65
