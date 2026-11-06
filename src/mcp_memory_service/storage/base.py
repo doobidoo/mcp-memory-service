@@ -38,6 +38,25 @@ class EmbeddingModelMismatchError(RuntimeError):
         self.remote_model = remote_model
 
 
+class UntaggedCountChanged(RuntimeError):
+    """Raised when the untagged set is no longer the size the caller confirmed.
+
+    ``delete-untagged`` is guarded by a confirmation count, and the count and
+    the delete are two awaits apart: another request can strip the last tag
+    off a memory in between, which would widen the delete past what the user
+    agreed to. The backends re-check the size where the rows are selected for
+    deletion - inside the connection lock and the transaction on SQLite - and
+    raise this before anything is written.
+    """
+
+    def __init__(self, expected: int, actual: int):
+        super().__init__(
+            f"Untagged memory count changed from {expected} to {actual} before the delete"
+        )
+        self.expected = expected
+        self.actual = actual
+
+
 class RecreateRefused(str):
     """The (False, message) string store()/store_batch() return when ``recreate=False``
     met a delete on record for the content_hash (#1560).
