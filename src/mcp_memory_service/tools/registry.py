@@ -955,6 +955,7 @@ ACTIONS:
 - analyze: Analyze quality distribution across all memories
 - maintain: Run maintenance cycle (cleanup + conflicts + stale + quality)
 - maintain_status: Get stats from last maintenance run
+- rebuild_entities: Rebuild has_entity and shares_entity for ALL live memories using current extraction settings. Preview by default (dry_run=true); back up first and pause other writers before dry_run=false. Requires a graph backend.
 
 Examples:
 {"action": "rate", "content_hash": "abc123", "rating": 1, "feedback": "Very useful"}
@@ -964,13 +965,15 @@ Examples:
 {"action": "maintain"}
 {"action": "maintain", "dry_run": false}
 {"action": "maintain_status"}
+{"action": "rebuild_entities"}
+{"action": "rebuild_entities", "dry_run": false}
 """,
         input_schema={
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["rate", "get", "analyze", "maintain", "maintain_status"],
+                    "enum": ["rate", "get", "analyze", "maintain", "maintain_status", "rebuild_entities"],
                     "description": "Quality action to perform",
                 },
                 "content_hash": {
@@ -999,12 +1002,12 @@ Examples:
                 "dry_run": {
                     "type": "boolean",
                     "default": True,
-                    "description": "For 'maintain': preview mode — no modifications (default: true)",
+                    "description": "For 'maintain'/'rebuild_entities': preview mode — no modifications (default: true)",
                 },
             },
             "required": ["action"],
         },
-        annotations={"destructiveHint": False},
+        annotations={"destructiveHint": True},
     ),
     ToolDef(
         name="memory_graph",
@@ -1088,7 +1091,7 @@ Examples:
             },
             "required": ["action"],
         },
-        annotations={"readOnlyHint": True},
+        annotations={"readOnlyHint": False},
     ),
     ToolDef(
         name="memory_conflicts",

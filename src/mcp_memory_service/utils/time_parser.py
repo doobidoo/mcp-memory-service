@@ -826,6 +826,51 @@ def parse_boundary(value: str) -> float:
     return dt.replace(tzinfo=timezone.utc).timestamp()
 
 
+def statement_time(value) -> Optional[float]:
+    """Epoch of a transcript or ``metadata.source_time`` timestamp, or None (#1858).
+
+    Accepts ISO strings (offset honoured, naive read as UTC, as parse_boundary
+    does), epoch seconds and epoch milliseconds, as numbers or numeric strings.
+    Anything else is None: a missing time must leave the caller's old behaviour
+    in place, never order a statement as if it were from 1970.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError:
+            try:
+                return parse_boundary(text)
+            except ValueError:
+                return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        if not seconds > 0:  # also rejects NaN
+            return None
+        return seconds / 1000.0 if seconds > 1e11 else seconds  # 1e11 s is year 5138
+    return None
+
+
+def memory_statement_time(memory) -> Optional[float]:
+    """When a stored memory was said, or None if unknown (#1858).
+
+    ``metadata.source_time`` counts only while ``metadata.source_content_hash``
+    still names the memory's content: a versioned update inherits custom
+    metadata, so after an edit the inherited time would describe text that is
+    gone. Otherwise ``created_at``, the time the current content was written.
+    """
+    metadata = getattr(memory, "metadata", None)
+    if isinstance(metadata, dict) and metadata.get("source_content_hash") == memory.content_hash:
+        said = statement_time(metadata.get("source_time"))
+        if said is not None:
+            return said
+    return statement_time(getattr(memory, "created_at", None))
+
+
 def parse_as_of(value: str) -> float:
     """Epoch for an ``as_of`` point-in-time query (issue #1724).
 

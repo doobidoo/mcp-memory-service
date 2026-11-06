@@ -38,6 +38,25 @@ class EmbeddingModelMismatchError(RuntimeError):
         self.remote_model = remote_model
 
 
+class UntaggedCountChanged(RuntimeError):
+    """Raised when the untagged set is no longer the size the caller confirmed.
+
+    ``delete-untagged`` is guarded by a confirmation count, and the count and
+    the delete are two awaits apart: another request can strip the last tag
+    off a memory in between, which would widen the delete past what the user
+    agreed to. The backends re-check the size where the rows are selected for
+    deletion - inside the connection lock and the transaction on SQLite - and
+    raise this before anything is written.
+    """
+
+    def __init__(self, expected: int, actual: int):
+        super().__init__(
+            f"Untagged memory count changed from {expected} to {actual} before the delete"
+        )
+        self.expected = expected
+        self.actual = actual
+
+
 class RecreateRefused(str):
     """The (False, message) string store()/store_batch() return when ``recreate=False``
     met a delete on record for the content_hash (#1560).
@@ -235,6 +254,13 @@ class MemoryStorage(ABC):
     async def resolve_conflict(self, winner_hash: str, loser_hash: str) -> Tuple[bool, str]:
         """Resolve a conflict. Default: not supported."""
         return False, "Conflict resolution not supported by this backend"
+
+    async def reconcile_conflict_tags(self, dry_run: bool = True) -> Dict[str, Any]:
+        """Clear conflict:unresolved from current memories with no current partner (#1840).
+
+        Default: not supported. Reported as such, not as a clean result.
+        """
+        return {"supported": False}
 
     async def retrieve_with_quality_boost(
         self,
@@ -873,7 +899,13 @@ class MemoryStorage(ABC):
         pass
 
     @abstractmethod
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
         """
         Update memory metadata without recreating the entire memory entry.
 
@@ -881,6 +913,10 @@ class MemoryStorage(ABC):
             content_hash: Hash of the memory to update
             updates: Dictionary of metadata fields to update
             preserve_timestamps: Whether to preserve original created_at timestamp
+            store: Confine the update to this store; a memory in another store
+                is reported as not found. ``None`` or ``"all"`` is unscoped.
+                Only backends with ``get_by_hash_is_store_scoped`` honor it
+                (#1683); callers pass it only to those.
 
         Returns:
             Tuple of (success, message)

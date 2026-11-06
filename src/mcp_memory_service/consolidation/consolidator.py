@@ -37,11 +37,34 @@ from ..config import (
     CONSOLIDATION_STORE_ASSOCIATIONS,
     TYPED_EDGES_ENABLED,
 )
-from .relationship_inference import RelationshipInferenceEngine, apply_review_band
+from .relationship_inference import (
+    DEFAULT_MIN_CONFIDENCE,
+    DEFAULT_MIN_TYPED_CONFIDENCE,
+    DEFAULT_MIN_TYPED_SIMILARITY,
+    RelationshipInferenceEngine,
+    apply_review_band,
+)
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
+from ..utils.time_parser import memory_statement_time
 
 logger = logging.getLogger(__name__)
+
+
+def _said_at(memory: Memory) -> float:
+    """When a memory was said (see memory_statement_time), 0.0 if unknown (#1858)."""
+    return memory_statement_time(memory) or 0.0
+
+
+def _supersede_pair(source: Memory, target: Memory) -> Tuple[str, str]:
+    """``(newer_hash, older_hash)`` for a contradicts pair; a tie keeps the source.
+
+    Ordered by statement time, not ingest time: a session harvested late must not
+    win against what was said after it (#1858).
+    """
+    if _said_at(source) >= _said_at(target):
+        return source.content_hash, target.content_hash
+    return target.content_hash, source.content_hash
 
 
 # Protocol for storage backend interface
@@ -242,7 +265,9 @@ class DreamInspiredConsolidator:
         self.compression_engine = SemanticCompressionEngine(config)
         self.forgetting_engine = ControlledForgettingEngine(config)
         self.relationship_inference = RelationshipInferenceEngine(
-            min_confidence=getattr(config, "relationship_confidence_threshold", 0.6),
+            min_confidence=DEFAULT_MIN_CONFIDENCE,
+            min_typed_confidence=DEFAULT_MIN_TYPED_CONFIDENCE,
+            min_typed_similarity=DEFAULT_MIN_TYPED_SIMILARITY,
             typed_edges_enabled=TYPED_EDGES_ENABLED,
         )
 
@@ -1105,12 +1130,7 @@ class DreamInspiredConsolidator:
                         and source_memory
                         and target_memory
                     ):
-                        source_ts = source_memory.created_at or 0.0
-                        target_ts = target_memory.created_at or 0.0
-                        if source_ts >= target_ts:
-                            supersede_pairs.append((source_memory.content_hash, target_memory.content_hash))
-                        else:
-                            supersede_pairs.append((target_memory.content_hash, source_memory.content_hash))
+                        supersede_pairs.append(_supersede_pair(source_memory, target_memory))
                 else:
                     failed_count += 1
 

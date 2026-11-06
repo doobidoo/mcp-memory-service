@@ -172,10 +172,14 @@ async def unquarantine_memory(storage, content_hash: str) -> dict:
         return {"status": "error", "message": str(e)}
 
 
-async def check_beliefs_on_store(storage, belief_service, content: str, content_hash: str) -> Optional[dict]:
+async def check_beliefs_on_store(
+    storage, belief_service, content: str, content_hash: str, store: Optional[str] = None
+) -> Optional[dict]:
     """Check if new memory contradicts any active belief.
 
-    Called from the on_store path (MCP_NLI_ON_STORE=true).
+    Called from the on_store path (MCP_NLI_ON_STORE=true). ``store`` is the
+    store the memory was written to: only beliefs visible there are compared
+    (#1877). ``"default"`` is an ordinary store, not "skip the check".
 
     O custo é limitado por dois tetos, ambos configuráveis: o número de crenças
     comparadas (MCP_QUARANTINE_MAX_BELIEFS) e o tempo total do check
@@ -194,7 +198,9 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
     stop_reason = "no-beliefs"
 
     try:
-        beliefs = await belief_service.get_beliefs(status="active", min_confidence=0.35)
+        beliefs = await belief_service.get_beliefs(
+            status="active", min_confidence=0.35, store=store
+        )
         if not beliefs:
             return None
 
@@ -228,7 +234,10 @@ async def check_beliefs_on_store(storage, belief_service, content: str, content_
                 contradiction_count = await _count_quarantined_for_belief(storage, belief["belief_hash"])
                 if contradiction_count >= CONTRADICTION_THRESHOLD:
                     await belief_service.challenge_belief(belief["belief_hash"])
-                    logger.info(f"Belief {belief['belief_hash'][:8]} challenged after {contradiction_count} contradictions")
+                    logger.info(
+                        f"Belief {_sanitize_log_value(belief['belief_hash'][:8])} challenged "
+                        f"after {contradiction_count} contradictions"
+                    )
 
                 stop_reason = "contradiction"
                 return q_result
@@ -340,7 +349,9 @@ def _background_concurrency() -> int:
     )
 
 
-async def _run_on_store_checks(storage, content: str, content_hash: str) -> None:
+async def _run_on_store_checks(
+    storage, content: str, content_hash: str, store: Optional[str] = None
+) -> None:
     try:
         try:
             from ..reasoning.nli import detect_contradictions_nli
@@ -360,7 +371,7 @@ async def _run_on_store_checks(storage, content: str, content_hash: str) -> None
             from .belief_service import BeliefService
 
             outcome = await check_beliefs_on_store(
-                storage, BeliefService(storage), content, content_hash
+                storage, BeliefService(storage), content, content_hash, store=store
             )
             # O resultado não pode sumir: sem hash e status, ninguém sabe qual
             # memória foi quarentenada nem se a escrita de metadata funcionou.
@@ -383,7 +394,9 @@ async def _run_on_store_checks(storage, content: str, content_hash: str) -> None
         _background_state.active -= 1
 
 
-def schedule_on_store_checks(storage, content: str, content_hash: str) -> bool:
+def schedule_on_store_checks(
+    storage, content: str, content_hash: str, store: Optional[str] = None
+) -> bool:
     """Agenda as verificações de NLI fora do caminho da escrita.
 
     Ligado por MCP_NLI_ON_STORE_ASYNC. O `store` responde sem esperar o LLM; o
@@ -408,7 +421,7 @@ def schedule_on_store_checks(storage, content: str, content_hash: str) -> bool:
     # chamadas seguidas passariam pelo limite antes da primeira task começar.
     _background_state.active += 1
     try:
-        task = asyncio.create_task(_run_on_store_checks(storage, content, content_hash))
+        task = asyncio.create_task(_run_on_store_checks(storage, content, content_hash, store))
     except Exception:
         _background_state.active -= 1
         raise

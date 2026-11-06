@@ -63,7 +63,41 @@ MCP_OAUTH_SQLITE_PATH=./data/oauth.db
 - WAL (Write-Ahead Logging) mode for concurrent access
 - Atomic `UPDATE WHERE consumed=0` for replay attack prevention
 - Indexes on `expires_at` and `consumed` columns for fast queries
-- Foreign key constraints for referential integrity
+- Foreign keys enforced (`PRAGMA foreign_keys=ON`): a code or token can only be
+  stored for a registered client, and deleting a client deletes its
+  authorization codes, access tokens and refresh tokens
+
+## Managing Clients
+
+Registered clients stay in the SQLite store until an operator removes them, including
+clients that registered themselves through Dynamic Client Registration and were never
+used again. To see and remove clients:
+
+```bash
+# Every client, without secrets, with its newest refresh token on record
+memory oauth list-clients
+
+# Delete one client with its authorization codes, stored access tokens and refresh tokens
+memory oauth delete-client <client_id>          # asks for confirmation; --yes skips it
+```
+
+The server deletes expired refresh tokens in its periodic cleanup, so a client whose
+newest refresh token is "none on record" may still have been used in the past.
+
+Both commands read `MCP_OAUTH_SQLITE_PATH` (or take `--db-path`) and can run while the
+server is up. A deleted client cannot obtain new tokens through any grant. Access
+tokens already issued as JWTs are checked without a storage lookup, so they stay valid
+until they expire (`MCP_OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES`, default 60).
+
+Deleting a client does not ban it: while Dynamic Client Registration is open
+(`MCP_DCR_REGISTRATION_KEY` unset), the same application can register again and gets
+a new client ID. Set `MCP_DCR_REGISTRATION_KEY` to close registration.
+
+The commands open the store with the same code as the server, so on first use they
+create missing tables and apply pending schema migrations, as a server start would.
+
+The in-memory backend lives inside the server process and cannot be reached from the
+CLI; `list_clients()` and `delete_client()` exist on both backends for programmatic use.
 
 ## Programmatic Usage
 

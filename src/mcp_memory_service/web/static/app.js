@@ -108,7 +108,7 @@ class MemoryDashboard {
 
         // Settings with defaults
         this.settings = {
-            theme: 'light',
+            theme: 'system',
             viewDensity: 'comfortable',
             previewLines: 3
         };
@@ -139,6 +139,7 @@ class MemoryDashboard {
         await this.initI18n();
         this.loadSettings();
         this.applyTheme();
+        this.watchSystemColorScheme();
         this.setupEventListeners();
         this.setupAuthListeners();
 
@@ -432,6 +433,25 @@ class MemoryDashboard {
     }
 
     /**
+     * Set a {count} string and keep the key. data-count (and data-extra) let
+     * the next applyTranslations() fill the same numbers in the new language
+     * instead of leaving the {count} placeholder.
+     */
+    setCountedText(el, key, fallback, count, extra) {
+        if (!el) return;
+        const vars = { count };
+        el.dataset.i18n = key;
+        el.dataset.count = String(count);
+        if (extra === undefined) {
+            delete el.dataset.extra;
+        } else {
+            vars.extra = extra;
+            el.dataset.extra = extra;
+        }
+        el.textContent = this.t(key, fallback, vars);
+    }
+
+    /**
      * 应用翻译到 DOM
      */
     async applyTranslations() {
@@ -440,7 +460,21 @@ class MemoryDashboard {
             const { i18n, i18nHtml, i18nPlaceholder, i18nAria, i18nTitle } = el.dataset;
 
             if (i18n) {
-                const text = this.t(i18n, el.textContent?.trim() || '');
+                const fallback = el.textContent?.trim() || '';
+                // A {count} string keeps its number in data-count. Without that,
+                // this pass would write the placeholder, and on a parent it
+                // would erase a child that held the number.
+                const template = this.translations?.[i18n]
+                    || this.fallbackTranslations?.[i18n]
+                    || fallback;
+                const vars = {};
+                if (template.includes('{count}') && el.hasAttribute('data-count')) {
+                    vars.count = el.getAttribute('data-count');
+                }
+                if (template.includes('{extra}') && el.hasAttribute('data-extra')) {
+                    vars.extra = el.getAttribute('data-extra');
+                }
+                const text = this.t(i18n, fallback, vars);
                 if (text) el.textContent = text;
             }
 
@@ -1187,7 +1221,7 @@ class MemoryDashboard {
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
                 allOpt.dataset.i18n = 'search.filters.type.all';
-                allOpt.textContent = this.t('search.filters.type.all') || 'All types';
+                allOpt.textContent = this.t('search.filters.type.all', 'All types');
                 const typeOpts = types.map(t => {
                     const opt = document.createElement('option');
                     opt.value = t;
@@ -1300,7 +1334,7 @@ class MemoryDashboard {
             // Show a message in the history container instead of just logging
             const historyContainer = document.getElementById('uploadHistory');
             if (historyContainer) {
-                historyContainer.innerHTML = '<p style="text-align: center; color: var(--error);">Failed to load upload history. Please check the console for details.</p>';
+                historyContainer.innerHTML = `<p style="text-align: center; color: var(--error);">${this.escapeHtml(this.t('documents.uploadHistoryError', 'Failed to load upload history. Please check the console for details.'))}</p>`;
             }
         }
     }
@@ -1313,7 +1347,7 @@ class MemoryDashboard {
         if (!historyContainer) return;
 
         if (uploads.length === 0) {
-            historyContainer.innerHTML = '<p style="text-align: center; color: var(--neutral-500);">No uploads yet</p>';
+            historyContainer.innerHTML = `<p style="text-align: center; color: var(--neutral-500);" data-i18n="documents.noUploads">${this.escapeHtml(this.t('documents.noUploads', 'No uploads yet'))}</p>`;
             return;
         }
 
@@ -1348,18 +1382,20 @@ class MemoryDashboard {
                         ${upload.status === 'completed' && hasMemories ? `
                             <div class="upload-actions">
                                 <button class="btn-icon btn-view-memory"
-                                title="View memory chunks">
+                                title="${this.escapeHtml(this.t('documents.viewChunksTip', 'View memory chunks'))}"
+                                data-i18n-title="documents.viewChunksTip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                                     </svg>
-                                    <span>View</span>
+                                    <span data-i18n="documents.view">${this.escapeHtml(this.t('documents.view', 'View'))}</span>
                                 </button>
                                 <button class="btn-icon btn-remove"
-                                title="Remove document and memories">
+                                title="${this.escapeHtml(this.t('documents.removeWithMemoriesTip', 'Remove document and memories'))}"
+                                data-i18n-title="documents.removeWithMemoriesTip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                                     </svg>
-                                    <span>Remove</span>
+                                    <span data-i18n="documents.remove">${this.escapeHtml(this.t('documents.remove', 'Remove'))}</span>
                                 </button>
                             </div>
                         ` : ''}
@@ -1431,7 +1467,7 @@ class MemoryDashboard {
         }
 
         // Chunking help info icon
-        const infoIcon = document.querySelector('.info-icon');
+        const infoIcon = document.querySelector('.info-icon-chunk');
         if (infoIcon) {
             infoIcon.addEventListener('click', () => {
                 this.toggleChunkingHelp();
@@ -1622,8 +1658,8 @@ class MemoryDashboard {
         }
         if (this.modeDescription) {
             this.modeDescription.innerHTML = mode === 'batch'
-                ? '<small>All selected files will be processed together with the same tags.</small>'
-                : '<small>Each file will be processed individually with the same tags.</small>';
+                ? `<small data-i18n="documents.modeDescription">${this.escapeHtml(this.t('documents.modeDescription', 'All selected files will be processed together with the same tags.'))}</small>`
+                : `<small data-i18n="documents.modeDescriptionIndividual">${this.escapeHtml(this.t('documents.modeDescriptionIndividual', 'Each file will be processed individually with the same tags.'))}</small>`;
         }
 
         console.log(`Processing mode set to: ${mode}`);
@@ -1698,9 +1734,9 @@ class MemoryDashboard {
                         <svg width="48" height="48" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/>
                         </svg>
-                        <h3>Drag & drop files here</h3>
-                        <p>or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
-                        <p class="supported-formats">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
+                        <h3 data-i18n="documents.dropTitle">${this.escapeHtml(this.t('documents.dropTitle', 'Drag & drop files here'))}</h3>
+                        <p data-i18n-html="documents.dropSubtitle">${this.t('documents.dropSubtitle', 'or <button id="fileSelectBtn" class="link-button">browse to select files</button>')}</p>
+                        <p class="supported-formats" data-i18n="documents.supported">${this.escapeHtml(this.t('documents.supported', 'Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON'))}</p>
                         <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
                     `;
                 }
@@ -1744,7 +1780,7 @@ class MemoryDashboard {
         console.log(`Upload response status: ${response.status}`);
 
         if (!response.ok) {
-            let errorMessage = `Upload failed with status ${response.status}`;
+            let errorMessage = this.t('documents.uploadStatusError', 'Upload failed with status {status}', { status: response.status });
             try {
                 const error = await response.json();
                 console.error('Upload error details:', error);
@@ -1802,7 +1838,7 @@ class MemoryDashboard {
 
         if (!response.ok) {
             const error = await response.json();
-            throw new Error(error.detail || 'Batch upload failed');
+            throw new Error(error.detail || this.t('documents.batchUploadFailed', 'Batch upload failed'));
         }
 
         const result = await response.json();
@@ -3462,7 +3498,7 @@ class MemoryDashboard {
 
             if (isDocumentChunk && !processedHashes.has(memory.content_hash)) {
                 const uploadId = memory.metadata.upload_id;
-                const sourceFile = memory.metadata.source_file || 'Unknown file';
+                const sourceFile = memory.metadata.source_file || this.t('documents.unknownFile', 'Unknown file');
 
                 if (!documentGroups.has(uploadId)) {
                     documentGroups.set(uploadId, {
@@ -3537,7 +3573,7 @@ class MemoryDashboard {
                     </div>
                 </div>
                 <div class="document-preview">
-                    ${group.memories[0] ? this.escapeHtml(group.memories[0].content.substring(0, 150)) + (group.memories[0].content.length > 150 ? '...' : '') : 'No content preview available'}
+                    ${group.memories[0] ? this.escapeHtml(group.memories[0].content.substring(0, 150)) + (group.memories[0].content.length > 150 ? '...' : '') : this.escapeHtml(this.t('documents.noPreview', 'No content preview available'))}
                 </div>
                 ${uniqueTags.length > 0 ? `
                     <div class="document-tags">
@@ -3546,17 +3582,19 @@ class MemoryDashboard {
                     </div>
                 ` : ''}
                 <div class="document-actions">
-                    <button class="btn-icon btn-view-chunks" title="View all chunks">
+                    <button class="btn-icon btn-view-chunks" title="${this.escapeHtml(this.t('documents.viewAllChunksTip', 'View all chunks'))}"
+                            data-i18n-title="documents.viewAllChunksTip">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                         </svg>
-                        <span>View Chunks</span>
+                        <span data-i18n="documents.viewChunks">${this.escapeHtml(this.t('documents.viewChunks', 'View Chunks'))}</span>
                     </button>
-                    <button class="btn-icon btn-remove" title="Remove document">
+                    <button class="btn-icon btn-remove" title="${this.escapeHtml(this.t('documents.removeTip', 'Remove document'))}"
+                            data-i18n-title="documents.removeTip">
                         <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
                         </svg>
-                        <span>Remove</span>
+                        <span data-i18n="documents.remove">${this.escapeHtml(this.t('documents.remove', 'Remove'))}</span>
                     </button>
                 </div>
             </div>
@@ -3743,10 +3781,11 @@ class MemoryDashboard {
      * Update search results count
      */
     updateResultsCount(count) {
-        const element = document.getElementById('resultsCount');
-        if (element) {
-            element.textContent = `${count} result${count !== 1 ? 's' : ''}`;
-        }
+        // Same split as searchDocumentContent(): the stored key is what a
+        // later language switch fills, so 1 and every other count stay apart.
+        const key = count === 1 ? 'search.results.count.one' : 'search.results.count';
+        const fallback = count === 1 ? '{count} result' : '{count} results';
+        this.setCountedText(document.getElementById('resultsCount'), key, fallback, count);
     }
 
     /**
@@ -4472,8 +4511,13 @@ class MemoryDashboard {
                 const stats = document.getElementById('memoryViewerStats');
                 const chunksList = document.getElementById('memoryChunksList');
 
-                filename.textContent = response.filename || 'Document';
-                stats.textContent = `${response.total_found} chunk${response.total_found !== 1 ? 's' : ''} found`;
+                filename.textContent = response.filename || this.t('documents.untitled', 'Document');
+                const found = response.total_found;
+                const key = found === 1
+                    ? 'modal.memoryViewer.chunksFound.one'
+                    : 'modal.memoryViewer.chunksFound';
+                const fallback = found === 1 ? '{count} chunk found' : '{count} chunks found';
+                this.setCountedText(stats, key, fallback, found);
 
                 // Render chunks
                 if (response.memories && response.memories.length > 0) {
@@ -4500,7 +4544,7 @@ class MemoryDashboard {
 
                     chunksList.innerHTML = chunksHtml;
                 } else {
-                    chunksList.innerHTML = '<p class="text-muted">No memory chunks found for this document.</p>';
+                    chunksList.innerHTML = `<p class="text-muted" data-i18n="documents.noChunks">${this.escapeHtml(this.t('documents.noChunks', 'No memory chunks found for this document.'))}</p>`;
                 }
 
                 modal.style.display = 'flex';
@@ -4540,7 +4584,7 @@ class MemoryDashboard {
     async removeDocument(uploadId, filename) {
         console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
 
-        if (!confirm(`Remove "${filename}" and all its memory chunks?\n\nThis action cannot be undone.`)) {
+        if (!confirm(this.t('documents.removeConfirm', 'Remove "{filename}" and all its memory chunks?\n\nThis action cannot be undone.', { filename }))) {
             console.log('User cancelled removal');
             return;
         }
@@ -4611,14 +4655,14 @@ class MemoryDashboard {
                 const extra = count > 20 ? ' (showing top 20)' : '';
                 const key = count === 1 ? 'documents.search.count.one' : 'documents.search.count.other';
                 const fallback = count === 1 ? '{count} result{extra}' : '{count} results{extra}';
-                const baseCount = this.t(key, fallback, { count, extra });
-                resultsCount.textContent = baseCount;
+                // Replaces the idle search.results.count label. One element, one count.
+                this.setCountedText(resultsCount, key, fallback, count, extra);
 
                 if (displayResults.length > 0) {
                     const resultsHtml = displayResults.map(result => {
                         const mem = result.memory;
                         const uploadIdTag = mem.tags?.find(tag => tag.startsWith('upload_id:'));
-                        const sourceFile = mem.metadata?.source_file || 'Unknown file';
+                        const sourceFile = mem.metadata?.source_file || this.t('documents.unknownFile', 'Unknown file');
                         const contentPreview = mem.content.length > 200
                             ? mem.content.substring(0, 200) + '...'
                             : mem.content;
@@ -4721,10 +4765,46 @@ class MemoryDashboard {
     }
 
     /**
+     * The OS dark-mode media query, or null where matchMedia is unavailable.
+     */
+    systemColorSchemeQuery() {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+            return null;
+        }
+        return window.matchMedia('(prefers-color-scheme: dark)');
+    }
+
+    /**
+     * Resolve a theme setting ('light', 'dark' or 'system') to 'light' or 'dark'.
+     */
+    resolveTheme(theme = this.settings.theme) {
+        if (theme === 'dark' || theme === 'light') {
+            return theme;
+        }
+        const query = this.systemColorSchemeQuery();
+        return query && query.matches ? 'dark' : 'light';
+    }
+
+    /**
+     * Re-apply the theme when the OS scheme changes, as long as the user follows it.
+     */
+    watchSystemColorScheme() {
+        const query = this.systemColorSchemeQuery();
+        if (!query || typeof query.addEventListener !== 'function') {
+            return;
+        }
+        query.addEventListener('change', () => {
+            if (this.settings.theme === 'system') {
+                this.applyTheme();
+            }
+        });
+    }
+
+    /**
      * Apply theme to the page
      */
     applyTheme(theme = this.settings.theme) {
-        const isDark = theme === 'dark';
+        const isDark = this.resolveTheme(theme) === 'dark';
         document.body.classList.toggle('dark-mode', isDark);
 
         // Configure Chart.js colors for dark mode
@@ -4774,10 +4854,12 @@ class MemoryDashboard {
     }
 
     /**
-     * Toggle between light and dark theme
+     * Toggle between light and dark theme. The result is saved as an explicit
+     * choice, so the dashboard stops following the system until 'system' is
+     * picked again in settings.
      */
     toggleTheme() {
-        const newTheme = this.settings.theme === 'dark' ? 'light' : 'dark';
+        const newTheme = this.resolveTheme() === 'dark' ? 'light' : 'dark';
         this.settings.theme = newTheme;
         this.applyTheme(newTheme);
         this.saveSettingsToStorage();
@@ -5454,12 +5536,13 @@ class MemoryDashboard {
         try {
             const data = await this.apiCall('/manage/untagged/count');
             const count = data.count || 0;
-            const countSpan = document.getElementById('untaggedCount');
             const card = document.getElementById('deleteUntaggedCard');
-
-            if (countSpan) {
-                countSpan.textContent = count;
-            }
+            this.setCountedText(
+                document.getElementById('untaggedCount'),
+                'manage.bulk.deleteUntagged.desc',
+                'Remove memories without any tags ({count} found)',
+                count
+            );
             if (card) {
                 card.style.display = count > 0 ? '' : 'none';
             }
@@ -5509,7 +5592,7 @@ class MemoryDashboard {
             this.renderTagManagementTable(data);
         } catch (error) {
             console.error('Failed to load tag management stats:', error);
-            container.innerHTML = '<p class="error">Failed to load tag statistics</p>';
+            container.innerHTML = `<p class="error" data-i18n="manage.tags.loadFailed">${this.escapeHtml(this.t('manage.tags.loadFailed', 'Failed to load tag statistics'))}</p>`;
         }
     }
 
@@ -5522,9 +5605,9 @@ class MemoryDashboard {
 
         let html = '<table class="tag-stats-table">';
         html += '<thead><tr>';
-        html += '<th>Tag</th>';
-        html += '<th>Count</th>';
-        html += '<th>Actions</th>';
+        html += `<th data-i18n="manage.tags.column.tag">${this.escapeHtml(this.t('manage.tags.column.tag', 'Tag'))}</th>`;
+        html += `<th data-i18n="manage.tags.column.count">${this.escapeHtml(this.t('manage.tags.column.count', 'Count'))}</th>`;
+        html += `<th data-i18n="manage.tags.column.actions">${this.escapeHtml(this.t('manage.tags.column.actions', 'Actions'))}</th>`;
         html += '</tr></thead><tbody>';
 
         data.tags.forEach(tagStat => {
@@ -5532,8 +5615,8 @@ class MemoryDashboard {
         html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;
         html += '<td class="tag-actions">';
-        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}">Rename</button>`;
-        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}">Delete</button>`;
+        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
+        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
         html += '</td></tr>';
         });
 
@@ -5668,15 +5751,15 @@ class MemoryDashboard {
      */
     async handleDeleteUntagged() {
         // Get current count
-        const countSpan = document.getElementById('untaggedCount');
-        const count = parseInt(countSpan?.textContent || '0', 10);
+        const countEl = document.getElementById('untaggedCount');
+        const count = parseInt(countEl?.dataset.count || '0', 10);
 
         if (count === 0) {
-            this.showToast('No untagged memories to delete', 'info');
+            this.showToast(this.t('toast.noUntaggedMemories', 'No untagged memories to delete'), 'info');
             return;
         }
 
-        if (!await this.confirmBulkOperation(`Delete ${count} memories without tags?`)) {
+        if (!await this.confirmBulkOperation(this.t('manage.bulk.deleteUntagged.confirm', 'Delete {count} memories without tags?', { count }))) {
             return;
         }
 
@@ -5689,11 +5772,11 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this.showToast(result.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
             }
         } catch (error) {
             console.error('Delete untagged failed:', error);
-            this.showToast('Delete untagged operation failed', 'error');
+            this.showToast(this.t('toast.deleteUntaggedFailed', 'Delete untagged operation failed'), 'error');
         } finally {
             this.setLoading(false);
         }

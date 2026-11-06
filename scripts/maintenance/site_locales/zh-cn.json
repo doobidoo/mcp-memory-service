@@ -27,7 +27,7 @@
   "case_3_title": "放在自己的机器上运行",
   "case_3_text": "用 SQLite 加向量检索就能在本地起步。这种配置既不需要云存储服务，也不需要付费的 Embedding API 密钥。",
   "install_heading": "在 Claude Code 中配置",
-  "install_intro": "需要 Python 3.10 或更高版本，以及已经装好的 Claude Code 客户端。其他客户端也可以通过 MCP 接入，配置方法见英文指南。",
+  "install_intro": "需要 Python 3.11 或更高版本，以及已经装好的 Claude Code 客户端。其他客户端也可以通过 MCP 接入，配置方法见英文指南。",
   "step_1_title": "安装 Memory Service",
   "step_1_text": "把这个包安装到客户端能够调用其命令的 Python 环境里。",
   "step_2_title": "添加为 MCP 服务器",

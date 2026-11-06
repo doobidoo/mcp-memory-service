@@ -187,6 +187,19 @@ class StoreMemoryFailure(TypedDict):
     refused_recreate: NotRequired[Dict[str, Any]]
 
 
+def _chunk_metadata(
+    metadata: Dict[str, Any], index: int, total: int, content_hash: str, chunk_hash: str
+) -> Dict[str, Any]:
+    """Metadata for one chunk of a split memory."""
+    chunk_metadata = dict(metadata, chunk_index=index, total_chunks=total, original_hash=content_hash)
+    # source_content_hash names the text a source_time belongs to (#1858). Each
+    # chunk carries the whole text's time, so it must name the chunk, or the
+    # time is read as describing other text.
+    if chunk_metadata.get("source_content_hash") == content_hash:
+        chunk_metadata["source_content_hash"] = chunk_hash
+    return chunk_metadata
+
+
 def _refused_recreate_failure(message: RecreateRefused) -> StoreMemoryFailure:
     """Turn the storage layer's refusal into the entry points' answer (#1560)."""
     return {
@@ -503,10 +516,7 @@ class MemoryService:
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
-                    chunk_metadata = final_metadata.copy()
-                    chunk_metadata["chunk_index"] = i
-                    chunk_metadata["total_chunks"] = len(chunks)
-                    chunk_metadata["original_hash"] = content_hash
+                    chunk_metadata = _chunk_metadata(final_metadata, i, len(chunks), content_hash, chunk_hash)
 
                     memory = Memory(
                         content=chunk,
@@ -728,7 +738,8 @@ class MemoryService:
     def _as_written(new_hash, content, tags, memory_type, metadata, previous) -> Memory:
         """The evolved version as storage wrote it, for when it can't be re-read."""
         if tags is None and previous is not None:
-            tags = previous.tags
+            # Storage does not carry the conflict marker into a new version (#1840).
+            tags = [t for t in (previous.tags or []) if t != "conflict:unresolved"]
         if memory_type is None and previous is not None:
             memory_type = previous.memory_type
         return Memory(

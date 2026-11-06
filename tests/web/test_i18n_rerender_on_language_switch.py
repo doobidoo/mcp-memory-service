@@ -133,7 +133,7 @@ const data = { tags: [{ tag: 'alpha', count: 2 }, { tag: 'beta', count: 1 }] };
 def _run_manage_method(name, body):
     """Run a manage-view method from app.js against FAKE_DOM."""
     method = _method(APP_JS.read_text(encoding="utf-8"), name)
-    app = f"const app = {{ async apiCall() {{ return data; }}, escapeHtml: s => s, {method} }};"
+    app = f"const app = {{ async apiCall() {{ return data; }}, escapeHtml: s => s, t: (key, fallback) => fallback || key, {method} }};"
     return _run_node(f"{FAKE_DOM}\n{app}\n(async () => {{ {body} console.log(JSON.stringify(out)); }})();")
 
 

@@ -1623,24 +1623,19 @@ class MemoryServer:
         "memory_store", "memory_store_session", "memory_search", "memory_list",
         "memory_delete", "memory_update",
     })
-    # memory_search arguments that read outside the claimed store: beliefs are
-    # not partitioned, and the exact/tag fallback queries ignore ``store``.
-    CROSS_STORE_ARGUMENTS = ("include_beliefs", "fallback")
 
     async def store_grant_target(self, name: Optional[str], arguments: Optional[dict] = None) -> Optional[str]:
         """Return the store a per-store grant may authorize this call for.
 
         ``None`` means only the global grant will do: the call names no store
-        (or ``all``), the tool ignores ``store``, the call reaches across
-        partitions, or the backend's get_by_hash ignores ``store`` and so cannot
+        (or ``all``), the tool ignores ``store``, or the backend's get_by_hash
+        ignores ``store`` and so cannot
         prove confinement (storage-layer enforcement is #1683). The SDK dispatch
         gate and the /mcp shim both ask this, so the transports cannot disagree.
         """
         arguments = arguments or {}
         store = arguments.get("store")
         if store in (None, "all") or name not in self.STORE_CONFINED_TOOLS:
-            return None
-        if any(arguments.get(key) for key in self.CROSS_STORE_ARGUMENTS):
             return None
         storage = await self._ensure_storage_initialized()
         if not getattr(storage, "get_by_hash_is_store_scoped", False):

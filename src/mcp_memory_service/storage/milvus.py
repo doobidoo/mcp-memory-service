@@ -89,8 +89,9 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     SentenceTransformer = None  # type: ignore
 
-from .base import MemoryStorage
+from .base import MemoryStorage, UntaggedCountChanged
 from .milvus_expr import escape_expr_value
+from .read_policy import should_raise_read_error
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
     _exclude_versioned_parent,
@@ -2027,10 +2028,11 @@ class MilvusMemoryStorage(MemoryStorage):
         success_template: str,
         require_live: bool = False,
         any_of_tags: Optional[List[str]] = None,
+        expected_count: Optional[int] = None,
     ) -> Tuple[int, str]:
         count, hashes = await self._delete_matching_parts(
             filter_expr, success_template, require_live=require_live,
-            any_of_tags=any_of_tags,
+            any_of_tags=any_of_tags, expected_count=expected_count,
         )
         if count > 0:
             return count, success_template.format(count=count)
@@ -2042,10 +2044,14 @@ class MilvusMemoryStorage(MemoryStorage):
         _success_template: str,
         require_live: bool = False,
         any_of_tags: Optional[List[str]] = None,
+        expected_count: Optional[int] = None,
     ) -> Tuple[int, List[str]]:
         hashes = await self._collect_hashes(
             filter_expr, require_live=require_live, any_of_tags=any_of_tags,
         )
+        # Checked on the ids that are about to go, before the first delete.
+        if expected_count is not None and len(hashes) != expected_count:
+            raise UntaggedCountChanged(expected_count, len(hashes))
         if not hashes:
             return 0, []
         deleted: List[str] = []
@@ -3159,11 +3165,20 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("count_untagged_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
-    async def delete_untagged_memories(self) -> Tuple[int, str]:
+    async def delete_untagged_memories(
+        self, expected_count: Optional[int] = None
+    ) -> Tuple[int, str]:
         """Delete every memory that has no tags.
 
         Deletion is hard here (see the module docstring), so unlike SQLite
         there is no tombstone to sync — the rows are removed outright.
+
+        ``expected_count`` is re-checked against the ids collected for this
+        delete, before the first ``delete`` call goes out, so a concurrent
+        write that strips the last tag off another memory cannot widen the
+        delete past the count the caller confirmed. There is no transaction
+        to hold it in here, but the window closes to the gap between the
+        collect and the first chunk.
         """
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized"
@@ -3172,6 +3187,7 @@ class MilvusMemoryStorage(MemoryStorage):
             _UNTAGGED_FILTER,
             "Successfully deleted {count} memories without tags",
             require_live=True,
+            expected_count=expected_count,
         )
 
     async def get_type_counts(self) -> Dict[str, int]:
@@ -3882,6 +3898,7 @@ class MilvusMemoryStorage(MemoryStorage):
         ``include_superseded=False`` leaves out versions replaced by a newer
         one, matching ``get_all_memories`` so ``memory_list`` totals and
         ``has_more`` agree with its pages (#1803, #1824).
+        Destructive maintenance propagates count errors via its read policy.
         """
         if agent_id is not None:
             raise NotImplementedError(
@@ -3889,6 +3906,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 "(sqlite-vec only in this phase). See PR #1297."
             )
         if not self._ensure_initialized():
+            if should_raise_read_error():
+                raise RuntimeError("Milvus memory storage is not initialized")
             return 0
 
         filters: List[Optional[str]] = []
@@ -3919,6 +3938,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 rows = await self._drain_rows(filter_expr, ["id", "metadata"])
             except Exception as exc:  # noqa: BLE001
                 logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
+                if should_raise_read_error():
+                    raise
                 return 0
             return sum(1 for row in rows if not self._row_is_superseded(row))
 
@@ -3932,6 +3953,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return self._extract_count(rows)
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
+            if should_raise_read_error():
+                raise
             return 0
 
     @staticmethod

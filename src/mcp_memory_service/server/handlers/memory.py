@@ -345,7 +345,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...consolidation.quarantine import schedule_on_store_checks
 
                 agendado = schedule_on_store_checks(
-                    server.storage, content, result["memory"]["content_hash"]
+                    server.storage, content, result["memory"]["content_hash"], store=store
                 )
                 if agendado:
                     message += "\n(contradiction checks scheduled in the background)"
@@ -375,7 +375,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 belief_svc = BeliefService(server.storage)
                 quarantine_result = await check_beliefs_on_store(
                     server.storage, belief_svc,
-                    content, result["memory"]["content_hash"],
+                    content, result["memory"]["content_hash"], store=store,
                 )
                 if quarantine_result and quarantine_result.get("status") == "quarantined":
                     result["quarantine_warning"] = quarantine_result
@@ -1095,7 +1095,9 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
         from ...consolidation.belief_service import BeliefService
 
         svc = BeliefService(storage)
-        beliefs = await svc.get_beliefs()
+        # Same store as the memory results above, so a per-store grant can
+        # cover include_beliefs (#1877).
+        beliefs = await svc.get_beliefs(store=arguments.get("store", "default"))
 
         if not beliefs:
             return ""
@@ -1147,21 +1149,26 @@ def _append_unique_fallback_memories(
 
 
 async def _collect_cascading_fallback_memories(
-    storage, arguments: dict, query: str, memories: list[dict], limit: int
+    storage, arguments: dict, query: str, memories: list[dict], limit: int,
+    store=None,
 ) -> list[dict]:
-    """Combine exact and tag fallback results while preserving their labels."""
+    """Combine exact and tag fallback results while preserving their labels.
+
+    ``store`` is the partition the main search ran in (``None`` for ``all``),
+    so the fallbacks never return another store's memories (#1876).
+    """
     seen_hashes = {memory.get("content_hash") for memory in memories}
     include_superseded = arguments.get("include_superseded", False)
     as_of = arguments.get("as_of")
     exact_memories = await _search_exact_fallback(
-        storage, query, limit, include_superseded, as_of
+        storage, query, limit, include_superseded, as_of, store=store
     )
     _append_unique_fallback_memories(
         memories, exact_memories, seen_hashes, "exact_fallback"
     )
     if len(memories) < limit:
         tag_memories = await _search_tag_fallback(
-            storage, query, limit, include_superseded, as_of
+            storage, query, limit, include_superseded, as_of, store=store
         )
         _append_unique_fallback_memories(
             memories, tag_memories, seen_hashes, "tag_fallback"
@@ -1174,7 +1181,8 @@ async def _collect_cascading_fallback_memories(
 
 
 async def _search_exact_fallback(
-    storage, query: str, limit: int, include_superseded: bool, as_of=None
+    storage, query: str, limit: int, include_superseded: bool, as_of=None,
+    store=None,
 ) -> list[dict]:
     """Return exact-search candidates, treating a backend error as no matches."""
     result = await storage.search_memories(
@@ -1183,6 +1191,7 @@ async def _search_exact_fallback(
         limit=limit,
         include_superseded=include_superseded,
         as_of=as_of,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1190,7 +1199,8 @@ async def _search_exact_fallback(
 
 
 async def _search_tag_fallback(
-    storage, query: str, limit: int, include_superseded: bool, as_of=None
+    storage, query: str, limit: int, include_superseded: bool, as_of=None,
+    store=None,
 ) -> list[dict]:
     """Return tag-search candidates for tokens extracted from the query."""
     query_tokens = [
@@ -1207,6 +1217,7 @@ async def _search_tag_fallback(
         limit=limit,
         include_superseded=include_superseded,
         as_of=as_of,
+        store=store,
     )
     if "error" in result:
         return []
@@ -1255,7 +1266,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
     fallback_used = None
     if _should_use_cascading_fallback(arguments, query, memories):
         memories = await _collect_cascading_fallback_memories(
-            storage, arguments, query, memories, limit
+            storage, arguments, query, memories, limit, store=store
         )
         result["memories"] = memories
         result["total"] = len(memories)
@@ -1734,6 +1745,10 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # store-scoped update fails closed there (real storage-layer enforcement
         # is the follow-up issue, after which this pre-check can be removed).
         claimed_store = arguments.get("store")
+        # Handed to the storage calls below as well, so the lookup and the write
+        # themselves are confined (#1875). Only set after the capability check,
+        # so a backend that would ignore ``store`` never receives it.
+        scope: dict = {}
         if claimed_store is not None and claimed_store != "all":
             # Raise rather than return: a refused update must surface as a tool
             # error (isError=true), so a client checking the MCP success flag
@@ -1748,6 +1763,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 )
             if await storage.get_by_hash(content_hash, store=claimed_store) is None:
                 raise PermissionError("memory not found in the requested store")
+            scope = {"store": claimed_store}
 
         versioned = arguments.get("versioned", False)
 
@@ -1781,6 +1797,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 new_tags=updates.get("tags"),
                 new_memory_type=updates.get("memory_type"),
                 reason=updates.get("reason"),
+                **scope,
             )
 
             if success:
@@ -1801,7 +1818,7 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
                 overrides_applied = True
                 if final_metadata:
                     meta_ok, meta_msg = await storage.update_memory_metadata(
-                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True
+                        new_hash, {"metadata": final_metadata}, preserve_timestamps=True, **scope
                     )
                     overrides_applied = meta_ok
                     if not meta_ok:
@@ -1830,7 +1847,8 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=preserve_timestamps
+            preserve_timestamps=preserve_timestamps,
+            **scope,
         )
 
         if success:

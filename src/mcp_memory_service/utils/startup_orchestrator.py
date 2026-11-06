@@ -67,14 +67,186 @@ def _assert_bind_is_authenticated(host: str, port: int) -> None:
     deployment GHSA-2hh8-qjxc-43x3 describes. Documenting "do not expose SSE"
     is not a control. Refusing to start is.
     """
-    from ..config import OAUTH_ENABLED, API_KEY
-    if _is_loopback_host(host) or OAUTH_ENABLED or API_KEY:
+    if _is_loopback_host(host) or _auth_configured():
         return
     raise RuntimeError(
         f"Refusing to start an MCP transport on {host}:{port} with no authentication "
         "configured. Its endpoints expose the full MCP tool surface. Set MCP_API_KEY, "
         "or enable OAuth with MCP_OAUTH_ENABLED=true, or bind to 127.0.0.1."
     )
+
+
+def _auth_configured() -> bool:
+    """True when the HTTP transports check a credential on every MCP request."""
+    from ..config import OAUTH_ENABLED, API_KEY
+    return bool(OAUTH_ENABLED or API_KEY)
+
+
+def _configured_cors_origins() -> list:
+    return [o.strip() for o in os.environ.get("MCP_CORS_ORIGINS", "").split(",") if o.strip()]
+
+
+_LOOPBACK_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOOPBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+
+def _transport_security_settings():
+    """Host/Origin validation for the SSE and Streamable HTTP transports.
+
+    With no auth configured the server is loopback-only (see
+    _assert_bind_is_authenticated), and the browser is the only way a remote
+    party can reach it: a cross-origin page, or a DNS-rebinding domain that
+    resolves to 127.0.0.1 (GHSA-8p26-g7wp-65jw). Both are refused here by
+    pinning Host to loopback names and Origin to loopback plus
+    MCP_CORS_ORIGINS. The SDK leaves this off unless it is passed in.
+
+    With auth configured this returns None on purpose: every request needs a
+    credential a browser never attaches on its own, and a server behind a
+    reverse proxy sees the public hostname in Host, which a loopback
+    allowlist would answer with 421. Gate on auth, not on the bind address.
+    """
+    if _auth_configured():
+        return None
+    from mcp.server.transport_security import TransportSecuritySettings  # inline import: only the HTTP transports need it
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(_LOOPBACK_HOSTS),
+        allowed_origins=_LOOPBACK_ORIGINS + _configured_cors_origins(),
+    )
+
+
+def _origin_matches(origin: str, allowed: list) -> bool:
+    """Same rule as the SDK's TransportSecurityMiddleware: exact, or `base:*`."""
+    return any(
+        origin == a or (a.endswith(":*") and origin.startswith(a[:-1]))
+        for a in allowed
+    )
+
+
+def _mcp_preflight_headers(origin: str) -> dict:
+    """CORS headers for an OPTIONS preflight on /mcp.
+
+    An origin is granted only when the transport would also accept its
+    request, so the preflight and the SDK's Origin check cannot disagree.
+    Until GHSA-8p26-g7wp-65jw this answered every origin with `*`, which
+    let any web page drive an unauthenticated local server.
+    """
+    configured = _configured_cors_origins()
+    if _auth_configured() and (not configured or "*" in configured):
+        # Every request still needs a token the page does not have. Without
+        # auth an explicit `*` is not honoured: that is the advisory itself.
+        allow = "*"
+    else:
+        settings = _transport_security_settings()
+        allowed = settings.allowed_origins if settings else configured
+        allow = origin if origin and _origin_matches(origin, allowed) else None
+    if allow is None:
+        return {}
+    headers = {
+        "Access-Control-Allow-Origin": allow,
+        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "86400",
+    }
+    if allow != "*":
+        headers["Vary"] = "Origin"
+    return headers
+
+
+async def _serve_lifespan(receive, send, context=None) -> None:
+    """ASGI lifespan loop shared by the HTTP transports.
+
+    `context` is an async context manager held open from startup to shutdown
+    (the Streamable HTTP session manager); SSE passes none.
+    """
+    entered = False
+    while True:
+        message = await receive()
+        if message["type"] == "lifespan.startup":
+            if context is not None:
+                await context.__aenter__()
+                entered = True
+            await send({"type": "lifespan.startup.complete"})
+        elif message["type"] == "lifespan.shutdown":
+            if entered:
+                await context.__aexit__(None, None, None)
+            await send({"type": "lifespan.shutdown.complete"})
+            return
+
+
+async def _answer_health_or_404(path: str, scope, receive, send) -> None:
+    from starlette.responses import Response  # inline import: only the HTTP transports need it
+    if path == "/health":
+        response = Response('{"status":"ok"}', media_type="application/json")
+    else:
+        response = Response("Not Found", status_code=404)
+    await response(scope, receive, send)
+
+
+async def _handle_mcp_request(session_manager, scope, receive, send) -> None:
+    """Serve one request on /mcp: CORS preflight, auth, then the transport."""
+    from starlette.responses import Response  # inline import: only the HTTP transports need it
+    from ..utils.agent_context import set_current_agent_id, reset_current_agent_id
+    headers = dict(scope.get("headers", []))
+    if scope.get("method") == "OPTIONS":
+        origin = headers.get(b"origin", b"").decode("latin-1")
+        response = Response("", status_code=204, headers=_mcp_preflight_headers(origin))
+        await response(scope, receive, send)
+        return
+    if _auth_configured() and not await check_transport_auth(scope, receive, send):
+        return
+    # X-Agent-ID is authorship ATTRIBUTION, not authentication: it names the
+    # writer and grants no permission. Bind it per-request into a ContextVar so
+    # the single resolution point in memory_service.store_memory can honor it
+    # (precedence arg > header > MCP_AGENT_ID env). Reset in finally so
+    # identity never leaks between concurrent requests on the same worker.
+    agent_header = headers.get(b"x-agent-id")
+    agent_id = agent_header.decode("latin-1").strip() if agent_header else None
+    token = set_current_agent_id(agent_id or None)
+    try:
+        await session_manager.handle_request(scope, receive, send)
+    finally:
+        reset_current_agent_id(token)
+
+
+def _build_oauth_app(logger):
+    """OAuth 2.1 endpoints (discovery, DCR, authorization, token) for /mcp."""
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.middleware.cors import CORSMiddleware
+    from ..web.oauth.discovery import router as discovery_router
+    from ..web.oauth.registration import router as registration_router
+    from ..web.oauth.authorization import router as authorization_router
+    from ..config import OAUTH_ISSUER
+
+    oauth_app = FastAPI(title="MCP Memory OAuth", docs_url=None, redoc_url=None)
+    cors_origins = _configured_cors_origins()
+    oauth_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins or ["*"],
+        # allow_credentials requires explicit origins; wildcard + credentials
+        # is rejected by browsers (CORS spec §3.2.2).
+        allow_credentials=bool(cors_origins),
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    oauth_app.include_router(discovery_router)
+    oauth_app.include_router(registration_router, prefix="/oauth")
+    oauth_app.include_router(authorization_router, prefix="/oauth")
+
+    # RFC 9728: OAuth Protected Resource Metadata
+    @oauth_app.get("/.well-known/oauth-protected-resource")
+    @oauth_app.get("/.well-known/oauth-protected-resource/{path:path}")
+    async def protected_resource_metadata(path: str = ""):
+        return JSONResponse({
+            "resource": OAUTH_ISSUER,
+            "authorization_servers": [OAUTH_ISSUER],
+            "scopes_supported": ["read", "write", "admin"],
+            "bearer_methods_supported": ["header"],
+        })
+
+    logger.info("OAuth 2.1 endpoints enabled on Streamable HTTP transport")
+    return oauth_app
 
 
 async def _credentials_authenticate(scope) -> bool:
@@ -144,8 +316,7 @@ async def _sse_request_is_allowed(path: str, scope, receive, send) -> bool:
     """
     if path != "/sse" and not path.startswith("/messages/"):
         return True
-    from ..config import OAUTH_ENABLED, API_KEY
-    if not (OAUTH_ENABLED or API_KEY):
+    if not _auth_configured():
         # Nothing configured to check against. _assert_bind_is_authenticated()
         # has already refused a non-loopback bind in this case, so what is left
         # is a deliberate local-only server.
@@ -343,8 +514,6 @@ class ServerRunManager:
     async def run_sse(self) -> None:
         """Run server with SSE (Server-Sent Events) transport over HTTP."""
         from mcp.server.sse import SseServerTransport
-        from starlette.responses import Response
-        import uvicorn  # inline import: heavy, and only the HTTP transports need it
 
         init_options = InitializationOptions(
             server_name=SERVER_NAME,
@@ -367,18 +536,13 @@ class ServerRunManager:
         # refused on tools/call. See MemoryServer.local_only_tools().
         self.server.remote_transport = True
 
-        sse = SseServerTransport("/messages/")
+        sse = SseServerTransport("/messages/", security_settings=_transport_security_settings())
         server_instance = self.server.server
 
         async def app(scope, receive, send):
             if scope["type"] == "lifespan":
-                while True:
-                    message = await receive()
-                    if message["type"] == "lifespan.startup":
-                        await send({"type": "lifespan.startup.complete"})
-                    elif message["type"] == "lifespan.shutdown":
-                        await send({"type": "lifespan.shutdown.complete"})
-                        return
+                await _serve_lifespan(receive, send)
+                return
 
             path = scope.get("path", "")
             if not await _sse_request_is_allowed(path, scope, receive, send):
@@ -393,23 +557,25 @@ class ServerRunManager:
                     )
             elif path.startswith("/messages/"):
                 await sse.handle_post_message(scope, receive, send)
-            elif path == "/health":
-                response = Response('{"status":"ok"}', media_type="application/json")
-                await response(scope, receive, send)
             else:
-                response = Response("Not Found", status_code=404)
-                await response(scope, receive, send)
+                await _answer_health_or_404(path, scope, receive, send)
 
+        await self._serve_http(app, "SSE")
+
+    async def _serve_http(self, app, label: str) -> None:
+        """Bind and serve an HTTP transport app with uvicorn."""
+        import uvicorn  # inline import: heavy, and only the HTTP transports need it
         # Re-read env at runtime so late-set values (e.g. from CLI flags in
         # cli/main.py after package __init__ has already frozen config.py
         # module constants) still take effect.
         from ..config import safe_get_int_env
         sse_host = os.environ.get('MCP_SSE_HOST', MCP_SSE_HOST)
         sse_port = safe_get_int_env('MCP_SSE_PORT', MCP_SSE_PORT, min_value=1024, max_value=65535)
-
+        # Both transports serve the full tool surface, so neither may bind to
+        # the network without auth (GHSA-2hh8-qjxc-43x3).
         _assert_bind_is_authenticated(sse_host, sse_port)
 
-        self.logger.info("Starting SSE transport on %s:%s", _sanitize_log_value(sse_host), sse_port)
+        self.logger.info("Starting %s transport on %s:%s", label, _sanitize_log_value(sse_host), sse_port)
         config = uvicorn.Config(
             app,
             host=sse_host,
@@ -418,8 +584,7 @@ class ServerRunManager:
             timeout_keep_alive=MCP_TRANSPORT_TIMEOUT_KEEP_ALIVE,
             timeout_graceful_shutdown=MCP_TRANSPORT_TIMEOUT_GRACEFUL_SHUTDOWN,
         )
-        uvi_server = uvicorn.Server(config)
-        await uvi_server.serve()
+        await uvicorn.Server(config).serve()
 
     async def run_streamable_http(self) -> None:
         """Run server with Streamable HTTP transport.
@@ -431,11 +596,8 @@ class ServerRunManager:
         OAuth 2.1 endpoints (discovery, DCR, authorization, token) alongside
         the MCP transport endpoint, and requires Bearer token auth on /mcp.
         """
-        import uvicorn  # inline import: heavy, and only the HTTP transports need it
-        from starlette.responses import Response as StarletteResponse
         from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-        from ..config import OAUTH_ENABLED, API_KEY
-        from ..utils.agent_context import set_current_agent_id, reset_current_agent_id
+        from ..config import OAUTH_ENABLED
 
         # Remote transport: filesystem tools are filtered out of tools/list and
         # refused on tools/call. See MemoryServer.local_only_tools().
@@ -446,143 +608,25 @@ class ServerRunManager:
             app=server_instance,
             event_store=None,
             stateless=True,
+            security_settings=_transport_security_settings(),
         )
 
-        # Build OAuth sub-app if enabled
-        oauth_app = None
-        if OAUTH_ENABLED:
-            from fastapi import FastAPI
-            from fastapi.responses import JSONResponse
-            from ..web.oauth.discovery import router as discovery_router
-            from ..web.oauth.registration import router as registration_router
-            from ..web.oauth.authorization import router as authorization_router
-            from ..config import OAUTH_ISSUER
-
-            from fastapi.middleware.cors import CORSMiddleware
-
-            oauth_app = FastAPI(title="MCP Memory OAuth", docs_url=None, redoc_url=None)
-            _cors_origins = [o.strip() for o in os.environ.get("MCP_CORS_ORIGINS", "").split(",") if o.strip()]
-            oauth_app.add_middleware(
-                CORSMiddleware,
-                allow_origins=_cors_origins or ["*"],
-                # allow_credentials requires explicit origins; wildcard + credentials
-                # is rejected by browsers (CORS spec §3.2.2).
-                allow_credentials=bool(_cors_origins),
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
-            oauth_app.include_router(discovery_router)
-            oauth_app.include_router(registration_router, prefix="/oauth")
-            oauth_app.include_router(authorization_router, prefix="/oauth")
-
-            # RFC 9728: OAuth Protected Resource Metadata
-            @oauth_app.get("/.well-known/oauth-protected-resource")
-            @oauth_app.get("/.well-known/oauth-protected-resource/{path:path}")
-            async def protected_resource_metadata(path: str = ""):
-                return JSONResponse({
-                    "resource": OAUTH_ISSUER,
-                    "authorization_servers": [OAUTH_ISSUER],
-                    "scopes_supported": ["read", "write", "admin"],
-                    "bearer_methods_supported": ["header"],
-                })
-
-            self.logger.info("OAuth 2.1 endpoints enabled on Streamable HTTP transport")
-
-        _session_manager_ctx = None
+        oauth_app = _build_oauth_app(self.logger) if OAUTH_ENABLED else None
 
         async def app(scope, receive, send):
-            nonlocal _session_manager_ctx
             if scope["type"] == "lifespan":
-                while True:
-                    message = await receive()
-                    if message["type"] == "lifespan.startup":
-                        _session_manager_ctx = session_manager.run()
-                        await _session_manager_ctx.__aenter__()
-                        await send({"type": "lifespan.startup.complete"})
-                    elif message["type"] == "lifespan.shutdown":
-                        if _session_manager_ctx:
-                            await _session_manager_ctx.__aexit__(None, None, None)
-                        await send({"type": "lifespan.shutdown.complete"})
-                        return
+                await _serve_lifespan(receive, send, session_manager.run())
+                return
 
             path = scope.get("path", "")
-            if path == "/mcp" or path == "/mcp/":
-                # Handle CORS preflight for /mcp
-                if scope.get("method") == "OPTIONS":
-                    req_hdrs = dict(scope.get("headers", []))
-                    origin = req_hdrs.get(b"origin", b"").decode("latin-1")
-                    # Reuse _cors_origins parsed at startup (set when OAUTH_ENABLED);
-                    # fall back to re-parsing if OAuth is off but CORS origins are set.
-                    _mcp_cors = _cors_origins if OAUTH_ENABLED else [
-                        o.strip() for o in os.environ.get("MCP_CORS_ORIGINS", "").split(",") if o.strip()
-                    ]
-                    allow_origin = "*" if not _mcp_cors else (origin if origin in _mcp_cors else _mcp_cors[0])
-                    response = StarletteResponse(
-                        "",
-                        status_code=204,
-                        headers={
-                            "Access-Control-Allow-Origin": allow_origin,
-                            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-                            "Access-Control-Allow-Headers": "*",
-                            "Access-Control-Max-Age": "86400",
-                        },
-                    )
-                    await response(scope, receive, send)
-                    return
-                # Auth check on /mcp
-                if OAUTH_ENABLED or API_KEY:
-                    if not await _check_auth_from_scope(scope, receive, send):
-                        return
-                # X-Agent-ID is authorship ATTRIBUTION, not authentication: it
-                # names the writer and grants no permission. Bind it per-request
-                # into a ContextVar so the single resolution point in
-                # memory_service.store_memory can honor it (precedence
-                # arg > header > MCP_AGENT_ID env). Reset in finally so identity
-                # never leaks between concurrent requests on the same worker.
-                _agent_header = dict(scope.get("headers", [])).get(b"x-agent-id")
-                _agent_id = _agent_header.decode("latin-1").strip() if _agent_header else None
-                _agent_token = set_current_agent_id(_agent_id or None)
-                try:
-                    await session_manager.handle_request(scope, receive, send)
-                finally:
-                    reset_current_agent_id(_agent_token)
-            elif oauth_app and (
-                path.startswith("/.well-known/") or
-                path.startswith("/oauth/")
-            ):
+            if path in ("/mcp", "/mcp/"):
+                await _handle_mcp_request(session_manager, scope, receive, send)
+            elif oauth_app and path.startswith(("/.well-known/", "/oauth/")):
                 await oauth_app(scope, receive, send)
-            elif path == "/health":
-                response = StarletteResponse('{"status":"ok"}', media_type="application/json")
-                await response(scope, receive, send)
             else:
-                response = StarletteResponse("Not Found", status_code=404)
-                await response(scope, receive, send)
+                await _answer_health_or_404(path, scope, receive, send)
 
-        async def _check_auth_from_scope(scope, receive, send) -> bool:
-            """Validate auth on /mcp requests. Returns True if authorized."""
-            return await check_transport_auth(scope, receive, send)
-
-        # Re-read env at runtime; see run_sse() for rationale.
-        from ..config import safe_get_int_env
-        sse_host = os.environ.get('MCP_SSE_HOST', MCP_SSE_HOST)
-        sse_port = safe_get_int_env('MCP_SSE_PORT', MCP_SSE_PORT, min_value=1024, max_value=65535)
-        # Same guard as SSE. /mcp gates on `OAUTH_ENABLED or API_KEY`, so with
-        # neither set it serves the full tool surface unauthenticated, exactly
-        # like SSE did. The advisory named SSE because that transport had no
-        # gate at all; the unauthenticated-bind case is common to both.
-        _assert_bind_is_authenticated(sse_host, sse_port)
-
-        self.logger.info("Starting Streamable HTTP transport on %s:%s", _sanitize_log_value(sse_host), sse_port)
-        config = uvicorn.Config(
-            app,
-            host=sse_host,
-            port=sse_port,
-            log_level="info",
-            timeout_keep_alive=MCP_TRANSPORT_TIMEOUT_KEEP_ALIVE,
-            timeout_graceful_shutdown=MCP_TRANSPORT_TIMEOUT_GRACEFUL_SHUTDOWN,
-        )
-        uvi_server = uvicorn.Server(config)
-        await uvi_server.serve()
+        await self._serve_http(app, "Streamable HTTP")
 
     def _handle_server_exception(self, e: BaseException) -> None:
         """Handle exceptions during server run."""

@@ -49,7 +49,7 @@ class _FakeBeliefs:
     def __init__(self, beliefs):
         self._b = beliefs
 
-    async def get_beliefs(self, status="active", min_confidence=0.35):
+    async def get_beliefs(self, status="active", min_confidence=0.35, store=None):
         return [b for b in self._b if b.get("status", "active") == status]
 
     async def challenge_belief(self, belief_hash):

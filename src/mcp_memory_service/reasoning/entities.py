@@ -7,10 +7,18 @@ Integrated into maintain cycle as batch extraction step.
 Supports pluggable domain-specific extractors via MCP_ENTITY_EXTRACTOR_MODULES env var.
 """
 
+import importlib
+import logging
+import os
 import re
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
-from typing import List, Dict, Any, Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Protocol, runtime_checkable
+
+from ..compat import _sanitize_log_value
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Entity:
@@ -51,16 +59,31 @@ def _tag_allowed(tag: str, include: list[str], exclude: list[str]) -> bool:
 _DOMAIN_EXTRACTOR_CACHE: list | None = None
 
 
+def _load_domain_extractor(spec: str) -> DomainExtractor:
+    """Instantiate one configured plugin and validate its protocol."""
+    module_path, class_name = spec.rsplit(":" if ":" in spec else ".", 1)
+    module = importlib.import_module(module_path)
+    instance = getattr(module, class_name)()
+    if not isinstance(instance, DomainExtractor):
+        raise TypeError("does not implement DomainExtractor protocol")
+    return instance
+
+
 class EntityExtractor:
     """Extract entities from memory content and metadata.
 
     Uses high-precision patterns only (@mentions, #tags, URLs, paths).
     CamelCase/ALLCAPS removed per review feedback (too many false positives).
     Supports pluggable domain extractors via constructor or env var.
+    Strict mode raises on plugin errors instead of returning partial results.
     """
 
-    def __init__(self, domain_extractors: list[DomainExtractor] | None = None):
+    def __init__(
+        self, domain_extractors: list[DomainExtractor] | None = None,
+        *, strict: bool = False,
+    ):
         self._domain_extractors = domain_extractors or []
+        self._strict = strict
 
     def extract_entities(self, content: str, metadata: Dict[str, Any] | None = None) -> List[Entity]:
         metadata = metadata or {}
@@ -92,7 +115,9 @@ class EntityExtractor:
         tags = metadata.get('tags', [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(',') if t.strip()]
-        from ..config import MCP_ENTITY_TAG_INCLUDE, MCP_ENTITY_TAG_EXCLUDE
+        from ..config import (  # inline import: read current config
+            MCP_ENTITY_TAG_INCLUDE, MCP_ENTITY_TAG_EXCLUDE,
+        )
         include = _tag_patterns(MCP_ENTITY_TAG_INCLUDE)
         exclude = _tag_patterns(MCP_ENTITY_TAG_EXCLUDE)
         for tag in tags:
@@ -100,7 +125,7 @@ class EntityExtractor:
                 _add(tag, 'tag', 'metadata')
 
         # Custom terms matching from config
-        from ..config import MCP_ENTITY_CUSTOM_TERMS
+        from ..config import MCP_ENTITY_CUSTOM_TERMS  # inline import: read current config
         if MCP_ENTITY_CUSTOM_TERMS:
             custom_terms = [t.strip() for t in MCP_ENTITY_CUSTOM_TERMS.split(',') if t.strip()]
             for term in custom_terms:
@@ -108,28 +133,35 @@ class EntityExtractor:
                 if re.search(r'(?<![a-zA-Z0-9_-])' + re.escape(term) + r'(?![a-zA-Z0-9_-])', content, re.IGNORECASE):
                     _add(term, 'custom', 'config')
 
-        # Domain-specific extractors (pluggable)
+        self._add_domain_entities(content, metadata, _add)
+        return entities
+
+    def _add_domain_entities(
+        self, content: str, metadata: dict,
+        add: Callable[[str, str, str], None],
+    ) -> None:
+        """Keep ordinary extraction fail-soft; rebuilds require complete results."""
         for ext in self._domain_extractors:
             try:
                 domain_entities = ext.extract(content, metadata)
                 for ent in domain_entities:
-                    _add(ent.name, ent.entity_type, 'domain')
+                    add(ent.name, ent.entity_type, 'domain')
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).debug(f"Domain extractor failed: {e}")
-
-        return entities
+                if self._strict:
+                    raise RuntimeError(
+                        f"Domain extractor '{type(ext).__module__}."
+                        f"{type(ext).__qualname__}' failed: {e}"
+                    ) from e
+                logger.debug("Domain extractor failed: %s", _sanitize_log_value(e))
 
     @staticmethod
-    def load_domain_extractors() -> list['DomainExtractor']:
+    def load_domain_extractors(*, strict: bool = False) -> list['DomainExtractor']:
         """Load domain extractors from MCP_ENTITY_EXTRACTOR_MODULES env var.
 
         Format: comma-separated dotted paths to classes.
         Example: MCP_ENTITY_EXTRACTOR_MODULES=mypackage.ner:MedicalExtractor,other.mod:LegalExtractor
+        With strict=True, any loading or protocol error aborts the entire load.
         """
-        import os
-        import importlib
-
         modules_str = os.environ.get('MCP_ENTITY_EXTRACTOR_MODULES', '')
         if not modules_str:
             return []
@@ -140,26 +172,16 @@ class EntityExtractor:
             if not spec:
                 continue
             try:
-                if ':' in spec:
-                    module_path, class_name = spec.rsplit(':', 1)
-                else:
-                    # Assume last component is class name
-                    parts = spec.rsplit('.', 1)
-                    module_path, class_name = parts[0], parts[1]
-
-                module = importlib.import_module(module_path)
-                cls = getattr(module, class_name)
-                instance = cls()
-                if isinstance(instance, DomainExtractor):
-                    extractors.append(instance)
-                else:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        f"Domain extractor {spec} does not implement DomainExtractor protocol"
-                    )
+                extractors.append(_load_domain_extractor(spec))
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to load domain extractor '{spec}': {e}")
+                if strict:
+                    raise RuntimeError(
+                        f"Failed to load domain extractor '{spec}': {e}"
+                    ) from e
+                logger.warning(
+                    "Failed to load domain extractor '%s': %s",
+                    _sanitize_log_value(spec), _sanitize_log_value(e),
+                )
 
         return extractors
 
@@ -178,8 +200,8 @@ class EntityExtractor:
     @staticmethod
     def extract_frequent_terms(memories: list, min_count: int = 5) -> list:
         """Extract terms appearing in >= min_count distinct memories."""
-        import re as _re
-        from collections import defaultdict
+        import re as _re  # inline import: only needed for frequent-term extraction
+        from collections import defaultdict  # inline import: only needed here
 
         stopwords = frozenset([
             'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was',
