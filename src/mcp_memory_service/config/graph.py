@@ -49,11 +49,14 @@ CONSOLIDATION_AUTO_SUPERSEDE = os.getenv(
 logger.info("Consolidation auto-supersede on contradicts edges: %s", CONSOLIDATION_AUTO_SUPERSEDE)
 
 # Whether the RelationshipInferenceEngine assigns typed edges (fixes, causes,
-# contradicts, etc.) during consolidation. Set to false to keep all inferred
-# edges as "related", avoiding false-positive typed labels.
-# Default: true for backward compatibility.
+# contradicts, etc.) during consolidation. When false, inferred edges are kept
+# as "related".
+# Default: false (#1883). Today's typed labels come from the pair of memory
+# types, not from what the two memories say: hand-checked samples from three
+# stores found 0 of 139 typed edges correct. Set MCP_TYPED_EDGES_ENABLED=true
+# to keep typed labels (the #1457 gates still apply).
 TYPED_EDGES_ENABLED = os.getenv(
-    'MCP_TYPED_EDGES_ENABLED', 'true'
+    'MCP_TYPED_EDGES_ENABLED', 'false'
 ).lower() == 'true'
 logger.info("Typed edge inference enabled: %s", TYPED_EDGES_ENABLED)
 
