@@ -7,6 +7,7 @@ import time
 from datetime import datetime, date
 from typing import List, Tuple, Optional
 
+from ..base import UntaggedCountChanged
 from ..source_retraction import retract_sources_for_deleted_hashes
 
 
@@ -535,7 +536,9 @@ class DeleteMixin:
 
         return await self._execute_with_retry(_count_untagged)
 
-    async def delete_untagged_memories(self) -> Tuple[int, str]:
+    async def delete_untagged_memories(
+        self, expected_count: Optional[int] = None
+    ) -> Tuple[int, str]:
         """Soft-delete every memory that carries no tags.
 
         The tombstone is only part of a delete on this backend: graph edges
@@ -543,6 +546,14 @@ class DeleteMixin:
         to be retracted (#1865), delta-sync peers need a delete event each,
         and all of it belongs in one transaction under the connection lock —
         the same shape as :meth:`delete_by_tags`.
+
+        ``expected_count`` is the size the caller was held to. It is checked
+        here, against the rows that are about to go, inside the connection
+        lock and before the first write: a caller that counted in one request
+        and deleted in the next cannot otherwise tell whether a concurrent
+        write stripped the last tag off another memory in between and widened
+        the delete. A mismatch raises :class:`UntaggedCountChanged` with
+        nothing written.
         """
         try:
             if not self.conn:
@@ -555,6 +566,10 @@ class DeleteMixin:
                 rows = cursor.fetchall()
                 memory_ids = [row[0] for row in rows]
                 hashes = [row[1] for row in rows]
+
+                # Before any write, and under the lock that serialises them.
+                if expected_count is not None and len(rows) != expected_count:
+                    raise UntaggedCountChanged(expected_count, len(rows))
 
                 if not memory_ids:
                     return 0
@@ -612,6 +627,10 @@ class DeleteMixin:
                 )
             return 0, "No untagged memories found"
 
+        except UntaggedCountChanged:
+            # The caller confirmed a count that no longer holds; it decides what
+            # to do, and nothing was written for _rollback_quietly to undo.
+            raise
         except Exception as e:
             await self._rollback_quietly()
             error_msg = f"Failed to delete untagged memories: {str(e)}"

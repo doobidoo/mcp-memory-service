@@ -22,7 +22,10 @@ import time
 import pytest
 import pytest_asyncio
 
+from fastapi import HTTPException
+
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.storage.base import UntaggedCountChanged
 from mcp_memory_service.storage.mixins import delete as delete_mixin
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.web.api import manage
@@ -164,11 +167,80 @@ async def test_a_failed_retraction_undoes_the_tombstone(storage, monkeypatch):
     assert _deleted_at(storage, untagged) is None
 
 
+@pytest.mark.asyncio
+async def test_a_concurrent_untag_does_not_widen_the_delete(storage):
+    """A confirmed count is re-checked against the rows that are about to go.
+
+    The caller counts in one request and deletes in the next. Between the two
+    another request can strip the last tag off a memory, and the delete would
+    then take a row the user never confirmed.
+    """
+    first = await _store(storage, "no tags here", None)
+    confirmed = await storage.count_untagged_memories()
+    assert confirmed == 1
+
+    # The concurrent write: a second memory loses its last tag.
+    second = await _store(storage, "this one is tagged", ["keep"])
+    storage.conn.execute(
+        "UPDATE memories SET tags = '' WHERE content_hash = ?", (second,)
+    )
+    storage.conn.commit()
+
+    with pytest.raises(UntaggedCountChanged) as caught:
+        await storage.delete_untagged_memories(expected_count=confirmed)
+
+    assert (caught.value.expected, caught.value.actual) == (1, 2)
+    # Nothing was written: neither row is tombstoned.
+    assert _deleted_at(storage, first) is None
+    assert _deleted_at(storage, second) is None
+
+
+@pytest.mark.asyncio
+async def test_a_matching_count_still_deletes(storage):
+    untagged = await _store(storage, "no tags here", None)
+
+    count, _message = await storage.delete_untagged_memories(expected_count=1)
+
+    assert count == 1
+    assert _deleted_at(storage, untagged) is not None
+
+
+@pytest.mark.asyncio
+async def test_the_endpoint_answers_400_when_the_set_moves(storage, monkeypatch):
+    """End to end: the widened delete is refused with the stale-count 400."""
+    first = await _store(storage, "no tags here", None)
+    second = await _store(storage, "this one is tagged", ["keep"])
+
+    real_count = storage.count_untagged_memories
+
+    async def _count_then_untag_another():
+        count = await real_count()
+        # Runs where another request would: after the endpoint has read the
+        # count it holds the caller to, before the delete.
+        storage.conn.execute(
+            "UPDATE memories SET tags = '' WHERE content_hash = ?", (second,)
+        )
+        storage.conn.commit()
+        return count
+
+    monkeypatch.setattr(storage, "count_untagged_memories", _count_then_untag_another)
+
+    with pytest.raises(HTTPException) as caught:
+        await manage.delete_untagged_memories(
+            confirm_count=1, storage=storage, user=None
+        )
+
+    assert caught.value.status_code == 400
+    assert "Confirmation count mismatch" in caught.value.detail
+    assert _deleted_at(storage, first) is None
+    assert _deleted_at(storage, second) is None
+
+
 class _Primary:
     async def count_untagged_memories(self):
         return 0
 
-    async def delete_untagged_memories(self):
+    async def delete_untagged_memories(self, expected_count=None):
         return 0, "primary"
 
 
