@@ -9,7 +9,11 @@
 # CHANGELOG entry. The other 18 were reconstructed from commit messages at release
 # time, by someone who had not written them (#1273).
 #
-# Usage: check_changelog_entry.sh <base-ref>
+# Usage: check_changelog_entry.sh [--staged] <base-ref>
+#
+# By default it judges the commits on HEAD, as CI sees the pull request. --staged
+# judges the index instead (commits plus staged changes), which is what
+# scripts/pr/pre_pr_check.sh needs: it runs before the commit exists.
 #
 # Read-only: it inspects the diff and never touches the working tree.
 #
@@ -28,7 +32,12 @@
 # outcome this gate exists to prevent.
 set -uo pipefail
 
-BASE_REF="${1:?usage: $0 <base-ref>}"
+STAGED=false
+if [ "${1:-}" = "--staged" ]; then
+    STAGED=true
+    shift
+fi
+BASE_REF="${1:?usage: $0 [--staged] <base-ref>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELEASE_HELPER="$SCRIPT_DIR/../pr/lib/is_release_bump.py"
 PYTHON="${PYTHON:-python3}"
@@ -45,9 +54,19 @@ base="$(git merge-base "$BASE_REF" HEAD)" || {
     exit 2
 }
 
+# What the change is compared as: HEAD's tree, or the index. Fragment contents are
+# read from the same place, so a staged fragment is judged as it will be committed.
+if $STAGED; then
+    DIFF=(--cached "$base")
+    SIDE=":"
+else
+    DIFF=("$base" HEAD)
+    SIDE="HEAD:"
+fi
+
 # Added fragments only. A modified one belongs to a pull request that already
 # landed, so editing it is not this change's entry.
-added_under_dir="$(git diff --name-only --diff-filter=A "$base" HEAD -- 'changelog.d/' \
+added_under_dir="$(git diff --name-only --diff-filter=A "${DIFF[@]}" -- 'changelog.d/' \
     | grep -vE '(^|/)README\.md$')"
 
 status=0
@@ -62,12 +81,13 @@ while IFS= read -r path; do
         status=1
         continue
     fi
-    if [ ! -s "$path" ]; then
+    content="$(git show "${SIDE}${path}")" || exit 2
+    if [ -z "$content" ]; then
         echo "FAIL - $path is empty"
         status=1
         continue
     fi
-    if ! grep -qE '^[[:space:]]*-[[:space:]]+\S' "$path"; then
+    if ! printf '%s\n' "$content" | grep -qE '^[[:space:]]*-[[:space:]]+\S'; then
         echo "FAIL - $path has no entry line; write it as a markdown list item starting with '- '"
         status=1
         continue
@@ -80,13 +100,13 @@ done <<< "$added_under_dir"
 # Anything shipped under src/ counts, not only Python: the NER, harvest and NLI
 # pattern files are YAML and the schema lives in .sql, and a change to those is as
 # visible to a user as a change to a module.
-src_changed="$(git diff --name-only "$base" HEAD -- 'src/')"
+src_changed="$(git diff --name-only "${DIFF[@]}" -- 'src/')"
 if [ -z "$src_changed" ]; then
     echo "PASS - no change under src/"
     exit 0
 fi
 
-if git diff "$base" HEAD | "$PYTHON" "$RELEASE_HELPER"; then
+if git diff "${DIFF[@]}" | "$PYTHON" "$RELEASE_HELPER"; then
     echo "PASS - release version bump; the release itself rewrites the changelog"
     exit 0
 fi
