@@ -345,7 +345,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 from ...consolidation.quarantine import schedule_on_store_checks
 
                 agendado = schedule_on_store_checks(
-                    server.storage, content, result["memory"]["content_hash"]
+                    server.storage, content, result["memory"]["content_hash"], store=store
                 )
                 if agendado:
                     message += "\n(contradiction checks scheduled in the background)"
@@ -375,7 +375,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 belief_svc = BeliefService(server.storage)
                 quarantine_result = await check_beliefs_on_store(
                     server.storage, belief_svc,
-                    content, result["memory"]["content_hash"],
+                    content, result["memory"]["content_hash"], store=store,
                 )
                 if quarantine_result and quarantine_result.get("status") == "quarantined":
                     result["quarantine_warning"] = quarantine_result
@@ -1095,7 +1095,9 @@ async def _format_beliefs_section(arguments: dict, storage) -> str:
         from ...consolidation.belief_service import BeliefService
 
         svc = BeliefService(storage)
-        beliefs = await svc.get_beliefs()
+        # Same store as the memory results above, so a per-store grant can
+        # cover include_beliefs (#1877).
+        beliefs = await svc.get_beliefs(store=arguments.get("store", "default"))
 
         if not beliefs:
             return ""

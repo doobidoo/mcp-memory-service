@@ -62,12 +62,21 @@ async def test_store_grant_cannot_reach_a_tool_that_ignores_store(server):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("flag", ["include_beliefs", "fallback"])
-async def test_store_grant_cannot_search_across_partitions(server, flag):
-    result = await _call(server, "memory_search", {"query": "x", "store": "projectA", flag: True},
+async def test_store_grant_cannot_search_across_partitions(server):
+    # The exact/tag fallback still ignores ``store`` (#1876).
+    result = await _call(server, "memory_search", {"query": "x", "store": "projectA", "fallback": True},
                          "read:projectA")
     assert result.isError
     assert server.handled == []
+
+
+@pytest.mark.asyncio
+async def test_store_grant_covers_include_beliefs(server):
+    # Beliefs are filtered by the claimed store since #1877.
+    arguments = {"query": "x", "store": "projectA", "include_beliefs": True}
+    result = await _call(server, "memory_search", arguments, "read:projectA")
+    assert not result.isError
+    assert server.handled == [arguments]
 
 
 @pytest.mark.asyncio
