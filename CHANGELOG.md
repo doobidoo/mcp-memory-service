@@ -17,6 +17,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.7.0] - 2026-11-06
+
+
+### Fixed
+
+- **Consolidation's typed-edge gates are the ones its docs state (#1457).** The docs said
+  confidence 0.75 and similarity 0.65, while the code shipped 0.50 and 0.45 and consolidation
+  ran at 0.6 and 0.45. On three hand-checked stores neither setting made a label right
+  (0 of 139), but the #541 gates write about ten times fewer of them, so those are now the
+  constructor defaults and the consolidator passes them explicitly. The 0.65 is on the
+  normalized score `(cos + 1) / 2`, i.e. cosine 0.3, and the docstrings say so. These gates
+  apply only with `MCP_TYPED_EDGES_ENABLED=true`, off by default since #1887.
+  `scripts/maintenance/update_graph_relationship_types.py` builds the same engine, so it
+  picks up the 0.75; it passes no similarity, so the similarity gate does not apply there.
+- **Optionally capture short Codex replies with their preceding assistant context (#1664).** The new `contextualCapture` setting is off by default and stores an opted-in reply/response pair with source turn metadata, without an LLM call.
+- **Search filter tooltips and most of the Documents tab stayed English (#1817).**
+  The five filter tooltips and the three Documents help icons already had catalog
+  keys, but only on `data-i18n-aria`, so the tooltip a user actually hovers kept its
+  English `title`; `data-i18n-title` now sits next to each aria attribute. Those icons
+  also sat inside the element whose text is translated, and `applyTranslations()`
+  writes `textContent`/`innerHTML`, so the first render dropped them from the page --
+  the translatable text now lives in its own `<span>` and the icon stays beside it.
+  The upload history (`No uploads yet`, its error line), the View/Remove buttons of
+  both document lists, the drop zone that `app.js` rebuilds after an upload, the
+  chunk-overlap illustration, the processing-mode help heading, the memory-viewer chunk
+  count and the removal confirmation go through `this.t()` or a `data-i18n*` attribute
+  now, with twenty-two new strings in all eleven catalogs. The chunk-size help icon also
+  gets its own `info-icon-chunk` class: it shared the bare `.info-icon` hook that
+  `setupDocumentsEventListeners()` queries, so once the processing-mode icon stayed in
+  the page the wrong icon answered the click. `documents.supported` also lists DOCX and
+  PPTX, which `semtools_loader.py` has accepted all along, and the static `#fileInput`
+  now accepts `.docx,.pptx` like the input `app.js` rebuilds.
+- **Test Connection and Save in the Settings Credentials tab send their requests again (#1839).** Both called `apiCall()` with a fetch-style options object instead of the method and the data as separate arguments, so neither request carried the method or body it needed. `tests/web/test_credentials_apicall_args.py` checks both calls.
+- **`conflict:unresolved` no longer outlives the conflict (#1840, mbreitkreuz).** Superseding or deleting one side of a conflict (`mark_superseded_batch`, `resolve_conflict`, `delete`, a versioned update) left the tag on the other side, and `resolve_conflict` stripped it from the winner even while the winner still contradicted another memory. `resolve_conflict` also refuses a memory resolved against itself now. The partner's tag is now cleared in the same transaction once it has no current conflict partner left, a new version no longer inherits the tag, and the `maintain` conflicts step reports (dry run, the default) or clears tags left behind by older data, bulk deletes and sync. sqlite-vec only.
+- `POST /api/manage/delete-untagged` now deletes through the storage layer on the SQLite backends instead of tombstoning the rows with a raw `UPDATE` on the shared connection. The new `DeleteMixin.delete_untagged_memories()` removes the graph edges, retracts the beliefs and summaries that cited the deleted hashes, appends one delete event per hash for delta-sync peers, and commits once under the connection lock — the same shape as `delete_by_tags()`. `count_untagged_memories()` joins it, so both endpoints now go through one predicate and the raw-SQL fallbacks are gone.
+- The `confirm_count` the caller is held to is now re-checked where the rows are selected for deletion — inside the connection lock and the transaction on SQLite, before the first write — so a concurrent request that strips the last tag off another memory between the count and the delete can no longer widen the delete past what was confirmed. The endpoint answers such a race with the same `400` as a stale count.
+- **Korean landing page headline reworded (#1873).** The hero read
+  `AI 어시스턴트에게 오래 남는 기억을`; it now reads `AI 어시스턴트를 위한 기억력`,
+  matching the page title.
+- **Entity linking no longer replaces `contradicts` edges (#1874, mbreitkreuz).** With `MCP_ENTITY_LINKING_ENABLED=true`, storing a memory that contradicts an existing one recorded the conflict and then overwrote both `contradicts` edges with `shares_entity`, because a pair holds one edge and the linker runs after conflict detection. `memory_conflicts` and the `maintain` auto-resolve lost the pair while both memories kept `conflict:unresolved`. The linker now skips any pair that already has an edge other than `has_entity` / `shares_entity`, the rule `rebuild_entities` already used. Pairs overwritten before this fix are not repaired: if you ran with entity linking enabled, run `memory_quality` `maintain` as a dry run first. An overwritten pair shows up as two reported hashes joined by a `shares_entity` edge; resolve it with `memory_resolve` before running `maintain` with `dry_run=false`, which clears the tag and with it the last trace of the conflict.
+- **Store-scoped metadata updates are confined in the storage layer (#1875, part of #1683).** `update_memory_metadata` and `update_memory_versioned` looked a memory up by `content_hash` alone. A claim on one store was only enforced by a `get_by_hash` pre-check in the MCP handler, so the check and the write were two separate steps. Both methods now take `store`, put `AND store = ?` into the lookup and the `UPDATE`, and report a memory in another store as not found without changing it. A metadata update whose `UPDATE` matches no row, because the memory was deleted or moved between the read and the write, now returns not found instead of success, and a versioned update aborts if the old row leaves the store while the new version is written. The MCP handler and `PUT /api/memories/{hash}` pass the claimed store through. `None` and `"all"` stay unscoped, so callers without a store behave as before. sqlite-vec and hybrid only; the other backends still refuse store-scoped updates until #1878 and #1879 land.
+- `memory_search` with `fallback=true` now runs its exact and tag fallbacks in the same store as the main search. Before, both fallbacks searched the `default` store whatever `store` the call named, so a search in one partition could return another partition's memories. A per-store credential (`read:<store>`) can now make a `fallback=true` search; it used to need the global grant.
+- **Beliefs and the NLI on-store check respect the store (#1877, part of #1683).** Beliefs aren't stored per store, so `memory_search` with `include_beliefs` returned beliefs from every store, and the opt-in NLI check on store (`MCP_NLI_ON_STORE`) compared a new memory with all of them. A per-store grant therefore could not cover `include_beliefs`. A belief is now visible in a store when none of its live source or contradicting memories sits in another store. Deleted memories don't count, so retention never hides a belief. The beliefs section of a search uses the same store as its memory results (`"default"` unless one is given), and the on-store check, in both the synchronous and the background path, compares a new memory only with beliefs visible in the store it was written to. A single-store user, with everything in `"default"`, sees every belief and keeps challenging them as before. `include_beliefs` no longer needs the global grant; `fallback` still does until #1876.
+- **Consolidation no longer labels inferred edges `fixes` / `contradicts` by default (#1883).**
+  `MCP_TYPED_EDGES_ENABLED` now defaults to `false`. A typed label came from the pair of
+  memory types (`learning` -> `bug` gave `fixes`, two note-like types gave `contradicts`),
+  not from what the two memories say, and hand-checked samples from three stores found
+  0 of 139 typed edges correct. Inferred associations are still stored, as `related`.
+  This release does not relabel stored edges in bulk, but `store_association()` writes
+  with `INSERT OR REPLACE`, so a pair that a later consolidation finds again is
+  stored as `related` and loses its typed label. `MCP_CONSOLIDATION_AUTO_SUPERSEDE`
+  acts on `contradicts` edges, so with the new default it has nothing to act on. To keep the old behavior, set
+  `MCP_TYPED_EDGES_ENABLED=true`; the #1457 gates still apply.
+- Keep selected source memories intact during semantic compression so rules retain
+  their exceptions and conditions, including short caveats and separate paragraphs.
+  Omit excerpts that exceed the summary budget instead of storing a partial rule.
+
+### Internal
+
+- **`pre_pr_check.sh` now runs the changelog fragment check.** Check 6.11 calls
+  `scripts/ci/check_changelog_entry.sh --staged origin/main`, the same script CI's
+  `changelog.yml` runs, but against the index, so a missing fragment or one without a
+  `- ` list item fails locally instead of in CI after the push.
+
 ## [12.6.0] - 2026-11-05
 
 
