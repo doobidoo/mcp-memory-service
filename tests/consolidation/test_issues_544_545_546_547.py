@@ -190,12 +190,18 @@ class TestIssue547:
             env["MCP_TYPED_EDGES_ENABLED"] = env_value
         # The child sees the same import path as pytest, installed package or not.
         env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
-        out = subprocess.run(
-            [sys.executable, "-c",
-             "from mcp_memory_service.config import graph; print(graph.TYPED_EDGES_ENABLED)"],
+        # dotenv is blocked in the child so a developer's .env cannot set the
+        # flag; the package-level re-export is what callers import.
+        code = (
+            "import sys; sys.modules['dotenv'] = None\n"
+            "from mcp_memory_service import config\n"
+            "print('TYPED_EDGES_ENABLED=%s' % config.TYPED_EDGES_ENABLED)\n"
+        )
+        stdout = subprocess.run(
+            [sys.executable, "-c", code],
             env=env, capture_output=True, text=True, check=True, timeout=60,
-        ).stdout.strip().splitlines()[-1]
-        assert out == str(expected)
+        ).stdout
+        assert f"TYPED_EDGES_ENABLED={expected}" in stdout.splitlines()
 
     @pytest.mark.asyncio
     async def test_store_associations_false_skips_memory_table_writes(self):
