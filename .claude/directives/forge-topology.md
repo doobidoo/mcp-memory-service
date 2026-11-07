@@ -1,0 +1,21 @@
+# Forge topology and source control
+
+Moved from CLAUDE.md. The always-loaded summary stays there; this is the full detail.
+
+- **GitHub is where the work happens.** CI runs as GitHub Actions in `.github/workflows/`: `ci.yml`, `changelog.yml` (changelog fragment check, runs on every PR), `links.yml` (internal Markdown links on every PR, external links weekly), `claim-check.yml` (labels a PR `unclaimed` when its author did not claim the issue it closes; `pull_request_target`, so it must never check out PR code), `release.yml`, `deploy-site.yml`, `cleanup-images.yml`, `codeql.yml`, and `triage-digest.yml` (daily maintainer digest, see `scripts/maintenance/github_triage_digest.py`). Issues, PRs and releases are there, and so is the tag push that starts a release.
+- **Only GitHub-owned actions are allowed, and SHA pinning is enforced.** The repository is set to `allowed_actions: selected` with `github_owned_allowed: true`, an empty `patterns_allowed` list, and `sha_pinning_required: true`. A third-party action therefore does not fail at review, it fails at run time. That is why `release.yml` shells out to raw `docker buildx` instead of using the `docker/*` actions. Before adding any `uses:` that is not `actions/*` or `github/*`, the allowlist has to be widened deliberately.
+- **A ruleset caps a single push at two refs.** `Pushes can not update more than 2 branches or tags`. Bulk tag pushes have to be batched in pairs; this is why the historical tag import ran as 15 pushes rather than one.
+- **Two rulesets guard `main`.** `ProtectMain` requires one approval and lets admins bypass it, so `gh pr merge --admin` still merges a solo PR. `ResolveThreads` requires every review thread to be resolved and has **no bypass actors**. A PR with an open thread therefore cannot merge by any route (`--admin`, web UI, API) until the thread is answered and resolved. Rulesets stack, so this is not a mistake to "fix" by adding a bypass.
+- **One publisher at a time.** `release.yml` owns PyPI and Docker Hub, and it is the only thing that may publish. Before wiring any second automation that could publish, disarm the first one. Codeberg lost its secrets on 2026-09-05 for exactly this reason.
+- **PyPI auth is still a classic token.** Trusted Publishing is not configured. The pre-Codeberg workflows declared `id-token: write` but authenticated with `secrets.PYPI_TOKEN` via twine, so switching to OIDC is new work and needs a publisher configured on the PyPI side.
+- **GitLab is a push mirror**, not a second publisher: fast-forwards of `main` only, no secrets, **never tags**. Prove the fast-forward instead of assuming it:
+  ```bash
+  git fetch origin main
+  git merge-base --is-ancestor "$(git ls-remote gitlab main | cut -f1)" FETCH_HEAD
+  git push gitlab FETCH_HEAD:refs/heads/main
+  ```
+  If the ancestor check fails, stop and investigate. Do not force. Note that some shells mangle `merge-base --is-ancestor "$A" "$B"`; if it reports "Not a valid object name" on a ref that clearly exists, run it through Python's `subprocess` rather than debugging the ref.
+- **Codeberg is a frozen archive** at `codeberg.org/doobidoo/mcp-memory-service`. It holds no secrets, receives no pushes, and its CI is dead. It stays readable so old links resolve. Do not resume mirroring to it: Codeberg's ToU § 2 (1) 7 bars projects written mostly with generative AI tools, this account was warned under that clause on 2026-08-27, and a mirror is still sharing a project.
+- **Issue and PR numbers below #341 are Codeberg numbers.** GitHub will happily auto-link `#123` in old CHANGELOG and README entries to a GitHub issue of that number, which is a different thing entirely. When citing history, say "Codeberg #123" or link the full URL. [`docs/codeberg-issue-map.md`](../../docs/codeberg-issue-map.md) resolves every one of them. The issues that were still open on 2026-09-05 were re-created on GitHub and carry the label `migrated:codeberg`.
+- **GHSA identifiers** (e.g. `GHSA-2r68-g678-7qr3`) are just advisory IDs and remain valid references.
+- **Authorship voice.** Commit messages, PR descriptions, CHANGELOG entries, issue/PR comments, and release notes are written in the maintainer's or contributor's own voice.
