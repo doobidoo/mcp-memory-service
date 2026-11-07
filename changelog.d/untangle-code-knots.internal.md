@@ -1,0 +1,1 @@
+- Expose untagged-memory and embedding-dimension storage APIs, share log sanitization, simplify ontology/taxonomy wrappers, and manage document cleanup through the web application lifespan.

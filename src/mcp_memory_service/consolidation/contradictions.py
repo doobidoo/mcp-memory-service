@@ -16,9 +16,7 @@ from .base import is_protected_memory
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+from ..compat import _sanitize_log_value
 
 # Configuration
 CONTRADICTION_ENABLED = os.environ.get("MCP_CONTRADICTION_DETECTION_ENABLED", "false").lower() == "true"
