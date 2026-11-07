@@ -20,6 +20,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import logging
 
 from ..models.memory import Memory
+from ..models.ontology import coerce_memory_type
 from .hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ def create_memory_from_chunk(
         content=chunk.content,
         content_hash=generate_content_hash(chunk.content),
         tags=list(set(all_tags)),  # Remove duplicates
-        memory_type=memory_type,
+        memory_type=coerce_memory_type(memory_type),
         metadata=chunk_metadata
     )
 

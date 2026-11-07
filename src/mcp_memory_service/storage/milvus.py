@@ -89,16 +89,18 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
     SentenceTransformer = None  # type: ignore
 
-from .base import MemoryStorage
+from .base import MemoryStorage, UntaggedCountChanged
 from .milvus_expr import escape_expr_value
 from .read_policy import should_raise_read_error
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
     _exclude_versioned_parent,
-    _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
+    _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads, _versioned_conflict_exclusion,
 )
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
+from ..models.ontology import coerce_memory_type
 from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
@@ -455,6 +457,10 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.debug("describe_collection failed during dimension probe: %s", _sanitize_log_value(exc))
             return None
         return self._extract_vector_dim(info)
+
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Return the vector dimension recorded in the live collection."""
+        return self._get_existing_db_embedding_dimension()
 
     def _validate_existing_collection(self) -> None:
         """Warn if the on-disk collection's vector dim disagrees with our model.
@@ -2028,10 +2034,11 @@ class MilvusMemoryStorage(MemoryStorage):
         success_template: str,
         require_live: bool = False,
         any_of_tags: Optional[List[str]] = None,
+        expected_count: Optional[int] = None,
     ) -> Tuple[int, str]:
         count, hashes = await self._delete_matching_parts(
             filter_expr, success_template, require_live=require_live,
-            any_of_tags=any_of_tags,
+            any_of_tags=any_of_tags, expected_count=expected_count,
         )
         if count > 0:
             return count, success_template.format(count=count)
@@ -2043,10 +2050,14 @@ class MilvusMemoryStorage(MemoryStorage):
         _success_template: str,
         require_live: bool = False,
         any_of_tags: Optional[List[str]] = None,
+        expected_count: Optional[int] = None,
     ) -> Tuple[int, List[str]]:
         hashes = await self._collect_hashes(
             filter_expr, require_live=require_live, any_of_tags=any_of_tags,
         )
+        # Checked on the ids that are about to go, before the first delete.
+        if expected_count is not None and len(hashes) != expected_count:
+            raise UntaggedCountChanged(expected_count, len(hashes))
         if not hashes:
             return 0, []
         deleted: List[str] = []
@@ -2390,8 +2401,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 resolved_tags = (
                     list(new_tags) if new_tags is not None else list(existing.tags or [])
                 )
+                # Caller-supplied type is coerced, inherited type kept as stored.
                 resolved_type = (
-                    new_memory_type if new_memory_type is not None else existing.memory_type
+                    coerce_memory_type(new_memory_type) if new_memory_type is not None
+                    else existing.memory_type
                 )
 
                 # The new version inherits the old row's custom metadata; lineage
@@ -3160,11 +3173,20 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.error("count_untagged_memories failed: %s", _sanitize_log_value(exc))
             return 0
 
-    async def delete_untagged_memories(self) -> Tuple[int, str]:
+    async def delete_untagged_memories(
+        self, expected_count: Optional[int] = None
+    ) -> Tuple[int, str]:
         """Delete every memory that has no tags.
 
         Deletion is hard here (see the module docstring), so unlike SQLite
         there is no tombstone to sync — the rows are removed outright.
+
+        ``expected_count`` is re-checked against the ids collected for this
+        delete, before the first ``delete`` call goes out, so a concurrent
+        write that strips the last tag off another memory cannot widen the
+        delete past the count the caller confirmed. There is no transaction
+        to hold it in here, but the window closes to the gap between the
+        collect and the first chunk.
         """
         if not self._ensure_initialized():
             return 0, "Milvus storage not initialized"
@@ -3173,6 +3195,7 @@ class MilvusMemoryStorage(MemoryStorage):
             _UNTAGGED_FILTER,
             "Successfully deleted {count} memories without tags",
             require_live=True,
+            expected_count=expected_count,
         )
 
     async def get_type_counts(self) -> Dict[str, int]:

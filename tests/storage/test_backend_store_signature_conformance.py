@@ -154,8 +154,8 @@ BASE_DEFAULT_ALLOWED = {
 
 # Milvus parity methods (issue #1201). These are not guaranteed on every
 # backend: older backends may intentionally inherit a base fallback, and the
-# web layer still has SQLite-only compatibility paths for untagged memories and
-# type counts. Milvus, however, is expected to implement all of them, and the
+# web layer still has a SQLite-only compatibility path for type counts (the
+# untagged one went to the storage layer in #1870). Milvus, however, is expected to implement all of them, and the
 # calls below mirror every shape used by web/api and the MCP handlers. Keeping
 # the call shapes here prevents a rebase from silently changing a keyword name
 # or dropping a parameter that production callers pass.

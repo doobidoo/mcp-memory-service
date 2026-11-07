@@ -286,8 +286,8 @@
                     <!-- Advanced Search Panel -->
                     <aside class="search-filters">
                         <div class="filters-header">
-                            <h3 data-i18n="search.filters.title">Search Filters
-                                <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search" data-i18n-aria="search.filters.tooltip">
+                            <h3><span data-i18n="search.filters.title">Search Filters</span>
+                                <span class="tooltip" title="Filters work together: combine tags, dates, and types to narrow your search" data-i18n-title="search.filters.tooltip" data-i18n-aria="search.filters.tooltip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </h3>
@@ -296,7 +296,7 @@
                                     <input type="checkbox" id="liveSearchToggle" checked>
                                     <span class="slider"></span>
                                 </label>
-                                <span class="tooltip" title="Toggle between live search (updates as you type) and manual search mode" data-i18n-aria="search.filters.modeTooltip">
+                                <span class="tooltip" title="Toggle between live search (updates as you type) and manual search mode" data-i18n-title="search.filters.modeTooltip" data-i18n-aria="search.filters.modeTooltip">
                                     <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="currentColor"/>
                                     </svg>
@@ -312,8 +312,8 @@
                         </div>
 
                         <div class="filter-section">
-                            <label for="tagFilter" data-i18n="search.filters.tags">Tags
-                                <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)" data-i18n-aria="search.filters.tagsTip">
+                            <label for="tagFilter"><span data-i18n="search.filters.tags">Tags</span>
+                                <span class="tooltip" title="Enter tags separated by commas (e.g., work, coding, important)" data-i18n-title="search.filters.tagsTip" data-i18n-aria="search.filters.tagsTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
@@ -322,8 +322,8 @@
                         </div>
 
                         <div class="filter-section">
-                            <label for="dateFilter" data-i18n="search.filters.date">Date Range
-                                <span class="tooltip" title="Filter memories by when they were created" data-i18n-aria="search.filters.dateTip">
+                            <label for="dateFilter"><span data-i18n="search.filters.date">Date Range</span>
+                                <span class="tooltip" title="Filter memories by when they were created" data-i18n-title="search.filters.dateTip" data-i18n-aria="search.filters.dateTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
@@ -340,8 +340,8 @@
                         </div>
 
                         <div class="filter-section">
-                            <label for="typeFilter" data-i18n="search.filters.type">Content Type
-                                <span class="tooltip" title="Filter by the type of content stored" data-i18n-aria="search.filters.typeTip">
+                            <label for="typeFilter"><span data-i18n="search.filters.type">Content Type</span>
+                                <span class="tooltip" title="Filter by the type of content stored" data-i18n-title="search.filters.typeTip" data-i18n-aria="search.filters.typeTip">
                                     <svg width="16" height="16" fill="currentColor"><use href="#info-icon"/></svg>
                                 </span>
                             </label>
@@ -413,8 +413,8 @@
                                     </svg>
                                     <h3 data-i18n="documents.dropTitle">Drag & drop files here</h3>
                                     <p data-i18n-html="documents.dropSubtitle">or <button id="fileSelectBtn" class="link-button">browse to select files</button></p>
-                                    <p class="supported-formats" data-i18n="documents.supported">Supported formats: PDF, TXT, MD, JSON</p>
-                                    <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md,.json" style="display: none;">
+                                    <p class="supported-formats" data-i18n="documents.supported">Supported formats: PDF, DOCX, PPTX, TXT, MD, JSON</p>
+                                    <input type="file" id="fileInput" multiple accept=".pdf,.docx,.pptx,.txt,.md,.json" style="display: none;">
                                 </div>
                             </div>
                         </div>
@@ -429,7 +429,7 @@
 
                              <!-- Processing Mode Toggle (shown when multiple files selected) -->
                              <div class="config-section" id="processingModeSection" style="display: none;">
-                             <label data-i18n="documents.processingMode">Processing Mode <span class="info-icon info-icon-processing" title="Click for processing mode explanation" data-i18n-aria="documents.processingTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span></label>
+                             <label><span data-i18n="documents.processingMode">Processing Mode</span> <span class="info-icon info-icon-processing" title="Click for processing mode explanation" data-i18n-title="documents.processingTip" data-i18n-aria="documents.processingTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span></label>
                                  <div class="processing-mode-toggle">
                                      <button type="button" id="batchModeBtn" class="mode-btn active" data-mode="batch" data-i18n="documents.modeBatch">
                                           <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
@@ -450,16 +450,16 @@
                              </div>
                             <div class="config-row">
                                 <div class="config-section">
-                                    <label for="chunkSize" data-i18n-html="documents.chunkSizeLabel">
-                                        Chunk Size: <span id="chunkSizeValue">1000</span> chars
-                                        <span class="info-icon" title="Click for chunking recommendations" data-i18n-aria="documents.chunkSizeTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
+                                    <label for="chunkSize">
+                                        <span data-i18n-html="documents.chunkSizeLabel">Chunk Size: <span id="chunkSizeValue">1000</span> chars</span>
+                                        <span class="info-icon info-icon-chunk" title="Click for chunking recommendations" data-i18n-title="documents.chunkSizeTip" data-i18n-aria="documents.chunkSizeTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
                                     </label>
                                     <input type="range" id="chunkSize" min="500" max="2000" value="1000" step="100" class="form-control">
                                 </div>
                                 <div class="config-section">
-                                    <label for="chunkOverlap" data-i18n-html="documents.chunkOverlapLabel">
-                                        Overlap: <span id="chunkOverlapValue">200</span> chars
-                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation" data-i18n-aria="documents.chunkOverlapTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
+                                    <label for="chunkOverlap">
+                                        <span data-i18n-html="documents.chunkOverlapLabel">Overlap: <span id="chunkOverlapValue">200</span> chars</span>
+                                        <span class="info-icon info-icon-overlap" title="Click for overlap explanation" data-i18n-title="documents.chunkOverlapTip" data-i18n-aria="documents.chunkOverlapTip"><svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
                                     </label>
                                     <input type="range" id="chunkOverlap" min="0" max="500" value="200" step="50" class="form-control">
                                 </div>
@@ -532,12 +532,12 @@
                                         <strong data-i18n="documents.overlapHelp.visual">Visual Example:</strong>
                                         <div class="overlap-diagram">
                                             <div class="chunk-demo">
-                                                <span class="chunk-part unique">Chunk 1 unique content...</span>
-                                                <span class="chunk-part overlap">shared overlap region</span>
+                                                <span class="chunk-part unique" data-i18n="documents.overlapHelp.chunk1">Chunk 1 unique content...</span>
+                                                <span class="chunk-part overlap" data-i18n="documents.overlapHelp.shared">shared overlap region</span>
                                             </div>
                                             <div class="chunk-demo">
-                                                <span class="chunk-part overlap">shared overlap region</span>
-                                                <span class="chunk-part unique">Chunk 2 unique content...</span>
+                                                <span class="chunk-part overlap" data-i18n="documents.overlapHelp.shared">shared overlap region</span>
+                                                <span class="chunk-part unique" data-i18n="documents.overlapHelp.chunk2">Chunk 2 unique content...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -586,7 +586,7 @@
                             <!-- Processing Mode Help Section (collapsible) -->
                              <div id="processingModeHelpSection" class="chunking-help processing-mode-help" style="display: none;">
                                  <div class="help-header">
-                                     <strong>Processing Mode Options</strong>
+                                     <strong data-i18n="documents.processingHelp.title">Processing Mode Options</strong>
                                      <button class="close-help" data-action="hideProcessingModeHelp">×</button>
                                  </div>
                              <div class="help-content">
@@ -674,7 +674,7 @@
                         </div>
                         <div id="docSearchResults" class="doc-search-results" style="display: none;">
                             <div class="search-results-header">
-                                <h3>Search Results</h3>
+                                <h3 data-i18n="search.results.title">Search Results</h3>
                                 <span id="docSearchCount" class="results-count" data-i18n="search.results.count" data-count="0">0 results</span>
                             </div>
                             <div id="docSearchResultsList" class="search-results-list">
@@ -1233,7 +1233,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3 id="modalTitle" data-i18n="modal.memoryDetails.title">Memory Details</h3>
-                    <button class="modal-close" aria-label="Close">
+                    <button class="modal-close" aria-label="Close" data-i18n-aria="modal.close">
                         <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                         </svg>
@@ -1285,7 +1285,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3 data-i18n="modal.addMemory.title">Add New Memory</h3>
-                    <button class="modal-close" aria-label="Close">
+                    <button class="modal-close" aria-label="Close" data-i18n-aria="modal.close">
                         <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                         </svg>
@@ -1324,7 +1324,7 @@
             <div class="modal-content settings-modal-large">
                 <div class="modal-header">
                     <h3 data-i18n="modal.settings.title">Settings</h3>
-                    <button class="modal-close" aria-label="Close">
+                    <button class="modal-close" aria-label="Close" data-i18n-aria="modal.close">
                         <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
                         </svg>
@@ -1604,7 +1604,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3 data-i18n="modal.backups.title">Backup History</h3>
-                    <button class="modal-close" aria-label="Close">&times;</button>
+                    <button class="modal-close" aria-label="Close" data-i18n-aria="modal.close">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div id="backupsSummary" class="backup-summary"></div>

@@ -178,3 +178,18 @@ async def test_fallback_only_for_semantic_hybrid_modes(mock_server, mock_storage
 
     # Only one call — fallback doesn't apply to exact mode
     assert mock_storage.search_memories.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requested, expected", [("projectA", "projectA"), ("all", None)])
+async def test_fallback_searches_the_requested_store(mock_server, mock_storage, requested, expected):
+    """Both fallbacks search the same partition as the main search (#1876)."""
+    mock_storage.search_memories.return_value = {"memories": [], "total": 0}
+
+    await handle_memory_search(mock_server, {
+        "query": "socrates session", "fallback": True, "store": requested,
+    })
+
+    calls = mock_storage.search_memories.call_args_list
+    assert len(calls) == 3  # semantic, exact fallback, tag fallback
+    assert [c.kwargs["store"] for c in calls] == [expected] * 3

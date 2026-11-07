@@ -26,14 +26,12 @@ from typing import List
 
 from mcp import types
 from ...config import CONSOLIDATION_ENABLED
+from ...models.ontology import coerce_memory_type
 
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 async def handle_consolidate_memories(
     server, arguments: dict
@@ -559,7 +557,9 @@ async def handle_memory_consolidate(server, arguments: dict) -> List[types.TextC
                 ]
 
             tags = arguments.get("tags", [])
-            memory_type = arguments.get("memory_type")
+            # Explicit type is a new write: coerce it. An inherited source type
+            # (below) is kept as stored.
+            memory_type = coerce_memory_type(arguments.get("memory_type"))
 
             # Verify all hashes exist and collect source data
             missing = []

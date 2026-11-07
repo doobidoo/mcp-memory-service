@@ -1418,6 +1418,20 @@ class HybridMemoryStorage(MemoryStorage):
         """Hybrid backend supports content chunking with metadata linking."""
         return True
 
+    async def count_untagged_memories(self) -> int:
+        """Count untagged memories in primary storage."""
+        return await self.primary.count_untagged_memories()
+
+    async def delete_untagged_memories(self, expected_count: Optional[int] = None) -> Tuple[int, str]:
+        """Delegate guarded deletion; primary storage records tombstones and sync events."""
+        return await self.primary.delete_untagged_memories(expected_count=expected_count)
+
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Get the embedding dimension from primary storage."""
+        if hasattr(self.primary, 'get_db_embedding_dimension'):
+            return await self.primary.get_db_embedding_dimension()
+        return None
+
     def __init__(self,
                  sqlite_db_path: str,
                  embedding_model: str = "all-MiniLM-L6-v2",
@@ -2385,9 +2399,22 @@ class HybridMemoryStorage(MemoryStorage):
         # Only cleanup primary, secondary will sync naturally
         return await self.primary.cleanup_duplicates()
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata in primary storage and queue for secondary sync."""
-        success, message = await self.primary.update_memory_metadata(content_hash, updates, preserve_timestamps)
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata in primary storage and queue for secondary sync.
+
+        ``store`` confines the update in the primary. The queued operation needs
+        no store: content_hash is unique across stores, so the secondary applies
+        an update that the primary has already authorized to the same row.
+        """
+        success, message = await self.primary.update_memory_metadata(
+            content_hash, updates, preserve_timestamps, store=store
+        )
 
         # Skip enqueuing if sync is paused (v8.47.1 - fix consolidation hang)
         # Operations will be synced when sync resumes

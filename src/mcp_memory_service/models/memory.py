@@ -63,19 +63,13 @@ class Memory:
             updated_at_iso=self.updated_at_iso
         )
 
-        # Validate memory_type using ontology
-        if self.memory_type is not None:
-            if not MemoryTypeOntology.validate_memory_type(self.memory_type):
-                logger.warning(
-                    "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
-                    _sanitize_log_value(self.memory_type),
-                    ', '.join(MemoryTypeOntology.get_all_types()[:5]),
-                )
-                self.memory_type = "observation"  # Default to base type
-            else:
-                # Store the canonical form so `Decision` and `decision` are one
-                # type on disk and type filters match either spelling (#176).
-                self.memory_type = canonicalize_memory_type(self.memory_type)
+        # Canonicalize known types so `Decision` and `decision` are one type on
+        # disk and type filters match either spelling (#176). Unknown types are
+        # kept as-is: this constructor also hydrates stored rows, and a node that
+        # lacks a custom type must not turn it into `observation` and write that
+        # back on the next update. New writes coerce via coerce_memory_type().
+        if self.memory_type is not None and MemoryTypeOntology.validate_memory_type(self.memory_type):
+            self.memory_type = canonicalize_memory_type(self.memory_type)
 
         # Default tag when no tags provided
         if not self.tags:

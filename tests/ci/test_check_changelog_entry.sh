@@ -23,8 +23,10 @@ report() {
 }
 
 # Builds a repo with one base commit, runs $1 as the change, then the gate.
+# MODE=staged stages the change without committing it and runs the gate with
+# --staged, the way scripts/pr/pre_pr_check.sh calls it.
 run_gate_case() {
-    local name="$1" expected="$2" change="$3"
+    local name="$1" expected="$2" change="$3" mode="${MODE:-commit}"
     local tmp
     tmp="$(mktemp -d)" || return 1
     (
@@ -42,8 +44,13 @@ run_gate_case() {
         git add -A && git commit -qm base
         git checkout -qb feature
         eval "$change"
-        git add -A && git commit -qm change
-        bash "$GATE" main >/dev/null 2>&1
+        git add -A
+        if [ "$mode" = staged ]; then
+            bash "$GATE" --staged main >/dev/null 2>&1
+        else
+            git commit -qm change
+            bash "$GATE" main >/dev/null 2>&1
+        fi
     )
     report "$name" "$expected" "$?"
     rm -rf "$tmp"
@@ -125,6 +132,32 @@ run_gate_case "modifying an existing fragment does not count" 1 \
      git merge -q --no-edit main
      echo "x = 2" > src/mcp_memory_service/thing.py
      echo "- edited entry" > changelog.d/9.fixed.md'
+
+# --staged: the pre-PR gate runs before the commit, so it must see the index.
+MODE=staged run_gate_case "staged: src change without a fragment fails" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py'
+
+MODE=staged run_gate_case "staged: src change with a staged fragment passes" 0 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "- **Something changed (#1).**" > changelog.d/1.fixed.md'
+
+MODE=staged run_gate_case "staged: fragment without a list item is rejected" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "just some prose" > changelog.d/1.fixed.md'
+
+# The index is what gets committed: an unstaged fix to the fragment does not count.
+MODE=staged run_gate_case "staged: the staged fragment is judged, not the working tree" 1 \
+    'echo "x = 2" > src/mcp_memory_service/thing.py
+     echo "just some prose" > changelog.d/1.fixed.md
+     git add -A
+     echo "- fixed only on disk" > changelog.d/1.fixed.md
+     git update-index --assume-unchanged changelog.d/1.fixed.md'
+
+# A fragment committed earlier on the branch still counts alongside staged src/.
+MODE=staged run_gate_case "staged: fragment committed earlier on the branch counts" 0 \
+    'echo "- **Earlier (#1).**" > changelog.d/1.fixed.md
+     git add -A && git commit -qm fragment
+     echo "x = 2" > src/mcp_memory_service/thing.py'
 
 # --- the collector ---------------------------------------------------------
 

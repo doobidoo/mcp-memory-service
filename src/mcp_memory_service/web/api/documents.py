@@ -37,6 +37,7 @@ from ..oauth.middleware import require_read_access, require_write_access, Authen
 
 from ...ingestion import get_loader_for_file, SUPPORTED_FORMATS
 from ...models.memory import Memory
+from ...models.ontology import coerce_memory_type
 from ...utils import _process_and_store_chunk, generate_content_hash
 from ..dependencies import get_storage
 
@@ -48,10 +49,7 @@ router = APIRouter()
 MAX_TAG_LENGTH = 100
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def parse_and_validate_tags(tags: str) -> List[str]:
     """
@@ -445,7 +443,7 @@ async def process_single_file_upload(
                     content=chunk.content,
                     content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
-                    memory_type=memory_type,
+                    memory_type=coerce_memory_type(memory_type),
                     metadata=chunk_metadata
                 )
 
@@ -599,10 +597,9 @@ async def process_batch_upload(
             # Note: send_progress_update removed - progress tracking via polling instead
 
 # Clean up old completed sessions periodically
-@router.on_event("startup")  # TODO: Migrate to lifespan context manager in app.py (FastAPI 0.109+)
-async def cleanup_old_sessions():
-    """Clean up old completed upload sessions."""
-    async def cleanup():
+async def cleanup_sessions_loop():
+    """Clean up old completed upload sessions periodically."""
+    try:
         while True:
             await asyncio.sleep(3600)  # Clean up every hour
             current_time = datetime.now()
@@ -617,8 +614,9 @@ async def cleanup_old_sessions():
             for upload_id in to_remove:
                 del upload_sessions[upload_id]
                 logger.debug("Cleaned up old upload session: %s", upload_id)
-
-    asyncio.create_task(cleanup())
+    except asyncio.CancelledError:
+        logger.debug("Document upload session cleanup task cancelled")
+        raise
 
 @router.delete("/remove/{upload_id}")
 async def remove_document(

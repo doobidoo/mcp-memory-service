@@ -34,6 +34,7 @@ from ..config import (
 )
 from ..storage.base import MemoryStorage, RecreateRefused, recreate_kwargs
 from ..models.memory import Memory
+from ..models.ontology import coerce_memory_type
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
@@ -45,14 +46,7 @@ from ..quality.async_scorer import async_scorer
 
 logger = logging.getLogger(__name__)
 
-def _sanitize_log_value(value: str) -> str:
-    """Strip control characters from user-provided values before logging.
-
-    Prevents log injection via newlines, carriage returns, or other
-    control characters embedded in user input (CWE-117).
-    """
-    return value.replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ..compat import _sanitize_log_value
 
 # Module-level constants for tag processing
 _MAX_JSON_LENGTH = 4096  # 4KB limit for tag JSON to prevent DoS
@@ -457,6 +451,10 @@ class MemoryService:
         """
         recreate = True if restore_deleted else False
         try:
+            # A new write is where an unknown type becomes `observation`; Memory()
+            # keeps whatever it is given so stored rows survive hydration.
+            memory_type = coerce_memory_type(memory_type)
+
             # Normalize tags from parameter (handles all formats)
             final_tags = normalize_tags(tags)
 

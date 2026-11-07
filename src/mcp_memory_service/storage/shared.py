@@ -75,10 +75,6 @@ def _embedding_cache_clear() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
 
 def _escape_like(value: str) -> str:
     """Escape Milvus ``like`` wildcards so a user-supplied value matches literally.

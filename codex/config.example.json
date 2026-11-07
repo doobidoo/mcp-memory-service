@@ -6,6 +6,7 @@
   "maxMemories": 8,
   "contextChars": 6000,
   "autoCapture": true,
+  "contextualCapture": false,
   "minCaptureLength": 300,
   "maxCaptureLength": 4000,
   "maxCapturesPerRun": 3,

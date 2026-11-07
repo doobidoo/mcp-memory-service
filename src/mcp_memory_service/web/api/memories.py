@@ -500,11 +500,18 @@ async def update_memory(
                 memory=memory_to_response(existing_memory)
             )
 
-        # Perform the update
+        # Perform the update, confined to the store in the storage layer too
+        # (#1875). Backends that cannot confine do not accept ``store`` yet.
+        scope = (
+            {"store": resolve_store(store)}
+            if getattr(storage, "get_by_hash_is_store_scoped", False)
+            else {}
+        )
         success, message = await storage.update_memory_metadata(
             content_hash=content_hash,
             updates=updates,
-            preserve_timestamps=True
+            preserve_timestamps=True,
+            **scope,
         )
 
         if success:

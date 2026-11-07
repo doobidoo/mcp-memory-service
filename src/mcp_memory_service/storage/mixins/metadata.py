@@ -14,6 +14,7 @@ except ImportError:
     pass
 
 from ...models.memory import Memory, MemoryQueryResult
+from ...models.ontology import coerce_memory_type
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
 from ..shared import _exclude_versioned_parent
@@ -21,6 +22,16 @@ from ..shared import _exclude_versioned_parent
 logger = logging.getLogger(__name__)
 
 CONFLICT_TAG = "conflict:unresolved"
+
+
+def _store_clause(store: Optional[str]) -> Tuple[str, Tuple[str, ...]]:
+    """SQL suffix confining a hash-addressed statement to one store (#1875).
+
+    ``None`` and ``"all"`` mean unscoped, the same as on the read paths.
+    """
+    if store is None or store == "all":
+        return "", ()
+    return " AND store = ?", (store,)
 
 # A memory's contradicts partners, read over edges in either direction: the graph
 # can hold a pair one-way (a later INSERT OR REPLACE of another relationship type
@@ -81,11 +92,23 @@ class MetadataMixin:
 
         await self._execute_with_retry(batch_update)
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata without recreating the entire memory entry."""
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata without recreating the entire memory entry.
+
+        With ``store`` set (other than ``"all"``), a memory in another store
+        is reported as not found and left untouched (#1875).
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized"
+
+            store_sql, store_params = _store_clause(store)
 
             def _read_current():
                 cursor = self.conn.execute(
@@ -93,8 +116,8 @@ class MetadataMixin:
                     SELECT content, tags, memory_type, metadata, created_at, created_at_iso,
                            updated_at, updated_at_iso
                     FROM memories WHERE content_hash = ? AND deleted_at IS NULL
-                """,
-                    (content_hash,),
+                """ + store_sql,
+                    (content_hash, *store_params),
                 )
                 return cursor.fetchone()
 
@@ -202,6 +225,7 @@ class MetadataMixin:
                     )
                     params.extend([new_superseded_by, now])
                 params.append(content_hash)
+                params.extend(store_params)
                 # SAVEPOINT so a failure (UPDATE or event append) rolls back atomically
                 # WITHIN this serialized operation — never with a bare rollback outside the
                 # lock, which could discard another worker's transaction (greptile P1).
@@ -210,7 +234,7 @@ class MetadataMixin:
                 try:
                     cur = self.conn.execute(
                         f"UPDATE memories SET {', '.join(set_clauses)} "
-                        "WHERE content_hash = ? AND deleted_at IS NULL",
+                        "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
                         tuple(params),
                     )
                     # Only emit an event if a live row was actually updated — if the memory
@@ -241,8 +265,12 @@ class MetadataMixin:
                     # does not linger pending and leak into a later write (greptile P1).
                     self.conn.rollback()
                     raise
+                return cur.rowcount
 
-            await self._execute_with_retry(_do_update)
+            # Zero rows means the memory was deleted, or left the store, between
+            # the read and the write: report not found, not success (#1875).
+            if not await self._execute_with_retry(_do_update):
+                return False, f"Memory with hash {content_hash} not found"
 
             updated_fields = []
             if "tags" in updates:
@@ -851,16 +879,24 @@ class MetadataMixin:
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
-        """Non-destructive versioned update using existing store/update infrastructure."""
+        """Non-destructive versioned update using existing store/update infrastructure.
+
+        With ``store`` set (other than ``"all"``), a memory in another store
+        is reported as not found and no new version is written (#1875).
+        """
         try:
             if not self.conn:
                 return False, "Database not initialized", None
 
+            store_sql, store_params = _store_clause(store)
+
             def _check_exists():
                 cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                    (content_hash,),
+                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories "
+                    "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
+                    (content_hash, *store_params),
                 )
                 return cursor.fetchone()
 
@@ -876,7 +912,9 @@ class MetadataMixin:
                 [t for t in old_tags_str.split(",") if t and t.strip() != CONFLICT_TAG]
                 if old_tags_str else []
             )
-            resolved_type = new_memory_type if new_memory_type is not None else old_type
+            # A caller-supplied type is a new write and gets coerced; an
+            # inherited one is kept as stored, even if this node lacks it.
+            resolved_type = coerce_memory_type(new_memory_type) if new_memory_type is not None else old_type
 
             # The new version inherits the old row's custom metadata, so keys a
             # client stored (source, agent fields, ...) survive a versioned
@@ -928,8 +966,9 @@ class MetadataMixin:
                     # row still being current (superseded_by IS NULL) so concurrent
                     # versioned updates of the same memory don't fork history silently.
                     mcur = self.conn.execute(
-                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-                        (old_hash,),
+                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
+                        + store_sql,
+                        (old_hash, *store_params),
                     )
                     mrow = mcur.fetchone()
                     old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
@@ -941,12 +980,15 @@ class MetadataMixin:
                         # update_memory_versioned this is exact: the new row is
                         # written in the same call, so now == its created_at.
                         "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
-                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL",
-                        (new_hash, time.time(), json.dumps(old_meta), old_hash),
+                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
+                        + store_sql,
+                        (new_hash, time.time(), json.dumps(old_meta), old_hash, *store_params),
                     )
                     if cur.rowcount == 0:
-                        # Another versioned update already superseded this row (or it
-                        # vanished). Abort rather than fork the chain.
+                        # Another versioned update already superseded this row, it
+                        # vanished, or sync moved it to another store while store()
+                        # ran (#1875). Abort rather than fork the chain or reach
+                        # across stores; the caller removes the new row.
                         raise RuntimeError(
                             f"old version {old_hash[:8]} is no longer current (concurrent update)"
                         )

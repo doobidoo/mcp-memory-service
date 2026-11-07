@@ -22,6 +22,16 @@ from enum import Enum
 from typing import Dict, List, Optional, Final
 
 
+try:
+    from ..compat import _sanitize_log_value
+except (ImportError, ValueError):
+    try:
+        from mcp_memory_service.compat import _sanitize_log_value
+    except ImportError:
+        def _sanitize_log_value(value: object) -> str:
+            """Sanitize a user-provided value for safe inclusion in log messages."""
+            return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
 # Module-level caches for performance optimization
 _ALL_TYPES_CACHE: Optional[List[str]] = None
 _PARENT_TYPE_MAP_CACHE: Optional[Dict[str, str]] = None
@@ -256,14 +266,6 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Type names come from an environment variable and end up in log lines, so
-    # they are sanitized before logging. The fallback mirrors compat's stripping
-    # for the standalone module load used by tests/test_ontology.py.
-    try:
-        from mcp_memory_service.compat import _sanitize_log_value
-    except ImportError:
-        def _sanitize_log_value(value):
-            return re.sub(r'[\r\n\x1b]', '', str(value))
 
     custom_types_json = os.getenv('MCP_CUSTOM_MEMORY_TYPES')
     if not custom_types_json:
@@ -346,8 +348,9 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Start with built-in taxonomy
-    merged = dict(TAXONOMY)
+    # Start with built-in taxonomy. Copy the subtype lists too: extending them in
+    # place below would otherwise write custom subtypes into TAXONOMY itself.
+    merged = {base: list(subtypes) for base, subtypes in TAXONOMY.items()}
 
     # Load and merge custom types
     custom_types = _load_custom_types_from_config()
@@ -416,6 +419,29 @@ def validate_memory_type(memory_type: str) -> bool:
     # (issue #176) — the taxonomy itself is stored canonicalized.
     all_types = get_all_types()
     return canonicalize_memory_type(memory_type) in all_types
+
+
+def coerce_memory_type(memory_type: Optional[str]) -> Optional[str]:
+    """Return the canonical type for a new write, or ``observation`` if unknown.
+
+    Call this where a caller-supplied type enters a NEW memory (store paths).
+    ``Memory`` itself no longer coerces: hydrating a stored row on a node that
+    lacks a custom type must keep the type, or the next update writes
+    ``observation`` back over it.
+    """
+    if memory_type is None:
+        return None
+    if validate_memory_type(memory_type):
+        return canonicalize_memory_type(memory_type)
+    # Inline replace() barriers: CodeQL does not follow the try-import/fallback
+    # sanitizer used elsewhere in this module (alert 641).
+    safe_type = str(memory_type).replace('\r', '').replace('\n', '').replace('\x1b', '')
+    logging.getLogger(__name__).warning(
+        "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
+        safe_type,
+        ', '.join(get_all_types()[:5]),
+    )
+    return "observation"
 
 
 def get_parent_type(subtype: str) -> Optional[str]:
@@ -588,49 +614,13 @@ class MemoryTypeOntology:
     Memory Type Ontology - Formal type system for knowledge graph classification.
 
     Provides controlled vocabulary, validation, and type hierarchy management
-    for semantic memory classification. All methods are class methods for
-    stateless, pure functional access to the ontology.
-
-    Usage:
-        # Validate memory type
-        is_valid = MemoryTypeOntology.validate_memory_type("observation")  # → True
-
-        # Get parent type
-        parent = MemoryTypeOntology.get_parent_type("code_edit")  # → "observation"
-
-        # Get all types
-        all_types = MemoryTypeOntology.get_all_types()
-
-        # Validate relationship
-        is_valid = MemoryTypeOntology.validate_relationship("causes")  # → True
+    for semantic memory classification. Binds directly to the module-level ontology
+    functions for zero-overhead, backwards-compatible functional access.
     """
 
-    @classmethod
-    def validate_memory_type(cls, memory_type: str) -> bool:
-        """Validate if memory type exists in ontology."""
-        return validate_memory_type(memory_type)
-
-    @classmethod
-    def get_parent_type(cls, subtype: str) -> Optional[str]:
-        """Get parent base type for a subtype."""
-        return get_parent_type(subtype)
-
-    @classmethod
-    def get_all_types(cls) -> List[str]:
-        """Get flattened list of all types."""
-        return get_all_types()
-
-    @classmethod
-    def get_base_types(cls) -> set:
-        """Get set of all base (top-level) memory types."""
-        return get_base_types()
-
-    @classmethod
-    def validate_relationship(cls, rel_type: str) -> bool:
-        """Validate if relationship type is valid."""
-        return validate_relationship(rel_type)
-
-    @classmethod
-    def is_symmetric_relationship(cls, rel_type: str) -> bool:
-        """Check if relationship type is symmetric (bidirectional)."""
-        return is_symmetric_relationship(rel_type)
+    validate_memory_type = staticmethod(validate_memory_type)
+    get_parent_type = staticmethod(get_parent_type)
+    get_all_types = staticmethod(get_all_types)
+    get_base_types = staticmethod(get_base_types)
+    validate_relationship = staticmethod(validate_relationship)
+    is_symmetric_relationship = staticmethod(is_symmetric_relationship)

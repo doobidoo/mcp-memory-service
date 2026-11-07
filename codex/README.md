@@ -65,6 +65,7 @@ Edit the installed `memory-service/config.json`; see
   "apiKey": "",
   "projectName": "my-project",
   "autoCapture": true,
+  "contextualCapture": false,
   "sessionSummary": true
 }
 ```
@@ -104,6 +105,10 @@ when both exist, only the response messages are used.
 
 - **`#skip`** in a user message excludes that turn, including the assistant's reply.
 - **`#remember`** forces capture of that user message even below the length threshold.
+- `contextualCapture: true` opts in to pairing a short user reply with the immediately
+  preceding assistant final response when their combined text matches a capture pattern.
+  The stored content includes the session ID, both turn indices, and available timestamps.
+  This makes one bounded capture without an LLM call; the setting is off by default.
 - `autoCapture: false` disables individual captures.
 - `sessionSummary: false` disables incremental summaries. Disable both for retrieval only.
 

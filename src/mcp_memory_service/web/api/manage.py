@@ -19,14 +19,13 @@ Provides memory maintenance, bulk operations, and system management tools.
 """
 
 import logging
-import time
 from typing import List, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
-from ...storage.base import MemoryStorage
+from ...storage.base import MemoryStorage, UntaggedCountChanged
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage
 
@@ -37,44 +36,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
-
-# Untagged memories have no first-class storage API on the SQLite backends, so
-# these endpoints reach into the connection directly. Backends that expose
-# count_untagged_memories()/delete_untagged_memories() (Milvus) are preferred
-# and never touch this path.
-_UNTAGGED_PREDICATE = (
-    "(tags IS NULL OR tags = '' OR length(trim(tags)) = 0) AND deleted_at IS NULL"
-)
-
-
-def _sqlite_conn(storage: MemoryStorage):
-    """Return the underlying SQLite connection, or None for other backends."""
-    if hasattr(storage, 'conn'):
-        return storage.conn
-    if hasattr(storage, 'primary') and hasattr(storage.primary, 'conn'):
-        return storage.primary.conn
-    return None
-
-
-def _count_untagged_sql(conn) -> int:
-    """Count untagged, non-tombstoned memories via raw SQL."""
-    cursor = conn.execute(f"SELECT COUNT(*) FROM memories WHERE {_UNTAGGED_PREDICATE}")
-    return cursor.fetchone()[0]
-
-
-def _soft_delete_untagged_sql(conn) -> int:
-    """Tombstone untagged memories via raw SQL; returns the affected row count."""
-    cursor = conn.execute(
-        f"UPDATE memories SET deleted_at = ? WHERE {_UNTAGGED_PREDICATE}",
-        (time.time(),),
-    )
-    conn.commit()
-    return cursor.rowcount
-
+from ...compat import _sanitize_log_value
 
 # Request/Response Models
 class BulkDeleteRequest(BaseModel):
@@ -256,14 +218,10 @@ async def count_untagged_memories(
     Returns the number of memories that have no tags assigned.
     """
     try:
-        if hasattr(storage, 'count_untagged_memories'):
+        try:
             count = await storage.count_untagged_memories()
-        else:
-            # Fallback: use raw SQL for SQLite-based backends (exclude soft-deleted)
-            conn = _sqlite_conn(storage)
-            if conn is None:
-                raise HTTPException(status_code=501, detail="Untagged count not supported by storage backend")
-            count = _count_untagged_sql(conn)
+        except NotImplementedError:
+            raise HTTPException(status_code=501, detail="Untagged count not supported by storage backend")
 
         return {"count": count}
 
@@ -299,17 +257,16 @@ async def delete_untagged_memories(
     try:
         # CRITICAL: confirm_count is now REQUIRED (fixed in v9.0.1)
         # Previous bug: confirm_count was optional, allowing accidental mass deletion
-        conn = _sqlite_conn(storage)
-        native = hasattr(storage, 'delete_untagged_memories')
-        if conn is None and not native:
+        try:
+            actual_count = await storage.count_untagged_memories()
+        except NotImplementedError:
             raise HTTPException(status_code=501, detail="Delete untagged not supported by storage backend")
 
-        actual_count = (
-            await storage.count_untagged_memories() if native
-            else _count_untagged_sql(conn)
-        )
-
-        # CRITICAL Safety check - confirm_count MUST match actual_count
+        # CRITICAL Safety check - confirm_count MUST match actual_count.
+        # This answers a wrong count without touching the store; it is not the
+        # guarantee, because another request can change the set between this
+        # await and the delete. confirm_count is passed down and re-checked
+        # where the rows are selected, which is what holds the delete to it.
         if confirm_count != actual_count:
             raise HTTPException(
                 status_code=400,
@@ -325,15 +282,11 @@ async def delete_untagged_memories(
                 operation="delete_untagged"
             )
 
-        if native:
-            # Backends without tombstones (e.g. Milvus) delete outright.
-            deleted_count, message = await storage.delete_untagged_memories()
-        else:
-            deleted_count = _soft_delete_untagged_sql(conn)
-            message = (
-                f"Successfully soft-deleted {deleted_count} memories without tags "
-                f"(tombstones created for multi-PC sync)"
-            )
+        # The backend decides how: SQLite tombstones and syncs the delete,
+        # Milvus has no tombstones and removes the rows outright.
+        deleted_count, message = await storage.delete_untagged_memories(
+            expected_count=confirm_count
+        )
         logger.info("Deleted %d untagged memories", deleted_count)
 
         return BulkOperationResponse(
@@ -345,6 +298,14 @@ async def delete_untagged_memories(
 
     except HTTPException:
         raise
+    except UntaggedCountChanged as e:
+        # The set moved under the confirmation; nothing was deleted. Same 400 as
+        # a stale confirm_count, because that is what it is from here.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmation count mismatch. Expected {e.actual}, got {e.expected}. "
+                   f"Use GET /api/manage/count-untagged to get the current count."
+        )
     except Exception as e:
         logger.error("Delete untagged failed: %s", _sanitize_log_value(e))
         raise HTTPException(status_code=500, detail=f"Delete untagged failed: {str(e)}")

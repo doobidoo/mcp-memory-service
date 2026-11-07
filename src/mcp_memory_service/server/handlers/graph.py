@@ -34,10 +34,7 @@ from ...config import SQLITE_VEC_PATH, STORAGE_BACKEND
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 async def get_graph_storage() -> Optional[GraphStorage]:
     """
@@ -667,7 +664,7 @@ async def _retrieve_candidates(storage, query: str, n_results: int, tags, store)
     this composes the moment multi-store scoping reaches the retrieve path
     (#62) without breaking on backends that do not yet support it.
     """
-    import inspect
+    import inspect  # inline import: keep optional dependencies lazy
 
     kwargs = {"n_results": n_results, "tags": tags}
     try:
