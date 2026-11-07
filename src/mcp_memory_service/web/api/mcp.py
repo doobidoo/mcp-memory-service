@@ -17,6 +17,12 @@ from pydantic import BaseModel, ConfigDict
 
 from ..._version import __version__
 from ...compat import _sanitize_log_value
+from ...utils.agent_context import (
+    reset_current_agent_id,
+    reset_current_agent_read_filter,
+    set_current_agent_id,
+    set_current_agent_read_filter,
+)
 from ...utils.tool_rate_limit import resolve_caller_identity
 from ..oauth.middleware import require_read_access, get_current_user, AuthenticationResult
 
@@ -284,20 +290,15 @@ async def mcp_endpoint(
             if refusal is not None:
                 return refusal
 
-            # Resolve the rate-limit identity from the transport BEFORE the
-            # arguments rewrite below: the shim copies X-Agent-ID into
-            # arguments["agent_id"] when the call has none, and the limiter
-            # must never read tool arguments (#1096).
+            # The rate limiter reads transport identity, never tool arguments.
             caller_identity = resolve_caller_identity(
                 http_request.headers.get("X-Agent-ID"),
                 http_request.client.host if http_request.client else None,
             )
-
-            # Inject X-Agent-ID header if agent_id argument not explicitly provided
-            if not arguments.get("agent_id"):
-                header_agent_id = http_request.headers.get("X-Agent-ID")
-                if header_agent_id:
-                    arguments["agent_id"] = header_agent_id.strip()
+            header_agent_id = http_request.headers.get("X-Agent-ID")
+            agent_id = header_agent_id.strip() if header_agent_id else None
+            agent_context_token = set_current_agent_id(agent_id)
+            read_filter_token = set_current_agent_read_filter(agent_id)
 
             # This path bypasses the SDK wrapper, so a tool exception would surface
             # as JSON-RPC -32603 (a request error) instead of the tool result with
@@ -318,6 +319,9 @@ async def mcp_endpoint(
                     result=_wrap_tool_result(text_contents, is_error=True),
                 )
                 return JSONResponse(content=response.model_dump(exclude_none=True))
+            finally:
+                reset_current_agent_read_filter(read_filter_token)
+                reset_current_agent_id(agent_context_token)
 
             response = MCPResponse(
                 id=request.id,

@@ -196,6 +196,12 @@ USE THIS WHEN:
 - Need semantic, exact, or time-based search
 - User references "last time we discussed", "you should know"
 
+HASH LOOKUP:
+- Provide content_hash instead of query to retrieve one memory by its exact identifier
+- Hash misses return no results; they do not fall back to semantic search
+- query and content_hash are mutually exclusive; store scoping applies to both
+- Only store, entity, limit, max_response_chars, and include_beliefs may accompany content_hash
+
 MODES:
 - semantic (default): Finds conceptually similar content even if exact words differ
 - exact: Finds memories containing the exact query string
@@ -225,6 +231,7 @@ SUMMARIZATION (opt-in):
 
 Examples:
 {"query": "python async patterns"}
+{"content_hash": "aa6caea3d060e736c8b412e6b34a1354148ec04527a4bf547cfd4185140573d0"}
 {"query": "API endpoint", "mode": "exact"}
 {"time_expr": "last week", "limit": 20}
 {"query": "database config", "time_expr": "yesterday"}
@@ -237,7 +244,12 @@ Examples:
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search query (required for semantic/exact modes, optional for time-only searches)",
+                    "description": "Text search query (required for semantic/exact modes unless content_hash is supplied, optional for time-only searches)",
+                },
+                "content_hash": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Retrieve one memory by its exact content hash instead of searching text. Only store, entity, limit, max_response_chars, and include_beliefs may accompany content_hash; query and other search arguments are rejected.",
                 },
                 "mode": {
                     "type": "string",
