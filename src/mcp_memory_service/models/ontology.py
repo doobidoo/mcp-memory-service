@@ -1,3 +1,13 @@
+try:
+    from ..compat import _sanitize_log_value
+except (ImportError, ValueError):
+    try:
+        from mcp_memory_service.compat import _sanitize_log_value
+    except ImportError:
+        def _sanitize_log_value(value: object) -> str:
+            """Sanitize a user-provided value for safe inclusion in log messages."""
+            return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+
 """
 Formal Memory Type Ontology for Knowledge Graph
 
@@ -256,14 +266,6 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Type names come from an environment variable and end up in log lines, so
-    # they are sanitized before logging. The fallback mirrors compat's stripping
-    # for the standalone module load used by tests/test_ontology.py.
-    try:
-        from mcp_memory_service.compat import _sanitize_log_value
-    except ImportError:
-        def _sanitize_log_value(value):
-            return re.sub(r'[\r\n\x1b]', '', str(value))
 
     custom_types_json = os.getenv('MCP_CUSTOM_MEMORY_TYPES')
     if not custom_types_json:

@@ -60,10 +60,7 @@ def _embedding_cache_clear() -> int:
 # ---------------------------------------------------------------------------
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ..compat import _sanitize_log_value
 
 def _escape_like(value: str) -> str:
     """Strip Milvus ``like`` wildcard characters from a user-supplied tag.
