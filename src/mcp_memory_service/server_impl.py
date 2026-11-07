@@ -84,7 +84,11 @@ except (ImportError, AttributeError):
 # Package imports
 from .dependency_check import get_recommended_timeout
 from .utils.hashing import generate_content_hash
-from .utils.agent_context import log_agent_id_resolution, resolve_agent_id
+from .utils.agent_context import (
+    get_current_agent_id,
+    log_agent_id_resolution,
+    resolve_agent_id,
+)
 from .utils.tool_rate_limit import ToolRateLimiter, resolve_caller_identity
 from .config import (
     BACKUPS_PATH,
@@ -2413,7 +2417,7 @@ class MemoryServer:
         await self._ensure_storage_initialized()
 
         session_id = arguments.get("session_id")
-        agent_id = arguments.get("agent_id")
+        agent_id = arguments.get("agent_id") or get_current_agent_id()
         task_summary = arguments.get("task_summary")
         outcome = arguments.get("outcome")
 

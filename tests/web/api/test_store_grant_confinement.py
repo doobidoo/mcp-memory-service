@@ -96,11 +96,11 @@ def _ignore_store_like_cloudflare(storage, monkeypatch):
     monkeypatch.setattr(storage, "get_by_hash_is_store_scoped", False)
 
 
-def _call(client, name, arguments):
+def _call(client, name, arguments, headers=None):
     return client.post("/mcp", json={
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
-    })
+    }, headers=headers or {})
 
 
 def _refused(response):
@@ -119,6 +119,48 @@ def test_store_grant_cannot_reach_a_tool_that_ignores_store(make_client, other_s
         "action": "rate", "content_hash": other_store_hash, "rating": "-1", "store": "projectA",
     })
     assert _refused(response)
+
+
+@pytest_asyncio.fixture
+async def memories_by_agent(storage):
+    for agent_id in ("transport-agent", "other-agent"):
+        text = f"author filter probe {agent_id}"
+        memory = Memory(
+            content=text,
+            content_hash=generate_content_hash(text),
+            metadata={"agent_id": agent_id},
+        )
+        ok, _ = await storage.store(memory)
+        assert ok
+
+
+@pytest.mark.integration
+def test_agent_header_still_filters_text_search_and_list(make_client, memories_by_agent):
+    client = make_client("read")
+    headers = {"X-Agent-ID": "transport-agent"}
+
+    search = _call(client, "memory_search", {
+        "query": "author filter probe", "mode": "exact",
+    }, headers=headers)
+    search_text = "".join(
+        c.get("text", "") for c in search.json()["result"]["content"]
+    )
+    assert "author filter probe transport-agent" in search_text
+    assert "author filter probe other-agent" not in search_text
+
+    listed = _call(client, "memory_list", {"page_size": 50}, headers=headers)
+    list_text = listed.json()["result"]["content"][0]["text"]
+    assert "author filter probe transport-agent" in list_text
+    assert "author filter probe other-agent" not in list_text
+
+    unfiltered = _call(client, "memory_search", {
+        "query": "author filter probe", "mode": "exact",
+    })
+    unfiltered_text = "".join(
+        c.get("text", "") for c in unfiltered.json()["result"]["content"]
+    )
+    assert "author filter probe transport-agent" in unfiltered_text
+    assert "author filter probe other-agent" in unfiltered_text
 
 
 @pytest_asyncio.fixture

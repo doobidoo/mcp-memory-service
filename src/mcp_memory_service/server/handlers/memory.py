@@ -36,6 +36,7 @@ from typing import Callable, List, Optional
 from mcp import types
 
 from ...config import INCLUDE_HOSTNAME
+from ...utils.agent_context import get_current_agent_read_filter
 
 # Import response limiter for truncation support
 from ..utils.response_limiter import format_truncated_response, truncate_memories
@@ -820,7 +821,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             tags = normalize_tags(tags)
 
         # Call memory service list_memories
-        agent_id = arguments.get("agent_id")
+        agent_id = arguments.get("agent_id") or get_current_agent_read_filter()
         result = await server.memory_service.list_memories(
             page=page,
             page_size=page_size,
@@ -1232,6 +1233,8 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         store = None
 
     query = arguments.get("query")
+    agent_id = arguments.get("agent_id") or get_current_agent_read_filter()
+
     # Rerank stage (issue #1602): with `rerank=true` on an enabled setup the
     # candidate pool inflates to MCP_RERANK_CANDIDATES (default 40) so the
     # cross-encoder has something to order; otherwise the fetch is
@@ -1253,7 +1256,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         include_superseded=arguments.get("include_superseded", False),
         ranking_weights=arguments.get("ranking_weights"),
         store=store,
-        agent_id=arguments.get("agent_id"),
+        agent_id=agent_id,
         as_of=arguments.get("as_of"),
     )
     if "error" in result:
