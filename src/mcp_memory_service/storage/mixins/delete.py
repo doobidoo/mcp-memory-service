@@ -400,3 +400,70 @@ class DeleteMixin:
             error_msg = f"Failed to cleanup duplicates: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
             return 0, error_msg
+
+    async def count_untagged_memories(self) -> int:
+        """Count memories with no tags (NULL, empty string, or whitespace only) excluding soft-deleted."""
+        try:
+            if not self.conn:
+                return 0
+
+            def _count():
+                cursor = self.conn.execute(
+                    "SELECT COUNT(*) FROM memories WHERE (tags IS NULL OR tags = '' OR length(trim(tags)) = 0) AND deleted_at IS NULL"
+                )
+                return cursor.fetchone()[0]
+
+            return await self._execute_with_retry(_count)
+        except Exception as e:
+            logger.error("Failed to count untagged memories: %s", _sanitize_log_value(e))
+            return 0
+
+    async def delete_untagged_memories(self) -> Tuple[int, str]:
+        """Soft-delete memories with no tags, recording tombstones and sync events."""
+        try:
+            if not self.conn:
+                return 0, "Database not initialized"
+
+            predicate = "(tags IS NULL OR tags = '' OR length(trim(tags)) = 0) AND deleted_at IS NULL"
+            deleted_at = time.time()
+
+            def _delete():
+                rows = self.conn.execute(f"SELECT id, content_hash FROM memories WHERE {predicate}").fetchall()
+                ids = [r[0] for r in rows]
+                hashes = [r[1] for r in rows]
+
+                for memory_id in ids:
+                    try:
+                        self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
+                    except Exception as vec_err:
+                        logger.warning(
+                            "Could not delete embedding rowid=%s (corrupted blob?): %s — proceeding with soft-delete.",
+                            memory_id, _sanitize_log_value(vec_err),
+                        )
+
+                for ch in hashes:
+                    self.conn.execute(
+                        'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                        (ch, ch)
+                    )
+
+                cursor = self.conn.execute(
+                    f"UPDATE memories SET deleted_at = ? WHERE {predicate}",
+                    (deleted_at,)
+                )
+
+                if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
+                    for ch in hashes:
+                        self._append_sync_event(self.conn, 'delete', ch, {'content_hash': ch, 'deleted_at': deleted_at})
+
+                self.conn.commit()
+                return cursor.rowcount
+
+            count = await self._execute_with_retry(_delete)
+            logger.info("Deleted %d untagged memories", count)
+            return count, f"Successfully soft-deleted {count} memories without tags (tombstones created for multi-PC sync)"
+
+        except Exception as e:
+            error_msg = f"Failed to delete untagged memories: {str(e)}"
+            logger.error("%s", _sanitize_log_value(error_msg))
+            return 0, error_msg
