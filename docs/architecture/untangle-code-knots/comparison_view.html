@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  body {
+    width: 1600px;
+    height: 900px;
+    background: #090d16;
+    color: #f1f5f9;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .title-bar {
+    height: 64px;
+    background: #0f172a;
+    border-bottom: 2px solid #1e293b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+  }
+  .title-text {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .title-badge {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #38bdf8;
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-family: monospace;
+  }
+  .summary-stat {
+    font-size: 14px;
+    color: #94a3b8;
+  }
+  .panels-container {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    position: relative;
+  }
+  .divider-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #334155;
+    z-index: 10;
+  }
+  .divider-badge {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    background: #1e293b;
+    border: 2px solid #475569;
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 20px;
+    z-index: 11;
+    letter-spacing: 0.05em;
+  }
+
+  /* Panel Styles */
+  .panel {
+    padding: 24px 32px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .panel-left {
+    background: radial-gradient(circle at 10% 20%, rgba(239, 68, 68, 0.05) 0%, rgba(15, 23, 42, 0.95) 70%);
+    border-right: 1px solid #1e293b;
+  }
+  .panel-right {
+    background: radial-gradient(circle at 90% 20%, rgba(16, 185, 129, 0.05) 0%, rgba(15, 23, 42, 0.95) 70%);
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #1e293b;
+  }
+  .header-tag {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 6px 14px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tag-before {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    color: #fca5a5;
+  }
+  .tag-after {
+    background: rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.5);
+    color: #6ee7b7;
+  }
+
+  .diagram-box {
+    flex: 1;
+    background: #0b1120;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .diagram-box.border-danger {
+    border-color: rgba(239, 68, 68, 0.4);
+    box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.05);
+  }
+  .diagram-box.border-success {
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: inset 0 0 20px rgba(16, 185, 129, 0.05);
+  }
+
+  .layer-card {
+    background: #131d31;
+    border: 1px solid #23314d;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+  }
+  .layer-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .card-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .item-chip {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: monospace;
+  }
+
+  .knot-item {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: #ef4444;
+    color: #fca5a5;
+    font-weight: 600;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.3);
+  }
+  .clean-item {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: #10b981;
+    color: #6ee7b7;
+    font-weight: 600;
+  }
+
+  .knot-annotation {
+    font-size: 11px;
+    color: #f87171;
+    line-height: 1.35;
+    background: rgba(239, 68, 68, 0.08);
+    border-left: 2px solid #ef4444;
+    padding: 4px 8px;
+    border-radius: 0 4px 4px 0;
+    margin-top: 2px;
+  }
+  .clean-annotation {
+    font-size: 11px;
+    color: #34d399;
+    line-height: 1.35;
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 2px solid #10b981;
+    padding: 4px 8px;
+    border-radius: 0 4px 4px 0;
+    margin-top: 2px;
+  }
+
+  .metrics-footer {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .metric-card {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+  }
+  .metric-val {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 2px;
+  }
+  .metric-label {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+</style>
+</head>
+<body>
+
+<div class="title-bar">
+  <div class="title-text">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1"/><path d="M18 8h4a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-4"/><polyline points="10 10 14 14 10 18"/></svg>
+    mcp-memory-service Architecture Untangling Comparison
+  </div>
+  <div class="title-badge">Branch: refactor/untangle-code-knots</div>
+  <div class="summary-stat">Five refactoring areas · Historical before / proposed after</div>
+</div>
+
+<div class="panels-container">
+  <div class="divider-line"></div>
+  <div class="divider-badge">VS</div>
+
+  <!-- BEFORE PANEL -->
+  <div class="panel panel-left">
+    <div class="panel-header">
+      <div class="header-tag tag-before">
+        <span>🔴 BEFORE: Knotted Code & Leaky Abstractions</span>
+      </div>
+      <span style="font-size:12px; color:#f87171; font-weight:600;">5 Critical Smells Present</span>
+    </div>
+
+    <div class="diagram-box border-danger">
+      <!-- Web Layer -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Web & REST API Layer</span>
+          <span style="color:#ef4444; font-size:11px;">Knot #1 & Knot #4</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip knot-item">🔴 Knot #1: _sqlite_conn(storage)</div>
+          <div class="item-chip knot-item">🔴 Knot #4: @router.on_event("startup")</div>
+          <div class="item-chip">app.py</div>
+          <div class="item-chip">manage.py</div>
+        </div>
+        <div class="knot-annotation">
+          • <strong>Knot 1:</strong> Web API reaches inside storage to run raw SQL (<code>_UNTAGGED_PREDICATE</code>), bypassing storage engine.<br>
+          • <strong>Knot 4:</strong> Deprecated unmanaged infinite loop in <code>documents.py</code> with forgotten TODO workaround.
+        </div>
+      </div>
+
+      <!-- Models & Core -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Models, CLI & Log Layer</span>
+          <span style="color:#ef4444; font-size:11px;">Knot #2, #3, #5</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip knot-item">🔴 Knot #2: 24x Copy-Pasted _sanitize_log_value</div>
+          <div class="item-chip knot-item">🔴 Knot #3: MemoryTypeOntology / TagTaxonomy wrappers</div>
+          <div class="item-chip knot-item">🔴 Knot #5: cli/main.py -> storage._run_in_thread</div>
+        </div>
+        <div class="knot-annotation">
+          • <strong>Knot 2:</strong> <code>_sanitize_log_value</code> copy-pasted in 24 files with drifted behavior (<code>re.sub</code> vs <code>replace</code>).<br>
+          • <strong>Knot 3:</strong> 10 empty classmethod wrappers in <code>ontology.py</code> & <code>tag_taxonomy.py</code> adding call overhead.<br>
+          • <strong>Knot 5:</strong> CLI reflection on private storage methods (<code>_get_existing_db_embedding_dimension</code>).
+        </div>
+      </div>
+
+      <!-- Storage Layer -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Storage Engine Layer (sqlite-vec / milvus)</span>
+          <span style="color:#ef4444; font-size:11px;">Incomplete Interface</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip">MemoryStorage (base.py)</div>
+          <div class="item-chip">mixins/delete.py</div>
+          <div class="item-chip">mixins/retrieve.py</div>
+        </div>
+        <div class="knot-annotation">
+          • Missing <code>count_untagged_memories</code> / <code>delete_untagged_memories</code> on SQLite engine, forcing upstream callers to leak SQL.
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics-footer">
+      <div class="metric-card">
+        <div class="metric-val" style="color:#ef4444;">5</div>
+        <div class="metric-label">Critical Knots</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" style="color:#ef4444;">24</div>
+        <div class="metric-label">Drifted Duplicates</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" style="color:#ef4444;">10</div>
+        <div class="metric-label">Empty Wrapper Delegates</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AFTER PANEL -->
+  <div class="panel panel-right">
+    <div class="panel-header">
+      <div class="header-tag tag-after">
+        <span>🟢 AFTER: Untangled Clean Layered Architecture</span>
+      </div>
+      <span style="font-size:12px; color:#34d399; font-weight:600;">See PR checks for validation</span>
+    </div>
+
+    <div class="diagram-box border-success">
+      <!-- Web Layer -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Web & REST API Layer</span>
+          <span style="color:#10b981; font-size:11px;">Clean Contracts</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip clean-item">✓ await storage.delete_untagged_memories()</div>
+          <div class="item-chip clean-item">✓ app.py lifespan managed cleanup task</div>
+          <div class="item-chip">Zero Raw SQL</div>
+        </div>
+        <div class="clean-annotation">
+          • <strong>Untangled 1:</strong> Web API router speaks strictly to <code>MemoryStorage</code> interface. Preserves upstream guarded deletion and sync events.<br>
+          • <strong>Untangled 4:</strong> Document upload sessions cleanly managed in <code>web/app.py</code> lifespan with graceful cancellation.
+        </div>
+      </div>
+
+      <!-- Models & Core -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Models, CLI & Log Layer</span>
+          <span style="color:#10b981; font-size:11px;">Single Source of Truth</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip clean-item">✓ 1 Canonical compat._sanitize_log_value</div>
+          <div class="item-chip clean-item">✓ Direct staticmethod bindings in models</div>
+          <div class="item-chip clean-item">✓ Public storage.get_db_embedding_dimension()</div>
+        </div>
+        <div class="clean-annotation">
+          • <strong>Untangled 2:</strong> 23 copy-paste duplicate definitions deleted; unified import from <code>compat.py</code>.<br>
+          • <strong>Untangled 3:</strong> 10 empty wrapper delegates replaced with direct function assignments.<br>
+          • <strong>Untangled 5:</strong> Clean async public API replaces private method reflection in CLI.
+        </div>
+      </div>
+
+      <!-- Storage Layer -->
+      <div class="layer-card">
+        <div class="layer-title">
+          <span>Storage Engine Layer (sqlite-vec / milvus)</span>
+          <span style="color:#10b981; font-size:11px;">Storage API</span>
+        </div>
+        <div class="card-items">
+          <div class="item-chip clean-item">✓ DeleteMixin.delete_untagged_memories()</div>
+          <div class="item-chip clean-item">✓ EmbeddingsMixin.get_db_embedding_dimension()</div>
+          <div class="item-chip">Tombstones & HLC Synced</div>
+        </div>
+        <div class="clean-annotation">
+          • SQLite engine natively implements untagged counting, soft-delete tombstones, and sync event emission.
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics-footer">
+      <div class="metric-card">
+        <div class="metric-val" style="color:#10b981;">0</div>
+        <div class="metric-label">Remaining Knots</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" style="color:#10b981;">1</div>
+        <div class="metric-label">Canonical Sanitizer</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-val" style="color:#10b981;">API</div>
+        <div class="metric-label">Public Contracts</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

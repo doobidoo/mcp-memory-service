@@ -14,7 +14,7 @@ import asyncio
 from typing import List, Optional, Callable
 
 try:
-    import sqlite_vec
+    import sqlite_vec  # inline import: keep optional dependencies lazy
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
@@ -25,17 +25,14 @@ from ...config import SQLITEVEC_MAX_CONTENT_LENGTH
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
     """Deserialize embedding blob from sqlite-vec format to list of floats."""
     if not blob:
         return None
     try:
-        import numpy as np
+        import numpy as np  # inline import: keep optional dependencies lazy
         arr = np.frombuffer(blob, dtype=np.float32)
         return arr.tolist()
     except Exception as e:
@@ -270,7 +267,7 @@ Failed to load the sqlite-vec extension. This could be due to:
 SOLUTIONS:
   • Reinstall sqlite-vec: pip install --force-reinstall sqlite-vec
   • Switch to Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare
-  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"
+  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"  # debug: intentional example output
 """
             raise RuntimeError(detailed_error.strip())
 

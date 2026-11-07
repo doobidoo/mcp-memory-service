@@ -234,29 +234,14 @@ class TagTaxonomy:
     # module-level list, including operator-registered ones)
     VALID_NAMESPACES: Final[Set[str]] = set(VALID_NAMESPACES)
 
-    @classmethod
-    def parse_tag(cls, tag: str) -> Tuple[Optional[str], str]:
-        """Parse tag into namespace and value."""
-        return parse_tag(tag)
+    parse_tag = staticmethod(parse_tag)
+    validate_tag = staticmethod(validate_tag)
+    add_namespace = staticmethod(add_namespace)
+    filter_by_namespace = staticmethod(filter_by_namespace)
 
     @classmethod
     def is_valid_namespace(cls, namespace: str) -> bool:
         """Whether a parsed namespace (with trailing ':') is registered."""
         ensure_env_namespaces()
         return namespace in cls.VALID_NAMESPACES
-
-    @classmethod
-    def validate_tag(cls, tag: str) -> bool:
-        """Validate if tag has valid namespace or is legacy format."""
-        return validate_tag(tag)
-
-    @classmethod
-    def add_namespace(cls, value: str, namespace: str) -> str:
-        """Add namespace prefix to value."""
-        return add_namespace(value, namespace)
-
-    @classmethod
-    def filter_by_namespace(cls, tags: List[str], namespace: str) -> List[str]:
-        """Filter tags to only those matching namespace."""
-        return filter_by_namespace(tags, namespace)
 

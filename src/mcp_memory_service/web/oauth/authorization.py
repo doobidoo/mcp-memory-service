@@ -69,10 +69,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
 
 def parse_basic_auth(
     authorization_header: Optional[str],
