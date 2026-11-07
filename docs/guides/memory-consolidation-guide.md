@@ -184,6 +184,12 @@ ls -lh ~/.local/share/mcp-memory-service/consolidation/reports/
 ```bash
 MCP_CONSOLIDATION_ENABLED=true
 MCP_HTTP_ENABLED=true
+
+# Auto-Supersede contradicted memories during consolidation (v11.15.0+)
+MCP_CONSOLIDATION_AUTO_SUPERSEDE=true
+
+# Autonomous Session Harvest Scheduler (v11.12.0+)
+MCP_HARVEST_SCHEDULE="0 2 * * *"  # Cron pattern or interval for autonomous harvest
 ```
 
 ### Schedule (config.py)

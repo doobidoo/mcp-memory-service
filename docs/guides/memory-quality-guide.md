@@ -453,11 +453,16 @@ export MCP_QUALITY_BOOST_WEIGHT=0.3            # 0.0-1.0 (30% quality, 70% seman
 export MCP_QUALITY_IMPLICIT_BLEND_ENABLED=false  # Default: follows BOOST_ENABLED
 export MCP_QUALITY_IMPLICIT_WEIGHT=0.3           # 0.0-1.0 implicit share of the stored score
 
-# Quality-Based Retention (Consolidation)
+# Quality-Based Retention & Dynamic Decay
+export MCP_DECAY_ENABLED=true                  # Enable dynamic recency decay (v11.15.0+)
 export MCP_QUALITY_RETENTION_HIGH=365          # Days for quality ≥0.7
 export MCP_QUALITY_RETENTION_MEDIUM=180        # Days for quality 0.5-0.7
 export MCP_QUALITY_RETENTION_LOW_MIN=30        # Min days for quality <0.5
 export MCP_QUALITY_RETENTION_LOW_MAX=90        # Max days for quality <0.5
+
+# Memory Type Specific Retention Overrides (v11.15.0+)
+export MCP_RETENTION_DECISION=730              # Retain decision memories for 2 years
+export MCP_RETENTION_TEMPORARY=7               # Expire temporary memories after 7 days
 ```
 
 ## Using the Quality System

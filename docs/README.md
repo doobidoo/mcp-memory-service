@@ -105,8 +105,11 @@ MCP Memory Service enables persistent, semantic memory for AI applications throu
 ### Key Features
 
 - ✅ **Semantic Memory Storage**: Store and retrieve memories using natural language
-- ✅ **Multi-Client Access**: Share memories across Claude Desktop, VS Code, and other MCP clients
+- ✅ **Multi-Client Access**: Share memories across Claude Desktop, VS Code, Kiro CLI, and other MCP clients
 - ✅ **Flexible Storage**: Choose SQLite-vec (local/dev), Cloudflare (cloud/edge), or Hybrid (production)
+- ✅ **NLI Cascade**: Advanced contradiction resolution using cascade reasoning (`MCP_NLI_BACKEND=cascade`)
+- ✅ **Autonomous Session Harvesting**: Automatic session discovery and harvesting (`MCP_HARVEST_SCHEDULE`)
+- ✅ **Decay & Retention Policies**: Dynamic memory lifecycle management and custom retention (`MCP_DECAY_ENABLED`)
 - ✅ **Cross-Platform**: Native support for macOS (Intel & Apple Silicon), Windows, and Linux
 - ✅ **Docker Ready**: Complete containerization support with multiple deployment options
 - ✅ **Hardware Optimized**: Automatic detection and optimization for available hardware (CUDA, MPS, DirectML)
