@@ -144,7 +144,7 @@ class ONNXEmbeddingModel:
         
         # Check if model is already extracted
         if extracted_path.exists() and (extracted_path / "model.onnx").exists():
-            logger.info(f"ONNX model already available at {extracted_path}")
+            logger.info("ONNX model already available at %s", _sanitize_log_value(extracted_path))
             return
 
         # Offline guard: allow deployments (and the test harness) to opt out of the
@@ -159,7 +159,7 @@ class ONNXEmbeddingModel:
 
         # Download if not present or invalid
         if not archive_path.exists() or not _verify_sha256(str(archive_path), self._MODEL_SHA256):
-            logger.info(f"Downloading ONNX model from {self.MODEL_DOWNLOAD_URL}")
+            logger.info("Downloading ONNX model from %s", self.MODEL_DOWNLOAD_URL)
             try:
                 import httpx
                 with httpx.Client(timeout=30.0) as client:
@@ -167,13 +167,13 @@ class ONNXEmbeddingModel:
                     response.raise_for_status()
                     with open(archive_path, "wb") as f:
                         f.write(response.content)
-                logger.info(f"Model downloaded to {archive_path}")
+                logger.info("Model downloaded to %s", _sanitize_log_value(archive_path))
             except Exception as e:
-                logger.error(f"Failed to download ONNX model: {e}")
+                logger.error("Failed to download ONNX model: %s", _sanitize_log_value(e))
                 raise RuntimeError(f"Could not download ONNX model: {e}")
         
         # Extract the archive
-        logger.info(f"Extracting model to {extracted_path}")
+        logger.info("Extracting model to %s", _sanitize_log_value(extracted_path))
         with tarfile.open(archive_path, "r:gz") as tar:
             _safe_tar_extract(tar, self.DOWNLOAD_PATH)
         
@@ -194,7 +194,7 @@ class ONNXEmbeddingModel:
         self._model_dir.mkdir(parents=True, exist_ok=True)
         # Already present?
         if self._find_onnx_file() and (self._model_dir / "tokenizer.json").exists():
-            logger.info(f"ONNX model already available at {self._model_dir}")
+            logger.info("ONNX model already available at %s", _sanitize_log_value(self._model_dir))
             return
 
         if os.environ.get('MCP_MEMORY_ONNX_ALLOW_DOWNLOAD', '1').lower() in ('0', 'false', 'no'):
@@ -211,7 +211,11 @@ class ONNXEmbeddingModel:
                 "model. Install with: pip install huggingface_hub"
             ) from e
 
-        logger.info(f"Downloading ONNX model '{self.model_name}' from HF repo {self._hf_repo}")
+        logger.info(
+            "Downloading ONNX model '%s' from HF repo %s",
+            _sanitize_log_value(self.model_name),
+            _sanitize_log_value(self._hf_repo),
+        )
         # Note: unlike the pinned S3 archive (fixed SHA256), Hub models vary per
         # repo, so no static checksum is pinned here. huggingface_hub verifies
         # file integrity against the repo revision on download, and the storage
@@ -226,7 +230,11 @@ class ONNXEmbeddingModel:
                                 "special_tokens_map.json"],
             )
         except Exception as e:
-            logger.error(f"Failed to download ONNX model from {self._hf_repo}: {e}")
+            logger.error(
+                "Failed to download ONNX model from %s: %s",
+                _sanitize_log_value(self._hf_repo),
+                _sanitize_log_value(e),
+            )
             raise RuntimeError(f"Could not download ONNX model {self._hf_repo}: {e}")
 
         if not self._find_onnx_file():
@@ -286,7 +294,10 @@ class ONNXEmbeddingModel:
         # Not every exported model takes token_type_ids (some drop it). Record
         # the accepted input names so encode() only feeds supported tensors.
         self._input_names = {i.name for i in self._model.get_inputs()}
-        logger.info(f"ONNX model loaded. Embedding dimension: {self.embedding_dimension}")
+        logger.info(
+            "ONNX model loaded. Embedding dimension: %s",
+            _sanitize_log_value(self.embedding_dimension),
+        )
     
     def encode(self, texts: Union[str, List[str]], convert_to_numpy: bool = True) -> np.ndarray:
         """

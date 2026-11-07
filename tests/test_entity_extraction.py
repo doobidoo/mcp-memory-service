@@ -4,8 +4,12 @@ import pytest
 import tempfile
 import os
 
+import mcp_memory_service.config as cfg
 from mcp_memory_service.reasoning.entities import EntityExtractor, Entity
+from mcp_memory_service.server.handlers import graph as graph_handlers
+from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.graph import GraphStorage
+from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
 
 class TestEntityExtractor:
@@ -65,6 +69,72 @@ class TestEntityExtractor:
         person_bobs = [e for e in bob_entities if e.entity_type == 'person']
         assert len(person_bobs) == 1
 
+
+
+class TestTagEntityFilter:
+    """MCP_ENTITY_TAG_INCLUDE / MCP_ENTITY_TAG_EXCLUDE filter the tag branch only (#1704)."""
+
+    TAGS = ["task:1704", "Task:42", "bugfix", "project:memory"]
+
+    @staticmethod
+    def _entities(monkeypatch, include="", exclude="", content="some content"):
+        monkeypatch.setattr(cfg, "MCP_ENTITY_TAG_INCLUDE", include, raising=False)
+        monkeypatch.setattr(cfg, "MCP_ENTITY_TAG_EXCLUDE", exclude, raising=False)
+        return EntityExtractor().extract_entities(content, {"tags": TestTagEntityFilter.TAGS})
+
+    def _tag_names(self, monkeypatch, **kwargs):
+        return {e.name for e in self._entities(monkeypatch, **kwargs) if e.source == 'metadata'}
+
+    def test_unset_keeps_every_tag(self, monkeypatch):
+        assert self._tag_names(monkeypatch) == set(self.TAGS)
+
+    def test_include_keeps_only_matching_tags(self, monkeypatch):
+        assert self._tag_names(monkeypatch, include="task:*") == {"task:1704", "Task:42"}
+
+    def test_exclude_drops_matching_tags(self, monkeypatch):
+        assert self._tag_names(monkeypatch, exclude="BUGFIX, project:*") == {"task:1704", "Task:42"}
+
+    def test_include_then_exclude(self, monkeypatch):
+        names = self._tag_names(monkeypatch, include="task:*,bugfix", exclude="task:42")
+        assert names == {"task:1704", "bugfix"}
+
+    def test_content_entities_unaffected(self, monkeypatch):
+        entities = self._entities(monkeypatch, include="task:*", content="Fixed #bugfix with @alice")
+        assert {(e.name, e.source) for e in entities if e.source == 'content'} == {
+            ("bugfix", "content"), ("alice", "content"),
+        }
+
+
+@pytest.mark.asyncio
+async def test_excluded_tag_creates_no_shares_entity_edge(temp_db_path, monkeypatch):
+    """Through real sqlite-vec storage: an excluded tag links nothing (#1704)."""
+    db_path = os.path.join(temp_db_path, "test.db")
+    monkeypatch.setenv("MCP_ENTITY_LINKING_ENABLED", "true")
+    monkeypatch.setattr(cfg, "MCP_ENTITY_TAG_INCLUDE", "", raising=False)
+    monkeypatch.setattr(cfg, "MCP_ENTITY_TAG_EXCLUDE", "bugfix", raising=False)
+
+    storage = SqliteVecMemoryStorage(db_path)
+    await storage.initialize()
+    graph = GraphStorage(db_path)
+
+    async def _graph():
+        return graph
+
+    monkeypatch.setattr(graph_handlers, "get_graph_storage", _graph)
+    try:
+        svc = MemoryService(storage)
+        a = await svc.store_memory("Fixed the login redirect loop", tags=["bugfix", "task:1704"])
+        b = await svc.store_memory("Patched a race in the upload queue", tags=["bugfix"])
+        c = await svc.store_memory("Wrote the release notes draft", tags=["task:1704"])
+        assert a["success"] and b["success"] and c["success"], (a, b, c)
+        hash_a, hash_b, hash_c = (r["memory"]["content_hash"] for r in (a, b, c))
+
+        assert await graph.get_association(hash_a, hash_c) is not None
+        assert await graph.get_association(hash_a, hash_b) is None
+        assert "bugfix" not in await graph.get_entities_for_memory(hash_b)
+    finally:
+        await graph.close()
+        await storage.close()
 
 class TestGraphEntityStorage:
     @pytest.fixture

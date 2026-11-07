@@ -1263,3 +1263,132 @@ class TestDeltaSyncHLC:
         assert int(saved["sync_hlc_physical"]) >= newer_physical, (
             f"seed clobbered the concurrently-committed clock: {saved['sync_hlc_physical']} < {newer_physical}"
         )
+
+    @pytest.mark.asyncio
+    async def test_imported_tombstone_wins_over_v2_empty_recreate_even_with_newer_hlc(
+        self, storage, monkeypatch
+    ):
+        """An imported tombstone WINS over a v2 EMPTY-recreate peer create, even newer-HLC.
+
+        3-state model (Henry Ponto 2, 2026-10-16): the peer create is emitted by a REAL v2
+        producer (peer.store()) that NEVER saw this delete, so it carries recreate_of="" (the
+        EMPTY sentinel). Under the 3-state rule the EMPTY sentinel means "delete wins"
+        whenever a delete exists — EVEN when the create's HLC is strictly newer than the
+        delete's. This is precisely the concurrent hole the PR closes: a peer that re-created
+        without seeing another peer's delete no longer resurrects it. (Pre-3-state this
+        asserted revive-by-HLC; that LWW-by-HLC premise was the bug Henry named — it does NOT
+        collide with P1-A, it confirms the same direction: a newer HLC alone never revives.)
+
+        The HLC-PRESERVATION assertions below are orthogonal to liveness and still hold: the
+        imported tombstone must keep the remote deletion time as its HLC and must not advance
+        the local clock. Only the FINAL liveness assertion reflects the 3-state flip.
+        """
+        import tempfile
+
+        from mcp_memory_service.storage.sync.apply import apply_remote_event
+
+        monkeypatch.setenv("MCP_SYNC_EVENTLOG", "on")
+        content = "stale primary row with a newer unsynced peer create"
+        content_hash = generate_content_hash(content)
+        base_time = 1_700_000_000.0
+
+        monkeypatch.setenv("MCP_AGENT_ID", "primary")
+        with patch("time.time", return_value=base_time):
+            success, message = await storage.store(
+                Memory(
+                    content=content,
+                    content_hash=content_hash,
+                    tags=["sync"],
+                    memory_type="note",
+                ),
+                skip_semantic_dedup=True,
+            )
+        assert success, f"Primary store failed: {message}"
+        saved_before_import = dict(
+            storage.conn.execute(
+                "SELECT key, value FROM metadata "
+                "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            ).fetchall()
+        )
+
+        with tempfile.TemporaryDirectory() as peer_dir:
+            peer = SqliteVecMemoryStorage(os.path.join(peer_dir, "peer.db"))
+            await peer.initialize()
+            try:
+                monkeypatch.setenv("MCP_AGENT_ID", "peer")
+                with patch("time.time", return_value=base_time + 25):
+                    peer_success, peer_message = await peer.store(
+                        Memory(
+                            content=content,
+                            content_hash=content_hash,
+                            tags=["sync"],
+                            memory_type="note",
+                        ),
+                        skip_semantic_dedup=True,
+                    )
+                assert peer_success, f"Peer store failed: {peer_message}"
+
+                remote_deleted_at = base_time + 20
+                monkeypatch.setenv("MCP_AGENT_ID", "primary")
+                with patch("time.time", return_value=base_time + 30):
+                    outcome = await storage.delete_if_not_updated_after(
+                        content_hash, remote_deleted_at
+                    )
+                assert outcome == "applied"
+
+                row = storage.conn.execute(
+                    "SELECT agent_id, event_id, op, content_hash, hlc_physical, "
+                    "hlc_logical, embedding_model, embedding_dim, payload "
+                    "FROM sync_events WHERE content_hash = ? AND op = 'delete'",
+                    (content_hash,),
+                ).fetchone()
+                assert row is not None, "Import should append a delete event"
+                event = {
+                    "schema_version": 1,
+                    "agent_id": row[0],
+                    "event_id": row[1],
+                    "op": row[2],
+                    "content_hash": row[3],
+                    "hlc_physical": row[4],
+                    "hlc_logical": row[5],
+                    "embedding_model": row[6],
+                    "embedding_dim": row[7],
+                    "payload": json.loads(row[8]),
+                }
+
+                assert (event["hlc_physical"], event["hlc_logical"]) == (
+                    int(remote_deleted_at * 1000),
+                    0,
+                ), "Imported delete must retain the remote deletion time as its HLC"
+                current_clock = dict(
+                    storage.conn.execute(
+                        "SELECT key, value FROM metadata "
+                        "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+                    ).fetchall()
+                )
+                assert current_clock == saved_before_import, (
+                    "Importing a historical tombstone must not advance the local HLC"
+                )
+
+                result = apply_remote_event(peer, event)
+                assert result.applied, (
+                    f"Peer rejected imported tombstone: {result.reason}"
+                )
+                winner = peer.conn.execute(
+                    "SELECT deleted_at FROM memories WHERE content_hash = ?",
+                    (content_hash,),
+                ).fetchone()
+                # 3-STATE model (Henry Ponto 2, 2026-10-16): the peer's create was emitted by
+                # a REAL v2 producer (peer.store()) that NEVER saw this delete, so it carries
+                # recreate_of="" (the EMPTY sentinel). Under the 3-state rule the EMPTY sentinel
+                # means "delete wins" whenever a delete exists — EVEN when the create's HLC is
+                # strictly newer. This is EXACTLY the concurrent hole the PR closes: a peer that
+                # re-created without seeing another peer's delete no longer resurrects it.
+                # (Before the 3-state model this asserted revive; that was the bug Henry named.)
+                # The HLC-preservation assertions above are unchanged and still hold.
+                assert winner is not None and winner[0] is not None, (
+                    "3-state: the peer's create carries recreate_of='' (never saw the delete), "
+                    "so the imported tombstone WINS and the memory stays deleted"
+                )
+            finally:
+                await peer.close()

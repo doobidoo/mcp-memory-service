@@ -17,6 +17,7 @@ from typing import Dict, Any
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
+from ..source_retraction import retract_sources_for_deleted_hashes
 from .resolver import EventView, reduce_events, _winner_key
 
 logger = logging.getLogger(__name__)
@@ -268,42 +269,55 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
             if is_winner or op == "update_metadata":
                 try:
                     materialized = _materialize_event(storage, event)
+                    if not materialized:
+                        # Commit only the skippable empty create. Any other miss,
+                        # including a tombstone whose citation cleanup returned
+                        # False, rolls back so the retry is not a duplicate.
+                        return _unmaterialized_result(s, op, payload)
                     s.conn.commit()  # durability: persist event + materialization (ADR-0019/§8.5)
-                    if materialized:
-                        reason = ("Remote event won and materialized" if is_winner
-                                  else "update_metadata merged (field-level convergence)")
-                        if locals().get("_is_content_repair"):
-                            reason = "Empty-content create repaired with real content (via resolver)"
-                        return ApplyResult(applied=True, materialized=True, reason=reason)
-                    # A win that fails to materialize is NOT applied. A create whose content
-                    # is empty in BOTH the payload and the source table is permanently
-                    # non-materializable — mark it skippable so the orchestrator advances past
-                    # it instead of fail-stopping the whole feed (a few irrecoverable events
-                    # must not block thousands of good ones). Any other materialization miss
-                    # stays a transient failure the sender keeps retrying (Greptile P1).
-                    if op == "create" and not (payload.get("content") or ""):
-                        return ApplyResult(applied=False, materialized=False,
-                                           reason="Create event has no recoverable content — skipped",
-                                           skippable=True)
-                    return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
+                    reason = ("Remote event won and materialized" if is_winner
+                              else "update_metadata merged (field-level convergence)")
+                    if locals().get("_is_content_repair"):
+                        reason = "Empty-content create repaired with real content (via resolver)"
+                    return ApplyResult(applied=True, materialized=True, reason=reason)
                 except Exception as e:
                     # Roll back any pending write (e.g. a content-repair UPDATE to
-                    # sync_events) so a transient materialization failure does not leave
-                    # the stored payload mutated — otherwise the next retry would match
-                    # it as a duplicate and never re-attempt the memory write (Greptile
-                    # #1499 apply:181, exception path).
-                    try:
-                        s.conn.rollback()
-                    except Exception:
-                        # Best-effort rollback: if the connection cannot roll back (e.g.
-                        # no open transaction) there is nothing to undo; the original error
-                        # below is what matters.
-                        pass
+                    # sync_events, or a tombstone whose citation cleanup raised)
+                    # so a transient materialization failure does not leave the
+                    # stored payload mutated — otherwise the next retry would match
+                    # it as a duplicate and never re-attempt the memory write
+                    # (Greptile #1499 apply:181, and #1865 citation cleanup).
+                    _rollback_apply(s)
                     logger.error("Materialization failed: %s", _sanitize_log_value(e))
                     return ApplyResult(applied=False, materialized=False, reason=f"Materialization error: {e}")
             else:
-                # Remote event lost or tied — recorded but not materialized. This is a
-                # successful apply (a legitimate conflict loser), distinct from a failure.
+                # Remote event lost or tied — recorded but not materialized as the winner.
+                # Convergence (#1522 P1, Greptile Fonte 1): a losing create/delete must STILL
+                # re-impose the deterministic liveness. The canonical example is a delete that
+                # loses the resolver to a higher-HLC create (Order B: create materialized alive
+                # first, then this delete arrives and loses) — without this the tombstone would
+                # never be re-derived and peers diverge. _reconcile_liveness folds the whole
+                # event set, so the loser converges to the same deleted_at as every other order.
+                # (update_metadata losers already re-materialize above; this covers create/delete.)
+                if op in ("create", "delete"):
+                    try:
+                        _reconcile_liveness(_sqlite(storage), content_hash)
+                    except Exception as e:  # noqa: BLE001 - partial liveness write must not commit
+                        # The tombstone or its citation cleanup failed after the
+                        # event row was inserted. Committing would make the retry
+                        # a duplicate that never finishes the cleanup.
+                        _rollback_apply(s)
+                        logger.error(
+                            "liveness reconcile (loser) failed for %s: %s",
+                            _sanitize_log_value(content_hash),
+                            _sanitize_log_value(e),
+                        )
+                        return ApplyResult(
+                            applied=False,
+                            materialized=False,
+                            reason=f"Liveness reconcile failed: {e}",
+                        )
+                # This is a successful apply (a legitimate conflict loser), distinct from a failure.
                 s.conn.commit()
                 return ApplyResult(applied=True, materialized=False, reason="Remote event lost conflict resolution")
 
@@ -459,8 +473,29 @@ def _top_level_fields(ev_op, pl):
                 if vv is not None}
     # update_metadata
     upd = (pl.get("updates", {}) or {})
-    return {kk: vv for kk, vv in upd.items()
-            if kk in ("tags", "memory_type") and vv is not None}
+    fields = {kk: vv for kk, vv in upd.items()
+              if kk in ("tags", "memory_type") and vv is not None}
+    fields.update(_supersede_fields(upd, pl))
+    return fields
+
+
+def _supersede_fields(upd, pl):
+    """Supersede columns carried by an update_metadata event (issue #1773).
+
+    ``superseded_by`` lives in ``updates`` ("" or None clears it). ``superseded_at`` is the
+    origin's instant at the payload top level, written as-is and never re-stamped here; a
+    clear without one clears it too. An event from a peer without #1773 has no top-level
+    ``superseded_at``, so only ``superseded_by`` is taken from it.
+    """
+    if "superseded_by" not in upd:
+        return {}
+    superseded_by = upd["superseded_by"] or None
+    fields = {"superseded_by": superseded_by}
+    if "superseded_at" in pl:
+        fields["superseded_at"] = pl["superseded_at"]
+    elif superseded_by is None:
+        fields["superseded_at"] = None
+    return fields
 
 
 def _take_if_winner(best, best_key, k, key, value):
@@ -550,6 +585,13 @@ def _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, lat
     event_owned = set(meta_best) | create_md_keys
     merged_md = {kk: vv for kk, vv in current_md.items() if kk not in event_owned}
     merged_md.update(meta_best)
+    if "superseded_by" in best:
+        # Keep the legacy JSON mirror in step with the column, as update_memory_metadata
+        # does on the origin (#1773): readers such as the contradiction scan check it.
+        if best["superseded_by"] is None:
+            merged_md.pop("superseded_by", None)
+        else:
+            merged_md["superseded_by"] = best["superseded_by"]
     best = dict(best)
     best["metadata"] = merged_md
 
@@ -587,6 +629,300 @@ def _materialize_update_metadata(s, content_hash: str, payload: Dict[str, Any]) 
     return _write_merged_metadata(s, content_hash, best, meta_best, create_md_keys, latest_updated_at, payload)
 
 
+# ---------------------------------------------------------------------------
+# #1522 P1 convergence (Greptile apply:674): liveness is a FUNCTION OF THE SET
+# of sync_events for the hash, not of the mutable row state. The decision
+# revive-vs-preserve-tombstone must be a deterministic fold over ALL events so
+# every peer holding the same set converges to the same deleted_at, independent
+# of arrival order. This mirrors _materialize_update_metadata, which already
+# recomputes the live incarnation from the whole set on every event (apply:261).
+#
+# Product decision (Claudio, confirmed 2026-10-16) = variant iii' of the RFC, REFINED by
+# Henry Ponto 2 into a 3-STATE model (recreate_of key AUSENTE vs VAZIO vs NOMEADO):
+#   AUSENTE (key not in payload) → v1 peer → revive (back-compat / legitimate re-create);
+#   VAZIO  (key present == "")   → v2 producer that never saw the delete → DELETE WINS;
+#   NOMEADO(names dominant delete Dtop) → revive (INV-2b); NOMEADO(other delete) → DEAD.
+# The sentinel is the EMPTY STRING "" (not null): null collapses with an absent key to None
+# via payload.get(), which would make AUSENTE and VAZIO indistinguishable — the exact
+# distinction the 3-state model needs. See classify_recreate_of.
+# ---------------------------------------------------------------------------
+
+# Sentinel liveness states returned by recompute_liveness.
+_LIVE = "LIVE"
+_DEAD = "DEAD"
+_ABSENT = "ABSENT"
+
+
+@dataclass
+class _LivenessEvent:
+    """One sync_events row reduced to what the liveness fold needs (payload parsed)."""
+    hlc_physical: int
+    hlc_logical: int
+    agent_id: str
+    event_id: str
+    op: str
+    content_hash: str
+    payload: Dict[str, Any]
+
+    def key(self) -> tuple:
+        """Canonical resolver order (smaller wins) — reused from the resolver so apply and
+        resolver agree on which create/delete dominates (HLC → delete-vs-update → agent → eid)."""
+        return _winner_key(EventView(
+            hlc_physical=self.hlc_physical or 0, hlc_logical=self.hlc_logical or 0,
+            agent_id=self.agent_id, event_id=self.event_id or "",
+            op=self.op, content_hash=self.content_hash,
+        ))
+
+
+def _load_hash_events(s, content_hash: str):
+    """Load ALL sync_events for a hash as _LivenessEvent, newest-first is irrelevant (the fold
+    is order-independent). Payload parse failures are skipped (cannot contribute a decision)."""
+    rows = s.conn.execute(
+        "SELECT hlc_physical, hlc_logical, agent_id, event_id, op, payload "
+        "FROM sync_events WHERE content_hash = ?",
+        (content_hash,),
+    ).fetchall()
+    events = []
+    for phys, log, agent, eid, op, pj in rows:
+        try:
+            pl = json.loads(pj) if pj else {}
+        except (ValueError, TypeError):
+            pl = {}
+        events.append(_LivenessEvent(phys or 0, log or 0, agent, eid or "", op, content_hash, pl))
+    return events
+
+
+def recompute_liveness(events):
+    """Pure deterministic fold over ALL sync_events of a hash → (state, deleted_at).
+
+    Function of the event SET, never of row state or arrival order (RFC §P1 convergence,
+    variant iii'). Reuses the resolver's `_winner_key` so the elected create/delete match
+    the resolver's total order.
+
+    Returns:
+      (_LIVE, None)            — the memory is alive (winning create dominates all deletes,
+                                 or a valid recreate_of supersedes the dominant delete).
+      (_DEAD, <deleted_at>)    — the memory is tombstoned; deleted_at is taken from the
+                                 PAYLOAD of the dominant delete (Dtop), never time.time(),
+                                 so every peer writes the SAME deleted_at (seven sub-finding).
+      (_ABSENT, None)          — no event materialized a row for this hash yet.
+    """
+    creates = [e for e in events if e.op in ("create", "update")]
+    deletes = [e for e in events if e.op == "delete"]
+
+    if not creates:
+        return _liveness_no_create(deletes)
+
+    # (i) elect the winning create by the resolver's order (smaller key wins).
+    cwin = min(creates, key=lambda e: e.key())
+
+    if not deletes:
+        return _LIVE, None  # never deleted → alive.
+
+    # Dtop = the dominant delete of the KNOWN set under the resolver's full order (P2
+    # tied-deletes: _winner_key, not HLC-only). This is the one a legitimate re-create must
+    # name, and whose payload deleted_at we stamp when DEAD (deterministic across peers).
+    dtop = min(deletes, key=lambda e: e.key())
+    return _liveness_with_deletes(cwin, deletes, dtop)
+
+
+# recreate_of classification (Henry 3-state, 2026-10-16). The sentinel is the EMPTY STRING:
+# it survives the json round-trip distinctly from absence, whereas null collapses with an
+# absent key to None via payload.get() (seven G0). classify_recreate_of therefore reads the
+# KEY PRESENCE (`in payload`), never only `.get()`, so AUSENTE and VAZIO never collapse.
+_ABSENT_SIGNAL = "ABSENT_SIGNAL"   # key not in payload  → v1 peer
+_EMPTY_SIGNAL = "EMPTY_SIGNAL"     # key present and ""/null → v2 producer that never saw a delete
+_NAMED_SIGNAL = "NAMED_SIGNAL"     # key names a delete event_id
+
+
+def classify_recreate_of(payload):
+    """Classify the create payload's recreate_of into the 3 Henry states → (kind, value, hlc).
+
+    - ABSENT  : the key is not in the payload at all (a v1 peer, byte-identical to old
+                clients). value is None, hlc is None.
+    - EMPTY   : the key IS present and holds the empty sentinel "" (or null, tolerated
+                defensively from a peer that chose null). value is "", hlc is None.
+    - NAMED   : the key names a delete's event_id. value is that event_id; hlc is the
+                stable anchor `recreate_of_hlc` ([hlc_physical, hlc_logical, agent_id]) when
+                the producer stamped it (P1-B), else None (a v2 peer predating P1-B that
+                still name-matches by event_id).
+
+    NEVER collapse ABSENT and EMPTY: the whole point of Henry's 3-state model is that a v2
+    producer which never saw the delete stamps "" (delete wins), while a v1 peer omits the
+    key (revive). Presence is tested with `in`, not `.get()`."""
+    if "recreate_of" not in payload:
+        return _ABSENT_SIGNAL, None, None
+    v = payload["recreate_of"]
+    if v == "" or v is None:
+        return _EMPTY_SIGNAL, "", None
+    return _NAMED_SIGNAL, v, payload.get("recreate_of_hlc")
+
+
+def names_delete(recreate_of_eid, recreate_of_hlc, dtop: "_LivenessEvent", deletes) -> bool:
+    """P1-B: does the NAMED recreate_of identify the dominant delete `dtop` of the set?
+
+    Robust to event_id rewrites (the bootstrap baseline rewrites a delete's event_id to
+    `bl-...` but PRESERVES its HLC, bootstrap.py:132):
+
+    1) match by raw event_id — covers every peer that never rewrote the id;
+    2) fallback by the STABLE anchor (hlc_physical, hlc_logical, agent_id) — covers the
+       delete rewritten as `bl-...`, whose HLC+agent the baseline keeps. The fallback only
+       returns True when the anchor matches the delete that IS `dtop` (the dominant one): an
+       anchor pointing at a non-dominant delete is stale and must NOT revive (the guard that
+       keeps the fallback from becoming a stale-revive hole).
+
+    `recreate_of_hlc` arrives from json as a LIST; the delete anchors are a TUPLE. Coerce the
+    list to a tuple before comparing (list == tuple is ALWAYS False — seven G0 coercion note)."""
+    if recreate_of_eid == dtop.event_id:
+        return True
+    if recreate_of_hlc is not None:
+        anchor = tuple(recreate_of_hlc)  # list→tuple: json.loads yields a list, never a tuple
+        # Compare the anchor DIRECTLY against dtop — do NOT scan `deletes` and stop at the
+        # first object whose anchor matches (Greptile r4302312738). A peer can hold the
+        # original delete AND its `bl-...` baseline copy with the SAME (hlc, agent) anchor;
+        # since `deletes` has no defined order, `d is dtop` on the first match returns True
+        # or False depending on which copy is read first — two peers with the same events
+        # would then disagree. The anchor identifies the dominant delete iff it equals dtop's
+        # own anchor; dtop is already the unique resolver winner, so this is order-independent.
+        return (dtop.hlc_physical, dtop.hlc_logical, dtop.agent_id) == anchor
+    return False
+
+
+def _liveness_with_deletes(cwin: "_LivenessEvent", deletes, dtop: "_LivenessEvent"):
+    """The create-vs-dominant-delete decision when the set HAS deletes (Henry 3-state).
+
+    - ABSENT (v1 bare create): absence = revive, but only if NO delete dominates it under
+      _winner_key (back-compat / legitimate re-create, delegated to _liveness_bare).
+    - EMPTY (v2 never saw the delete): the DELETE WINS whenever a delete exists — even when
+      the create's HLC is strictly greater. Closes the real concurrent case (Henry Ponto 2).
+    - NAMED: revive ONLY if it names the dominant delete (INV-2b); naming any OTHER delete
+      is stale → DEAD (INV-2a). Order-independent (function of the set)."""
+    kind, value, hlc = classify_recreate_of(cwin.payload)
+    if kind == _ABSENT_SIGNAL:
+        return _liveness_bare(cwin, deletes)
+    if kind == _EMPTY_SIGNAL:
+        return _DEAD, dtop.payload.get("deleted_at")  # v2 never saw delete → delete wins
+    return _liveness_with_signal(cwin, value, hlc, deletes, dtop)  # NAMED → supersession check
+
+
+def _liveness_no_create(deletes):
+    """No create/update event exists yet. If deletes exist, the hash is a bare tombstone
+    (DEAD with the dominant delete's payload deleted_at); otherwise nothing materialized a
+    row for this hash (_ABSENT)."""
+    if deletes:
+        dtop = min(deletes, key=lambda e: e.key())
+        return _DEAD, dtop.payload.get("deleted_at")
+    return _ABSENT, None
+
+
+def _liveness_with_signal(cwin: "_LivenessEvent", recreate_of, recreate_of_hlc,
+                          deletes, dtop: "_LivenessEvent"):
+    """(iii') INTENTIONAL re-create (create carries a NAMED recreate_of). Revives ONLY when
+    BOTH hold:
+
+    - P1-B casamento: it names the DOMINANT delete of the set — by raw event_id OR, when the
+      id was rewritten (bootstrap `bl-...`), by the stable (hlc_physical, hlc_logical,
+      agent_id) anchor (`names_delete`). Naming any OTHER delete is stale → DEAD (INV-2a).
+    - P1-A gate de ordem: the create STRICTLY supersedes the delete it names under the
+      resolver's total order (`cwin.key() < dtop.key()`), i.e. the re-create is POSTERIOR to
+      the delete (strictly newer HLC; in an HLC tie the delete wins by `_winner_key` comp.2).
+      A create that names the dominant delete but does NOT supersede it is a losing/concurrent
+      create trying to undo a winning delete → DEAD.
+
+    Evaluated against the delete SET (function of the set, not row state / arrival order), so
+    the outcome converges in every order and on every peer (including bootstrapped peers)."""
+    if not names_delete(recreate_of, recreate_of_hlc, dtop, deletes):
+        return _DEAD, dtop.payload.get("deleted_at")  # stale/unrelated → tombstone preserved
+    if cwin.key() < dtop.key():
+        return _LIVE, None                            # legitimate supersession (INV-2b + P1-A)
+    return _DEAD, dtop.payload.get("deleted_at")      # P1-A: names dtop but does NOT supersede
+
+
+def _liveness_bare(cwin: "_LivenessEvent", deletes):
+    """(ii) BARE create (no recreate_of): absence = revive (Henry / v1 back-compat). It revives
+    iff it is the highest-order event, i.e. NO delete dominates it under _winner_key. If a
+    delete dominates (delete wins the resolver), the delete is terminal and the memory is DEAD."""
+    cwin_key = cwin.key()
+    dominating = [d for d in deletes if d.key() <= cwin_key]
+    if not dominating:
+        return _LIVE, None
+    dom_top = min(dominating, key=lambda e: e.key())
+    return _DEAD, dom_top.payload.get("deleted_at")
+
+
+def _reconcile_liveness(s, content_hash: str) -> None:
+    """Apply recompute_liveness to the memories row for a hash (idempotent, convergent).
+
+    Runs on EVERY event of the hash (create/delete, winner or loser) so a delete that LOST
+    the resolver can still re-impose the tombstone (closes Greptile Fonte 1, Order B) and a
+    stale recreate_of can never leave a resurrected row (Fonte 2). Writes the deleted_at of
+    the dominant delete (deterministic), never time.time(). No-op if no row exists yet.
+
+    A DEAD result also retracts belief and summary citations in this same
+    transaction. Delta sync never calls DeleteMixin, so the tombstone alone
+    would leave those receipts pointing at the deleted hash.
+    """
+    state, deleted_at = recompute_liveness(_load_hash_events(s, content_hash))
+    if state == _ABSENT:
+        return
+    if state == _LIVE:
+        s.conn.execute(
+            "UPDATE memories SET deleted_at = NULL WHERE content_hash = ? AND deleted_at IS NOT NULL",
+            (content_hash,),
+        )
+        return
+    _stamp_tombstone(s, content_hash, deleted_at)
+
+
+def _stamp_tombstone(s, content_hash: str, deleted_at) -> None:
+    """Write the dominant delete's timestamp and retract citations with it."""
+    if deleted_at is None:
+        # Invariant violation: the dominant delete carried no payload deleted_at, so we fall
+        # back to wall-clock — which is NON-DETERMINISTIC across peers. This should never be
+        # reached (every delete event carries deleted_at); make it OBSERVABLE if it ever is.
+        logger.warning(
+            "reconcile: dominant delete for %s has no payload deleted_at; "
+            "using wall-clock fallback (non-deterministic)",
+            _sanitize_log_value(content_hash),
+        )
+        deleted_at = time.time()  # defensive: a delete with no payload deleted_at (should not happen)
+    s.conn.execute(
+        "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
+        (deleted_at, content_hash),
+    )
+    retract_sources_for_deleted_hashes(s.conn, [content_hash], sync=s)
+
+
+def _rollback_apply(s) -> None:
+    """Undo the open apply transaction. Nothing to do when none is open."""
+    try:
+        s.conn.rollback()
+    except Exception:
+        # Best-effort: if the connection cannot roll back (no open transaction)
+        # there is nothing to undo.
+        pass
+
+
+def _unmaterialized_result(s, op: str, payload: Dict[str, Any]) -> ApplyResult:
+    """Commit a permanently empty create. Roll back every other miss.
+
+    The empty create has to stay in ``sync_events`` so the feed can advance
+    and a later resend of the same identity can repair it. Any other False
+    is transient: a tombstone without its citation cleanup, for example.
+    Committing that row would make the retry a duplicate that never finishes.
+    """
+    if op == "create" and not ((payload or {}).get("content") or ""):
+        s.conn.commit()
+        return ApplyResult(
+            applied=False,
+            materialized=False,
+            reason="Create event has no recoverable content — skipped",
+            skippable=True,
+        )
+    _rollback_apply(s)
+    return ApplyResult(applied=False, materialized=False, reason="Materialization failed")
+
+
 def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
     """
     Materialize an event into the memories table.
@@ -603,10 +939,11 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
         embedding_model = event.get("embedding_model")
 
         if op == "delete":
-            s.conn.execute(
-                "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
-                (payload.get("deleted_at", time.time()), content_hash),
-            )
+            # Convergence (#1522 P1): do NOT write this event's deleted_at directly — reconcile
+            # the liveness from the WHOLE event set. This makes deleted_at the one from the
+            # dominant delete (Dtop) regardless of which delete this is, and lets a delete that
+            # LOST the resolver still impose the tombstone (Greptile Fonte 1, Order B).
+            _reconcile_liveness(s, content_hash)
             return True
 
         if op == "update_metadata":
@@ -627,6 +964,14 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 logger.warning("Create event missing content for hash %s", _sanitize_log_value(content_hash))
                 return False
 
+            # #1522 finding #2 + P1 convergence (ADR-0012 v2; Greptile apply:674).
+            # The revive-vs-preserve-tombstone decision is NO LONGER read from the mutable
+            # row state ("is the row deleted now?") — that is order-dependent and diverged.
+            # Instead, after writing the create's content below, _reconcile_liveness folds the
+            # WHOLE sync_events set for this hash (recompute_liveness, variant iii') and stamps
+            # the deterministic deleted_at. So: absence of recreate_of revives; a recreate_of
+            # naming the dominant delete revives; a STALE recreate_of stays DEAD in ANY order.
+            # Decision is independent of row state and of arrival order (RFC §P1 convergence).
             model_mismatch = bool(embedding_model) and embedding_model != s.embedding_model_name
             can_embed = bool(content) and not model_mismatch
             embedding_pending = 0 if can_embed else 1
@@ -642,8 +987,8 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 INSERT OR REPLACE INTO memories
                 (content_hash, content, tags, memory_type, metadata,
                  created_at, created_at_iso, updated_at, updated_at_iso,
-                 deleted_at, embedding_pending, store, superseded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                 deleted_at, embedding_pending, store, superseded_by, superseded_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
             """, (
                 content_hash,
                 content,
@@ -659,6 +1004,8 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                 # Greptile P1-4: carry superseded_by so a replaced memory stays hidden from
                 # search on the target (retrieve filters on this column, not metadata).
                 payload.get("superseded_by"),
+                # #1724: the replacement moment travels with it (None from older peers).
+                payload.get("superseded_at"),
             ))
 
             # Remove the old embedding if the replace changed the row id (Greptile P2);
@@ -685,14 +1032,23 @@ def _materialize_event(storage: MemoryStorage, event: Dict[str, Any]) -> bool:
                         "UPDATE memories SET embedding_pending = 1 WHERE content_hash = ?",
                         (content_hash,),
                     )
+
+            # Convergence (#1522 P1): the create wrote deleted_at=NULL above. Now fold the
+            # whole event set and stamp the deterministic liveness — a stale recreate_of (or a
+            # dominant delete that arrives in any order) leaves the row tombstoned; absence /
+            # valid recreate_of keeps it alive. Makes the outcome independent of arrival order.
+            _reconcile_liveness(s, content_hash)
             return True
 
         logger.warning("Unknown operation type: %s", _sanitize_log_value(op))
         return False
 
     except Exception as e:
+        # Propagate so the caller rolls the event and any partial tombstone
+        # back together. Returning False here used to let the caller commit
+        # both, and the retry then looked like a duplicate.
         logger.error("Error materializing event: %s", _sanitize_log_value(e))
-        return False
+        raise
 
 
 def advance_sync_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> None:

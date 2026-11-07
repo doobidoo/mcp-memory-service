@@ -25,6 +25,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy essential files, install UV, and create directories
@@ -32,8 +33,11 @@ COPY pyproject.toml .
 COPY uv.lock .
 COPY README.md .
 COPY scripts/installation/install_uv.py .
+COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
+COPY scripts/ci/bootstrap_pip.py /usr/local/bin/bootstrap_pip.py
 
-RUN python install_uv.py && \
+RUN python /usr/local/bin/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt && \
+    python install_uv.py && \
     mkdir -p /app/sqlite_db /app/backups
 
 # Copy source code
@@ -60,7 +64,7 @@ COPY tools/docker/docker-entrypoint-unified.sh /usr/local/bin/
 # but MUST stay in sync with pyproject.toml `dependencies` for everything else.
 # See issue #811: missing aiosqlite/apscheduler/authlib/etc broke runtime in slim images.
 RUN python -m uv pip install \
-    "mcp>=1.8.0,<2.0.0" \
+    "mcp>=1.9.2,<2.0.0" \
     "sqlite-vec>=0.1.0" \
     "onnxruntime>=1.15.0" \
     "tokenizers>=0.22.2" \
@@ -70,6 +74,7 @@ RUN python -m uv pip install \
     "aiosqlite>=0.20.0" \
     "apscheduler>=3.11.0" \
     "authlib>=1.6.9" \
+    "certifi>=2026.10.19" \
     "chardet>=5.0.0" \
     "click>=8.0.0" \
     "cryptography>=46.0.6" \
@@ -86,6 +91,8 @@ RUN python -m uv pip install \
     "zeroconf>=0.130.0" \
     && python -m uv pip install -e . --no-deps \
     && rm -rf /root/.cache/uv /root/.cache/pip
+
+RUN python /usr/local/bin/verify_tls_trust.py --require-pip --system
 
 # Conditionally pre-download ONNX embedding models
 RUN if [ "$SKIP_MODEL_DOWNLOAD" != "true" ]; then \

@@ -63,7 +63,7 @@ pytest tests/
 
 ## Development Conventions
 
-*   **Python 3.10+:** The project requires Python 3.10 or higher.
+*   **Python 3.11+:** The project requires Python 3.11 or higher.
 *   **Type Hinting:** The codebase uses type hints extensively to improve code clarity and maintainability.
 *   **Async/Await:** The project uses the `async/await` pattern for all I/O operations to ensure high performance and scalability.
 *   **PEP 8:** The code follows the PEP 8 style guide.

@@ -9,6 +9,7 @@ import asyncio
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class PDFLoader(DocumentLoader):
         extract_tables = kwargs.get('extract_tables', False)
         page_range = kwargs.get('page_range', None)
 
-        logger.info(f"Extracting chunks from PDF: {file_path} using {self.backend}")
+        logger.info("Extracting chunks from PDF: %s using %s", _sanitize_log_value(file_path), self.backend)
 
         try:
             if self.backend == 'pdfplumber':
@@ -118,7 +119,7 @@ class PDFLoader(DocumentLoader):
                     yield chunk
 
         except Exception as e:
-            logger.error(f"Error extracting from PDF {file_path}: {str(e)}")
+            logger.error("Error extracting from PDF %s: %s", _sanitize_log_value(file_path), _sanitize_log_value(e))
             raise ValueError(f"Failed to extract PDF content: {str(e)}") from e
 
     async def _extract_with_pdfplumber(

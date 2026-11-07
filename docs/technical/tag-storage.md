@@ -1,54 +1,22 @@
-# Tag Storage Procedure
+# Tag Storage (Historical)
 
-## File Structure Overview
-```
-mcp_memory_service/
-├── tests/
-│   └── test_tag_storage.py    # Integration tests
-├── scripts/
-│   ├── validate_memories.py   # Validation script
-│   └── migrate_tags.py        # Migration script
-```
+> **Historical document.** This page described the one-off tag migration that ran
+> against a ChromaDB collection. ChromaDB was removed in v8.0.0, and the
+> `validate_memories.py` and `migrate_tags.py` scripts it referenced are gone.
 
-## Execution Steps
+## Current tag storage
 
-1. **Run Initial Validation**
-   ```bash
-   python scripts/validate_memories.py
-   ```
-   - Generates validation report of current state
+SQLite-vec stores tags alongside the memory in the `memories.tags` column;
+Cloudflare keeps them in the relational `tags` / `memory_tags` tables. No
+migration step is required on current releases: the schema is created and
+populated when memories are written.
 
-2. **Run Integration Tests**
-   ```bash
-   python tests/test_tag_storage.py
-   ```
-   - Verifies functionality
+For backend setup and maintenance commands, see
+[`docs/guides/STORAGE_BACKENDS.md`](../guides/STORAGE_BACKENDS.md) and
+[`scripts/README.md`](../../scripts/README.md).
 
-3. **Execute Migration**
-   ```bash
-   python scripts/migrate_tags.py
-   ```
-   The script will:
-   - Create a backup automatically
-   - Run validation check
-   - Ask for confirmation before proceeding
-   - Perform migration
-   - Verify the migration
+## Legacy ChromaDB data
 
-4. **Post-Migration Validation**
-   ```bash
-   python scripts/validate_memories.py
-   ```
-   - Confirms successful migration
-
-## Monitoring Requirements
-- Keep backup files for at least 7 days
-- Monitor logs for any tag-related errors
-- Run validation script daily for the first week
-- Check search functionality with various tag formats
-
-## Rollback Process
-If issues are detected, use:
-```bash
-python scripts/migrate_tags.py --rollback
-```
+If you still have a ChromaDB database, convert it to SQLite-vec with the v7.6.0
+release before upgrading — see
+[`docs/guides/chromadb-migration.md`](../guides/chromadb-migration.md).

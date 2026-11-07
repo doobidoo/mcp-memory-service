@@ -278,6 +278,25 @@ OAUTH_REFRESH_TOKEN_EXPIRE_DAYS = safe_get_int_env('MCP_OAUTH_REFRESH_TOKEN_EXPI
 # OAuth security configuration
 ALLOW_ANONYMOUS_ACCESS = safe_get_bool_env('MCP_ALLOW_ANONYMOUS_ACCESS', False)
 
+# Scope granted to anonymous (un-authenticated) callers when
+# MCP_ALLOW_ANONYMOUS_ACCESS=true. Defaults to full "read write" so existing
+# anonymous deployments are unchanged. Operators running mixed access (some
+# agents authenticated with per-store OAuth scopes, others anonymous) can narrow
+# this to, e.g., "read:default" so un-authenticated callers get read-only access
+# to the shared `default` store while never reaching other partitions, the
+# cross-partition `store=all` sentinel, or the SSE firehose. A space-delimited
+# scope string, same grammar as issued tokens; "" grants nothing (every
+# store-scoped route returns 403). To disable anonymous access entirely, set
+# MCP_ALLOW_ANONYMOUS_ACCESS=false instead.
+def _resolve_anonymous_scope(raw):
+    """Resolve MCP_ANONYMOUS_SCOPE: unset (None) -> full "read write" (unchanged
+    default); set-but-empty ("") -> grants nothing. The distinction is
+    deliberate, so a plain ``os.getenv(...) or default`` would be wrong here."""
+    return ('read write' if raw is None else raw).strip()
+
+
+ANONYMOUS_ACCESS_SCOPE = _resolve_anonymous_scope(os.getenv('MCP_ANONYMOUS_SCOPE'))
+
 # Rate limiting + concurrency caps for the auth endpoints (/oauth/authorize,
 # /oauth/token, /oauth/register). In-process, per-client-IP — protects a single
 # instance against credential-stuffing / brute force / request floods.

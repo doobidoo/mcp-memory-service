@@ -10,7 +10,7 @@ name = "mcp-memory-service-lite"
 version = "10.72.0"
 description = "Lightweight semantic memory service with ONNX embeddings - no PyTorch required. 80% smaller install size. REST API + MCP transport."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = [
     "semantic-memory", "ai-memory", "agent-memory", "long-term-memory",
     "vector-database", "semantic-search", "memory-consolidation",
@@ -26,7 +26,6 @@ classifiers = [
     "Topic :: Database :: Database Engines/Servers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
@@ -41,8 +40,9 @@ maintainers = [
 ]
 license = { text = "Apache-2.0" }
 dependencies = [
+    "certifi>=2026.10.19",
     "tokenizers==0.20.3",
-    "mcp>=1.8.0,<2.0.0",
+    "mcp>=1.19.0,<2.0.0",
     "python-dotenv>=1.0.0",
     "sqlite-vec>=0.1.0",
     "build>=0.10.0",

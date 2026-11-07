@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 
 VALID_TYPES = {"decision", "bug", "convention", "learning", "context"}
 
+
+def build_openai_compatible_payload(model: str, messages: list, max_tokens: int, temperature: float) -> dict:
+    """Build a chat-completions payload compatible with GPT-5 reasoning models."""
+    payload = {"model": model, "stream": False, "messages": messages}
+    if model.startswith("gpt-5"):
+        payload["max_completion_tokens"] = max_tokens + 800
+    else:
+        payload["temperature"] = temperature
+        payload["max_tokens"] = max_tokens
+    return payload
+
 # Models sometimes echo the literal placeholder word "TYPE" or "<type>" from the prompt
 # instead of substituting the real type, e.g. "TYPE: convention — <text>" or "<type>: text".
 # This strips that leaked wrapper and recovers the real type + content.
@@ -230,6 +241,24 @@ class RewriteResult:
     model: Optional[str] = None
 
 
+class _Skipped:
+    """Batch slot the LLM answered with SKIP: rejected on purpose, not lost (#1560).
+
+    Falsy, so callers that test ``if result:`` treat it exactly like ``None``;
+    only the harvester's ``rewrite_dropped`` count tells the two apart.
+    """
+    __slots__ = ()
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "SKIPPED"
+
+
+SKIPPED = _Skipped()
+
+
 class HarvestRewriter:
     """Rewrites harvest candidates into standalone insights using an LLM.
 
@@ -383,6 +412,7 @@ class HarvestRewriter:
             if idx < 0 or idx >= len(items):
                 continue
             if content.upper().startswith("SKIP"):
+                results[idx] = SKIPPED
                 continue
             # Parse TYPE: content
             type_match = re.match(r'^(\w+):\s*(.+)$', content, re.DOTALL)
@@ -498,12 +528,9 @@ class HarvestRewriter:
             resp = await client.post(
                 f"{base_url}/chat/completions",
                 headers=headers,
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 200,
-                },
+                json=build_openai_compatible_payload(
+                    model, [{"role": "user", "content": prompt}], 200, 0.3
+                ),
             )
             if resp.status_code == 429:
                 raise Exception(f"Rate limit exceeded: {resp.text[:100]}")

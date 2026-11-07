@@ -39,7 +39,11 @@ from .store_scope import resolve_store
 _TIME_SEARCH_CANDIDATE_POOL_SIZE = 100  # Number of candidates to retrieve for time filtering (reduced for performance)
 
 # OAuth authentication imports
-from ..oauth.middleware import AuthenticationResult, require_read_access
+from ..oauth.middleware import (
+    AuthenticationResult,
+    require_store_read,
+    get_current_user,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +60,11 @@ class SemanticSearchRequest(BaseModel):
     quality_boost: bool = Field(default=False, description="Enable quality-boosted reranking using AI quality scores")
     quality_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="Weight for quality score in reranking (0.0-1.0)")
     store: str = Field(default="default", description="Target store partition (default: 'default'). Use 'all' for every store.")
+    include_superseded: bool = Field(default=False, description="Include memories superseded by newer contradicting memories. Superseded results carry status/superseded_by/superseded_at fields.")
+    as_of: Optional[str] = Field(
+        None,
+        description="Point-in-time query (issue #1724): return what was known at this moment. ISO date/datetime, 'YYYY', or 'YYYY-MM' (period evaluated at its last second).",
+    )
 
 
 class TagSearchRequest(BaseModel):
@@ -86,6 +95,11 @@ class SearchResult(BaseModel):
     memory: MemoryResponse
     similarity_score: Optional[float] = Field(None, description="Similarity score (0-1, higher is more similar)")
     relevance_reason: Optional[str] = Field(None, description="Why this result was included")
+    # Issue #1724: point-in-time status flags (populated when
+    # include_superseded=true).
+    status: Optional[str] = Field(None, description="'current' or 'superseded'")
+    superseded_by: Optional[str] = Field(None, description="Content hash of the replacing memory")
+    superseded_at: Optional[float] = Field(None, description="Unix timestamp when superseded")
 
 
 class SearchResponse(BaseModel):
@@ -97,12 +111,34 @@ class SearchResponse(BaseModel):
     processing_time_ms: Optional[float] = None
 
 
-def memory_query_result_to_search_result(query_result: MemoryQueryResult) -> SearchResult:
-    """Convert MemoryQueryResult to SearchResult format."""
+def memory_query_result_to_search_result(
+    query_result: MemoryQueryResult,
+    include_status: bool = False,
+    as_of_ts: Optional[float] = None,
+) -> SearchResult:
+    """Convert MemoryQueryResult to SearchResult format.
+
+    include_status (issue #1724): attach the 'current'/'superseded' status
+    flag plus superseded_by/superseded_at when the caller passed
+    include_superseded=true. The status is evaluated at as_of when given:
+    a supersede that happened after as_of still shows 'current'.
+    """
+    import time as _time  # inline import: keep optional dependencies lazy
+
+    sup_by = query_result.superseded_by
+    sup_at = query_result.superseded_at
+    status = None
+    if include_status:
+        query_ts = as_of_ts if as_of_ts is not None else _time.time()
+        is_superseded = bool(sup_by) and (sup_at is None or sup_at <= query_ts)
+        status = "superseded" if is_superseded else "current"
     return SearchResult(
         memory=memory_to_response(query_result.memory),
         similarity_score=query_result.relevance_score,
-        relevance_reason=f"Semantic similarity: {query_result.relevance_score:.3f}" if query_result.relevance_score else None
+        relevance_reason=f"Semantic similarity: {query_result.relevance_score:.3f}" if query_result.relevance_score else None,
+        status=status,
+        superseded_by=sup_by if include_status else None,
+        superseded_at=sup_at if include_status else None,
     )
 
 
@@ -120,6 +156,11 @@ def _search_result_to_plugin_row(result: SearchResult) -> dict[str, Any]:
     row = result.memory.model_dump()
     row["similarity_score"] = result.similarity_score
     row["relevance_reason"] = result.relevance_reason
+    # Issue #1724: the status flags live on SearchResult, not MemoryResponse,
+    # so they must ride along explicitly or the round trip drops them.
+    row["status"] = result.status
+    row["superseded_by"] = result.superseded_by
+    row["superseded_at"] = result.superseded_at
     return row
 
 
@@ -129,6 +170,9 @@ def _plugin_row_to_search_result(row: dict[str, Any]) -> SearchResult:
         memory=MemoryResponse(**row),
         similarity_score=row.get("similarity_score"),
         relevance_reason=row.get("relevance_reason"),
+        status=row.get("status"),
+        superseded_by=row.get("superseded_by"),
+        superseded_at=row.get("superseded_at"),
     )
 
 
@@ -159,7 +203,7 @@ async def semantic_search(
     request: SemanticSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
     """
     Perform semantic similarity search on memory content.
@@ -172,8 +216,23 @@ async def semantic_search(
 
     This surfaces high-quality memories that may have slightly lower semantic match.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
+
+    # Per-store read gate (store is in the request body).
+    user.require_store_scope("read", resolve_store(request.store))
+
+    # Issue #1724: point-in-time query. Invalid as_of fails the request.
+    as_of_ts = None
+    if request.as_of is not None:
+        from ...utils.time_parser import parse_as_of
+        try:
+            as_of_ts = parse_as_of(request.as_of)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid as_of value: {e}. Use YYYY, YYYY-MM, or an ISO date/datetime.",
+            )
 
     try:
         # Over-fetch if quality boost is enabled (3x to ensure good reranking pool)
@@ -184,6 +243,8 @@ async def semantic_search(
             query=request.query,
             n_results=fetch_limit,
             store=resolve_store(request.store),
+            include_superseded=request.include_superseded,
+            as_of=as_of_ts,
         )
 
         # Filter by similarity threshold if specified
@@ -214,7 +275,11 @@ async def semantic_search(
         # Convert to search results
         search_results = []
         for result in query_results:
-            search_result = memory_query_result_to_search_result(result)
+            search_result = memory_query_result_to_search_result(
+                result,
+                include_status=request.include_superseded,
+                as_of_ts=as_of_ts,
+            )
             # Include composite score in reason if quality boost was used
             if request.quality_boost and hasattr(result, '_composite_score'):
                 quality_score = result.memory.metadata.get('quality_score', 0.5)
@@ -259,7 +324,7 @@ async def tag_search(
     request: TagSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
     """
     Search memories by tags with optional time filtering.
@@ -270,8 +335,11 @@ async def tag_search(
     Optionally filters by time range using natural language expressions like
     'last week', 'yesterday', 'this month', etc.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
+
+    # Per-store read gate (store is in the request body).
+    user.require_store_scope("read", resolve_store(request.store))
 
     try:
         if not request.tags:
@@ -290,6 +358,7 @@ async def tag_search(
             tags=request.tags,
             tag_match="all" if request.match_all else "any",
             exclude_pending=True,  # search surface: hide possibly-stale vectors (ADR-0016)
+            include_superseded=False,  # search surface: current versions only (#1803)
         )
         if time_start is not None:
             memories = [
@@ -359,7 +428,7 @@ async def time_search(
     request: TimeSearchRequest,
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(get_current_user)
 ):
     """
     Search memories by time-based queries.
@@ -368,8 +437,11 @@ async def time_search(
     'this month', etc. Currently implements basic time filtering - full natural
     language parsing can be enhanced later.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
+
+    # Per-store read gate (store is in the request body).
+    user.require_store_scope("read", resolve_store(request.store))
 
     try:
         # Parse time query using robust time_parser
@@ -454,7 +526,7 @@ async def find_similar(
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
     memory_service: MemoryService = Depends(get_memory_service),
-    user: AuthenticationResult = Depends(require_read_access)
+    user: AuthenticationResult = Depends(require_store_read)
 ):
     """
     Find memories similar to a specific memory identified by its content hash.
@@ -462,7 +534,7 @@ async def find_similar(
     Uses the content of the specified memory as a search query to find
     semantically similar memories.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
 
     try:

@@ -6,7 +6,7 @@
 
 Migration support depends on which backend you are moving between. See:
 
-- **[ChromaDB → SQLite-vec / Hybrid / Cloudflare](../guides/chromadb-migration.md)** — Historical migration path for users still running the legacy `chromadb-legacy` branch
+- **[ChromaDB → SQLite-vec / Hybrid / Cloudflare](../guides/chromadb-migration.md)** — Historical migration path for users still running the legacy `chromadb-legacy-final` tag (v7.6.0)
 - **[Storage Backends Guide](../guides/STORAGE_BACKENDS.md)** — Choosing between SQLite-vec, Cloudflare, and Hybrid
 - **[Cloudflare Setup](../cloudflare-setup.md)** — Moving from SQLite-vec to Cloudflare / Hybrid
 

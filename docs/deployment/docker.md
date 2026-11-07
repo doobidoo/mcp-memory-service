@@ -134,7 +134,7 @@ docker-compose -f docker-compose.pythonpath.yml up -d
 
 ```bash
 # Build the Docker image
-docker build -t mcp-memory-service .
+docker build -f tools/docker/Dockerfile -t mcp-memory-service .
 
 # Create directories for persistent storage
 mkdir -p ./data/sqlite_db ./data/backups
@@ -726,10 +726,10 @@ docker exec -it memory-service bash
 
 ```bash
 # Build with specific tag
-docker build -t mcp-memory-service:v1.2.3 .
+docker build -f tools/docker/Dockerfile -t mcp-memory-service:v1.2.3 .
 
 # Build for multiple platforms
-docker buildx build --platform linux/amd64,linux/arm64 -t mcp-memory-service:latest .
+docker buildx build --platform linux/amd64,linux/arm64 -f tools/docker/Dockerfile -t mcp-memory-service:latest .
 
 # Push to registry
 docker push mcp-memory-service:latest

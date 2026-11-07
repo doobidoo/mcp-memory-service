@@ -26,6 +26,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     bash \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
@@ -36,8 +37,11 @@ COPY pyproject.toml .
 COPY uv.lock .
 COPY README.md .
 COPY scripts/installation/install_uv.py .
+COPY scripts/ci/verify_tls_trust.py /usr/local/bin/verify_tls_trust.py
+COPY scripts/ci/bootstrap_pip.py /usr/local/bin/bootstrap_pip.py
 
-RUN python install_uv.py && \
+RUN python /usr/local/bin/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt && \
+    python install_uv.py && \
     mkdir -p /app/sqlite_db /app/backups
 
 # Copy source code
@@ -79,6 +83,8 @@ RUN if [ "$FORCE_CPU_PYTORCH" = "true" ]; then \
         echo "Installing optional dependencies: ${INSTALL_EXTRA}..." && \
         python -m uv pip install -e ".${INSTALL_EXTRA}"; \
     fi
+
+RUN python /usr/local/bin/verify_tls_trust.py --require-pip --system
 
 # Verify the ONNX embedding backend is actually usable. It needs BOTH onnxruntime
 # and tokenizers; a missing tokenizers used to slip through unnoticed and left the

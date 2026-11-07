@@ -72,6 +72,10 @@ SOFT_REF_ALLOWLIST=(
   "docs/implementation/performance.md"
   "docs/implementation/health_checks.md"
   "docs/guides/STORAGE_BACKENDS.md"
+  # Added 2026-10-22 (#1621): historical pointers only. Both files name the
+  # retired backend while sending readers to docs/guides/chromadb-migration.md.
+  "docs/guides/scripts.md"
+  "docs/technical/tag-storage.md"
 )
 
 SCAN_TARGETS=("docs/" "README.md")

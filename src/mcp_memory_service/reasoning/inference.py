@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-from ..compat import _sanitize_log_value
+from mcp_memory_service.compat import _sanitize_log_value
 
 TRAVERSABLE_EDGE_TYPES = {'relates_to', 'superseded_by', 'causes', 'fixes', 'related'}
 NON_TRAVERSABLE = {'contradicts', 'contradicted_by'}
@@ -70,7 +70,7 @@ class SemanticReasoner:
             # connected is List[Tuple[str, int]]
             return [mem_hash for mem_hash, distance in connected]
         except Exception as e:
-            logger.error(f"Failed to get connected memories: {e}")
+            logger.error("Failed to get connected memories: %s", _sanitize_log_value(e))
             return []
 
     async def detect_contradictions(self, hash: str) -> List[str]:
@@ -91,7 +91,7 @@ class SemanticReasoner:
             # Find memories with "contradicts" relationship
             return await self._get_connected(hash, "contradicts")
         except Exception as e:
-            logger.error(f"Failed to detect contradictions for {hash}: {e}")
+            logger.error("Failed to detect contradictions for %s: %s", _sanitize_log_value(hash), _sanitize_log_value(e))
             return []
 
     async def find_fixes(self, error_hash: str) -> List[str]:
@@ -113,7 +113,7 @@ class SemanticReasoner:
             # Use direction="incoming" to find sources that fix this target
             return await self._get_connected(error_hash, "fixes", direction="incoming")
         except Exception as e:
-            logger.error(f"Failed to find fixes for {error_hash}: {e}")
+            logger.error("Failed to find fixes for %s: %s", _sanitize_log_value(error_hash), _sanitize_log_value(e))
             return []
 
     async def find_causes(self, error_hash: str) -> List[str]:
@@ -135,7 +135,7 @@ class SemanticReasoner:
             # Use direction="incoming" to find what caused this error
             return await self._get_connected(error_hash, "causes", direction="incoming")
         except Exception as e:
-            logger.error(f"Failed to find causes for {error_hash}: {e}")
+            logger.error("Failed to find causes for %s: %s", _sanitize_log_value(error_hash), _sanitize_log_value(e))
             return []
 
     async def abstract_to_concept(self, hash: str) -> Optional[str]:
@@ -200,7 +200,7 @@ class SemanticReasoner:
                 for src, tgt, dist in results
             ]
         except Exception as e:
-            logger.error(f"Failed to infer transitive relationships: {e}")
+            logger.error("Failed to infer transitive relationships: %s", _sanitize_log_value(e))
             return []
 
     async def abduct(self, effect_hash: str, max_depth: int = 2) -> List[Dict[str, Any]]:

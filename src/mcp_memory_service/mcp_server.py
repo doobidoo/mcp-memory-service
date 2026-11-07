@@ -15,6 +15,7 @@ Features:
 """
 
 import asyncio
+import json
 import logging
 import sys
 import time
@@ -44,6 +45,7 @@ sys.path.insert(0, str(src_dir))
 # This module is kept for future compatibility
 try:
     from mcp.server.fastmcp import FastMCP, Context
+    from mcp.server.fastmcp.exceptions import ToolError
 except ImportError:
     logger_temp = logging.getLogger(__name__)
     logger_temp.warning("FastMCP not available in mcp library - mcp_server module cannot be used")
@@ -58,6 +60,7 @@ except ImportError:
     
     FastMCP = _DummyFastMCP  # type: ignore
     Context = None  # type: ignore
+    ToolError = RuntimeError  # type: ignore
 
 from mcp.types import ToolAnnotations
 
@@ -74,6 +77,7 @@ from .storage.base import MemoryStorage
 from .services.memory_service import MemoryService
 from .services.graph_service import GraphService
 from .storage.graph import GraphStorage
+from .utils.tool_rate_limit import ToolRateLimiter, resolve_caller_identity
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Default to INFO level
@@ -345,6 +349,72 @@ class StoreMemoryFailure(TypedDict):
     chunk_hashes: NotRequired[List[str]]
 
 # =============================================================================
+# PER-CALLER RATE LIMITING (#1606)
+# =============================================================================
+# The @mcp.tool functions below call MemoryService directly and never go
+# through MemoryServer.call_tool, so they run the same limiter check
+# themselves. Unlimited by default; configured with MCP_RATE_LIMIT_PER_MINUTE
+# and per-tool MCP_RATE_LIMIT_<tool> overrides, keyed by this server's tool
+# names (e.g. MCP_RATE_LIMIT_store_memory).
+
+_tool_rate_limiter = ToolRateLimiter()
+
+
+def _rate_limit_caller_identity(ctx: Context) -> str:
+    """Resolve the rate-limit identity for the current tool call.
+
+    Mirrors ``MemoryServer._rate_limit_caller_identity``: the ``X-Agent-ID``
+    header, then the socket peer IP, then one per-process bucket when there
+    is no HTTP request (stdio). Never reads tool arguments: ``agent_id`` on
+    ``retrieve_memory``/``list_memories`` is an author filter, not the caller.
+    """
+
+    try:
+        request = ctx.request_context.request
+    except (LookupError, AttributeError, ValueError):
+        request = None
+    if request is None:
+        return resolve_caller_identity(None, None)
+    header = request.headers.get("X-Agent-ID")
+    client = request.client
+    host = client.host if client is not None else None
+    return resolve_caller_identity(header, host)
+
+
+def _check_rate_limit(ctx: Context, tool_name: str) -> None:
+    """Raise ``ToolError`` when the caller is over its limit for this tool.
+
+    Fails open, as ``MemoryServer.call_tool`` does: a limiter failure is
+    logged and the call goes ahead. FastMCP turns the raised ``ToolError``
+    into a tool result with ``isError: true``.
+    """
+
+    try:
+        decision = _tool_rate_limiter.check(_rate_limit_caller_identity(ctx), tool_name)
+    except Exception:
+        logger.exception("MCP tool rate limiter failed; allowing request")
+        return
+    if decision.allowed:
+        return
+    if decision.should_log:
+        logger.warning(
+            "MCP tool rate limit exceeded for tool %s",
+            _sanitize_log_value(tool_name),
+        )
+    payload = {
+        "error": {
+            "code": -32029,
+            "type": "rate_limit_exceeded",
+            "message": "MCP tool rate limit exceeded",
+            "tool": tool_name,
+            "limit_per_minute": decision.limit_per_minute,
+            "retry_after_seconds": decision.retry_after_seconds,
+        }
+    }
+    raise ToolError(json.dumps(payload))
+
+
+# =============================================================================
 # CORE MEMORY OPERATIONS
 # =============================================================================
 
@@ -360,7 +430,8 @@ async def store_memory(
     tags: Union[str, List[str], None] = None,
     memory_type: str = "note",
     metadata: Optional[Dict[str, Any]] = None,
-    client_hostname: Optional[str] = None
+    client_hostname: Optional[str] = None,
+    restore_deleted: bool = False
 ) -> Union[StoreMemorySuccess, StoreMemorySplitSuccess, StoreMemoryFailure]:
     """Store new information in persistent memory with semantic search capabilities and optional categorization.
 
@@ -389,6 +460,12 @@ TAG FORMATS (all supported):
 - Single: "single-tag"
 - Both tags parameter AND metadata.tags are merged automatically
 
+DELETED CONTENT (restore_deleted):
+- Content that was deleted on this server is NOT silently re-created: the tool answers
+  success=false with "Not stored: this content was deleted on <date>; pass
+  restore_deleted=true to bring it back". That is a refusal, not an error.
+- Pass restore_deleted=true only when the user deliberately wants the deleted memory back.
+
 RETURNS:
 - success: Boolean indicating storage status
 - message: Status message
@@ -413,6 +490,7 @@ Examples:
     }
 }
     """
+    _check_rate_limit(ctx, "store_memory")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     # RFC mcp-hostname-stamping: resolve server host when the client omits it and
@@ -423,7 +501,8 @@ Examples:
         tags=tags,
         memory_type=memory_type,
         metadata=metadata,
-        client_hostname=_resolve_hostname(client_hostname)
+        client_hostname=_resolve_hostname(client_hostname),
+        restore_deleted=restore_deleted,
     )
 
     # Transform MemoryService response to MCP tool format
@@ -509,6 +588,7 @@ Examples:
     "n_results": 3
 }
     """
+    _check_rate_limit(ctx, "retrieve_memory")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.retrieve_memories(
@@ -572,6 +652,7 @@ Examples:
     "tags": ["api-documentation"]
 }
     """
+    _check_rate_limit(ctx, "search_by_tag")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.search_by_tag(
@@ -629,6 +710,7 @@ retrieve_memory(query: "outdated API documentation")
     "content_hash": "a1b2c3d4e5f6..."
 }
     """
+    _check_rate_limit(ctx, "delete_memory")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.delete_memory(content_hash)
@@ -680,6 +762,7 @@ Common use cases:
 - User: "Is the memory service working?" → check_database_health()
 - User: "What backend are we using?" → check_database_health()
     """
+    _check_rate_limit(ctx, "check_database_health")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.health_check()
@@ -748,6 +831,7 @@ Examples:
     "memory_type": "decision"
 }
     """
+    _check_rate_limit(ctx, "list_memories")
     # Delegate to shared MemoryService business logic
     memory_service = ctx.request_context.lifespan_context.memory_service
     return await memory_service.list_memories(
@@ -798,6 +882,7 @@ Examples:
 {"action": "path", "hash1": "abc123...", "hash2": "def456..."}
 {"action": "subgraph", "hash": "abc123...", "radius": 3}
     """
+    _check_rate_limit(ctx, "memory_graph")
     graph_service = ctx.request_context.lifespan_context.graph_service
 
     if action == "connected":
@@ -849,6 +934,7 @@ async def get_cache_stats(ctx: Context) -> Dict[str, Any]:
         - performance: Initialization time statistics (avg/min/max)
         - backend_info: Current storage backend configuration
     """
+    _check_rate_limit(ctx, "get_cache_stats")
     global _CACHE_STATS, _STORAGE_CACHE, _MEMORY_SERVICE_CACHE
 
     # Import shared stats calculation utility

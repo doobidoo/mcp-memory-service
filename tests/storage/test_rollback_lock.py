@@ -76,3 +76,84 @@ async def test_error_rollback_waits_for_connection_lock(storage, monkeypatch):
     holder.join(timeout=2)
     assert not holder.is_alive()
     assert result[0] is False
+
+
+@pytest.mark.asyncio
+async def test_remote_tombstone_failure_cannot_rollback_a_concurrent_store(
+    storage, monkeypatch
+):
+    """A failed tombstone transaction must roll back before releasing the DB lock."""
+    deleted_memory = Memory(
+        content="memory whose remote tombstone event will fail",
+        content_hash="remote-delete-target",
+        updated_at=1.0,
+    )
+    concurrent_memory = Memory(
+        content="independent memory stored while tombstone handling fails",
+        content_hash="concurrent-store-target",
+        updated_at=2.0,
+    )
+    assert (await storage.store(deleted_memory))[0]
+
+    hook_entered = threading.Event()
+    release_failure = threading.Event()
+    original_append = storage._append_sync_event
+
+    def fail_tombstone_event(conn, operation, content_hash, payload, **kwargs):
+        if operation == "delete" and content_hash == deleted_memory.content_hash:
+            hook_entered.set()
+            assert release_failure.wait(timeout=3)
+            raise RuntimeError("synthetic sync-event failure")
+        return original_append(conn, operation, content_hash, payload, **kwargs)
+
+    monkeypatch.setattr(storage, "_append_sync_event", fail_tombstone_event)
+
+    original_run = storage._run_in_thread
+    store_inserted = asyncio.Event()
+    delete_finished = asyncio.Event()
+    rollback_finished = asyncio.Event()
+
+    async def coordinate_shared_connection(operation, *args):
+        is_connection_method = getattr(operation, "__self__", None) is storage.conn
+        operation_name = getattr(operation, "__name__", "")
+
+        if is_connection_method and operation_name == "rollback":
+            await asyncio.wait_for(store_inserted.wait(), timeout=3)
+            result = await original_run(operation, *args)
+            rollback_finished.set()
+            return result
+
+        if is_connection_method and operation_name == "commit" and store_inserted.is_set():
+            waiters = [
+                asyncio.create_task(delete_finished.wait()),
+                asyncio.create_task(rollback_finished.wait()),
+            ]
+            done, pending = await asyncio.wait(
+                waiters, timeout=3, return_when=asyncio.FIRST_COMPLETED
+            )
+            for waiter in pending:
+                waiter.cancel()
+            assert done, "neither tombstone rollback nor completion released the store"
+        result = await original_run(operation, *args)
+        if operation_name == "insert_memory_and_embedding":
+            store_inserted.set()
+        return result
+
+    monkeypatch.setattr(storage, "_run_in_thread", coordinate_shared_connection)
+    tombstone_task = asyncio.create_task(
+        storage.delete_if_not_updated_after(deleted_memory.content_hash, 10.0)
+    )
+    assert await asyncio.to_thread(hook_entered.wait, 3)
+    store_task = asyncio.create_task(storage.store(concurrent_memory))
+    release_failure.set()
+
+    try:
+        tombstone_result = await asyncio.wait_for(tombstone_task, timeout=5)
+    finally:
+        delete_finished.set()
+    store_result = await asyncio.wait_for(store_task, timeout=5)
+
+    assert tombstone_result == "failed"
+    assert store_result[0] is True
+    assert store_inserted.is_set()
+    assert await storage.get_by_hash(concurrent_memory.content_hash) is not None

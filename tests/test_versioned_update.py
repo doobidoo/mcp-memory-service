@@ -135,6 +135,38 @@ def test_memory_update_schema_declares_versioned_fields():
     assert "reason" in updates_props
 
 
+def test_versioned_schema_names_the_backends_that_support_it():
+    """The memory_update tool tells clients which backends take versioned=true.
+
+    The handler only checks ``hasattr(storage, "update_memory_versioned")``, so
+    that is the source of truth. The schema said "sqlite_vec only" after Milvus
+    gained the method, steering clients away from a working call on Milvus.
+    """
+    from mcp_memory_service.storage.cloudflare import CloudflareStorage
+    from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+    from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+    from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
+    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+    from mcp_memory_service.tools.registry import TOOL_REGISTRY
+
+    backends = {
+        "sqlite_vec": SqliteVecMemoryStorage,
+        "milvus": MilvusMemoryStorage,
+        "hybrid": HybridMemoryStorage,
+        "cloudflare": CloudflareStorage,
+        "remote_http": RemoteHTTPStorage,
+    }
+    supported = {name for name, cls in backends.items() if hasattr(cls, "update_memory_versioned")}
+
+    tool = next(t for t in TOOL_REGISTRY if t.name == "memory_update")
+    description = tool.input_schema["properties"]["versioned"]["description"]
+    listed = description.split("Supported backends:", 1)[1].split(".", 1)[0]
+    named = {name.strip() for name in listed.split(",")}
+
+    assert named == supported
+    assert "milvus" in tool.description and "sqlite_vec only" not in tool.description
+
+
 @pytest.mark.asyncio
 async def test_inplace_update_strips_versioned_only_fields():
     """content/reason are versioned-only and must not reach update_memory_metadata.

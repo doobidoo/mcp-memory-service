@@ -63,19 +63,13 @@ class Memory:
             updated_at_iso=self.updated_at_iso
         )
 
-        # Validate memory_type using ontology
-        if self.memory_type is not None:
-            if not MemoryTypeOntology.validate_memory_type(self.memory_type):
-                logger.warning(
-                    "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
-                    _sanitize_log_value(self.memory_type),
-                    ', '.join(MemoryTypeOntology.get_all_types()[:5]),
-                )
-                self.memory_type = "observation"  # Default to base type
-            else:
-                # Store the canonical form so `Decision` and `decision` are one
-                # type on disk and type filters match either spelling (#176).
-                self.memory_type = canonicalize_memory_type(self.memory_type)
+        # Canonicalize known types so `Decision` and `decision` are one type on
+        # disk and type filters match either spelling (#176). Unknown types are
+        # kept as-is: this constructor also hydrates stored rows, and a node that
+        # lacks a custom type must not turn it into `observation` and write that
+        # back on the next update. New writes coerce via coerce_memory_type().
+        if self.memory_type is not None and MemoryTypeOntology.validate_memory_type(self.memory_type):
+            self.memory_type = canonicalize_memory_type(self.memory_type)
 
         # Default tag when no tags provided
         if not self.tags:
@@ -89,15 +83,17 @@ class Memory:
                 namespace, value = TagTaxonomy.parse_tag(tag)
                 if namespace is not None:  # Has namespace
                     # Direct check using exposed VALID_NAMESPACES (avoids re-parsing)
-                    if namespace not in TagTaxonomy.VALID_NAMESPACES:
+                    if not TagTaxonomy.is_valid_namespace(namespace):
                         invalid_tags.append(tag)
 
             if invalid_tags:
-                logger.info(
+                # DEBUG: __post_init__ runs on every load, so INFO repeated this per read
+                logger.debug(
                     "Tags with invalid namespaces: %s. "
-                    "Valid namespaces: sys:, q:, proj:, topic:, t:, user:. "
+                    "Valid namespaces: %s (add more via MCP_CUSTOM_TAG_NAMESPACES). "
                     "Legacy tags (no namespace) are still supported.",
                     _sanitize_log_value(', '.join(invalid_tags)),
+                    ', '.join(sorted(TagTaxonomy.VALID_NAMESPACES)),
                 )
 
     def _sync_timestamps(self, created_at=None, created_at_iso=None, updated_at=None, updated_at_iso=None):
@@ -458,12 +454,18 @@ class MemoryQueryResult:
     memory: Memory
     relevance_score: float
     debug_info: Dict[str, Any] = field(default_factory=dict)
-    
+    # Issue #1724: supersession lineage, populated by backends that track it
+    # (sqlite_vec / hybrid). superseded_at is the exact replacement moment for
+    # rows superseded after migration 021; for older rows it is approximated
+    # with the successor's created_at (see RetrieveMixin.retrieve).
+    superseded_by: Optional[str] = None
+    superseded_at: Optional[float] = None
+
     @property
     def similarity_score(self) -> float:
         """Alias for relevance_score for backward compatibility."""
         return self.relevance_score
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary representation."""
         return {

@@ -211,3 +211,44 @@ async def test_no_plugin_preserves_http_result_rows():
     )
 
     assert await _apply_retrieve_plugins(service, "query", [original]) == [original]
+
+
+@pytest.mark.asyncio
+async def test_plugin_round_trip_keeps_point_in_time_status():
+    """#1724: status/superseded_by/superseded_at live on SearchResult and must
+    survive the plugin row round trip, or /search returns null status."""
+    from mcp_memory_service.plugins.context import PluginContext
+    from mcp_memory_service.plugins.registry import PluginRegistry
+    from mcp_memory_service.web.api.memories import MemoryResponse
+    from mcp_memory_service.web.api.search import (
+        SearchResult,
+        _apply_retrieve_plugins,
+    )
+
+    service = MemoryService.__new__(MemoryService)
+    service._plugin_registry = PluginRegistry(
+        PluginContext(storage=None, service=service)
+    )
+    original = SearchResult(
+        memory=MemoryResponse(
+            content="old fact",
+            content_hash="old",
+            tags=[],
+            memory_type="note",
+            metadata={},
+            created_at=1.0,
+            created_at_iso="1970-01-01T00:00:01Z",
+            updated_at=1.0,
+            updated_at_iso="1970-01-01T00:00:01Z",
+        ),
+        similarity_score=0.5,
+        relevance_reason="baseline",
+        status="superseded",
+        superseded_by="new",
+        superseded_at=2.0,
+    )
+
+    (restored,) = await _apply_retrieve_plugins(service, "query", [original])
+    assert restored.status == "superseded"
+    assert restored.superseded_by == "new"
+    assert restored.superseded_at == 2.0

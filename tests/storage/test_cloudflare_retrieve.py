@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock
 
 import httpx
@@ -118,6 +119,28 @@ async def test_recall_clamps_topk_to_vectorize_limit():
 
     assert storage._retry_request.call_args.kwargs["json"]["returnMetadata"] == "none"
     assert storage._retry_request.call_args.kwargs["json"]["topK"] == 100
+
+
+async def test_recall_keeps_the_search_text_out_of_info_logs(caplog):
+    # The query is the user's search text. With LOG_LEVEL=INFO honoured in strict
+    # mode, an INFO line carrying it would land in the service log.
+    storage = CloudflareStorage(
+        api_token="token",
+        account_id="account",
+        vectorize_index="index",
+        d1_database_id="database",
+    )
+    storage._generate_embedding = AsyncMock(return_value=[0.1, 0.2])
+    storage._retry_request = AsyncMock(
+        return_value=httpx.Response(200, json={"success": True, "result": {"matches": []}})
+    )
+    storage._load_memory_from_match = AsyncMock(return_value=None)
+
+    with caplog.at_level(logging.INFO, logger="mcp_memory_service.storage.cloudflare"):
+        await storage.recall("private search text", n_results=5)
+
+    info = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+    assert not any("private search text" in m for m in info)
 
 
 def _storage_with_matches(matches, memories):

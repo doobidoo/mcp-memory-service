@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!-- Generated localized introduction. -->
+<html lang="zh-tw">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>給 AI 助理的持久記憶 | MCP Memory Service</title>
+<meta name="description" content="幫 Claude Code 等 AI 助理保存專案知識，之後隨時再找出來。自行架設 MCP Memory Service：支援語意搜尋、MCP 與 REST API。">
+<meta property="og:title" content="給 AI 助理的持久記憶 | MCP Memory Service">
+<meta property="og:description" content="幫 Claude Code 等 AI 助理保存專案知識，之後隨時再找出來。自行架設 MCP Memory Service：支援語意搜尋、MCP 與 REST API。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mcpmemory.services/zh-tw/">
+<meta property="og:locale" content="zh_TW">
+<meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="給 AI 助理的持久記憶 | MCP Memory Service">
+<meta name="twitter:description" content="幫 Claude Code 等 AI 助理保存專案知識，之後隨時再找出來。自行架設 MCP Memory Service：支援語意搜尋、MCP 與 REST API。">
+<meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<link rel="canonical" href="https://mcpmemory.services/zh-tw/">
+<link rel="alternate" hreflang="en" href="https://mcpmemory.services/">
+<link rel="alternate" hreflang="de" href="https://mcpmemory.services/de/">
+<link rel="alternate" hreflang="es" href="https://mcpmemory.services/es/">
+<link rel="alternate" hreflang="fr" href="https://mcpmemory.services/fr/">
+<link rel="alternate" hreflang="ja" href="https://mcpmemory.services/ja/">
+<link rel="alternate" hreflang="ko" href="https://mcpmemory.services/ko/">
+<link rel="alternate" hreflang="pt-br" href="https://mcpmemory.services/pt-br/">
+<link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
+<link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
+<link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/localized.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要內容</a>
+<div class="band">
+  <div class="wrap">
+    <nav class="nav" aria-label="主選單">
+      <a class="brand" href="/zh-tw/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a href="#install">安裝</a>
+    </nav>
+    <nav class="language-switcher" aria-label="選擇語言"><a href="/" lang="en" hreflang="en">English</a>
+<a href="/de/" lang="de" hreflang="de">Deutsch</a>
+<a href="/es/" lang="es" hreflang="es">Español</a>
+<a href="/fr/" lang="fr" hreflang="fr">Français</a>
+<a href="/ja/" lang="ja" hreflang="ja">日本語</a>
+<a href="/ko/" lang="ko" hreflang="ko">한국어</a>
+<a href="/pt-br/" lang="pt-br" hreflang="pt-br">Português (Brasil)</a>
+<a href="/zh-cn/" lang="zh-cn" hreflang="zh-cn">简体中文</a>
+<a href="/zh-tw/" lang="zh-tw" hreflang="zh-tw" aria-current="page">繁體中文</a></nav>
+  </div>
+  <header class="wrap locale-hero">
+    <div>
+      <p class="eyebrow">MCP Memory Service</p>
+      <h1>讓你的 AI 助理記得住</h1>
+      <p class="intro">專案裡做過的決定、偏好和解法，下一次對話也該找得到。MCP Memory Service 把這些知識存在你自己的系統上，讓 Claude Code 等 AI 助理隨時可以搜尋。</p>
+      <div class="btns">
+        <a class="btn" href="#install">開始設定</a>
+        <a href="https://github.com/doobidoo/mcp-memory-service">到 GitHub 看專案</a>
+      </div>
+    </div>
+    <aside class="memory-example" aria-label="對 AI 用戶端提問的範例">
+      <p class="eyebrow">對 AI 用戶端提問的範例</p>
+      <h2>今天先存起來</h2>
+      <p>「記住：這個專案用 PostgreSQL，測試用 pytest。」</p>
+      <h2>下次對話再找回來</h2>
+      <p>「這個專案用哪個資料庫？測試工具是什麼？」</p>
+      <p class="example-note">存入和找回都要由用戶端呼叫記憶工具。上面這些句子只是提問範例，不是固定指令。</p>
+    </aside>
+  </header>
+</div>
+<main id="main">
+  <section class="sec">
+    <div class="wrap">
+      <h2>專案知識留下來，不必每次從頭交代</h2>
+      <p class="lede">你和 AI 助理共用的一份知識庫，可以透過 MCP、REST API 或命令列存取。</p>
+      <div class="locale-cards">
+        <article><h3>找回當初的決定</h3><p>記下為什麼選了某個函式庫、為什麼改了架構。之後直接搜尋當時的理由，不用再翻舊的對話紀錄。</p></article>
+        <article><h3>用語意搜尋</h3><p>就算換個說法問，也能找到之前存下的解法。加上標籤，就能把搜尋範圍縮小到某個專案或主題。</p></article>
+        <article><h3>在自己的電腦上執行</h3><p>用 SQLite 加向量搜尋就能在本機開始使用。這種設定不需要雲端儲存服務，也不需要付費的 Embedding API 金鑰。</p></article>
+      </div>
+    </div>
+  </section>
+  <section class="sec" id="install">
+    <div class="wrap locale-install">
+      <h2>在 Claude Code 中設定</h2>
+      <p class="lede">需要 Python 3.11 以上版本，以及已安裝的 Claude Code 用戶端。其他用戶端也能透過 MCP 連接，設定方式請看英文指南。</p>
+      <ol class="install-steps">
+        <li><h3>安裝 Memory Service</h3><pre><code>pip install 'mcp-memory-service[sqlite]'</code></pre><p>把套件安裝到用戶端能執行其指令的 Python 環境。</p></li>
+        <li><h3>加入為 MCP 伺服器</h3><pre><code>claude mcp add memory -- memory server</code></pre><p>在專案目錄執行這行指令，然後重新啟動 Claude Code。第一次啟動時會下載本機的 Embedding 模型。</p></li>
+        <li><h3>存入第一筆記憶</h3><p>請用戶端存下一條專案慣例。確認工具呼叫成功後，開一個新對話再問一次這條慣例，就能確認存入和找回都正常。</p></li>
+      </ol>
+      <div class="btns">
+        <a class="btn" href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md">完整設定指南（英文）</a>
+        <a href="/demo/">試用瀏覽器展示（英文）</a>
+      </div>
+    </div>
+  </section>
+  <section class="sec">
+    <div class="wrap locale-faq">
+      <h2>常見問題</h2>
+      <details><summary>會自動存下所有對話內容嗎？</summary><p>只透過 MCP 連上服務，並不會自動存下整段對話，還要由用戶端呼叫工具。選用的 hook 和對話匯入功能各有自己的設定步驟。</p></details>
+      <details><summary>記憶會留在我自己的電腦上嗎？</summary><p>使用本機 SQLite 設定時，記憶存在你自己的系統上，Embedding 也在本機計算。AI 用戶端會把哪些資料送給模型供應商，取決於用戶端本身。Cloudflare 儲存與同步都是要另外設定的選項。</p></details>
+      <details><summary>只能搭配 Claude 使用嗎？</summary><p>不是。除了 MCP，服務也提供 REST API 和命令列。其他相容的用戶端和你自己寫的應用程式都能連接。</p></details>
+      <details><summary>MCP Memory Service 是免費的嗎？</summary><p>服務以 Apache 2.0 授權開源，可以自行架設。AI 用戶端的使用費、主機費用以及選用的外部服務，都可能產生額外成本。</p></details>
+    </div>
+  </section>
+</main>
+<footer><div class="wrap">
+  <p>MCP Memory Service 是開源專案。其他文件以英文提供。 <a href="https://github.com/doobidoo/mcp-memory-service/blob/main/CONTRIBUTING.md">參與貢獻</a></p>
+</div></footer>
+<!-- Cloudflare Web Analytics is injected at the proxy; do not add a second beacon. -->
+</body>
+</html>

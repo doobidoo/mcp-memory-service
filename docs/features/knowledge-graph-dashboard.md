@@ -21,10 +21,11 @@
 The Knowledge Graph Dashboard provides an interactive visualization of your memory relationships using D3.js v7.9.0. It allows you to explore the connections between memories, understand causal chains, and discover hidden patterns in your knowledge base.
 
 **Key Capabilities:**
-- **Visual Exploration**: Interactive force-directed graph with zoom, pan, and drag
+- **Visual Exploration**: Interactive force-directed and concentric-ring layouts with zoom, pan,
+  drag, and animated re-centering
 - **Typed Relationships**: 6 semantic relationship types for rich knowledge graphs
 - **Analytics**: Bar chart showing distribution of relationship types
-- **Multi-Language**: Full UI localization in 7 languages
+- **Multi-Language**: Full UI localization in 11 languages
 - **Dark Mode**: Seamless integration with dashboard theme
 - **Performance**: Tested with 2,730 relationships
 
@@ -50,6 +51,21 @@ The graph visualization uses D3.js force simulation to automatically layout memo
 - **Drag Nodes**: Click and drag any node to explore connections
 - **Hover Tooltips**: Shows memory details (content, type, created date)
 
+### Concentric Ring Layout
+
+Use the **Force / Rings** control to switch the 2D graph to a stable, node-centered view. Rings
+represent shortest-path distance from the center: direct neighbors occupy the first ring, their
+neighbors the second, and so on. The highest-degree visible node is used initially.
+
+- **Re-center**: Click a node to animate the rings around it without reloading graph data.
+- **Open details**: Double-click a node while using Rings.
+- **Drag**: Drag remains available for temporary positioning; the next re-center restores the
+  calculated layout.
+- **Disconnected nodes**: Nodes outside the center's component are placed on the outermost ring.
+
+Selecting Rings switches the renderer to 2D. Switching back to 3D restores the force-directed
+layout.
+
 ### Relationship Type Distribution Chart
 
 A Chart.js bar chart displays the breakdown of relationship types in your knowledge graph.
@@ -62,10 +78,10 @@ A Chart.js bar chart displays the breakdown of relationship types in your knowle
 
 ### Multi-Language Support
 
-The dashboard UI is fully localized in 7 languages:
+The dashboard UI is fully localized in 11 languages:
 
-| Language | Code | Translation Keys |
-|----------|------|------------------|
+| Language | Code | Knowledge Graph keys |
+|----------|------|----------------------|
 | English | en | 22 keys |
 | Chinese | zh | 22 keys |
 | German | de | 22 keys |
@@ -73,8 +89,15 @@ The dashboard UI is fully localized in 7 languages:
 | French | fr | 22 keys |
 | Japanese | ja | 22 keys |
 | Korean | ko | 22 keys |
+| Portuguese (Brazil) | pt | 22 keys |
+| Indonesian | id | 22 keys |
+| Hindi | hi | 22 keys |
+| Russian | ru | 22 keys |
 
-**Total:** 154 translation keys added in v9.2.0
+**Historical:** 154 translation keys (22 per language across the 7 languages available at
+the time) were added in v9.2.0. That count is kept for the release notes only.
+The Indonesian catalog carries all 424 keys from `en.json`, and
+`tests/web/test_i18n_id.py` keeps those two catalogs at parity.
 
 ## Relationship Types
 
@@ -160,6 +183,11 @@ memory launch
 - **Mouse**: Click and drag any node to reposition
 - **Release**: Node continues moving with simulation forces
 - **Pin**: Node stays in place while you explore
+
+**Ring Navigation:**
+- Select **Rings** to center the highest-degree visible node
+- Click any node to animate it into the center
+- Double-click a node to open its memory details
 
 **Hover:**
 - **Mouse**: Hover over any node to see tooltip with:
@@ -357,7 +385,7 @@ curl -H "X-API-Key: your-api-key" \
 **Cause:** Language not fully implemented or browser language detection issue
 
 **Solution:**
-1. **Check language support**: Only 7 languages supported (en, zh, de, es, fr, ja, ko)
+1. **Check language support**: Only 8 languages supported (en, zh, de, es, fr, ja, ko, id)
 2. **Manual selection**: Select language in dashboard settings
 3. **Fallback**: Falls back to English if translation missing
 

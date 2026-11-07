@@ -35,7 +35,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.sync.exporter import MemoryExporter
-from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND
+from mcp_memory_service.config import SQLITE_VEC_PATH, STORAGE_BACKEND, EMBEDDING_MODEL_NAME
 
 # Configure logging
 logging.basicConfig(
@@ -81,8 +81,13 @@ async def export_memories(
     try:
         # Initialize storage
         logger.info("Initializing SQLite-vec storage...")
-        storage = SqliteVecMemoryStorage(str(db_path))
-        await storage.initialize()
+        # Same model as the server (factory.py passes EMBEDDING_MODEL_NAME); the bare
+        # default would be all-MiniLM-L6-v2 / 384 whatever MCP_EMBEDDING_MODEL says.
+        storage = SqliteVecMemoryStorage(str(db_path), embedding_model=EMBEDDING_MODEL_NAME)
+        # An export only reads rows (get_all_memories), so open a database built with
+        # another model too, the way `memory status` does, instead of failing on the
+        # #143 dimension guard before anything is written.
+        await storage.initialize(strict_dimension_check=False)
         
         # Create exporter
         exporter = MemoryExporter(storage)

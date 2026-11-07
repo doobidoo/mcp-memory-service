@@ -110,6 +110,12 @@ printf 'def extra():\n    return 1\n' > "$d/src/mcp_memory_service/extra.py"
 printf 'from mcp_memory_service.extra import extra\n\n\ndef test_extra():\n    assert extra() == 1\n' > "$d/tests/test_extra.py"
 run_case "new module with new test passes via collection error" 0 "$d"
 
+# A space in a test path must not split it into two pytest arguments.
+d="$TMP/spaced"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'from mcp_memory_service import answer\n\n\ndef test_answer():\n    assert answer() == 42\n' > "$d/tests/test_spaced answer.py"
+run_case "test path with a space is passed whole" 0 "$d"
+
 # Interpreter that does not import this tree: refuse rather than report a verdict.
 d="$TMP/wrongenv"; new_repo "$d"
 sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
@@ -121,6 +127,40 @@ if [ "$actual" -eq 2 ]; then
     echo "PASS - interpreter outside the tree is refused"
 else
     echo "FAIL - interpreter outside the tree is refused (expected exit 2, got $actual)"
+    echo "$out" | sed 's/^/    /'
+    failures=$((failures + 1))
+fi
+
+# A test module that skips itself at collection (importorskip of an optional extra
+# the job does not install): still a failure, but the message names the module
+# instead of claiming nothing was collected. The exit code is 1 either way, so the
+# case checks the output (#1709).
+d="$TMP/modskip"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'import pytest\n\npytest.importorskip("no_such_module_1709")\n\n\ndef test_answer():\n    assert True\n' > "$d/tests/test_answer.py"
+git_c -C "$d" add -A && git_c -C "$d" commit -q -m pr
+out="$(cd "$d" && env PYTHONPATH="$d/src" PYTHON="$PY" bash "$SCRIPT" main 2>&1)"
+actual=$?
+if [ "$actual" -eq 1 ] && grep -q "not installed in this job: no_such_module_1709" <<<"$out"; then
+    echo "PASS - module skipped at collection fails and names the module"
+else
+    echo "FAIL - module skipped at collection fails and names the module (got exit $actual)"
+    echo "$out" | sed 's/^/    /'
+    failures=$((failures + 1))
+fi
+
+# Same, with importorskip(reason=...): the module name is gone from the skip line,
+# so the failure quotes the reason instead of claiming nothing was collected.
+d="$TMP/modskipreason"; new_repo "$d"
+sed -i.bak 's/return 41/return 42/' "$d/src/mcp_memory_service/__init__.py" && rm "$d/src/mcp_memory_service/__init__.py.bak"
+printf 'import pytest\n\npytest.importorskip("no_such_module_1709", reason="needs the 1709 extra")\n\n\ndef test_answer():\n    assert True\n' > "$d/tests/test_answer.py"
+git_c -C "$d" add -A && git_c -C "$d" commit -q -m pr
+out="$(cd "$d" && env PYTHONPATH="$d/src" PYTHON="$PY" bash "$SCRIPT" main 2>&1)"
+actual=$?
+if [ "$actual" -eq 1 ] && grep -q "needs the 1709 extra" <<<"$out" && ! grep -q "no tests collected" <<<"$out"; then
+    echo "PASS - module skipped with a custom reason fails and quotes the reason"
+else
+    echo "FAIL - module skipped with a custom reason fails and quotes the reason (got exit $actual)"
     echo "$out" | sed 's/^/    /'
     failures=$((failures + 1))
 fi

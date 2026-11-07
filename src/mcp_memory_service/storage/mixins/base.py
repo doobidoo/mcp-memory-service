@@ -14,7 +14,7 @@ import asyncio
 from typing import List, Optional, Callable
 
 try:
-    import sqlite_vec
+    import sqlite_vec  # inline import: keep optional dependencies lazy
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
@@ -32,7 +32,7 @@ def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
     if not blob:
         return None
     try:
-        import numpy as np
+        import numpy as np  # inline import: keep optional dependencies lazy
         arr = np.frombuffer(blob, dtype=np.float32)
         return arr.tolist()
     except Exception as e:
@@ -267,7 +267,7 @@ Failed to load the sqlite-vec extension. This could be due to:
 SOLUTIONS:
   • Reinstall sqlite-vec: pip install --force-reinstall sqlite-vec
   • Switch to Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare
-  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"
+  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"  # debug: intentional example output
 """
             raise RuntimeError(detailed_error.strip())
 
@@ -384,7 +384,14 @@ SOLUTIONS:
             logger.error("Error converting row to memory: %s", _sanitize_log_value(e))
             return None
 
-    def _append_sync_event(self, conn, op: str, content_hash: str, payload: dict) -> None:
+    def _append_sync_event(
+        self,
+        conn,
+        op: str,
+        content_hash: str,
+        payload: dict,
+        hlc_override: tuple[int, int] | None = None,
+    ) -> None:
         """Append sync event to event log within same transaction as the hosting mutation.
 
         This helper is SYNCHRONOUS and performs NO commit internally (ADR-0008).
@@ -395,6 +402,9 @@ SOLUTIONS:
             op: Operation type ('create', 'delete', 'update_metadata')
             content_hash: Hash of the memory being mutated
             payload: JSON-serializable payload for the event
+            hlc_override: Optional historical HLC for an imported event. An override
+                preserves the event's original conflict order and does not advance
+                this storage's local HLC generator.
 
         Raises:
             Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails,
@@ -424,27 +434,31 @@ SOLUTIONS:
         # Schema version for envelope (ADR-0007)
         schema_version = 1
 
-        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011.
-        # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of any
-        # NULL-HLC rows is NOT done here: it is a one-time startup step
-        # (_seed_last_hlc_on_first_boot), so the write hot path never scans sync_events —
-        # that scan held the write lock and grew with history (store_batch repeated it per item).
-        cursor = conn.execute("SELECT key, value FROM metadata WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')")
-        hlc_metadata = dict(cursor.fetchall())
+        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011. Imported historical
+        # events can provide their source clock instead; treating their import time as
+        # event time would let an old tombstone beat a newer peer edit.
+        if hlc_override is None:
+            # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of
+            # NULL-HLC rows is a one-time startup step (_seed_last_hlc_on_first_boot), so
+            # the write hot path never scans sync_events.
+            cursor = conn.execute(
+                "SELECT key, value FROM metadata "
+                "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+            )
+            hlc_metadata = dict(cursor.fetchall())
+            last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
+            last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
 
-        last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
-        last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
-
-        # HLC send/local rule: pt = physical time (epoch milliseconds)
-        pt = int(time.time() * 1000)
-        if pt > last_physical:
-            # Physical time advanced, reset logical to 0
-            hlc_physical = pt
-            hlc_logical = 0
+            # HLC send/local rule: pt = physical time (epoch milliseconds)
+            pt = int(time.time() * 1000)
+            if pt > last_physical:
+                hlc_physical = pt
+                hlc_logical = 0
+            else:
+                hlc_physical = last_physical
+                hlc_logical = last_logical + 1
         else:
-            # Physical time same or went backwards, increment logical
-            hlc_physical = last_physical
-            hlc_logical = last_logical + 1
+            hlc_physical, hlc_logical = hlc_override
         # Record embedding version metadata for create operations (ADR-0014)
         embedding_model = None
         embedding_dim = None
@@ -473,10 +487,20 @@ SOLUTIONS:
             embedding_model, embedding_dim
         ))
 
-        # Update last_hlc in metadata (ADR-0011) - same transaction
-        # Use INSERT OR REPLACE to upsert the metadata values
-        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_physical', ?)", (str(hlc_physical),))
-        conn.execute("INSERT OR REPLACE INTO metadata (key, value) VALUES ('sync_hlc_logical', ?)", (str(hlc_logical),))
+        # Local events advance last_hlc in the same transaction (ADR-0011). An imported
+        # historical event retains its source clock but must not rewind or advance the
+        # local event generator.
+        if hlc_override is None:
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) "
+                "VALUES ('sync_hlc_physical', ?)",
+                (str(hlc_physical),),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value) "
+                "VALUES ('sync_hlc_logical', ?)",
+                (str(hlc_logical),),
+            )
 
     def _seed_last_hlc_on_first_boot(self, conn) -> None:
         """Seed/reconcile last_hlc from existing sync_events at startup (after migration 016).

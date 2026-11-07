@@ -5,6 +5,14 @@ name: "CodeQL Security Analysis"
 # it is the one analysis the Forgejo CI never had an equivalent for.
 #
 # This job needs no repository secrets.
+#
+# `Analyze Python Code` is a required check, so the workflow always starts and the
+# analysis is skipped through `if:`, never through a path filter. A skipped job
+# reports success to a required check, which makes a wrong skip look exactly like a
+# clean analysis, so the condition fails towards analysing: it skips only a
+# pull_request that the `changes` job positively classified as docs or site only.
+# push, schedule and workflow_dispatch always analyse, so every merge to main and the
+# weekly baseline are covered whatever the PR did.
 
 on:
   push:
@@ -20,8 +28,40 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    name: Classify change (docs or site only)
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+    # fetch-depth: 2 so the PR merge commit has its base parent: HEAD^1..HEAD is
+    # exactly what the PR changes.
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 2
+    # Same classifier as ci.yml, read from the base commit so a PR cannot classify
+    # its own change. Every failure (classifier missing, git error, empty diff,
+    # not a pull_request) leaves docs_only=false, and false means analyse.
+    # tests/ci/test_pre_pr_check.sh runs this step against fixture repos.
+    - name: Classify the changed files
+      id: classify
+      run: |
+        docs_only=false
+        if [ "$GITHUB_EVENT_NAME" = pull_request ] \
+          && eval "$(git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\(\) \{/,/^\}/')" \
+          && changed=$(git diff --name-only HEAD^1 HEAD) \
+          && is_docs_only "$changed"; then
+          docs_only=true
+        fi
+        echo "docs_only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze Python Code
+    needs: changes
+    # !cancelled() because a failed `changes` job would otherwise skip this one;
+    # its output is then empty, which is not 'true', so the analysis runs.
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.docs_only != 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -33,7 +73,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up Python
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
         python-version: '3.11'
 
@@ -41,7 +81,9 @@ jobs:
     # false positives on the storage and web layers.
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        sudo apt-get update
+        sudo apt-get install -y --only-upgrade ca-certificates
+        python scripts/ci/bootstrap_pip.py --cert /etc/ssl/certs/ca-certificates.crt
         pip install -e ".[sqlite]"
     
     # Create results directory for SARIF export
@@ -49,21 +91,21 @@ jobs:
       run: mkdir -p results
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
       with:
         languages: python
         queries: security-and-quality
         config-file: ./.github/codeql/codeql-config.yml
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
       with:
         category: "/language:python"
         output: results
 
     - name: Upload SARIF to Artifacts
       if: always()
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.3.1
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v4.3.1
       with:
         name: codeql-sarif
         path: |

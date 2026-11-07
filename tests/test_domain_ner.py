@@ -1,7 +1,9 @@
 """Tests for pluggable domain-specific NER extractors (#54)."""
 
 import os
+import re
 
+import pytest
 
 from mcp_memory_service.reasoning.entities import Entity, EntityExtractor, DomainExtractor
 
@@ -10,7 +12,6 @@ class MockMedicalExtractor:
     """Example domain extractor for medical terms."""
 
     def extract(self, content: str, metadata: dict | None = None) -> list[Entity]:
-        import re
         entities = []
         # Simple pattern: capitalize medical-ish terms
         medical_terms = ['diabetes', 'hypertension', 'covid-19', 'mrna']
@@ -93,6 +94,26 @@ class TestEntityExtractorWithDomainExtractors:
         entities = extractor.extract_entities("Hello @world")
         names = [e.name for e in entities]
         assert 'world' in names
+
+    @pytest.mark.parametrize("strict", [False, True])
+    def test_generator_failure_respects_strict_mode(self, strict):
+        """Normal extraction retains partial results; strict extraction aborts."""
+        class PartialExtractor:
+            def extract(self, content, metadata=None):
+                yield Entity("partial", "domain", "domain")
+                raise ValueError("iteration failed")
+
+        extractor = EntityExtractor([PartialExtractor()], strict=strict)
+        if strict:
+            with pytest.raises(
+                RuntimeError, match="Domain extractor.*iteration failed"
+            ) as exc:
+                extractor.extract_entities("Hello @world")
+            assert isinstance(exc.value.__cause__, ValueError)
+        else:
+            assert [e.name for e in extractor.extract_entities("Hello @world")] == [
+                "world", "partial",
+            ]
 
     def test_multiple_domain_extractors(self):
         """Multiple extractors all contribute entities."""

@@ -2,6 +2,7 @@
 import os
 import logging
 
+from ..compat import _sanitize_log_value
 from .base import safe_get_int_env, safe_get_bool_env
 
 logger = logging.getLogger(__name__)
@@ -17,10 +18,11 @@ BACKUP_MAX_COUNT = safe_get_int_env('MCP_BACKUP_MAX_COUNT', 10, min_value=1, max
 
 # Validate backup interval
 if BACKUP_INTERVAL not in ['hourly', 'daily', 'weekly']:
-    logger.warning(f"Invalid backup interval: {BACKUP_INTERVAL}, falling back to 'daily'")
+    logger.warning("Invalid backup interval: %s, falling back to 'daily'", _sanitize_log_value(BACKUP_INTERVAL))
     BACKUP_INTERVAL = 'daily'
 
-logger.info(f"Backup configuration: enabled={BACKUP_ENABLED}, interval={BACKUP_INTERVAL}, retention={BACKUP_RETENTION} days")
+logger.info("Backup configuration: enabled=%s, interval=%s, retention=%s days",
+            BACKUP_ENABLED, _sanitize_log_value(BACKUP_INTERVAL), BACKUP_RETENTION)
 
 # =============================================================================
 # End Automatic Backup Configuration
@@ -41,7 +43,7 @@ logger.info(f"Backup configuration: enabled={BACKUP_ENABLED}, interval={BACKUP_I
 INTEGRITY_CHECK_ENABLED = safe_get_bool_env('MCP_MEMORY_INTEGRITY_CHECK_ENABLED', True)
 INTEGRITY_CHECK_INTERVAL = safe_get_int_env('MCP_MEMORY_INTEGRITY_CHECK_INTERVAL', 1800, min_value=60, max_value=86400)  # seconds, default 30 min
 
-logger.info(f"Integrity monitoring: enabled={INTEGRITY_CHECK_ENABLED}, interval={INTEGRITY_CHECK_INTERVAL}s")
+logger.info("Integrity monitoring: enabled=%s, interval=%ss", INTEGRITY_CHECK_ENABLED, INTEGRITY_CHECK_INTERVAL)
 
 # =============================================================================
 # End Database Integrity Health Monitoring

@@ -6,6 +6,7 @@ Tests the complete ontology validation workflow in Memory creation.
 
 import pytest
 import hashlib
+import logging
 
 from mcp_memory_service.models.memory import Memory
 
@@ -40,22 +41,33 @@ class TestBurstI1MemoryOntologyValidation:
         assert memory.memory_type == "code_edit"
 
     def test_invalid_type_defaults_to_observation(self, caplog):
-        """Invalid types should default to 'observation' with warning"""
+        """A new write with an invalid type becomes 'observation' with a warning"""
+        from mcp_memory_service.models.ontology import coerce_memory_type
+
+        with caplog.at_level(logging.WARNING):
+            assert coerce_memory_type("invalid_type") == "observation"
+
+        assert "Invalid memory_type" in caplog.text
+        assert "invalid_type" in caplog.text
+
+    def test_coerce_canonicalizes_valid_and_passes_none(self):
+        from mcp_memory_service.models.ontology import coerce_memory_type
+
+        assert coerce_memory_type("Decision") == "decision"
+        assert coerce_memory_type(None) is None
+
+    def test_hydration_keeps_unknown_type(self):
+        """Building a Memory from a stored row must not overwrite an unknown type.
+
+        A node without a peer's custom type would otherwise turn it into
+        'observation' on read and write that back on the next update.
+        """
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
 
-        memory = Memory(
-            content=content,
-            content_hash=content_hash,
-            memory_type="invalid_type"
-        )
+        memory = Memory(content=content, content_hash=content_hash, memory_type="peer_only_type")
 
-        # Should default to observation
-        assert memory.memory_type == "observation"
-
-        # Should log warning
-        assert "Invalid memory_type" in caplog.text
-        assert "invalid_type" in caplog.text
+        assert memory.memory_type == "peer_only_type"
 
     def test_none_memory_type_allowed(self):
         """None memory_type should be preserved (backward compatibility)"""
@@ -104,8 +116,7 @@ class TestBurstI2TagValidation:
 
     def test_invalid_namespaced_tags_logged(self, caplog):
         """Invalid namespaced tags should be logged but preserved"""
-        import logging
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -126,8 +137,7 @@ class TestBurstI2TagValidation:
 
     def test_mixed_tags_only_invalid_logged(self, caplog):
         """Mix of valid, invalid, and legacy tags"""
-        import logging
-        caplog.set_level(logging.INFO)
+        caplog.set_level(logging.DEBUG)
 
         content = "Test content"
         content_hash = hashlib.sha256(content.encode()).hexdigest()

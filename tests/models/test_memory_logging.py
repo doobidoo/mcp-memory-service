@@ -9,6 +9,7 @@ log as a line break.
 import logging
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.models.ontology import coerce_memory_type
 
 FORGED = "FORGED admin authenticated"
 LOGGER = "mcp_memory_service.models.memory"
@@ -28,8 +29,9 @@ def test_invalid_tag_namespace_log_does_not_carry_newlines(caplog):
 
 
 def test_invalid_memory_type_log_does_not_carry_newlines(caplog):
-    with caplog.at_level(logging.DEBUG, logger=LOGGER):
-        Memory(content="hello", content_hash="abc", memory_type=f"odd\n{FORGED}")
+    # The warning moved from Memory() to the write-path coercion helper.
+    with caplog.at_level(logging.DEBUG, logger="mcp_memory_service.models.ontology"):
+        coerce_memory_type(f"odd\n{FORGED}")
 
     _assert_clean(caplog, "Invalid memory_type 'odd")
 

@@ -58,6 +58,33 @@ async def _seed(storage, n=3):
     return hashes
 
 
+@pytest.mark.asyncio
+async def test_baseline_only_first_pull_reports_downloaded_events(source, target):
+    """A baseline-only first cycle must not report zero transferred memories."""
+    from mcp_memory_service.storage.sync.bootstrap import generate_baseline
+    from mcp_memory_service.storage.sync.orchestrator import sync_from_peer
+
+    await _seed(source, 3)
+    events, watermark = generate_baseline(source)
+
+    class Peer:
+        async def get_baseline(self):
+            return events, watermark
+
+        async def get_events_since(self, since_seq, limit):
+            assert since_seq == watermark
+            return [], watermark, False
+
+    result = await sync_from_peer(target, Peer(), peer_id="alpha")
+    assert len(await target.get_all_memories(exclude_pending=False)) == 3
+    assert result.events_received == 3
+    assert result.events_applied == 3
+    assert result.events_failed == 0
+    assert result.final_cursor == watermark
+    resumed = await sync_from_peer(target, Peer(), peer_id="alpha")
+    assert resumed.events_received == resumed.events_applied == 0
+
+
 # ─────────────────────────── Bootstrap ───────────────────────────
 
 @pytest.mark.asyncio
@@ -309,16 +336,23 @@ async def test_p1_4_superseded_carried_and_materialized(source, target):
 
     c = "superseded source memory"; h = generate_content_hash(c)
     await source.store(Memory(content=c, content_hash=h, tags=["s"], memory_type="note"))
-    source.conn.execute("UPDATE memories SET superseded_by = 'newer-hash' WHERE content_hash = ?", (h,))
+    source.conn.execute(
+        "UPDATE memories SET superseded_by = 'newer-hash', superseded_at = 1760000000.5 "
+        "WHERE content_hash = ?", (h,))
     source.conn.commit()
 
     base, wm = generate_baseline(source)
     ev = next((e for e in base if e["content_hash"] == h), None)
     assert ev is not None and ev["payload"].get("superseded_by") == "newer-hash", "baseline must carry superseded_by"
+    # #1724: the replacement moment travels too, or as_of on the target falls back to the
+    # successor's created_at and hides the memory before it was actually replaced.
+    assert ev["payload"].get("superseded_at") == 1760000000.5, "baseline must carry superseded_at"
 
     install_baseline(target, base, peer_id="alpha", watermark=wm)
-    col = target.conn.execute("SELECT superseded_by FROM memories WHERE content_hash = ?", (h,)).fetchone()
+    col = target.conn.execute(
+        "SELECT superseded_by, superseded_at FROM memories WHERE content_hash = ?", (h,)).fetchone()
     assert col is not None and col[0] == "newer-hash", "apply must restore superseded_by on the target"
+    assert col[1] == 1760000000.5, "apply must restore superseded_at on the target"
 
 
 def test_p1_3_schema_version_travels_through_feed(source):

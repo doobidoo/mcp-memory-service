@@ -10,6 +10,7 @@ Reference: https://github.com/doobidoo/mcp-memory-service/issues/888
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -96,6 +97,19 @@ class TestRetrieveWithQualityBoost:
 
         assert len(results) == 1
         storage.retrieve.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("quality_boost", [False, True])
+    async def test_store_accepted_positionally_and_passed_to_retrieve(self, quality_boost):
+        """The override takes the base class's eighth argument, store, and forwards it."""
+        storage = _make_storage()
+        storage.retrieve = AsyncMock(return_value=[])
+
+        await storage.retrieve_with_quality_boost(
+            "test query", 5, None, quality_boost, 0.5, False, "work"
+        )
+
+        assert storage.retrieve.call_args.kwargs["store"] == "work"
 
     @pytest.mark.asyncio
     async def test_quality_boost_reranks_by_composite_score(self):
@@ -203,6 +217,33 @@ class TestSearchMemories:
     """Tests for native search_memories with Milvus-pushed filters."""
 
     @pytest.mark.asyncio
+    async def test_agent_id_none_searches_normally(self):
+        """agent_id=None, which the MCP handler always passes, does not change the search (#1650)."""
+        storage = _make_storage(has_bm25=True)
+        storage._run_hybrid_search = AsyncMock(return_value=[
+            _make_hit(content_hash="h1", distance=0.9),
+        ])
+
+        result = await storage.search_memories(query="test query", agent_id=None)
+
+        assert "error" not in result
+        assert result["total"] == 1
+        storage._run_hybrid_search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_agent_id_filter_returns_error_without_querying(self):
+        """A non-None agent_id is reported as unsupported and Milvus is not queried (#1650)."""
+        storage = _make_storage(has_bm25=True)
+        storage._run_hybrid_search = AsyncMock()
+
+        result = await storage.search_memories(query="test query", agent_id="agent-a")
+
+        assert "agent_id filtering is not implemented" in result["error"]
+        assert result["memories"] == []
+        assert result["total"] == 0
+        storage._run_hybrid_search.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_invalid_mode_returns_error(self):
         """Invalid mode returns error dict."""
         storage = _make_storage()
@@ -278,24 +319,105 @@ class TestSearchMemories:
         assert "like" in filter_expr.lower() or "tags" in filter_expr.lower()
 
     @pytest.mark.asyncio
-    async def test_time_only_search_uses_query(self):
-        """Time-only search (no query) uses Milvus query with filter."""
+    async def test_time_only_search_scans_filter_newest_first(self):
+        """Time-only search (no query) scans the filter, skips vector search,
+        and returns the newest matches first (#1782)."""
         storage = _make_storage()
         now = time.time()
-        storage._call_client = AsyncMock(return_value=[
-            {"id": "h1", "content": "c1", "tags": ",test,", "memory_type": "note",
-             "metadata": "{}", "created_at": now - 50, "updated_at": now - 10,
-             "created_at_iso": None, "updated_at_iso": None},
+        # Rows come back in scan order, oldest first, as Milvus returns them.
+        storage._iterate_all_rows = AsyncMock(return_value=[
+            {"id": f"h{age}", "content": f"c{age}", "tags": ",test,", "memory_type": "note",
+             "metadata": "{}", "created_at": now - age * 60, "updated_at": now - age * 60,
+             "created_at_iso": None, "updated_at_iso": None}
+            for age in (30, 20, 10)
         ])
 
         result = await storage.search_memories(
-            query=None, after="2026-01-01"
+            query=None, after="2026-01-01", limit=2
         )
 
-        assert result["total"] == 1
-        # Should use "query" method, not "search"
-        call_args = storage._call_client.call_args
-        assert call_args[0][0] == "query"
+        assert [m["content_hash"] for m in result["memories"]] == ["h10", "h20"]
+        assert "created_at >=" in storage._iterate_all_rows.call_args[0][0]
+        storage._call_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_time_only_search_pushes_as_of_into_the_scan_filter(self):
+        """as_of bounds the scan itself (#1782 review).
+
+        The result is sliced newest first. If as_of were only applied after the
+        slice, a filter matching more than the slice of rows newer than as_of
+        would keep only those, and the as_of post-filter would then drop them
+        all, hiding the older matches that should be returned.
+        """
+        storage = _make_storage()
+        storage._iterate_all_rows = AsyncMock(return_value=[])
+
+        await storage.search_memories(query=None, tags=["test"], as_of="2026-01-01")
+
+        scan_filter = storage._iterate_all_rows.call_args[0][0]
+        assert "created_at <=" in scan_filter
+        assert "tags like" in scan_filter
+
+    @pytest.mark.asyncio
+    async def test_time_only_search_reconnects_lite_after_channel_death(self, monkeypatch):
+        """A Milvus Lite channel that died while idle gets one reconnect and the
+        scan is retried, as single RPCs already do in _call_client (#1782 review).
+
+        Before, the error escaped the iterator and search_memories returned an
+        empty successful result, and every later search failed the same way.
+        """
+        import mcp_memory_service.storage.milvus as milvus_module
+
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+
+        dead_iterator = MagicMock()
+        dead_iterator.next.side_effect = ValueError("Cannot invoke RPC on closed channel!")
+        dead_client = MagicMock()
+        dead_client.query_iterator.return_value = dead_iterator
+
+        now = time.time()
+        row = {"id": "h1", "content": "c1", "tags": ",test,", "memory_type": "note",
+               "metadata": "{}", "created_at": now - 60, "updated_at": now - 60,
+               "created_at_iso": None, "updated_at_iso": None}
+        recovered_iterator = MagicMock()
+        recovered_iterator.next.side_effect = [[row], []]
+        recovered_client = MagicMock()
+        recovered_client.query_iterator.return_value = recovered_iterator
+
+        storage.client = dead_client
+        client_factory = MagicMock(return_value=recovered_client)
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
+
+        result = await storage.search_memories(query=None, after="2026-01-01")
+
+        assert [m["content_hash"] for m in result["memories"]] == ["h1"]
+        assert storage.client is recovered_client
+        client_factory.assert_called_once_with(uri=storage.uri)
+
+    @pytest.mark.asyncio
+    async def test_iterator_scan_does_not_reconnect_on_other_errors(self, monkeypatch):
+        """Only the Lite dead-channel signature triggers a reconnect."""
+        import mcp_memory_service.storage.milvus as milvus_module
+
+        storage = _make_storage()
+        storage.uri = "milvus-test.db"
+        storage.token = None
+        storage._is_lite = True
+        storage._write_lock = asyncio.Lock()
+        iterator = MagicMock()
+        iterator.next.side_effect = RuntimeError("iterator exploded")
+        storage.client = MagicMock()
+        storage.client.query_iterator.return_value = iterator
+        client_factory = MagicMock()
+        monkeypatch.setattr(milvus_module, "MilvusClient", client_factory)
+
+        with pytest.raises(RuntimeError, match="iterator exploded"):
+            await storage._iterate_all_rows("created_at >= 0")
+        client_factory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_include_debug_adds_debug_info(self):

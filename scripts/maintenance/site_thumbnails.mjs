@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Regenerates the link thumbnails on the landing page from the real pages in site/.
+// Regenerates the link thumbnails on the landing page from the real pages in site/,
+// and the Open Graph card (the picture shown when a link is shared) from og_card.html.
 //
 //   node scripts/maintenance/site_thumbnails.mjs [name ...]
 //
@@ -16,12 +17,15 @@ import { fileURLToPath } from 'node:url';
 
 const SITE = resolve(dirname(fileURLToPath(import.meta.url)), '../../site');
 const OUT = join(SITE, 'assets/images');
+const HERE = dirname(fileURLToPath(import.meta.url));
 const WIDTH = 1440, HEIGHT = 810, OUT_WIDTH = 1200;
 
 // Each shot waits for the page to be in the state worth showing.
 const SHOTS = {
   architecture: { path: '/architecture/?theme=dark&embed=1', scheme: 'dark' },
   deployment: { path: '/deployment/?theme=dark&embed=1', scheme: 'dark' },
+  // Not part of site/: served from this directory, written as a 1200x630 JPEG, the size social networks crop to.
+  og: { path: '/__og.html', file: join(HERE, 'og_card.html'), scheme: 'dark', width: 1200, height: 630, scale: 1, format: 'jpeg', out: 'og-home.jpg' },
   blog: { path: '/blog/remote-mcp-tutorial.html', scheme: 'light' },
   demo: {
     path: '/demo/',
@@ -47,8 +51,8 @@ function serve() {
     let p = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
     if (p.endsWith('/')) p += 'index.html';
     try {
-      const file = join(SITE, p);
-      if (!file.startsWith(SITE)) throw new Error('outside site');
+      const file = p === '/__og.html' ? SHOTS.og.file : join(SITE, p);
+      if (!file.startsWith(SITE) && file !== SHOTS.og.file) throw new Error('outside site');
       res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream' });
       res.end(await readFile(file));
     } catch { res.writeHead(404).end('not found'); }
@@ -124,15 +128,15 @@ async function shoot(browser, base, name, shot) {
   const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true });
   const s = (m, p, ms) => browser.send(m, p, sessionId, ms);
   await s('Page.enable');
-  await s('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: OUT_WIDTH / WIDTH, mobile: false });
+  await s('Emulation.setDeviceMetricsOverride', { width: shot.width || WIDTH, height: shot.height || HEIGHT, deviceScaleFactor: shot.scale || OUT_WIDTH / WIDTH, mobile: false });
   await s('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: shot.scheme }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
   // Await both together: if the browser dies during navigation, both reject, and neither may go unhandled.
   await Promise.all([browser.once('Page.loadEventFired', sessionId), s('Page.navigate', { url: base + shot.path })]);
   const wait = `(async () => { await document.fonts.ready; ${shot.run ? `await ${shot.run};` : ''} await new Promise(r => setTimeout(r, 600)); })()`;
   const r = await s('Runtime.evaluate', { expression: wait, awaitPromise: true }, 180000);
   if (r.exceptionDetails) throw new Error(`${name}: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
-  const { data } = await s('Page.captureScreenshot', { format: 'webp', quality: 82 });
-  const file = join(OUT, `thumb-${name}.webp`);
+  const { data } = await s('Page.captureScreenshot', { format: shot.format || 'webp', quality: 82 });
+  const file = join(OUT, shot.out || `thumb-${name}.webp`);
   await writeFile(file, Buffer.from(data, 'base64'));
   await browser.send('Target.closeTarget', { targetId });
   return file;

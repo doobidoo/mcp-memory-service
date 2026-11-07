@@ -183,6 +183,7 @@ class TestDeltaSyncOrchestrator:
         # Verify result type - should be SyncResult or similar
         assert isinstance(result, SyncResult), f"Expected SyncResult, got {type(result)}"
         assert result.events_applied == 5, f"Expected 5 events applied, got {result.events_applied}"
+        assert result.events_received == 5
         
         # Verify memories materialized in B
         b_cursor = storage_b.conn.execute("SELECT COUNT(*) FROM memories")

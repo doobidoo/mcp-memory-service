@@ -22,6 +22,12 @@ class HarvestCandidate:
     # Provenance (RFC-harvest-provenance Phase 1)
     harvest_method: str = "heuristic"  # "llm" | "heuristic"
     harvest_model: Optional[str] = None  # "<provider>/<model>" when method == "llm"
+    # Epoch of the transcript message the candidate came from (#1858). None when
+    # the transcript carries no usable timestamp.
+    source_time: Optional[float] = None
+    # Set by SessionHarvester._try_evolve when the closest memory was said later:
+    # the candidate is stored next to it, past semantic dedup (#1858).
+    older_than_match: bool = False
 
 
 @dataclass
@@ -33,6 +39,10 @@ class HarvestResult:
     found: int
     by_type: Dict[str, int]
     stored: int = 0  # Only set when dry_run=False
+    skipped: int = 0  # Candidates the server refused to re-create because they were deleted (#1560)
+    # Candidates the LLM rewrite returned nothing for (call failed, line omitted or
+    # unparseable). They are not in `candidates`/`found`; a later run can retry them (#1560).
+    rewrite_dropped: int = 0
     coverage: Optional[Dict] = None  # Coverage report aggregated across the run
 
 

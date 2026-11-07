@@ -25,6 +25,7 @@ import asyncio
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class TextLoader(DocumentLoader):
         preserve_structure = kwargs.get('preserve_structure', True)
         extract_links = kwargs.get('extract_links', False)
         
-        logger.info(f"Extracting chunks from text file: {file_path}")
+        logger.info("Extracting chunks from text file: %s", _sanitize_log_value(file_path))
         
         try:
             # Read file content
@@ -125,7 +126,7 @@ class TextLoader(DocumentLoader):
                     yield chunk
                     
         except Exception as e:
-            logger.error(f"Error extracting from text file {file_path}: {str(e)}")
+            logger.error("Error extracting from text file %s: %s", _sanitize_log_value(file_path), _sanitize_log_value(e))
             raise ValueError(f"Failed to extract text content: {str(e)}") from e
     
     async def _read_file_content(self, file_path: Path, encoding: Optional[str]) -> tuple:

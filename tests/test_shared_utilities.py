@@ -1,12 +1,12 @@
 """Tests for storage/shared.py utility functions."""
 
+from mcp_memory_service.compat import _sanitize_log_value
 from mcp_memory_service.storage.shared import (
     _embedding_cache_get,
     _embedding_cache_put,
     _embedding_cache_size,
     _escape_like,
     _safe_json_loads,
-    _sanitize_log_value,
     _string_to_tags,
     _tags_to_string,
     _EMBEDDING_CACHE,
@@ -41,11 +41,23 @@ class TestTagsToStringAndBack:
 
 
 class TestEscapeLikeSpecialChars:
-    def test_removes_percent(self):
-        assert _escape_like("a%b") == "ab"
+    """Wildcards are escaped, not dropped (#1684).
 
-    def test_removes_underscore(self):
-        assert _escape_like("a_b") == "ab"
+    Dropping ``_`` turned the needle ``upload_id:abc`` into ``uploadid:abc``,
+    so a tag with an underscore could never be matched on Milvus.
+    """
+
+    def test_escapes_percent(self):
+        assert _escape_like("a%b") == "a\\%b"
+
+    def test_escapes_underscore(self):
+        assert _escape_like("upload_id:abc") == "upload\\_id:abc"
+
+    def test_leaves_backslash_alone(self):
+        # Milvus server versions disagree on a backslash before a non-wildcard
+        # inside a like pattern (milvus-io/milvus#43864); doubling it broke the
+        # #1107 trailing-backslash tag match on Milvus Lite.
+        assert _escape_like("foo\\") == "foo\\"
 
     def test_clean_value_unchanged(self):
         assert _escape_like("hello") == "hello"

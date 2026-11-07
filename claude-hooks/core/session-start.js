@@ -16,6 +16,7 @@ const { analyzeGitContext, buildGitContextQuery } = require('../utilities/git-an
 const { MemoryClient } = require('../utilities/memory-client');
 const { getVersionInfo, formatVersionDisplay } = require('../utilities/version-checker');
 const { detectUserOverrides, logOverride } = require('../utilities/user-override-detector');
+const { collectInboxBlock } = require('../utilities/inbox');
 
 /**
  * Memory Service Configuration
@@ -589,6 +590,51 @@ async function withRetry(fn, maxAttempts = 4, initialDelayMs = 2000, verbose = t
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
+}
+
+/**
+ * Deliver inter-agent inbox messages (issue #1526).
+ *
+ * Runs after the memory-context block and separately from it: peer messages
+ * are their own short section, and an empty inbox injects nothing. The block is
+ * skipped when the user asked for #skip, which already applies to session-start.
+ *
+ * @param {object} config - Parsed hook config.
+ * @param {object} context - Hook context (uses injectSystemMessage when present).
+ * @param {{verbose?: boolean, cleanMode?: boolean}} options
+ * @returns {Promise<number>} Number of messages delivered.
+ */
+async function deliverInbox(config, context, { verbose = false, cleanMode = false } = {}) {
+    let result;
+    try {
+        // Session start always checks: only prompt-time checks are throttled by
+        // checkIntervalMinutes, and a session that starts 30 seconds after
+        // another one must still see messages that arrived in between.
+        result = await collectInboxBlock({ config, bypassInterval: true });
+    } catch (error) {
+        // The inbox is additive: never fail the session start over it.
+        if (verbose && !cleanMode) {
+            console.warn(`${CONSOLE_COLORS.YELLOW}📬 Inbox${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}${sanitizeForLog(error.message)}${CONSOLE_COLORS.RESET}`);
+        }
+        return 0;
+    }
+
+    if (result.error) {
+        if (verbose && !cleanMode) {
+            console.warn(`${CONSOLE_COLORS.YELLOW}📬 Inbox${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}${sanitizeForLog(result.error)} (marker kept)${CONSOLE_COLORS.RESET}`);
+        }
+        return 0;
+    }
+
+    if (!result.block) return 0;
+
+    if (context.injectSystemMessage) {
+        await context.injectSystemMessage(result.block);
+    } else {
+        console.log(result.block);
+    }
+
+    return result.delivered;
 }
 
 /**
@@ -1372,6 +1418,11 @@ async function executeSessionStart(context) {
             console.log(`${CONSOLE_COLORS.YELLOW}📭 Memory Search${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.GRAY}No relevant memories found${CONSOLE_COLORS.RESET}`);
         }
 
+        // Inter-agent inbox: peer messages get their own block, after the memory
+        // context. Delivery is skipped by the #skip override (handled above) but
+        // not by an empty memory store — the inbox is independent of it.
+        await deliverInbox(config, context, { verbose, cleanMode });
+
     } catch (error) {
         console.error(`${CONSOLE_COLORS.RED}❌ Memory Hook Error${CONSOLE_COLORS.RESET} ${CONSOLE_COLORS.DIM}→${CONSOLE_COLORS.RESET} ${error.message}`);
         // Fail gracefully - don't prevent session from starting
@@ -1396,6 +1447,9 @@ module.exports = {
     description: 'Automatically inject relevant memories at session start with git-aware repository context',
     trigger: 'session-start',
     handler: onSessionStart,
+    // Exported for tests: this is the only place that decides whether session
+    // start bypasses checkIntervalMinutes.
+    deliverInbox,
     config: {
         async: true,
         timeout: 15000, // Increased timeout for git analysis

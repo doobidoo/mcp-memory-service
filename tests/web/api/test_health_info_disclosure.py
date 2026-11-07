@@ -99,13 +99,26 @@ class TestMcpHealthEndpointSecurity:
             assert await mcp_module.mcp_health() == {"status": "healthy", "protocol": "mcp"}
 
     def test_mcp_health_is_the_only_unauthenticated_mcp_route(self):
-        """Every other MCP route keeps its auth dependency."""
+        """Every other MCP route keeps an authenticating dependency.
+
+        `/mcp` depends on `get_current_user` rather than `require_read_access`:
+        a store-scoped token (e.g. `read:projectA`, which carries no global
+        `read`) must be able to reach MCP, and the read/write + per-store
+        authorization is enforced per tool call (in the HTTP shim and in
+        `MemoryServer.call_tool`). `get_current_user` still rejects an
+        unauthenticated caller (401 when auth is configured), so the route is
+        authenticated — only unscoped at the router layer, by design.
+        """
         from mcp_memory_service.web.api.mcp import router
 
+        # An MCP route is "guarded" if it resolves an authenticated identity:
+        # the scope-specific deps, or get_current_user (which /mcp uses and
+        # then enforces scope per tool call).
+        AUTH_DEPS = ("require_read_access", "require_write_access", "get_current_user")
         unguarded = {
             route.path for route in router.routes
             if not [d for d in route.dependant.dependencies
-                    if d.call.__name__ in ("require_read_access", "require_write_access")]
+                    if d.call.__name__ in AUTH_DEPS]
         }
         assert unguarded == {"/mcp/health"}, (
             f"unexpected unauthenticated MCP routes: {unguarded - {'/mcp/health'}}"

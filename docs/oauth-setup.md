@@ -199,13 +199,29 @@ memory launch
 curl -H "X-API-Key: your-secret-key" \
      http://localhost:8000/api/memories
 
-# Option 2: Query parameter (convenient, less secure - avoid in production)
-curl "http://localhost:8000/api/memories?api_key=your-secret-key"
-
-# Option 3: Bearer token (backward compatible)
+# Option 2: Bearer token (backward compatible)
 curl -H "Authorization: Bearer your-secret-key" \
      http://localhost:8000/api/memories
 ```
+
+> **`?api_key=` is no longer accepted.** It used to be a "convenient, less
+> secure" option; it was worse than that. uvicorn logs the whole request line,
+> so every request wrote the long-lived key in cleartext into the access log —
+> under HTTPS too, since TLS protects the wire and not the log. Send the key in
+> the `X-API-Key` header instead.
+>
+> `EventSource` is the one case with an excuse: it cannot set headers. For it,
+> exchange a real credential for a short-lived ticket and put **that** on the URL:
+>
+> ```
+> curl -X POST -H "X-API-Key: your-secret-key" \
+>      http://localhost:8000/api/events/ticket
+> # -> {"ticket": "...", "expires_in_seconds": 60, "param_name": "ticket"}
+> # then connect to /api/events?ticket=<ticket>
+> ```
+>
+> The ticket is single-use and expires in 60 seconds, so a pasted log line holds
+> nothing reusable.
 
 **When to use API Key vs OAuth:**
 - **API Key**: Single-user deployments, scripts, local development

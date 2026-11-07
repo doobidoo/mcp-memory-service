@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Open Graph card</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1200px;height:630px;overflow:hidden;background:#0d1a2c;color:#e9f2f7;font-family:'Newsreader',Georgia,serif;position:relative}
+  .glow{position:absolute;inset:0;background:radial-gradient(620px 520px at 900px 300px,rgba(25,194,218,.20),transparent 70%)}
+  svg{position:absolute;right:0;top:0}
+  .text{position:absolute;left:72px;top:0;bottom:0;width:640px;display:flex;flex-direction:column;justify-content:center}
+  .brand{display:flex;align-items:center;gap:16px;font-family:'JetBrains Mono',monospace;font-size:24px;color:#92a6b8;margin-bottom:44px}
+  .brand img{width:56px;height:56px;border-radius:13px}
+  h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-stretch:90%;font-size:88px;line-height:1;letter-spacing:-.025em;margin-bottom:28px}
+  p{font-size:31px;line-height:1.35;color:#b8c8d6;max-width:30ch;margin-bottom:40px}
+  .cmd{align-self:flex-start;font-family:'JetBrains Mono',monospace;font-size:25px;color:#e9f2f7;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);padding:13px 22px;border-radius:4px}
+  .cmd b{color:#19c2da;font-weight:500}
+</style>
+<div class="glow"></div>
+<svg id="g" width="1200" height="630" viewBox="0 0 1200 630" aria-hidden="true"></svg>
+<div class="text">
+  <div class="brand"><img src="/brain-icon.png" alt="">mcp-memory-service</div>
+  <h1>Memory for<br>AI agents</h1>
+  <p>One self-hosted service your agents search by meaning.</p>
+  <div class="cmd"><b>$</b> pip install mcp-memory-service</div>
+</div>
+<script>
+// Fixed seed so the picture is the same on every run.
+let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+const NS = 'http://www.w3.org/2000/svg', g = document.getElementById('g');
+const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); g.appendChild(e); return e; };
+const nodes = Array.from({ length: 34 }, () => ({ x: 740 + rnd() * 440, y: 40 + rnd() * 550 }));
+const lit = [3, 9, 14, 21, 27].map((i) => nodes[i]);
+for (const a of nodes) for (const b of nodes) {
+  const d = Math.hypot(a.x - b.x, a.y - b.y);
+  if (a !== b && d < 130 && a.x < b.x) el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: 'rgba(146,166,184,.28)', 'stroke-width': 1.3 });
+}
+// The recalled memories: a path of cyan nodes, linked.
+lit.sort((a, b) => a.y - b.y);
+lit.forEach((p, i) => { if (i) el('line', { x1: lit[i - 1].x, y1: lit[i - 1].y, x2: p.x, y2: p.y, stroke: '#19c2da', 'stroke-width': 3, opacity: .9 }); });
+for (const n of nodes) el('circle', { cx: n.x, cy: n.y, r: 6, fill: '#1d3248', stroke: 'rgba(146,166,184,.55)', 'stroke-width': 1.5 });
+for (const n of lit) { el('circle', { cx: n.x, cy: n.y, r: 20, fill: 'rgba(25,194,218,.18)' }); el('circle', { cx: n.x, cy: n.y, r: 10, fill: '#19c2da' }); }
+</script>

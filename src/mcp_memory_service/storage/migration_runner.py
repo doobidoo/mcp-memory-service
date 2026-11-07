@@ -1,6 +1,7 @@
 """Schema migration runner with version tracking and registry."""
 
 import hashlib
+import locale
 import logging
 import re
 import sqlite3
@@ -46,6 +47,25 @@ class MigrationRunner:
             )
         """)
 
+    def _ensure_metadata_table(self, conn):
+        """Create the metadata table that holds schema_version (#1628).
+
+        The runner records `schema_version` there after every migration, but only
+        `SqliteVecMemoryStorage.initialize()` used to create the table. `memory
+        migrate` calls `run_pending()` on a plain `sqlite3.connect()` and never went
+        through `initialize()`, so on a database written before v8.7.0 the write
+        failed, the rollback took the migration that had just applied down with it,
+        and every later migration was skipped.
+
+        Creating it here covers both callers. Same definition the storage uses.
+        """
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
     def _get_applied_versions(self, conn) -> set[int]:
         """Read migration_registry to find already-applied versions."""
         try:
@@ -76,9 +96,33 @@ class MigrationRunner:
         except sqlite3.OperationalError:
             return 7
 
+    @staticmethod
+    def _read_sql(path: Path) -> str:
+        """Read a migration file as UTF-8, the encoding the files are written in.
+
+        Without an explicit encoding Python on Windows (before 3.15) decodes with
+        the locale code page, and cp950/cp949 cannot decode the UTF-8 punctuation
+        in 008 and 010, which stopped every later migration (#1789).
+        """
+        return path.read_text(encoding="utf-8")
+
     def _checksum(self, path: Path) -> str:
         """SHA256 checksum of migration file content."""
-        return hashlib.sha256(path.read_text().encode()).hexdigest()
+        return hashlib.sha256(self._read_sql(path).encode()).hexdigest()
+
+    @staticmethod
+    def _legacy_checksum(path: Path) -> str | None:
+        """Checksum as runners before #1789 recorded it on this machine.
+
+        They decoded with the locale encoding. Where that is not UTF-8 but could
+        still decode the file (cp1252, for one), the stored checksum hashes the
+        mis-decoded text and must not be reported as a modified migration.
+        """
+        encoding = locale.getpreferredencoding(False)
+        try:
+            return hashlib.sha256(path.read_text(encoding=encoding).encode()).hexdigest()
+        except (UnicodeDecodeError, LookupError):
+            return None
 
     def _stamp_baseline(self, conn) -> list[int]:
         """Stamp pre-existing migrations as applied without re-executing.
@@ -91,16 +135,17 @@ class MigrationRunner:
         """
         applied = set(self._get_applied_versions(conn))
 
-        # Delta-sync recovery (15/16): probe these INDEPENDENTLY of the legacy baseline below,
-        # and only when absent from the registry. A partial manual rollback can leave v15
-        # registered while v16's row was removed but its columns retained; without this, the
-        # forward migration would re-run the unconditional ADD COLUMN and fail duplicate-column
-        # (Greptile). This runs even when the registry is non-empty, but is a strict no-op unless
-        # the artifact exists AND its registry row is missing — so it never changes the legacy
-        # 8-11 baseline semantics handled further down.
+        # Independent recovery probes (15/16 delta-sync, 20 belief embedding): probe these
+        # INDEPENDENTLY of the legacy baseline below, and only when absent from the registry.
+        # A partial manual rollback can leave the primary artifact (table/column) in place
+        # while its registry row was removed; without this, the forward migration would re-run
+        # the unconditional ADD COLUMN/TABLE and fail duplicate (Greptile). Strict no-op unless
+        # the artifact exists AND its registry row is missing — never changes the legacy 8-11
+        # baseline semantics handled further down.
         delta_probes = {
             15: "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_events'",
             16: "SELECT 1 FROM pragma_table_info('sync_events') WHERE name='hlc_physical'",
+            20: "SELECT 1 FROM pragma_table_info('beliefs') WHERE name='embedding'",
         }
         recovered = self._stamp_probes(
             conn, {v: sql for v, sql in delta_probes.items() if v not in applied}
@@ -158,6 +203,8 @@ class MigrationRunner:
         artifact_repairs = {
             16: "CREATE INDEX IF NOT EXISTS idx_sync_events_hlc "
                 "ON sync_events(hlc_physical, hlc_logical, agent_id, event_id)",
+            20: "CREATE INDEX IF NOT EXISTS idx_beliefs_embedding_pending "
+                "ON beliefs(belief_hash) WHERE embedding IS NULL",
         }
 
         stamped = []
@@ -217,6 +264,10 @@ class MigrationRunner:
         try:
             if not dry_run:
                 self._ensure_registry_table(conn)
+                # `schema_version` lives in `metadata`, and every migration below
+                # writes it. Create it here so callers that never initialize()
+                # — `memory migrate` — are covered too (#1628).
+                self._ensure_metadata_table(conn)
                 conn.commit()  # Ensure no open transaction before we begin
                 # Stamp pre-existing migrations on upgrade from old runner
                 self._stamp_baseline(conn)
@@ -232,7 +283,7 @@ class MigrationRunner:
                     result["applied"].append({"version": version, "name": name})
                     continue
 
-                sql = path.read_text()
+                sql = self._read_sql(path)
                 checksum = self._checksum(path)
                 now = datetime.now(timezone.utc).isoformat()
 
@@ -284,7 +335,7 @@ class MigrationRunner:
         for version, name, path in migrations:
             if version in registry_by_version:
                 stored = registry_by_version[version].get("checksum")
-                if stored and stored != self._checksum(path):
+                if stored and stored not in (self._checksum(path), self._legacy_checksum(path)):
                     checksum_mismatches.append({"version": version, "name": name, "filename": path.name})
 
         healthy = len(pending) == 0 and len(checksum_mismatches) == 0

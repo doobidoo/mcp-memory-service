@@ -31,7 +31,7 @@ from ...compat import _sanitize_log_value
 
 async def handle_memory_ingest(server, arguments: dict) -> List[types.TextContent]:
     """Unified handler for document/directory ingestion."""
-    import json
+    import json  # inline import: keep optional dependencies lazy
 
     file_path = arguments.get("file_path")
     directory_path = arguments.get("directory_path")
@@ -61,8 +61,9 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
         from pathlib import Path
         from ...ingestion import get_loader_for_file
         from ...models.memory import Memory
+        from ...models.ontology import coerce_memory_type
         from ...utils import create_memory_from_chunk
-        import time
+        import time  # inline import: keep optional dependencies lazy
 
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
@@ -130,7 +131,7 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                     content=chunk.content,
                     content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
-                    memory_type=memory_type,
+                    memory_type=coerce_memory_type(memory_type),
                     metadata=chunk.metadata
                 )
 
@@ -179,7 +180,7 @@ async def handle_ingest_directory(server, arguments: dict) -> List[types.TextCon
     """Handle directory ingestion requests."""
     try:
         from pathlib import Path
-        import time
+        import time  # inline import: keep optional dependencies lazy
         from ...services.memory_service import normalize_tags
         from ...utils.directory_ingestion import (
             DirectoryFileDiscovery,

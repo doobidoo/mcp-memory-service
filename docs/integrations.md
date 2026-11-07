@@ -8,6 +8,9 @@ utilities that extend it.
 Anything that speaks MCP or plain HTTP works. The list below is what has actually been
 used against the service, grouped by how it connects.
 
+Per-harness coverage — how far each integration goes beyond connectivity — is in
+[`agents/README.md`](../agents/README.md).
+
 ### Agent frameworks (REST API)
 
 LangGraph · CrewAI · AutoGen · OpenClaw/Nanobot · custom pipelines · any HTTP client
@@ -21,6 +24,14 @@ framework at `http://localhost:8000`. Framework-specific guides live in
 Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · Goose · Aider ·
 GitHub Copilot CLI · Amp · Continue · Zed · Cody
 
+Automatic lifecycle integrations are also available for
+[Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
+[Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
+project context, capture learnings, and checkpoint session outcomes.
+
+Hermes has an installer that registers the server and verifies a round trip:
+[`agents/hermes/README.md`](../agents/hermes/README.md).
+
 ### Desktop and IDE (MCP)
 
 Claude Desktop · VS Code · Cursor · Windsurf · Kilo Code · Raycast · JetBrains · Replit ·
@@ -33,6 +44,11 @@ HTTPS endpoint — see [Remote MCP Setup](remote-mcp-setup.md).
 
 Clients without OAuth support, Home Assistant among them, can use anonymous access on the
 LAN without patching anything: [Home Assistant setup](integration/home-assistant.md).
+
+### Mobile (REST API)
+
+iPhone and iPad can save text and links from the share sheet with a four-action Apple
+Shortcut: [iOS Shortcut setup](integrations/ios-shortcut.md).
 
 ## Official Integrations
 

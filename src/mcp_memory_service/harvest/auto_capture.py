@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from ..compat import _sanitize_log_value
 from .extractor import PatternExtractor
 from .harvester import SessionHarvester
 from .models import HARVEST_TYPES, HarvestCandidate, HarvestConfig, harvest_config_from_env
@@ -22,6 +23,7 @@ class AutoCaptureResult:
     candidates: List[HarvestCandidate] = field(default_factory=list)
     stored: int = 0
     evolved: int = 0
+    skipped: int = 0  # Refused re-creates of deleted content (#1560)
     stored_hashes: List[str] = field(default_factory=list)
     parent_hash: Optional[str] = None
     dry_run: bool = True
@@ -33,6 +35,7 @@ class AutoCaptureResult:
             "found": len(self.candidates),
             "stored": self.stored,
             "evolved": self.evolved,
+            "skipped": self.skipped,
             "stored_hashes": self.stored_hashes,
             "by_type": _count_by_type(self.candidates),
             "candidates": [
@@ -133,6 +136,8 @@ class AutoCaptureService:
                 )
 
                 if not (isinstance(resp, dict) and resp.get("success")):
+                    if isinstance(resp, dict) and resp.get("refused_recreate"):
+                        result.skipped += 1  # #1560: deleted on the server, not re-created
                     continue
 
                 child_hash = _hash_from_store_response(resp)
@@ -142,7 +147,7 @@ class AutoCaptureService:
                     if link_parent and parent_hash:
                         await _link_derived_from(parent_hash, child_hash, candidate.confidence, graph=graph)
             except Exception as exc:
-                logger.warning("Auto-capture store failed: %s", exc)
+                logger.warning("Auto-capture store failed: %s", _sanitize_log_value(str(exc)))
 
         return result
 
@@ -216,4 +221,4 @@ async def _link_derived_from(parent_hash: str, child_hash: str, confidence: floa
             metadata={"extraction": "auto_capture"},
         )
     except Exception as exc:
-        logger.debug("Auto-capture graph link skipped: %s", exc)
+        logger.debug("Auto-capture graph link skipped: %s", _sanitize_log_value(str(exc)))

@@ -22,6 +22,7 @@ import pytest
 import pytest_asyncio
 from fastapi import Request
 from fastapi.testclient import TestClient
+import importlib
 import os
 
 @pytest_asyncio.fixture
@@ -41,7 +42,6 @@ async def temp_storage(temp_db_path):
 @pytest.fixture
 def client(temp_storage):
     """Create FastAPI test client with initialized storage and auth config."""
-    import importlib
     from mcp_memory_service import config
     from mcp_memory_service.web.app import app
 
@@ -122,11 +122,51 @@ class TestAPIKeyAuthentication:
 
     @pytest.mark.asyncio
     async def test_query_parameter_success(self, client):
-        """Test successful authentication with query parameter."""
+        """`api_key` as a query parameter is refused (issue #1117).
+
+        This used to return 200 and is why the key ended up in the access log:
+        uvicorn logs the whole request line, so `?api_key=<key>` wrote the
+        long-lived secret in cleartext into the log on every reconnect. The
+        query-parameter name is kept in the test title deliberately — a reader
+        looking for "why did query auth stop working" finds the answer here.
+
+        Use the `X-API-Key` header, or a single-use ticket from
+        `POST /api/events/ticket`.
+        """
         response = client.get("/api/memories?api_key=test-secret-key-12345")
+        assert response.status_code == 401, (
+            "api_key in the query string must no longer authenticate — it is the leak"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ticket_query_parameter_authenticates(self, client):
+        """The single-use ticket is the supported query-parameter credential."""
+        issued = client.post(
+            "/api/events/ticket",
+            headers={"X-API-Key": "test-secret-key-12345"},
+            json={},
+        )
+        assert issued.status_code == 200, issued.text
+        ticket = issued.json()["ticket"]
+
+        response = client.get(f"/api/memories?ticket={ticket}")
         assert response.status_code == 200
         data = response.json()
         assert "memories" in data or "total" in data
+
+    @pytest.mark.asyncio
+    async def test_ticket_cannot_be_replayed(self, client):
+        """A ticket that survives replay is just a shorter-lived key."""
+        issued = client.post(
+            "/api/events/ticket",
+            headers={"X-API-Key": "test-secret-key-12345"},
+            json={},
+        )
+        ticket = issued.json()["ticket"]
+        assert client.get(f"/api/memories?ticket={ticket}").status_code == 200
+        assert client.get(f"/api/memories?ticket={ticket}").status_code == 401, (
+            "second use of the same ticket must fail"
+        )
 
     @pytest.mark.asyncio
     async def test_query_parameter_wrong_key(self, client):
@@ -259,7 +299,21 @@ class TestIntegrationScenarios:
 
     @pytest.mark.asyncio
     async def test_script_access_with_query_param(self, client):
-        """Test convenient query parameter access for scripts."""
-        # Useful for quick scripts, though less secure
+        """Script-style query-param access: ticket, not api_key (issue #1117).
+
+        The old form here was `?api_key=...`, described as "convenient, though
+        less secure". It was worse than less secure: the convenience put the
+        long-lived key into a log file on every request. Scripts should send
+        `X-API-Key` as a header; only `EventSource` has an excuse to use the
+        URL, and it gets a short-lived ticket instead.
+        """
         response = client.get("/api/memories?api_key=test-secret-key-12345")
-        assert response.status_code == 200
+        assert response.status_code == 401
+
+        issued = client.post(
+            "/api/events/ticket",
+            headers={"X-API-Key": "test-secret-key-12345"},
+            json={},
+        )
+        ticket = issued.json()["ticket"]
+        assert client.get(f"/api/memories?ticket={ticket}").status_code == 200

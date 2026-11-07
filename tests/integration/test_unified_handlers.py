@@ -16,6 +16,21 @@ from mcp import types
 from mcp_memory_service.server import MemoryServer
 
 
+async def _store_fixture(server, content: str, tags: list[str]) -> None:
+    """Store a fixture memory, tolerating a semantic-dedup refusal.
+
+    These tests exercise delete/list, not the write path. Since #1601 a refused
+    write raises instead of returning text, so an already-similar fixture would
+    abort the test for a reason it does not care about. Any other error still
+    propagates.
+    """
+    try:
+        await server.handle_store_memory({"content": content, "metadata": {"tags": tags}})
+    except RuntimeError as exc:
+        if "Duplicate content" not in str(exc):
+            raise
+
+
 class TestHandleMemorySearch:
     """Tests for unified handle_memory_search handler."""
 
@@ -176,14 +191,8 @@ class TestHandleMemoryDelete:
         server = MemoryServer()
 
         # Store memories with different tags
-        await server.handle_store_memory({
-            "content": unique_content("Delete tag any 1"),
-            "metadata": {"tags": ["delete-any-a", "common"]}
-        })
-        await server.handle_store_memory({
-            "content": unique_content("Delete tag any 2"),
-            "metadata": {"tags": ["delete-any-b", "common"]}
-        })
+        await _store_fixture(server, unique_content("Delete tag any 1"), ["delete-any-a", "common"])
+        await _store_fixture(server, unique_content("Delete tag any 2"), ["delete-any-b", "common"])
 
         # Delete with ANY match (matches either tag)
         result = await server.handle_memory_delete({
@@ -269,10 +278,9 @@ class TestHandleMemoryList:
 
         # Store some test memories
         for i in range(5):
-            await server.handle_store_memory({
-                "content": unique_content(f"List pagination test {i}"),
-                "metadata": {"tags": ["list-pagination-test"]}
-            })
+            await _store_fixture(
+                server, unique_content(f"List pagination test {i}"), ["list-pagination-test"]
+            )
 
         # List with pagination
         result = await server.handle_memory_list({
@@ -290,10 +298,9 @@ class TestHandleMemoryList:
         server = MemoryServer()
 
         # Store with specific tag
-        await server.handle_store_memory({
-            "content": unique_content("Tagged memory for list filter"),
-            "metadata": {"tags": ["list-filter-tag"]}
-        })
+        await _store_fixture(
+            server, unique_content("Tagged memory for list filter"), ["list-filter-tag"]
+        )
 
         # List filtered by tag
         result = await server.handle_memory_list({

@@ -419,7 +419,7 @@ done
 
 **Setup:**
 1. Database with 10,000+ memories
-2. Verify migration completed: `python scripts/database/validate_migration.py`
+2. Verify migration completed: `python scripts/database/db_health_check.py`
 
 **Execution:**
 ```bash

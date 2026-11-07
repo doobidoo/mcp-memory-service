@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mcp_memory_service.consolidation.belief_service import BeliefService
+from mcp_memory_service.consolidation.belief_service import BeliefService, _hash_content
 from mcp_memory_service.consolidation.insights import InsightCard, store_insights
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.storage.cloudflare import CloudflareStorage
@@ -26,8 +26,10 @@ async def _storage(temp_db_path):
     return storage
 
 
-async def _store(storage, text):
-    memory = Memory(content=text, content_hash=generate_content_hash(text), tags=["test"])
+async def _store(storage, text, memory_type=None):
+    memory = Memory(
+        content=text, content_hash=generate_content_hash(text), tags=["test"], memory_type=memory_type
+    )
     ok, msg = await storage.store(memory)
     assert ok, msg
     return memory.content_hash
@@ -312,3 +314,71 @@ async def test_cloudflare_storage_supports_consolidation_delete():
 
     assert await storage.delete_memory("abc123") is True
     storage.delete.assert_awaited_once_with("abc123")
+
+
+async def _contradiction_fixture(temp_db_path):
+    """Three unrelated observations; the first two are linked by a contradicts
+    edge, written the way contradiction detection writes it."""
+    storage = await _storage(temp_db_path)
+    texts = [
+        "The nightly backup job runs at 02:00 against the NAS share.",
+        "Backups were moved off the NAS to the Storj bucket last week.",
+        "Grafana alerts route to the on-call Slack channel.",
+    ]
+    hashes = [await _store(storage, t, memory_type="observation") for t in texts]
+    graph = GraphStorage(storage.db_path)
+    await graph.store_association(
+        hashes[1], hashes[0], 0.7, ["contradiction"], relationship_type="contradicts"
+    )
+    return storage, graph, texts, hashes
+
+
+async def _belief_for(svc, text):
+    belief = await svc._get_belief(_hash_content(text))
+    assert belief is not None, f"no belief derived for {text!r}"
+    return belief
+
+
+@pytest.mark.asyncio
+async def test_derive_beliefs_sees_contradicts_edges(temp_db_path):
+    """_find_contradictions read storage.graph, which no storage class assigns,
+    called get_edges(), which GraphStorage does not have, and asked for a
+    CONTRADICTED_BY edge type that nothing writes. Every belief was derived as
+    if no observation had ever been contradicted."""
+    storage, graph, texts, hashes = await _contradiction_fixture(temp_db_path)
+    svc = BeliefService(storage, graph=graph)
+
+    await svc.derive_beliefs()
+
+    contested = await _belief_for(svc, texts[0])
+    other_side = await _belief_for(svc, texts[1])
+    clean = await _belief_for(svc, texts[2])
+    assert json.loads(contested["contradicted_by"]) == [hashes[1]]
+    assert json.loads(other_side["contradicted_by"]) == [hashes[0]]
+    assert json.loads(clean["contradicted_by"]) == []
+    assert contested["confidence"] < clean["confidence"]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_hands_the_graph_to_belief_derivation(temp_db_path, monkeypatch):
+    """The scheduler is the only caller of derive_beliefs(); it has to pass the
+    consolidator's graph handle, or contradictions stay invisible."""
+    from types import SimpleNamespace
+
+    from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
+
+    storage, graph, texts, hashes = await _contradiction_fixture(temp_db_path)
+    report = SimpleNamespace(
+        memories_processed=3, associations_discovered=0, clusters_created=0,
+        memories_compressed=0, memories_archived=0, errors=[],
+    )
+    consolidator = SimpleNamespace(
+        storage=storage, graph_storage=graph, consolidate=AsyncMock(return_value=report)
+    )
+    monkeypatch.setenv("MCP_BELIEFS_ENABLED", "true")
+
+    scheduler = ConsolidationScheduler(consolidator, schedule_config={}, enabled=False)
+    await scheduler._run_consolidation_job("weekly")
+
+    contested = await _belief_for(BeliefService(storage), texts[0])
+    assert json.loads(contested["contradicted_by"]) == [hashes[1]]

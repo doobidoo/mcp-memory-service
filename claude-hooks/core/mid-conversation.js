@@ -486,6 +486,105 @@ async function onMidConversation(context) {
     }
 }
 
+/**
+ * Read the UserPromptSubmit payload Claude Code writes to stdin.
+ *
+ * The payload carries the submitted prompt, which is the only way a `#skip` in
+ * the user's message can be seen here. Falls back to null when nothing arrives
+ * (run by hand, or a platform that passes no input), so the hook never blocks
+ * waiting for a stdin that will not close.
+ *
+ * @param {number} [timeoutMs]
+ * @returns {Promise<object|null>}
+ */
+async function readHookInput(timeoutMs = 1500) {
+    if (process.stdin.isTTY) return null;
+
+    return new Promise((resolve) => {
+        let raw = '';
+        let settled = false;
+
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            process.stdin.off('data', onData);
+            process.stdin.off('end', finish);
+            process.stdin.off('error', finish);
+            process.stdin.pause();
+            if (!raw.trim()) {
+                resolve(null);
+                return;
+            }
+            try {
+                const parsed = JSON.parse(raw);
+                resolve(parsed && typeof parsed === 'object' ? parsed : null);
+            } catch (error) {
+                resolve(null);
+            }
+        };
+
+        const onData = (chunk) => { raw += chunk; };
+        const timer = setTimeout(finish, timeoutMs);
+
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', onData);
+        process.stdin.on('end', finish);
+        process.stdin.on('error', finish);
+        process.stdin.resume();
+    });
+}
+
+/**
+ * Prompt-time inbox delivery (issue #1526).
+ *
+ * `hooks.json` runs this file as the UserPromptSubmit hook command, so the CLI
+ * entry below is the only code that runs on a prompt. It polls the inter-agent
+ * inbox and prints the block; nothing is printed when there is nothing new.
+ *
+ * Throttling lives in the inbox state file, not in `cooldownPeriod`: every hook
+ * invocation is a fresh process, so in-memory timers never survive to the next
+ * prompt.
+ *
+ * @returns {Promise<void>}
+ */
+async function runPromptInboxHook() {
+    const fs = require('fs').promises;
+    const { resolveConfigPath } = require('../utilities/config-loader');
+    const { collectInboxBlock } = require('../utilities/inbox');
+    const { detectUserOverrides } = require('../utilities/user-override-detector');
+
+    let config;
+    try {
+        config = JSON.parse(await fs.readFile(resolveConfigPath(__dirname), 'utf8'));
+    } catch (error) {
+        // No readable config means no inbox: the feature is opt-in.
+        return;
+    }
+
+    const hookInput = await readHookInput();
+    // Honor the same #skip override the prompt analysis and session start honor:
+    // a user who asked this turn to be skipped should not get peer messages
+    // injected, and the batch must not be marked delivered either.
+    if (hookInput && typeof hookInput.prompt === 'string' && detectUserOverrides(hookInput.prompt).forceSkip) {
+        return;
+    }
+
+    const { block, error } = await collectInboxBlock({ config });
+
+    if (error) {
+        if (config.output?.verbose !== false && config.output?.cleanMode !== true) {
+            console.warn(`[Mid-Conversation Hook] Inbox check failed: ${error} (marker kept)`);
+        }
+        return;
+    }
+
+    if (block) {
+        // stdout becomes part of the turn's context.
+        process.stdout.write(`${block}\n`);
+    }
+}
+
 module.exports = {
     MidConversationHook,
     onMidConversation,
@@ -502,3 +601,12 @@ module.exports = {
         priority: 'high'
     }
 };
+
+// Direct execution: this is the UserPromptSubmit hook command in hooks.json.
+if (require.main === module) {
+    runPromptInboxHook()
+        .catch((error) => {
+            console.error(`[Mid-Conversation Hook] Inbox hook failed: ${error.message}`);
+            process.exitCode = 1;
+        });
+}

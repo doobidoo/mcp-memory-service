@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Protocol, Tuple
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
 from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock
+from .bootstrap import bootstrap_from_peer
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class SyncResult:
     pages_processed: int
     final_cursor: int
     events_failed: int = 0
+    events_received: int = 0
 
 
 class PeerAdapter(Protocol):
@@ -64,7 +66,10 @@ async def sync_from_peer(
     Returns:
         SyncResult with events_applied, pages_processed, and final_cursor
     """
-    logger.info(f"Starting sync from peer {peer_id}")
+    logger.info("Starting sync from peer %s", _sanitize_log_value(peer_id))
+    # A first sync can receive the entire corpus through the baseline, with no
+    # subsequent event pages. Include that work in this cycle's transfer totals.
+    events_applied = events_received = events_failed = 0
 
     # Step 1: Read current cursor (default to 0 if not exists)
     cursor_result = _sqlite(local_storage).conn.execute(
@@ -72,25 +77,45 @@ async def sync_from_peer(
         (peer_id,)
     ).fetchone()
 
+    # First sync with this peer (no cursor row): install the peer's baseline before the
+    # pull loop so a fresh spoke gets the pre-existing corpus, not only events since seq 0
+    # (#1522 finding #3 — delta-sync Phase 5 bootstrap was unreachable). Only when the peer
+    # can serve a baseline; otherwise fall back to the legacy pull-from-0 (back-compat).
+    if cursor_result is None and hasattr(peer, "get_baseline"):
+        logger.info("First sync with peer %s: bootstrapping from baseline", _sanitize_log_value(peer_id))
+        try:
+            baseline = await bootstrap_from_peer(local_storage, peer, peer_id)
+            events_applied += baseline["applied"]
+            events_failed += baseline["failed"]
+            events_received += baseline["applied"] + baseline["failed"]
+        except Exception as e:
+            logger.warning("Bootstrap from peer %s failed, falling back to pull from 0: %s",
+                           _sanitize_log_value(peer_id), _sanitize_log_value(e))
+        # Re-read the cursor: bootstrap parks it at the peer's watermark.
+        cursor_result = _sqlite(local_storage).conn.execute(
+            "SELECT last_seq_seen FROM sync_cursor WHERE peer_id = ?",
+            (peer_id,)
+        ).fetchone()
+
     cursor = cursor_result[0] if cursor_result else 0
     initial_cursor = cursor
 
-    logger.debug(f"Starting sync from cursor {cursor}")
+    logger.debug("Starting sync from cursor %s", _sanitize_log_value(cursor))
 
     # Initialize result counters
-    events_applied = 0
     pages_processed = 0
-    events_failed = 0
 
     # Step 2: Loop through pages until no more events
     while True:
-        logger.debug(f"Fetching events since seq {cursor} with limit {limit}")
+        logger.debug("Fetching events since seq %s with limit %s",
+                     _sanitize_log_value(cursor), limit)
 
         # Get events from peer
         try:
             events, next_seq, has_more = await peer.get_events_since(cursor, limit)
         except Exception as e:
-            logger.error(f"Failed to get events from peer {peer_id}: {e}")
+            logger.error("Failed to get events from peer %s: %s",
+                         _sanitize_log_value(peer_id), _sanitize_log_value(e))
             raise
 
         # If no events returned, we're done
@@ -99,7 +124,8 @@ async def sync_from_peer(
             break
 
         pages_processed += 1
-        logger.debug(f"Processing page {pages_processed} with {len(events)} events")
+        events_received += len(events)
+        logger.debug("Processing page %s with %s events", pages_processed, len(events))
 
         # Step 3: Apply each event in the page. FAIL-STOP (§8.5): on the first event
         # that fails to apply, stop and advance the cursor ONLY to the last event that
@@ -112,7 +138,9 @@ async def sync_from_peer(
             try:
                 result = apply_remote_event(local_storage, event)
             except Exception as e:
-                logger.error(f"Error applying event {event.get('event_id', 'unknown')} (seq={event_seq}): {e}")
+                logger.error("Error applying event %s (seq=%s): %s",
+                             _sanitize_log_value(event.get('event_id', 'unknown')),
+                             _sanitize_log_value(event_seq), _sanitize_log_value(e))
                 events_failed += 1
                 page_failed = True
                 break
@@ -120,7 +148,8 @@ async def sync_from_peer(
                 events_applied += 1
                 if event_seq is not None:
                     last_good_seq = event_seq
-                logger.debug(f"Applied event {event.get('event_id', 'unknown')}: {result.reason}")
+                logger.debug("Applied event %s: %s",
+                             _sanitize_log_value(event.get('event_id', 'unknown')), result.reason)
             elif getattr(result, "skippable", False):
                 # Permanently non-materializable event (e.g. create with irrecoverable
                 # empty content). Advance past it so a handful of bad events cannot block
@@ -136,7 +165,9 @@ async def sync_from_peer(
                 )
             else:
                 # applied=False means the event was not accepted (not a benign dup).
-                logger.warning(f"Event {event.get('event_id', 'unknown')} (seq={event_seq}) not applied: {result.reason}")
+                logger.warning("Event %s (seq=%s) not applied: %s",
+                             _sanitize_log_value(event.get('event_id', 'unknown')),
+                             _sanitize_log_value(event_seq), result.reason)
                 events_failed += 1
                 page_failed = True
                 break
@@ -148,15 +179,17 @@ async def sync_from_peer(
         try:
             advance_sync_cursor(local_storage, peer_id, advance_target)
             cursor = advance_target
-            logger.debug(f"Advanced cursor to {cursor}")
+            logger.debug("Advanced cursor to %s", _sanitize_log_value(cursor))
         except Exception as e:
-            logger.error(f"Failed to advance cursor for peer {peer_id}: {e}")
+            logger.error("Failed to advance cursor for peer %s: %s",
+                         _sanitize_log_value(peer_id), _sanitize_log_value(e))
             raise
 
         # Step 5: Stop on partial failure (do not silently skip the failed event) or when
         # the feed is exhausted.
         if page_failed:
-            logger.warning(f"Stopping sync from {peer_id} at seq {cursor} due to apply failure")
+            logger.warning("Stopping sync from %s at seq %s due to apply failure",
+                         _sanitize_log_value(peer_id), _sanitize_log_value(cursor))
             break
         if not has_more:
             logger.debug("No more pages available")
@@ -164,17 +197,18 @@ async def sync_from_peer(
 
     final_cursor = cursor
     logger.info(
-        f"Completed sync from peer {peer_id}: "
-        f"{events_applied} events applied, "
-        f"{pages_processed} pages processed, "
-        f"cursor: {initial_cursor} → {final_cursor}"
+        "Completed sync from peer %s: %s events applied, %s pages processed, "
+        "cursor: %s → %s",
+        _sanitize_log_value(peer_id), events_applied, pages_processed,
+        _sanitize_log_value(initial_cursor), _sanitize_log_value(final_cursor),
     )
 
     return SyncResult(
         events_applied=events_applied,
         pages_processed=pages_processed,
         final_cursor=final_cursor,
-        events_failed=events_failed
+        events_failed=events_failed,
+        events_received=events_received,
     )
 
 
@@ -279,7 +313,7 @@ async def push_to_peer(
     and advances push_cursor ONLY after the peer acks a batch (R6, resumable). Stops at the
     first batch that reports failures without advancing past the last fully-acked seq.
     """
-    logger.info(f"Starting push to peer {peer_id}")
+    logger.info("Starting push to peer %s", _sanitize_log_value(peer_id))
     initial = get_push_cursor(local_storage, peer_id)
     cursor = initial
     pushed = failed = 0
@@ -291,7 +325,8 @@ async def push_to_peer(
         resp = await peer.push_events(events)
         batch_failed = resp.get("failed", 0)
         if batch_failed:
-            logger.warning(f"Push to {peer_id} stopped: {batch_failed} failed in batch")
+            logger.warning("Push to %s stopped: %s failed in batch",
+                     _sanitize_log_value(peer_id), _sanitize_log_value(batch_failed))
             # R6 (resumable): advance only to the last seq that succeeded CONTIGUOUSLY
             # before the FIRST failure. Events after the first failure must be re-pushed
             # (the hub applies in order; we cannot skip a failed event).
@@ -317,5 +352,7 @@ async def push_to_peer(
         if len(events) < limit:
             break
 
-    logger.info(f"Completed push to {peer_id}: {pushed} pushed, {failed} failed, cursor {initial} → {cursor}")
+    logger.info("Completed push to %s: %s pushed, %s failed, cursor %s → %s",
+                 _sanitize_log_value(peer_id), pushed, failed,
+                 _sanitize_log_value(initial), _sanitize_log_value(cursor))
     return PushResult(events_pushed=pushed, events_failed=failed, final_seq=cursor)

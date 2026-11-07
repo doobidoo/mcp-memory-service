@@ -110,7 +110,9 @@ class AsyncQualityScorer:
             storage: Optional storage instance to persist updated scores
         """
         if not self.running:
-            logger.warning("Async quality scorer not running, starting now")
+            # The first score is the normal start path (nothing starts the
+            # scorer at boot), so this is not a warning; start() logs at INFO.
+            logger.debug("Async quality scorer not running, starting now")
             await self.start()
 
         # Add to queue

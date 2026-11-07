@@ -46,6 +46,9 @@ the method optional. The rest are not, which makes the method mandatory for
 every backend the web server can be pointed at. WEB_API_REQUIRED_METHODS is that
 second list: each entry must be declared on MemoryStorage and overridden by all
 four backends, so a missing method fails here instead of on a dashboard tab.
+
+The `agent_id` keyword (issue #1650) is guarded the same way as `store`:
+AGENT_ID_CONTRACT_METHODS lists the methods callers pass it to.
 """
 
 import importlib
@@ -72,6 +75,29 @@ STORE_CONTRACT_METHODS = [
     "get_memory_timestamps",
     "get_all_tags_with_counts",
     "get_graph_visualization_data",
+]
+
+# Methods that callers invoke with `agent_id=` (#1297): services/memory_service.py
+# passes it to get_all_memories and count_all_memories, and the MCP search
+# handler (server/handlers/memory.py::_retrieve_search_results) always passes it
+# to search_memories, None included. Milvus overrides search_memories and shipped
+# without the keyword, so every memory_search call on Milvus raised TypeError
+# (issue #1650) — the same drift as #133, for a different keyword.
+AGENT_ID_CONTRACT_METHODS = [
+    "get_all_memories",
+    "count_all_memories",
+    "search_memories",
+]
+
+# Methods that services/memory_service.py (list_memories, search_by_tag) and
+# web/api/search.py call with `include_superseded=` (#1803), so the list and tag
+# searches only show current versions. Every backend must accept the keyword.
+INCLUDE_SUPERSEDED_CONTRACT_METHODS = [
+    "get_all_memories",
+    "count_all_memories",
+    # MemoryService.search_by_tag (the search_by_tag MCP handler) passes it too.
+    "search_by_tag",
+    "search_by_tags",
 ]
 
 # Methods that web/api/*.py calls on `storage` WITHOUT a hasattr guard, i.e.
@@ -128,8 +154,8 @@ BASE_DEFAULT_ALLOWED = {
 
 # Milvus parity methods (issue #1201). These are not guaranteed on every
 # backend: older backends may intentionally inherit a base fallback, and the
-# web layer still has SQLite-only compatibility paths for untagged memories and
-# type counts. Milvus, however, is expected to implement all of them, and the
+# web layer still has a SQLite-only compatibility path for type counts (the
+# untagged one went to the storage layer in #1870). Milvus, however, is expected to implement all of them, and the
 # calls below mirror every shape used by web/api and the MCP handlers. Keeping
 # the call shapes here prevents a rebase from silently changing a keyword name
 # or dropping a parameter that production callers pass.
@@ -263,6 +289,39 @@ def test_base_interface_declares_store_kwarg(method_name):
     )
 
 
+@pytest.mark.parametrize("method_name", AGENT_ID_CONTRACT_METHODS)
+def test_all_backends_accept_agent_id_kwarg(method_name):
+    """Each backend, inherited or overridden, accepts the `agent_id` callers pass."""
+    offenders = []
+    for name, cls, err in BACKENDS:
+        if cls is None:
+            continue
+        method = getattr(cls, method_name, None)
+        assert method is not None, f"{name} is missing {method_name}()"
+        params = inspect.signature(method).parameters
+        accepts_agent_id = (
+            "agent_id" in params
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        )
+        if not accepts_agent_id:
+            offenders.append(name)
+    assert not offenders, (
+        f"{method_name}() is missing the `agent_id` keyword on: {offenders}. "
+        f"Callers pass agent_id=... to this method (issue #1650)."
+    )
+
+
+@pytest.mark.parametrize("method_name", AGENT_ID_CONTRACT_METHODS)
+def test_base_interface_declares_agent_id_kwarg(method_name):
+    """The abstract interface declares `agent_id` for every method callers pass it to."""
+    method = getattr(MemoryStorage, method_name, None)
+    assert method is not None, f"MemoryStorage is missing {method_name}()"
+    assert "agent_id" in inspect.signature(method).parameters, (
+        f"MemoryStorage.{method_name}() does not declare `agent_id`, but callers "
+        f"pass it (issue #1650)."
+    )
+
+
 @pytest.mark.parametrize("method_name", WEB_API_REQUIRED_METHODS)
 def test_base_interface_declares_web_api_methods(method_name):
     """The abstract interface declares every method the web API calls unguarded.
@@ -374,4 +433,24 @@ def test_milvus_graph_storage_matches_graph_storage_signature(method_name):
     assert _signature_shape(milvus_method) == _signature_shape(sqlite_method), (
         f"MilvusGraphStorage.{method_name}{inspect.signature(milvus_method)} "
         f"does not match GraphStorage.{method_name}{inspect.signature(sqlite_method)}"
+    )
+
+
+@pytest.mark.parametrize("method_name", INCLUDE_SUPERSEDED_CONTRACT_METHODS)
+def test_all_backends_accept_include_superseded_kwarg(method_name):
+    """Each backend and the base interface accept the `include_superseded` callers pass."""
+    offenders = []
+    for name, cls in [("MemoryStorage", MemoryStorage)] + [
+        (name, cls) for name, cls, err in BACKENDS if cls is not None
+    ]:
+        method = getattr(cls, method_name, None)
+        assert method is not None, f"{name} is missing {method_name}()"
+        params = inspect.signature(method).parameters
+        if "include_superseded" not in params and not any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        ):
+            offenders.append(name)
+    assert not offenders, (
+        f"{method_name}() is missing the `include_superseded` keyword on: "
+        f"{offenders}. MemoryService and the REST tag search pass it (issue #1803)."
     )

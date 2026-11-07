@@ -95,7 +95,7 @@ class PatternExtractor:
         self._patterns: Dict[str, List[Tuple[re.Pattern, float]]] = load_patterns(self._locale)
         if self._patterns:
             total = sum(len(v) for v in self._patterns.values())
-            logger.info(f"PatternExtractor loaded {total} patterns for locale(s): {_sanitize_log_value(self._locale)}")
+            logger.info("PatternExtractor loaded %d patterns for locale(s): %s", total, _sanitize_log_value(self._locale))
 
     def extract(
         self,

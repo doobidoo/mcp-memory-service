@@ -5,6 +5,7 @@ These tests verify that the MCP handlers correctly transform MemoryService
 responses to MCP TextContent format, particularly after the fix for issue #198.
 """
 
+import json
 import re
 import pytest
 from mcp import types
@@ -65,35 +66,19 @@ class TestHandleStoreMemory:
 
     @pytest.mark.asyncio
     async def test_store_memory_empty_content(self):
-        """Test storing empty content returns error."""
+        """Empty content is rejected by raising, so the envelope reports isError (#1601)."""
         server = MemoryServer()
 
-        result = await server.handle_store_memory({
-            "content": "",
-            "metadata": {}
-        })
-
-        # Verify error message
-        assert isinstance(result, list)
-        assert len(result) == 1
-        text = result[0].text
-        assert "error" in text.lower()
-        assert "required" in text.lower()
+        with pytest.raises(ValueError, match="[Cc]ontent is required"):
+            await server.handle_store_memory({"content": "", "metadata": {}})
 
     @pytest.mark.asyncio
     async def test_store_memory_missing_content(self):
-        """Test storing without content parameter returns error."""
+        """Missing content is rejected by raising (#1601)."""
         server = MemoryServer()
 
-        result = await server.handle_store_memory({
-            "metadata": {"tags": ["test"]}
-        })
-
-        # Verify error message
-        assert isinstance(result, list)
-        assert len(result) == 1
-        text = result[0].text
-        assert "error" in text.lower()
+        with pytest.raises(ValueError, match="[Cc]ontent is required"):
+            await server.handle_store_memory({"metadata": {"tags": ["test"]}})
 
     @pytest.mark.asyncio
     async def test_store_memory_with_tags_string(self, unique_content):
@@ -132,11 +117,11 @@ class TestHandleStoreMemory:
 
 
     @pytest.mark.asyncio
-    async def test_store_memory_with_conversation_id(self, unique_content):
+    async def test_store_memory_with_conversation_id(self, unique_content, monkeypatch):
         """Storing with conversation_id allows semantically similar saves."""
         server = MemoryServer()
         await server._ensure_storage_initialized()
-        server.storage.semantic_dedup_enabled = True
+        monkeypatch.setattr(server.storage, "semantic_dedup_enabled", True)
 
         content1 = unique_content("Claude Code is a powerful CLI tool for software engineering.")
         result1 = await server.handle_store_memory({
@@ -279,18 +264,12 @@ class TestIssue198Regression:
         """Verify fix for issue #198: Errors handled without KeyError."""
         server = MemoryServer()
 
-        # Store with empty content (triggers error path)
-        result = await server.handle_store_memory({
-            "content": "",
-            "metadata": {}
-        })
-
-        # Should return error message without KeyError
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert "error" in result[0].text.lower()
-        # Should NOT be KeyError message
-        assert "'message'" not in result[0].text
+        # Empty content now raises (isError path); the guarantee under test is that
+        # the failure never surfaces as a KeyError (#198).
+        with pytest.raises(ValueError) as excinfo:
+            await server.handle_store_memory({"content": "", "metadata": {}})
+        assert not isinstance(excinfo.value, KeyError)
+        assert "'message'" not in str(excinfo.value)
 
 
 class TestGetCacheStats:
@@ -316,7 +295,6 @@ class TestGetCacheStats:
         assert isinstance(result[0], types.TextContent)
 
         # Parse JSON response
-        import json
         data = json.loads(result[0].text)
 
         # Verify backend_info structure exists and is complete

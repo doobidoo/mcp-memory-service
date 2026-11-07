@@ -45,12 +45,13 @@ def _get_version():
         return "0.0.0.dev0"
 
 
-# Lazy command map for ingestion-related commands.
-# These commands pull in heavier dependencies and are imported only when needed.
+# Lazy command map: these commands are imported only when invoked
+# (ingestion pulls in heavier dependencies).
 LAZY_COMMANDS = {
     "ingest-document": ("mcp_memory_service.cli.ingestion", "ingest_document"),
     "ingest-directory": ("mcp_memory_service.cli.ingestion", "ingest_directory"),
     "list-formats": ("mcp_memory_service.cli.ingestion", "list_formats"),
+    "oauth": ("mcp_memory_service.cli.oauth", "oauth"),
 }
 
 
@@ -72,7 +73,7 @@ class LazyCLIGroup(click.Group):
             return None
 
         module_name, attr_name = lazy_target
-        import importlib
+        import importlib  # inline import: keep optional dependencies lazy
         module = importlib.import_module(module_name)
         return getattr(module, attr_name)
 
@@ -90,7 +91,7 @@ def cli(ctx):
 
     # Backward compatibility: if no subcommand provided, default to server
     if ctx.invoked_subcommand is None:
-        import warnings
+        import warnings  # inline import: keep optional dependencies lazy
         warnings.warn(
             "Running 'memory' without a subcommand is deprecated. "
             "Please use 'memory server' explicitly. "
@@ -125,7 +126,7 @@ def server(debug, http, http_host, http_port, sse, streamable_http, sse_host, ss
         os.environ['MCP_MEMORY_STORAGE_BACKEND'] = storage_backend
 
     if debug:
-        import logging
+        import logging  # inline import: keep optional dependencies lazy
         logging.basicConfig(level=logging.DEBUG)
 
     if http_host is not None:
@@ -181,7 +182,7 @@ async def _deep_round_trip(storage, problems):
     Appends any failure descriptions to ``problems`` and echoes each step.
     Returns True only if every step succeeded.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     from ..models.memory import Memory
     from ..utils.hashing import generate_content_hash
 
@@ -257,7 +258,7 @@ async def _deep_round_trip(storage, problems):
               help='Run a real store→search→delete round trip to verify memories can be stored and retrieved.')
 def status(storage_backend, deep):
     """Show memory database status and verify the embedding backend is healthy."""
-    import asyncio
+    import asyncio  # inline import: keep optional dependencies lazy
 
     async def show_status():
         problems = []
@@ -274,7 +275,9 @@ def status(storage_backend, deep):
 
             if stats:
                 click.echo(f"   Memories: {stats.get('total_memories', 'Unknown')}")
-                click.echo(f"   Database size: {stats.get('database_size_mb', 'Unknown')} MB")
+                size_mb = stats.get('database_size_mb')
+                # None means the backend could not read the database, not "zero".
+                click.echo(f"   Database size: {size_mb} MB" if size_mb is not None else "   Database size: Unknown")
                 click.echo(f"   Unique tags: {stats.get('unique_tags', 'Unknown')}")
 
             # ── Embedding backend ────────────────────────────────────────────
@@ -362,7 +365,7 @@ def _resolve_db_path():
 @click.option('--db-path', default=None, help='Path to SQLite database (auto-detected if omitted)')
 def check_db(db_path):
     """Check schema version and pending migrations (read-only)."""
-    import sqlite3
+    import sqlite3  # inline import: keep optional dependencies lazy
     from pathlib import Path
     from ..storage.migration_runner import MigrationRunner
 
@@ -410,7 +413,7 @@ def check_db(db_path):
 @click.option('--dry-run', is_flag=True, help='Show what would be applied without executing')
 def migrate(db_path, dry_run):
     """Apply pending schema migrations."""
-    import sqlite3
+    import sqlite3  # inline import: keep optional dependencies lazy
     from pathlib import Path
     from ..storage.migration_runner import MigrationRunner
 
@@ -585,8 +588,8 @@ def logs(lines):
 
 def memory_server_main():
     """Compatibility entry point for memory-server command."""
-    import argparse
-    import warnings
+    import argparse  # inline import: keep optional dependencies lazy
+    import warnings  # inline import: keep optional dependencies lazy
 
     warnings.warn(
         "The 'memory-server' command is deprecated. Please use 'memory server' instead. "

@@ -11,6 +11,10 @@ The MCP Memory Service supports native Cloudflare integration using Vectorize fo
 
 This setup provides global distribution, automatic scaling, and cost-effective pay-per-use pricing.
 
+> **No Cloudflare account?** The hybrid backend can sync to a self-hosted MCP Memory Service
+> instead (`MCP_HYBRID_SECONDARY_BACKEND=http`); see the
+> [self-hosted sync hub guide](guides/self-hosted-sync-hub.md).
+
 ## 🚀 Quick Start
 
 For users who want to get started immediately:
@@ -331,16 +335,10 @@ python scripts/import_to_cloudflare.py --input cloudflare_export.json
 
 ### From Legacy ChromaDB Data
 
-ChromaDB was removed in v8.0.0. If you still have ChromaDB data, convert it to SQLite-vec on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)), then export that database to JSON on main and import it into Cloudflare:
+ChromaDB was removed in v8.0.0, and no current release ships a converter. Convert the old database to SQLite-vec with the v7.6.0 release on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag first (see [guides/chromadb-migration.md](guides/chromadb-migration.md)), then export that database to JSON on main and import it into Cloudflare:
 
 ```bash
-# On the chromadb-legacy-final tag: ChromaDB -> SQLite-vec
-git checkout chromadb-legacy-final
-python scripts/migration/migrate_chroma_to_sqlite.py \
-    --chroma-path /path/to/chroma_db --sqlite-path ~/chroma_export.db
-
-# Back on main: SQLite-vec -> JSON -> Cloudflare (Cloudflare credentials set as above)
-git checkout main
+# On the current release: SQLite-vec -> JSON -> Cloudflare (Cloudflare credentials set as above)
 export MCP_MEMORY_STORAGE_BACKEND=cloudflare
 python scripts/migration/migrate_to_cloudflare.py export \
     --source sqlite_vec --source-path ~/chroma_export.db --output ~/chromadb_backup.json

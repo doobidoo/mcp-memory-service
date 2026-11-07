@@ -175,12 +175,13 @@ test_output_disambiguates_same_named_files() {
   printf '%s' "$out" | grep -q "dup-a/same.test.js"
 }
 
-# The real repository directories must both be covered by the default.
-test_default_covers_claude_hooks_and_opencode() {
+# The real repository directories must all be covered by the default.
+test_default_covers_all_clients() {
   local out
   out="$( cd "$REPO_ROOT" && bash "$SCRIPT" )" || return 1
   printf '%s' "$out" | grep -q "claude-hooks/tests" &&
-  printf '%s' "$out" | grep -q "opencode/tests"
+  printf '%s' "$out" | grep -q "opencode/tests" &&
+  printf '%s' "$out" | grep -q "codex/tests"
 }
 
 run_test "passing files pass"                          test_passing_files_pass
@@ -197,7 +198,7 @@ run_test "failure in the second dir fails the run"     test_failure_in_second_di
 run_test "one empty dir fails, not masked by another"  test_one_empty_dir_fails_the_run
 run_test "missing dir in the list is reported"         test_missing_dir_in_list_fails
 run_test "same-named files are disambiguated"          test_output_disambiguates_same_named_files
-run_test "default covers claude-hooks and opencode"    test_default_covers_claude_hooks_and_opencode
+run_test "default covers all three clients"            test_default_covers_all_clients
 
 rm -rf "$TMPDIR_LOCAL"
 

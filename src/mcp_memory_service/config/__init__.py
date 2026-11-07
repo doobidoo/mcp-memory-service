@@ -11,6 +11,7 @@ from .embedding import *  # noqa: F401,F403
 from .transport import *  # noqa: F401,F403
 from .oauth import *  # noqa: F401,F403
 from .oauth import _load_pem_from_env  # noqa: F401 — tests import this directly
+from .oauth import _resolve_anonymous_scope  # noqa: F401 — tests import this directly
 # The /metrics opt-in flag is env-driven and the tests toggle MCP_METRICS_ENABLED
 # then reload *this package* (not the submodule). ``importlib.reload(config_pkg)``
 # re-runs the import below but does NOT re-execute the already-imported

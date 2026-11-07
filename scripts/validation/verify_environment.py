@@ -24,7 +24,7 @@ import platform
 import subprocess
 import json
 import importlib
-import pkg_resources
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 import traceback
 import ctypes
@@ -196,11 +196,11 @@ class EnvironmentVerifier:
         """Verify Python interpreter version matches production requirements."""
         try:
             python_version = sys.version.split()[0]
-            required_version = "3.10"  # Updated to match current requirements
+            required_version = "3.11"
             
-            if not python_version.startswith(required_version):
+            if sys.version_info < (3, 11):
                 self.critical_failures.append(
-                    f"Python version mismatch: Found {python_version}, required {required_version}"
+                    f"Python version mismatch: Found {python_version}, required >= {required_version}"
                 )
             else:
                 self.verification_results.append(
@@ -236,7 +236,7 @@ class EnvironmentVerifier:
 
         for package, required_version in required_packages.items():
             try:
-                installed_version = pkg_resources.get_distribution(package).version
+                installed_version = version(package)
                 if required_version and installed_version != required_version:
                     self.critical_failures.append(
                         f"Package version mismatch: {package} "
@@ -246,7 +246,7 @@ class EnvironmentVerifier:
                     self.verification_results.append(
                         f"[OK] Package verified: {package} {installed_version}"
                     )
-            except pkg_resources.DistributionNotFound:
+            except PackageNotFoundError:
                 self.critical_failures.append(f"Required package not found: {package}")
             except Exception as e:
                 self.critical_failures.append(
@@ -352,7 +352,7 @@ class EnvironmentVerifier:
         if self.critical_failures:
             print("\nTo fix these issues:")
             print("1. Create a new virtual environment:")
-            print("   conda create -n mcp-env python=3.10")
+            print("   conda create -n mcp-env python=3.11")
             print("   conda activate mcp-env")
             print("\n2. Install requirements:")
             print("   pip install -r requirements.txt")

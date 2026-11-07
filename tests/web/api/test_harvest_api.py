@@ -36,6 +36,9 @@ def project_dir(tmp_path, monkeypatch):
         json.dumps({"type": "user", "message": {"content": "hello world"}}) + "\n"
     )
     monkeypatch.setenv("HOME", str(tmp_path))
+    # POSIX resolves `~` from HOME, Windows from USERPROFILE. Without this the
+    # endpoint keeps looking at the real C:\Users\<name> and answers 404.
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     yield project
 
 

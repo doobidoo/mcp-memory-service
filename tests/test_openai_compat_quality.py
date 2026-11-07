@@ -493,6 +493,19 @@ class TestDeterministicTemperature:
         payload = client.post.call_args.kwargs["json"]
         assert payload["temperature"] == 0
 
+    @pytest.mark.asyncio
+    async def test_payload_disables_streaming_explicitly(self):
+        """fm serve streams SSE unless told otherwise; response.json() would fail (#1666)."""
+        helper = TestScoreWithOpenAICompatible()
+        ev = helper._make_evaluator()
+        client = helper._install_mock_post(
+            ev, return_value=_mock_httpx_response("0.8")
+        )
+
+        await ev._score_with_openai_compatible("python", _make_memory())
+
+        assert client.post.call_args.kwargs["json"]["stream"] is False
+
 
 class TestParseScoreResponse:
     def test_bare_number(self):

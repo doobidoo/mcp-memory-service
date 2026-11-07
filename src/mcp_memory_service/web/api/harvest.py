@@ -183,6 +183,7 @@ async def harvest_sessions(
                 "total_messages": r.total_messages,
                 "found": r.found,
                 "stored": r.stored,
+                "skipped": r.skipped,
                 "by_type": r.by_type,
                 "candidates": [
                     {

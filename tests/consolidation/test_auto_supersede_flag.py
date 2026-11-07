@@ -61,13 +61,22 @@ async def _visible(storage, content_hash):
 
 @pytest.mark.asyncio
 @patch(f"{_MOD}.CONSOLIDATION_AUTO_SUPERSEDE", True)
-async def test_default_supersedes_older_memory(temp_db_path, unique_content, monkeypatch):
+@pytest.mark.parametrize("confidence, superseded", [(0.75, False), (0.8499, False), (0.85, True), (0.9, True)])
+async def test_explicit_opt_in_only_supersedes_top_band_memory(
+    temp_db_path, unique_content, monkeypatch, confidence, superseded
+):
     monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
     storage, consolidator, older, newer, association = await _setup(temp_db_path, unique_content)
+    consolidator.relationship_inference.infer_relationship_type.return_value = ("contradicts", confidence)
     try:
         await consolidator._store_associations_in_graph_table([association])
-        assert not await _visible(storage, older.content_hash)
+        assert await _visible(storage, older.content_hash) is not superseded
         assert await _visible(storage, newer.content_hash)
+        inference = consolidator.relationship_inference.infer_relationship_type
+        assert inference.await_args.kwargs["similarity"] == association.similarity_score
+        edge = await consolidator.graph_storage.get_association(older.content_hash, newer.content_hash)
+        assert edge["metadata"]["relationship_confidence"] == round(confidence, 3)
+        assert edge["metadata"]["needs_review"] is not superseded
     finally:
         await consolidator.graph_storage.close()
         await storage.close()
@@ -131,7 +140,7 @@ async def test_environment_false_reaches_consolidation(
 
 
 @pytest.mark.asyncio
-async def test_environment_unset_still_supersedes(
+async def test_environment_unset_keeps_both_memories_visible(
     temp_db_path, unique_content, monkeypatch, set_flag_from_environment
 ):
     monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
@@ -139,7 +148,7 @@ async def test_environment_unset_still_supersedes(
     storage, consolidator, older, newer, association = await _setup(temp_db_path, unique_content)
     try:
         await consolidator._store_associations_in_graph_table([association])
-        assert not await _visible(storage, older.content_hash)
+        assert await _visible(storage, older.content_hash)
         assert await _visible(storage, newer.content_hash)
     finally:
         await consolidator.graph_storage.close()
@@ -152,4 +161,4 @@ def test_flag_reads_environment(monkeypatch):
     monkeypatch.setenv("MCP_CONSOLIDATION_AUTO_SUPERSEDE", "true")
     assert importlib.reload(graph_config).CONSOLIDATION_AUTO_SUPERSEDE is True
     monkeypatch.delenv("MCP_CONSOLIDATION_AUTO_SUPERSEDE")
-    assert importlib.reload(graph_config).CONSOLIDATION_AUTO_SUPERSEDE is True
+    assert importlib.reload(graph_config).CONSOLIDATION_AUTO_SUPERSEDE is False

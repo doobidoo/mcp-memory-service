@@ -75,6 +75,8 @@ class MemoryImporter:
             "total_processed": 0,
             "imported": 0,
             "duplicates_skipped": 0,
+            "rejected": 0,
+            "rejections": [],
             "errors": 0,
             "sources": {},
             "dry_run": dry_run,
@@ -93,6 +95,8 @@ class MemoryImporter:
                 import_stats["total_processed"] += file_stats["processed"]
                 import_stats["imported"] += file_stats["imported"]
                 import_stats["duplicates_skipped"] += file_stats["duplicates"]
+                import_stats["rejected"] += file_stats["rejected"]
+                import_stats["rejections"].extend(file_stats["rejections"])
                 import_stats["sources"].update(file_stats["sources"])
                 
                 logger.info(
@@ -112,6 +116,7 @@ class MemoryImporter:
         logger.info("  Total memories processed: %s", import_stats['total_processed'])
         logger.info("  Successfully imported: %s", import_stats['imported'])
         logger.info("  Duplicates skipped: %s", import_stats['duplicates_skipped'])
+        logger.info("  Rejected by storage: %s", import_stats['rejected'])
         logger.info("  Errors: %s", _sanitize_log_value(import_stats['errors']))
         
         for source_machine, stats in import_stats["sources"].items():
@@ -145,11 +150,14 @@ class MemoryImporter:
             "processed": len(memories_data),
             "imported": 0,
             "duplicates": 0,
+            "rejected": 0,
+            "rejections": [],
             "sources": {
                 source_machine: {
                     "total": len(memories_data),
                     "imported": 0,
-                    "duplicates": 0
+                    "duplicates": 0,
+                    "rejected": 0
                 }
             }
         }
@@ -174,9 +182,31 @@ class MemoryImporter:
                     memory_data, source_machine, add_source_tags, json_file
                 )
                 
-                # Store the memory (unless dry run)
+                # Store the memory in the store it came from (unless dry run). Records
+                # written before the field existed go to "default". The exact-hash check
+                # inside store() stays; the semantic check is skipped, because an export
+                # holds memories the source already accepted. A memory counts as imported
+                # only when store() said so (#1520).
+                store_name = memory_data.get("store") or "default"
                 if not dry_run:
-                    await self.storage.store(memory)
+                    success, message = await self.storage.store(
+                        memory, skip_semantic_dedup=True, store=store_name
+                    )
+                    if not success:
+                        logger.warning(
+                            "Storage rejected memory %s (store %s): %s",
+                            _sanitize_log_value(content_hash),
+                            _sanitize_log_value(store_name),
+                            _sanitize_log_value(message),
+                        )
+                        file_stats["rejected"] += 1
+                        file_stats["sources"][source_machine]["rejected"] += 1
+                        file_stats["rejections"].append({
+                            "content_hash": content_hash,
+                            "store": store_name,
+                            "reason": message,
+                        })
+                        continue
                 
                 # Track success
                 existing_hashes.add(content_hash)
@@ -226,10 +256,13 @@ class MemoryImporter:
         return memory
     
     async def _get_existing_hashes(self) -> Set[str]:
-        """Get all existing content hashes for deduplication."""
+        """Get the content hashes of every live memory, in every store, for deduplication."""
         try:
-            all_memories = await self.storage.get_all_memories()
-            return {memory.content_hash for memory in all_memories}
+            hashes = set()
+            for store in await self.storage.get_stores():
+                for memory in await self.storage.get_all_memories(store=store):
+                    hashes.add(memory.content_hash)
+            return hashes
         except Exception as e:
             logger.warning("Could not load existing memories for deduplication: %s", _sanitize_log_value(e))
             return set()

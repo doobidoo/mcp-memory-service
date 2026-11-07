@@ -25,6 +25,7 @@ import io
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class CSVLoader(DocumentLoader):
         max_rows_per_chunk = kwargs.get('max_rows_per_chunk', 50)
         include_row_numbers = kwargs.get('include_row_numbers', True)
 
-        logger.info(f"Extracting chunks from CSV file: {file_path}")
+        logger.info("Extracting chunks from CSV file: %s", _sanitize_log_value(file_path))
 
         try:
             # Read CSV data
@@ -114,7 +115,7 @@ class CSVLoader(DocumentLoader):
             )
 
             if not rows:
-                logger.warning(f"CSV file {file_path} appears to be empty")
+                logger.warning("CSV file %s appears to be empty", _sanitize_log_value(file_path))
                 return
 
             # Prepare headers
@@ -152,7 +153,7 @@ class CSVLoader(DocumentLoader):
                 )
 
         except Exception as e:
-            logger.error(f"Error extracting from CSV file {file_path}: {type(e).__name__} - {str(e)}")
+            logger.error("Error extracting from CSV file %s: %s - %s", _sanitize_log_value(file_path), _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
             raise ValueError(f"Failed to extract CSV content: {str(e)}") from e
 
     async def _read_csv_file(

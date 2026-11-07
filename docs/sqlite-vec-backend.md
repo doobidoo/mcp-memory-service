@@ -99,7 +99,7 @@ Update your Claude Desktop MCP configuration:
 
 ## Migrating Legacy ChromaDB Data
 
-ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The script is preserved at the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag.
+ChromaDB was removed as a supported backend in v8.0.0. If you still have data from a ChromaDB install, see the dedicated guide: **[guides/chromadb-migration.md](guides/chromadb-migration.md)**. The conversion script runs on the [`chromadb-legacy-final`](https://github.com/doobidoo/mcp-memory-service/tree/chromadb-legacy-final) tag (v7.6.0); current releases do not include it.
 
 After migration, set the environment variable and restart Claude Desktop:
 
@@ -131,6 +131,50 @@ async def check_stats():
 asyncio.run(check_stats())
 "
 ```
+
+## Multi-Store Partitioning
+
+Current schemas partition vector rows by store, so several tenants or workspaces can
+share one database file without competing for the same top-k slots:
+
+```sql
+CREATE VIRTUAL TABLE memory_embeddings USING vec0(
+    content_embedding FLOAT[384] distance_metric=cosine,
+    store TEXT partition key
+);
+```
+
+### Which entry points honour `store`
+
+| Entry point | Honours `store` | Default when `store` is omitted |
+|---|---|---|
+| `storage.search_memories(..., store=...)` | yes — `semantic`, `hybrid` and `ranked` add `AND store = ?` on the vec0 partition; `exact` adds it to its `LIKE` query over `memories` | `"default"` — pass `store=None` to search every store |
+| tag-only and time-only queries | yes | `"default"` |
+| `memory_store(..., store=...)` | yes — written to `memories.store` and to the vec0 partition column | `"default"` |
+| MCP `memory_search` (`store`) | yes — the argument is part of the tool schema | `"default"`; `store="all"` is mapped to `None`, i.e. cross-store search |
+
+The default is the single `default` partition, not the whole file: a caller that never
+passes `store` sees only memories written to `default`, and memories in other
+partitions are invisible. Pass `store=None` (storage) or `store="all"` (MCP tool) for
+a merged ranking across partitions. Scoping the query is also not interchangeable
+with filtering the results afterwards, because the top-k has already been chosen
+across partitions.
+
+### Migrating embeddings without losing the partition key
+
+`scripts/maintenance/migrate_embeddings.py` re-creates `memory_embeddings` when the
+embedding model changes. **Known limitation:** the script rebuilds the table from a
+fixed DDL that omits `store`. Run it on a database whose `memory_embeddings` carries
+the partition key and the column disappears: every store-scoped vector query then
+fails with `no such column: store`. Measured on a copy of a real database after such
+a migration: `semantic` and `ranked` return zero results, while `hybrid` (its FTS
+branch filters `memories`) and `exact` (it reads `memories`, not the vector table)
+keep working — which makes the breakage easy to miss. The script still reports
+success. Until the fix lands (tracked upstream), copy the database and verify the
+resulting DDL before trusting a migrated file.
+
+A database that predates the `store` column is unaffected: there is no partition key
+to lose.
 
 ## Performance Characteristics
 
@@ -257,22 +301,33 @@ asyncio.run(optimize())
 ### Backup and Restore
 
 ```bash
-# Create backup
-python scripts/migrate_storage.py \
-  --from sqlite_vec \
-  --to sqlite_vec \
-  --source-path memory.db \
-  --target-path backup.db
+# Create a consistent backup with SQLite itself (safe while the database is open)
+sqlite3 memory.db ".backup memory_backup.db"
 
-# Or simple file copy
-cp memory.db memory_backup.db
-
-# Restore from JSON backup
-python scripts/migrate_storage.py \
-  --restore backup.json \
-  --to sqlite_vec \
-  --target-path restored_memory.db
+# Or use the project backup script (copies the database and its WAL/SHM files)
+./scripts/backup/backup_sqlite_vec.sh
 ```
+
+The shell script copies the main database, WAL and SHM in separate `cp` calls
+without a SQLite lock. A write or checkpoint between those copies can leave the
+files disagreeing, so stop every database writer before running it.
+
+Restoring needs every writer stopped, not just `memory`: stdio MCP servers
+started by Claude Desktop or another client keep the database open and would
+write to a WAL that the restored file knows nothing about. Quit those clients,
+then move the old database and sidecars aside before copying the backup:
+
+```bash
+memory stop
+# Quit every client that uses the database, then:
+mv memory.db memory.db.before-restore
+rm -f memory.db-wal memory.db-shm
+cp memory_backup.db memory.db
+memory launch
+```
+
+A WAL left next to the restored file can be replayed over it, losing or
+corrupting the restored rows.
 
 ## Troubleshooting
 

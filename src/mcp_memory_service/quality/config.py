@@ -179,6 +179,22 @@ SUPPORTED_MODELS = {
         'output_classes': ['low', 'medium', 'high'],
         'description': 'Absolute quality assessment (recommended, eliminates self-matching bias)'
     },
+    'Xenova/bge-reranker-base': {
+        'hf_name': 'Xenova/bge-reranker-base',
+        'type': 'cross-encoder',
+        'size_mb': 266,
+        'inputs': ['input_ids', 'attention_mask'],
+        'output_classes': None,
+        'description': 'bge reranker int8 (issue #1602 service-path bench model)'
+    },
+    'Xenova/ms-marco-MiniLM-L-6-v2': {
+        'hf_name': 'Xenova/ms-marco-MiniLM-L-6-v2',
+        'type': 'cross-encoder',
+        'size_mb': 23,
+        'inputs': ['input_ids', 'attention_mask', 'token_type_ids'],
+        'output_classes': None,
+        'description': 'ms-marco MiniLM int8 (issue #1602 service-path bench model)'
+    },
     'ms-marco-MiniLM-L-6-v2': {
         'hf_name': 'cross-encoder/ms-marco-MiniLM-L-6-v2',
         'type': 'cross-encoder',  # Query-document relevance ranking
