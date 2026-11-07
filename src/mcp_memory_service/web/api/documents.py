@@ -596,10 +596,9 @@ async def process_batch_upload(
             # Note: send_progress_update removed - progress tracking via polling instead
 
 # Clean up old completed sessions periodically
-@router.on_event("startup")  # TODO: Migrate to lifespan context manager in app.py (FastAPI 0.109+)
-async def cleanup_old_sessions():
-    """Clean up old completed upload sessions."""
-    async def cleanup():
+async def cleanup_sessions_loop():
+    """Clean up old completed upload sessions periodically."""
+    try:
         while True:
             await asyncio.sleep(3600)  # Clean up every hour
             current_time = datetime.now()
@@ -614,8 +613,9 @@ async def cleanup_old_sessions():
             for upload_id in to_remove:
                 del upload_sessions[upload_id]
                 logger.debug("Cleaned up old upload session: %s", upload_id)
-
-    asyncio.create_task(cleanup())
+    except asyncio.CancelledError:
+        logger.debug("Document upload session cleanup task cancelled")
+        raise
 
 @router.delete("/remove/{upload_id}")
 async def remove_document(

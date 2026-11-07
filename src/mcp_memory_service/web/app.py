@@ -144,7 +144,7 @@ async def oauth_cleanup_background_task():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    global storage, mdns_advertiser, oauth_cleanup_task, consolidation_scheduler, backup_scheduler
+    global storage, mdns_advertiser, oauth_cleanup_task, consolidation_scheduler, backup_scheduler, document_cleanup_task
 
     # Startup
     logger.info("Starting MCP Memory Service HTTP interface...")
@@ -266,6 +266,15 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Backup scheduler disabled")
 
+        # Start document upload session cleanup task
+        try:
+            from .api.documents import cleanup_sessions_loop
+            document_cleanup_task = asyncio.create_task(cleanup_sessions_loop())
+            logger.info("Document session cleanup task started")
+        except Exception as e:
+            logger.error("Error starting document session cleanup: %s", _sanitize_log_value(e))
+            document_cleanup_task = None
+
     except Exception as e:
         logger.error("Failed to initialize storage: %s", _sanitize_log_value(e))
         raise
@@ -309,6 +318,17 @@ async def lifespan(app: FastAPI):
             logger.info("OAuth cleanup task cancelled successfully")
         except Exception as e:
             logger.error("Error stopping OAuth cleanup task: %s", _sanitize_log_value(e))
+
+    # Stop document session cleanup task
+    if document_cleanup_task:
+        try:
+            document_cleanup_task.cancel()
+            await document_cleanup_task
+            logger.info("Document session cleanup task stopped")
+        except asyncio.CancelledError:
+            logger.info("Document session cleanup task cancelled successfully")
+        except Exception as e:
+            logger.error("Error stopping document session cleanup task: %s", _sanitize_log_value(e))
 
     # Stop SSE manager
     await sse_manager.stop()
