@@ -460,9 +460,10 @@ export MCP_QUALITY_RETENTION_MEDIUM=180        # Days for quality 0.5-0.7
 export MCP_QUALITY_RETENTION_LOW_MIN=30        # Min days for quality <0.5
 export MCP_QUALITY_RETENTION_LOW_MAX=90        # Max days for quality <0.5
 
-# Memory Type Specific Retention Overrides (v11.15.0+)
-export MCP_RETENTION_DECISION=730              # Retain decision memories for 2 years
-export MCP_RETENTION_TEMPORARY=7               # Expire temporary memories after 7 days
+# Memory Type Specific Relevance Decay Periods (v11.15.0+)
+# Note: These values control relevance decay periods, not guaranteed storage or deletion deadlines.
+export MCP_RETENTION_DECISION=730              # Decision relevance decay period in days
+export MCP_RETENTION_TEMPORARY=7               # Temporary relevance decay period in days
 ```
 
 ## Using the Quality System

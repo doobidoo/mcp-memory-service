@@ -1830,6 +1830,15 @@ class HybridMemoryStorage(MemoryStorage):
 
         return count_deleted, message, deleted_hashes
 
+    async def count_untagged_memories(self) -> int:
+        """Count memories with no tags in primary storage."""
+        return await self.primary.count_untagged_memories()
+
+    async def delete_untagged_memories(self) -> Tuple[int, str]:
+        """Delete memories with no tags from primary storage and queue for secondary sync."""
+        count, message = await self.primary.delete_untagged_memories()
+        return count, message
+
     async def get_by_exact_content(self, content: str) -> List[Memory]:
         """Retrieve memories by exact content match from primary storage."""
         return await self.primary.get_by_exact_content(content)

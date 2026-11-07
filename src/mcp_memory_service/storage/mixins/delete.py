@@ -426,36 +426,43 @@ class DeleteMixin:
             deleted_at = time.time()
 
             def _delete():
-                rows = self.conn.execute(f"SELECT id, content_hash FROM memories WHERE {predicate}").fetchall()
-                ids = [r[0] for r in rows]
-                hashes = [r[1] for r in rows]
+                try:
+                    rows = self.conn.execute(f"SELECT id, content_hash FROM memories WHERE {predicate}").fetchall()
+                    ids = [r[0] for r in rows]
+                    hashes = [r[1] for r in rows]
 
-                for memory_id in ids:
-                    try:
-                        self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
-                    except Exception as vec_err:
-                        logger.warning(
-                            "Could not delete embedding rowid=%s (corrupted blob?): %s — proceeding with soft-delete.",
-                            memory_id, _sanitize_log_value(vec_err),
+                    for memory_id in ids:
+                        try:
+                            self.conn.execute('DELETE FROM memory_embeddings WHERE rowid = ?', (memory_id,))
+                        except Exception as vec_err:
+                            logger.warning(
+                                "Could not delete embedding rowid=%s (corrupted blob?): %s — proceeding with soft-delete.",
+                                memory_id, _sanitize_log_value(vec_err),
+                            )
+
+                    for ch in hashes:
+                        self.conn.execute(
+                            'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
+                            (ch, ch)
                         )
 
-                for ch in hashes:
-                    self.conn.execute(
-                        'DELETE FROM memory_graph WHERE source_hash = ? OR target_hash = ?',
-                        (ch, ch)
+                    cursor = self.conn.execute(
+                        f"UPDATE memories SET deleted_at = ? WHERE {predicate}",
+                        (deleted_at,)
                     )
 
-                cursor = self.conn.execute(
-                    f"UPDATE memories SET deleted_at = ? WHERE {predicate}",
-                    (deleted_at,)
-                )
+                    if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
+                        for ch in hashes:
+                            self._append_sync_event(self.conn, 'delete', ch, {'content_hash': ch, 'deleted_at': deleted_at})
 
-                if hasattr(self, '_append_sync_event') and cursor.rowcount > 0:
-                    for ch in hashes:
-                        self._append_sync_event(self.conn, 'delete', ch, {'content_hash': ch, 'deleted_at': deleted_at})
-
-                self.conn.commit()
-                return cursor.rowcount
+                    self.conn.commit()
+                    return cursor.rowcount
+                except Exception:
+                    try:
+                        self.conn.rollback()
+                    except Exception:
+                        pass
+                    raise
 
             count = await self._execute_with_retry(_delete)
             logger.info("Deleted %d untagged memories", count)
