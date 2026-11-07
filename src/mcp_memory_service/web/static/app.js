@@ -2597,15 +2597,18 @@ class MemoryDashboard {
     }
 
     /**
-     * Render the local time of day (HH:MM) for a timestamp
+     * Render a local time-of-day cue alongside the clock time for a timestamp
      * @param {number} timestamp - Unix timestamp in seconds
-     * @returns {string} HTML span with the time
+     * @returns {string} HTML span with the time-of-day icon and clock time
      */
     renderTimeIcon(timestamp) {
         if (!timestamp) return '';
 
-        const time = new Date(timestamp * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-        return `<span class="time-icon">${time}</span>`;
+        const date = new Date(timestamp * 1000);
+        const segment = Math.floor(date.getHours() / 3);
+        const icons = ['🌙', '🌅', '☕', '💻', '🍽️', '⛅', '🍷', '🛏️'];
+        const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        return `<span class="time-icon"><span aria-hidden="true">${icons[segment]}</span> ${time}</span>`;
     }
 
     /**
