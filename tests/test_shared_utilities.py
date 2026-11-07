@@ -1,12 +1,12 @@
 """Tests for storage/shared.py utility functions."""
 
+from mcp_memory_service.compat import _sanitize_log_value
 from mcp_memory_service.storage.shared import (
     _embedding_cache_get,
     _embedding_cache_put,
     _embedding_cache_size,
     _escape_like,
     _safe_json_loads,
-    _sanitize_log_value,
     _string_to_tags,
     _tags_to_string,
     _EMBEDDING_CACHE,

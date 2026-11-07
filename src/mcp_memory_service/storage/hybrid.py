@@ -1418,6 +1418,20 @@ class HybridMemoryStorage(MemoryStorage):
         """Hybrid backend supports content chunking with metadata linking."""
         return True
 
+    async def count_untagged_memories(self) -> int:
+        """Count untagged memories in primary storage."""
+        return await self.primary.count_untagged_memories()
+
+    async def delete_untagged_memories(self, expected_count: Optional[int] = None) -> Tuple[int, str]:
+        """Delegate guarded deletion; primary storage records tombstones and sync events."""
+        return await self.primary.delete_untagged_memories(expected_count=expected_count)
+
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Get the embedding dimension from primary storage."""
+        if hasattr(self.primary, 'get_db_embedding_dimension'):
+            return await self.primary.get_db_embedding_dimension()
+        return None
+
     def __init__(self,
                  sqlite_db_path: str,
                  embedding_model: str = "all-MiniLM-L6-v2",
