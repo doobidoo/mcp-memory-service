@@ -1140,6 +1140,14 @@ class MemoryStorage(ABC):
         memories = await self.search_by_tag(tags)
         return len(memories)
 
+    async def count_untagged_memories(self) -> int:
+        """Count memories with no tags (NULL, empty string, or whitespace only)."""
+        raise NotImplementedError("count_untagged_memories not supported by this backend")
+
+    async def delete_untagged_memories(self, expected_count: Optional[int] = None) -> Tuple[int, str]:
+        """Delete memories with no tags. Returns (affected_count, message)."""
+        raise NotImplementedError("delete_untagged_memories not supported by this backend")
+
     # NOTE: ``include_embeddings`` — see ``get_all_memories`` above.
     # Subclass signatures updated in the follow-up PR.
     async def get_memories_by_time_range(

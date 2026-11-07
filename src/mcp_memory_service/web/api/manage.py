@@ -41,22 +41,6 @@ def _sanitize_log_value(value: object) -> str:
     return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 
-def _untagged_backend(storage: MemoryStorage):
-    """Return the backend implementing the untagged API, or None.
-
-    Every backend that can do this exposes count_untagged_memories() and
-    delete_untagged_memories(); the storage layer is where the tombstone,
-    the graph cleanup, the citation retraction and the sync events live.
-    Hybrid storage keeps SQLite as ``primary`` and does not re-export its
-    bulk deletes, so ask the primary — the same hop this endpoint used to
-    make for the raw connection.
-    """
-    for candidate in (storage, getattr(storage, 'primary', None)):
-        if candidate is not None and hasattr(candidate, 'delete_untagged_memories'):
-            return candidate
-    return None
-
-
 # Request/Response Models
 class BulkDeleteRequest(BaseModel):
     """Request model for bulk delete operations."""
@@ -237,11 +221,12 @@ async def count_untagged_memories(
     Returns the number of memories that have no tags assigned.
     """
     try:
-        backend = _untagged_backend(storage)
-        if backend is None:
+        try:
+            count = await storage.count_untagged_memories()
+        except NotImplementedError:
             raise HTTPException(status_code=501, detail="Untagged count not supported by storage backend")
 
-        return {"count": await backend.count_untagged_memories()}
+        return {"count": count}
 
     except HTTPException:
         raise
@@ -275,11 +260,10 @@ async def delete_untagged_memories(
     try:
         # CRITICAL: confirm_count is now REQUIRED (fixed in v9.0.1)
         # Previous bug: confirm_count was optional, allowing accidental mass deletion
-        backend = _untagged_backend(storage)
-        if backend is None:
+        try:
+            actual_count = await storage.count_untagged_memories()
+        except NotImplementedError:
             raise HTTPException(status_code=501, detail="Delete untagged not supported by storage backend")
-
-        actual_count = await backend.count_untagged_memories()
 
         # CRITICAL Safety check - confirm_count MUST match actual_count.
         # This answers a wrong count without touching the store; it is not the
@@ -303,7 +287,7 @@ async def delete_untagged_memories(
 
         # The backend decides how: SQLite tombstones and syncs the delete,
         # Milvus has no tombstones and removes the rows outright.
-        deleted_count, message = await backend.delete_untagged_memories(
+        deleted_count, message = await storage.delete_untagged_memories(
             expected_count=confirm_count
         )
         logger.info("Deleted %d untagged memories", deleted_count)
