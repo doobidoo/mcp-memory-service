@@ -80,6 +80,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
     "mcp_memory_service/mcp_server.py",
+    "mcp_memory_service/lm_studio_compat.py",
     "mcp_memory_service/embeddings/onnx_embeddings.py",
     "mcp_memory_service/config/search.py",
     "mcp_memory_service/config/quality.py",
