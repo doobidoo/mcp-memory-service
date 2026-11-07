@@ -120,3 +120,22 @@ async def test_close_unregisters_the_overlay(storage):
     await storage.add_memory_type("legal")
     await storage.close()
     assert not ontology.validate_memory_type("legal")
+
+
+async def test_in_memory_database_overlay_loads(monkeypatch):
+    """Greptile on #1903: ':memory:' exists only on the storage's connection, so
+    a separate reader connection never saw the types that were added."""
+    monkeypatch.delenv("MCP_CUSTOM_MEMORY_TYPES", raising=False)
+    monkeypatch.setattr(ontology, "_OVERLAY_POLL_SECONDS", 0)
+    s = SqliteVecMemoryStorage(":memory:")
+    await s.initialize()
+    try:
+        await s.add_memory_type("legal")
+        await s.add_memory_type("contract", parent="legal")
+        assert ontology.get_parent_type("contract") == "legal"
+
+        assert await s.remove_memory_type("contract")
+        assert not ontology.validate_memory_type("contract")
+    finally:
+        await s.close()
+        ontology.clear_ontology_caches()

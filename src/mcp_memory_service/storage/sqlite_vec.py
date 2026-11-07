@@ -99,12 +99,30 @@ class SqliteVecMemoryStorage(
         await super().initialize(*args, **kwargs)
         # The ontology overlay (#1897) lives in this database. Registering makes
         # every type lookup in the process see it, including other processes' writes.
-        self._ontology_overlay = OverlaySource(self.db_path)
-        ontology.set_overlay_source(self._ontology_overlay)
+        source = OverlaySource(self.db_path)
+        await self._run_in_thread(source.capture, self.conn)  # in-memory databases only
+        self._ontology_overlay = source
+        ontology.set_overlay_source(source)
 
     async def close(self):
         ontology.clear_overlay_source(getattr(self, "_ontology_overlay", None))
         await super().close()
+
+    async def _write_ontology(self, write):
+        """Run an overlay write under the connection lock, then refresh readers."""
+        source = self._ontology_overlay
+
+        def _op():
+            result = write(self.conn)
+            source.capture(self.conn)
+            return result
+
+        try:
+            return await self._execute_with_retry(_op)
+        finally:
+            # Also on a rejected duplicate: the row that won came from somewhere
+            # this process has not polled yet.
+            ontology.invalidate_overlay()
 
     async def add_memory_type(self, name: str, parent: Optional[str] = None) -> str:
         """Add a memory type to the ontology overlay and return its canonical name.
@@ -113,12 +131,7 @@ class SqliteVecMemoryStorage(
         which must be a base type. Raises ValueError if the name already exists.
         """
         name, parent = validate_memory_type_entry(name, parent)
-        try:
-            await self._execute_with_retry(lambda: upsert_memory_type(self.conn, name, parent))
-        finally:
-            # Also on a rejected duplicate: the row that won came from somewhere
-            # this process has not polled yet.
-            ontology.invalidate_overlay()
+        await self._write_ontology(lambda conn: upsert_memory_type(conn, name, parent))
         return name
 
     async def remove_memory_type(self, name: str) -> bool:
@@ -127,6 +140,4 @@ class SqliteVecMemoryStorage(
         Stored memories keep the type verbatim; it just stops validating for new writes.
         """
         name = ontology.canonicalize_memory_type(name)
-        removed = await self._execute_with_retry(lambda: tombstone_memory_type(self.conn, name))
-        ontology.invalidate_overlay()
-        return removed
+        return await self._write_ontology(lambda conn: tombstone_memory_type(conn, name))

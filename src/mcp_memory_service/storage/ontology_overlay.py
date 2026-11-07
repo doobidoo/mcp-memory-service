@@ -98,15 +98,32 @@ def tombstone_memory_type(conn: sqlite3.Connection, name: str) -> bool:
 
 
 class OverlaySource:
-    """What ``models.ontology`` polls. Opens its own short-lived connection per
-    read, so it is safe from any thread and sees writes by other processes."""
+    """What ``models.ontology`` polls.
+
+    For a database file it opens its own short-lived connection per read, so
+    it is safe from any thread and sees writes by other processes. An
+    in-memory database exists only on the storage's own connection, so there
+    the storage calls ``capture()`` after each write and reads come from that
+    snapshot. No other process can write to it, so nothing is missed.
+    """
 
     def __init__(self, db_path: str):
-        # Read-only: a source left behind by a storage that was never closed
-        # must not create an empty database where the file used to be.
-        self.uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+        self._snapshot: Tuple[int, List[Tuple[str, Optional[str]]]] = (0, [])
+        if db_path in ("", ":memory:"):
+            self.uri = None
+        else:
+            # Read-only: a source left behind by a storage that was never closed
+            # must not create an empty database where the file used to be.
+            self.uri = Path(db_path).resolve().as_uri() + "?mode=ro"
 
-    def _read(self, query):
+    def capture(self, conn: sqlite3.Connection) -> None:
+        """Snapshot the overlay from the storage's connection (in-memory databases only)."""
+        if self.uri is None:
+            self._snapshot = (read_ontology_version(conn), read_memory_type_overlay(conn))
+
+    def _read(self, query, snapshot_value):
+        if self.uri is None:
+            return snapshot_value
         conn = sqlite3.connect(self.uri, uri=True, timeout=5)
         try:
             return query(conn)
@@ -114,7 +131,7 @@ class OverlaySource:
             conn.close()
 
     def read_ontology_version(self) -> int:
-        return self._read(read_ontology_version)
+        return self._read(read_ontology_version, self._snapshot[0])
 
     def read_memory_type_overlay(self) -> List[Tuple[str, Optional[str]]]:
-        return self._read(read_memory_type_overlay)
+        return self._read(read_memory_type_overlay, self._snapshot[1])
