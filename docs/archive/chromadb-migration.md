@@ -128,14 +128,19 @@ If you prefer manual control:
    ```bash
    git checkout main
    python -c "
+   import asyncio, json
+   from mcp_memory_service.models.memory import Memory
    from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
-   import json
-   storage = SqliteVecMemoryStorage(db_path='./memory.db')
-   await storage.initialize()
-   with open('export.json') as f:
-       memories = json.load(f)
-   for mem in memories:
-       await storage.store(Memory.from_dict(mem))
+
+   async def main():
+       storage = SqliteVecMemoryStorage(db_path='./memory.db')
+       await storage.initialize()
+       with open('export.json') as f:
+           memories = json.load(f)
+       for mem in memories:
+           await storage.store(Memory.from_dict(mem))
+
+   asyncio.run(main())
    "
    ```
 
@@ -146,14 +151,19 @@ After migration, verify your data:
 ```bash
 # Check memory count
 python -c "
+import asyncio
 from mcp_memory_service.storage.factory import create_storage_instance
-storage = await create_storage_instance('./memory.db')
-count = len(await storage.get_all_memories())
-print(f'Migrated {count} memories')
+
+async def main():
+    storage = await create_storage_instance('./memory.db')
+    memories = await storage.get_all_memories()
+    print(f'Migrated {len(memories)} memories')
+
+asyncio.run(main())
 "
 
-# Validate SQLite-vec database integrity
-python scripts/validation/validate_migration.py ./memory.db
+# Validate environment and configuration
+python scripts/validation/verify_environment.py
 ```
 
 ## Troubleshooting
