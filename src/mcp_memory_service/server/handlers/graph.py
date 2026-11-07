@@ -725,6 +725,23 @@ async def _select_explore_entities(
     return await graph.list_entities(limit=max_entities), {}
 
 
+def extract_extractive_summary(
+    chunks: List[Dict[str, Any]],
+    max_sentences: int = 3,
+    max_len: int = 150,
+) -> str:
+    """Extract a deterministic summary from top chunks (first sentence of up to max_sentences chunks)."""
+    sentences = []
+    for c in chunks[:max_sentences]:
+        text = (c.get("content") or "").strip()
+        # Take first sentence (split on period)
+        first_sent = text.split(". ")[0] if text else ""
+        if first_sent and not first_sent.endswith("."):
+            first_sent += "."
+        sentences.append(first_sent[:max_len])
+    return " ".join(s for s in sentences if s)
+
+
 async def _build_knowledge_map(
     graph, entities_raw, chunk_pool, chunks_per_entity, scoring=None, hashes_by_entity=None
 ):
@@ -785,15 +802,7 @@ async def _build_knowledge_map(
             top_chunks.sort(key=lambda c: c.get("composite_score", 0), reverse=True)
 
         # Extractive summary: first sentence of top chunks (max 150 chars each, join 3)
-        sentences = []
-        for c in top_chunks[:3]:
-            text = (c.get("content") or "").strip()
-            # Take first sentence (split on period)
-            first_sent = text.split(". ")[0] if text else ""
-            if first_sent and not first_sent.endswith("."):
-                first_sent += "."
-            sentences.append(first_sent[:150])
-        summary = " ".join(s for s in sentences if s)
+        summary = extract_extractive_summary(top_chunks)
 
         knowledge_map.append({
             "entity_id": normalize_entity_id(name),
@@ -968,6 +977,71 @@ async def _discover_related_entities(graph, memory_hashes, max_hops: int):
     return related[:10]
 
 
+async def get_entity_detail(
+    storage,
+    graph,
+    entity_id: str,
+    limit: int = 50,
+    include_related: bool = True,
+    max_hops: int = 1,
+    store: Optional[str] = None,
+    scoring: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Fetch full ranked detail for a single entity (read-only, core logic).
+
+    Resolves entity_id -> entity name, filters by store when scoped,
+    hydrates memory chunks, and discovers related entities.
+
+    Returns:
+        Dict with "entity_id", "name", "chunks", "related_entities"
+    Raises:
+        ValueError: if entity_id is unknown or store scoping is unsupported
+    """
+    name = await _resolve_entity_name(graph, entity_id)
+    if name is None:
+        raise ValueError(f"Unknown entity_id: {entity_id}")
+
+    # Per-store confinement (read). memory_detail has no first-class store
+    # selector and the entity graph is global, so a token scoped to one
+    # store would otherwise receive the entity's chunks from every store.
+    # When a store is claimed (the transport gate has already authorized
+    # it), keep only hashes that resolve within that store; a backend whose
+    # get_by_hash ignores ``store`` can't confine, so fail closed. Real
+    # per-store graph partitioning is the follow-up issue (#1683).
+    if store is not None and store != "all":
+        if not getattr(storage, "get_by_hash_is_store_scoped", False):
+            raise ValueError("store-scoped memory_detail is not supported on this backend")
+        # Filter to the claimed store BEFORE applying the caller's limit:
+        # an entity whose newest links live in another store must not hide
+        # this store's older chunks. Scan a wider window, keep matches up to
+        # the limit.
+        wide = await graph.find_memories_by_entity(name, limit=max(limit * 10, 200))
+        memory_hashes = []
+        for _h in wide:
+            if await storage.get_by_hash(_h, store=store) is not None:
+                memory_hashes.append(_h)
+                if len(memory_hashes) >= limit:
+                    break
+    else:
+        memory_hashes = await graph.find_memories_by_entity(name, limit=limit)
+
+    entity_degree = len(memory_hashes)  # proxy for centrality
+    chunks = await _hydrate_chunks(
+        storage, memory_hashes, scoring=scoring, graph=graph, entity_degree=entity_degree
+    )
+    related_entities = (
+        await _discover_related_entities(graph, memory_hashes, max_hops)
+        if include_related else []
+    )
+
+    return {
+        "entity_id": entity_id,
+        "name": name,
+        "chunks": chunks,
+        "related_entities": related_entities,
+    }
+
+
 async def handle_memory_detail(server, arguments: dict) -> List[types.TextContent]:
     """Full ranked detail for a single entity (read-only).
 
@@ -990,6 +1064,7 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
     include_related = arguments.get("include_related", True)
     max_hops = arguments.get("max_hops", 1)
     scoring = arguments.get("scoring")  # opt-in: "composite" (#55)
+    detail_store = arguments.get("store")
 
     graph = await get_graph_storage()
     if graph is None:
@@ -1003,68 +1078,35 @@ async def handle_memory_detail(server, arguments: dict) -> List[types.TextConten
         )]
 
     try:
-        name = await _resolve_entity_name(graph, entity_id)
-        if name is None:
-            return [types.TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": False, "error": f"Unknown entity_id: {entity_id}",
-                    "entity_id": entity_id, "chunks": [], "related_entities": [],
-                }, indent=2)
-            )]
-
-        # Per-store confinement (read). memory_detail has no first-class store
-        # selector and the entity graph is global, so a token scoped to one
-        # store would otherwise receive the entity's chunks from every store.
-        # When a store is claimed (the transport gate has already authorized
-        # it), keep only hashes that resolve within that store; a backend whose
-        # get_by_hash ignores ``store`` can't confine, so fail closed. Real
-        # per-store graph partitioning is the follow-up issue (#1683).
-        detail_store = arguments.get("store")
-        if detail_store is not None and detail_store != "all":
-            if not getattr(server.storage, "get_by_hash_is_store_scoped", False):
-                return [types.TextContent(type="text", text=json.dumps({
-                    "success": False,
-                    "error": "store-scoped memory_detail is not supported on this backend",
-                    "entity_id": entity_id, "chunks": [], "related_entities": [],
-                }, indent=2))]
-            # Filter to the claimed store BEFORE applying the caller's limit:
-            # an entity whose newest links live in another store must not hide
-            # this store's older chunks. Scan a wider window, keep matches up to
-            # the limit.
-            wide = await graph.find_memories_by_entity(name, limit=max(limit * 10, 200))
-            memory_hashes = []
-            for _h in wide:
-                if await server.storage.get_by_hash(_h, store=detail_store) is not None:
-                    memory_hashes.append(_h)
-                    if len(memory_hashes) >= limit:
-                        break
-        else:
-            memory_hashes = await graph.find_memories_by_entity(name, limit=limit)
-        entity_degree = len(memory_hashes)  # proxy for centrality
-        chunks = await _hydrate_chunks(
-            server.storage, memory_hashes, scoring=scoring, graph=graph, entity_degree=entity_degree
-        )
-        related_entities = (
-            await _discover_related_entities(graph, memory_hashes, max_hops)
-            if include_related else []
+        detail = await get_entity_detail(
+            server.storage,
+            graph,
+            entity_id=entity_id,
+            limit=limit,
+            include_related=include_related,
+            max_hops=max_hops,
+            store=detail_store,
+            scoring=scoring,
         )
 
         logger.info(
             "memory_detail: entity_id=%s name=%s chunks=%d related=%d",
-            _sanitize_log_value(entity_id), _sanitize_log_value(name),
-            len(chunks), len(related_entities)
+            _sanitize_log_value(entity_id), _sanitize_log_value(detail["name"]),
+            len(detail["chunks"]), len(detail["related_entities"])
         )
         return [types.TextContent(
             type="text",
-            text=json.dumps({
-                "entity_id": entity_id,
-                "name": name,
-                "chunks": chunks,
-                "related_entities": related_entities,
-            }, indent=2)
+            text=json.dumps(detail, indent=2)
         )]
 
+    except ValueError as e:
+        return [types.TextContent(
+            type="text",
+            text=json.dumps({
+                "success": False, "error": str(e),
+                "entity_id": entity_id, "chunks": [], "related_entities": [],
+            }, indent=2)
+        )]
     except Exception as e:
         # See the memory_explore path above: wrap both str(e) and the traceback
         # and drop exc_info so a newline in the message cannot forge a log record.
