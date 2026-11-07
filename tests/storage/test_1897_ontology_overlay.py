@@ -6,10 +6,12 @@ that opens the same database through the ``ontology_version`` counter.
 """
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from mcp_memory_service.models import ontology
+from mcp_memory_service.storage.migration_runner import MigrationRunner
 from mcp_memory_service.storage.ontology_overlay import upsert_memory_type
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
@@ -139,3 +141,28 @@ async def test_in_memory_database_overlay_loads(monkeypatch):
     finally:
         await s.close()
         ontology.clear_ontology_caches()
+
+
+MIGRATIONS = Path(__file__).parents[2] / "src" / "mcp_memory_service" / "storage" / "migrations"
+
+
+def test_rollback_deregisters_022_so_an_upgrade_recreates_the_table():
+    """Greptile on #1903: dropping the table but leaving 022 in migration_registry
+    made the next upgrade skip it, and the table never came back."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    conn.execute(
+        "CREATE TABLE migration_registry "
+        "(version INTEGER PRIMARY KEY, name TEXT, filename TEXT, applied_at TEXT, checksum TEXT)"
+    )
+    conn.executescript((MIGRATIONS / "022_add_ontology_entries.sql").read_text())
+    conn.execute("INSERT INTO migration_registry (version) VALUES (22)")
+    conn.execute("INSERT INTO metadata VALUES ('schema_version', '22'), ('ontology_version', '3')")
+    conn.commit()
+
+    conn.executescript((MIGRATIONS / "rollback" / "022_add_ontology_entries.down.sql").read_text())
+
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "ontology_entries" not in tables
+    assert 22 not in MigrationRunner(MIGRATIONS)._get_applied_versions(conn)
+    assert dict(conn.execute("SELECT key, value FROM metadata")) == {"schema_version": "21"}
