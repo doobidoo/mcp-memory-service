@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -19,15 +20,112 @@ from typing import Any, Dict, List, Optional, Set
 import yaml
 
 from mcp_memory_service.config import SQLITE_VEC_PATH
+from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.server.handlers.graph import (
     extract_extractive_summary,
     get_entity_detail,
 )
 from mcp_memory_service.storage.graph import GraphStorage, normalize_entity_id
-from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+
+
+class ReadOnlyVaultStorage:
+    """Lightweight read-only storage adapter for vault export.
+
+    Opens SQLite in read-only URI mode without triggering migrations, embedding model
+    loads, dimension checks, or write locks on the source database.
+    """
+    get_by_hash_is_store_scoped = True
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._conn: Optional[sqlite3.Connection] = None
+
+    async def initialize(self):
+        resolved = Path(self.db_path).resolve()
+        if not resolved.exists():
+            # If the database file does not exist yet, treat as empty in-memory db
+            self._conn = sqlite3.connect(":memory:", check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            return
+        # Open in read-only URI mode to guarantee zero writes to the source db
+        uri = f"file:{resolved.as_posix()}?mode=ro"
+        self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+
+    async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
+        if not self._conn:
+            return None
+        sql = """
+            SELECT content_hash, content, tags, memory_type, metadata,
+                   created_at, updated_at, created_at_iso, updated_at_iso
+            FROM memories
+            WHERE content_hash = ? AND deleted_at IS NULL
+        """
+        params = [content_hash]
+        if store is not None and store != "all":
+            sql += " AND store = ?"
+            params.append(store)
+        try:
+            cursor = self._conn.execute(sql, tuple(params))
+            row = cursor.fetchone()
+        except sqlite3.Error:
+            return None
+        if not row:
+            return None
+        tags_str = row["tags"] or ""
+        tags_list = [t.strip() for t in tags_str.split(",") if t.strip()]
+        meta_str = row["metadata"]
+        try:
+            metadata = json.loads(meta_str) if meta_str else {}
+        except Exception:
+            metadata = {}
+        return Memory(
+            content=row["content"],
+            content_hash=row["content_hash"],
+            tags=tags_list,
+            memory_type=row["memory_type"] or "general",
+            metadata=metadata,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            created_at_iso=row["created_at_iso"],
+            updated_at_iso=row["updated_at_iso"],
+        )
+
+    async def close(self):
+        if self._conn:
+            self._conn.close()
+            self._conn = None
 
 
 MANIFEST_FILENAME = ".vault_manifest.json"
+
+
+def is_safe_vault_child(out_dir: Path, rel_path: str) -> Optional[Path]:
+    """Validate that rel_path is a safe relative file path strictly inside out_dir.
+
+    Rejects absolute paths, parent directory traversals ('..'), and any path
+    whose resolved location does not reside strictly within out_dir.
+    """
+    if not rel_path or not isinstance(rel_path, str):
+        return None
+    # Reject paths with null bytes or path traversal markers
+    if "\x00" in rel_path or ".." in rel_path.replace("\\", "/").split("/"):
+        return None
+    p = Path(rel_path)
+    if p.is_absolute():
+        return None
+    try:
+        resolved_out = out_dir.resolve()
+        resolved_target = (out_dir / p).resolve()
+        # Ensure target is strictly inside resolved_out
+        if resolved_target == resolved_out:
+            return None
+        # On Python 3.9+, is_relative_to is standard
+        if not resolved_target.is_relative_to(resolved_out):
+            return None
+        return resolved_target
+    except (ValueError, RuntimeError):
+        return None
 
 
 def safe_filename(name: str) -> str:
@@ -37,6 +135,18 @@ def safe_filename(name: str) -> str:
     # Strip trailing periods/spaces which Windows disallows
     sanitized = sanitized.rstrip('. ')
     return sanitized or "unnamed"
+
+
+def entity_filename_stem(eid: str) -> str:
+    """Return the safe filename stem and wikilink target for an entity_id.
+
+    Reserves 'index' for index.md, giving colliding entities a distinct stem
+    ('entity-index') so their pages and wikilinks do not clash with the directory index.
+    """
+    stem = safe_filename(eid)
+    if stem.lower() == "index":
+        return "entity-index"
+    return stem
 
 
 def format_chunk_quote(chunk: Dict[str, Any]) -> str:
@@ -115,7 +225,7 @@ def build_entity_markdown(
     for rel in related:
         rel_id = rel.get("entity_id") or normalize_entity_id(rel.get("name", ""))
         if rel_id in exported_entity_ids and rel_id != entity_id:
-            related_links.append(f"- [[{safe_filename(rel_id)}]]")
+            related_links.append(f"- [[{entity_filename_stem(rel_id)}]]")
 
     # Sort links deterministically
     related_links.sort()
@@ -151,7 +261,7 @@ def build_index_markdown(
         for ent in sorted_entities:
             eid = ent["entity_id"]
             name = ent["name"]
-            links.append(f"- [[{safe_filename(eid)}]] — {name} ({ent.get('relation_count', 0)} links)")
+            links.append(f"- [[{entity_filename_stem(eid)}]] — {name} ({ent.get('relation_count', 0)} links)")
         sections.append("\n".join(links) + "\n")
 
     return "\n".join(sections)
@@ -162,18 +272,20 @@ async def export_vault(
     store: Optional[str] = None,
     limit: Optional[int] = None,
     db_path: Optional[str] = None,
+    force: bool = False,
 ) -> int:
     """Execute the vault export."""
     sqlite_path = db_path or SQLITE_VEC_PATH
 
-    storage = SqliteVecMemoryStorage(db_path=sqlite_path)
+    storage = ReadOnlyVaultStorage(db_path=sqlite_path)
     await storage.initialize()
 
     try:
         graph = GraphStorage(sqlite_path)
 
-        # 1. Fetch entities
-        all_raw_entities = await graph.list_entities(limit=limit or 500)
+        # 1. Fetch entities without artificial cap
+        fetch_limit = -1 if limit is None else max(limit * 10, 500)
+        all_raw_entities = await graph.list_entities(limit=fetch_limit)
         if not all_raw_entities:
             print(
                 "Error: Entity graph is empty.\n"
@@ -182,23 +294,46 @@ async def export_vault(
             )
             return 1
 
-        # Apply limit if specified
-        selected_raw = all_raw_entities[:limit] if limit else all_raw_entities
-
-        # Normalize and deduplicate entity IDs
-        selected_entities = []
+        # Normalize and filter by store if scoped, before applying limit
+        candidate_entities = []
         exported_entity_ids = set()
-        for raw in selected_raw:
+        for raw in all_raw_entities:
             raw_name = raw.get("entity_name", "")
             if not raw_name:
                 continue
             eid = normalize_entity_id(raw_name)
-            if eid not in exported_entity_ids:
-                exported_entity_ids.add(eid)
-                selected_entities.append({"entity_id": eid, "name": raw_name})
+            if eid in exported_entity_ids:
+                continue
+
+            # Store scoping filter: check that entity has active memories in the requested store
+            if store is not None and store != "all":
+                ent_hashes = await graph.find_memories_by_entity(raw_name, limit=200)
+                has_active_chunk = False
+                for eh in ent_hashes:
+                    mem = await storage.get_by_hash(eh, store=store)
+                    if mem and not getattr(mem, "deleted_at", None):
+                        has_active_chunk = True
+                        break
+                if not has_active_chunk:
+                    continue
+
+            exported_entity_ids.add(eid)
+            candidate_entities.append({"entity_id": eid, "name": raw_name})
+
+        if not candidate_entities:
+            print(
+                f"Error: No entities found matching store '{store}'.\n"
+                'Ensure the entity graph is populated with memories in this store.',
+                file=sys.stderr,
+            )
+            return 1
 
         # Sort entities deterministically
-        selected_entities.sort(key=lambda e: e["entity_id"])
+        candidate_entities.sort(key=lambda e: e["entity_id"])
+
+        # Apply limit to candidate entities after store filtering
+        selected_entities = candidate_entities[:limit] if limit is not None else candidate_entities
+        exported_entity_ids = {e["entity_id"] for e in selected_entities}
 
         # Timestamp for exported_at (deterministic for this run)
         exported_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -222,6 +357,7 @@ async def export_vault(
         # 2. Write one page per entity
         for ent_info in selected_entities:
             eid = ent_info["entity_id"]
+            name = ent_info["name"]
             try:
                 detail = await get_entity_detail(
                     storage,
@@ -230,6 +366,7 @@ async def export_vault(
                     limit=50,
                     include_related=True,
                     store=store,
+                    entity_name=name,
                 )
             except ValueError as e:
                 # Entity could not be resolved or scoped
@@ -256,8 +393,18 @@ async def export_vault(
                 exported_at=exported_at,
             )
 
-            filename = f"{safe_filename(eid)}.md"
+            filename = f"{entity_filename_stem(eid)}.md"
             file_path = out_dir / filename
+
+            # Protect pre-existing user notes: if file exists and was NOT in previous_files, refuse unless --force
+            if file_path.exists() and filename not in previous_files and not force:
+                print(
+                    f"Refusing to overwrite existing unmanaged file: {file_path}.\n"
+                    "Pass --force to allow overwriting pre-existing files in the vault directory.",
+                    file=sys.stderr,
+                )
+                return 1
+
             file_path.write_text(md_content, encoding="utf-8")
             current_files.add(filename)
 
@@ -270,16 +417,23 @@ async def export_vault(
         # 3. Write index.md
         index_content = build_index_markdown(entities_by_type, exported_at)
         index_path = out_dir / "index.md"
+        if index_path.exists() and "index.md" not in previous_files and not force:
+            print(
+                f"Refusing to overwrite existing unmanaged index file: {index_path}.\n"
+                "Pass --force to allow overwriting pre-existing files in the vault directory.",
+                file=sys.stderr,
+            )
+            return 1
         index_path.write_text(index_content, encoding="utf-8")
         current_files.add("index.md")
 
         # 4. Cleanup stale files previously created by this script
         stale_files = previous_files - current_files
         for stale in stale_files:
-            stale_path = out_dir / stale
-            if stale_path.exists():
+            safe_target = is_safe_vault_child(out_dir, stale)
+            if safe_target and safe_target.is_file():
                 try:
-                    stale_path.unlink()
+                    safe_target.unlink()
                 except OSError:
                     pass
 
@@ -305,6 +459,7 @@ def main():
     parser.add_argument("--store", default=None, help="Store namespace to scope export to")
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of entities to export")
     parser.add_argument("--db-path", default=None, help="Path to SQLite database file")
+    parser.add_argument("--force", "-f", action="store_true", help="Allow overwriting pre-existing unmanaged files")
 
     args = parser.parse_args()
     exit_code = asyncio.run(
@@ -313,6 +468,7 @@ def main():
             store=args.store,
             limit=args.limit,
             db_path=args.db_path,
+            force=args.force,
         )
     )
     sys.exit(exit_code)

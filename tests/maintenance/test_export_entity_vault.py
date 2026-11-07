@@ -289,3 +289,108 @@ async def test_rerun_removes_stale_pages_and_preserves_unrelated_files(seeded_st
     assert not (vault_dir / "gamma-database.md").exists(), "Stale entity page was not removed"
     assert unrelated_file.exists(), "Unrelated file was erroneously deleted"
     assert unrelated_file.read_text(encoding="utf-8") == "User personal notes - must NOT be deleted"
+
+
+@pytest.mark.asyncio
+async def test_manifest_path_traversal_does_not_delete_outside_files(seeded_storage, temp_db_path):
+    """Malicious entries in .vault_manifest.json (e.g., ../outside.txt or absolute paths) must be rejected."""
+    import json
+    db_file, storage, graph, memories = seeded_storage
+    base_dir = Path(temp_db_path)
+    vault_dir = base_dir / "vault_sec"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create an important file outside the vault
+    outside_file = base_dir / "critical_system_file.txt"
+    outside_file.write_text("DO NOT DELETE", encoding="utf-8")
+
+    # Write a malicious manifest referencing the outside file and an absolute path
+    manifest_path = vault_dir / ".vault_manifest.json"
+    manifest_path.write_text(
+        json.dumps({
+            "exported_at": "2026-01-01T00:00:00Z",
+            "files": ["../critical_system_file.txt", str(outside_file.resolve()), "stale_entity.md"],
+        }),
+        encoding="utf-8",
+    )
+
+    # Run export
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode == 0
+
+    # The outside file MUST still exist!
+    assert outside_file.exists(), "Path traversal allowed deleting outside file!"
+    assert outside_file.read_text(encoding="utf-8") == "DO NOT DELETE"
+
+
+@pytest.mark.asyncio
+async def test_collision_with_existing_unmanaged_file_refused_without_force(seeded_storage, temp_db_path):
+    """Writing over pre-existing notes not in manifest is refused unless --force is given."""
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_collision"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-existing user note that clashes with an entity name
+    pre_existing_note = vault_dir / "alpha-service.md"
+    pre_existing_note.write_text("User manually created alpha service note", encoding="utf-8")
+
+    # Attempt export without --force -> should fail and preserve note
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode != 0
+    assert "Refusing to overwrite existing unmanaged file" in result.stderr
+    assert pre_existing_note.read_text(encoding="utf-8") == "User manually created alpha service note"
+
+    # With --force -> should succeed and overwrite
+    result_forced = run_export_script("--out", str(vault_dir), "--db-path", db_file, "--force")
+    assert result_forced.returncode == 0
+    assert "---" in pre_existing_note.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_entity_named_index_does_not_clash_with_directory_index(seeded_storage, temp_db_path):
+    """An entity named 'Index' must be written to entity-index.md and not be overwritten by index.md."""
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_index_clash"
+
+    # Add an entity named "Index"
+    await graph.store_entity_link(memories[0].content_hash, "Index", "concept")
+
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode == 0
+
+    # 1. index.md exists and is the vault directory index
+    index_md = vault_dir / "index.md"
+    assert index_md.exists()
+    index_content = index_md.read_text(encoding="utf-8")
+    assert "Entity Vault Index" in index_content
+    # Wikilink to the entity named Index must point to [[entity-index]]
+    assert "[[entity-index]]" in index_content
+
+    # 2. entity-index.md exists and contains the entity's frontmatter and quotes
+    entity_index_md = vault_dir / "entity-index.md"
+    assert entity_index_md.exists()
+    entity_content = entity_index_md.read_text(encoding="utf-8")
+    assert "name: Index" in entity_content
+    assert memories[0].content_hash in entity_content
+
+
+@pytest.mark.asyncio
+async def test_store_scoping_selects_only_relevant_entities(seeded_storage, temp_db_path):
+    """--store must select only entities that have active memories in that specific store."""
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_scoped"
+
+    # Assign mem1 to 'work' store directly in memories table
+    conn = sqlite3.connect(db_file)
+    conn.execute("UPDATE memories SET store = 'work' WHERE content_hash = ?", (memories[0].content_hash,))
+    conn.commit()
+    conn.close()
+
+    # Export with --store work
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file, "--store", "work")
+    assert result.returncode == 0
+
+    # Only Alpha Service has memories in 'work'
+    assert (vault_dir / "alpha-service.md").exists()
+    assert not (vault_dir / "beta-gateway.md").exists()
+    assert not (vault_dir / "gamma-database.md").exists()

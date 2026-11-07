@@ -986,18 +986,19 @@ async def get_entity_detail(
     max_hops: int = 1,
     store: Optional[str] = None,
     scoring: Optional[str] = None,
+    entity_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fetch full ranked detail for a single entity (read-only, core logic).
 
-    Resolves entity_id -> entity name, filters by store when scoped,
-    hydrates memory chunks, and discovers related entities.
+    Resolves entity_id -> entity name (or uses entity_name if directly supplied),
+    filters by store when scoped, hydrates memory chunks, and discovers related entities.
 
     Returns:
         Dict with "entity_id", "name", "chunks", "related_entities"
     Raises:
         ValueError: if entity_id is unknown or store scoping is unsupported
     """
-    name = await _resolve_entity_name(graph, entity_id)
+    name = entity_name or await _resolve_entity_name(graph, entity_id)
     if name is None:
         raise ValueError(f"Unknown entity_id: {entity_id}")
 
