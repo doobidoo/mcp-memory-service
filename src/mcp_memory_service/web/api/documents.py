@@ -37,6 +37,7 @@ from ..oauth.middleware import require_read_access, require_write_access, Authen
 
 from ...ingestion import get_loader_for_file, SUPPORTED_FORMATS
 from ...models.memory import Memory
+from ...models.ontology import coerce_memory_type
 from ...utils import _process_and_store_chunk, generate_content_hash
 from ..dependencies import get_storage
 
@@ -445,7 +446,7 @@ async def process_single_file_upload(
                     content=chunk.content,
                     content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
-                    memory_type=memory_type,
+                    memory_type=coerce_memory_type(memory_type),
                     metadata=chunk_metadata
                 )
 

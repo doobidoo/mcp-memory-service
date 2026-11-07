@@ -346,8 +346,9 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Start with built-in taxonomy
-    merged = dict(TAXONOMY)
+    # Start with built-in taxonomy. Copy the subtype lists too: extending them in
+    # place below would otherwise write custom subtypes into TAXONOMY itself.
+    merged = {base: list(subtypes) for base, subtypes in TAXONOMY.items()}
 
     # Load and merge custom types
     custom_types = _load_custom_types_from_config()
@@ -416,6 +417,32 @@ def validate_memory_type(memory_type: str) -> bool:
     # (issue #176) — the taxonomy itself is stored canonicalized.
     all_types = get_all_types()
     return canonicalize_memory_type(memory_type) in all_types
+
+
+def coerce_memory_type(memory_type: Optional[str]) -> Optional[str]:
+    """Return the canonical type for a new write, or ``observation`` if unknown.
+
+    Call this where a caller-supplied type enters a NEW memory (store paths).
+    ``Memory`` itself no longer coerces: hydrating a stored row on a node that
+    lacks a custom type must keep the type, or the next update writes
+    ``observation`` back over it.
+    """
+    if memory_type is None:
+        return None
+    if validate_memory_type(memory_type):
+        return canonicalize_memory_type(memory_type)
+    # Same standalone-load fallback as _load_custom_types_from_config.
+    try:
+        from mcp_memory_service.compat import _sanitize_log_value
+    except ImportError:
+        def _sanitize_log_value(value):
+            return re.sub(r'[\r\n\x1b]', '', str(value))
+    logging.getLogger(__name__).warning(
+        "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
+        _sanitize_log_value(memory_type),
+        ', '.join(get_all_types()[:5]),
+    )
+    return "observation"
 
 
 def get_parent_type(subtype: str) -> Optional[str]:

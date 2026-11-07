@@ -34,6 +34,7 @@ from ..config import (
 )
 from ..storage.base import MemoryStorage, RecreateRefused, recreate_kwargs
 from ..models.memory import Memory
+from ..models.ontology import coerce_memory_type
 from ..plugins import PluginContext, PluginRegistry
 from ..utils.content_splitter import split_content
 from ..utils.hashing import generate_content_hash
@@ -457,6 +458,10 @@ class MemoryService:
         """
         recreate = True if restore_deleted else False
         try:
+            # A new write is where an unknown type becomes `observation`; Memory()
+            # keeps whatever it is given so stored rows survive hydration.
+            memory_type = coerce_memory_type(memory_type)
+
             # Normalize tags from parameter (handles all formats)
             final_tags = normalize_tags(tags)
 
