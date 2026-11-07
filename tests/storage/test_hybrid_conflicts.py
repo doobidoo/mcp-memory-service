@@ -43,8 +43,13 @@ def _unit(dimension, axis, tilt_axis=None, degrees=0.0):
 async def storage(temp_db_path, monkeypatch):
     """Hybrid with no secondary configured: everything runs on the local primary."""
     monkeypatch.setenv("MCP_SEMANTIC_DEDUP_ENABLED", "false")
-    hybrid = HybridMemoryStorage(os.path.join(temp_db_path, "hybrid-1910.db"))
+    # An explicit backend without its config overrides MCP_HYBRID_SECONDARY_* from
+    # the environment, so a developer's configured hub or Cloudflare is never used.
+    hybrid = HybridMemoryStorage(
+        os.path.join(temp_db_path, "hybrid-1910.db"), secondary_backend="cloudflare"
+    )
     await hybrid.initialize()
+    assert hybrid.secondary is None and hybrid.sync_service is None
     dimension = hybrid.primary.embedding_dimension
     # The two backup texts sit 5 degrees apart (cosine ~0.996), well inside the
     # detection threshold; the unrelated text is orthogonal to both.
