@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_memory_service.models.memory import Memory
+from mcp_memory_service.models.ontology import coerce_memory_type
 from mcp_memory_service.consolidation.base import ConsolidationBase, ConsolidationConfig
 from mcp_memory_service.consolidation.decay import ExponentialDecayCalculator, RelevanceScore
 
@@ -22,9 +23,8 @@ class TestIssue603LearningNoteType:
     """memory_type='learning_note' is not in the ontology; it should be 'learning'."""
 
     def test_learning_note_is_coerced_to_observation(self):
-        """Verify the ontology rejects 'learning_note' (pre-fix behaviour)."""
-        m = Memory(content="test", content_hash="abc", memory_type="learning_note")
-        assert m.memory_type == "observation"
+        """Verify the ontology rejects 'learning_note' on a new write."""
+        assert coerce_memory_type("learning_note") == "observation"
 
     def test_learning_is_valid_type(self):
         """'learning' must be accepted as-is by the ontology."""

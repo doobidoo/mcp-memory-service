@@ -43,10 +43,7 @@ from ..utils.response_limiter import format_truncated_response, truncate_memorie
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def _resolve_hostname(client_hostname: Optional[str]) -> Optional[str]:
     """Resolve the hostname to stamp on a stored memory (RFC mcp-hostname-stamping).

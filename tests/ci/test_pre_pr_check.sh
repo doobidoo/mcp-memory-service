@@ -146,6 +146,74 @@ test_docs_only_matches_ci_paths_ignore() {
   return 0
 }
 
+# --- Test: CodeQL skips only a pull_request positively classified as docs or site ---
+# `Analyze Python Code` is a required check and a skipped job reports success to it, so a
+# wrong skip looks like a clean analysis and a merge to main would not correct it. The
+# condition must therefore fail towards analysing. This checks the wiring, then runs the
+# classify step of codeql.yml against fixture repos, including the failure paths.
+test_codeql_skips_only_on_positive_classification() {
+  local wf="$REPO_ROOT/.github/workflows/codeql.yml"
+  [ -f "$wf" ] || { echo "   codeql.yml not found"; return 1; }
+  # No path filter on any trigger: push, schedule and dispatch always analyse.
+  awk '/^on:/{on=1} /^permissions:/{on=0} on && /paths/{bad=1} END{exit bad}' "$wf" \
+    || { echo "   codeql.yml has a path filter; the required check would never report"; return 1; }
+  grep -qF -- "git show HEAD^1:scripts/pr/pre_pr_check.sh | awk '/^is_docs_only\\(\\) \\{/,/^\\}/'" "$wf" \
+    || { echo "   codeql.yml no longer reads is_docs_only() from the base commit"; return 1; }
+  awk '/^  analyze:/{j=1} j && /needs: changes/{n=1} j && /if: .*!cancelled\(\)/{c=1}
+       j && /github\.event_name != .pull_request. \|\|/{e=1} j && /docs_only != .true./{t=1}
+       END{exit !(n && c && e && t)}' "$wf" \
+    || { echo "   analyze must need changes and skip only when the event is a pull_request and docs_only is 'true'"; return 1; }
+
+  local step
+  step=$(awk '/^      id: classify$/{f=1; next} f && /^      run: \|$/{r=1; next}
+              r && /^ {8}/{sub(/^ {8}/,""); print; next} r{exit}' "$wf")
+  [ -n "$step" ] || { echo "   could not extract the classify step"; return 1; }
+
+  local repo out
+  repo="$(mktemp -d)"
+  (
+    cd "$repo" || exit 1
+    git init -q -b main
+    mkdir -p scripts/pr
+    awk '/^is_docs_only\(\) \{/,/^\}/' "$GATE" > scripts/pr/pre_pr_check.sh
+    git add -A && git -c user.name=t -c user.email=t@t commit -q -m base
+  ) || { rm -rf "$repo"; echo "   could not build the fixture repo"; return 1; }
+
+  # classify <event> <files to change...>: build the merge-shaped HEAD, run the step, print docs_only.
+  classify() {
+    local event="$1"; shift
+    (
+      cd "$repo" || exit 1
+      git checkout -q -B pr main
+      local f
+      for f in "$@"; do mkdir -p "$(dirname "$f")"; echo "$RANDOM" > "$f"; done
+      [ $# -gt 0 ] && git add -A && git -c user.name=t -c user.email=t@t commit -q -m change
+      git checkout -q -B merged main
+      git -c user.name=t -c user.email=t@t merge -q --no-ff -m merge pr >/dev/null 2>&1 || true
+      GITHUB_EVENT_NAME="$event" GITHUB_OUTPUT=/dev/null bash -c "$step" 2>/dev/null | sed -n 's/^docs_only=//p'
+    )
+  }
+
+  out=$(classify pull_request docs/a.md site/index.html)
+  [ "$out" = true ] || { rm -rf "$repo"; echo "   docs and site files should classify as docs_only=true, got '$out'"; return 1; }
+  out=$(classify pull_request docs/a.md src/x.py)
+  [ "$out" = false ] || { rm -rf "$repo"; echo "   a mixed change must analyse, got '$out'"; return 1; }
+  out=$(classify pull_request)
+  [ "$out" = false ] || { rm -rf "$repo"; echo "   an empty diff must analyse, got '$out'"; return 1; }
+  out=$(classify push docs/a.md)
+  [ "$out" = false ] || { rm -rf "$repo"; echo "   a push must analyse, got '$out'"; return 1; }
+  out=$(classify schedule docs/a.md)
+  [ "$out" = false ] || { rm -rf "$repo"; echo "   a scheduled run must analyse, got '$out'"; return 1; }
+  # Failure path: the classifier cannot be read from the base commit.
+  (cd "$repo" && git checkout -q -B nobase main && git rm -q scripts/pr/pre_pr_check.sh \
+    && git -c user.name=t -c user.email=t@t commit -q -m "drop classifier" && git checkout -q -B pr2 nobase \
+    && mkdir -p docs && echo x > docs/b.md && git add -A && git -c user.name=t -c user.email=t@t commit -q -m doc \
+    && git checkout -q -B merged2 nobase && git -c user.name=t -c user.email=t@t merge -q --no-ff -m merge pr2 >/dev/null 2>&1)
+  out=$(cd "$repo" && GITHUB_EVENT_NAME=pull_request GITHUB_OUTPUT=/dev/null bash -c "$step" 2>/dev/null | sed -n 's/^docs_only=//p')
+  rm -rf "$repo"
+  [ "$out" = false ] || { echo "   a classifier that cannot be read must analyse, got '$out'"; return 1; }
+}
+
 # --- Test: committed code plus a staged doc is not a docs-only PR ---
 # The gate reads the index, but CI judges the whole PR diff. A branch that already
 # committed code and only stages a README must still run the suite.
@@ -251,6 +319,7 @@ run_test "quality_gate.sh exits 3 when it skips" test_quality_gate_skip_uses_exi
 run_test "gate maps exit 3 to SKIP, not PASS" test_gate_maps_exit_3_to_skip
 run_test "local test selection matches CI" test_selection_matches_ci
 run_test "docs-only detection matches ci.yml paths-ignore" test_docs_only_matches_ci_paths_ignore
+run_test "CodeQL skips only a positively classified docs or site PR" test_codeql_skips_only_on_positive_classification
 run_test "committed code plus a staged doc is not docs-only" test_pr_changed_files_sees_committed_code
 run_test "gate wires docs-only detection to SKIP" test_gate_wires_docs_only_skip
 run_test "gate runs the selected tests, full suite on request" test_gate_wires_test_selection

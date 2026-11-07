@@ -236,30 +236,36 @@ async def test_the_endpoint_answers_400_when_the_set_moves(storage, monkeypatch)
     assert _deleted_at(storage, second) is None
 
 
-class _Primary:
-    async def count_untagged_memories(self):
-        return 0
 
-    async def delete_untagged_memories(self, expected_count=None):
-        return 0, "primary"
+@pytest.mark.asyncio
+async def test_hybrid_untagged_operations_preserve_confirmation(storage):
+    """Hybrid delegates to the guarded primary API, including expected_count."""
+    from mcp_memory_service.storage.hybrid import HybridMemoryStorage
 
-
-class _Hybrid:
-    def __init__(self):
-        self.primary = _Primary()
-
-
-def test_backend_resolver_prefers_the_storage_itself():
-    primary = _Primary()
-    assert manage._untagged_backend(primary) is primary
-
-
-def test_backend_resolver_reaches_the_hybrid_primary():
-    hybrid = _Hybrid()
-    # Hybrid storage does not re-export the bulk deletes, and the endpoint has
-    # to land on the storage-layer method rather than the raw connection.
-    assert manage._untagged_backend(hybrid) is hybrid.primary
+    hybrid = object.__new__(HybridMemoryStorage)
+    hybrid.primary = storage
+    content_hash = await _store(storage, "hybrid untagged row", None)
+    assert await hybrid.count_untagged_memories() == 1
+    with pytest.raises(UntaggedCountChanged):
+        await hybrid.delete_untagged_memories(expected_count=2)
+    assert _deleted_at(storage, content_hash) is None
+    response = await manage.delete_untagged_memories(1, hybrid, None)
+    assert response.affected_count == 1
+    assert _deleted_at(storage, content_hash) is not None
 
 
-def test_backend_resolver_reports_unsupported_backends():
-    assert manage._untagged_backend(object()) is None
+@pytest.mark.asyncio
+async def test_unsupported_backend_returns_501():
+    """The base API reports unsupported operations without inspecting internals."""
+    from mcp_memory_service.storage.base import MemoryStorage
+
+    class Unsupported:
+        count_untagged_memories = MemoryStorage.count_untagged_memories
+        delete_untagged_memories = MemoryStorage.delete_untagged_memories
+
+    with pytest.raises(HTTPException) as caught:
+        await manage.count_untagged_memories(storage=Unsupported(), user=None)
+    assert caught.value.status_code == 501
+    with pytest.raises(HTTPException) as caught:
+        await manage.delete_untagged_memories(1, Unsupported(), None)
+    assert caught.value.status_code == 501

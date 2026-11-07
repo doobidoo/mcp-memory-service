@@ -95,10 +95,12 @@ from .read_policy import should_raise_read_error
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
     _exclude_versioned_parent,
-    _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
+    _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads, _versioned_conflict_exclusion,
 )
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
+from ..models.ontology import coerce_memory_type
 from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
@@ -455,6 +457,10 @@ class MilvusMemoryStorage(MemoryStorage):
             logger.debug("describe_collection failed during dimension probe: %s", _sanitize_log_value(exc))
             return None
         return self._extract_vector_dim(info)
+
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Return the vector dimension recorded in the live collection."""
+        return self._get_existing_db_embedding_dimension()
 
     def _validate_existing_collection(self) -> None:
         """Warn if the on-disk collection's vector dim disagrees with our model.
@@ -2395,8 +2401,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 resolved_tags = (
                     list(new_tags) if new_tags is not None else list(existing.tags or [])
                 )
+                # Caller-supplied type is coerced, inherited type kept as stored.
                 resolved_type = (
-                    new_memory_type if new_memory_type is not None else existing.memory_type
+                    coerce_memory_type(new_memory_type) if new_memory_type is not None
+                    else existing.memory_type
                 )
 
                 # The new version inherits the old row's custom metadata; lineage

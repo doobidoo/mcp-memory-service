@@ -18,9 +18,20 @@ import json
 import logging
 import os
 import re
+import time
 from enum import Enum
-from typing import Dict, List, Optional, Final
+from typing import Dict, List, Optional, Final, Tuple
 
+
+try:
+    from ..compat import _sanitize_log_value
+except (ImportError, ValueError):
+    try:
+        from mcp_memory_service.compat import _sanitize_log_value
+    except ImportError:
+        def _sanitize_log_value(value: object) -> str:
+            """Sanitize a user-provided value for safe inclusion in log messages."""
+            return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 # Module-level caches for performance optimization
 _ALL_TYPES_CACHE: Optional[List[str]] = None
@@ -39,6 +50,85 @@ def clear_ontology_caches():
     _BASE_TYPES_CACHE = None
     _MERGED_TAXONOMY_CACHE = None
     _ALLOWED_PAIRS_CACHE = None
+
+
+# DB overlay (#1897). The sqlite_vec storage registers a source with two
+# methods, read_ontology_version() and read_memory_type_overlay(). Readers poll
+# the version and reload the overlay when it moved, so a write by the HTTP
+# server reaches the MCP server sharing the same database file.
+_OVERLAY_SOURCE = None
+_OVERLAY_ENTRIES: List[Tuple[str, Optional[str]]] = []
+_OVERLAY_VERSION: Optional[int] = None
+_OVERLAY_CHECKED_AT = float("-inf")
+# ponytail: polled at most once per second, so a write in another process can
+# take that long to show here. Lower it, or push a notification, if that matters.
+_OVERLAY_POLL_SECONDS = 1.0
+
+
+def set_overlay_source(source) -> None:
+    """Register the DB overlay source. The last storage to register wins."""
+    global _OVERLAY_SOURCE, _OVERLAY_ENTRIES, _OVERLAY_VERSION
+    _OVERLAY_SOURCE = source
+    _OVERLAY_ENTRIES = []
+    _OVERLAY_VERSION = None
+    invalidate_overlay()
+
+
+def clear_overlay_source(source) -> None:
+    """Unregister ``source`` if it is still the registered one."""
+    if source is not None and source is _OVERLAY_SOURCE:
+        set_overlay_source(None)
+
+
+def invalidate_overlay() -> None:
+    """Make the next read check the overlay version (after a write in this process)."""
+    global _OVERLAY_CHECKED_AT
+    _OVERLAY_CHECKED_AT = float("-inf")
+    clear_ontology_caches()
+
+
+def _refresh_overlay() -> None:
+    """Reload the overlay when the stored ontology_version has moved."""
+    global _OVERLAY_ENTRIES, _OVERLAY_VERSION, _OVERLAY_CHECKED_AT
+    source = _OVERLAY_SOURCE
+    now = time.monotonic()
+    if source is None or now - _OVERLAY_CHECKED_AT < _OVERLAY_POLL_SECONDS:
+        return
+    _OVERLAY_CHECKED_AT = now
+    try:
+        version = source.read_ontology_version()
+        if version == _OVERLAY_VERSION:
+            return
+        entries = list(source.read_memory_type_overlay())
+    except Exception as e:  # keep the last overlay we had; retry on the next poll
+        logging.getLogger(__name__).warning(
+            "Could not read the ontology overlay: %s", _sanitize_log_value(e)
+        )
+        return
+    _OVERLAY_ENTRIES = entries
+    _OVERLAY_VERSION = version
+    clear_ontology_caches()
+
+
+def _merge_overlay(merged: Dict[str, List[str]]) -> None:
+    """Add the DB overlay to ``merged`` in place. Additive only.
+
+    A name that already exists is skipped, so the overlay can neither shadow
+    nor re-parent a built-in or env type. A subtype whose parent is not a base
+    type here (removed, or never known on this node) is skipped too.
+    """
+    known = set(merged).union(*merged.values())
+    # Base types first, so a subtype can hang off a base type from the overlay.
+    for key, parent in sorted(_OVERLAY_ENTRIES, key=lambda entry: entry[1] is not None):
+        if key in known or not _is_valid_custom_type_name(key):
+            continue
+        if parent is None:
+            merged[key] = []
+        elif parent in merged:
+            merged[parent].append(key)
+        else:
+            continue
+        known.add(key)
 
 
 class BaseMemoryType(str, Enum):
@@ -256,14 +346,6 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Type names come from an environment variable and end up in log lines, so
-    # they are sanitized before logging. The fallback mirrors compat's stripping
-    # for the standalone module load used by tests/test_ontology.py.
-    try:
-        from mcp_memory_service.compat import _sanitize_log_value
-    except ImportError:
-        def _sanitize_log_value(value):
-            return re.sub(r'[\r\n\x1b]', '', str(value))
 
     custom_types_json = os.getenv('MCP_CUSTOM_MEMORY_TYPES')
     if not custom_types_json:
@@ -346,8 +428,9 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
     except ImportError:
         logger = logging.getLogger(__name__)
 
-    # Start with built-in taxonomy
-    merged = dict(TAXONOMY)
+    # Start with built-in taxonomy. Copy the subtype lists too: extending them in
+    # place below would otherwise write custom subtypes into TAXONOMY itself.
+    merged = {base: list(subtypes) for base, subtypes in TAXONOMY.items()}
 
     # Load and merge custom types
     custom_types = _load_custom_types_from_config()
@@ -362,6 +445,9 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
             # New base type
             merged[base_type] = subtypes
             logger.info("Added new custom base type '%s' with %d subtypes", base_type, len(subtypes))
+
+    # Then the DB overlay (#1897): built-in, then env, then DB.
+    _merge_overlay(merged)
 
     # Cache the merged taxonomy
     _MERGED_TAXONOMY_CACHE = merged
@@ -385,6 +471,7 @@ def get_base_types() -> set:
     """
     global _BASE_TYPES_CACHE
 
+    _refresh_overlay()
     if _BASE_TYPES_CACHE is not None:
         return _BASE_TYPES_CACHE.copy()
 
@@ -418,6 +505,29 @@ def validate_memory_type(memory_type: str) -> bool:
     return canonicalize_memory_type(memory_type) in all_types
 
 
+def coerce_memory_type(memory_type: Optional[str]) -> Optional[str]:
+    """Return the canonical type for a new write, or ``observation`` if unknown.
+
+    Call this where a caller-supplied type enters a NEW memory (store paths).
+    ``Memory`` itself no longer coerces: hydrating a stored row on a node that
+    lacks a custom type must keep the type, or the next update writes
+    ``observation`` back over it.
+    """
+    if memory_type is None:
+        return None
+    if validate_memory_type(memory_type):
+        return canonicalize_memory_type(memory_type)
+    # Inline replace() barriers: CodeQL does not follow the try-import/fallback
+    # sanitizer used elsewhere in this module (alert 641).
+    safe_type = str(memory_type).replace('\r', '').replace('\n', '').replace('\x1b', '')
+    logging.getLogger(__name__).warning(
+        "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
+        safe_type,
+        ', '.join(get_all_types()[:5]),
+    )
+    return "observation"
+
+
 def get_parent_type(subtype: str) -> Optional[str]:
     """
     Get the parent base type for a subtype. Returns itself if already a base type.
@@ -438,6 +548,7 @@ def get_parent_type(subtype: str) -> Optional[str]:
     """
     global _PARENT_TYPE_MAP_CACHE
 
+    _refresh_overlay()
     if _PARENT_TYPE_MAP_CACHE is None:
         # Build reverse lookup map: subtype → parent
         _PARENT_TYPE_MAP_CACHE = {}
@@ -476,6 +587,7 @@ def get_all_types() -> List[str]:
     """
     global _ALL_TYPES_CACHE
 
+    _refresh_overlay()
     # Initialize cache on first access
     if _ALL_TYPES_CACHE is None:
         # Use merged taxonomy instead of TAXONOMY
@@ -588,49 +700,13 @@ class MemoryTypeOntology:
     Memory Type Ontology - Formal type system for knowledge graph classification.
 
     Provides controlled vocabulary, validation, and type hierarchy management
-    for semantic memory classification. All methods are class methods for
-    stateless, pure functional access to the ontology.
-
-    Usage:
-        # Validate memory type
-        is_valid = MemoryTypeOntology.validate_memory_type("observation")  # → True
-
-        # Get parent type
-        parent = MemoryTypeOntology.get_parent_type("code_edit")  # → "observation"
-
-        # Get all types
-        all_types = MemoryTypeOntology.get_all_types()
-
-        # Validate relationship
-        is_valid = MemoryTypeOntology.validate_relationship("causes")  # → True
+    for semantic memory classification. Binds directly to the module-level ontology
+    functions for zero-overhead, backwards-compatible functional access.
     """
 
-    @classmethod
-    def validate_memory_type(cls, memory_type: str) -> bool:
-        """Validate if memory type exists in ontology."""
-        return validate_memory_type(memory_type)
-
-    @classmethod
-    def get_parent_type(cls, subtype: str) -> Optional[str]:
-        """Get parent base type for a subtype."""
-        return get_parent_type(subtype)
-
-    @classmethod
-    def get_all_types(cls) -> List[str]:
-        """Get flattened list of all types."""
-        return get_all_types()
-
-    @classmethod
-    def get_base_types(cls) -> set:
-        """Get set of all base (top-level) memory types."""
-        return get_base_types()
-
-    @classmethod
-    def validate_relationship(cls, rel_type: str) -> bool:
-        """Validate if relationship type is valid."""
-        return validate_relationship(rel_type)
-
-    @classmethod
-    def is_symmetric_relationship(cls, rel_type: str) -> bool:
-        """Check if relationship type is symmetric (bidirectional)."""
-        return is_symmetric_relationship(rel_type)
+    validate_memory_type = staticmethod(validate_memory_type)
+    get_parent_type = staticmethod(get_parent_type)
+    get_all_types = staticmethod(get_all_types)
+    get_base_types = staticmethod(get_base_types)
+    validate_relationship = staticmethod(validate_relationship)
+    is_symmetric_relationship = staticmethod(is_symmetric_relationship)

@@ -14,6 +14,7 @@ except ImportError:
     pass
 
 from ...models.memory import Memory, MemoryQueryResult
+from ...models.ontology import coerce_memory_type
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
 from ..shared import _exclude_versioned_parent
@@ -911,7 +912,9 @@ class MetadataMixin:
                 [t for t in old_tags_str.split(",") if t and t.strip() != CONFLICT_TAG]
                 if old_tags_str else []
             )
-            resolved_type = new_memory_type if new_memory_type is not None else old_type
+            # A caller-supplied type is a new write and gets coerced; an
+            # inherited one is kept as stored, even if this node lacks it.
+            resolved_type = coerce_memory_type(new_memory_type) if new_memory_type is not None else old_type
 
             # The new version inherits the old row's custom metadata, so keys a
             # client stored (source, agent fields, ...) survive a versioned
