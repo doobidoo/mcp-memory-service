@@ -492,10 +492,10 @@
   <div class="canvas-col">
     <div class="canvas-toolbar">
       <div class="filter-group">
-        <button class="btn-filter active" onclick="setFilter('all')">All Wires</button>
-        <button class="btn-filter danger-filter" onclick="setFilter('knots')">🔴 Knots Only</button>
-        <button class="btn-filter" onclick="setFilter('storage')">Storage</button>
-        <button class="btn-filter" onclick="setFilter('web')">Web & API</button>
+        <button class="btn-filter active" onclick="setFilter('all', this)">All Wires</button>
+        <button class="btn-filter danger-filter" onclick="setFilter('knots', this)">🔴 Knots Only</button>
+        <button class="btn-filter" onclick="setFilter('storage', this)">Storage</button>
+        <button class="btn-filter" onclick="setFilter('web', this)">Web & API</button>
       </div>
       <div style="font-size:11px; color:var(--text-muted); display:flex; gap:10px; align-items:center;">
         <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; background:var(--knot-red); border-radius:50%;"></span> Knot Point</span>
@@ -689,6 +689,7 @@ knotsData.forEach(k => {
 // Setup SVG Canvas
 const svg = document.getElementById("wiringSvg");
 let activeFeatureId = "f_storage";
+let activeFilter = "all";
 
 function renderCanvas() {
   const container = document.getElementById("canvasContainer");
@@ -732,6 +733,7 @@ function renderCanvas() {
       if (feat.id === activeFeatureId) {
         path.classList.add("highlight");
       }
+      path.dataset.hasKnot = String(targetFile.knots.length > 0);
       svg.appendChild(path);
     });
   });
@@ -801,6 +803,7 @@ function renderCanvas() {
 
     svg.appendChild(g);
   });
+  applyFilter();
 }
 
 function highlightFeature(featId) {
@@ -844,25 +847,27 @@ function resetHighlight() {
   highlightFeature(activeFeatureId);
 }
 
-function setFilter(filterType) {
-  document.querySelectorAll(".btn-filter").forEach(b => b.classList.remove("active"));
-  event.target.classList.add("active");
+function applyFilter() {
+  const featureId = activeFilter === "storage" ? "f_storage" : "f_web";
+  document.querySelectorAll(".wire-path").forEach(p => {
+    const visible = activeFilter === "all"
+      || (activeFilter === "knots" ? p.dataset.hasKnot === "true"
+        : p.classList.contains(`wire-${featureId}`));
+    p.style.display = visible ? "" : "none";
+  });
+  document.querySelectorAll(".file-node").forEach(n => {
+    n.style.opacity = activeFilter === "knots" && !n.classList.contains("has-knot") ? "0.2" : "1";
+  });
+}
 
-  if (filterType === "all") {
-    document.querySelectorAll(".wire-path").forEach(p => p.style.display = "");
-    document.querySelectorAll(".file-node").forEach(n => n.style.opacity = "1");
-  } else if (filterType === "knots") {
-    document.querySelectorAll(".wire-path").forEach(p => {
-      p.style.display = p.classList.contains("knot-wire") ? "" : "none";
-    });
-    document.querySelectorAll(".file-node").forEach(n => {
-      n.style.opacity = n.classList.contains("has-knot") ? "1" : "0.2";
-    });
-  } else if (filterType === "storage") {
-    highlightFeature("f_storage");
-  } else if (filterType === "web") {
-    highlightFeature("f_web");
+function setFilter(filterType, button) {
+  activeFilter = filterType;
+  document.querySelectorAll(".btn-filter").forEach(b => b.classList.remove("active"));
+  button.classList.add("active");
+  if (filterType === "storage" || filterType === "web") {
+    selectFeature(filterType === "storage" ? "f_storage" : "f_web");
   }
+  applyFilter();
 }
 
 window.addEventListener("resize", renderCanvas);
