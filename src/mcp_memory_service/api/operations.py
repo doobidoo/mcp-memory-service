@@ -41,6 +41,7 @@ from .types import (
 from .client import get_storage_async, get_consolidator, get_scheduler
 from .sync_wrapper import sync_wrapper
 from ..models.memory import Memory
+from ..models.ontology import coerce_memory_type
 from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ async def store(
         content=content,
         content_hash=content_hash,
         tags=tag_list,
-        memory_type=memory_type,
+        memory_type=coerce_memory_type(memory_type),
         metadata={}
     )
 

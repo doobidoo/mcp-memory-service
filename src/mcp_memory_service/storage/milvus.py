@@ -99,6 +99,7 @@ from .shared import (
     _safe_json_loads, _versioned_conflict_exclusion,
 )
 from ..models.memory import Memory, MemoryQueryResult
+from ..models.ontology import coerce_memory_type
 from ..utils.hashing import generate_content_hash
 
 logger = logging.getLogger(__name__)
@@ -2395,8 +2396,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 resolved_tags = (
                     list(new_tags) if new_tags is not None else list(existing.tags or [])
                 )
+                # Caller-supplied type is coerced, inherited type kept as stored.
                 resolved_type = (
-                    new_memory_type if new_memory_type is not None else existing.memory_type
+                    coerce_memory_type(new_memory_type) if new_memory_type is not None
+                    else existing.memory_type
                 )
 
                 # The new version inherits the old row's custom metadata; lineage

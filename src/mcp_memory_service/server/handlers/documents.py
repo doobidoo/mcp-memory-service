@@ -64,6 +64,7 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
         from pathlib import Path
         from ...ingestion import get_loader_for_file
         from ...models.memory import Memory
+        from ...models.ontology import coerce_memory_type
         from ...utils import create_memory_from_chunk
         import time
 
@@ -133,7 +134,7 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                     content=chunk.content,
                     content_hash=generate_content_hash(chunk.content),
                     tags=list(set(all_tags)),  # Remove duplicates
-                    memory_type=memory_type,
+                    memory_type=coerce_memory_type(memory_type),
                     metadata=chunk.metadata
                 )
 
