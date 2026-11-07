@@ -76,7 +76,6 @@ def _embedding_cache_clear() -> int:
 
 
 
-
 def _escape_like(value: str) -> str:
     """Escape Milvus ``like`` wildcards so a user-supplied value matches literally.
 
