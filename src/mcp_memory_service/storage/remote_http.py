@@ -212,9 +212,10 @@ class RemoteHTTPStorage(MemoryStorage):
             sanitized_method = _sanitize_log_value(method)
             sanitized_path = _sanitize_log_value(path)
             sanitized_error = _sanitize_log_value(str(e))
+            sanitized_exc_type = _sanitize_log_value(type(e).__name__)
             logger.error(
-                "HTTP request failed: %s %s - %s", 
-                sanitized_method, sanitized_path, sanitized_error
+                "HTTP request failed: %s %s - %s: %s",
+                sanitized_method, sanitized_path, sanitized_exc_type, sanitized_error
             )
             raise
 

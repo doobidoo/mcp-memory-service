@@ -1257,3 +1257,26 @@ class TestRemoteHTTPStorageR9bConfigValidation:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx not available")
+class TestRemoteHTTPStorageLogging:
+    """Test that exception types are logged even when message is empty."""
+
+    @pytest.mark.asyncio
+    async def test_request_logs_exception_type_for_empty_message(self, caplog):
+        """HTTP request failure with empty exception message should still log the class name."""
+        storage = RemoteHTTPStorage("http://test.com")
+
+        # Patch client.request to raise ReadTimeout with empty message
+        async def raise_timeout(*args, **kwargs):
+            raise httpx.ReadTimeout("")
+
+        with patch.object(storage.client, "request", side_effect=raise_timeout):
+            with caplog.at_level(logging.ERROR):
+                with pytest.raises(httpx.ReadTimeout):
+                    await storage._request("GET", "/api/sync/capabilities")
+
+        # The log should contain the exception class name
+        assert any("ReadTimeout" in record.message for record in caplog.records)
+        # And not just an empty reason after the dash
+        assert any("ReadTimeout:" in record.message or "ReadTimeout: " in record.message for record in caplog.records)
