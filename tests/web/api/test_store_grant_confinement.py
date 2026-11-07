@@ -122,6 +122,70 @@ def test_store_grant_cannot_reach_a_tool_that_ignores_store(make_client, other_s
 
 
 @pytest_asyncio.fixture
+async def hash_memories_in_two_stores(storage):
+    hashes = {}
+    for store in ("projectA", "projectB"):
+        text = f"hash lookup memory in {store}"
+        content_hash = generate_content_hash(text)
+        memory = Memory(content=text, content_hash=content_hash, tags=["hash-test"])
+        ok, _ = await storage.store(memory, store=store)
+        assert ok
+        hashes[store] = content_hash
+    return hashes
+
+
+@pytest.mark.integration
+def test_store_grant_hash_lookup_stays_in_its_store(make_client, hash_memories_in_two_stores):
+    client = make_client("read:projectA")
+
+    own = _call(client, "memory_search", {
+        "content_hash": hash_memories_in_two_stores["projectA"], "store": "projectA",
+    })
+    assert own.status_code == 200
+    own_body = own.json()
+    assert "error" not in own_body
+    own_text = "".join(c.get("text", "") for c in own_body["result"]["content"])
+    assert "hash lookup memory in projectA" in own_text
+
+    other = _call(client, "memory_search", {
+        "content_hash": hash_memories_in_two_stores["projectB"], "store": "projectA",
+    })
+    assert other.status_code == 200
+    other_body = other.json()
+    assert "error" not in other_body
+    other_text = "".join(c.get("text", "") for c in other_body["result"]["content"])
+    assert "No memories found" in other_text
+    assert "hash lookup memory in projectB" not in other_text
+
+
+@pytest.mark.integration
+def test_hash_lookup_separates_agent_header_from_explicit_filter(
+    make_client, hash_memories_in_two_stores
+):
+    client = make_client("read:projectA")
+    content_hash = hash_memories_in_two_stores["projectA"]
+    headers = {"X-Agent-ID": "transport-agent"}
+
+    direct = _call(client, "memory_search", {
+        "content_hash": content_hash, "store": "projectA",
+    }, headers=headers)
+    direct_text = "".join(
+        c.get("text", "") for c in direct.json()["result"]["content"]
+    )
+    assert "hash lookup memory in projectA" in direct_text
+
+    explicit = _call(client, "memory_search", {
+        "content_hash": content_hash, "store": "projectA", "agent_id": "author-a",
+    }, headers=headers)
+    explicit_text = "".join(
+        c.get("text", "") for c in explicit.json()["result"]["content"]
+    )
+    assert explicit_text == (
+        "Error: content_hash cannot be combined with search arguments: agent_id"
+    )
+
+
+@pytest_asyncio.fixture
 async def memories_by_agent(storage):
     for agent_id in ("transport-agent", "other-agent"):
         text = f"author filter probe {agent_id}"
@@ -242,6 +306,34 @@ def test_store_grant_refused_on_a_backend_that_cannot_confine(make_client, stora
     client = make_client("read:projectA write:projectA")
     response = _call(client, "memory_delete", {"content_hash": "deadbeef" * 8, "store": "projectA"})
     assert _refused(response)
+
+
+@pytest.mark.integration
+def test_global_hash_lookup_fails_closed_for_scopes_backend_cannot_enforce(
+    make_client, storage, hash_memories_in_two_stores, monkeypatch,
+):
+    _ignore_store_like_cloudflare(storage, monkeypatch)
+    client = make_client("read")
+    error = (
+        "Error: store-scoped content_hash lookup is not supported on this "
+        "storage backend"
+    )
+    for arguments in (
+        {"content_hash": hash_memories_in_two_stores["projectA"]},
+        {
+            "content_hash": hash_memories_in_two_stores["projectA"],
+            "store": "projectA",
+        },
+    ):
+        response = _call(client, "memory_search", arguments)
+        text = response.json()["result"]["content"][0]["text"]
+        assert text == error
+
+    cross_store = _call(client, "memory_search", {
+        "content_hash": hash_memories_in_two_stores["projectB"], "store": "all",
+    })
+    cross_store_text = cross_store.json()["result"]["content"][0]["text"]
+    assert "hash lookup memory in projectB" in cross_store_text
 
 
 # --------------------------------------------------------------------------
