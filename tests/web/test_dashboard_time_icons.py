@@ -14,7 +14,7 @@ APP_JS = Path(__file__).parents[2] / "src/mcp_memory_service/web/static/app.js"
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 @pytest.mark.parametrize("timezone", ["Europe/Zurich", "America/New_York"])
 def test_time_icons_cover_local_day_and_preserve_clock(timezone):
-    source = APP_JS.read_text()
+    source = APP_JS.read_text(encoding="utf-8")
     script = source[source.index("class MemoryDashboard {"):source.index("// Initialize the application when DOM is ready")]
     script += """
 const app = Object.create(MemoryDashboard.prototype);
@@ -33,7 +33,7 @@ console.log(JSON.stringify({results, missing: app.renderTimeIcon(null)}));
 """
     result = subprocess.run(
         ["node", "-"], input=script, capture_output=True, text=True,
-        check=True, env={**os.environ, "TZ": timezone},
+        encoding="utf-8", check=True, env={**os.environ, "TZ": timezone},
     )
     output = json.loads(result.stdout)
     icons = ["🌙", "🌅", "☕", "💻", "🍽️", "⛅", "🍷", "🛏️"]
