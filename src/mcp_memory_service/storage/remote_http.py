@@ -213,8 +213,9 @@ class RemoteHTTPStorage(MemoryStorage):
             sanitized_path = _sanitize_log_value(path)
             sanitized_error = _sanitize_log_value(str(e))
             logger.error(
-                "HTTP request failed: %s %s - %s", 
-                sanitized_method, sanitized_path, sanitized_error
+                "HTTP request failed: %s %s - %s: %s",
+                sanitized_method, sanitized_path,
+                _sanitize_log_value(type(e).__name__), sanitized_error
             )
             raise
 
@@ -427,7 +428,10 @@ class RemoteHTTPStorage(MemoryStorage):
             logger.error("Get by hash failed: HTTP %s", e.response.status_code)
             return None
         except Exception as e:
-            logger.error("Get by hash failed: %s", _sanitize_log_value(str(e)))
+            logger.error(
+                "Get by hash failed: %s: %s",
+                _sanitize_log_value(type(e).__name__), _sanitize_log_value(str(e))
+            )
             return None
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
@@ -603,7 +607,10 @@ class RemoteHTTPStorage(MemoryStorage):
                 return []
 
         except Exception as e:
-            logger.error("List content hashes page failed: %s", _sanitize_log_value(str(e)))
+            logger.error(
+                "List content hashes page failed: %s: %s",
+                _sanitize_log_value(type(e).__name__), _sanitize_log_value(str(e))
+            )
             return []
 
     async def get_events_since(self, cursor: int, limit: int = 100) -> Tuple[List[Dict[str, Any]], int, bool]:
@@ -643,7 +650,10 @@ class RemoteHTTPStorage(MemoryStorage):
                 raise RuntimeError(msg)
 
         except Exception as e:
-            logger.error("Error getting sync events: %s", _sanitize_log_value(str(e)))
+            logger.error(
+                "Error getting sync events: %s: %s",
+                _sanitize_log_value(type(e).__name__), _sanitize_log_value(str(e))
+            )
             raise
 
     async def get_baseline(self) -> Tuple[List[Dict[str, Any]], int]:
@@ -698,7 +708,10 @@ class RemoteHTTPStorage(MemoryStorage):
                 "failed": len(events), "error": f"status {response.status_code}",
             }
         except Exception as e:
-            logger.error("Error pushing sync events: %s", _sanitize_log_value(str(e)))
+            logger.error(
+                "Error pushing sync events: %s: %s",
+                _sanitize_log_value(type(e).__name__), _sanitize_log_value(str(e))
+            )
             return {
                 "results": [], "applied": 0, "skipped": 0,
                 "failed": len(events), "error": str(e),
