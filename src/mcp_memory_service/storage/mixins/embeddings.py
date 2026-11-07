@@ -126,6 +126,12 @@ class EmbeddingsMixin:
             logger.debug("Could not read embedding dimension from sqlite_master: %s", _sanitize_log_value(exc))
         return None
 
+    async def get_db_embedding_dimension(self) -> int | None:
+        """Get the embedding dimension from the underlying database, or None if not set/present."""
+        if hasattr(self, '_run_in_thread'):
+            return await self._run_in_thread(self._get_existing_db_embedding_dimension)
+        return self._get_existing_db_embedding_dimension()
+
     async def _initialize_embedding_model(self):
         """Initialize the embedding model (ONNX or SentenceTransformer based on configuration)."""
         global _MODEL_CACHE, _HASH_FALLBACK_WARNED

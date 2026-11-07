@@ -1418,6 +1418,12 @@ class HybridMemoryStorage(MemoryStorage):
         """Hybrid backend supports content chunking with metadata linking."""
         return True
 
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Get the embedding dimension from primary storage."""
+        if hasattr(self.primary, 'get_db_embedding_dimension'):
+            return await self.primary.get_db_embedding_dimension()
+        return None
+
     def __init__(self,
                  sqlite_db_path: str,
                  embedding_model: str = "all-MiniLM-L6-v2",
