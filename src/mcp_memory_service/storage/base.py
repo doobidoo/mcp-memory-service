@@ -1003,6 +1003,10 @@ class MemoryStorage(ABC):
         """Delete memories with no tags. Returns (affected_count, message)."""
         raise NotImplementedError("delete_untagged_memories not supported by this backend")
 
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Get the embedding dimension configured in the underlying database table/collection."""
+        return None
+
     # NOTE: ``include_embeddings`` — see ``get_all_memories`` above.
     # Subclass signatures updated in the follow-up PR.
     async def get_memories_by_time_range(

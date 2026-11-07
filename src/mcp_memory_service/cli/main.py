@@ -284,16 +284,13 @@ def status(storage_backend, deep):
             model_dim = getattr(storage, 'embedding_dimension', None)
 
             db_dim = 'n/a'
-            if hasattr(storage, '_get_existing_db_embedding_dimension'):
+            if hasattr(storage, 'get_db_embedding_dimension'):
                 try:
-                    if hasattr(storage, '_run_in_thread'):
-                        db_dim = await storage._run_in_thread(storage._get_existing_db_embedding_dimension)
-                    else:
-                        db_dim = storage._get_existing_db_embedding_dimension()
+                    val = await storage.get_db_embedding_dimension()
+                    if val is not None:
+                        db_dim = val
                 except Exception as e:
                     db_dim = f"error ({e})"
-                if db_dim is None:
-                    db_dim = 'n/a'
 
             click.echo("\n🔡 Embedding:")
             click.echo(f"   Backend class: {backend_class}")

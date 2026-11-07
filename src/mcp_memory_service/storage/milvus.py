@@ -455,6 +455,10 @@ class MilvusMemoryStorage(MemoryStorage):
             return None
         return self._extract_vector_dim(info)
 
+    async def get_db_embedding_dimension(self) -> Optional[int]:
+        """Return the vector dimension recorded in the live collection."""
+        return self._get_existing_db_embedding_dimension()
+
     def _validate_existing_collection(self) -> None:
         """Warn if the on-disk collection's vector dim disagrees with our model.
 
