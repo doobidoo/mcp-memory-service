@@ -112,6 +112,31 @@ is cached in-process. With `memory restart` (CLI) or
 - Built-in types take precedence — extending an existing base type adds
   subtypes, it doesn't replace them.
 
+## Types stored in the database (sqlite_vec)
+
+On the `sqlite_vec` backend, custom types can also live in the memory
+database itself, in the `ontology_entries` table (#1897). They are merged
+after the built-ins and `MCP_CUSTOM_MEMORY_TYPES`, and they need no restart:
+
+```python
+await storage.add_memory_type("legal")                      # new base type
+await storage.add_memory_type("contract", parent="legal")   # subtype
+await storage.remove_memory_type("contract")                # tombstone
+```
+
+- The overlay only adds. A name that already exists is refused, so it can
+  neither replace nor re-parent a built-in or env type.
+- Every write bumps `ontology_version` in the `metadata` table. Other
+  processes on the same database file (the HTTP server and the MCP server)
+  check that counter at most once per second and reload their caches when
+  it moved.
+- Removing a type does not touch stored memories. They keep the type; only
+  new writes with it fall back to `observation`.
+- **Limit:** the table exists only in the local SQLite database. Cloudflare
+  (D1) does not carry it, and it is not yet synced through the hub. On the
+  `cloudflare` backend, and to keep several `hybrid` or hub nodes in
+  agreement, keep using `MCP_CUSTOM_MEMORY_TYPES`.
+
 ## When in doubt
 
 - **Prototyping?** Use the closest base type (`observation`, `note`).

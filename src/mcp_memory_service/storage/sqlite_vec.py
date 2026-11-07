@@ -19,7 +19,16 @@ Provides local vector similarity search using sqlite-vec extension.
 Decomposed into mixins (§10) — this file composes the final class.
 """
 
+from typing import Optional
+
+from ..models import ontology
 from .base import MemoryStorage
+from .ontology_overlay import (
+    OverlaySource,
+    tombstone_memory_type,
+    upsert_memory_type,
+    validate_memory_type_entry,
+)
 from .mixins import (
     BaseMixin,
     MigrationsMixin,
@@ -85,3 +94,35 @@ class SqliteVecMemoryStorage(
     # RetrieveMixin.get_by_hash scopes the lookup to ``store`` (AND store = ?),
     # so a store-scoped hash-addressed operation can be safely pre-checked.
     get_by_hash_is_store_scoped = True
+
+    async def initialize(self, *args, **kwargs):
+        await super().initialize(*args, **kwargs)
+        # The ontology overlay (#1897) lives in this database. Registering makes
+        # every type lookup in the process see it, including other processes' writes.
+        self._ontology_overlay = OverlaySource(self.db_path)
+        ontology.set_overlay_source(self._ontology_overlay)
+
+    async def close(self):
+        ontology.clear_overlay_source(getattr(self, "_ontology_overlay", None))
+        await super().close()
+
+    async def add_memory_type(self, name: str, parent: Optional[str] = None) -> str:
+        """Add a memory type to the ontology overlay and return its canonical name.
+
+        ``parent=None`` adds a base type; otherwise a subtype of ``parent``,
+        which must be a base type. Raises ValueError if the name already exists.
+        """
+        name, parent = validate_memory_type_entry(name, parent)
+        await self._execute_with_retry(lambda: upsert_memory_type(self.conn, name, parent))
+        ontology.invalidate_overlay()
+        return name
+
+    async def remove_memory_type(self, name: str) -> bool:
+        """Tombstone an overlay memory type. Built-in and env types cannot be removed.
+
+        Stored memories keep the type verbatim; it just stops validating for new writes.
+        """
+        name = ontology.canonicalize_memory_type(name)
+        removed = await self._execute_with_retry(lambda: tombstone_memory_type(self.conn, name))
+        ontology.invalidate_overlay()
+        return removed
