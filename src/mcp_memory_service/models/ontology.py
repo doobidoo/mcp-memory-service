@@ -431,15 +431,12 @@ def coerce_memory_type(memory_type: Optional[str]) -> Optional[str]:
         return None
     if validate_memory_type(memory_type):
         return canonicalize_memory_type(memory_type)
-    # Same standalone-load fallback as _load_custom_types_from_config.
-    try:
-        from mcp_memory_service.compat import _sanitize_log_value
-    except ImportError:
-        def _sanitize_log_value(value):
-            return re.sub(r'[\r\n\x1b]', '', str(value))
+    # Inline replace() barriers: CodeQL does not follow the try-import/fallback
+    # sanitizer used elsewhere in this module (alert 641).
+    safe_type = str(memory_type).replace('\r', '').replace('\n', '').replace('\x1b', '')
     logging.getLogger(__name__).warning(
         "Invalid memory_type '%s'. Valid types: %s... Defaulting to 'observation'.",
-        _sanitize_log_value(memory_type),
+        safe_type,
         ', '.join(get_all_types()[:5]),
     )
     return "observation"

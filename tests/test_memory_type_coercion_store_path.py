@@ -62,6 +62,36 @@ async def test_handler_still_warns_about_coercion(memory_service, server):
     assert (await _stored(memory_service, "handler write")).memory_type == "observation"
 
 
+async def _store_peer_row(memory_service, content, memory_type="peer_only_type"):
+    memory = Memory(content=content, content_hash=generate_content_hash(content),
+                    memory_type=memory_type)
+    ok, _ = await memory_service.storage.store(memory)
+    assert ok
+    return memory.content_hash
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_coerces_explicit_unknown_type(memory_service):
+    old_hash = await _store_peer_row(memory_service, "v1 explicit", memory_type="note")
+
+    ok, _, new_hash = await memory_service.storage.update_memory_versioned(
+        old_hash, "v2 explicit", new_memory_type="bogus_type"
+    )
+
+    assert ok
+    assert (await memory_service.storage.get_by_hash(new_hash)).memory_type == "observation"
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_keeps_inherited_unknown_type(memory_service):
+    old_hash = await _store_peer_row(memory_service, "v1 inherited")
+
+    ok, _, new_hash = await memory_service.storage.update_memory_versioned(old_hash, "v2 inherited")
+
+    assert ok
+    assert (await memory_service.storage.get_by_hash(new_hash)).memory_type == "peer_only_type"
+
+
 @pytest.mark.asyncio
 async def test_stored_unknown_type_survives_read(memory_service):
     """A row whose type this node does not know reads back unchanged."""

@@ -248,6 +248,25 @@ class TestMergeAction:
         assert memory_arg.content == "Consolidated content with metadata"
 
     @pytest.mark.asyncio
+    async def test_merge_coerces_unknown_explicit_type(self, mock_server):
+        """An explicit unknown memory_type is a new write: it becomes observation.
+
+        Memory() no longer coerces (it also hydrates stored rows), so the
+        handler has to.
+        """
+        arguments = {
+            "action": "merge",
+            "content_hashes": ["hash_alpha", "hash_beta"],
+            "merged_content": "Merged with a bogus type",
+            "memory_type": "bogus_type",
+        }
+
+        payload = _parse_result(await handle_memory_consolidate(mock_server, arguments))
+
+        assert payload["ok"] is True
+        assert mock_server.storage.store.await_args[0][0].memory_type == "observation"
+
+    @pytest.mark.asyncio
     async def test_merge_store_failure(self, mock_server):
         """When store() returns (False, reason), an error must be returned and
         delete_memories must NOT be called (store-before-delete safety)."""
