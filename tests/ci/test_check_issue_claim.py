@@ -30,6 +30,7 @@ def pr(issues, author="someone", association="CONTRIBUTOR", typename="User", fil
         "authorAssociation": association,
         "createdAt": PR_OPENED,
         "closingIssuesReferences": {"nodes": list(issues)},
+        "referencedIssues": {"nodes": []},
         "files": {"nodes": [{"path": f} for f in files]},
         "labels": {"nodes": []},
         "body": "",
@@ -152,7 +153,7 @@ class FakeGh:
         self.calls = []
         self.runs = list(runs)
 
-    def __call__(self, *args, stdin=None):
+    def __call__(self, *args, stdin=None, check=True):
         self.calls.append((args, stdin))
         if args[:1] == ("api",) and "/actions/runs?" in args[-1]:
             return json.dumps({"workflow_runs": self.runs})
@@ -377,3 +378,121 @@ def test_docs_only_pr_without_issue_writes_nothing(monkeypatch):
     code, fake = run_check(monkeypatch, with_state(pr([], files=("docs/a.md",))))
     assert code == 0
     assert fake.writes() == []
+
+
+# --- Issues the description only mentions (#1895) ---------------------------
+
+# PR #1895's description, as GitHub stored it: the agent wrote literal "\n"
+# sequences, so "Fixes #1893" reads as "nFixes #1893" and is no closing keyword.
+PR_1895_BODY = (
+    "Fixes empty exception messages in delta-sync and HTTP request failure logs."
+    "\\n\\nAddresses #1893.\\n\\nChanges:\\n- remote_http.py `_request` logs the class"
+    "\\n\\nFixes #1893"
+)
+
+
+def gh_answering(repository, calls=None):
+    """Fake gh for the batched reference query: returns `repository` as GraphQL data."""
+    def fake(*args, stdin=None, check=True):
+        if calls is not None:
+            calls.append((args, check))
+        return json.dumps({"data": {"repository": repository}})
+    return fake
+
+
+def open_issue(number, assignees=()):
+    return {**issue(number, assignees=assignees), "state": "OPEN"}
+
+
+def test_issue_named_only_in_the_text_is_checked_for_the_claim(monkeypatch):
+    """PR #1895: no closing reference, so it passed with neither label."""
+    data = with_state(pr([]))
+    data["body"] = PR_1895_BODY
+    data["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": False, "endCursor": "end"}
+    monkeypatch.setattr(claim, "graphql", lambda query, repo, number, cursor=None: {"pullRequest": data})
+    calls = []
+    monkeypatch.setattr(claim, "gh", gh_answering({"n1893": open_issue(1893)}, calls))
+
+    fetched = claim.fetch_pr("doobidoo/mcp-memory-service", 1895)
+
+    assert claim.unclaimed_issues(fetched) == [1893]
+    assert not claim.needs_issue(fetched)  # still counts as linked: no-issue is unaffected
+    assert len(calls) == 1 and calls[0][1] is False
+
+
+def test_refs_to_an_issue_assigned_to_someone_else_is_unclaimed():
+    data = pr([])
+    data["body"] = "Refs #1460 - safety phase."
+    data["referencedIssues"]["nodes"] = [open_issue(1460, assignees=["other"])]
+    assert claim.unclaimed_issues(data) == [1460]
+
+
+def test_refs_to_an_issue_assigned_to_the_author_is_claimed():
+    data = pr([])
+    data["referencedIssues"]["nodes"] = [open_issue(1460, assignees=["someone"])]
+    assert claim.unclaimed_issues(data) == []
+
+
+def test_referenced_numbers_take_own_repo_urls_and_skip_template_hints():
+    body = (
+        "<!-- Fixes #123 -->\nRefs #7 and #7, see "
+        "https://github.com/doobidoo/mcp-memory-service/issues/8 and "
+        "https://github.com/other/repo/issues/9, color &#39;"
+    )
+    assert claim.referenced_numbers(body, "doobidoo/mcp-memory-service") == [7, 8]
+
+
+def test_referenced_numbers_are_capped():
+    body = " ".join(f"#{n}" for n in range(1, 40))
+    assert len(claim.referenced_numbers(body, "o/r")) == claim.MAX_TEXT_REFS
+
+
+def test_only_open_issues_count_as_references(monkeypatch):
+    """A PR number (empty fragment), a closed issue and an unknown number are dropped."""
+    repository = {
+        "n1": open_issue(1),
+        "n2": {},  # a pull request: the `... on Issue` fragment selects nothing
+        "n3": {**issue(3), "state": "CLOSED"},
+        "n4": None,  # number does not exist
+    }
+    monkeypatch.setattr(claim, "gh", gh_answering(repository))
+    assert [i["number"] for i in claim.fetch_referenced_issues("o/r", [1, 2, 3, 4])] == [1]
+
+
+def test_unresolvable_references_do_not_fail_the_check(monkeypatch):
+    monkeypatch.setattr(claim, "gh", lambda *args, stdin=None, check=True: "")
+    assert claim.fetch_referenced_issues("o/r", [99999]) == []
+
+
+def test_closing_reference_is_not_queried_again(monkeypatch):
+    data = with_state(pr([issue(1893, assignees=["someone"])]))
+    data["body"] = "Fixes #1893"
+    data["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": False, "endCursor": "end"}
+    monkeypatch.setattr(claim, "graphql", lambda query, repo, number, cursor=None: {"pullRequest": data})
+    calls = []
+    monkeypatch.setattr(claim, "gh", gh_answering({}, calls))
+    claim.fetch_pr("o/r", 1895)
+    assert calls == []
+
+
+def test_exempt_authors_skip_the_reference_query(monkeypatch):
+    data = with_state(pr([], association="OWNER"))
+    data["body"] = "Refs #1460"
+    data["closingIssuesReferences"]["pageInfo"] = {"hasNextPage": False, "endCursor": "end"}
+    monkeypatch.setattr(claim, "graphql", lambda query, repo, number, cursor=None: {"pullRequest": data})
+    calls = []
+    monkeypatch.setattr(claim, "gh", gh_answering({}, calls))
+    claim.fetch_pr("o/r", 7)
+    assert calls == []
+
+
+def test_assignment_reruns_checks_of_prs_that_only_mention_the_issue(monkeypatch):
+    fake = FakeGh(runs=[FAILED_CLAIM_RUN])
+    monkeypatch.setattr(claim, "gh", fake)
+    mention = {"source": {"number": 1895, "headRefOid": "sha1895", "state": "OPEN"}}
+    monkeypatch.setattr(claim, "graphql", lambda query, repo, number: {"issue": {
+        "closedByPullRequestsReferences": {"nodes": []},
+        "timelineItems": {"nodes": [mention, {"source": {}}, {}]},
+    }})
+    claim.rerun_for_issue("o/r", 1893, dry_run=False)
+    assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
