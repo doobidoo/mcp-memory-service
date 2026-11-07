@@ -811,19 +811,20 @@ class DeleteMixin:
                             self._append_sync_event(self.conn, 'delete', ch, {'content_hash': ch, 'deleted_at': deleted_at})
 
                     self.conn.commit()
-                    return cursor.rowcount
+                    return cursor.rowcount, hashes
                 except Exception:
                     try:
                         self.conn.rollback()
                     except Exception:
+                        # Ignore rollback error if connection was closed or broken
                         pass
                     raise
 
-            count = await self._execute_with_retry(_delete)
+            count, hashes = await self._execute_with_retry(_delete)
             logger.info("Deleted %d untagged memories", count)
-            return count, f"Successfully soft-deleted {count} memories without tags (tombstones created for multi-PC sync)"
+            return count, f"Successfully soft-deleted {count} memories without tags (tombstones created for multi-PC sync)", hashes
 
         except Exception as e:
             error_msg = f"Failed to delete untagged memories: {str(e)}"
             logger.error("%s", _sanitize_log_value(error_msg))
-            return 0, error_msg
+            return 0, error_msg, []

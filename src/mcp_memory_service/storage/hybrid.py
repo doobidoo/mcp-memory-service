@@ -1423,8 +1423,18 @@ class HybridMemoryStorage(MemoryStorage):
         return await self.primary.count_untagged_memories()
 
     async def delete_untagged_memories(self, expected_count: Optional[int] = None) -> Tuple[int, str]:
-        """Delegate guarded deletion; primary storage records tombstones and sync events."""
-        return await self.primary.delete_untagged_memories(expected_count=expected_count)
+        """Delegate guarded deletion; primary storage records tombstones and sync events, and queue secondary deletes."""
+        res = await self.primary.delete_untagged_memories(expected_count=expected_count)
+        count = res[0]
+        message = res[1]
+        deleted_hashes = res[2] if len(res) > 2 else []
+
+        if count > 0 and self.sync_service and deleted_hashes:
+            for content_hash in deleted_hashes:
+                operation = SyncOperation(operation='delete', content_hash=content_hash)
+                await self.sync_service.enqueue_operation(operation)
+
+        return count, message
     async def get_db_embedding_dimension(self) -> Optional[int]:
         """Get the embedding dimension from primary storage."""
         if hasattr(self.primary, 'get_db_embedding_dimension'):

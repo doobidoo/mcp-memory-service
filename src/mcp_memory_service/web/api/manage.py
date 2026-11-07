@@ -284,9 +284,10 @@ async def delete_untagged_memories(
 
         # The backend decides how: SQLite tombstones and syncs the delete,
         # Milvus has no tombstones and removes the rows outright.
-        deleted_count, message = await storage.delete_untagged_memories(
+        res = await storage.delete_untagged_memories(
             expected_count=confirm_count
         )
+        deleted_count, message = res[0], res[1]
         logger.info("Deleted %d untagged memories", deleted_count)
 
         return BulkOperationResponse(
