@@ -731,7 +731,8 @@ class BackgroundSyncService:
         """Deliver restores the sync queue gave up on (#1890).
 
         A pushed restore replaces the tombstone, so it stops being a conflict. A
-        tombstone that changed after the scan is left alone and stays one.
+        tombstone that changed after the scan is left alone and stays one. So does
+        a row that could not be read again, which is reported as a failure.
         """
         restored_count = 0
         failed_count = 0
@@ -739,17 +740,18 @@ class BackgroundSyncService:
         for memory in state['undelivered_restores']:
             content_hash = memory.content_hash
             try:
-                success, message = await self.secondary.store_if_tombstone_matches(
+                outcome, message = await self._push_one_restore(
                     memory, state['remote_tombstones'][content_hash]
                 )
             except Exception as e:
-                success, message = False, str(e)
-            if success:
-                restored_count += 1
+                outcome, message = 'failed', str(e)
+            if outcome in ('restored', 'deleted'):
                 tombstone_counts['tombstone_conflicts'] -= 1
                 if content_hash in tombstone_counts['tombstone_conflict_hashes']:
                     tombstone_counts['tombstone_conflict_hashes'].remove(content_hash)
-            elif success is False:
+            if outcome == 'restored':
+                restored_count += 1
+            elif outcome == 'failed':
                 failed_count += 1
                 logger.warning(
                     "Could not push restored memory %s: %s",
@@ -757,6 +759,40 @@ class BackgroundSyncService:
                     _sanitize_log_value(message),
                 )
         return restored_count, failed_count
+
+    async def _push_one_restore(
+        self, memory: Memory, expected_deleted_at: float
+    ) -> Tuple[str, str]:
+        """Upload one restore unless its row was deleted during this run.
+
+        The row is read again first, because a local delete does not wait for
+        force_sync. That leaves the upload itself: a delete landing while it is in
+        flight meets the old tombstone, changes nothing on Cloudflare and reports
+        success, so the upload would bring the row back. Checking the row afterwards
+        closes that gap. A delete committed before the check is sent again here, and
+        one committed after it is queued behind the upload and finds a live row.
+
+        Returns ``(outcome, message)``, where outcome is ``restored``, ``deleted``
+        (the row is gone locally, so there is no conflict left), ``changed`` (the
+        tombstone moved) or ``failed``.
+        """
+        current = await self._get_current_queued_store_memory(memory)
+        if current is None:
+            return 'deleted', 'The primary row is no longer live'
+        success, message = await self.secondary.store_if_tombstone_matches(
+            current, expected_deleted_at
+        )
+        if success is None:
+            return 'changed', message
+        if not success:
+            return 'failed', message
+        sync_state = await self.primary.get_sync_state_for_hash(current.content_hash)
+        if sync_state is None or sync_state[1] is not None:
+            await self.enqueue_operation(
+                SyncOperation(operation='delete', content_hash=current.content_hash)
+            )
+            return 'deleted', 'The primary row was deleted during the upload'
+        return 'restored', message
 
     async def _sync_one_force_sync_memory(
         self, memory: Memory

@@ -64,6 +64,12 @@ class _CloudflareBoundary:
             return None, "tombstone_changed"
         return await self.store(memory)
 
+    async def delete(self, content_hash):
+        """As D1: a row that is already a tombstone is left alone and still succeeds."""
+        if self.live.pop(content_hash, None) is not None:
+            self.tombstones[content_hash] = time.time()
+        return True, "deleted"
+
 
 def _memory(content, timestamp=None):
     return Memory(
@@ -259,3 +265,119 @@ async def test_a_failed_push_stays_reported(primary, cloudflare, sync, unique_co
     cloudflare.refuse_restore = False
     assert (await sync.force_sync())["status"] == "completed"
     assert cloudflare.stored == [memory.content_hash]
+
+
+def _during_other_uploads(sync, step):
+    """Run ``step`` after the scan, while force_sync waits on its other uploads."""
+    real_uploads = sync._sync_force_sync_memories
+
+    async def uploads(memories):
+        await step()
+        return await real_uploads(memories)
+
+    sync._sync_force_sync_memories = uploads
+
+
+@pytest.mark.asyncio
+async def test_a_row_deleted_during_the_run_is_not_uploaded(
+    primary, cloudflare, sync, unique_content
+):
+    memory = _memory(unique_content("deleted while force_sync runs"))
+    await _delete_everywhere(primary, cloudflare, memory)
+    restored = await _restore(primary, memory)
+    await _drop_from_queue(sync, cloudflare, restored)
+
+    async def delete_locally():
+        assert (await primary.delete(memory.content_hash))[0]
+
+    _during_other_uploads(sync, delete_locally)
+
+    result = await sync.force_sync()
+
+    assert cloudflare.stored == []
+    assert memory.content_hash in cloudflare.tombstones
+    assert result["synced_to_secondary"] == 0
+    assert result["skipped_remote_tombstones"] == 1
+    assert result["tombstone_conflicts"] == 0
+    assert result["tombstone_conflict_hashes"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_delete_that_lands_during_the_upload_still_reaches_cloudflare(
+    primary, cloudflare, sync, unique_content
+):
+    """The queued delete finds the old tombstone, changes nothing, and reports success."""
+    memory = _memory(unique_content("deleted while its restore is uploading"))
+    await _delete_everywhere(primary, cloudflare, memory)
+    restored = await _restore(primary, memory)
+    await _drop_from_queue(sync, cloudflare, restored)
+
+    real_compare_and_store = cloudflare.store_if_tombstone_matches
+
+    async def delete_lands_first(candidate, expected_deleted_at):
+        assert (await primary.delete(candidate.content_hash))[0]
+        await sync._process_single_operation(
+            SyncOperation(operation="delete", content_hash=candidate.content_hash)
+        )
+        return await real_compare_and_store(candidate, expected_deleted_at)
+
+    cloudflare.store_if_tombstone_matches = delete_lands_first
+
+    result = await sync.force_sync()
+
+    assert result["synced_to_secondary"] == 0
+    assert result["skipped_remote_tombstones"] == 1
+    assert result["tombstone_conflicts"] == 0
+    assert memory.content_hash in cloudflare.live  # the upload did land
+
+    while not sync.operation_queue.empty():
+        await sync._process_single_operation(sync.operation_queue.get_nowait())
+
+    assert memory.content_hash not in cloudflare.live
+    assert memory.content_hash in cloudflare.tombstones
+    assert await primary.is_deleted(memory.content_hash)
+
+
+@pytest.mark.asyncio
+async def test_a_row_edited_during_the_run_is_uploaded_as_edited(
+    primary, cloudflare, sync, unique_content
+):
+    memory = _memory(unique_content("edited while force_sync runs"))
+    await _delete_everywhere(primary, cloudflare, memory)
+    restored = await _restore(primary, memory)
+    await _drop_from_queue(sync, cloudflare, restored)
+
+    async def edit_locally():
+        await asyncio.sleep(0.01)
+        assert (await primary.update_memory_metadata(
+            memory.content_hash, {"tags": ["__test__", "edited"]}
+        ))[0]
+
+    _during_other_uploads(sync, edit_locally)
+
+    await sync.force_sync()
+
+    assert "edited" in cloudflare.live[memory.content_hash].tags
+
+
+@pytest.mark.asyncio
+async def test_a_row_that_cannot_be_read_again_is_not_uploaded(
+    primary, cloudflare, sync, unique_content
+):
+    memory = _memory(unique_content("unreadable while force_sync runs"))
+    await _delete_everywhere(primary, cloudflare, memory)
+    restored = await _restore(primary, memory)
+    await _drop_from_queue(sync, cloudflare, restored)
+
+    async def break_the_read():
+        primary.get_sync_state_for_hash = AsyncMock(
+            side_effect=RuntimeError("database is locked")
+        )
+
+    _during_other_uploads(sync, break_the_read)
+
+    result = await sync.force_sync()
+
+    assert cloudflare.stored == []
+    assert result["failed_operations"] == 1
+    assert result["tombstone_conflicts"] == 1
