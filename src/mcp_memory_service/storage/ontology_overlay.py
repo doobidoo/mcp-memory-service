@@ -62,15 +62,24 @@ def validate_memory_type_entry(name: str, parent: Optional[str]) -> Tuple[str, O
 
 
 def upsert_memory_type(conn: sqlite3.Connection, name: str, parent: Optional[str]) -> None:
-    """Write (or revive) an overlay memory type and bump the version, in one transaction."""
+    """Write (or revive) an overlay memory type and bump the version, in one transaction.
+
+    The caller's duplicate check reads this process's cached ontology, which can
+    be stale: another process, or a concurrent call, may have written the same
+    name since. The conflict update therefore only revives a tombstoned row, and
+    a live row with that name makes the write fail instead of re-parenting it.
+    """
     with conn:  # commits both statements, or rolls both back
-        conn.execute(
+        cursor = conn.execute(
             "INSERT INTO ontology_entries (kind, key, parent, updated_at) "
             "VALUES ('memory_type', ?, ?, ?) "
             "ON CONFLICT(kind, key) DO UPDATE SET "
-            "parent = excluded.parent, updated_at = excluded.updated_at, deleted_at = NULL",
+            "parent = excluded.parent, updated_at = excluded.updated_at, deleted_at = NULL "
+            "WHERE ontology_entries.deleted_at IS NOT NULL",
             (name, parent, time.time()),
         )
+        if cursor.rowcount == 0:
+            raise ValueError(f"'{name}' is already a memory type")
         _bump_version(conn)
 
 

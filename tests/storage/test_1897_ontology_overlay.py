@@ -66,6 +66,30 @@ async def test_write_by_another_process_is_picked_up(storage):
     assert ontology.validate_memory_type("runbook")
 
 
+async def test_stale_cache_cannot_reparent_a_type_another_process_added(storage, monkeypatch):
+    """Greptile on #1903: the duplicate check reads the cache, so the write must
+    refuse a live row instead of overwriting its parent."""
+    assert not ontology.validate_memory_type("legal")  # loads the overlay once
+    monkeypatch.setattr(ontology, "_OVERLAY_POLL_SECONDS", 3600)  # and keeps it stale
+
+    other = sqlite3.connect(storage.db_path)
+    try:
+        upsert_memory_type(other, "legal", None)
+    finally:
+        other.close()
+    assert not ontology.validate_memory_type("legal")  # this process has not seen it
+
+    with pytest.raises(ValueError, match="already a memory type"):
+        await storage.add_memory_type("legal", parent="error")
+
+    row = storage.conn.execute(
+        "SELECT parent, deleted_at FROM ontology_entries WHERE key = 'legal'"
+    ).fetchone()
+    assert row == (None, None)
+    # The rejection also refreshed this process, so it now sees the winner.
+    assert "legal" in ontology.get_base_types()
+
+
 async def test_overlay_cannot_reparent_a_builtin_even_if_written_directly(storage):
     other = sqlite3.connect(storage.db_path)
     try:

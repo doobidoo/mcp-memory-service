@@ -113,8 +113,12 @@ class SqliteVecMemoryStorage(
         which must be a base type. Raises ValueError if the name already exists.
         """
         name, parent = validate_memory_type_entry(name, parent)
-        await self._execute_with_retry(lambda: upsert_memory_type(self.conn, name, parent))
-        ontology.invalidate_overlay()
+        try:
+            await self._execute_with_retry(lambda: upsert_memory_type(self.conn, name, parent))
+        finally:
+            # Also on a rejected duplicate: the row that won came from somewhere
+            # this process has not polled yet.
+            ontology.invalidate_overlay()
         return name
 
     async def remove_memory_type(self, name: str) -> bool:

@@ -101,8 +101,9 @@ def _refresh_overlay() -> None:
             return
         entries = list(source.read_memory_type_overlay())
     except Exception as e:  # keep the last overlay we had; retry on the next poll
-        safe_error = str(e).replace('\r', '').replace('\n', '').replace('\x1b', '')
-        logging.getLogger(__name__).warning("Could not read the ontology overlay: %s", safe_error)
+        logging.getLogger(__name__).warning(
+            "Could not read the ontology overlay: %s", _sanitize_log_value(e)
+        )
         return
     _OVERLAY_ENTRIES = entries
     _OVERLAY_VERSION = version
