@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP Memory Service — Wiring Diagram & Knot Registry</title>
+<style>
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #111827;
+    --bg-card: #1a2234;
+    --bg-card-hover: #222d44;
+    --border-color: #2d3748;
+    --text-primary: #f3f4f6;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-emerald: #10b981;
+    --accent-purple: #8b5cf6;
+    --accent-amber: #f59e0b;
+    --knot-red: #ef4444;
+    --knot-glow: rgba(239, 68, 68, 0.4);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    height: 52px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-title {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge-repo {
+    background: #1e293b;
+    color: var(--accent-cyan);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    font-family: monospace;
+  }
+
+  .header-stats {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .stat-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card);
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+  }
+
+  .stat-pill.danger {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+  }
+
+  .pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Main Workspace Grid: 3 columns that fit strictly inside 100vh */
+  .workspace {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 260px 1fr 390px;
+    overflow: hidden;
+    height: calc(100vh - 52px);
+  }
+
+  /* Column 1: Features */
+  .features-col {
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .col-header {
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(17, 24, 39, 0.8);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .features-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 9px 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    position: relative;
+  }
+
+  .feature-card:hover, .feature-card.active {
+    border-color: var(--accent-blue);
+    background: var(--bg-card-hover);
+    transform: translateX(2px);
+  }
+
+  .feature-card.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--accent-blue);
+    border-radius: 8px 0 0 8px;
+  }
+
+  .feature-title {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 3px;
+  }
+
+  .feature-files-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+  }
+
+  .feature-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+
+  /* Column 2: Wiring Canvas */
+  .canvas-col {
+    position: relative;
+    background: #070a11;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .canvas-toolbar {
+    height: 38px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(10, 14, 23, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .btn-filter {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-filter:hover, .btn-filter.active {
+    background: var(--accent-blue);
+    color: #fff;
+    border-color: var(--accent-blue);
+  }
+
+  .btn-filter.danger-filter.active {
+    background: var(--knot-red);
+    border-color: var(--knot-red);
+    color: white;
+  }
+
+  .svg-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  svg#wiringSvg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* SVG node styles */
+  .wire-path {
+    fill: none;
+    stroke: #334155;
+    stroke-width: 1.5;
+    opacity: 0.25;
+    transition: all 0.25s ease;
+  }
+
+  .wire-path.highlight {
+    stroke: var(--accent-cyan);
+    stroke-width: 2.2;
+    opacity: 0.9;
+  }
+
+  .wire-path.knot-wire {
+    stroke: var(--knot-red);
+    stroke-width: 2.5;
+    opacity: 0.95;
+    stroke-dasharray: 4, 3;
+    animation: dash 30s linear infinite;
+  }
+
+  @keyframes dash {
+    to { stroke-dashoffset: -1000; }
+  }
+
+  .file-node {
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .file-node rect {
+    fill: #131c2e;
+    stroke: #2a374f;
+    stroke-width: 1;
+    rx: 6;
+    transition: all 0.2s ease;
+  }
+
+  .file-node:hover rect {
+    fill: #1c283f;
+    stroke: var(--accent-blue);
+  }
+
+  .file-node.has-knot rect {
+    fill: rgba(239, 68, 68, 0.12);
+    stroke: var(--knot-red);
+    stroke-width: 1.8;
+    filter: drop-shadow(0 0 6px var(--knot-glow));
+  }
+
+  .file-node text.fname {
+    fill: #e2e8f0;
+    font-size: 11px;
+    font-family: monospace;
+    font-weight: 500;
+  }
+
+  .file-node text.fdir {
+    fill: #64748b;
+    font-size: 9px;
+    font-family: sans-serif;
+  }
+
+  .knot-badge {
+    cursor: pointer;
+    animation: pulseKnot 2s infinite ease-in-out;
+  }
+
+  @keyframes pulseKnot {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px var(--knot-red)); }
+    50% { transform: scale(1.15); filter: drop-shadow(0 0 10px #ff2222); }
+  }
+
+  /* Column 3: Knot Untangling Registry */
+  .knots-col {
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .knots-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .knot-card {
+    background: var(--bg-card);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.2s ease;
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  .knot-card:hover, .knot-card.selected {
+    border-color: var(--knot-red);
+    box-shadow: 0 0 14px var(--knot-glow);
+    background: #1e1b27;
+  }
+
+  .knot-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .knot-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--knot-red);
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
+  .knot-category {
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+  }
+
+  .knot-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fca5a5;
+    margin-bottom: 4px;
+  }
+
+  .knot-loc {
+    font-family: monospace;
+    font-size: 11px;
+    color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.1);
+    padding: 3px 6px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+
+  .knot-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+
+  .untangle-box {
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 3px solid var(--accent-emerald);
+    padding: 7px 10px;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .untangle-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #6ee7b7;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .untangle-text {
+    font-size: 11px;
+    color: #e2e8f0;
+    line-height: 1.35;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="header-title">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      mcp-memory-service Architecture & Knot Map
+    </div>
+    <span class="badge-repo">Historical analysis</span>
+  </div>
+  <div class="header-stats">
+    <div class="stat-pill danger">
+      <span class="pill-dot" style="background:#ef4444;"></span>
+      <strong>5 Critical Knots Identified</strong>
+    </div>
+    <div class="stat-pill">
+      <span class="pill-dot" style="background:#3b82f6;"></span>
+      <span>7 Core Subsystems</span>
+    </div>
+    <div class="stat-pill">
+      <span class="pill-dot" style="background:#10b981;"></span>
+      <span>Single-Screen View</span>
+    </div>
+  </div>
+</header>
+
+<div class="workspace">
+  <!-- Features Column -->
+  <div class="features-col">
+    <div class="col-header">
+      <span>Features & Subsystems</span>
+      <span style="font-size:10px; color:var(--text-muted);">Hover to Trace</span>
+    </div>
+    <div class="features-list" id="featuresList">
+      <!-- Injected by script -->
+    </div>
+  </div>
+
+  <!-- Wiring Canvas Column -->
+  <div class="canvas-col">
+    <div class="canvas-toolbar">
+      <div class="filter-group">
+        <button class="btn-filter active" onclick="setFilter('all')">All Wires</button>
+        <button class="btn-filter danger-filter" onclick="setFilter('knots')">🔴 Knots Only</button>
+        <button class="btn-filter" onclick="setFilter('storage')">Storage</button>
+        <button class="btn-filter" onclick="setFilter('web')">Web & API</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); display:flex; gap:10px; align-items:center;">
+        <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; background:var(--knot-red); border-radius:50%;"></span> Knot Point</span>
+        <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:8px; height:8px; background:var(--accent-cyan); border-radius:50%;"></span> Active Wire</span>
+      </div>
+    </div>
+    <div class="svg-canvas-container" id="canvasContainer">
+      <svg id="wiringSvg"></svg>
+    </div>
+  </div>
+
+  <!-- Knots & Untangle Registry Column -->
+  <div class="knots-col">
+    <div class="col-header">
+      <span>Untangling Registry (Worst First)</span>
+      <span style="color:#ef4444; font-weight:700;">5 Knots</span>
+    </div>
+    <div class="knots-list" id="knotsList">
+      <!-- Injected by script -->
+    </div>
+  </div>
+</div>
+
+<script>
+const features = [
+  {
+    id: "f_storage",
+    name: "Memory Storage & Engine",
+    desc: "Vector storage (sqlite-vec), embeddings, BM25 hybrid search, deduplication",
+    files: ["storage/base.py", "storage/sqlite_vec.py", "storage/mixins/retrieve.py", "storage/mixins/delete.py", "storage/shared.py", "models/memory.py"]
+  },
+  {
+    id: "f_web",
+    name: "REST API & Management",
+    desc: "FastAPI endpoints, bulk operations, document uploads, SSE streams",
+    files: ["web/app.py", "web/api/manage.py", "web/api/documents.py", "web/dependencies.py"]
+  },
+  {
+    id: "f_mcp",
+    name: "MCP Transport & Tools",
+    desc: "Model Context Protocol JSON-RPC stdio server, tool dispatch, prompt provider",
+    files: ["server_impl.py", "mcp_server.py", "tools/registry.py", "server/handlers/memory.py"]
+  },
+  {
+    id: "f_graph",
+    name: "Knowledge Graph & Types",
+    desc: "Causal links, entity extraction, ontology taxonomies, semantic relations",
+    files: ["models/ontology.py", "models/tag_taxonomy.py", "storage/graph.py", "server/handlers/graph.py"]
+  },
+  {
+    id: "f_consolidation",
+    name: "Dream Consolidation",
+    desc: "Autonomous memory compression, decay, forgetting, contradiction detection",
+    files: ["consolidation/consolidator.py", "consolidation/health.py", "consolidation/scheduler.py"]
+  },
+  {
+    id: "f_cli",
+    name: "CLI & System Admin",
+    desc: "Command line daemon lifecycle, database health inspect, diagnostics",
+    files: ["cli/main.py", "cli/lifecycle.py", "compat.py"]
+  },
+  {
+    id: "f_harvest",
+    name: "Harvesting & Ingestion",
+    desc: "Session transcript parsing, LLM rewriting, text & PDF loading",
+    files: ["harvest/rewriter.py", "harvest/parser.py", "reasoning/nli.py"]
+  }
+];
+
+const filesData = [
+  // Layer: Web & API
+  { id: "web/app.py", name: "app.py", dir: "web", x: 180, y: 70, knots: [] },
+  { id: "web/api/manage.py", name: "manage.py", dir: "web/api", x: 180, y: 155, knots: [1, 2] },
+  { id: "web/api/documents.py", name: "documents.py", dir: "web/api", x: 180, y: 240, knots: [2, 4] },
+  { id: "web/dependencies.py", name: "dependencies.py", dir: "web", x: 180, y: 325, knots: [] },
+
+  // Layer: CLI & Transport
+  { id: "cli/main.py", name: "main.py", dir: "cli", x: 180, y: 410, knots: [5] },
+  { id: "cli/lifecycle.py", name: "lifecycle.py", dir: "cli", x: 180, y: 495, knots: [] },
+  { id: "server_impl.py", name: "server_impl.py", dir: "root", x: 380, y: 70, knots: [2] },
+  { id: "mcp_server.py", name: "mcp_server.py", dir: "root", x: 380, y: 155, knots: [] },
+  { id: "compat.py", name: "compat.py", dir: "root", x: 380, y: 240, knots: [2] },
+
+  // Layer: Models & Taxonomy
+  { id: "models/ontology.py", name: "ontology.py", dir: "models", x: 380, y: 330, knots: [2, 3] },
+  { id: "models/tag_taxonomy.py", name: "tag_taxonomy.py", dir: "models", x: 380, y: 415, knots: [3] },
+  { id: "models/memory.py", name: "memory.py", dir: "models", x: 380, y: 500, knots: [] },
+
+  // Layer: Storage & Core Engine
+  { id: "storage/base.py", name: "base.py", dir: "storage", x: 590, y: 70, knots: [1] },
+  { id: "storage/sqlite_vec.py", name: "sqlite_vec.py", dir: "storage", x: 590, y: 155, knots: [] },
+  { id: "storage/mixins/delete.py", name: "delete.py", dir: "storage/mixins", x: 590, y: 240, knots: [1, 2] },
+  { id: "storage/mixins/retrieve.py", name: "retrieve.py", dir: "storage/mixins", x: 590, y: 325, knots: [1, 2] },
+  { id: "storage/shared.py", name: "shared.py", dir: "storage", x: 590, y: 410, knots: [2] },
+  { id: "storage/graph.py", name: "graph.py", dir: "storage", x: 590, y: 495, knots: [] }
+];
+
+const knotsData = [
+  {
+    num: 1,
+    category: "Leaky Abstraction",
+    title: "Web Router Poking Raw SQLite Connection & Schema",
+    file: "src/mcp_memory_service/web/api/manage.py",
+    lines: "45–76, 259–267",
+    desc: "Endpoints /untagged/count and /delete-untagged bypass the Storage interface entirely. They run helper _sqlite_conn(storage) to fish out private conn/primary.conn attributes, executing hardcoded SQL with raw string concatenation.",
+    untangle: "Add count_untagged_memories() and delete_untagged_memories() directly to MemoryStorage (base.py) and implement them in storage mixins (retrieve.py & delete.py). Web router calls the clean async storage methods and drops all raw SQL helpers."
+  },
+  {
+    num: 2,
+    category: "Copy-Paste Drift",
+    title: "Sanitize Log Value Copied Across 24 Files & Drifted",
+    file: "src/mcp_memory_service/models/ontology.py",
+    lines: "265 (and 23 other files)",
+    desc: "def _sanitize_log_value was copy-pasted across 24 files instead of importing from compat.py. In models/ontology.py, it drifted into re.sub(r'[\r\n\x1b]', '', str(value)) which strips characters instead of escaping them as \n and \r.",
+    untangle: "Delete duplicate definitions across all 24 files and standardize on `from mcp_memory_service.compat import _sanitize_log_value` everywhere, unifying log sanitization behavior."
+  },
+  {
+    num: 3,
+    category: "Empty Wrappers",
+    title: "Pure Boilerplate Delegation Classes in Models",
+    file: "src/mcp_memory_service/models/ontology.py & tag_taxonomy.py",
+    lines: "ontology.py: 570–636, tag_taxonomy.py: 182–200",
+    desc: "MemoryTypeOntology and TagTaxonomy declare classmethod functions that do nothing except pass through identical arguments to standalone module-level functions with the exact same names.",
+    untangle: "Replace forwarding wrapper methods with direct static assignment (e.g., validate_memory_type = staticmethod(validate_memory_type)) or alias the class attributes, removing redundant stack frames while preserving API compatibility."
+  },
+  {
+    num: 4,
+    category: "Temporary Workaround",
+    title: "Unmanaged Infinite Loop with Deprecated Startup Hook",
+    file: "src/mcp_memory_service/web/api/documents.py",
+    lines: "602–620",
+    desc: "@router.on_event('startup') with TODO comment launches an infinite asyncio.sleep(3600) loop that is never cancelled on shutdown, leaking tasks and triggering FastAPI deprecation warnings.",
+    untangle: "Migrate cleanup_old_sessions into web/app.py's lifespan context manager alongside oauth_cleanup_task with graceful cancellation, and delete the deprecated @router.on_event hook."
+  },
+  {
+    num: 5,
+    category: "Leaky Abstraction",
+    title: "CLI Inspecting Private Storage Methods & Thread Offloaders",
+    file: "src/mcp_memory_service/cli/main.py",
+    lines: "287–297",
+    desc: "The CLI health inspection command directly probes hasattr(storage, '_get_existing_db_embedding_dimension') and invokes storage._run_in_thread(storage._get_existing_db_embedding_dimension).",
+    untangle: "Expose a public async method get_db_embedding_dimension() -> Optional[int] on the MemoryStorage class and call it cleanly from CLI without reflection."
+  }
+];
+
+// Render Features List
+const featuresList = document.getElementById("featuresList");
+features.forEach((f, idx) => {
+  const card = document.createElement("div");
+  card.className = "feature-card" + (idx === 0 ? " active" : "");
+  card.id = f.id;
+  card.innerHTML = `
+    <div class="feature-title">
+      <span>${f.name}</span>
+      <span class="feature-files-count">${f.files.length} files</span>
+    </div>
+    <div class="feature-desc">${f.desc}</div>
+  `;
+  card.addEventListener("mouseenter", () => highlightFeature(f.id));
+  card.addEventListener("click", () => selectFeature(f.id));
+  featuresList.appendChild(card);
+});
+
+// Render Knots List
+const knotsList = document.getElementById("knotsList");
+knotsData.forEach(k => {
+  const card = document.createElement("div");
+  card.className = "knot-card";
+  card.id = `knot-card-${k.num}`;
+  card.innerHTML = `
+    <div class="knot-header">
+      <span class="knot-tag">🔴 Knot #${k.num}</span>
+      <span class="knot-category">${k.category}</span>
+    </div>
+    <div class="knot-title">${k.title}</div>
+    <div class="knot-loc">${k.file}:${k.lines}</div>
+    <div class="knot-desc">${k.desc}</div>
+    <div class="untangle-box">
+      <div class="untangle-label">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        How to Untangle:
+      </div>
+      <div class="untangle-text">${k.untangle}</div>
+    </div>
+  `;
+  card.addEventListener("mouseenter", () => highlightKnot(k.num));
+  card.addEventListener("mouseleave", () => resetHighlight());
+  knotsList.appendChild(card);
+});
+
+// Setup SVG Canvas
+const svg = document.getElementById("wiringSvg");
+let activeFeatureId = "f_storage";
+
+function renderCanvas() {
+  const container = document.getElementById("canvasContainer");
+  const width = Math.max(container.clientWidth, ...filesData.map(file => file.x + 170));
+  const height = Math.max(container.clientHeight, ...filesData.map(file => file.y + 66));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  // Defs for gradients & filters
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  defs.innerHTML = `
+    <filter id="glowRed" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  `;
+  svg.appendChild(defs);
+
+  // Feature anchor X
+  const featX = 10;
+  const nodeW = 150;
+  const nodeH = 46;
+
+  // Draw wire paths from active/all features
+  features.forEach((feat, fIdx) => {
+    const featY = 40 + fIdx * ((height - 60) / features.length);
+    feat.files.forEach(fileId => {
+      const targetFile = filesData.find(f => f.id === fileId);
+      if (!targetFile) return;
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const startX = featX;
+      const startY = featY;
+      const endX = targetFile.x;
+      const endY = targetFile.y + nodeH / 2;
+      const c1X = startX + (endX - startX) * 0.45;
+      const c2X = startX + (endX - startX) * 0.55;
+
+      path.setAttribute("d", `M ${startX} ${startY} C ${c1X} ${startY}, ${c2X} ${endY}, ${endX} ${endY}`);
+      path.setAttribute("class", `wire-path wire-${feat.id} wire-file-${targetFile.id.replace(/[/.]/g, "-")}`);
+      if (feat.id === activeFeatureId) {
+        path.classList.add("highlight");
+      }
+      svg.appendChild(path);
+    });
+  });
+
+  // Render File Nodes
+  filesData.forEach(file => {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", "file-node" + (file.knots.length > 0 ? " has-knot" : ""));
+    g.setAttribute("id", `node-${file.id.replace(/[/.]/g, "-")}`);
+    g.setAttribute("transform", `translate(${file.x}, ${file.y})`);
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("width", nodeW);
+    rect.setAttribute("height", nodeH);
+    rect.setAttribute("rx", "6");
+    g.appendChild(rect);
+
+    const textName = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    textName.setAttribute("x", "12");
+    textName.setAttribute("y", "22");
+    textName.setAttribute("class", "fname");
+    textName.textContent = file.name;
+    g.appendChild(textName);
+
+    const textDir = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    textDir.setAttribute("x", "12");
+    textDir.setAttribute("y", "37");
+    textDir.setAttribute("class", "fdir");
+    textDir.textContent = file.dir;
+    g.appendChild(textDir);
+
+    // Badges for knots
+    if (file.knots.length > 0) {
+      file.knots.forEach((kNum, kIdx) => {
+        const badgeG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        badgeG.setAttribute("class", "knot-badge");
+        badgeG.setAttribute("transform", `translate(${nodeW - 14 - kIdx * 20}, 14)`);
+
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", "9");
+        circle.setAttribute("fill", "#ef4444");
+        badgeG.appendChild(circle);
+
+        const badgeText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        badgeText.setAttribute("text-anchor", "middle");
+        badgeText.setAttribute("dy", "3.5");
+        badgeText.setAttribute("fill", "#ffffff");
+        badgeText.setAttribute("font-size", "10");
+        badgeText.setAttribute("font-weight", "bold");
+        badgeText.textContent = kNum;
+        badgeG.appendChild(badgeText);
+
+        badgeG.addEventListener("mouseenter", (e) => {
+          e.stopPropagation();
+          highlightKnot(kNum);
+        });
+        g.appendChild(badgeG);
+      });
+    }
+
+    g.addEventListener("mouseenter", () => {
+      document.querySelectorAll(`.wire-file-${file.id.replace(/[/.]/g, "-")}`).forEach(p => p.classList.add("highlight"));
+    });
+    g.addEventListener("mouseleave", () => {
+      resetHighlight();
+    });
+
+    svg.appendChild(g);
+  });
+}
+
+function highlightFeature(featId) {
+  document.querySelectorAll(".feature-card").forEach(c => c.classList.remove("active"));
+  const card = document.getElementById(featId);
+  if (card) card.classList.add("active");
+
+  document.querySelectorAll(".wire-path").forEach(p => {
+    p.classList.remove("highlight");
+    if (p.classList.contains(`wire-${featId}`)) {
+      p.classList.add("highlight");
+    }
+  });
+}
+
+function selectFeature(featId) {
+  activeFeatureId = featId;
+  highlightFeature(featId);
+}
+
+function highlightKnot(kNum) {
+  const knot = knotsData.find(k => k.num === kNum);
+  if (!knot) return;
+
+  document.querySelectorAll(".knot-card").forEach(c => c.classList.remove("selected"));
+  const card = document.getElementById(`knot-card-${kNum}`);
+  if (card) {
+    card.classList.add("selected");
+    card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // Highlight wires connected to the knot file
+  document.querySelectorAll(".wire-path").forEach(p => p.classList.remove("highlight", "knot-wire"));
+  const targetNodeId = knot.file.replace("src/mcp_memory_service/", "").replace(/[/.]/g, "-");
+  document.querySelectorAll(`.wire-file-${targetNodeId}`).forEach(p => p.classList.add("knot-wire"));
+}
+
+function resetHighlight() {
+  document.querySelectorAll(".knot-card").forEach(c => c.classList.remove("selected"));
+  document.querySelectorAll(".wire-path").forEach(p => p.classList.remove("knot-wire"));
+  highlightFeature(activeFeatureId);
+}
+
+function setFilter(filterType) {
+  document.querySelectorAll(".btn-filter").forEach(b => b.classList.remove("active"));
+  event.target.classList.add("active");
+
+  if (filterType === "all") {
+    document.querySelectorAll(".wire-path").forEach(p => p.style.display = "");
+    document.querySelectorAll(".file-node").forEach(n => n.style.opacity = "1");
+  } else if (filterType === "knots") {
+    document.querySelectorAll(".wire-path").forEach(p => {
+      p.style.display = p.classList.contains("knot-wire") ? "" : "none";
+    });
+    document.querySelectorAll(".file-node").forEach(n => {
+      n.style.opacity = n.classList.contains("has-knot") ? "1" : "0.2";
+    });
+  } else if (filterType === "storage") {
+    highlightFeature("f_storage");
+  } else if (filterType === "web") {
+    highlightFeature("f_web");
+  }
+}
+
+window.addEventListener("resize", renderCanvas);
+window.addEventListener("DOMContentLoaded", renderCanvas);
+setTimeout(renderCanvas, 100);
+</script>
+</body>
+</html>

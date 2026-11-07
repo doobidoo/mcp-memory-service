@@ -664,7 +664,7 @@ async def _retrieve_candidates(storage, query: str, n_results: int, tags, store)
     this composes the moment multi-store scoping reaches the retrieve path
     (#62) without breaking on backends that do not yet support it.
     """
-    import inspect
+    import inspect  # inline import: keep optional dependencies lazy
 
     kwargs = {"n_results": n_results, "tags": tags}
     try:

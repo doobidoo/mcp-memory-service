@@ -1,13 +1,3 @@
-try:
-    from ..compat import _sanitize_log_value
-except (ImportError, ValueError):
-    try:
-        from mcp_memory_service.compat import _sanitize_log_value
-    except ImportError:
-        def _sanitize_log_value(value: object) -> str:
-            """Sanitize a user-provided value for safe inclusion in log messages."""
-            return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
 """
 Formal Memory Type Ontology for Knowledge Graph
 
@@ -31,6 +21,16 @@ import re
 from enum import Enum
 from typing import Dict, List, Optional, Final
 
+
+try:
+    from ..compat import _sanitize_log_value
+except (ImportError, ValueError):
+    try:
+        from mcp_memory_service.compat import _sanitize_log_value
+    except ImportError:
+        def _sanitize_log_value(value: object) -> str:
+            """Sanitize a user-provided value for safe inclusion in log messages."""
+            return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
 
 # Module-level caches for performance optimization
 _ALL_TYPES_CACHE: Optional[List[str]] = None

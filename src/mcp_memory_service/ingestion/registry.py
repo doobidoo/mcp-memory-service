@@ -56,7 +56,7 @@ def register_loader(loader_class: Type[DocumentLoader], extensions: List[str]) -
     for ext in extensions:
         ext = ext.lower().lstrip('.')
         _LOADER_REGISTRY[ext] = loader_class
-        logger.debug(f"Registered {loader_class.__name__} for .{ext} files")
+        logger.debug("Registered %s for .%s files", _sanitize_log_value(loader_class.__name__), _sanitize_log_value(ext))
 
 
 def get_loader_for_file(file_path: Path) -> Optional[DocumentLoader]:

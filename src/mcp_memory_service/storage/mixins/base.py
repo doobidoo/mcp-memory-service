@@ -14,7 +14,7 @@ import asyncio
 from typing import List, Optional, Callable
 
 try:
-    import sqlite_vec
+    import sqlite_vec  # inline import: keep optional dependencies lazy
     SQLITE_VEC_AVAILABLE = True
 except ImportError:
     SQLITE_VEC_AVAILABLE = False
@@ -32,7 +32,7 @@ def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
     if not blob:
         return None
     try:
-        import numpy as np
+        import numpy as np  # inline import: keep optional dependencies lazy
         arr = np.frombuffer(blob, dtype=np.float32)
         return arr.tolist()
     except Exception as e:
@@ -267,7 +267,7 @@ Failed to load the sqlite-vec extension. This could be due to:
 SOLUTIONS:
   • Reinstall sqlite-vec: pip install --force-reinstall sqlite-vec
   • Switch to Cloudflare backend: export MCP_MEMORY_STORAGE_BACKEND=cloudflare
-  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"
+  • Check SQLite version: python -c "import sqlite3; print(sqlite3.sqlite_version)"  # debug: intentional example output
 """
             raise RuntimeError(detailed_error.strip())
 
