@@ -95,9 +95,10 @@ from .read_policy import should_raise_read_error
 from .shared import (
     _embedding_cache_get, _embedding_cache_put,
     _exclude_versioned_parent,
-    _sanitize_log_value, _escape_like, _tags_to_string, _string_to_tags,
+    _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads, _versioned_conflict_exclusion,
 )
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
 from ..models.ontology import coerce_memory_type
 from ..utils.hashing import generate_content_hash
