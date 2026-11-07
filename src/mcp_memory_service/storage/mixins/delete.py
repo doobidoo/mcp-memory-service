@@ -570,7 +570,7 @@ class DeleteMixin:
                     raise UntaggedCountChanged(expected_count, len(rows))
 
                 if not memory_ids:
-                    return 0
+                    return 0, []
 
                 placeholders = ','.join('?' for _ in memory_ids)
                 try:
@@ -610,12 +610,12 @@ class DeleteMixin:
                             )
 
                 self.conn.commit()
-                return cursor.rowcount
+                return cursor.rowcount, hashes
 
             def _guarded_delete_untagged():
                 return self._guard_delete(_delete_untagged)
 
-            count = await self._execute_with_retry(_guarded_delete_untagged)
+            count, hashes = await self._execute_with_retry(_guarded_delete_untagged)
             logger.info("Soft-deleted %s memories without tags", count)
 
             if count > 0:

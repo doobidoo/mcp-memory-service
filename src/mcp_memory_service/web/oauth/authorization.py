@@ -70,6 +70,7 @@ router = APIRouter()
 
 
 
+
 def parse_basic_auth(
     authorization_header: Optional[str],
 ) -> Tuple[Optional[str], Optional[str]]:

@@ -1425,7 +1425,6 @@ class HybridMemoryStorage(MemoryStorage):
     async def delete_untagged_memories(self, expected_count: Optional[int] = None) -> Tuple[int, str]:
         """Delegate guarded deletion; primary storage records tombstones and sync events."""
         return await self.primary.delete_untagged_memories(expected_count=expected_count)
-
     async def get_db_embedding_dimension(self) -> Optional[int]:
         """Get the embedding dimension from primary storage."""
         if hasattr(self.primary, 'get_db_embedding_dimension'):

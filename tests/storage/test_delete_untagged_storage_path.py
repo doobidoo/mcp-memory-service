@@ -255,6 +255,20 @@ async def test_hybrid_untagged_operations_preserve_confirmation(storage):
 
 
 @pytest.mark.asyncio
+async def test_hybrid_delete_untagged_success_deletes_and_tombstones(storage):
+    """HybridMemoryStorage delete_untagged_memories delegates correctly and soft-deletes untagged row."""
+    from mcp_memory_service.storage.hybrid import HybridMemoryStorage
+
+    hybrid = object.__new__(HybridMemoryStorage)
+    hybrid.primary = storage
+    content_hash = await _store(storage, "hybrid untagged row to delete", None)
+    count, msg = await hybrid.delete_untagged_memories(expected_count=1)
+    assert count == 1
+    assert "Successfully soft-deleted" in msg
+    assert _deleted_at(storage, content_hash) is not None
+
+
+@pytest.mark.asyncio
 async def test_unsupported_backend_returns_501():
     """The base API reports unsupported operations without inspecting internals."""
     from mcp_memory_service.storage.base import MemoryStorage

@@ -244,4 +244,3 @@ class TagTaxonomy:
         """Whether a parsed namespace (with trailing ':') is registered."""
         ensure_env_namespaces()
         return namespace in cls.VALID_NAMESPACES
-
