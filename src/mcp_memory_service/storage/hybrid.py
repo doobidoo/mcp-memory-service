@@ -1836,7 +1836,24 @@ class HybridMemoryStorage(MemoryStorage):
 
     async def delete_untagged_memories(self) -> Tuple[int, str]:
         """Delete memories with no tags from primary storage and queue for secondary sync."""
+        untagged_memories = []
+        if self.sync_service:
+            try:
+                all_memories = await self.primary.get_all_memories()
+                untagged_memories = [
+                    m for m in all_memories
+                    if not m.tags or len(m.tags) == 0 or all(not str(t).strip() for t in m.tags)
+                ]
+            except Exception as e:
+                logger.warning("Could not fetch untagged memories for secondary sync: %s", _sanitize_log_value(e))
+
         count, message = await self.primary.delete_untagged_memories()
+
+        if count > 0 and self.sync_service and untagged_memories:
+            for memory in untagged_memories:
+                operation = SyncOperation(operation='delete', content_hash=memory.content_hash)
+                await self.sync_service.enqueue_operation(operation)
+
         return count, message
 
     async def get_by_exact_content(self, content: str) -> List[Memory]:
