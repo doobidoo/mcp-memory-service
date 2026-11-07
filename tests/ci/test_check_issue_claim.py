@@ -496,3 +496,26 @@ def test_assignment_reruns_checks_of_prs_that_only_mention_the_issue(monkeypatch
     }})
     claim.rerun_for_issue("o/r", 1893, dry_run=False)
     assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]
+
+
+def test_assignment_reruns_mentioning_prs_beyond_the_first_timeline_page(monkeypatch):
+    """Greptile on #1901: a PR mentioned after the first page must still be re-run."""
+    fake = FakeGh(runs=[FAILED_CLAIM_RUN])
+    monkeypatch.setattr(claim, "gh", fake)
+    pages = {
+        None: {"pageInfo": {"hasNextPage": True, "endCursor": "p2"},
+               "nodes": [{"source": {}} for _ in range(100)]},
+        "p2": {"pageInfo": {"hasNextPage": False, "endCursor": "end"},
+               "nodes": [{"source": {"number": 1895, "headRefOid": "sha1895", "state": "OPEN"}}]},
+    }
+    cursors = []
+
+    def graphql(query, repo, number, cursor=None):
+        cursors.append(cursor)
+        return {"issue": {"closedByPullRequestsReferences": {"nodes": []},
+                          "timelineItems": json.loads(json.dumps(pages[cursor]))}}
+
+    monkeypatch.setattr(claim, "graphql", graphql)
+    claim.rerun_for_issue("o/r", 1893, dry_run=False)
+    assert cursors == [None, "p2"]
+    assert fake.writes() == [("api", "-X", "POST", "repos/o/r/actions/runs/42/rerun")]

@@ -203,15 +203,17 @@ def reference_nodes(out: str) -> list:
 
 
 ISSUE_QUERY = """
-query($owner: String!, $name: String!, $number: Int!) {
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
         nodes { number headRefOid state }
       }
       # PRs that only mention the issue are checked for the claim too, so an
-      # assignment has to re-run their check as well.
-      timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 50) {
+      # assignment has to re-run their check as well. Paged: an issue can be
+      # mentioned more than 100 times.
+      timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
         nodes { ... on CrossReferencedEvent { source { ... on PullRequest { number headRefOid state } } } }
       }
     }
@@ -330,8 +332,20 @@ def open_prs_for_issue(issue: dict) -> list[dict]:
     return [p for p in prs.values() if p["state"] == "OPEN"]
 
 
+def fetch_issue(repo: str, number: int) -> dict:
+    """The issue with every page of its cross-reference timeline."""
+    issue = graphql(ISSUE_QUERY, repo, number)["issue"]
+    timeline = issue.get("timelineItems", {})
+    page_info = timeline.get("pageInfo", {})
+    while page_info.get("hasNextPage"):
+        page = graphql(ISSUE_QUERY, repo, number, cursor=page_info["endCursor"])["issue"]["timelineItems"]
+        timeline["nodes"].extend(page["nodes"])
+        page_info = page["pageInfo"]
+    return issue
+
+
 def rerun_for_issue(repo: str, number: int, dry_run: bool, wait_seconds: int = 0) -> int:
-    for pr in open_prs_for_issue(graphql(ISSUE_QUERY, repo, number)["issue"]):
+    for pr in open_prs_for_issue(fetch_issue(repo, number)):
         run = latest_claim_run(repo, pr["headRefOid"], 0 if dry_run else wait_seconds)
         if run and run["conclusion"] in ("failure", "success"):
             print(f"Issue #{number}: re-running claim check {run['id']} of PR #{pr['number']}")
