@@ -18,8 +18,9 @@ import json
 import logging
 import os
 import re
+import time
 from enum import Enum
-from typing import Dict, List, Optional, Final
+from typing import Dict, List, Optional, Final, Tuple
 
 
 try:
@@ -49,6 +50,85 @@ def clear_ontology_caches():
     _BASE_TYPES_CACHE = None
     _MERGED_TAXONOMY_CACHE = None
     _ALLOWED_PAIRS_CACHE = None
+
+
+# DB overlay (#1897). The sqlite_vec storage registers a source with two
+# methods, read_ontology_version() and read_memory_type_overlay(). Readers poll
+# the version and reload the overlay when it moved, so a write by the HTTP
+# server reaches the MCP server sharing the same database file.
+_OVERLAY_SOURCE = None
+_OVERLAY_ENTRIES: List[Tuple[str, Optional[str]]] = []
+_OVERLAY_VERSION: Optional[int] = None
+_OVERLAY_CHECKED_AT = float("-inf")
+# ponytail: polled at most once per second, so a write in another process can
+# take that long to show here. Lower it, or push a notification, if that matters.
+_OVERLAY_POLL_SECONDS = 1.0
+
+
+def set_overlay_source(source) -> None:
+    """Register the DB overlay source. The last storage to register wins."""
+    global _OVERLAY_SOURCE, _OVERLAY_ENTRIES, _OVERLAY_VERSION
+    _OVERLAY_SOURCE = source
+    _OVERLAY_ENTRIES = []
+    _OVERLAY_VERSION = None
+    invalidate_overlay()
+
+
+def clear_overlay_source(source) -> None:
+    """Unregister ``source`` if it is still the registered one."""
+    if source is not None and source is _OVERLAY_SOURCE:
+        set_overlay_source(None)
+
+
+def invalidate_overlay() -> None:
+    """Make the next read check the overlay version (after a write in this process)."""
+    global _OVERLAY_CHECKED_AT
+    _OVERLAY_CHECKED_AT = float("-inf")
+    clear_ontology_caches()
+
+
+def _refresh_overlay() -> None:
+    """Reload the overlay when the stored ontology_version has moved."""
+    global _OVERLAY_ENTRIES, _OVERLAY_VERSION, _OVERLAY_CHECKED_AT
+    source = _OVERLAY_SOURCE
+    now = time.monotonic()
+    if source is None or now - _OVERLAY_CHECKED_AT < _OVERLAY_POLL_SECONDS:
+        return
+    _OVERLAY_CHECKED_AT = now
+    try:
+        version = source.read_ontology_version()
+        if version == _OVERLAY_VERSION:
+            return
+        entries = list(source.read_memory_type_overlay())
+    except Exception as e:  # keep the last overlay we had; retry on the next poll
+        logging.getLogger(__name__).warning(
+            "Could not read the ontology overlay: %s", _sanitize_log_value(e)
+        )
+        return
+    _OVERLAY_ENTRIES = entries
+    _OVERLAY_VERSION = version
+    clear_ontology_caches()
+
+
+def _merge_overlay(merged: Dict[str, List[str]]) -> None:
+    """Add the DB overlay to ``merged`` in place. Additive only.
+
+    A name that already exists is skipped, so the overlay can neither shadow
+    nor re-parent a built-in or env type. A subtype whose parent is not a base
+    type here (removed, or never known on this node) is skipped too.
+    """
+    known = set(merged).union(*merged.values())
+    # Base types first, so a subtype can hang off a base type from the overlay.
+    for key, parent in sorted(_OVERLAY_ENTRIES, key=lambda entry: entry[1] is not None):
+        if key in known or not _is_valid_custom_type_name(key):
+            continue
+        if parent is None:
+            merged[key] = []
+        elif parent in merged:
+            merged[parent].append(key)
+        else:
+            continue
+        known.add(key)
 
 
 class BaseMemoryType(str, Enum):
@@ -366,6 +446,9 @@ def _get_merged_taxonomy() -> Dict[str, List[str]]:
             merged[base_type] = subtypes
             logger.info("Added new custom base type '%s' with %d subtypes", base_type, len(subtypes))
 
+    # Then the DB overlay (#1897): built-in, then env, then DB.
+    _merge_overlay(merged)
+
     # Cache the merged taxonomy
     _MERGED_TAXONOMY_CACHE = merged
 
@@ -388,6 +471,7 @@ def get_base_types() -> set:
     """
     global _BASE_TYPES_CACHE
 
+    _refresh_overlay()
     if _BASE_TYPES_CACHE is not None:
         return _BASE_TYPES_CACHE.copy()
 
@@ -464,6 +548,7 @@ def get_parent_type(subtype: str) -> Optional[str]:
     """
     global _PARENT_TYPE_MAP_CACHE
 
+    _refresh_overlay()
     if _PARENT_TYPE_MAP_CACHE is None:
         # Build reverse lookup map: subtype → parent
         _PARENT_TYPE_MAP_CACHE = {}
@@ -502,6 +587,7 @@ def get_all_types() -> List[str]:
     """
     global _ALL_TYPES_CACHE
 
+    _refresh_overlay()
     # Initialize cache on first access
     if _ALL_TYPES_CACHE is None:
         # Use merged taxonomy instead of TAXONOMY
