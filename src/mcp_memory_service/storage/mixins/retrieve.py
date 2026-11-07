@@ -34,9 +34,7 @@ _MAX_TAG_SEARCH_CANDIDATES = _SQLITE_VEC_MAX_KNN_K
 _MAX_TAGS_FOR_SEARCH = 100
 
 
-def _sanitize_log_value(value: object) -> str:
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def _empty_graph_visualization(limit: int, min_connections: int) -> Dict[str, Any]:
     """Empty graph payload including the "meta" key the API response requires.

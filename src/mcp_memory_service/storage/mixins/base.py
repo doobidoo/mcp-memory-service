@@ -25,10 +25,7 @@ from ...config import SQLITEVEC_MAX_CONTENT_LENGTH
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def deserialize_embedding(blob: bytes) -> Optional[List[float]]:
     """Deserialize embedding blob from sqlite-vec format to list of floats."""

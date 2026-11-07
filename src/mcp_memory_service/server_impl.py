@@ -49,10 +49,7 @@ def _is_unresolved_prompt_placeholder(value) -> bool:
     return isinstance(value, str) and bool(_PROMPT_PLACEHOLDER_RE.match(value.strip()))
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from .compat import _sanitize_log_value
 
 # Import from server package modules
 from .server import (

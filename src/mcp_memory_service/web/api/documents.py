@@ -49,10 +49,7 @@ router = APIRouter()
 MAX_TAG_LENGTH = 100
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def parse_and_validate_tags(tags: str) -> List[str]:
     """

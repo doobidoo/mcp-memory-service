@@ -26,9 +26,7 @@ from .base import DocumentLoader
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
+from ..compat import _sanitize_log_value
 
 # Registry of document loaders by file extension
 _LOADER_REGISTRY: Dict[str, Type[DocumentLoader]] = {}

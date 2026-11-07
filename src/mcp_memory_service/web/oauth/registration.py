@@ -40,10 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 # Redirect-URI scheme validation lives in one place (oauth/redirect.py). This
 # thin alias preserves the historical import path used by callers and tests.

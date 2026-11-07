@@ -13,10 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ..compat import _sanitize_log_value
 
 TRAVERSABLE_EDGE_TYPES = {'relates_to', 'superseded_by', 'causes', 'fixes', 'related'}
 NON_TRAVERSABLE = {'contradicts', 'contradicted_by'}
