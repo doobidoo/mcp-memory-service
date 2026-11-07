@@ -2438,6 +2438,31 @@ class HybridMemoryStorage(MemoryStorage):
         """
         return await self.primary.mark_superseded_batch(pairs)
 
+    async def get_conflicts(self) -> list[dict[str, Any]]:
+        """Return unresolved conflict pairs from primary storage.
+
+        Conflicts are detected when store() writes to the primary, so they are
+        listed there too. Without this override the base default returns [].
+        """
+        return await self.primary.get_conflicts()
+
+    async def resolve_conflict(
+        self, winner_hash: str, loser_hash: str
+    ) -> tuple[bool, str]:
+        """Resolve a conflict in primary storage.
+
+        Not queued for secondary sync, like mark_superseded_batch(): the
+        supersede is logged as a sync event by the primary itself.
+        """
+        return await self.primary.resolve_conflict(winner_hash, loser_hash)
+
+    async def reconcile_conflict_tags(self, dry_run: bool = True) -> dict[str, Any]:
+        """Clear stale conflict:unresolved tags in primary storage (#1840).
+
+        Conflict tags live only in the primary; they are never synced.
+        """
+        return await self.primary.reconcile_conflict_tags(dry_run=dry_run)
+
     async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
         """
         Update multiple memories in a batch operation with optimal performance.
