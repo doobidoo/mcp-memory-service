@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-from ..compat import _sanitize_log_value
+from mcp_memory_service.compat import _sanitize_log_value
 
 TRAVERSABLE_EDGE_TYPES = {'relates_to', 'superseded_by', 'causes', 'fixes', 'related'}
 NON_TRAVERSABLE = {'contradicts', 'contradicted_by'}

@@ -69,7 +69,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-from ...compat import _sanitize_log_value
 
 def parse_basic_auth(
     authorization_header: Optional[str],
