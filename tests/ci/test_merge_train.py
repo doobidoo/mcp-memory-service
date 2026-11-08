@@ -81,3 +81,32 @@ def test_plan_passes_stuck_and_dropped_prs_and_stops_at_one_in_flight():
     ]
     steps = train.plan(prs, REQUIRED)
     assert [(p["number"], a) for p, a, _ in steps] == [(1, "drop"), (2, "skip"), (3, "wait")]
+
+
+def test_refused_update_drops_the_pr_instead_of_failing(monkeypatch):
+    calls = []
+
+    def fake_gh(*args):
+        calls.append(args)
+        if "update-branch" in " ".join(args):
+            raise train.subprocess.CalledProcessError(1, "gh", stderr="HTTP 422: cannot push")
+        return ""
+
+    monkeypatch.setattr(train, "gh", fake_gh)
+    train.apply("o/r", [(pr(5, "BEHIND"), "update", "behind main")], dry_run=False)
+    joined = [" ".join(c) for c in calls]
+    assert any("disablePullRequestAutoMerge" in c for c in joined)
+    assert any(c.startswith("pr comment 5") and "Allow edits by maintainers" in c for c in joined)
+
+
+def test_fetch_requeries_while_merge_state_is_unknown(monkeypatch):
+    import json as _json
+    answers = iter(["UNKNOWN", "UNKNOWN", "BEHIND"])
+
+    def fake_gh(*args):
+        nodes = [pr(1, next(answers))]
+        return _json.dumps({"data": {"repository": {"pullRequests": {"nodes": nodes}}}})
+
+    monkeypatch.setattr(train, "gh", fake_gh)
+    prs = train.fetch("o", "r", attempts=3, pause=0)
+    assert prs[0]["mergeStateStatus"] == "BEHIND"

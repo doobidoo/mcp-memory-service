@@ -16,8 +16,9 @@ Per queued PR, in the order auto-merge was enabled:
 
 - mergeable now, or its required checks are still running: stop, it is in flight
 - behind main: update the branch, then stop
-- merge conflict or a failed required check: turn auto-merge off, comment once,
-  go on to the next PR
+- merge conflict, a failed required check, or a branch GitHub refuses to update
+  (a fork without "Allow edits by maintainers"): turn auto-merge off, comment
+  once, go on to the next PR
 - waiting on a human (review, open thread, CI run approval) or marked
   `unclaimed` / `no-issue`: leave it and go on to the next PR
 
@@ -33,6 +34,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 CLAIM_LABELS = {"unclaimed", "no-issue"}
 IN_FLIGHT_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
@@ -135,11 +137,25 @@ def plan(prs: list[dict], required: set[str]) -> list[tuple[dict, str, str]]:
 
 
 def drop(repo: str, pr: dict, reason: str) -> None:
-    gh("api", "graphql", "-f", "query=mutation($id: ID!) { disablePullRequestAutoMerge("
-       "input: {pullRequestId: $id}) { clientMutationId } }", "-f", f"id={pr['id']}")
+    try:  # already off if someone disabled it since the query; the comment still matters
+        gh("api", "graphql", "-f", "query=mutation($id: ID!) { disablePullRequestAutoMerge("
+           "input: {pullRequestId: $id}) { clientMutationId } }", "-f", f"id={pr['id']}")
+    except subprocess.CalledProcessError as exc:
+        print(f"#{pr['number']}: disabling auto-merge failed: {exc.stderr.strip()}")
     body = (f"{MARKER}\nAuto-merge is off for now: {reason}. Once that is fixed, a "
             "maintainer turns auto-merge back on and the PR rejoins the queue.")
     gh("pr", "comment", str(pr["number"]), "-R", repo, "--body", body)
+
+
+def update(repo: str, pr: dict) -> None:
+    """Update the branch; a refused update drops the PR instead of failing every run."""
+    try:
+        gh("api", "-X", "PUT", f"repos/{repo}/pulls/{pr['number']}/update-branch",
+           "-f", f"expected_head_sha={pr['headRefOid']}")
+    except subprocess.CalledProcessError as exc:
+        print(f"#{pr['number']}: update-branch refused: {exc.stderr.strip()}")
+        drop(repo, pr, "the branch could not be updated with main (for a fork, check "
+                       "that \"Allow edits by maintainers\" is on)")
 
 
 def apply(repo: str, steps: list[tuple[dict, str, str]], dry_run: bool) -> None:
@@ -148,10 +164,25 @@ def apply(repo: str, steps: list[tuple[dict, str, str]], dry_run: bool) -> None:
         if dry_run:
             continue
         if action == "update":
-            gh("api", "-X", "PUT", f"repos/{repo}/pulls/{pr['number']}/update-branch",
-               "-f", f"expected_head_sha={pr['headRefOid']}")
+            update(repo, pr)
         elif action == "drop":
             drop(repo, pr, reason)
+
+
+def fetch(owner: str, name: str, attempts: int = 3, pause: float = 10.0) -> list[dict]:
+    """Open PRs, re-queried while a queued PR's merge state is still UNKNOWN.
+
+    GitHub computes mergeStateStatus lazily: right after main moves, the first
+    query returns UNKNOWN and only schedules the computation.
+    """
+    for attempt in range(attempts):
+        data = json.loads(gh("api", "graphql", "-f", f"query={QUERY}",
+                             "-f", f"owner={owner}", "-f", f"name={name}"))
+        prs = data["data"]["repository"]["pullRequests"]["nodes"]
+        if all(p["mergeStateStatus"] != "UNKNOWN" for p in queue(prs)) or attempt == attempts - 1:
+            return prs
+        time.sleep(pause)
+    return prs
 
 
 def main() -> int:
@@ -160,8 +191,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     owner, name = args.repo.split("/")
-    data = json.loads(gh("api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}", "-f", f"name={name}"))
-    prs = data["data"]["repository"]["pullRequests"]["nodes"]
+    prs = fetch(owner, name)
     rules = json.loads(gh("api", f"repos/{args.repo}/rules/branches/main"))
     required = {c["context"] for r in rules if r["type"] == "required_status_checks"
                 for c in r["parameters"]["required_status_checks"]}
