@@ -394,3 +394,117 @@ async def test_store_scoping_selects_only_relevant_entities(seeded_storage, temp
     assert (vault_dir / "alpha-service.md").exists()
     assert not (vault_dir / "beta-gateway.md").exists()
     assert not (vault_dir / "gamma-database.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_stale_symlink_does_not_delete_target_note(seeded_storage, temp_db_path):
+    """If a previously exported file becomes an internal symlink, cleanup unlinks the symlink without deleting target."""
+    import json
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_symlink"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. User's personal note inside the vault
+    target_note = vault_dir / "my_precious_notes.md"
+    target_note.write_text("User custom research notes", encoding="utf-8")
+
+    # 2. Create a symlink stale_page.md -> my_precious_notes.md
+    symlink_page = vault_dir / "stale_page.md"
+    try:
+        symlink_page.symlink_to(target_note.name)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not supported in this environment")
+
+    # 3. Simulate previous manifest listing stale_page.md
+    manifest_path = vault_dir / ".vault_manifest.json"
+    manifest_path.write_text(
+        json.dumps({
+            "exported_at": "2026-01-01T00:00:00Z",
+            "files": ["stale_page.md"],
+        }),
+        encoding="utf-8",
+    )
+
+    # 4. Run export
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode == 0
+
+    # 5. Verify the stale symlink was unlinked, but target_note is STILL INTACT!
+    assert not symlink_page.exists(follow_symlinks=False), "Stale symlink was not removed"
+    assert target_note.exists(), "Target note was erroneously deleted!"
+    assert target_note.read_text(encoding="utf-8") == "User custom research notes"
+
+
+@pytest.mark.asyncio
+async def test_writes_do_not_escape_vault_via_external_symlinks(seeded_storage, temp_db_path):
+    """If a destination file is a symlink pointing outside out_dir, writing must not overwrite the outside file."""
+    import json
+    db_file, storage, graph, memories = seeded_storage
+    base_dir = Path(temp_db_path)
+    vault_dir = base_dir / "vault_external_sym"
+    vault_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Critical outside file that must NEVER be overwritten
+    outside_file = base_dir / "important_host_config.json"
+    outside_file.write_text('{"host_state": "intact"}', encoding="utf-8")
+
+    # 2. Symlinks inside the vault pointing to the outside file
+    # (e.g. index.md -> outside_file, and managed page -> outside_file)
+    index_link = vault_dir / "index.md"
+    entity_link = vault_dir / "alpha-service.md"
+    manifest_link = vault_dir / ".vault_manifest.json"
+
+    try:
+        index_link.symlink_to(outside_file)
+        entity_link.symlink_to(outside_file)
+        manifest_link.symlink_to(outside_file)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks not supported in this environment")
+
+    # Mark them in manifest so they are treated as managed / previous files
+    manifest_link.unlink(missing_ok=True)
+    manifest_link.write_text(
+        json.dumps({
+            "exported_at": "2026-01-01T00:00:00Z",
+            "files": ["index.md", "alpha-service.md"],
+        }),
+        encoding="utf-8",
+    )
+    # Re-link manifest to outside file
+    manifest_link.unlink(missing_ok=True)
+    manifest_link.symlink_to(outside_file)
+
+    # Run export with --force to test the write-level symlink replacement
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file, "--force")
+    assert result.returncode == 0
+
+    # The external file must be COMPLETELY UNTOUCHED!
+    assert outside_file.read_text(encoding="utf-8") == '{"host_state": "intact"}'
+    # And the vault files must now be regular files, not escaping symlinks
+    assert not index_link.is_symlink()
+    assert not entity_link.is_symlink()
+    assert not manifest_link.is_symlink()
+
+
+@pytest.mark.asyncio
+async def test_database_path_with_special_characters(seeded_storage, temp_db_path):
+    """Database paths containing special characters like '#' and '?' must be opened correctly using as_uri()."""
+    db_file, storage, graph, memories = seeded_storage
+
+    # Use SQLite's online backup to safely copy the entire database (including WAL) to a special path
+    special_db = Path(temp_db_path) / "special#project?db.sqlite"
+    if sys.platform == "win32":
+        special_db = Path(temp_db_path) / "special#project_db.sqlite"
+
+    # Backup from source to special_db
+    src_conn = sqlite3.connect(db_file)
+    dst_conn = sqlite3.connect(str(special_db))
+    src_conn.backup(dst_conn)
+    dst_conn.close()
+    src_conn.close()
+
+    vault_dir = Path(temp_db_path) / "vault_special_path"
+    result = run_export_script("--out", str(vault_dir), "--db-path", str(special_db))
+    assert result.returncode == 0
+    assert (vault_dir / "index.md").exists()
+    assert (vault_dir / "alpha-service.md").exists()

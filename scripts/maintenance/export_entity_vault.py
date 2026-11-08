@@ -47,8 +47,9 @@ class ReadOnlyVaultStorage:
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             return
-        # Open in read-only URI mode to guarantee zero writes to the source db
-        uri = f"file:{resolved.as_posix()}?mode=ro"
+        # Open in read-only URI mode to guarantee zero writes to the source db.
+        # Use as_uri() to properly percent-encode special characters like '#' and '?'.
+        uri = f"{resolved.as_uri()}?mode=ro"
         self._conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
@@ -105,6 +106,9 @@ def is_safe_vault_child(out_dir: Path, rel_path: str) -> Optional[Path]:
 
     Rejects absolute paths, parent directory traversals ('..'), and any path
     whose resolved location does not reside strictly within out_dir.
+    Returns the entry path (under out_dir) rather than the dereferenced target
+    so unlinking removes the entry itself (e.g. symlink) instead of deleting
+    the note the symlink points to.
     """
     if not rel_path or not isinstance(rel_path, str):
         return None
@@ -116,16 +120,31 @@ def is_safe_vault_child(out_dir: Path, rel_path: str) -> Optional[Path]:
         return None
     try:
         resolved_out = out_dir.resolve()
-        resolved_target = (out_dir / p).resolve()
+        entry_path = out_dir / p
+        resolved_target = entry_path.resolve()
         # Ensure target is strictly inside resolved_out
         if resolved_target == resolved_out:
             return None
         # On Python 3.9+, is_relative_to is standard
         if not resolved_target.is_relative_to(resolved_out):
             return None
-        return resolved_target
+        return entry_path
     except (ValueError, RuntimeError):
         return None
+
+
+def safe_write_vault_file(out_dir: Path, filename: str, content: str) -> None:
+    """Safely write content to filename inside out_dir.
+
+    Replaces any existing symlink entry so writes never follow a symlink
+    to a destination outside out_dir.
+    """
+    safe_path = is_safe_vault_child(out_dir, filename)
+    if not safe_path:
+        raise ValueError(f"Unsafe destination or path traversal detected: {filename}")
+    if safe_path.is_symlink():
+        safe_path.unlink()
+    safe_path.write_text(content, encoding="utf-8")
 
 
 def safe_filename(name: str) -> str:
@@ -397,7 +416,7 @@ async def export_vault(
             file_path = out_dir / filename
 
             # Protect pre-existing user notes: if file exists and was NOT in previous_files, refuse unless --force
-            if file_path.exists() and filename not in previous_files and not force:
+            if (file_path.exists() or file_path.is_symlink()) and filename not in previous_files and not force:
                 print(
                     f"Refusing to overwrite existing unmanaged file: {file_path}.\n"
                     "Pass --force to allow overwriting pre-existing files in the vault directory.",
@@ -405,7 +424,12 @@ async def export_vault(
                 )
                 return 1
 
-            file_path.write_text(md_content, encoding="utf-8")
+            try:
+                safe_write_vault_file(out_dir, filename, md_content)
+            except ValueError as ve:
+                print(f"Error writing entity file {filename}: {ve}", file=sys.stderr)
+                return 1
+
             current_files.add(filename)
 
             entities_by_type.setdefault(entity_type, []).append({
@@ -417,21 +441,27 @@ async def export_vault(
         # 3. Write index.md
         index_content = build_index_markdown(entities_by_type, exported_at)
         index_path = out_dir / "index.md"
-        if index_path.exists() and "index.md" not in previous_files and not force:
+        if (index_path.exists() or index_path.is_symlink()) and "index.md" not in previous_files and not force:
             print(
                 f"Refusing to overwrite existing unmanaged index file: {index_path}.\n"
                 "Pass --force to allow overwriting pre-existing files in the vault directory.",
                 file=sys.stderr,
             )
             return 1
-        index_path.write_text(index_content, encoding="utf-8")
+
+        try:
+            safe_write_vault_file(out_dir, "index.md", index_content)
+        except ValueError as ve:
+            print(f"Error writing index.md: {ve}", file=sys.stderr)
+            return 1
+
         current_files.add("index.md")
 
         # 4. Cleanup stale files previously created by this script
         stale_files = previous_files - current_files
         for stale in stale_files:
             safe_target = is_safe_vault_child(out_dir, stale)
-            if safe_target and safe_target.is_file():
+            if safe_target and (safe_target.is_file() or safe_target.is_symlink()):
                 try:
                     safe_target.unlink()
                 except OSError:
@@ -442,7 +472,11 @@ async def export_vault(
             "exported_at": exported_at,
             "files": sorted(list(current_files)),
         }
-        manifest_path.write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
+        try:
+            safe_write_vault_file(out_dir, MANIFEST_FILENAME, json.dumps(manifest_payload, indent=2))
+        except ValueError as ve:
+            print(f"Error writing manifest: {ve}", file=sys.stderr)
+            return 1
 
         print(f"Successfully exported {len(current_files) - 1} entities to {out_dir}")
         return 0
