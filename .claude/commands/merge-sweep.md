@@ -21,8 +21,10 @@ gh pr list --state open --json number,title,author,headRefOid,isDraft,mergeable,
   (`gh api repos/{owner}/{repo}/issues/<N>/events`), claim comments by others before the
   PR's `createdAt` (a `/claim` mangled by Git Bash into a path still counts), and other
   open PRs for the same issue (`gh pr list --search "<N>" --state open`).
-- Stale claims: open issues with an assignee older than 3 days and no PR, draft or
-  update since. List them with the row they fall under (ask, or expire).
+- Stale claims: open issues claimed more than 3 days ago with no PR, draft or update
+  since. A claim is an assignment, a `claim-pending` label, or a claim comment that was
+  never confirmed; all three block later PRs, so list all three with the row they fall
+  under (ask, or expire).
 
 Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`, run
 `.venv/bin/pytest` scoped there. Never touch the main tree — several sessions share it.
