@@ -243,3 +243,149 @@ async def test_migration_backfills_default_and_is_idempotent(cloudflare_storage,
     await cloudflare_storage._initialize_d1_schema()
     assert not [s for s in d1.statements if "ALTER TABLE" in s.upper()]
     assert d1.row("pre-existing")["store"] == "default"
+
+
+# --- Read paths confined to the claimed store (#1915 point 1) -----------------
+#
+# retrieve and recall go through Vectorize, which holds every store's vectors,
+# and then load each match from D1 by vector_id; the store predicate sits on
+# that load. The other reads are plain D1 SQL.
+
+_CONTENT_A = "Store A keeps the incident runbook."
+_CONTENT_B = "Store B keeps the deploy calendar."
+
+
+@pytest.fixture
+async def two_stores(cloudflare_storage, d1, monkeypatch):
+    """One memory in store "a", one in store "b", both tagged "shared"."""
+    await cloudflare_storage._initialize_d1_schema()
+    hashes = {}
+    for store, content in (("a", _CONTENT_A), ("b", _CONTENT_B)):
+        memory = Memory(content=content, content_hash=generate_content_hash(content),
+                        tags=["shared", f"only-{store}"], memory_type="note")
+        ok, msg = await cloudflare_storage.store(memory, store=store)
+        assert ok, msg
+        hashes[store] = memory.content_hash
+
+    # Vectorize knows nothing about stores: every query matches both vectors.
+    d1_request = cloudflare_storage._retry_request
+
+    async def request(method, url, **kwargs):
+        if url == f"{cloudflare_storage.vectorize_url}/query":
+            matches = [{"id": h, "score": 0.9} for h in hashes.values()]
+            return Mock(json=Mock(return_value={"success": True, "result": {"matches": matches}}))
+        return await d1_request(method, url, **kwargs)
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", request)
+    monkeypatch.setattr(cloudflare_storage, "_persist_access_metadata", AsyncMock())
+    return hashes
+
+
+def _hashes(items):
+    return {getattr(item, "memory", item).content_hash for item in items}
+
+
+@pytest.mark.asyncio
+async def test_retrieve_loads_only_matches_from_the_claimed_store(cloudflare_storage, two_stores):
+    a, b = two_stores["a"], two_stores["b"]
+
+    assert _hashes(await cloudflare_storage.retrieve("runbook", n_results=5, store="a")) == {a}
+    assert _hashes(await cloudflare_storage.retrieve("runbook", n_results=5, store="b")) == {b}
+    assert _hashes(await cloudflare_storage.retrieve("runbook", n_results=5, store=None)) == {a, b}
+    assert _hashes(await cloudflare_storage.retrieve("runbook", n_results=5, store="all")) == {a, b}
+
+
+@pytest.mark.asyncio
+async def test_recall_is_confined_on_both_paths(cloudflare_storage, two_stores):
+    a, b = two_stores["a"], two_stores["b"]
+
+    # Semantic path: Vectorize, then the D1 load by vector_id.
+    assert _hashes(await cloudflare_storage.recall("runbook", store="a")) == {a}
+    # Time-only path, with and without a window: plain D1.
+    assert _hashes(await cloudflare_storage.recall(None, store="b")) == {b}
+    assert _hashes(await cloudflare_storage.recall(None, start_timestamp=0, store="b")) == {b}
+    assert _hashes(await cloudflare_storage.recall(None)) == {a, b}
+    assert _hashes(await cloudflare_storage.recall(None, store="all")) == {a, b}
+
+
+@pytest.mark.asyncio
+async def test_listing_and_counting_are_confined(cloudflare_storage, two_stores):
+    a, b = two_stores["a"], two_stores["b"]
+
+    assert _hashes(await cloudflare_storage.get_all_memories(store="a")) == {a}
+    assert _hashes(await cloudflare_storage.get_all_memories(tags=["shared"], store="b")) == {b}
+    assert _hashes(await cloudflare_storage.get_all_memories(store=None)) == {a, b}
+    assert _hashes(await cloudflare_storage.get_all_memories(store="all")) == {a, b}
+
+    assert await cloudflare_storage.count_all_memories(store="a") == 1
+    assert await cloudflare_storage.count_all_memories(tags=["shared"], store="b") == 1
+    assert await cloudflare_storage.count_all_memories(store=None) == 2
+    assert await cloudflare_storage.count_all_memories(store="all") == 2
+
+
+@pytest.mark.asyncio
+async def test_time_range_and_exact_content_are_confined(cloudflare_storage, two_stores):
+    a, b = two_stores["a"], two_stores["b"]
+
+    window = (0, 4_000_000_000)
+    assert _hashes(await cloudflare_storage.get_memories_by_time_range(*window, store="a")) == {a}
+    assert _hashes(await cloudflare_storage.get_memories_by_time_range(*window)) == {a, b}
+
+    # "keeps the" is in both memories.
+    assert _hashes(await cloudflare_storage.get_by_exact_content("keeps the", store="b")) == {b}
+    assert _hashes(await cloudflare_storage.get_by_exact_content("keeps the", store="all")) == {a, b}
+
+
+@pytest.mark.asyncio
+async def test_tag_counts_and_timestamps_are_confined(cloudflare_storage, two_stores):
+    counts = {row["tag"]: row["count"] for row in
+              await cloudflare_storage.get_all_tags_with_counts(store="a")}
+    assert counts == {"shared": 1, "only-a": 1}
+
+    unscoped = {row["tag"]: row["count"] for row in
+                await cloudflare_storage.get_all_tags_with_counts()}
+    assert unscoped == {"shared": 2, "only-a": 1, "only-b": 1}
+
+    assert len(await cloudflare_storage.get_memory_timestamps(store="a")) == 1
+    assert len(await cloudflare_storage.get_memory_timestamps(days=1, store="a")) == 1
+    assert len(await cloudflare_storage.get_memory_timestamps()) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_by_tags_leaves_other_stores_alone(cloudflare_storage, d1, two_stores):
+    a, b = two_stores["a"], two_stores["b"]
+
+    count, _, deleted = await cloudflare_storage.delete_by_tags(["shared"], store="a")
+
+    assert (count, deleted) == (1, [a])
+    assert d1.row(a)["deleted_at"] is not None
+    assert d1.row(b)["deleted_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_omitted_store_reads_default_only(cloudflare_storage, two_stores):
+    # retrieve, get_all_memories and count_all_memories default to "default",
+    # as on sqlite-vec; only None and "all" read every store.
+    default = await _store(cloudflare_storage, "Nobody named a store for this one.", "default")
+    two_stores["default"] = default  # the fake Vectorize matches it too
+
+    assert _hashes(await cloudflare_storage.retrieve("anything", n_results=5)) == {default}
+    assert _hashes(await cloudflare_storage.get_all_memories()) == {default}
+    assert await cloudflare_storage.count_all_memories() == 1
+
+
+@pytest.mark.asyncio
+async def test_store_binds_in_order_with_every_other_filter(cloudflare_storage, two_stores):
+    a = two_stores["a"]
+    filters = dict(memory_type="note", tags=["shared", "only-a"], tag_match="all")
+
+    assert _hashes(await cloudflare_storage.get_all_memories(
+        limit=5, offset=0, store="a", **filters)) == {a}
+    assert await cloudflare_storage.count_all_memories(store="a", **filters) == 1
+    # Store "b" holds a "note" tagged "shared" but not "only-a".
+    assert await cloudflare_storage.count_all_memories(store="b", **filters) == 0
+
+    # The store is a bound parameter, never part of the SQL text.
+    hostile = "a' OR '1'='1"
+    assert await cloudflare_storage.get_all_memories(store=hostile, **filters) == []
+    assert await cloudflare_storage.count_all_memories(store=hostile, **filters) == 0

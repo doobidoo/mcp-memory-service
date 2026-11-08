@@ -167,23 +167,23 @@ def build_tag_search_query(tags: List[str], operation: str,
     return sql, params
 
 
-def _store_clause(store: Optional[str]) -> Tuple[str, List[str]]:
-    """SQL suffix confining a hash-addressed D1 statement to one store (#1878).
+def _store_clause(store: Optional[str], column: str = "store") -> Tuple[str, List[str]]:
+    """SQL suffix confining a D1 statement to one store (#1878, #1915).
 
     ``None`` and ``"all"`` mean unscoped, as on the sqlite-vec backend.
+    ``column`` names the store column when the statement aliases ``memories``.
     """
     if store is None or store == "all":
         return "", []
-    return " AND store = ?", [store]
+    return f" AND {column} = ?", [store]
 
 
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
-    # get_by_hash, update_memory_metadata and delete honor ``store`` (#1878), but
-    # get_by_hash_is_store_scoped stays False: the server also grants per-store
-    # credentials memory_search and memory_list on this flag, and retrieve,
-    # recall, get_all_memories and count_all_memories here still ignore ``store``.
+    # Hash-addressed operations (#1878) and the read paths (#1915) honor
+    # ``store``, but get_by_hash_is_store_scoped stays False until the hybrid
+    # sync queue carries ``store`` to Cloudflare too (#1915 points 2 and 3).
 
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
@@ -1100,7 +1100,7 @@ class CloudflareStorage(MemoryStorage):
             candidates_not_loaded = 0
             dropped_by_tag_filter = 0
             for match in matches:
-                memory = await self._load_memory_from_match(match)
+                memory = await self._load_memory_from_match(match, store=store)
                 if not memory:
                     candidates_not_loaded += 1
                     continue
@@ -1213,8 +1213,14 @@ class CloudflareStorage(MemoryStorage):
             )
             return results
 
-    async def _load_memory_from_match(self, match: Dict[str, Any]) -> Optional[Memory]:
-        """Load full memory from a Vectorize match id."""
+    async def _load_memory_from_match(
+        self, match: Dict[str, Any], store: Optional[str] = None
+    ) -> Optional[Memory]:
+        """Load full memory from a Vectorize match id.
+
+        Vectorize holds every store's vectors, so a named ``store`` is applied
+        on this D1 load and a match from another store is not loaded (#1915).
+        """
         try:
             vector_id = match.get("id")
 
@@ -1229,8 +1235,9 @@ class CloudflareStorage(MemoryStorage):
             # Exclude soft-deleted rows: _delete_vectorize_vector only warns
             # on failure, so delete() can tombstone D1 while the vector
             # survives, and a match on it must not resurface the memory.
-            sql = "SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL"
-            payload = {"sql": sql, "params": [vector_id]}
+            store_sql, store_params = _store_clause(store)
+            sql = f"SELECT * FROM memories WHERE vector_id = ? AND deleted_at IS NULL{store_sql}"
+            payload = {"sql": sql, "params": [vector_id, *store_params]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -1458,15 +1465,16 @@ class CloudflareStorage(MemoryStorage):
         """Retrieve memories by case-insensitive substring match."""
         try:
             # Use LIKE for substring matching (D1 SQL is case-insensitive by default)
-            sql = """
+            store_sql, store_params = _store_clause(store)
+            sql = f"""
                 SELECT * FROM memories
                 WHERE content LIKE '%' || ? || '%' ESCAPE '\\'
-                AND deleted_at IS NULL
+                AND deleted_at IS NULL{store_sql}
                 ORDER BY created_at DESC
             """
             # Escape LIKE wildcards so the query is matched literally.
             escaped = content.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            payload = {"sql": sql, "params": [escaped]}
+            payload = {"sql": sql, "params": [escaped, *store_params]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -1666,12 +1674,14 @@ class CloudflareStorage(MemoryStorage):
                 params.extend([f"{stripped_tag},%", f"%,{stripped_tag},%", f"%,{stripped_tag}", stripped_tag])
 
             where_clause = " OR ".join(conditions)
+            store_sql, store_params = _store_clause(store)
+            params.extend(store_params)
 
             # Find matching memories
             sql = f'''
                 SELECT content_hash FROM memories
                 WHERE ({where_clause})
-                AND deleted_at IS NULL
+                AND deleted_at IS NULL{store_sql}
             '''
 
             payload = {"sql": sql, "params": params}
@@ -1687,7 +1697,7 @@ class CloudflareStorage(MemoryStorage):
             deleted_count = 0
             deleted_hashes = []
             for content_hash in hashes:
-                success, _ = await self.delete(content_hash)
+                success, _ = await self.delete(content_hash, store=store)
                 if success:
                     deleted_count += 1
                     deleted_hashes.append(content_hash)
@@ -2176,16 +2186,32 @@ class CloudflareStorage(MemoryStorage):
             return []
 
     async def get_all_tags_with_counts(self, store: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get all tags with their usage counts."""
+        """Get all tags with their usage counts.
+
+        When ``store`` is named, only that store's live memories are counted
+        and tags without one are left out (#1915).
+        """
         try:
-            sql = """
-                SELECT t.name as tag, COUNT(mt.memory_id) as count
-                FROM tags t
-                LEFT JOIN memory_tags mt ON t.id = mt.tag_id
-                GROUP BY t.id
-                ORDER BY count DESC, t.name ASC
-            """
-            payload = {"sql": sql}
+            store_sql, store_params = _store_clause(store, column="m.store")
+            if store_params:
+                sql = f"""
+                    SELECT t.name as tag, COUNT(mt.memory_id) as count
+                    FROM tags t
+                    JOIN memory_tags mt ON t.id = mt.tag_id
+                    JOIN memories m ON m.id = mt.memory_id
+                    WHERE m.deleted_at IS NULL{store_sql}
+                    GROUP BY t.id
+                    ORDER BY count DESC, t.name ASC
+                """
+            else:
+                sql = """
+                    SELECT t.name as tag, COUNT(mt.memory_id) as count
+                    FROM tags t
+                    LEFT JOIN memory_tags mt ON t.id = mt.tag_id
+                    GROUP BY t.id
+                    ORDER BY count DESC, t.name ASC
+                """
+            payload = {"sql": sql, "params": store_params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -2242,7 +2268,9 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Failed to get largest memories: %s", _sanitize_log_value(e))
             return []
 
-    async def _fetch_d1_timestamps(self, cutoff_timestamp: Optional[float] = None) -> List[float]:
+    async def _fetch_d1_timestamps(
+        self, cutoff_timestamp: Optional[float] = None, store: Optional[str] = None
+    ) -> List[float]:
         """Fetch timestamps from D1 database with optional time filter.
 
         Args:
@@ -2254,12 +2282,13 @@ class CloudflareStorage(MemoryStorage):
         Raises:
             Exception: If D1 query fails
         """
+        store_sql, store_params = _store_clause(store)
         if cutoff_timestamp is not None:
-            sql = "SELECT created_at FROM memories WHERE created_at >= ? ORDER BY created_at DESC"
-            payload = {"sql": sql, "params": [cutoff_timestamp]}
+            sql = f"SELECT created_at FROM memories WHERE created_at >= ?{store_sql} ORDER BY created_at DESC"
+            payload = {"sql": sql, "params": [cutoff_timestamp, *store_params]}
         else:
-            sql = "SELECT created_at FROM memories ORDER BY created_at DESC"
-            payload = {"sql": sql, "params": []}
+            sql = f"SELECT created_at FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC"
+            payload = {"sql": sql, "params": store_params}
 
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
         result = response.json()
@@ -2291,7 +2320,7 @@ class CloudflareStorage(MemoryStorage):
                 cutoff = datetime.now(timezone.utc) - timedelta(days=days)
                 cutoff_timestamp = cutoff.timestamp()
 
-            timestamps = await self._fetch_d1_timestamps(cutoff_timestamp)
+            timestamps = await self._fetch_d1_timestamps(cutoff_timestamp, store=store)
             logger.info("Retrieved %s memory timestamps", len(timestamps))
             return timestamps
 
@@ -2346,6 +2375,7 @@ class CloudflareStorage(MemoryStorage):
                 params.append(float(end_timestamp))
 
             time_where = " AND ".join(time_conditions) if time_conditions else ""
+            store_sql, store_params = _store_clause(store)
 
             logger.info("Recall - Time filtering conditions: %s, params: %s", _sanitize_log_value(time_where), _sanitize_log_value(params))
 
@@ -2384,7 +2414,7 @@ class CloudflareStorage(MemoryStorage):
                     # Convert matches to MemoryQueryResult objects with time filtering
                     results = []
                     for match in matches:
-                        memory = await self._load_memory_from_match(match)
+                        memory = await self._load_memory_from_match(match, store=store)
                         if memory:
                             # Apply time filtering if needed
                             if start_timestamp is not None and memory.created_at and memory.created_at < start_timestamp:
@@ -2410,12 +2440,13 @@ class CloudflareStorage(MemoryStorage):
 
             # Build D1 query for time-based retrieval
             if time_where:
-                sql = f"SELECT * FROM memories WHERE {time_where} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE {time_where}{store_sql} ORDER BY created_at DESC LIMIT ?"
+                params.extend(store_params)
                 params.append(n_results)
             else:
                 # No time filters, get most recent
-                sql = "SELECT * FROM memories ORDER BY created_at DESC LIMIT ?"
-                params = [n_results]
+                sql = f"SELECT * FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC LIMIT ?"
+                params = [*store_params, n_results]
 
             payload = {"sql": sql, "params": params}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
@@ -2485,6 +2516,11 @@ class CloudflareStorage(MemoryStorage):
 
             # Always filter out soft-deleted records
             where_conditions.append("m.deleted_at IS NULL")
+
+            # None and "all" stay unscoped, as in _store_clause (#1915).
+            if store is not None and store != "all":
+                where_conditions.append("m.store = ?")
+                params.append(store)
 
             if memory_type is not None:
                 where_conditions.append("m.memory_type = ?")
@@ -2773,15 +2809,16 @@ class CloudflareStorage(MemoryStorage):
         try:
             # Build SQL query with BETWEEN clause for efficient filtering
             # Use SELECT m.* to get all columns (tags are loaded separately via _load_memory_tags)
-            sql = """
+            store_sql, store_params = _store_clause(store, column="m.store")
+            sql = f"""
                 SELECT m.*
                 FROM memories m
                 WHERE m.created_at BETWEEN ? AND ?
-                  AND m.deleted_at IS NULL
+                  AND m.deleted_at IS NULL{store_sql}
                 ORDER BY m.created_at DESC
             """
 
-            payload = {"sql": sql, "params": [start_time, end_time]}
+            payload = {"sql": sql, "params": [start_time, end_time, *store_params]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -2826,6 +2863,11 @@ class CloudflareStorage(MemoryStorage):
             joins = ""
             conditions = []
             params: List[Any] = []
+
+            # None and "all" stay unscoped, as in _store_clause (#1915).
+            if store is not None and store != "all":
+                conditions.append('m.store = ?')
+                params.append(store)
 
             if memory_type is not None:
                 conditions.append('m.memory_type = ?')
