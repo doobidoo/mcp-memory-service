@@ -144,6 +144,23 @@ not duplicating someone else's effort:
 A PR for an issue someone else has already claimed, or one that duplicates an open
 PR, will usually be closed.
 
+#### How unclaimed PRs and stale claims are decided
+
+Maintainers decide these cases by the table below, based on the state of the issue
+when the PR is reviewed. The same situation gets the same answer, whoever is involved.
+
+| Situation at review time | Decision |
+|---|---|
+| The issue is assigned to someone else, or someone else claimed it earlier | The unclaimed PR is closed |
+| The issue is free: no assignee, no earlier claim, no other open PR | The PR author is assigned, gets a pointer to this section, and the PR is reviewed normally |
+| The issue is free and several unclaimed PRs exist | The earliest PR that passes review gets the issue; the others are closed |
+| A claim is 3 days old with no PR, no draft and no update on the issue | A maintainer asks once on the issue |
+| No answer 2 days after that question | The claim expires, the assignment is removed, and the issue is free again |
+| A PR changes `src/` without an issue | Small and clearly scoped: `skip-issue`. Otherwise it waits until an issue is opened and agreed |
+
+A claim is a commitment to start, not a reservation. If you need more time, say so
+on the issue; an update resets the clock.
+
 #### Automatic claims for prepared good first issues
 
 An issue carrying **both** `good first issue` and `auto-assign` has already had its
