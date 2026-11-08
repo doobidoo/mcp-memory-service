@@ -529,3 +529,25 @@ async def test_colliding_slugs_disambiguated_without_dropping_entities(seeded_st
     index_content = (vault_dir / "index.md").read_text(encoding="utf-8")
     assert "foo.py" in index_content
     assert "foo/py" in index_content
+
+
+@pytest.mark.asyncio
+async def test_windows_reserved_device_names_exported_safely(seeded_storage, temp_db_path):
+    """Entities matching Windows reserved device names (AUX, CON, NUL, COM1) must use safe stems and not crash."""
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_windows_reserved"
+
+    # Add entities with reserved Windows device names
+    await graph.store_entity_link(memories[0].content_hash, "aux", "keyword")
+    await graph.store_entity_link(memories[1].content_hash, "CON", "keyword")
+
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode == 0
+
+    # Pages must be created with the safe 'entity-' prefix
+    assert (vault_dir / "entity-aux.md").exists()
+    assert (vault_dir / "entity-CON.md").exists() or (vault_dir / "entity-con.md").exists()
+
+    # index.md must link to the safe stems
+    index_content = (vault_dir / "index.md").read_text(encoding="utf-8")
+    assert "[[entity-aux]]" in index_content

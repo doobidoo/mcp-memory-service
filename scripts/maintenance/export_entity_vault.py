@@ -157,15 +157,23 @@ def safe_filename(name: str) -> str:
     return sanitized or "unnamed"
 
 
+WINDOWS_RESERVED_NAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
 def entity_filename_stem(eid: str) -> str:
     """Return the safe filename stem and wikilink target for an entity_id.
 
-    Reserves 'index' for index.md, giving colliding entities a distinct stem
-    ('entity-index') so their pages and wikilinks do not clash with the directory index.
+    Reserves 'index' for index.md and prefixes Windows reserved device names
+    (CON, PRN, AUX, NUL, COM1-9, LPT1-9) with 'entity-' to prevent OS write failures.
     """
     stem = safe_filename(eid)
-    if stem.lower() == "index":
-        return "entity-index"
+    lower = stem.lower()
+    if lower == "index" or lower in WINDOWS_RESERVED_NAMES:
+        return f"entity-{stem}"
     return stem
 
 
