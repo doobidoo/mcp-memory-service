@@ -33,6 +33,17 @@ def test_dashboard_html_routes_receive_csp_but_api_json_does_not():
     assert "content-security-policy" not in client.get("/api/docs").headers
 
 
+def test_dashboard_and_static_assets_are_revalidated_after_upgrades():
+    """Browsers must revalidate app.js instead of reusing a stale copy (#1892)."""
+    client = TestClient(app_module.create_app())
+
+    for path in ("/", "/static/index.html", "/static/app.js"):
+        response = client.get(path)
+
+        assert response.status_code == 200
+        assert response.headers.get("cache-control") == "no-cache", path
+
+
 def test_index_import_map_is_the_only_hashed_inline_script():
     client = TestClient(app_module.create_app())
     response = client.get("/")
