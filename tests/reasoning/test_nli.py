@@ -200,20 +200,37 @@ class TestMemoryResolveBatch:
 
 # ─── Unimplemented backend warning Tests ──────────────────────────────────────
 
+def _onnx_dependencies_missing() -> bool:
+    try:
+        import onnxruntime  # noqa: F401
+        import tokenizers  # noqa: F401
+        return False
+    except ImportError:
+        return True
+
+
 class TestUnimplementedBackendWarning:
     """Test that unimplemented backends emit a warning."""
 
     @pytest.mark.asyncio
-    async def test_transformers_backend_logs_warning(self, caplog):
-        """Backend 'transformers' should log warning and return neutral."""
+    @pytest.mark.skipif(_onnx_dependencies_missing(), reason="onnxruntime/tokenizers installed: degradation path unreachable")
+    async def test_transformers_backend_degrades_to_heuristic_without_model(self, caplog, monkeypatch):
+        """Backend 'transformers' with the model unreachable degrades to the heuristic.
+
+        The backend is implemented; the contract for a missing model is one
+        bounded warning plus heuristic verdicts — not neutral 0.0, which
+        would silently disable contradiction detection.
+        """
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
+        # Point at a repo that cannot resolve, so the load fails even online.
+        monkeypatch.setenv("MCP_NLI_MODEL", "mcp-memory-service/definitely-not-a-real-model")
         classifier = NLIClassifier(backend="transformers")
+        expected = classifier._heuristic_classify("A is true", "A is false")
         with caplog.at_level(logging.WARNING):
             result = await classifier.classify("A is true", "A is false")
-        assert result.label == "neutral"
-        assert result.confidence == 0.0
-        assert "not implemented" in caplog.text.lower()
+        assert result == expected
+        assert "transformers inference failed" in caplog.text
 
     @pytest.mark.asyncio
     async def test_unknown_backend_logs_warning(self, caplog):
@@ -228,14 +245,22 @@ class TestUnimplementedBackendWarning:
         assert "some_unknown_backend" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_warning_logged_only_once_in_batch(self, caplog):
-        """Warning should only be emitted once per classifier instance, not per call."""
+    @pytest.mark.skipif(_onnx_dependencies_missing(), reason="onnxruntime/tokenizers installed: degradation path unreachable")
+    async def test_degradation_warning_logged_only_once_in_batch(self, caplog, monkeypatch):
+        """The degradation warning fires once per classifier instance, not per pair."""
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
+        monkeypatch.setenv("MCP_NLI_MODEL", "mcp-memory-service/definitely-not-a-real-model")
         classifier = NLIClassifier(backend="transformers")
         pairs = [("A", "B"), ("C", "D"), ("E", "F")]
         with caplog.at_level(logging.WARNING):
             results = await classifier.classify_batch(pairs)
         assert len(results) == 3
-        assert all(r.label == "neutral" for r in results)
-        assert caplog.text.count("not implemented") == 1
+        assert caplog.text.count("transformers inference failed") == 1
+
+    @pytest.mark.asyncio
+    async def test_auto_backend_blank_env_means_heuristic(self, monkeypatch):
+        """MCP_NLI_BACKEND set but empty resolves to heuristic, not unknown."""
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+        monkeypatch.setenv("MCP_NLI_BACKEND", "")
+        assert NLIClassifier(backend="auto").backend == "heuristic"

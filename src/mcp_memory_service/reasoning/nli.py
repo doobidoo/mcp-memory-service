@@ -1,14 +1,22 @@
 """NLI-based contradiction detection (Phase 3, RFC #732).
 
-Provides NLIClassifier with heuristic fallback (no ML deps required)
-and detect_contradictions_nli 4-stage pipeline function.
+Provides NLIClassifier with three backends:
 
-NOTE: This PR delivers the heuristic-only phase. The transformers backend
-(cross-encoder/nli-deberta-v3-small) will be implemented in a follow-up PR
-once the pipeline is validated in production with heuristic confidence scores.
-Install with `pip install .[nli]` when the transformers backend lands.
+- ``heuristic`` (default, no ML deps): regex/keyword patterns from
+  ``nli_patterns/*.yaml``
+- ``transformers``: local cross-encoder NLI model, per
+  ``specs/phase3-nli-contradiction.md`` — default
+  ``cross-encoder/nli-deberta-v3-small``. Runs through ONNX Runtime with
+  ``tokenizers`` and ``huggingface_hub`` only (``pip install .[nli]``);
+  torch and transformers are not on the inference path. Any load or
+  inference failure degrades to the heuristic for that call, bounded to one
+  warning, like the LLM backend.
+- ``cascade``/``llm``: LLM via the harvest provider chain.
+
+Also provides detect_contradictions_nli, the 4-stage pipeline function.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -89,24 +97,31 @@ class NLIClassifier:
 
     def __init__(self, backend: str = "auto"):
         if backend == "auto":
-            backend = os.environ.get("MCP_NLI_BACKEND", "heuristic")
+            # An empty/unset variable means the default, not an unknown backend:
+            # `MCP_NLI_BACKEND= python -m ...` must not silently disable NLI.
+            backend = (os.environ.get("MCP_NLI_BACKEND") or "heuristic").strip() or "heuristic"
         self.backend = backend
         self._warned_unimplemented = False
         # Phase 2 state (R10, R12)
         self._rewriter = None
         self._llm_available = None
         self._warned_degraded = False
+        # transformers backend state (RFC #732 Phase 3): (tokenizer, session,
+        # id2label) once loaded.
+        self._onnx_runtime = None
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        if self.backend == "transformers":
+            return (await self._transformers_classify([(premise, hypothesis)]))[0]
         if self.backend in ("cascade", "llm"):
             return await self._llm_classify(premise, hypothesis)
         if not self._warned_unimplemented:
             logger.warning(
                 "NLI backend '%s' is not implemented; returning neutral. "
-                "Only 'heuristic' and 'cascade' are supported.",
+                "Only 'heuristic', 'transformers' and 'cascade' are supported.",
                 self.backend,
             )
             self._warned_unimplemented = True
@@ -124,6 +139,9 @@ class NLIClassifier:
         """
         if self.backend == "heuristic":
             return HEURISTIC_MAX_CONFIDENCE
+        if self.backend == "transformers":
+            # ONNX softmax probabilities top out at ~1.0.
+            return 1.0
         if self.backend in ("cascade", "llm"):
             return LLM_NONNEUTRAL_CONFIDENCE
         return 0.0
@@ -185,8 +203,123 @@ class NLIClassifier:
             return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
-        """Batch classification."""
+        """Batch classification.
+
+        The transformers backend runs the whole list through the model in one
+        ONNX session call; the other backends classify pair by pair.
+        """
+        if not pairs:
+            return []
+        if self.backend == "transformers":
+            return await self._transformers_classify(pairs)
         return [await self.classify(p, h) for p, h in pairs]
+
+    async def _transformers_classify(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
+        """Local cross-encoder NLI through ONNX Runtime (RFC #732 Phase 3).
+
+        The weights ship as ONNX files in the model repo (fp32 default;
+        ``MCP_NLI_ONNX_FILE`` picks a quantized variant), the tokenizer loads
+        from ``tokenizer.json`` directly, so the runtime needs
+        ``onnxruntime`` + ``tokenizers`` + ``huggingface_hub`` — never torch.
+        Load and inference run in worker threads; both are synchronous. Any
+        failure degrades to the heuristic for every pair in this call, the
+        same contract the LLM backend offers.
+        """
+        try:
+            tokenizer, session, id2label = await self._get_onnx_runtime()
+
+            def _run():
+                import numpy as np
+
+                encodings = tokenizer.encode_batch([list(p) for p in pairs])
+                feed = {
+                    name: np.array(
+                        [getattr(e, attr) for e in encodings], dtype=np.int64
+                    )
+                    for name, attr in (
+                        ("input_ids", "ids"),
+                        ("attention_mask", "attention_mask"),
+                        ("token_type_ids", "type_ids"),
+                    )
+                    if name in {i.name for i in session.get_inputs()}
+                }
+                logits = session.run(None, feed)[0]
+                results = []
+                for row in logits:
+                    row_max = row.max()
+                    exp = np.exp(row - row_max)
+                    probs = exp / exp.sum()
+                    idx = int(probs.argmax())
+                    results.append(
+                        {"label": id2label.get(idx, str(idx)), "score": float(probs[idx])}
+                    )
+                return results
+
+            results = await asyncio.to_thread(_run)
+            return [
+                self._nli_result_from_scored_label(out, fallback_pair=pair)
+                for out, pair in zip(results, pairs)
+            ]
+        except Exception as e:
+            if not self._warned_degraded:
+                self._warned_degraded = True
+                self._warn_once(_sanitize_log_value(f"transformers inference failed: {e}"))
+            return [self._heuristic_classify(p, h) for p, h in pairs]
+
+    async def _get_onnx_runtime(self):
+        """Lazy single-instance (tokenizer, session, id2label) for the model.
+
+        ``MCP_NLI_MODEL`` names the HF repo (default per the spec),
+        ``MCP_NLI_ONNX_FILE`` the ONNX file inside it — ``onnx/model.onnx``
+        fp32 by default, e.g. ``onnx/model_quint8_avx2.onnx`` for the
+        quantized build. Offline environments reuse the hub cache.
+        """
+        if self._onnx_runtime is None:
+            model_name = os.environ.get(
+                "MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"
+            )
+            onnx_file = os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx")
+
+            def _load():
+                import json
+
+                import onnxruntime as ort
+                from huggingface_hub import hf_hub_download
+                from tokenizers import Tokenizer
+
+                model_path = hf_hub_download(model_name, onnx_file)
+                tokenizer = Tokenizer.from_file(
+                    hf_hub_download(model_name, "tokenizer.json")
+                )
+                config = json.load(
+                    open(hf_hub_download(model_name, "config.json"), encoding="utf-8")
+                )
+                id2label = {int(k): v for k, v in config["id2label"].items()}
+                session = ort.InferenceSession(
+                    model_path, providers=["CPUExecutionProvider"]
+                )
+                tokenizer.enable_truncation(max_length=512)
+                tokenizer.enable_padding()
+                return tokenizer, session, id2label
+
+            self._onnx_runtime = await asyncio.to_thread(_load)
+            logger.info(
+                "NLI transformers backend loaded (ONNX): %s/%s", model_name, onnx_file
+            )
+        return self._onnx_runtime
+
+    def _nli_result_from_scored_label(self, out: dict, fallback_pair: Tuple[str, str]) -> NLIResult:
+        """Map one inference output to NLIResult.
+
+        A label that is not one of the three NLI labels is treated like a
+        parse failure: the pair falls back to the heuristic rather than being
+        acted on at model confidence.
+        """
+        label = str(out.get("label", "")).lower()
+        confidence = float(out.get("score", 0.0))
+        if label in _NLI_LABELS:
+            return NLIResult(label=label, confidence=confidence)
+        return self._heuristic_classify(*fallback_pair)
 
     def _get_rewriter(self):
         """R10: Lazy initialization of HarvestRewriter to resolve config once per run."""
@@ -352,7 +485,7 @@ async def detect_contradictions_nli(
                     similarity=nli_res.confidence,
                     connection_types=["contradiction"],
                     relationship_type="contradicts",
-                    metadata={"confidence": nli_res.confidence, "method": "nli_heuristic"},
+                    metadata={"confidence": nli_res.confidence, "method": f"nli_{classifier.backend}"},
                 )
                 result["conflicts_registered"] += 1
             except Exception as e:
