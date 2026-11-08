@@ -11,7 +11,10 @@ pairs for a store you point it at, on a read-only basis, in three steps:
         --db /path/to/memory.db --out pairs.jsonl
 
     # 2. label them: fill the "label" field per line with exactly one of
-    #    contradiction | neutral | entailment
+    #    contradiction | updates | neutral | entailment
+    #    ("updates" = the later statement updates the earlier one rather than
+    #    refuting it — a schedule that changed, a version that moved; see the
+    #    Hindsight note in #1460)
 
     # 3. score the labels against the NLI backend (local model) and print a
     #    summary table that carries counts, precision/recall and latency —
@@ -97,6 +100,19 @@ async def cmd_export(args):
     print("note: the scan records access stats — run against a copy of the store")
 
 
+LABELS = ("contradiction", "updates", "neutral", "entailment")
+
+
+def _prf(preds, golds, pred_positive, gold_positive):
+    tp = sum(1 for p, g in zip(preds, golds) if p in pred_positive and g in gold_positive)
+    fp = sum(1 for p, g in zip(preds, golds) if p in pred_positive and g not in gold_positive)
+    fn = sum(1 for p, g in zip(preds, golds) if p not in pred_positive and g in gold_positive)
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    return {"precision": round(precision, 3), "recall": round(recall, 3),
+            "tp": tp, "fp": fp, "fn": fn}
+
+
 async def cmd_score(args):
     from mcp_memory_service.reasoning.nli import NLIClassifier
 
@@ -105,11 +121,11 @@ async def cmd_score(args):
         for line in open(args.pairs, encoding="utf-8")
         if line.strip()
     ]
-    unlabeled = [i for i, r in enumerate(rows) if r.get("label") not in
-                 ("contradiction", "neutral", "entailment")]
+    unlabeled = [i for i, r in enumerate(rows) if r.get("label") not in LABELS]
     if unlabeled:
         sys.exit(f"{len(unlabeled)} pairs are not labeled yet "
-                 f"(first at line {unlabeled[0] + 1}); fill every 'label' field first")
+                 f"(first at line {unlabeled[0] + 1}); fill every 'label' field with one of: "
+                 + ", ".join(LABELS))
 
     classifier = NLIClassifier(backend="auto")
     pairs = [(r["older"], r["newer"]) for r in rows]
@@ -120,20 +136,23 @@ async def cmd_score(args):
 
     golds = [r["label"] for r in rows]
     preds = [v.label for v in verdicts]
-    tp = sum(1 for p, g in zip(preds, golds) if p == "contradiction" and g == "contradiction")
-    fp = sum(1 for p, g in zip(preds, golds) if p == "contradiction" and g != "contradiction")
-    fn = sum(1 for p, g in zip(preds, golds) if p != "contradiction" and g == "contradiction")
-    precision = tp / (tp + fp) if tp + fp else 0.0
-    recall = tp / (tp + fn) if tp + fn else 0.0
 
+    # Two gate readings, so the labeled data can settle the policy question
+    # in #1460 instead of presupposing it. The model only emits the three NLI
+    # labels; "updates" exists on the gold side.
+    #   contradiction_only: supersede iff the model says contradiction.
+    #   with_updates: gold positives are contradiction+updates (the Hindsight
+    #   reading — a later statement that updates an earlier one should also
+    #   supersede), model positives are contradiction+entailment, the NLI
+    #   label an update most often takes.
     print(json.dumps({
         "n_pairs": len(rows),
-        "labeled_contradiction": sum(1 for g in golds if g == "contradiction"),
+        "labels": {lbl: sum(1 for g in golds if g == lbl) for lbl in LABELS},
         "backend_configured": classifier.backend,
         "degraded_to_heuristic": classifier.degraded,
-        "contradiction_precision": round(precision, 3),
-        "contradiction_recall": round(recall, 3),
-        "true_positive": tp, "false_positive": fp, "false_negative": fn,
+        "gate_contradiction_only": _prf(preds, golds, {"contradiction"}, {"contradiction"}),
+        "gate_with_updates": _prf(preds, golds, {"contradiction", "entailment"},
+                                  {"contradiction", "updates"}),
         "batch_ms_warm": round(elapsed_ms, 1),
         "per_pair_ms_warm": round(elapsed_ms / max(1, len(rows)), 1),
     }, indent=2))
