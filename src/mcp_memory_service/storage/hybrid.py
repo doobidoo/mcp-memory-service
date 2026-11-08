@@ -29,7 +29,7 @@ import os
 import threading
 import time
 import weakref
-from typing import List, Dict, Any, Sequence, Tuple, Optional
+from typing import List, Dict, Any, Sequence, Set, Tuple, Optional
 from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -310,9 +310,15 @@ async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
 
 
 async def _reconcile_remote_tombstones(
-    primary, tombstones: Dict[str, float]
+    primary,
+    tombstones: Dict[str, float],
+    conflicts: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
-    """Apply remote deletes without overwriting a newer local edit."""
+    """Apply remote deletes without overwriting a newer local edit.
+
+    ``tombstone_conflict_hashes`` is capped for reporting. A caller that has to act
+    on every conflict passes ``conflicts`` and gets the full set there.
+    """
     counts = {
         "tombstones_applied": 0,
         "tombstone_conflicts": 0,
@@ -343,11 +349,35 @@ async def _reconcile_remote_tombstones(
             counts["tombstones_applied"] += 1
         elif outcome == "conflict":
             counts["tombstone_conflicts"] += 1
+            if conflicts is not None:
+                conflicts.add(content_hash)
             if len(counts["tombstone_conflict_hashes"]) < 100:
                 counts["tombstone_conflict_hashes"].append(content_hash)
         elif outcome not in ("missing", "already_deleted"):
             counts["tombstone_failures"] += 1
     return counts
+
+
+def _select_undelivered_restores(
+    memories: List[Memory], tombstones: Dict[str, float], conflicts: Set[str]
+) -> List[Memory]:
+    """Return the conflicting rows that were stored after the remote delete (#1890).
+
+    A restore is a purge and a fresh insert, so its ``created_at`` is later than the
+    tombstone. A local edit keeps its ``created_at``, so it stays a conflict for
+    ``resolve_tombstone_conflict`` to settle. The row is read rather than the
+    ``recreate_of`` stamp in ``sync_events`` because that log is off by default.
+
+    Clocks are compared as in ``delete_if_not_updated_after``: wall clock against
+    wall clock, strictly, so an equal timestamp leaves the delete standing.
+    """
+    return [
+        memory
+        for memory in memories
+        if memory.content_hash in conflicts
+        and memory.created_at is not None
+        and memory.created_at > tombstones[memory.content_hash]
+    ]
 
 
 async def _secondary_hash_set(secondary) -> Optional[set]:
@@ -570,13 +600,16 @@ class BackgroundSyncService:
             synced_count, failed_count = await self._sync_force_sync_memories(
                 new_memories
             )
+            restored_count, restore_failures = await self._push_undelivered_restores(
+                state
+            )
             return self._force_sync_result(
                 primary_memories,
                 state,
-                synced_count,
-                failed_count,
+                synced_count + restored_count,
+                failed_count + restore_failures,
                 skipped_count,
-                skipped_tombstones,
+                skipped_tombstones - restored_count,
                 sync_start_time,
             )
 
@@ -609,6 +642,7 @@ class BackgroundSyncService:
             }
 
         remote_tombstones: Dict[str, float] = {}
+        undelivered_restores: List[Memory] = []
         if _has_cloudflare_d1(self.secondary):
             sync_state = await _fetch_secondary_sync_state(self.secondary)
             if sync_state is None:
@@ -632,8 +666,12 @@ class BackgroundSyncService:
                     ),
                 }
             remote_tombstones = sync_state['tombstones']
+            conflicts: Set[str] = set()
             tombstone_counts = await _reconcile_remote_tombstones(
-                self.primary, remote_tombstones
+                self.primary, remote_tombstones, conflicts
+            )
+            undelivered_restores = _select_undelivered_restores(
+                primary_memories, remote_tombstones, conflicts
             )
             secondary_hashes = sync_state['live_hashes']
         else:
@@ -650,6 +688,7 @@ class BackgroundSyncService:
             'remote_tombstones': remote_tombstones,
             'secondary_hashes': secondary_hashes,
             'tombstone_counts': tombstone_counts,
+            'undelivered_restores': undelivered_restores,
         }, None
 
     @staticmethod
@@ -685,6 +724,75 @@ class BackgroundSyncService:
             len(new_memories),
         )
         return new_memories, skipped_count, skipped_tombstones
+
+    async def _push_undelivered_restores(
+        self, state: Dict[str, Any]
+    ) -> Tuple[int, int]:
+        """Deliver restores the sync queue gave up on (#1890).
+
+        A pushed restore replaces the tombstone, so it stops being a conflict. A
+        tombstone that changed after the scan is left alone and stays one. So does
+        a row that could not be read again, which is reported as a failure.
+        """
+        restored_count = 0
+        failed_count = 0
+        tombstone_counts = state['tombstone_counts']
+        for memory in state['undelivered_restores']:
+            content_hash = memory.content_hash
+            try:
+                outcome, message = await self._push_one_restore(
+                    memory, state['remote_tombstones'][content_hash]
+                )
+            except Exception as e:
+                outcome, message = 'failed', str(e)
+            if outcome in ('restored', 'deleted'):
+                tombstone_counts['tombstone_conflicts'] -= 1
+                if content_hash in tombstone_counts['tombstone_conflict_hashes']:
+                    tombstone_counts['tombstone_conflict_hashes'].remove(content_hash)
+            if outcome == 'restored':
+                restored_count += 1
+            elif outcome == 'failed':
+                failed_count += 1
+                logger.warning(
+                    "Could not push restored memory %s: %s",
+                    _sanitize_log_value(content_hash[:8]),
+                    _sanitize_log_value(message),
+                )
+        return restored_count, failed_count
+
+    async def _push_one_restore(
+        self, memory: Memory, expected_deleted_at: float
+    ) -> Tuple[str, str]:
+        """Upload one restore unless its row was deleted during this run.
+
+        The row is read again first, because a local delete does not wait for
+        force_sync. That leaves the upload itself: a delete landing while it is in
+        flight meets the old tombstone, changes nothing on Cloudflare and reports
+        success, so the upload would bring the row back. Checking the row afterwards
+        closes that gap. A delete committed before the check is sent again here, and
+        one committed after it is queued behind the upload and finds a live row.
+
+        Returns ``(outcome, message)``, where outcome is ``restored``, ``deleted``
+        (the row is gone locally, so there is no conflict left), ``changed`` (the
+        tombstone moved) or ``failed``.
+        """
+        current = await self._get_current_queued_store_memory(memory)
+        if current is None:
+            return 'deleted', 'The primary row is no longer live'
+        success, message = await self.secondary.store_if_tombstone_matches(
+            current, expected_deleted_at
+        )
+        if success is None:
+            return 'changed', message
+        if not success:
+            return 'failed', message
+        sync_state = await self.primary.get_sync_state_for_hash(current.content_hash)
+        if sync_state is None or sync_state[1] is not None:
+            await self.enqueue_operation(
+                SyncOperation(operation='delete', content_hash=current.content_hash)
+            )
+            return 'deleted', 'The primary row was deleted during the upload'
+        return 'restored', message
 
     async def _sync_one_force_sync_memory(
         self, memory: Memory
@@ -2437,6 +2545,31 @@ class HybridMemoryStorage(MemoryStorage):
         Not queued for secondary sync: Cloudflare has no supersession field.
         """
         return await self.primary.mark_superseded_batch(pairs)
+
+    async def get_conflicts(self) -> list[dict[str, Any]]:
+        """Return unresolved conflict pairs from primary storage.
+
+        Conflicts are detected when store() writes to the primary, so they are
+        listed there too. Without this override the base default returns [].
+        """
+        return await self.primary.get_conflicts()
+
+    async def resolve_conflict(
+        self, winner_hash: str, loser_hash: str
+    ) -> tuple[bool, str]:
+        """Resolve a conflict in primary storage.
+
+        Not queued for secondary sync, like mark_superseded_batch(): the
+        supersede is logged as a sync event by the primary itself.
+        """
+        return await self.primary.resolve_conflict(winner_hash, loser_hash)
+
+    async def reconcile_conflict_tags(self, dry_run: bool = True) -> dict[str, Any]:
+        """Clear stale conflict:unresolved tags in primary storage (#1840).
+
+        Conflict tags live only in the primary; they are never synced.
+        """
+        return await self.primary.reconcile_conflict_tags(dry_run=dry_run)
 
     async def update_memories_batch(self, memories: List[Memory], preserve_timestamps: bool = False) -> List[bool]:
         """

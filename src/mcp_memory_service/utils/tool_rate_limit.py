@@ -61,7 +61,7 @@ def resolve_caller_identity(header_value: str | None, client_host: str | None) -
     """Resolve the rate-limit identity for one tool call.
 
     Never reads tool arguments: the header comes from the transport layer
-    (``X-Agent-ID``), read before any argument rewriting. Chain:
+    (``X-Agent-ID``), independently of agent request context. Chain:
     header -> socket peer IP -> one per-process bucket.
     """
 
