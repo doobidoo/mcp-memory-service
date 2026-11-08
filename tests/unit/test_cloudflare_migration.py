@@ -138,7 +138,8 @@ class TestCloudflareD1Migration:
                     {"name": "created_at", "type": "REAL"},
                     {"name": "vector_id", "type": "TEXT"},
                     {"name": "tags", "type": "TEXT"},
-                    {"name": "deleted_at", "type": "REAL"}
+                    {"name": "deleted_at", "type": "REAL"},
+                    {"name": "store", "type": "TEXT"},
                 ]
             }]
         }
@@ -148,20 +149,22 @@ class TestCloudflareD1Migration:
         mock_index_success.json.return_value = {"success": True, "result": []}
 
         with patch.object(cloudflare_storage, '_retry_request') as mock_request:
-            # Sequence: Initial PRAGMA, ALTER tags, verify tags, ALTER deleted_at, verify deleted_at, CREATE INDEX
+            # Sequence: Initial PRAGMA, ALTER/verify tags, deleted_at and store, CREATE INDEX
             mock_request.side_effect = [
                 mock_pragma_old,          # Initial schema check
                 mock_alter_success,       # ALTER TABLE ADD COLUMN tags
                 mock_pragma_with_tags,    # Verify tags added
                 mock_alter_success,       # ALTER TABLE ADD COLUMN deleted_at
                 mock_pragma_complete,     # Verify deleted_at added
+                mock_alter_success,       # ALTER TABLE ADD COLUMN store
+                mock_pragma_complete,     # Verify store added
                 mock_index_success        # CREATE INDEX for deleted_at
             ]
 
             await cloudflare_storage._migrate_d1_schema()
 
             # Verify all expected calls were made
-            assert mock_request.call_count == 6
+            assert mock_request.call_count == 8
 
     @pytest.mark.asyncio
     async def test_migrate_d1_schema_already_migrated(self, cloudflare_storage):
@@ -181,7 +184,8 @@ class TestCloudflareD1Migration:
                     {"name": "created_at", "type": "REAL"},
                     {"name": "vector_id", "type": "TEXT"},
                     {"name": "tags", "type": "TEXT"},
-                    {"name": "deleted_at", "type": "REAL"}
+                    {"name": "deleted_at", "type": "REAL"},
+                    {"name": "store", "type": "TEXT"},
                 ]
             }]
         }
@@ -234,7 +238,8 @@ class TestCloudflareD1Migration:
                     {"name": "created_at", "type": "REAL"},
                     {"name": "vector_id", "type": "TEXT"},
                     {"name": "tags", "type": "TEXT"},
-                    {"name": "deleted_at", "type": "REAL"}
+                    {"name": "deleted_at", "type": "REAL"},
+                    {"name": "store", "type": "TEXT"},
                 ]
             }]
         }
@@ -244,18 +249,20 @@ class TestCloudflareD1Migration:
         mock_index_success.json.return_value = {"success": True, "result": []}
 
         with patch.object(cloudflare_storage, '_retry_request') as mock_request:
-            # Sequence: Initial PRAGMA, ALTER deleted_at, verify deleted_at, CREATE INDEX
+            # Sequence: Initial PRAGMA, ALTER/verify deleted_at and store, CREATE INDEX
             mock_request.side_effect = [
                 mock_pragma_partial,      # Initial schema check (has tags)
                 mock_alter_success,       # ALTER TABLE ADD COLUMN deleted_at
                 mock_pragma_complete,     # Verify deleted_at added
+                mock_alter_success,       # ALTER TABLE ADD COLUMN store
+                mock_pragma_complete,     # Verify store added
                 mock_index_success        # CREATE INDEX for deleted_at
             ]
 
             await cloudflare_storage._migrate_d1_schema()
 
             # Verify expected calls (no tags migration)
-            assert mock_request.call_count == 4
+            assert mock_request.call_count == 6
 
     @pytest.mark.asyncio
     async def test_add_column_with_retry_success_first_attempt(self, cloudflare_storage):

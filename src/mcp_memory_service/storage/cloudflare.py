@@ -167,8 +167,23 @@ def build_tag_search_query(tags: List[str], operation: str,
     return sql, params
 
 
+def _store_clause(store: Optional[str]) -> Tuple[str, List[str]]:
+    """SQL suffix confining a hash-addressed D1 statement to one store (#1878).
+
+    ``None`` and ``"all"`` mean unscoped, as on the sqlite-vec backend.
+    """
+    if store is None or store == "all":
+        return "", []
+    return " AND store = ?", [store]
+
+
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
+
+    # get_by_hash, update_memory_metadata and delete honor ``store`` (#1878), but
+    # get_by_hash_is_store_scoped stays False: the server also grants per-store
+    # credentials memory_search and memory_list on this flag, and retrieve,
+    # recall, get_all_memories and count_all_memories here still ignore ``store``.
 
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
@@ -363,6 +378,7 @@ class CloudflareStorage(MemoryStorage):
         Adds missing columns to databases created before v8.72.0:
         - tags TEXT (added in v8.72.0)
         - deleted_at REAL (added in v8.72.0)
+        - store TEXT (#1878); existing rows are backfilled with 'default'
 
         This fixes the reboot loop issue for users upgrading from v8.69.0.
         """
@@ -407,6 +423,10 @@ class CloudflareStorage(MemoryStorage):
                 migrations_needed.append("deleted_at")
                 logger.info("Migration needed: Adding 'deleted_at' column to memories table")
 
+            if "store" not in columns:
+                migrations_needed.append("store")
+                logger.info("Migration needed: Adding 'store' column to memories table")
+
             if not migrations_needed:
                 logger.debug("Schema migration check: All columns present, no migration needed")
                 return
@@ -443,7 +463,7 @@ class CloudflareStorage(MemoryStorage):
         the column is truly added.
 
         Args:
-            column: Column name to add ('tags' or 'deleted_at')
+            column: Column name to add ('tags', 'deleted_at' or 'store')
             max_attempts: Maximum number of retry attempts
 
         Raises:
@@ -451,7 +471,9 @@ class CloudflareStorage(MemoryStorage):
         """
         column_spec = {
             "tags": "ALTER TABLE memories ADD COLUMN tags TEXT",
-            "deleted_at": "ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL"
+            "deleted_at": "ALTER TABLE memories ADD COLUMN deleted_at REAL DEFAULT NULL",
+            # NOT NULL DEFAULT fills every existing row with 'default' in the same statement.
+            "store": "ALTER TABLE memories ADD COLUMN store TEXT NOT NULL DEFAULT 'default'",
         }
 
         if column not in column_spec:
@@ -540,7 +562,8 @@ class CloudflareStorage(MemoryStorage):
             content_size INTEGER DEFAULT 0,
             r2_key TEXT,
             tags TEXT,
-            deleted_at REAL DEFAULT NULL
+            deleted_at REAL DEFAULT NULL,
+            store TEXT NOT NULL DEFAULT 'default'
         );
 
         -- Tags table
@@ -617,7 +640,7 @@ class CloudflareStorage(MemoryStorage):
                 storage does not implement semantic deduplication, so this flag
                 has no effect.
         """
-        success, message = await self._store_memory(memory)
+        success, message = await self._store_memory(memory, store=store or "default")
         return success is True, message
 
     async def store_if_tombstone_matches(
@@ -685,7 +708,10 @@ class CloudflareStorage(MemoryStorage):
         return restore_id, vector_id
 
     async def _store_memory(
-        self, memory: Memory, expected_deleted_at: Optional[float] = None
+        self,
+        memory: Memory,
+        expected_deleted_at: Optional[float] = None,
+        store: str = "default",
     ) -> Tuple[Optional[bool], str]:
         restore_id, vector_id = self._memory_storage_ids(
             memory, expected_deleted_at
@@ -702,6 +728,7 @@ class CloudflareStorage(MemoryStorage):
                 r2_key,
                 stored_content,
                 expected_deleted_at=expected_deleted_at,
+                store=store,
             )
             if not stored:
                 if expected_deleted_at is not None:
@@ -809,13 +836,14 @@ class CloudflareStorage(MemoryStorage):
         r2_key: Optional[str],
         stored_content: str,
         expected_deleted_at: Optional[float] = None,
+        store: str = "default",
     ) -> bool:
         """Store memory metadata in D1, replacing only a matching tombstone."""
         values = self._d1_memory_values(
             memory, vector_id, content_size, r2_key, stored_content
         )
         if expected_deleted_at is None:
-            memory_id = await self._insert_d1_memory_row(values)
+            memory_id = await self._insert_d1_memory_row(values, store)
             if memory.tags:
                 await self._store_d1_tags(memory_id, memory.tags)
         else:
@@ -854,7 +882,7 @@ class CloudflareStorage(MemoryStorage):
             tags_str,
         ]
 
-    async def _insert_d1_memory_row(self, values: list[Any]) -> int:
+    async def _insert_d1_memory_row(self, values: list[Any], store: str = "default") -> int:
         """Replace stale soft-deleted rows, then insert a new D1 memory row."""
         # Soft deletion retains unique keys. Release them before re-inserting the
         # same content; the foreign key cascade also removes obsolete tag links.
@@ -876,10 +904,11 @@ class CloudflareStorage(MemoryStorage):
         insert_sql = """
         INSERT INTO memories (
             content_hash, content, memory_type, created_at, created_at_iso,
-            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            updated_at, updated_at_iso, metadata_json, vector_id, content_size, r2_key, tags,
+            store
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-        payload = {"sql": insert_sql, "params": values}
+        payload = {"sql": insert_sql, "params": values + [store]}
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
         result = response.json()
         if not result.get("success"):
@@ -1386,8 +1415,10 @@ class CloudflareStorage(MemoryStorage):
         """Delete a memory by its hash."""
         try:
             # Find memory in D1
-            sql = "SELECT * FROM memories WHERE content_hash = ?"
-            payload = {"sql": sql, "params": [content_hash]}
+            # Confined to the claimed store before Vectorize or R2 is touched (#1878).
+            store_sql, store_params = _store_clause(store)
+            sql = f"SELECT * FROM memories WHERE content_hash = ?{store_sql}"
+            payload = {"sql": sql, "params": [content_hash, *store_params]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
             
@@ -1517,8 +1548,9 @@ class CloudflareStorage(MemoryStorage):
             # Query D1 for the memory. Soft-deleted rows must not resurface here:
             # the Memory model carries no deleted_at field, so callers cannot tell
             # a deleted row from a live one after construction.
-            sql = "SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
-            payload = {"sql": sql, "params": [content_hash]}
+            store_sql, store_params = _store_clause(store)
+            sql = f"SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL{store_sql}"
+            payload = {"sql": sql, "params": [content_hash, *store_params]}
             response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
             result = response.json()
 
@@ -1823,8 +1855,18 @@ class CloudflareStorage(MemoryStorage):
         }
         await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata without recreating the entry."""
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata without recreating the entry.
+
+        ``store`` confines the UPDATE to that store; a memory in another store
+        is reported as not found and left unchanged (#1878).
+        """
         try:
             # Build update SQL
             update_fields = []
@@ -1899,8 +1941,13 @@ class CloudflareStorage(MemoryStorage):
                 return True, "No updates needed"
             
             # Update memory record
-            sql = f"UPDATE memories SET {', '.join(update_fields)} WHERE content_hash = ? AND deleted_at IS NULL RETURNING id"
+            store_sql, store_params = _store_clause(store)
+            sql = (
+                f"UPDATE memories SET {', '.join(update_fields)} "
+                f"WHERE content_hash = ? AND deleted_at IS NULL{store_sql} RETURNING id"
+            )
             params.append(content_hash)
+            params.extend(store_params)
             if "tags" in updates:
                 sql += f", ({tag_change_sql}) AS tags_changed"
                 params.extend(tag_params)
