@@ -39,7 +39,7 @@ def add_windows_timeout_handling():
         logger.info("Added Windows-specific timeout handling")
         
     except Exception as e:
-        logger.debug(f"Could not set up Windows timeout handling: {_sanitize_log_value(e)}")
+        logger.debug("Could not set up Windows timeout handling: %s", _sanitize_log_value(e))
         # Not critical, continue without it
 
 def create_cancelled_notification_class():
@@ -104,13 +104,16 @@ def patch_mcp_for_lm_studio():
             @classmethod
             def patched_validate(cls, obj, *args, **kwargs):
                 """Enhanced validation that handles cancelled notifications."""
-                logger.debug(f"Patched validate called with: {type(obj)} - {_sanitize_log_value(obj)}")
+                logger.debug("Patched validate called with: %s - %s", type(obj), _sanitize_log_value(obj))
                 
                 if isinstance(obj, dict):
                     method = obj.get('method', '')
                     if method == 'notifications/cancelled':
                         params = obj.get('params', {})
-                        logger.info(f"[PATCH] PATCH INTERCEPTED cancelled notification: {_sanitize_log_value(params.get('reason', 'Unknown'))}")
+                        logger.info(
+                            "[PATCH] PATCH INTERCEPTED cancelled notification: %s",
+                            _sanitize_log_value(params.get('reason', 'Unknown')),
+                        )
                         # Return a proper CancelledNotification instance with structured params
                         notification = CancelledNotification()
                         if params:
@@ -176,10 +179,10 @@ def patch_mcp_for_lm_studio():
             success = True
         
     except ImportError as e:
-        logger.warning(f"Could not import MCP modules: {_sanitize_log_value(e)}")
+        logger.warning("Could not import MCP modules: %s", _sanitize_log_value(e))
         return patch_alternative_approach()
     except Exception as e:
-        logger.error(f"Error applying LM Studio compatibility patch: {_sanitize_log_value(e)}")
+        logger.error("Error applying LM Studio compatibility patch: %s", _sanitize_log_value(e))
     
     if not success:
         logger.warning("Primary patching failed, trying alternative approach")
@@ -216,5 +219,5 @@ def patch_alternative_approach():
         return True
         
     except Exception as e:
-        logger.error(f"Alternative patch failed: {_sanitize_log_value(e)}")
+        logger.error("Alternative patch failed: %s", _sanitize_log_value(e))
         return False

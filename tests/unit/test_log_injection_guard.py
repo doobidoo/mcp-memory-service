@@ -62,6 +62,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
+    "mcp_memory_service/web/oauth/storage/sqlite.py",
     "mcp_memory_service/health/integrity.py",
     "mcp_memory_service/models/memory.py",
     "mcp_memory_service/storage/mixins/delete.py",
@@ -80,6 +81,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
     "mcp_memory_service/mcp_server.py",
+    "mcp_memory_service/lm_studio_compat.py",
     "mcp_memory_service/embeddings/onnx_embeddings.py",
     "mcp_memory_service/config/search.py",
     "mcp_memory_service/config/quality.py",
@@ -153,6 +155,12 @@ EXTERNAL_NAMES = frozenset({
     # server at registration, but it is still data the log did not produce.
     "client_id",
     "scope",
+    # web/oauth/storage/sqlite.py logs the authorization `code` a client
+    # presents to the token endpoint when it turns out to be already consumed.
+    # It arrives in the request body, so it is outside data like the two above.
+    # No other guarded module logs a bare `code` (`status_code` is a different
+    # token), so listing it decides for nobody else.
+    "code",
     # web/sse.py logs the address a connection came from, taken off the request.
     "client_ip",
     # ...and the Last-Event-ID header the client resumes from.
@@ -475,6 +483,25 @@ def test_lazy_scan_flags_oauth_client_values():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("algorithm: %s", algorithm)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_oauth_authorization_code():
+    """The authorization code web/oauth/storage/sqlite.py logs on a reused code.
+
+    It comes from the token request, so a client chooses it. The module's only
+    call that logs it is already wrapped, so the module scan stays green
+    whether or not the name is listed. This is the sample that fails if the
+    entry is dropped from EXTERNAL_NAMES; `status_code` stays a separate token.
+    """
+    bare = 'logger.warning("Authorization code already consumed: %s", code)\n'
+    wrapped = (
+        'logger.warning("Authorization code already consumed: %s", '
+        '_sanitize_log_value(code))\n'
+    )
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.info("HTTP %s", status_code)\n')
 
 
 @pytest.mark.unit

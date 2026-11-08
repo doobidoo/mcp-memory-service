@@ -15,6 +15,16 @@ gh pr list --state open --json number,title,author,headRefOid,isDraft,mergeable,
 - Unresolved review threads (GraphQL `reviewThreads`, `isResolved`). ResolveThreads has no bypass.
 - Conflicts or drift against main. A fork PR showing `action_required` means the run needs approval.
 - Dependabot: did the bump widen a load-bearing constraint?
+- Claim state for every PR labelled `unclaimed` or `no-issue`: match it to one row of
+  the table in CONTRIBUTING.md "How unclaimed PRs and stale claims are decided" and
+  name the row. Evidence: the issue's assign/unassign events
+  (`gh api repos/{owner}/{repo}/issues/<N>/events`), claim comments by others before the
+  PR's `createdAt` (a `/claim` mangled by Git Bash into a path still counts), and other
+  open PRs for the same issue (`gh pr list --search "<N>" --state open`).
+- Stale claims: open issues claimed more than 3 days ago with no PR, draft or update
+  since. A claim is an assignment, a `claim-pending` label, or a claim comment that was
+  never confirmed; all three block later PRs, so list all three with the row they fall
+  under (ask, or expire).
 
 Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`, run
 `.venv/bin/pytest` scoped there. Never touch the main tree — several sessions share it.
@@ -24,6 +34,9 @@ Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`,
 - **MERGE**: green, no open threads, no conflicts, automated-review findings (Greptile
   summary and confidence) read, and for contributor PRs the diff reviewed (`/pr-review`)
 - **QUICK-FIX**: under 10 minutes (rebase, answer a thread, approve a run) — name the fix
+- **CLAIM**: unclaimed or no-issue; state the table row and the action it prescribes
+  (assign author, close, ask, expire, `skip-issue`). Never merge a PR in this category
+  before the claim is settled.
 - **DECISION**: needs the maintainer's judgment
 - **SKIP**: draft, red for a real reason, large
 
@@ -34,10 +47,15 @@ Then STOP. Merge nothing.
 
 ## 5. After approval
 
-- Merge one at a time: `gh pr merge <N> --squash --admin --match-head-commit <sha>`.
-  Immediately before each merge, re-fetch the head SHA, its threads and its check-runs;
-  if the SHA changed or a required check is not green, stop and re-classify that PR.
-- Strict policy: after each merge, update the next PR and wait for green CI.
+- Queue each approved PR: `gh pr merge <N> --auto --squash --match-head-commit <sha>`.
+  GitHub merges it once checks, review and threads are all green. The Merge Train
+  workflow (`.github/workflows/merge-train.yml`) updates the oldest queued PR that
+  is behind main, one at a time, and turns auto-merge off with a comment on a
+  conflict or a failed required check. Do not update queued branches by hand.
+- Without the Merge Train App configured (the workflow run is skipped), merge one
+  at a time: `gh pr merge <N> --squash --admin --match-head-commit <sha>`, re-fetch
+  head SHA, threads and check-runs right before, then update the next PR and wait for
+  green CI.
 - Do not run `collect_changelog.py` — collecting fragments belongs to `/release`.
 - Finally remove the worktrees and sync the GitLab mirror with a proven fast-forward
   (see CLAUDE.md "Source Control & Hosting").
