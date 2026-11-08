@@ -42,6 +42,12 @@ LLM_NONNEUTRAL_CONFIDENCE = 0.9
 # Load patterns from YAML locale files (replaces hardcoded _NEGATION_PAIRS / _VERSION_RE)
 _PATTERNS = load_nli_patterns(tuple(get_active_locales()))
 
+# Module-level ONNX session cache (see NLIClassifier._get_onnx_runtime):
+# one load per (model, onnx file) per process, shared across classifier
+# instances, so per-detection construction does not re-pay the session load.
+_ONNX_RUNTIME_CACHE: dict = {}
+_ONNX_RUNTIME_LOCK = asyncio.Lock()
+
 
 @dataclass
 class NLIResult:
@@ -107,8 +113,9 @@ class NLIClassifier:
         self._llm_available = None
         self._warned_degraded = False
         # transformers backend state (RFC #732 Phase 3): (tokenizer, session,
-        # id2label) once loaded.
+        # id2label) once loaded. True once any call degraded to the heuristic.
         self._onnx_runtime = None
+        self.degraded = False
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
@@ -211,7 +218,12 @@ class NLIClassifier:
         if not pairs:
             return []
         if self.backend == "transformers":
-            return await self._transformers_classify(pairs)
+            # Chunked so a whole-store export cannot arrive as one padded
+            # tensor; 32 keeps the batch memory flat regardless of input size.
+            results = []
+            for i in range(0, len(pairs), 32):
+                results.extend(await self._transformers_classify(pairs[i:i + 32]))
+            return results
         return [await self.classify(p, h) for p, h in pairs]
 
     async def _transformers_classify(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
@@ -223,7 +235,9 @@ class NLIClassifier:
         ``onnxruntime`` + ``tokenizers`` + ``huggingface_hub`` — never torch.
         Load and inference run in worker threads; both are synchronous. Any
         failure degrades to the heuristic for every pair in this call, the
-        same contract the LLM backend offers.
+        same contract the LLM backend offers, and sets ``self.degraded`` so
+        provenance (edge metadata, harness reports) can name the backend
+        that actually produced the verdict.
         """
         try:
             tokenizer, session, id2label = await self._get_onnx_runtime()
@@ -261,51 +275,69 @@ class NLIClassifier:
                 for out, pair in zip(results, pairs)
             ]
         except Exception as e:
+            self.degraded = True
             if not self._warned_degraded:
                 self._warned_degraded = True
                 self._warn_once(_sanitize_log_value(f"transformers inference failed: {e}"))
             return [self._heuristic_classify(p, h) for p, h in pairs]
 
     async def _get_onnx_runtime(self):
-        """Lazy single-instance (tokenizer, session, id2label) for the model.
+        """Lazy (tokenizer, session, id2label) for the model, cached per model.
 
-        ``MCP_NLI_MODEL`` names the HF repo (default per the spec),
-        ``MCP_NLI_ONNX_FILE`` the ONNX file inside it — ``onnx/model.onnx``
-        fp32 by default, e.g. ``onnx/model_quint8_avx2.onnx`` for the
-        quantized build. Offline environments reuse the hub cache.
+        The cache is module-level: callers construct a fresh NLIClassifier
+        per detection (the quarantine path, detect_contradictions_nli), and
+        each instance used to pay the full ONNX session load again. Keyed by
+        (repo, onnx file) so switching ``MCP_NLI_ONNX_FILE`` to a quantized
+        build loads that instead. ``MCP_NLI_MODEL`` names the HF repo
+        (default per the spec), ``MCP_NLI_ONNX_FILE`` the ONNX file inside
+        it — ``onnx/model.onnx`` fp32 by default. Offline environments reuse
+        the hub cache.
         """
+        cache_key = (
+            os.environ.get("MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"),
+            os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx"),
+        )
+        model_name, onnx_file = cache_key
         if self._onnx_runtime is None:
-            model_name = os.environ.get(
-                "MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"
-            )
-            onnx_file = os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx")
+            async with _ONNX_RUNTIME_LOCK:
+                if cache_key not in _ONNX_RUNTIME_CACHE:
+                    def _load():
+                        import json
 
-            def _load():
-                import json
+                        import onnxruntime as ort
+                        from huggingface_hub import (
+                            hf_hub_download, try_to_load_from_cache,
+                        )
+                        from tokenizers import Tokenizer
 
-                import onnxruntime as ort
-                from huggingface_hub import hf_hub_download
-                from tokenizers import Tokenizer
+                        def _fetch(fname):
+                            # Cached copy first: hf_hub_download HEAD-checks the
+                            # Hub even on a cache hit, which turns a flaky
+                            # connection into a failed load of a file we
+                            # already have. Delete the cache to refresh.
+                            cached = try_to_load_from_cache(model_name, fname)
+                            if isinstance(cached, str):
+                                return cached
+                            return hf_hub_download(model_name, fname)
 
-                model_path = hf_hub_download(model_name, onnx_file)
-                tokenizer = Tokenizer.from_file(
-                    hf_hub_download(model_name, "tokenizer.json")
-                )
-                config = json.load(
-                    open(hf_hub_download(model_name, "config.json"), encoding="utf-8")
-                )
-                id2label = {int(k): v for k, v in config["id2label"].items()}
-                session = ort.InferenceSession(
-                    model_path, providers=["CPUExecutionProvider"]
-                )
-                tokenizer.enable_truncation(max_length=512)
-                tokenizer.enable_padding()
-                return tokenizer, session, id2label
+                        model_path = _fetch(onnx_file)
+                        tokenizer = Tokenizer.from_file(_fetch("tokenizer.json"))
+                        with open(_fetch("config.json"), encoding="utf-8") as fh:
+                            config = json.load(fh)
+                        id2label = {int(k): v for k, v in config["id2label"].items()}
+                        session = ort.InferenceSession(
+                            model_path, providers=["CPUExecutionProvider"]
+                        )
+                        tokenizer.enable_truncation(max_length=512)
+                        tokenizer.enable_padding()
+                        return tokenizer, session, id2label
 
-            self._onnx_runtime = await asyncio.to_thread(_load)
-            logger.info(
-                "NLI transformers backend loaded (ONNX): %s/%s", model_name, onnx_file
-            )
+                    _ONNX_RUNTIME_CACHE[cache_key] = await asyncio.to_thread(_load)
+                    logger.info(
+                        "NLI transformers backend loaded (ONNX): %s/%s",
+                        model_name, onnx_file,
+                    )
+            self._onnx_runtime = _ONNX_RUNTIME_CACHE[cache_key]
         return self._onnx_runtime
 
     def _nli_result_from_scored_label(self, out: dict, fallback_pair: Tuple[str, str]) -> NLIResult:
@@ -479,13 +511,17 @@ async def detect_contradictions_nli(
     if not dry_run and contradictions:
         for h, mem_b_data, nli_res in contradictions:
             try:
+                # Provenance names the backend that actually classified —
+                # a degraded transformers run is heuristic evidence, not
+                # model evidence.
+                backend_used = "heuristic" if classifier.degraded else classifier.backend
                 await graph.store_association(
                     source_hash=memory_hash,
                     target_hash=h,
                     similarity=nli_res.confidence,
                     connection_types=["contradiction"],
                     relationship_type="contradicts",
-                    metadata={"confidence": nli_res.confidence, "method": f"nli_{classifier.backend}"},
+                    metadata={"confidence": nli_res.confidence, "method": f"nli_{backend_used}"},
                 )
                 result["conflicts_registered"] += 1
             except Exception as e:

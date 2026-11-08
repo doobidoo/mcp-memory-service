@@ -16,10 +16,14 @@ from mcp_memory_service.reasoning.nli import NLIClassifier  # noqa: E402
 
 def _model_cached() -> bool:
     import os
-    from huggingface_hub import scan_cache_dir
-    for repo in scan_cache_dir().repos:
-        if repo.repo_id == "cross-encoder/nli-deberta-v3-small":
-            return True
+    try:
+        from huggingface_hub import scan_cache_dir
+        for repo in scan_cache_dir().repos:
+            if repo.repo_id == "cross-encoder/nli-deberta-v3-small":
+                return True
+    except Exception:
+        # No HF cache directory at all (fresh CI runner) — nothing cached.
+        return False
     return os.environ.get("MCP_NLI_MODEL") is not None
 
 

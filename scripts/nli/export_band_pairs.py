@@ -18,8 +18,10 @@ pairs for a store you point it at, on a read-only basis, in three steps:
     #    never the pair texts, so a private store stays private
     python scripts/nli/export_band_pairs.py score --pairs pairs.jsonl
 
-Read-only: export runs the detector's candidate scan with dry_run=True and
-writes nothing to the database.
+Point ``--db`` at a copy of the store: initialization runs the storage's
+own migrations, and the export scan's searches record access stats, so the
+live database is not the right target. The export itself decides nothing —
+it only collects the candidates the band detector would pair up.
 """
 
 import argparse
@@ -58,9 +60,15 @@ async def cmd_export(args):
         # _scan is the band detector's own candidate generation (what
         # detect_contradictions runs); it returns full hashes, unlike the
         # truncated pair summary in detect_contradictions' results dict.
-        # dry-run by construction: nothing here writes to the store.
+        # Not a pure read: initialization runs the storage's own migrations
+        # and the scan's searches record access stats — point --db at a
+        # copy of the store, not the live database.
         memories = await storage.get_all_memories()
-        scan_state = {"search_errors": 0, "last_search_error": ""}
+        scan_state = {
+            "protected_skipped": 0,
+            "search_errors": 0,
+            "last_search_error": "",
+        }
         pairs = await contradictions._scan(storage, memories, scan_state)
     finally:
         await storage.close()
@@ -84,7 +92,9 @@ async def cmd_export(args):
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
     print(f"exported {len(lines)} band candidate pairs to {args.out}")
     print(f"detector summary: candidates={len(pairs)} "
+          f"protected_skipped={scan_state['protected_skipped']} "
           f"search_errors={scan_state['search_errors']}")
+    print("note: the scan records access stats — run against a copy of the store")
 
 
 async def cmd_score(args):
@@ -119,7 +129,8 @@ async def cmd_score(args):
     print(json.dumps({
         "n_pairs": len(rows),
         "labeled_contradiction": sum(1 for g in golds if g == "contradiction"),
-        "backend": classifier.backend,
+        "backend_configured": classifier.backend,
+        "degraded_to_heuristic": classifier.degraded,
         "contradiction_precision": round(precision, 3),
         "contradiction_recall": round(recall, 3),
         "true_positive": tp, "false_positive": fp, "false_negative": fn,

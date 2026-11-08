@@ -200,20 +200,30 @@ class TestMemoryResolveBatch:
 
 # ─── Unimplemented backend warning Tests ──────────────────────────────────────
 
-def _onnx_dependencies_missing() -> bool:
+def _simulate_model_unreachable(monkeypatch):
+    """Make the ONNX load fail offline, deterministically.
+
+    With huggingface_hub installed, hf_hub_download is the network boundary
+    of the load path; failing it there leaves the whole try/except
+    degradation contract under test real. Without the package the load path
+    raises ImportError on its own, which exercises the same contract — so
+    there is nothing to patch and nothing to skip.
+    """
     try:
-        import onnxruntime  # noqa: F401
-        import tokenizers  # noqa: F401
-        return False
+        import huggingface_hub
     except ImportError:
-        return True
+        return
+
+    def _fail(*args, **kwargs):
+        raise OSError("simulated: model download unavailable")
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", _fail)
 
 
 class TestUnimplementedBackendWarning:
     """Test that unimplemented backends emit a warning."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(_onnx_dependencies_missing(), reason="onnxruntime/tokenizers installed: degradation path unreachable")
     async def test_transformers_backend_degrades_to_heuristic_without_model(self, caplog, monkeypatch):
         """Backend 'transformers' with the model unreachable degrades to the heuristic.
 
@@ -223,14 +233,14 @@ class TestUnimplementedBackendWarning:
         """
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
-        # Point at a repo that cannot resolve, so the load fails even online.
-        monkeypatch.setenv("MCP_NLI_MODEL", "mcp-memory-service/definitely-not-a-real-model")
+        _simulate_model_unreachable(monkeypatch)
         classifier = NLIClassifier(backend="transformers")
         expected = classifier._heuristic_classify("A is true", "A is false")
         with caplog.at_level(logging.WARNING):
             result = await classifier.classify("A is true", "A is false")
         assert result == expected
         assert "transformers inference failed" in caplog.text
+        assert classifier.degraded is True
 
     @pytest.mark.asyncio
     async def test_unknown_backend_logs_warning(self, caplog):
@@ -245,12 +255,11 @@ class TestUnimplementedBackendWarning:
         assert "some_unknown_backend" in caplog.text
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(_onnx_dependencies_missing(), reason="onnxruntime/tokenizers installed: degradation path unreachable")
     async def test_degradation_warning_logged_only_once_in_batch(self, caplog, monkeypatch):
         """The degradation warning fires once per classifier instance, not per pair."""
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
-        monkeypatch.setenv("MCP_NLI_MODEL", "mcp-memory-service/definitely-not-a-real-model")
+        _simulate_model_unreachable(monkeypatch)
         classifier = NLIClassifier(backend="transformers")
         pairs = [("A", "B"), ("C", "D"), ("E", "F")]
         with caplog.at_level(logging.WARNING):
