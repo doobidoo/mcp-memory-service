@@ -1,8 +1,8 @@
 """Rate limiting on the /mcp FastAPI shim path (#1096).
 
 The shim calls ``server.call_tool()`` outside any SDK request context, so
-it resolves the caller identity from its own HTTP request (``X-Agent-ID``
-header, read before the arguments rewrite) and passes it explicitly.
+it resolves the caller identity directly from its own ``X-Agent-ID`` header
+and passes it explicitly.
 """
 
 import pytest
@@ -95,12 +95,7 @@ def test_shim_enforces_per_agent_limit(shim_client, monkeypatch):
 
 @pytest.mark.integration
 def test_shim_identity_comes_from_header_not_arguments(shim_client, monkeypatch):
-    """The limiter resolves identity before the shim rewrites arguments.
-
-    On /mcp the shim copies ``X-Agent-ID`` into ``arguments["agent_id"]``
-    when the call has none; the limiter must use the header anyway, so an
-    ``agent_id`` argument acting as an author filter never changes buckets.
-    """
+    """An explicit agent_id author filter never changes the header's bucket."""
     _clear_env(monkeypatch)
     monkeypatch.setenv("MCP_RATE_LIMIT_PER_MINUTE", "1")
 

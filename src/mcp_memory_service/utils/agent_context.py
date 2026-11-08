@@ -1,18 +1,18 @@
-"""Per-request agent identity propagation for the streamable-http transport.
+"""Per-request agent identity propagation for HTTP MCP transports.
 
 The ``X-Agent-ID`` header is an **authorship attribution** signal, not an
 authentication or authorization credential: it only names who wrote a memory
 and grants no permission whatsoever. Auth/authz live on a different axis
 (OAuth / API key on ``/mcp``); see ``spec-agent-id-streamable.md`` §3.4.
 
-The streamable-http transport (``StreamableHTTPSessionManager``) has no hook to
-pass per-request HTTP headers down to the tool-call path. This module bridges
-that gap with a :class:`contextvars.ContextVar`: an ASGI middleware reads the
-header once per request, stores it here, and resets it in a ``finally`` block so
-identity never leaks between concurrent requests sharing the same worker.
+The ``/mcp`` endpoint binds write attribution and its legacy implicit read
+filter separately. The streamable-http ASGI middleware binds only write
+attribution. Both reset request state in a ``finally`` block, so it cannot leak
+between concurrent requests sharing the same worker. Client-supplied tool
+arguments remain unchanged.
 
-The single resolution point (``services/memory_service.py``) consults this
-ContextVar between the explicit argument and the ``MCP_AGENT_ID`` env var.
+For write attribution, ``services/memory_service.py`` consults this ContextVar
+between the explicit argument and the ``MCP_AGENT_ID`` env var.
 """
 
 import logging
@@ -44,6 +44,26 @@ def reset_current_agent_id(token: object) -> None:
 def get_current_agent_id() -> Optional[str]:
     """Return the agent id bound to the current request, or ``None``."""
     return _current_agent_id.get()
+
+
+_current_agent_read_filter: ContextVar[Optional[str]] = ContextVar(
+    "mcp_memory_current_agent_read_filter", default=None
+)
+
+
+def set_current_agent_read_filter(agent_id: Optional[str]) -> object:
+    """Bind the legacy /mcp implicit read filter, returning its reset token."""
+    return _current_agent_read_filter.set(agent_id)
+
+
+def reset_current_agent_read_filter(token: object) -> None:
+    """Restore the previous implicit read filter."""
+    _current_agent_read_filter.reset(token)
+
+
+def get_current_agent_read_filter() -> Optional[str]:
+    """Returns the implicit read filter, or ``None`` outside the /mcp shim."""
+    return _current_agent_read_filter.get()
 
 
 def _normalize_agent_id(value: Any) -> Optional[str]:
