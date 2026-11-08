@@ -41,7 +41,7 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_edit_py_tests.sh\"",
             "timeout": 120,
-            "statusMessage": "Running scoped tests..."
+            "async": true
           }
         ]
       }

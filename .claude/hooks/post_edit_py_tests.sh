@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook (Write|Edit): run only the tests relevant to the edited .py
-# file instead of the full ~1,800-test suite. Keeps the edit loop fast.
+# file under src/ instead of the full suite. Runs async (see settings.json), so
+# it never blocks the edit loop.
 #
 # Resolution order for "relevant tests":
 #   1. A matching test file  tests/**/test_<stem>.py  (e.g. graph.py -> test_graph.py)
@@ -14,7 +15,7 @@ PY="$ROOT/.venv/bin/python"
 
 f="$(jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/null)"
 case "$f" in
-  *.py) ;;
+  "$ROOT"/src/*.py) ;;
   *) exit 0 ;;
 esac
 [ -f "$f" ] || exit 0

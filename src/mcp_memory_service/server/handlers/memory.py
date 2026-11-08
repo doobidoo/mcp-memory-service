@@ -36,6 +36,7 @@ from typing import Callable, List, Optional
 from mcp import types
 
 from ...config import INCLUDE_HOSTNAME
+from ...utils.agent_context import get_current_agent_read_filter
 
 # Import response limiter for truncation support
 from ..utils.response_limiter import format_truncated_response, truncate_memories
@@ -43,10 +44,7 @@ from ..utils.response_limiter import format_truncated_response, truncate_memorie
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 def _resolve_hostname(client_hostname: Optional[str]) -> Optional[str]:
     """Resolve the hostname to stamp on a stored memory (RFC mcp-hostname-stamping).
@@ -823,7 +821,7 @@ async def handle_memory_list(server, arguments: dict) -> List[types.TextContent]
             tags = normalize_tags(tags)
 
         # Call memory service list_memories
-        agent_id = arguments.get("agent_id")
+        agent_id = arguments.get("agent_id") or get_current_agent_read_filter()
         result = await server.memory_service.list_memories(
             page=page,
             page_size=page_size,
@@ -1224,6 +1222,31 @@ async def _search_tag_fallback(
     return result.get("memories", [])
 
 
+_HASH_LOOKUP_SUPPORTED_ARGUMENTS = frozenset({
+    "content_hash",
+    "store",
+    "entity",
+    "limit",
+    "max_response_chars",
+    "include_beliefs",
+})
+
+
+async def _retrieve_by_hash(storage, content_hash: str, store):
+    if store is not None and not getattr(storage, "get_by_hash_is_store_scoped", False):
+        return {
+            "error": "store-scoped content_hash lookup is not supported on this storage backend"
+        }, None
+    memory = await storage.get_by_hash(content_hash, store=store)
+    memories = [memory.to_dict()] if memory else []
+    return {
+        "memories": memories,
+        "total": len(memories),
+        "content_hash": content_hash,
+        "mode": "hash",
+    }, None
+
+
 async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
     """Run unified retrieval and its optional exact/tag fallback stages."""
     tags = arguments.get("tags")
@@ -1235,6 +1258,23 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         store = None
 
     query = arguments.get("query")
+    content_hash = arguments.get("content_hash")
+    if content_hash is not None:
+        if "query" in arguments:
+            return {"error": "query and content_hash are mutually exclusive"}, None
+        if not isinstance(content_hash, str) or not content_hash.strip():
+            return {"error": "content_hash must be a non-empty string"}, None
+        unsupported = sorted(set(arguments) - _HASH_LOOKUP_SUPPORTED_ARGUMENTS)
+        if unsupported:
+            message = (
+                "content_hash cannot be combined with search arguments: "
+                + ", ".join(unsupported)
+            )
+            return {"error": message}, None
+        return await _retrieve_by_hash(storage, content_hash.strip(), store)
+
+    agent_id = arguments.get("agent_id") or get_current_agent_read_filter()
+
     # Rerank stage (issue #1602): with `rerank=true` on an enabled setup the
     # candidate pool inflates to MCP_RERANK_CANDIDATES (default 40) so the
     # cross-encoder has something to order; otherwise the fetch is
@@ -1256,7 +1296,7 @@ async def _retrieve_search_results(storage, arguments: dict, normalize_tags):
         include_superseded=arguments.get("include_superseded", False),
         ranking_weights=arguments.get("ranking_weights"),
         store=store,
-        agent_id=arguments.get("agent_id"),
+        agent_id=agent_id,
         as_of=arguments.get("as_of"),
     )
     if "error" in result:
@@ -1431,7 +1471,9 @@ def _build_memory_search_header(result: dict, total: int, fallback_used: bool) -
         header += f" (mode: {result['mode']})"
     if fallback_used:
         header += " [fallback: exact+tag]"
-    if result.get("query"):
+    if result.get("content_hash"):
+        header += f" for content hash: '{result['content_hash']}'"
+    elif result.get("query"):
         header += f" for query: '{result['query']}'"
     return header
 
@@ -1568,7 +1610,9 @@ async def _format_empty_memory_search(
     from ..utils.response_limiter import format_bounded_response
 
     response = "No memories found"
-    if result.get("query"):
+    if result.get("content_hash"):
+        response += f" for content hash: '{result['content_hash']}'"
+    elif result.get("query"):
         response += f" for query: '{result['query']}'"
     # A zero-hit search still carries the diagnostics the caller asked for
     # (filter counts, and the search/filter timing of #1669): a slow empty

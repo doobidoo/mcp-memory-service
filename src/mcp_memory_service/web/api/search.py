@@ -49,10 +49,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_log_value(value: object) -> str:
-    """Sanitize a user-provided value for safe inclusion in log messages."""
-    return str(value).replace("\n", "\\n").replace("\r", "\\r").replace("\x1b", "\\x1b")
-
+from ...compat import _sanitize_log_value
 
 # Request Models
 class SemanticSearchRequest(BaseModel):
@@ -126,7 +123,7 @@ def memory_query_result_to_search_result(
     include_superseded=true. The status is evaluated at as_of when given:
     a supersede that happened after as_of still shows 'current'.
     """
-    import time as _time
+    import time as _time  # inline import: keep optional dependencies lazy
 
     sup_by = query_result.superseded_by
     sup_at = query_result.superseded_at
@@ -219,7 +216,7 @@ async def semantic_search(
 
     This surfaces high-quality memories that may have slightly lower semantic match.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
 
     # Per-store read gate (store is in the request body).
@@ -338,7 +335,7 @@ async def tag_search(
     Optionally filters by time range using natural language expressions like
     'last week', 'yesterday', 'this month', etc.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
 
     # Per-store read gate (store is in the request body).
@@ -440,7 +437,7 @@ async def time_search(
     'this month', etc. Currently implements basic time filtering - full natural
     language parsing can be enhanced later.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
 
     # Per-store read gate (store is in the request body).
@@ -537,7 +534,7 @@ async def find_similar(
     Uses the content of the specified memory as a search query to find
     semantically similar memories.
     """
-    import time
+    import time  # inline import: keep optional dependencies lazy
     start_time = time.time()
 
     try:

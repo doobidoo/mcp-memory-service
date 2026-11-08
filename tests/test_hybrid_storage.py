@@ -868,6 +868,7 @@ class TestBackgroundSyncService:
             content="edited after remote delete",
             content_hash=generate_content_hash("edited after remote delete"),
             tags=["sync"],
+            created_at=now - 100,
             updated_at=now,
         )
         await primary.store(memory)

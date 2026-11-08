@@ -48,7 +48,9 @@ pytestmark = pytest.mark.asyncio
 from mcp import ClientSession  # noqa: E402
 from mcp.client.streamable_http import streamablehttp_client  # noqa: E402
 
+from mcp_memory_service.models.memory import Memory  # noqa: E402
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage  # noqa: E402
+from mcp_memory_service.utils.hashing import generate_content_hash  # noqa: E402
 
 REPO_SRC = str(Path(__file__).resolve().parents[2] / "src")
 ENV_AGENT = "zero"  # MCP_AGENT_ID do serviço (espelha a prova medida na spec §1)
@@ -342,6 +344,43 @@ async def test_ca4_evolve_header_sets_author(service):
         )
     finally:
         await storage.close()
+
+
+async def test_header_does_not_filter_native_reads(service):
+    """Native Streamable HTTP uses X-Agent-ID for writes, not read filters."""
+    contents = [
+        "native read visibility alfa",
+        "native read visibility beta",
+        "native read visibility unattributed",
+    ]
+    await _store_via_header(service.mcp_url, "alfa", contents[0])
+    await _store_via_header(service.mcp_url, "beta", contents[1])
+    storage = SqliteVecMemoryStorage(service.db_path)
+    await storage.initialize()
+    try:
+        ok, _ = await storage.store(Memory(
+            content=contents[2],
+            content_hash=generate_content_hash(contents[2]),
+        ))
+        assert ok
+    finally:
+        await storage.close()
+
+    headers = {"X-Agent-ID": "alfa"}
+    async with streamablehttp_client(service.mcp_url, headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            search = await session.call_tool(
+                "memory_search",
+                {"query": "native read visibility", "mode": "exact"},
+            )
+            listing = await session.call_tool("memory_list", {"page_size": 50})
+
+    search_text = "\n".join(item.text for item in search.content)
+    list_text = "\n".join(item.text for item in listing.content)
+    for content in contents:
+        assert content in search_text
+        assert content in list_text
 
 
 # --------------------------------------------------------------------------- #
