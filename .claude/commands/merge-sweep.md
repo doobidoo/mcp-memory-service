@@ -15,6 +15,14 @@ gh pr list --state open --json number,title,author,headRefOid,isDraft,mergeable,
 - Unresolved review threads (GraphQL `reviewThreads`, `isResolved`). ResolveThreads has no bypass.
 - Conflicts or drift against main. A fork PR showing `action_required` means the run needs approval.
 - Dependabot: did the bump widen a load-bearing constraint?
+- Claim state for every PR labelled `unclaimed` or `no-issue`: match it to one row of
+  the table in CONTRIBUTING.md "How unclaimed PRs and stale claims are decided" and
+  name the row. Evidence: the issue's assign/unassign events
+  (`gh api repos/{owner}/{repo}/issues/<N>/events`), claim comments by others before the
+  PR's `createdAt` (a `/claim` mangled by Git Bash into a path still counts), and other
+  open PRs for the same issue (`gh pr list --search "<N>" --state open`).
+- Stale claims: open issues with an assignee older than 3 days and no PR, draft or
+  update since. List them with the row they fall under (ask, or expire).
 
 Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`, run
 `.venv/bin/pytest` scoped there. Never touch the main tree — several sessions share it.
@@ -24,6 +32,9 @@ Only when a question needs a local answer: worktree under `../worktrees/pr-<N>`,
 - **MERGE**: green, no open threads, no conflicts, automated-review findings (Greptile
   summary and confidence) read, and for contributor PRs the diff reviewed (`/pr-review`)
 - **QUICK-FIX**: under 10 minutes (rebase, answer a thread, approve a run) — name the fix
+- **CLAIM**: unclaimed or no-issue; state the table row and the action it prescribes
+  (assign author, close, ask, expire, `skip-issue`). Never merge a PR in this category
+  before the claim is settled.
 - **DECISION**: needs the maintainer's judgment
 - **SKIP**: draft, red for a real reason, large
 
