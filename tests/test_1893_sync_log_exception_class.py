@@ -17,6 +17,9 @@ from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
 from mcp_memory_service.storage.remote_http import RemoteHTTPStorage
 
 
+_API_KEY = "sentinel-api-key-9f3c1e"  # distinctive, so a substring check for it cannot match by chance
+
+
 class _FakeConsolidator:
     def __init__(self, storage=None):
         self.storage = storage
@@ -49,7 +52,7 @@ def _peer_failing_with(exc):
 
 async def test_request_failure_logs_exception_class(caplog):
     """RemoteHTTPStorage._request names the exception even with an empty message."""
-    storage = RemoteHTTPStorage(base_url="https://example.invalid", api_key="k")
+    storage = RemoteHTTPStorage(base_url="https://example.invalid", api_key=_API_KEY)
 
     async def _raise(method, url, **kwargs):
         raise httpx.ReadTimeout("")
@@ -64,7 +67,7 @@ async def test_request_failure_logs_exception_class(caplog):
 
     messages = [r.getMessage() for r in caplog.records]
     assert any("ReadTimeout" in m for m in messages), messages
-    assert not any("example.invalid" in m or "k" == m for m in messages), \
+    assert not any("example.invalid" in m or _API_KEY in m for m in messages), \
         "the url and the api key must stay out of the log"
 
 
