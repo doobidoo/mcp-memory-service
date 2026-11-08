@@ -1,0 +1,48 @@
+# Keeps the auto-merge queue moving: brings the oldest PR with auto-merge
+# enabled up to date with main, one at a time. GitHub merges it once it is
+# green, approved and has no open threads. Logic: scripts/ci/merge_train.py.
+#
+# The branch update has to come from a GitHub App token. A push made with
+# GITHUB_TOKEN starts no workflows, so CI would never run on the updated branch.
+# Setup: repository variable MERGE_TRAIN_CLIENT_ID (the App's client ID) and
+# secret MERGE_TRAIN_PRIVATE_KEY. Until the variable exists the job is skipped.
+name: Merge Train
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    if: vars.MERGE_TRAIN_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      id: app-token
+      with:
+        client-id: ${{ vars.MERGE_TRAIN_CLIENT_ID }}
+        private-key: ${{ secrets.MERGE_TRAIN_PRIVATE_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-checks: read     # statusCheckRollup / CheckRun in the queue query
+        permission-statuses: read   # StatusContext in the same query
+
+    - name: Move the queue
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: python3 scripts/ci/merge_train.py

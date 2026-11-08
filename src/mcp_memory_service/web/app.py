@@ -114,6 +114,7 @@ class RootPathStaticFiles(StaticFiles):
                 response.headers["Content-Security-Policy"] = _DASHBOARD_CSP
             elif path == "sse_test.html":
                 response.headers["Content-Security-Policy"] = _SAME_ORIGIN_DASHBOARD_CSP
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
 # Global storage instance
@@ -516,7 +517,7 @@ def create_app() -> FastAPI:
                 )
                 return HTMLResponse(
                     content=dashboard_html,
-                    headers={"Content-Security-Policy": _DASHBOARD_CSP},
+                    headers={"Content-Security-Policy": _DASHBOARD_CSP, "Cache-Control": "no-cache"},
                 )
             else:
                 # Fallback to original template if dashboard not found

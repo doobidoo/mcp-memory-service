@@ -47,10 +47,15 @@ Then STOP. Merge nothing.
 
 ## 5. After approval
 
-- Merge one at a time: `gh pr merge <N> --squash --admin --match-head-commit <sha>`.
-  Immediately before each merge, re-fetch the head SHA, its threads and its check-runs;
-  if the SHA changed or a required check is not green, stop and re-classify that PR.
-- Strict policy: after each merge, update the next PR and wait for green CI.
+- Queue each approved PR: `gh pr merge <N> --auto --squash --match-head-commit <sha>`.
+  GitHub merges it once checks, review and threads are all green. The Merge Train
+  workflow (`.github/workflows/merge-train.yml`) updates the oldest queued PR that
+  is behind main, one at a time, and turns auto-merge off with a comment on a
+  conflict or a failed required check. Do not update queued branches by hand.
+- Without the Merge Train App configured (the workflow run is skipped), merge one
+  at a time: `gh pr merge <N> --squash --admin --match-head-commit <sha>`, re-fetch
+  head SHA, threads and check-runs right before, then update the next PR and wait for
+  green CI.
 - Do not run `collect_changelog.py` — collecting fragments belongs to `/release`.
 - Finally remove the worktrees and sync the GitLab mirror with a proven fast-forward
   (see CLAUDE.md "Source Control & Hosting").
