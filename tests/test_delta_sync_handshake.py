@@ -166,6 +166,26 @@ async def test_startup_probe_reads_store_scoping_with_one_request(local_storage,
     assert peer.get_by_hash_is_store_scoped is (advertised is True)
 
 
+@pytest.mark.asyncio
+async def test_startup_probe_waits_for_an_unreachable_peer_once(local_storage):
+    requested = []
+
+    def handler(request):
+        requested.append((request.method, request.url.path))
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    peer = RemoteHTTPStorage("https://peer.test")
+    await peer.client.aclose()
+    peer.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    scheduler = _scheduler(local_storage, peer)
+
+    await scheduler._probe_sync_peers()
+
+    assert requested == [("GET", "/api/sync/capabilities")]
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["status"] == "unavailable"
+
+
 @pytest.mark.parametrize("pull_failed,push_failed", [(1, 0), (0, 2)])
 @pytest.mark.asyncio
 async def test_cycle_reports_event_failures_and_preserves_last_success(

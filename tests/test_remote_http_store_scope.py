@@ -206,3 +206,30 @@ async def test_flag_is_cleared_when_reinitialize_cannot_confirm(answer):
     assert storage.get_by_hash_is_store_scoped is False
     assert await storage.get_by_hash(HASH_WORK, store="work") is None
     assert _memory_calls(requested) == []
+
+
+@pytest.mark.asyncio
+async def test_failed_probe_is_raised_once_by_the_compatibility_check():
+    """initialize() keeps the request error; check_sync_compatibility() raises it
+    without asking the peer again, then the next check asks afresh."""
+    requested = []
+
+    def handler(request):
+        requested.append((request.method, request.url.path))
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    storage = RemoteHTTPStorage("https://peer.test")
+    await storage.client.aclose()
+    storage.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    await storage.initialize()
+    assert storage.get_by_hash_is_store_scoped is False
+    assert requested == [("GET", "/api/sync/capabilities")]
+
+    with pytest.raises(httpx.ConnectTimeout):
+        await storage.check_sync_compatibility(None)
+    assert len(requested) == 1
+
+    with pytest.raises(httpx.ConnectTimeout):
+        await storage.check_sync_compatibility(None)
+    assert len(requested) == 2

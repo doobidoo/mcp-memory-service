@@ -198,10 +198,12 @@ class RemoteHTTPStorage(MemoryStorage):
         self.basic_pass = basic_pass
         self.expected_embedding_model = expected_embedding_model
         self.get_by_hash_is_store_scoped = False
-        # The capabilities response read by initialize(), handed to the
-        # check_sync_compatibility() that the scheduler calls right after it so
-        # the peer is asked once per cycle.
+        # The capabilities response, or the error that stopped it, read by
+        # initialize() and handed to the check_sync_compatibility() that the
+        # scheduler calls right after it, so the peer is asked once per cycle
+        # and a timeout is waited through once.
         self._capabilities_response: Optional[httpx.Response] = None
+        self._capabilities_error: Optional[Exception] = None
         self._unscoped_peer_logged = False
 
         # Set up HTTP client with headers
@@ -273,17 +275,17 @@ class RemoteHTTPStorage(MemoryStorage):
         """Read the peer's capabilities and set ``get_by_hash_is_store_scoped``.
 
         Any failure leaves the flag False, so store-scoped calls fail closed.
-        Errors that matter for sync are raised later by check_sync_compatibility().
+        A request error is kept, not retried: check_sync_compatibility() raises
+        it, so a peer that times out is waited for once, not twice.
         """
         self.get_by_hash_is_store_scoped = False
         self._capabilities_response = None
+        self._capabilities_error = None
         try:
             response = await self._request("GET", "/api/sync/capabilities")
         except Exception as e:
-            logger.debug(
-                "Could not read capabilities from %s: %s",
-                self._peer_label(), _sanitize_log_value(str(e)),
-            )
+            # _request() has already logged it.
+            self._capabilities_error = e
             return
         self._capabilities_response = response
         if response.status_code != 200:
@@ -389,8 +391,11 @@ class RemoteHTTPStorage(MemoryStorage):
             validate_event_schema,
         )
 
-        response = self._capabilities_response
+        response, error = self._capabilities_response, self._capabilities_error
         self._capabilities_response = None
+        self._capabilities_error = None
+        if error is not None:
+            raise error
         if response is None:
             response = await self._request("GET", "/api/sync/capabilities")
         capabilities = _read_sync_capabilities(response)
