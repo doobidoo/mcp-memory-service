@@ -1,4 +1,4 @@
-"""The dashboard uses inline SVG icons and plain text, not emoji."""
+"""Dashboard emoji are limited to locale flags and informative time-of-day cues."""
 
 import json
 import re
@@ -33,11 +33,14 @@ def test_index_html_has_no_emoji():
     assert _emoji_lines((STATIC_DIR / "index.html").read_text(encoding="utf-8")) == []
 
 
-def test_app_js_renders_no_emoji():
+def test_app_js_renders_only_allowed_emoji():
     # console.* lines and the flag fallback for locales without one are not rendered as UI icons.
+    # Only the original eight time-of-day cues are allowed, not arbitrary emoji.
+    time_icons = "const icons = ['🌙', '🌅', '☕', '💻', '🍽️', '⛅', '🍷', '🛏️'];"
     lines = [
         line for line in (STATIC_DIR / "app.js").read_text(encoding="utf-8").splitlines()
         if not re.match(r"\s*console\.", line) and "flag" not in line
+        and line.strip() != time_icons
     ]
 
     assert _emoji_lines("\n".join(lines)) == []
