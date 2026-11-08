@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -100,12 +101,11 @@ def test_refused_update_drops_the_pr_instead_of_failing(monkeypatch):
 
 
 def test_fetch_requeries_while_merge_state_is_unknown(monkeypatch):
-    import json as _json
     answers = iter(["UNKNOWN", "UNKNOWN", "BEHIND"])
 
     def fake_gh(*args):
         nodes = [pr(1, next(answers))]
-        return _json.dumps({"data": {"repository": {"pullRequests": {"nodes": nodes}}}})
+        return json.dumps({"data": {"repository": {"pullRequests": {"nodes": nodes}}}})
 
     monkeypatch.setattr(train, "gh", fake_gh)
     prs = train.fetch("o", "r", attempts=3, pause=0)
