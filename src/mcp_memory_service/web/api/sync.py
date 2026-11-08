@@ -61,6 +61,13 @@ class SyncCapabilitiesResponse(BaseModel):
     embedding_model: str = Field(description="Embedding model used by the vector storage")
     embedding_dimension: int = Field(description="Vector dimension used by the storage")
     version: str = Field(description="Installed MCP Memory Service package version")
+    store_scoped_access: bool = Field(
+        default=False,
+        description=(
+            "Whether get, update and delete by content hash honor the store "
+            "query parameter. An older server omits the field, which reads as False."
+        ),
+    )
 
 
 @router.get("/sync/capabilities", response_model=SyncCapabilitiesResponse)
@@ -77,6 +84,7 @@ async def get_sync_capabilities(
         embedding_model=embedding_model,
         embedding_dimension=embedding_dimension,
         version=__version__,
+        store_scoped_access=bool(getattr(storage, "get_by_hash_is_store_scoped", False)),
     )
 
 

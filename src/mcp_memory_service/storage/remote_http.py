@@ -113,8 +113,38 @@ def _read_sync_embedding_identity(
     return remote_model, remote_dimension
 
 
+_UNSCOPED_PEER_MESSAGE = (
+    "Remote peer does not advertise store_scoped_access; "
+    "upgrade it before sending store-scoped operations"
+)
+
+
+def _is_named_store(store: Optional[str]) -> bool:
+    """Whether ``store`` asks a hash-addressed call to be confined to one store.
+
+    ``None`` and ``"all"`` are unscoped. ``"default"`` is not sent either: a peer
+    that confines resolves a missing ``store`` to ``"default"`` itself, and an
+    older peer keeps serving it as before, so default-store sync keeps working
+    against a hub that has not been upgraded yet.
+    """
+    return store not in (None, "default", "all")
+
+
+def _store_params(store: Optional[str]) -> Dict[str, Any]:
+    """Request kwargs that pass ``store`` to the peer when the call names one."""
+    if store in (None, "default"):
+        return {}
+    return {"params": {"store": store}}
+
+
 class RemoteHTTPStorage(MemoryStorage):
-    """Remote HTTP storage backend using REST API calls."""
+    """Remote HTTP storage backend using REST API calls.
+
+    ``get_by_hash_is_store_scoped`` starts False and becomes True only after the
+    peer advertises ``store_scoped_access`` on ``/api/sync/capabilities``. Until
+    then a call that names a store is refused here, without a request: an older
+    peer ignores the ``store`` query parameter and would answer from every store.
+    """
 
     @property
     def max_content_length(self) -> Optional[int]:
@@ -167,6 +197,14 @@ class RemoteHTTPStorage(MemoryStorage):
         self.basic_user = basic_user
         self.basic_pass = basic_pass
         self.expected_embedding_model = expected_embedding_model
+        self.get_by_hash_is_store_scoped = False
+        # The capabilities response, or the error that stopped it, read by
+        # initialize() and handed to the check_sync_compatibility() that the
+        # scheduler calls right after it, so the peer is asked once per cycle
+        # and a timeout is waited through once.
+        self._capabilities_response: Optional[httpx.Response] = None
+        self._capabilities_error: Optional[Exception] = None
+        self._unscoped_peer_logged = False
 
         # Set up HTTP client with headers
         headers = {}
@@ -219,8 +257,63 @@ class RemoteHTTPStorage(MemoryStorage):
             )
             raise
 
+    def _peer_label(self) -> str:
+        """The peer's URL without credentials, for log lines."""
+        try:
+            url = httpx.URL(self.base_url).copy_with(
+                username="", password="", query=None, fragment=None
+            )
+        except Exception:
+            return "remote peer"
+        return _sanitize_log_value(str(url))
+
+    def _note_store_scoping(self, capabilities: Dict[str, Any]) -> None:
+        """Trust store scoping only when the peer says so explicitly."""
+        self.get_by_hash_is_store_scoped = capabilities.get("store_scoped_access") is True
+
+    async def _probe_store_scoping(self) -> None:
+        """Read the peer's capabilities and set ``get_by_hash_is_store_scoped``.
+
+        Any failure leaves the flag False, so store-scoped calls fail closed.
+        A request error is kept, not retried: check_sync_compatibility() raises
+        it, so a peer that times out is waited for once, not twice.
+        """
+        self.get_by_hash_is_store_scoped = False
+        self._capabilities_response = None
+        self._capabilities_error = None
+        try:
+            response = await self._request("GET", "/api/sync/capabilities")
+        except Exception as e:
+            # _request() has already logged it.
+            self._capabilities_error = e
+            return
+        self._capabilities_response = response
+        if response.status_code != 200:
+            return
+        try:
+            capabilities = response.json()
+        except (ValueError, TypeError):
+            return
+        if isinstance(capabilities, dict):
+            self._note_store_scoping(capabilities)
+
+    def _refuses_store(self, store: Optional[str], operation: str) -> bool:
+        """Fail closed on a named store the peer has not confirmed it confines."""
+        if not _is_named_store(store) or self.get_by_hash_is_store_scoped:
+            return False
+        if not self._unscoped_peer_logged:
+            self._unscoped_peer_logged = True
+            logger.warning(
+                "%s does not advertise store_scoped_access; refusing store-scoped "
+                "%s and every later store-scoped call to it. Upgrade the peer.",
+                self._peer_label(), operation,
+            )
+        return True
+
     async def initialize(self) -> None:
         """Initialize the HTTP storage backend and validate embedding model if expected."""
+        await self._probe_store_scoping()
+
         # If no expected model is specified, skip validation for backward compatibility
         if self.expected_embedding_model is None:
             return
@@ -298,8 +391,15 @@ class RemoteHTTPStorage(MemoryStorage):
             validate_event_schema,
         )
 
-        response = await self._request("GET", "/api/sync/capabilities")
+        response, error = self._capabilities_response, self._capabilities_error
+        self._capabilities_response = None
+        self._capabilities_error = None
+        if error is not None:
+            raise error
+        if response is None:
+            response = await self._request("GET", "/api/sync/capabilities")
         capabilities = _read_sync_capabilities(response)
+        self._note_store_scoping(capabilities)
         peer_version = capabilities.get("version")
         negotiated_protocol = negotiate_sync_protocol(capabilities)
         event_schema_version = validate_event_schema(capabilities)
@@ -372,9 +472,13 @@ class RemoteHTTPStorage(MemoryStorage):
             return False, f"Store failed: {_sanitize_log_value(str(e))}"
 
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
-        """Get a memory by hash via HTTP GET."""
+        """Get a memory by hash via HTTP GET, confined to ``store`` when it names one."""
+        if self._refuses_store(store, "get_by_hash"):
+            return None
         try:
-            response = await self._request("GET", f"/api/memories/{content_hash}")
+            response = await self._request(
+                "GET", f"/api/memories/{content_hash}", **_store_params(store)
+            )
 
             if response.status_code == 404:
                 return None
@@ -436,11 +540,12 @@ class RemoteHTTPStorage(MemoryStorage):
 
     async def delete(self, content_hash: str, store: Optional[str] = None) -> Tuple[bool, str]:
         """Delete a memory via HTTP DELETE, scoped to the given store partition."""
+        if self._refuses_store(store, "delete"):
+            return False, _UNSCOPED_PEER_MESSAGE
         try:
-            if store is not None:
-                response = await self._request("DELETE", f"/api/memories/{content_hash}", params={"store": store})
-            else:
-                response = await self._request("DELETE", f"/api/memories/{content_hash}")
+            response = await self._request(
+                "DELETE", f"/api/memories/{content_hash}", **_store_params(store)
+            )
 
             if response.status_code == 200:
                 result = response.json()
@@ -459,15 +564,25 @@ class RemoteHTTPStorage(MemoryStorage):
         except Exception as e:
             return False, f"Delete failed: {_sanitize_log_value(str(e))}"
 
-    async def update_memory_metadata(self, content_hash: str, updates: Dict[str, Any], preserve_timestamps: bool = True) -> Tuple[bool, str]:
-        """Update memory metadata via HTTP PUT."""
+    async def update_memory_metadata(
+        self,
+        content_hash: str,
+        updates: Dict[str, Any],
+        preserve_timestamps: bool = True,
+        store: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Update memory metadata via HTTP PUT, confined to ``store`` when it names one."""
+        if self._refuses_store(store, "update_memory_metadata"):
+            return False, _UNSCOPED_PEER_MESSAGE
         try:
             payload = {
                 **updates,
                 "preserve_timestamps": preserve_timestamps
             }
 
-            response = await self._request("PUT", f"/api/memories/{content_hash}", json=payload)
+            response = await self._request(
+                "PUT", f"/api/memories/{content_hash}", json=payload, **_store_params(store)
+            )
 
             if response.status_code == 200:
                 result = response.json()
