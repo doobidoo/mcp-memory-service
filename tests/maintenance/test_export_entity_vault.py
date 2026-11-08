@@ -474,16 +474,13 @@ async def test_writes_do_not_escape_vault_via_external_symlinks(seeded_storage, 
     manifest_link.unlink(missing_ok=True)
     manifest_link.symlink_to(outside_file)
 
-    # Run export with --force to test the write-level symlink replacement
+    # Run export with --force to test that writing to an escaping symlink is safely refused
     result = run_export_script("--out", str(vault_dir), "--db-path", db_file, "--force")
-    assert result.returncode == 0
+    assert result.returncode != 0
+    assert "Unsafe destination or path traversal detected" in result.stderr or "Refusing" in result.stderr
 
     # The external file must be COMPLETELY UNTOUCHED!
     assert outside_file.read_text(encoding="utf-8") == '{"host_state": "intact"}'
-    # And the vault files must now be regular files, not escaping symlinks
-    assert not index_link.is_symlink()
-    assert not entity_link.is_symlink()
-    assert not manifest_link.is_symlink()
 
 
 @pytest.mark.asyncio
