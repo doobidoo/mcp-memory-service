@@ -166,9 +166,8 @@ async def test_hybrid_relationship_distribution_returns_primary_data(hybrid_with
     assert distribution["follows"] == 1  # Directed
 
 
-@pytest.mark.xfail(reason="Pre-existing bug: Permission denied accessing '/fake' path")
 @pytest.mark.asyncio
-async def test_hybrid_relationship_distribution_with_mock_primary():
+async def test_hybrid_relationship_distribution_with_mock_primary(tmp_path):
     """Test delegation using fully mocked primary storage.
 
     Validates:
@@ -184,7 +183,7 @@ async def test_hybrid_relationship_distribution_with_mock_primary():
     mock_secondary = AsyncMock()
 
     # Create hybrid with mocks
-    hybrid = HybridMemoryStorage("/fake/path")
+    hybrid = HybridMemoryStorage(str(tmp_path / "memory.db"))
     hybrid.primary = mock_primary
     hybrid.secondary = mock_secondary
 
@@ -251,9 +250,8 @@ async def test_hybrid_graph_visualization_returns_primary_data(hybrid_with_graph
     assert "fixes" in rel_types
 
 
-@pytest.mark.xfail(reason="Pre-existing bug: Permission denied accessing '/fake' path")
 @pytest.mark.asyncio
-async def test_hybrid_graph_visualization_with_mock_primary():
+async def test_hybrid_graph_visualization_with_mock_primary(tmp_path):
     """Test delegation using fully mocked primary storage.
 
     Validates:
@@ -273,7 +271,7 @@ async def test_hybrid_graph_visualization_with_mock_primary():
     mock_secondary = AsyncMock()
 
     # Create hybrid with mocks
-    hybrid = HybridMemoryStorage("/fake/path")
+    hybrid = HybridMemoryStorage(str(tmp_path / "memory.db"))
     hybrid.primary = mock_primary
     hybrid.secondary = mock_secondary
 
@@ -281,7 +279,7 @@ async def test_hybrid_graph_visualization_with_mock_primary():
     result = await hybrid.get_graph_visualization_data(limit=100, min_connections=1)
 
     # Verify delegation with correct parameters
-    mock_primary.get_graph_visualization_data.assert_called_once_with(100, 1)
+    mock_primary.get_graph_visualization_data.assert_called_once_with(100, 1, store=None)
     assert result == mock_data
 
 
