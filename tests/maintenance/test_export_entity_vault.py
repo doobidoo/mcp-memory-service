@@ -430,7 +430,7 @@ async def test_stale_symlink_does_not_delete_target_note(seeded_storage, temp_db
     assert result.returncode == 0
 
     # 5. Verify the stale symlink was unlinked, but target_note is STILL INTACT!
-    assert not symlink_page.exists(follow_symlinks=False), "Stale symlink was not removed"
+    assert not symlink_page.is_symlink() and not symlink_page.exists(), "Stale symlink was not removed"
     assert target_note.exists(), "Target note was erroneously deleted!"
     assert target_note.read_text(encoding="utf-8") == "User custom research notes"
 
