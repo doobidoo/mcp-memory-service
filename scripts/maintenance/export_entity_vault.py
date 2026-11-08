@@ -9,6 +9,7 @@ Usage:
 import argparse
 import asyncio
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -190,6 +191,7 @@ def build_entity_markdown(
     profile: Dict[str, Any],
     exported_entity_ids: Set[str],
     exported_at: str,
+    name_to_eid: Optional[Dict[str, str]] = None,
 ) -> str:
     """Build the complete markdown page with YAML frontmatter for an entity."""
     entity_id = detail["entity_id"]
@@ -240,9 +242,11 @@ def build_entity_markdown(
     # Related section with wikilinks
     # Only link to entities that are actually exported in this vault run (respecting --limit)
     related = detail.get("related_entities", [])
+    name_map = name_to_eid or {}
     related_links = []
     for rel in related:
-        rel_id = rel.get("entity_id") or normalize_entity_id(rel.get("name", ""))
+        rel_name = rel.get("name", "")
+        rel_id = name_map.get(rel_name) or rel.get("entity_id") or normalize_entity_id(rel_name)
         if rel_id in exported_entity_ids and rel_id != entity_id:
             related_links.append(f"- [[{entity_filename_stem(rel_id)}]]")
 
@@ -313,15 +317,14 @@ async def export_vault(
             )
             return 1
 
-        # Normalize and filter by store if scoped, before applying limit
+        # Normalize, disambiguate colliding slugs, and filter by store if scoped
+        used_eids: Dict[str, str] = {}  # eid -> raw_name
+        name_to_eid: Dict[str, str] = {}  # raw_name -> eid
         candidate_entities = []
-        exported_entity_ids = set()
+
         for raw in all_raw_entities:
             raw_name = raw.get("entity_name", "")
-            if not raw_name:
-                continue
-            eid = normalize_entity_id(raw_name)
-            if eid in exported_entity_ids:
+            if not raw_name or raw_name in name_to_eid:
                 continue
 
             # Store scoping filter: check that entity has active memories in the requested store
@@ -336,7 +339,17 @@ async def export_vault(
                 if not has_active_chunk:
                     continue
 
-            exported_entity_ids.add(eid)
+            # Disambiguate slugs: distinct raw_names that slugify identically (e.g. foo.py and foo/py)
+            # get a deterministic short-hash suffix so both entities are exported
+            base_eid = normalize_entity_id(raw_name)
+            if base_eid not in used_eids:
+                eid = base_eid
+            else:
+                h = hashlib.sha1(raw_name.encode("utf-8")).hexdigest()[:6]
+                eid = f"{base_eid}-{h}"
+
+            used_eids[eid] = raw_name
+            name_to_eid[raw_name] = eid
             candidate_entities.append({"entity_id": eid, "name": raw_name})
 
         if not candidate_entities:
@@ -410,6 +423,7 @@ async def export_vault(
                 profile=profile,
                 exported_entity_ids=exported_entity_ids,
                 exported_at=exported_at,
+                name_to_eid=name_to_eid,
             )
 
             filename = f"{entity_filename_stem(eid)}.md"

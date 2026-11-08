@@ -505,3 +505,27 @@ async def test_database_path_with_special_characters(seeded_storage, temp_db_pat
     assert result.returncode == 0
     assert (vault_dir / "index.md").exists()
     assert (vault_dir / "alpha-service.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_colliding_slugs_disambiguated_without_dropping_entities(seeded_storage, temp_db_path):
+    """Distinct raw entity names with identical slugs (e.g. foo.py and foo/py) must both be exported with disambiguated IDs."""
+    db_file, storage, graph, memories = seeded_storage
+    vault_dir = Path(temp_db_path) / "vault_slug_collision"
+
+    # Add two entities that slugify identically to 'foo-py'
+    await graph.store_entity_link(memories[0].content_hash, "foo.py", "file")
+    await graph.store_entity_link(memories[1].content_hash, "foo/py", "file")
+
+    result = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result.returncode == 0
+
+    # Both entities must have pages in the vault
+    all_pages = [p.name for p in vault_dir.glob("*.md")]
+    foo_pages = [p for p in all_pages if p.startswith("foo-py")]
+    assert len(foo_pages) == 2, f"Expected 2 disambiguated pages for foo.py and foo/py, found: {foo_pages}"
+
+    # Verify both entities appear in index.md
+    index_content = (vault_dir / "index.md").read_text(encoding="utf-8")
+    assert "foo.py" in index_content
+    assert "foo/py" in index_content
