@@ -39,6 +39,8 @@ jobs:
         private-key: ${{ secrets.MERGE_TRAIN_PRIVATE_KEY }}
         permission-contents: write
         permission-pull-requests: write
+        permission-checks: read     # statusCheckRollup / CheckRun in the queue query
+        permission-statuses: read   # StatusContext in the same query
 
     - name: Move the queue
       env:

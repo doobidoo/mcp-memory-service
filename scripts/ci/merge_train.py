@@ -41,9 +41,10 @@ IN_FLIGHT_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
 MARKER = "<!-- merge-train -->"
 
 QUERY = """
-query($owner: String!, $name: String!) {
+query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, first: 50) {
+    pullRequests(states: OPEN, first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         number id isDraft mergeStateStatus headRefOid
         labels(first: 20) { nodes { name } }
@@ -125,12 +126,24 @@ def queue(prs: list[dict]) -> list[dict]:
     return sorted(queued, key=lambda p: p["autoMergeRequest"]["enabledAt"])
 
 
-def plan(prs: list[dict], required: set[str]) -> list[tuple[dict, str, str]]:
-    """Decisions in queue order, ending at the first PR that stops the run."""
+REFUSED = ("the branch could not be updated with main (for a fork, check that "
+           "\"Allow edits by maintainers\" is on)")
+
+
+def run(prs: list[dict], required: set[str], act) -> list[tuple[int, str, str]]:
+    """Walk the queue until one PR is in flight or updated; return what was done.
+
+    act(action, pr, reason) performs "update" or "drop" and returns whether it
+    worked. A refused update drops that PR and the walk goes on to the next one.
+    """
     steps = []
     for pr in queue(prs):
         action, reason = decide(pr, required)
-        steps.append((pr, action, reason))
+        if action == "update" and not act("update", pr, reason):
+            action, reason = "drop", REFUSED
+        if action == "drop":
+            act("drop", pr, reason)
+        steps.append((pr["number"], action, reason))
         if action in ("wait", "update"):
             break
     return steps
@@ -147,38 +160,48 @@ def drop(repo: str, pr: dict, reason: str) -> None:
     gh("pr", "comment", str(pr["number"]), "-R", repo, "--body", body)
 
 
-def update(repo: str, pr: dict) -> None:
-    """Update the branch; a refused update drops the PR instead of failing every run."""
+def update(repo: str, pr: dict) -> bool:
     try:
         gh("api", "-X", "PUT", f"repos/{repo}/pulls/{pr['number']}/update-branch",
            "-f", f"expected_head_sha={pr['headRefOid']}")
+        return True
     except subprocess.CalledProcessError as exc:
         print(f"#{pr['number']}: update-branch refused: {exc.stderr.strip()}")
-        drop(repo, pr, "the branch could not be updated with main (for a fork, check "
-                       "that \"Allow edits by maintainers\" is on)")
+        return False
 
 
-def apply(repo: str, steps: list[tuple[dict, str, str]], dry_run: bool) -> None:
-    for pr, action, reason in steps:
-        print(f"#{pr['number']}: {action} ({reason})")
+def actor(repo: str, dry_run: bool):
+    def act(action: str, pr: dict, reason: str) -> bool:
         if dry_run:
-            continue
+            return True
         if action == "update":
-            update(repo, pr)
-        elif action == "drop":
-            drop(repo, pr, reason)
+            return update(repo, pr)
+        drop(repo, pr, reason)
+        return True
+    return act
+
+
+def fetch_all_pages(owner: str, name: str) -> list[dict]:
+    prs, cursor = [], None
+    while True:
+        args = ["api", "graphql", "-f", f"query={QUERY}", "-f", f"owner={owner}", "-f", f"name={name}"]
+        if cursor:
+            args += ["-f", f"cursor={cursor}"]
+        page = json.loads(gh(*args))["data"]["repository"]["pullRequests"]
+        prs += page["nodes"]
+        if not page["pageInfo"]["hasNextPage"]:
+            return prs
+        cursor = page["pageInfo"]["endCursor"]
 
 
 def fetch(owner: str, name: str, attempts: int = 3, pause: float = 10.0) -> list[dict]:
-    """Open PRs, re-queried while a queued PR's merge state is still UNKNOWN.
+    """All open PRs, re-queried while a queued PR's merge state is still UNKNOWN.
 
     GitHub computes mergeStateStatus lazily: right after main moves, the first
     query returns UNKNOWN and only schedules the computation.
     """
     for attempt in range(attempts):
-        data = json.loads(gh("api", "graphql", "-f", f"query={QUERY}",
-                             "-f", f"owner={owner}", "-f", f"name={name}"))
-        prs = data["data"]["repository"]["pullRequests"]["nodes"]
+        prs = fetch_all_pages(owner, name)
         if all(p["mergeStateStatus"] != "UNKNOWN" for p in queue(prs)) or attempt == attempts - 1:
             return prs
         time.sleep(pause)
@@ -195,10 +218,11 @@ def main() -> int:
     rules = json.loads(gh("api", f"repos/{args.repo}/rules/branches/main"))
     required = {c["context"] for r in rules if r["type"] == "required_status_checks"
                 for c in r["parameters"]["required_status_checks"]}
-    steps = plan(prs, required)
+    steps = run(prs, required, actor(args.repo, args.dry_run))
+    for number, action, reason in steps:
+        print(f"#{number}: {action} ({reason})")
     if not steps:
         print("auto-merge queue is empty")
-    apply(args.repo, steps, args.dry_run)
     return 0
 
 
