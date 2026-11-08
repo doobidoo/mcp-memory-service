@@ -496,8 +496,10 @@ class ConsolidationScheduler:
                     probe_version=probe_version,
                 )
                 self.logger.warning(
-                    "Delta-sync capability probe failed for peer %s: %s",
-                    _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                    "Delta-sync capability probe failed for peer %s: %s: %s",
+                    _sanitize_log_value(peer_id),
+                    _sanitize_log_value(type(exc).__name__),
+                    _sanitize_log_value(exc),
                 )
             finally:
                 try:
@@ -627,8 +629,10 @@ class ConsolidationScheduler:
                 operation_version=operation_version,
             )
             self.logger.error(
-                "Delta-sync cycle failed for peer %s: %s",
-                _sanitize_log_value(peer_id), _sanitize_log_value(exc),
+                "Delta-sync cycle failed for peer %s: %s: %s",
+                _sanitize_log_value(peer_id),
+                _sanitize_log_value(type(exc).__name__),
+                _sanitize_log_value(exc),
             )
         finally:
             if operation_version == self._sync_peer_operation_versions.get(peer_id):

@@ -81,7 +81,7 @@ class SQLiteOAuthStorage(OAuthStorage):
         if db_dir and not os.path.exists(db_dir):
             Path(db_dir).mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Initialized SQLite OAuth storage at {_sanitize_log_value(db_path)}")
+        logger.info("Initialized SQLite OAuth storage at %s", _sanitize_log_value(db_path))
 
     async def _get_connection(self) -> aiosqlite.Connection:
         """
@@ -330,7 +330,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                 )
             )
             await self._commit()
-            logger.debug(f"Stored OAuth client: {_sanitize_log_value(client.client_id)}")
+            logger.debug("Stored OAuth client: %s", _sanitize_log_value(client.client_id))
 
     async def get_client(self, client_id: str) -> Optional[RegisteredClient]:
         """
@@ -447,7 +447,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                  code_challenge, code_challenge_method)
             )
             await self._commit()
-            logger.debug(f"Stored authorization code for client: {_sanitize_log_value(client_id)}")
+            logger.debug("Stored authorization code for client: %s", _sanitize_log_value(client_id))
 
     async def get_authorization_code(self, code: str) -> Optional[Dict]:
         """
@@ -495,11 +495,11 @@ class SQLiteOAuthStorage(OAuthStorage):
 
             # Check if update succeeded (race condition protection)
             if cursor.rowcount == 0:
-                logger.warning(f"Authorization code already consumed (race condition): {_sanitize_log_value(code)}")
+                logger.warning("Authorization code already consumed (race condition): %s", _sanitize_log_value(code))
                 return None
 
             await self._commit()
-            logger.debug(f"Consumed authorization code for client: {_sanitize_log_value(row['client_id'])}")
+            logger.debug("Consumed authorization code for client: %s", _sanitize_log_value(row['client_id']))
 
             return {
                 "client_id": row["client_id"],
@@ -543,7 +543,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                 (token, client_id, scope, now + expires_in, now)
             )
             await self._commit()
-            logger.debug(f"Stored access token for client: {_sanitize_log_value(client_id)}")
+            logger.debug("Stored access token for client: %s", _sanitize_log_value(client_id))
 
     async def get_access_token(self, token: str) -> Optional[Dict]:
         """
@@ -637,7 +637,7 @@ class SQLiteOAuthStorage(OAuthStorage):
                 (token, client_id, scope, now + expires_in, parent_token, now),
             )
             await self._commit()
-            logger.debug(f"Stored refresh token for client: {_sanitize_log_value(client_id)}")
+            logger.debug("Stored refresh token for client: %s", _sanitize_log_value(client_id))
 
     async def get_refresh_token(self, token: str) -> Optional[Dict]:
         """Return refresh token data if live (not revoked, not expired)."""
@@ -874,9 +874,12 @@ class SQLiteOAuthStorage(OAuthStorage):
 
             if codes_cleaned > 0 or tokens_cleaned > 0 or refresh_cleaned > 0:
                 logger.info(
-                    f"Cleaned up {codes_cleaned} expired authorization codes, "
-                    f"{tokens_cleaned} expired access tokens, and "
-                    f"{refresh_cleaned} expired refresh tokens"
+                    "Cleaned up %d expired authorization codes, "
+                    "%d expired access tokens, and "
+                    "%d expired refresh tokens",
+                    codes_cleaned,
+                    tokens_cleaned,
+                    refresh_cleaned,
                 )
 
             return {
