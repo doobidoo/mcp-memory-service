@@ -325,14 +325,11 @@ async def export_vault(
             )
             return 1
 
-        # Normalize, disambiguate colliding slugs, and filter by store if scoped
-        used_eids: Dict[str, str] = {}  # eid -> raw_name
-        name_to_eid: Dict[str, str] = {}  # raw_name -> eid
-        candidate_entities = []
-
+        # Step A: Collect distinct raw entity names that pass store filtering
+        raw_names_set: Set[str] = set()
         for raw in all_raw_entities:
             raw_name = raw.get("entity_name", "")
-            if not raw_name or raw_name in name_to_eid:
+            if not raw_name or raw_name in raw_names_set:
                 continue
 
             # Store scoping filter: check that entity has active memories in the requested store
@@ -347,26 +344,39 @@ async def export_vault(
                 if not has_active_chunk:
                     continue
 
-            # Disambiguate slugs: distinct raw_names that slugify identically (e.g. foo.py and foo/py)
-            # get a deterministic short-hash suffix so both entities are exported
-            base_eid = normalize_entity_id(raw_name)
-            if base_eid not in used_eids:
-                eid = base_eid
-            else:
-                h = hashlib.sha1(raw_name.encode("utf-8")).hexdigest()[:6]
-                eid = f"{base_eid}-{h}"
+            raw_names_set.add(raw_name)
 
-            used_eids[eid] = raw_name
-            name_to_eid[raw_name] = eid
-            candidate_entities.append({"entity_id": eid, "name": raw_name})
-
-        if not candidate_entities:
+        if not raw_names_set:
             print(
                 f"Error: No entities found matching store '{store}'.\n"
                 'Ensure the entity graph is populated with memories in this store.',
                 file=sys.stderr,
             )
             return 1
+
+        # Step B: Group by base slug and sort names alphabetically to ensure 100% stable IDs
+        # across exports, regardless of memory count changes or query order.
+        slug_to_names: Dict[str, List[str]] = {}
+        for name in sorted(raw_names_set):
+            base_slug = normalize_entity_id(name)
+            slug_to_names.setdefault(base_slug, []).append(name)
+
+        name_to_eid: Dict[str, str] = {}
+        candidate_entities = []
+        for base_slug in sorted(slug_to_names.keys()):
+            names = slug_to_names[base_slug]
+            if len(names) == 1:
+                name_to_eid[names[0]] = base_slug
+                candidate_entities.append({"entity_id": base_slug, "name": names[0]})
+            else:
+                for idx, name in enumerate(names):
+                    if idx == 0:
+                        eid = base_slug
+                    else:
+                        h = hashlib.sha1(name.encode("utf-8")).hexdigest()[:6]
+                        eid = f"{base_slug}-{h}"
+                    name_to_eid[name] = eid
+                    candidate_entities.append({"entity_id": eid, "name": name})
 
         # Sort entities deterministically
         candidate_entities.sort(key=lambda e: e["entity_id"])

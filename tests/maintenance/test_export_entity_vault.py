@@ -522,13 +522,24 @@ async def test_colliding_slugs_disambiguated_without_dropping_entities(seeded_st
 
     # Both entities must have pages in the vault
     all_pages = [p.name for p in vault_dir.glob("*.md")]
-    foo_pages = [p for p in all_pages if p.startswith("foo-py")]
+    foo_pages = sorted([p for p in all_pages if p.startswith("foo-py")])
     assert len(foo_pages) == 2, f"Expected 2 disambiguated pages for foo.py and foo/py, found: {foo_pages}"
 
     # Verify both entities appear in index.md
     index_content = (vault_dir / "index.md").read_text(encoding="utf-8")
     assert "foo.py" in index_content
     assert "foo/py" in index_content
+
+    # Now add more memories to foo/py so its memory count exceeds foo.py
+    # Re-run export to assert that the assigned filenames remain 100% STABLE!
+    await graph.store_entity_link(memories[2].content_hash, "foo/py", "file")
+    await graph.store_entity_link(memories[3].content_hash, "foo/py", "file")
+
+    result2 = run_export_script("--out", str(vault_dir), "--db-path", db_file)
+    assert result2.returncode == 0
+
+    all_pages_after = sorted([p.name for p in vault_dir.glob("*.md") if p.name.startswith("foo-py")])
+    assert all_pages == all_pages_after, "Entity pages changed filenames after popularity/memory count changed!"
 
 
 @pytest.mark.asyncio
