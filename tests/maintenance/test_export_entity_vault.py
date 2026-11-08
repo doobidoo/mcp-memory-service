@@ -539,7 +539,7 @@ async def test_colliding_slugs_disambiguated_without_dropping_entities(seeded_st
     assert result2.returncode == 0
 
     all_pages_after = sorted([p.name for p in vault_dir.glob("*.md") if p.name.startswith("foo-py")])
-    assert all_pages == all_pages_after, "Entity pages changed filenames after popularity/memory count changed!"
+    assert foo_pages == all_pages_after, "Entity pages changed filenames after popularity/memory count changed!"
 
 
 @pytest.mark.asyncio
