@@ -67,27 +67,42 @@ def check_sentence_transformers_installed() -> Tuple[bool, Optional[str]]:
     except ImportError:
         return False, None
 
+def check_onnx_installed() -> Tuple[bool, Optional[str]]:
+    """
+    Check if the ONNX embedding backend (onnxruntime + tokenizers) is installed.
+    Returns (is_installed, onnxruntime_version)
+    """
+    try:
+        import onnxruntime  # inline import: presence of this package is exactly what is being probed
+        import tokenizers  # noqa: F401  # inline import: the ONNX backend cannot tokenize without it
+        return True, getattr(onnxruntime, '__version__', 'unknown')
+    except ImportError:
+        return False, None
+
 def check_critical_dependencies() -> Tuple[bool, list]:
     """
     Check if all critical dependencies are installed.
     Returns (all_installed, missing_packages)
     """
     missing = []
-    
-    # Check PyTorch
-    torch_installed, torch_version = check_torch_installed()
-    if not torch_installed:
-        missing.append("torch")
+
+    # Embeddings need one backend: ONNX (the [sqlite] extra) or PyTorch.
+    # Only with neither does the service fall back to hash embeddings.
+    onnx_installed, onnx_version = check_onnx_installed()
+    if onnx_installed:
+        logger.debug("onnxruntime %s and tokenizers are installed", _sanitize_log_value(onnx_version))
     else:
-        logger.debug(f"PyTorch {_sanitize_log_value(torch_version)} is installed")
-    
-    # Check sentence-transformers
-    st_installed, st_version = check_sentence_transformers_installed()
-    if not st_installed:
-        missing.append("sentence-transformers")
-    else:
-        logger.debug(f"sentence-transformers {_sanitize_log_value(st_version)} is installed")
-    
+        torch_installed, torch_version = check_torch_installed()
+        st_installed, st_version = check_sentence_transformers_installed()
+        if torch_installed and st_installed:
+            logger.debug(
+                "PyTorch %s and sentence-transformers %s are installed",
+                _sanitize_log_value(torch_version),
+                _sanitize_log_value(st_version),
+            )
+        else:
+            missing.append("onnxruntime + tokenizers (or torch + sentence-transformers)")
+
     # Check other critical packages
     critical_packages = [
         "sqlite-vec",
@@ -112,12 +127,8 @@ def suggest_installation_command(missing_packages: list) -> str:
     """
     if not missing_packages:
         return ""
-    
-    # For Windows, suggest running install.py
-    if platform.system() == "Windows":
-        return "python install.py"
-    else:
-        return "python install.py"
+
+    return 'pip install "mcp-memory-service[sqlite]"'
 
 def run_dependency_check() -> bool:
     """
@@ -151,11 +162,39 @@ def run_dependency_check() -> bool:
 
     return all_installed
 
+def _onnx_model_cached() -> bool:
+    """
+    Check the ONNX model cache for a model with both its weights and tokenizer.
+    ONNXEmbeddingModel creates the model directory before downloading, so an
+    interrupted download can leave it empty.
+    """
+    onnx_root = os.path.expanduser("~/.cache/mcp_memory/onnx_models")
+    try:
+        models = os.listdir(onnx_root)
+    except OSError:
+        return False
+
+    for model in models:
+        model_dir = os.path.join(onnx_root, model)
+        # The bundled default model unpacks into <model>/onnx/, Hub exports keep
+        # model.onnx in <model>/ or <model>/onnx/ and tokenizer.json in <model>/
+        for weights_dir in (model_dir, os.path.join(model_dir, "onnx")):
+            if os.path.isfile(os.path.join(weights_dir, "model.onnx")) and any(
+                os.path.isfile(os.path.join(d, "tokenizer.json"))
+                for d in (weights_dir, model_dir)
+            ):
+                logger.debug("Found cached ONNX model in %s", _sanitize_log_value(weights_dir))
+                return True
+    return False
+
 def is_first_run() -> bool:
     """
     Check if this appears to be the first run of the server.
     Enhanced for Windows and Claude Desktop environments.
     """
+    if _onnx_model_cached():
+        return False
+
     # Enhanced cache detection for Windows and different environments
     cache_indicators = []
     

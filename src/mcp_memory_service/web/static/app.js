@@ -121,6 +121,10 @@ class MemoryDashboard {
         // Knowledge graph view state
         this.graphLayout = 'force';
         this.graphRingCenterId = null;
+        this._graphFocusedNode = null;
+        this._graphFocusNeighbors = new Set();
+        this._graphClickTimer = null;
+        this._graph2dClickTimer = null;
 
         // Bind methods
         this.handleSearch = this.handleSearch.bind(this);
@@ -644,6 +648,17 @@ class MemoryDashboard {
         // Navigation
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', this.handleNavigation);
+        });
+
+        // Escape key clears knowledge graph focus mode if active (#1855)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this._graphFocusedNode) {
+                const fsModal = document.getElementById('graphFullscreenModal');
+                const isFs = (fsModal && (fsModal.style.display !== 'none' || fsModal.classList.contains('active'))) || this._graphFullscreenOpen;
+                if (!isFs) {
+                    this.clearGraphFocus(false);
+                }
+            }
         });
 
         // Language dropdown
@@ -6533,7 +6548,12 @@ class MemoryDashboard {
             .append('svg')
             .attr('width', width)
             .attr('height', height)
-            .attr('viewBox', [0, 0, width, height]);
+            .attr('viewBox', [0, 0, width, height])
+            .on('click', (event) => {
+                if (event.target === svg.node()) {
+                    this.clearGraphFocus(isFullscreen);
+                }
+            });
 
         // Add zoom behavior
         const g = svg.append('g');
@@ -6586,7 +6606,24 @@ class MemoryDashboard {
             .attr('r', d => Math.min(20, 8 + Math.sqrt(d.connections) * 2))
             .attr('fill', d => nodeColors[d.type] || nodeColors['untyped'])
             .style('cursor', 'pointer')
-            .on('click', (event, d) => this.handleGraphNodeClick(event, d))
+            .on('click', (event, d) => {
+                if (event.defaultPrevented) return;
+                event.stopPropagation();
+                if (this._graph2dClickTimer) clearTimeout(this._graph2dClickTimer);
+                this._graph2dClickTimer = setTimeout(() => {
+                    this._graph2dClickTimer = null;
+                    this.setGraphFocus(d, isFullscreen);
+                }, 250);
+            })
+            .on('dblclick', (event, d) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (this._graph2dClickTimer) {
+                    clearTimeout(this._graph2dClickTimer);
+                    this._graph2dClickTimer = null;
+                }
+                this.handleGraphNodeClick(event, d);
+            })
             .call(this.dragBehavior(simulation));
 
         // Adjust text size for large graphs
@@ -6619,7 +6656,7 @@ class MemoryDashboard {
                 .duration(200)
                 .style('opacity', 1);
 
-            tooltip.html(this.formatGraphTooltip(d))
+            tooltip.html(this.formatGraphTooltip(d, this.t('analytics.graphFocusHint', 'Click node to focus; double-click for details')))
                 .style('left', (event.pageX + 10) + 'px')
                 .style('top', (event.pageY - 28) + 'px');
         })
@@ -7092,7 +7129,7 @@ class MemoryDashboard {
             .backgroundColor('#01010a')
             .showNavInfo(false)
             .graphData({ nodes, links })
-            .nodeLabel(d => this.formatGraphTooltip(d))
+            .nodeLabel(d => this.formatGraphTooltip(d, this.t('analytics.graphFocusHint', 'Click node to focus; double-click for details')))
             // Soft glowing sprites (not hard spheres) for smooth Orrery-style
             // halos; bloom amplifies the additive falloff.
             .nodeThreeObjectExtend(false)
@@ -7116,22 +7153,52 @@ class MemoryDashboard {
                 return sprite;
             })
             .linkColor(d => edgeColors[d.relationship_type] || edgeColors['related'])
-            .linkOpacity(0.32)
+            .linkOpacity(d => {
+                if (this._graphFocusedNode) {
+                    const s = linkEndId(d.source);
+                    const t = linkEndId(d.target);
+                    const fId = this._graphFocusedNode.id;
+                    if (s === fId || t === fId) return 0.55;
+                    if (this._graphFocusNeighbors.has(s) && this._graphFocusNeighbors.has(t)) return 0.16;
+                    return 0.025;
+                }
+                return 0.32;
+            })
             .linkCurvature(0.25)
             .linkWidth(d => {
-                if (!highlightNode) return 0.4;
-                const hit = linkEndId(d.source) === highlightNode || linkEndId(d.target) === highlightNode;
+                if (this._graphFocusedNode) {
+                    const s = linkEndId(d.source);
+                    const t = linkEndId(d.target);
+                    const fId = this._graphFocusedNode.id;
+                    if (s === fId || t === fId) return 1.8;
+                    if (this._graphFocusNeighbors.has(s) && this._graphFocusNeighbors.has(t)) return 0.8;
+                    return 0.15;
+                }
+                const hNode = Graph.__highlightNode !== undefined ? Graph.__highlightNode : highlightNode;
+                if (!hNode) return 0.4;
+                const hit = linkEndId(d.source) === hNode || linkEndId(d.target) === hNode;
                 return hit ? 1.5 : 0.15;
             })
             .linkDirectionalParticles(d => {
-                if (!highlightNode) return 0;
-                const hit = linkEndId(d.source) === highlightNode || linkEndId(d.target) === highlightNode;
+                if (this._graphFocusedNode) {
+                    const s = linkEndId(d.source);
+                    const t = linkEndId(d.target);
+                    const fId = this._graphFocusedNode.id;
+                    return (s === fId || t === fId) ? 3 : 0;
+                }
+                const hNode = Graph.__highlightNode !== undefined ? Graph.__highlightNode : highlightNode;
+                if (!hNode) return 0;
+                const hit = linkEndId(d.source) === hNode || linkEndId(d.target) === hNode;
                 return hit ? 3 : 0;
             })
             .linkDirectionalParticleSpeed(0.01)
             .onNodeHover(node => {
-                highlightNode = node ? node.id : null;
                 container.style.cursor = node ? 'pointer' : '';
+                highlightNode = node ? node.id : null;
+                Graph.__highlightNode = highlightNode;
+                if (this._graphFocusedNode) {
+                    return; // Retain focus opacities while focus mode is active
+                }
                 // Dim non-neighbor sprites; relight neighbors
                 nodes.forEach(n => {
                     if (!n.__mat) return;
@@ -7142,7 +7209,27 @@ class MemoryDashboard {
                 Graph.linkWidth(Graph.linkWidth())
                     .linkDirectionalParticles(Graph.linkDirectionalParticles());
             })
-            .onNodeClick(node => this.handleGraph3DNodeClick(node));
+            .onNodeClick(node => {
+                const now = Date.now();
+                if (node.__lastClick && (now - node.__lastClick) < 300) {
+                    if (this._graphClickTimer) {
+                        clearTimeout(this._graphClickTimer);
+                        this._graphClickTimer = null;
+                    }
+                    node.__lastClick = 0;
+                    this.handleGraph3DNodeClick(node);
+                    return;
+                }
+                node.__lastClick = now;
+                if (this._graphClickTimer) clearTimeout(this._graphClickTimer);
+                this._graphClickTimer = setTimeout(() => {
+                    this._graphClickTimer = null;
+                    this.setGraphFocus(node, isFullscreen);
+                }, 250);
+            })
+            .onBackgroundClick(() => {
+                this.clearGraphFocus(isFullscreen);
+            });
 
         this['graph3d' + slot] = Graph;
 
@@ -7288,6 +7375,8 @@ class MemoryDashboard {
      * redraw the previous graph over the empty-result or error message.
      */
     _clearGraphData() {
+        this.clearGraphFocus(false);
+        this.clearGraphFocus(true);
         this._disposeConcentricRingView(false);
         if (this._graphFullscreenOpen) {
             this.exitGraphFullscreen();
@@ -7307,6 +7396,8 @@ class MemoryDashboard {
      */
     applyGraphTypeFilter() {
         if (!this.currentGraphData) return;
+        this.clearGraphFocus(false);
+        this.clearGraphFocus(true);
         if (this.use3DGraph) {
             const f = this._filterGraphData(this.currentGraphData);
             const graphData = {
@@ -7553,6 +7644,7 @@ class MemoryDashboard {
      * stopping its render loop and our auto-rotation rAF.
      */
     _disposeGraph3D(isFullscreen) {
+        this.clearGraphFocus(isFullscreen);
         const slot = isFullscreen ? '_fs' : '_main';
         if (this['graph3dRotate' + slot]) {
             this['graph3dRotate' + slot].alive = false;
@@ -7565,6 +7657,323 @@ class MemoryDashboard {
             try { if (g._destructor) g._destructor(); } catch (e) { /* noop */ }
             this['graph3d' + slot] = null;
         }
+    }
+
+    /**
+     * Focus mode on node click: highlight the node and its immediate neighbors,
+     * dim background elements, retarget edge tiers, and display a floating HUD.
+     *
+     * Adapted from second-brain-os (MIT License) by undefined-ui:
+     * focusSet neighborhood filtering, multi-tier edge opacity retargeting,
+     * and floating inspector HUD.
+     */
+    setGraphFocus(node, isFullscreen) {
+        if (!node) return;
+        this._graphFocusedNode = node;
+        const slot = isFullscreen ? '_fs' : '_main';
+        const graph3d = this['graph3d' + slot];
+        const linkEndId = (end) => (end && end.id !== undefined) ? end.id : end;
+
+        // Build neighbor set and categorized groups
+        const focusSet = new Set([node.id]);
+        const neighborGroups = {};
+        const nodeColors = this.graphTypeColors || { 'untyped': '#9B59B6' };
+
+        // Determine source data (use active 3D data or filtered 2D data)
+        const gData = graph3d ? graph3d.graphData() : null;
+        const filtered2d = this.currentGraphData ? this._filterGraphData(this.currentGraphData) : { nodes: [], edges: [] };
+        const nodes = (gData && gData.nodes) || filtered2d.nodes || [];
+        const links = (gData && gData.links) || filtered2d.edges || [];
+        const nodesById = new Map((nodes || []).map(n => [n.id, n]));
+
+        (links || []).forEach(l => {
+            const sId = linkEndId(l.source);
+            const tId = linkEndId(l.target);
+            const rel = l.relationship_type || 'related';
+
+            if (sId === node.id) {
+                focusSet.add(tId);
+                if (!neighborGroups[rel]) neighborGroups[rel] = [];
+                const targetNode = nodesById.get(tId);
+                if (targetNode) {
+                    neighborGroups[rel].push({ node: targetNode, direction: 'out' });
+                }
+            } else if (tId === node.id) {
+                focusSet.add(sId);
+                if (!neighborGroups[rel]) neighborGroups[rel] = [];
+                const sourceNode = nodesById.get(sId);
+                if (sourceNode) {
+                    neighborGroups[rel].push({ node: sourceNode, direction: 'in' });
+                }
+            }
+        });
+
+        this._graphFocusNeighbors = focusSet;
+
+        // Update 3D materials if 3D graph is active
+        if (graph3d && gData) {
+            (gData.nodes || []).forEach(n => {
+                if (!n.__mat) return;
+                const isSelf = n.id === node.id;
+                const inFocus = focusSet.has(n.id);
+                n.__mat.opacity = isSelf ? 1.0 : (inFocus ? 0.85 : 0.12);
+                n.__mat.color.set(inFocus ? n.__baseColor : '#223047');
+            });
+            graph3d.linkOpacity(graph3d.linkOpacity())
+                   .linkWidth(graph3d.linkWidth())
+                   .linkDirectionalParticles(graph3d.linkDirectionalParticles());
+        }
+
+        // Update 2D SVG if 2D graph is active
+        this._apply2DFocusState(node, focusSet, isFullscreen);
+
+        // Render HUD
+        this._renderFocusHUD(node, neighborGroups, nodeColors, isFullscreen);
+    }
+
+    /**
+     * Clear active graph focus mode and remove floating HUD.
+     */
+    clearGraphFocus(_isFullscreen) {
+        this._graphFocusedNode = null;
+        this._graphFocusNeighbors.clear();
+        if (this._graphClickTimer) {
+            clearTimeout(this._graphClickTimer);
+            this._graphClickTimer = null;
+        }
+        if (this._graph2dClickTimer) {
+            clearTimeout(this._graph2dClickTimer);
+            this._graph2dClickTimer = null;
+        }
+
+        // Re-evaluate 3D link and particle accessors across both views with focus cleared
+        ['_main', '_fs'].forEach(slot => {
+            const graph3d = this['graph3d' + slot];
+            if (graph3d && typeof graph3d.graphData === 'function') {
+                graph3d.__highlightNode = null;
+                const gData = graph3d.graphData();
+                (gData.nodes || []).forEach(n => {
+                    if (!n.__mat) return;
+                    n.__mat.opacity = 0.75;
+                    n.__mat.color.set(n.__baseColor);
+                });
+                graph3d.linkOpacity(graph3d.linkOpacity())
+                       .linkWidth(graph3d.linkWidth())
+                       .linkDirectionalParticles(graph3d.linkDirectionalParticles());
+            }
+        });
+
+        this._clear2DFocusState(false);
+        this._clear2DFocusState(true);
+        this._removeFocusHUD(false);
+        this._removeFocusHUD(true);
+    }
+
+    /**
+     * Render floating neighbor HUD in the active graph container.
+     */
+    _renderFocusHUD(node, neighborGroups, nodeColors, isFullscreen) {
+        const container = isFullscreen
+            ? document.getElementById('graphFullscreenContainer')
+            : document.getElementById('graphVisualizationContainer');
+        if (!container) return;
+
+        this._removeFocusHUD(isFullscreen);
+
+        const hud = document.createElement('div');
+        hud.className = 'graph-focus-hud';
+        hud.id = isFullscreen ? 'graphFocusHUDFullscreen' : 'graphFocusHUD';
+        hud.addEventListener('click', (e) => e.stopPropagation());
+
+        const typeColor = nodeColors[node.type || 'untyped'] || '#9B59B6';
+        const titleText = node.title || node.content || node.id;
+        const displayTitle = titleText.length > 70 ? titleText.substring(0, 67) + '...' : titleText;
+
+        let totalNeighbors = 0;
+        Object.values(neighborGroups).forEach(arr => { totalNeighbors += arr.length; });
+
+        let groupsHtml = '';
+        const edgeColors = {
+            'causes': '#E74C3C',
+            'fixes': '#27AE60',
+            'contradicts': '#E67E22',
+            'supports': '#3498DB',
+            'follows': '#9B59B6',
+            'related': '#95A5A6'
+        };
+
+        if (totalNeighbors === 0) {
+            groupsHtml = `<div class="graph-focus-hud-empty">${this.escapeHtml(this.t('analytics.graphNoNeighbors', 'No direct neighbors in current filter'))}</div>`;
+        } else {
+            for (const [rel, items] of Object.entries(neighborGroups)) {
+                const relColor = edgeColors[rel] || edgeColors['related'];
+                const relLabel = this.t(`analytics.${rel}`, rel);
+                groupsHtml += `
+                    <div class="graph-focus-hud-group">
+                        <div class="graph-focus-hud-group-title">
+                            <span><span style="color: ${relColor};">●</span> ${this.escapeHtml(relLabel)}</span>
+                            <span>(${items.length})</span>
+                        </div>
+                        ${items.map(item => {
+                            const nColor = nodeColors[item.node.type || 'untyped'] || '#9B59B6';
+                            const arrow = item.direction === 'out' ? '→' : '←';
+                            const label = item.node.title || item.node.content || item.node.id;
+                            const shortLabel = label.length > 35 ? label.substring(0, 32) + '...' : label;
+                            return `
+                                <button type="button" class="graph-focus-hud-item" data-node-id="${this.escapeHtml(item.node.id)}" title="${this.escapeHtml(label)}">
+                                    <span style="color: var(--text-muted); font-size: 0.8rem;">${arrow}</span>
+                                    <span style="color: ${nColor}; font-size: 0.75rem;">●</span>
+                                    <span class="graph-focus-hud-item-label">${this.escapeHtml(shortLabel)}</span>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+        }
+
+        const minLabel = this.t('analytics.minimize', 'Minimize');
+        hud.innerHTML = `
+            <div class="graph-focus-hud-header">
+                <div class="graph-focus-hud-header-info">
+                    <h4 class="graph-focus-hud-title">${this.escapeHtml(displayTitle)}</h4>
+                    <span class="graph-focus-hud-type" style="background: ${typeColor}22; color: ${typeColor}; border: 1px solid ${typeColor}44;">
+                        ${this.escapeHtml(node.type || 'untyped')}
+                    </span>
+                </div>
+                <div class="graph-focus-hud-header-btns">
+                    <button type="button" class="graph-focus-hud-toggle" title="${this.escapeHtml(minLabel)}" aria-label="${this.escapeHtml(minLabel)}">─</button>
+                    <button type="button" class="graph-focus-hud-close" title="${this.escapeHtml(this.t('analytics.graphCloseFocus', 'Exit Focus Mode (Esc)'))}" aria-label="Close">&times;</button>
+                </div>
+            </div>
+            <div class="graph-focus-hud-actions">
+                <button type="button" class="graph-focus-hud-btn" id="graphFocusViewDetailsBtn">
+                    ${this.escapeHtml(this.t('analytics.graphViewDetails', 'View Full Details'))}
+                </button>
+            </div>
+            <div class="graph-focus-hud-body">
+                <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.35rem; font-weight: 600;">
+                    ${this.escapeHtml(this.t('analytics.graphConnectedNeighbors', 'Connected Neighbors ({count})', { count: totalNeighbors }))}
+                </div>
+                ${groupsHtml}
+            </div>
+        `;
+
+        const toggleBtn = hud.querySelector('.graph-focus-hud-toggle');
+        const updateToggleIcon = () => {
+            const isCollapsed = hud.classList.contains('collapsed');
+            if (toggleBtn) {
+                toggleBtn.textContent = isCollapsed ? '▲' : '─';
+                const label = isCollapsed
+                    ? this.t('analytics.expand', 'Expand')
+                    : this.t('analytics.minimize', 'Minimize');
+                toggleBtn.title = label;
+                toggleBtn.setAttribute('aria-label', label);
+            }
+        };
+
+        toggleBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            hud.classList.toggle('collapsed');
+            updateToggleIcon();
+        });
+
+        hud.querySelector('.graph-focus-hud-header')?.addEventListener('click', (e) => {
+            if (hud.classList.contains('collapsed') && !e.target.closest('.graph-focus-hud-close')) {
+                e.stopPropagation();
+                hud.classList.remove('collapsed');
+                updateToggleIcon();
+            }
+        });
+
+        hud.querySelector('.graph-focus-hud-close')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.clearGraphFocus(isFullscreen);
+        });
+
+        hud.querySelector('#graphFocusViewDetailsBtn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.handleGraph3DNodeClick(node);
+        });
+
+        hud.querySelectorAll('.graph-focus-hud-item').forEach(itemEl => {
+            itemEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const targetId = itemEl.getAttribute('data-node-id');
+                const slot = isFullscreen ? '_fs' : '_main';
+                const gData = this['graph3d' + slot]?.graphData();
+                const filtered2d = this.currentGraphData ? this._filterGraphData(this.currentGraphData) : { nodes: [], edges: [] };
+                const nodes = (gData && gData.nodes) || filtered2d.nodes || [];
+                const targetNode = nodes.find(n => n.id === targetId);
+                if (targetNode) {
+                    this.setGraphFocus(targetNode, isFullscreen);
+                }
+            });
+        });
+
+        container.appendChild(hud);
+    }
+
+    _removeFocusHUD(isFullscreen) {
+        const id = isFullscreen ? 'graphFocusHUDFullscreen' : 'graphFocusHUD';
+        const existing = document.getElementById(id);
+        if (existing) existing.remove();
+    }
+
+    _apply2DFocusState(node, focusSet, isFullscreen) {
+        const container = isFullscreen
+            ? document.getElementById('graphFullscreenContainer')
+            : document.getElementById('graphVisualizationContainer');
+        if (!container) return;
+        const svg = d3.select(container).select('svg');
+        if (svg.empty()) return;
+
+        const linkEndId = (end) => (end && end.id !== undefined) ? end.id : end;
+
+        svg.selectAll('.graph-node')
+            .transition().duration(200)
+            .style('opacity', d => (d.id === node.id ? 1.0 : (focusSet.has(d.id) ? 0.85 : 0.12)));
+
+        svg.selectAll('.graph-label')
+            .transition().duration(200)
+            .style('opacity', d => (focusSet.has(d.id) ? 1.0 : 0.12));
+
+        svg.selectAll('.graph-link')
+            .transition().duration(200)
+            .style('stroke-opacity', d => {
+                const s = linkEndId(d.source), t = linkEndId(d.target);
+                if (s === node.id || t === node.id) return 0.55;
+                if (focusSet.has(s) && focusSet.has(t)) return 0.16;
+                return 0.025;
+            })
+            .style('stroke-width', d => {
+                const s = linkEndId(d.source), t = linkEndId(d.target);
+                if (s === node.id || t === node.id) return 2.5;
+                if (focusSet.has(s) && focusSet.has(t)) return 1.2;
+                return 0.4;
+            });
+    }
+
+    _clear2DFocusState(isFullscreen) {
+        const container = isFullscreen
+            ? document.getElementById('graphFullscreenContainer')
+            : document.getElementById('graphVisualizationContainer');
+        if (!container) return;
+        const svg = d3.select(container).select('svg');
+        if (svg.empty()) return;
+
+        svg.selectAll('.graph-node')
+            .transition().duration(200)
+            .style('opacity', 1.0);
+
+        svg.selectAll('.graph-label')
+            .transition().duration(200)
+            .style('opacity', 1.0);
+
+        svg.selectAll('.graph-link')
+            .transition().duration(200)
+            .style('stroke-opacity', 0.6)
+            .style('stroke-width', 1.5);
     }
 
     /**
@@ -7807,7 +8216,14 @@ class MemoryDashboard {
 
         // Escape key (for the non-OS-fullscreen fallback path)
         this.fullscreenEscapeHandler = (e) => {
-            if (e.key === 'Escape') this.exitGraphFullscreen();
+            if (e.key === 'Escape') {
+                if (this._graphFocusedNode) {
+                    this.clearGraphFocus(true);
+                    e.stopImmediatePropagation();
+                    return;
+                }
+                this.exitGraphFullscreen();
+            }
             if (e.key === 'l') {
                 e.preventDefault();
                 this.toggleGraphLegend();

@@ -17,7 +17,11 @@ from ...models.memory import Memory, MemoryQueryResult
 from ...models.ontology import coerce_memory_type
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
-from ..shared import _exclude_versioned_parent
+from ..shared import (
+    _access_metadata_merge_sql,
+    _exclude_versioned_parent,
+    _merge_access_metadata_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +63,15 @@ class MetadataMixin:
 
     async def _persist_access_metadata(self, memory: Memory):
         """Persist access tracking metadata (access_count, last_accessed_at) to storage."""
+        merged_sql, merged_params = _access_metadata_merge_sql("metadata", memory.metadata)
+
         def update_metadata():
-            self.conn.execute('''
-                UPDATE memories
-                SET metadata = ?
-                WHERE content_hash = ?
-            ''', (json.dumps(memory.metadata), memory.content_hash))
+            # #1464: write only the access keys, not the whole snapshot.
+            self.conn.execute(
+                f"UPDATE memories SET metadata = {merged_sql} WHERE content_hash = ?",
+                (*merged_params, memory.content_hash),
+            )
+            self._merge_access_metadata_sqlite_rejects([memory])
             self.conn.commit()
 
         await self._execute_with_retry(update_metadata)
@@ -78,19 +85,51 @@ class MetadataMixin:
             # issue #1239: persist BOTH the metadata JSON and the dedicated
             # last_accessed column, so staleness/decay measure disuse (not age).
             # The column is what _apply_stale_days_filter reads.
-            rows = []
+            # issue #1464: merge only the access keys into the stored JSON, so a
+            # metadata update committed after the snapshot was read survives.
+            # Memories that carry the same access keys share one statement.
+            statements: Dict[str, List[tuple]] = {}
             for m in memories:
+                merged_sql, merged_params = _access_metadata_merge_sql("metadata", m.metadata)
                 la = m.metadata.get("last_accessed_at")
                 last_accessed = int(la) if la is not None else None
-                rows.append((json.dumps(m.metadata), last_accessed, m.content_hash))
-            self.conn.executemany(
-                "UPDATE memories SET metadata = ?, last_accessed = ? "
-                "WHERE content_hash = ? AND deleted_at IS NULL",
-                rows,
-            )
+                statements.setdefault(merged_sql, []).append(
+                    (*merged_params, last_accessed, m.content_hash)
+                )
+            for merged_sql, rows in statements.items():
+                self.conn.executemany(
+                    f"UPDATE memories SET metadata = {merged_sql}, last_accessed = ? "
+                    "WHERE content_hash = ? AND deleted_at IS NULL",
+                    rows,
+                )
+            self._merge_access_metadata_sqlite_rejects(memories)
             self.conn.commit()
 
         await self._execute_with_retry(batch_update)
+
+    def _merge_access_metadata_sqlite_rejects(self, memories: List[Memory]) -> None:
+        """Merge access keys in Python into rows SQLite's JSON functions reject.
+
+        The SQL merge leaves such rows unchanged (see
+        ``_access_metadata_merge_sql``). This runs in the caller's transaction,
+        before its commit, and only touches the access keys.
+        """
+        by_hash = {m.content_hash: m for m in memories}
+        hashes = list(by_hash)
+        for start in range(0, len(hashes), 500):
+            chunk = hashes[start:start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            rejected = self.conn.execute(
+                "SELECT content_hash, metadata FROM memories "
+                f"WHERE content_hash IN ({placeholders}) AND deleted_at IS NULL "
+                "AND metadata IS NOT NULL AND metadata != '' AND NOT json_valid(metadata)",
+                chunk,
+            ).fetchall()
+            for content_hash, stored in rejected:
+                self.conn.execute(
+                    "UPDATE memories SET metadata = ? WHERE content_hash = ?",
+                    (_merge_access_metadata_text(stored, by_hash[content_hash].metadata), content_hash),
+                )
 
     async def update_memory_metadata(
         self,
