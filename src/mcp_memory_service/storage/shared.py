@@ -141,9 +141,16 @@ def _access_metadata_merge_sql(column: str, metadata: Dict[str, Any]) -> tuple:
     Replacing the whole metadata JSON with an in-memory snapshot drops any key
     another writer committed after the snapshot was read (#1464). The returned
     expression ``json_set``s the access keys present in ``metadata`` into the
-    stored JSON instead. Stored metadata that is not a JSON object (or not
-    valid JSON) is treated as ``{}``, the same fallback as ``_safe_json_loads``.
-    Works on SQLite and Cloudflare D1.
+    stored JSON instead. Works on SQLite and Cloudflare D1.
+
+    - A JSON object: the access keys are set, every other key is kept.
+    - NULL, empty, or valid JSON that is not an object: starts from ``{}``,
+      the same fallback as ``_safe_json_loads``.
+    - Text that SQLite's strict ``json_valid()`` rejects is left unchanged.
+      Python's ``json.dumps`` writes ``NaN`` and ``Infinity``, which
+      ``json.loads`` reads back but SQLite does not, so resetting such a row
+      to ``{}`` would erase metadata the reader accepts. Callers that can run
+      Python on the row merge it with ``_merge_access_metadata_text``.
 
     Args:
         column: Name of the metadata JSON column (a trusted identifier).
@@ -153,13 +160,32 @@ def _access_metadata_merge_sql(column: str, metadata: Dict[str, Any]) -> tuple:
         ``(sql_expression, params)``; ``params`` binds the expression's
         placeholders in order.
     """
+    # No ELSE: text SQLite cannot parse gives NULL here, and COALESCE below
+    # keeps the stored value.
     base = (
-        f"CASE WHEN json_valid({column}) THEN "
-        f"CASE WHEN json_type({column}) = 'object' THEN {column} ELSE '{{}}' END "
-        "ELSE '{}' END"
+        f"CASE WHEN {column} IS NULL OR {column} = '' THEN '{{}}' "
+        f"WHEN json_valid({column}) THEN "
+        f"CASE WHEN json_type({column}) = 'object' THEN {column} ELSE '{{}}' END END"
     )
     keys = [key for key in ACCESS_METADATA_KEYS if key in metadata]
     if not keys:
-        return base, []
+        return f"COALESCE({base}, {column})", []
     paths = ", ".join(f"'$.{key}', json(?)" for key in keys)
-    return f"json_set({base}, {paths})", [json.dumps(metadata[key]) for key in keys]
+    return (
+        f"COALESCE(json_set({base}, {paths}), {column})",
+        [json.dumps(metadata[key]) for key in keys],
+    )
+
+
+def _merge_access_metadata_text(stored: Optional[str], metadata: Dict[str, Any]) -> str:
+    """Merge the access keys of ``metadata`` into stored metadata text in Python.
+
+    Used for rows whose metadata SQLite's JSON functions reject but Python's
+    reader may accept (``NaN``, ``Infinity``). The stored text is parsed with
+    ``_safe_json_loads``, so it gets the same ``{}`` fallback as on read.
+    """
+    merged = _safe_json_loads(stored, "access_metadata_merge")
+    for key in ACCESS_METADATA_KEYS:
+        if key in metadata:
+            merged[key] = metadata[key]
+    return json.dumps(merged)

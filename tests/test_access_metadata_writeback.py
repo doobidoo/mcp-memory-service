@@ -8,6 +8,7 @@ access_queries. The interleaving is forced by call order.
 """
 
 import json
+import math
 import sqlite3
 from unittest.mock import Mock
 
@@ -148,6 +149,45 @@ async def test_access_writeback_skips_soft_deleted(temp_db_path, unique_content)
         await storage.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [True, False])
+async def test_access_writeback_keeps_metadata_with_nonfinite_numbers(
+    temp_db_path, unique_content, batch
+):
+    """Metadata json.dumps wrote with NaN/Infinity is merged, not reset to {}.
+
+    SQLite's json_valid() rejects NaN and Infinity, but update_memory_metadata()
+    stores them and json.loads() reads them back.
+    """
+    storage = SqliteVecMemoryStorage(f"{temp_db_path}/test.db")
+    await storage.initialize()
+    try:
+        content_hash = await _stored(storage, unique_content("Model scores"))
+        ok, message = await storage.update_memory_metadata(
+            content_hash,
+            {"metadata": {"score": float("nan"), "limit": float("inf"), "reviewed": True}},
+        )
+        assert ok, message
+
+        snapshot = await storage.get_by_hash(content_hash)
+        snapshot.record_access("scores")
+        if batch:
+            await storage._persist_access_metadata_batch([snapshot])
+        else:
+            await storage._persist_access_metadata(snapshot)
+
+        metadata, _ = _stored_metadata(storage, content_hash)
+        assert metadata.get("reviewed") is True, (
+            f"search erased metadata with non-finite numbers: {sorted(metadata)}"
+        )
+        assert math.isnan(metadata["score"])
+        assert metadata["limit"] == float("inf")
+        assert metadata["access_count"] == 1
+        assert metadata["access_queries"] == snapshot.metadata["access_queries"]
+    finally:
+        await storage.close()
+
+
 class _FakeD1:
     """Answer D1 /query calls by running the SQL on an in-memory SQLite database."""
 
@@ -202,3 +242,32 @@ async def test_cloudflare_access_writeback_keeps_concurrent_metadata_update():
     )
     assert metadata["access_count"] == 1
     assert metadata["access_queries"] == snapshot.metadata["access_queries"]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_access_writeback_leaves_nonfinite_metadata_unchanged():
+    """D1 cannot parse NaN either; the row is left as is, not reset to {}."""
+    storage = CloudflareStorage(
+        api_token="test-token",
+        account_id="test-account",
+        vectorize_index="test-index",
+        d1_database_id="test-db",
+        r2_bucket="test-bucket",
+        embedding_model="@cf/baai/bge-base-en-v1.5",
+    )
+    d1 = _FakeD1(storage.d1_url)
+    storage._retry_request = d1
+
+    content = "Benchmark notes"
+    content_hash = generate_content_hash(content)
+    stored = json.dumps({"score": float("nan"), "reviewed": True})
+    d1.db.execute("INSERT INTO memories VALUES (?, ?)", (content_hash, stored))
+    snapshot = Memory(content=content, content_hash=content_hash, tags=["t"])
+    snapshot.record_access("benchmark")
+
+    await storage._persist_access_metadata(snapshot)
+
+    row = d1.db.execute(
+        "SELECT metadata_json FROM memories WHERE content_hash = ?", (content_hash,)
+    ).fetchone()
+    assert row[0] == stored

@@ -17,7 +17,11 @@ from ...models.memory import Memory, MemoryQueryResult
 from ...models.ontology import coerce_memory_type
 from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
-from ..shared import _access_metadata_merge_sql, _exclude_versioned_parent
+from ..shared import (
+    _access_metadata_merge_sql,
+    _exclude_versioned_parent,
+    _merge_access_metadata_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,7 @@ class MetadataMixin:
                 f"UPDATE memories SET metadata = {merged_sql} WHERE content_hash = ?",
                 (*merged_params, memory.content_hash),
             )
+            self._merge_access_metadata_sqlite_rejects([memory])
             self.conn.commit()
 
         await self._execute_with_retry(update_metadata)
@@ -97,9 +102,34 @@ class MetadataMixin:
                     "WHERE content_hash = ? AND deleted_at IS NULL",
                     rows,
                 )
+            self._merge_access_metadata_sqlite_rejects(memories)
             self.conn.commit()
 
         await self._execute_with_retry(batch_update)
+
+    def _merge_access_metadata_sqlite_rejects(self, memories: List[Memory]) -> None:
+        """Merge access keys in Python into rows SQLite's JSON functions reject.
+
+        The SQL merge leaves such rows unchanged (see
+        ``_access_metadata_merge_sql``). This runs in the caller's transaction,
+        before its commit, and only touches the access keys.
+        """
+        by_hash = {m.content_hash: m for m in memories}
+        hashes = list(by_hash)
+        for start in range(0, len(hashes), 500):
+            chunk = hashes[start:start + 500]
+            placeholders = ",".join("?" * len(chunk))
+            rejected = self.conn.execute(
+                "SELECT content_hash, metadata FROM memories "
+                f"WHERE content_hash IN ({placeholders}) AND deleted_at IS NULL "
+                "AND metadata IS NOT NULL AND metadata != '' AND NOT json_valid(metadata)",
+                chunk,
+            ).fetchall()
+            for content_hash, stored in rejected:
+                self.conn.execute(
+                    "UPDATE memories SET metadata = ? WHERE content_hash = ?",
+                    (_merge_access_metadata_text(stored, by_hash[content_hash].metadata), content_hash),
+                )
 
     async def update_memory_metadata(
         self,

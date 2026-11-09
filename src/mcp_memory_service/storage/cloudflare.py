@@ -1847,6 +1847,8 @@ class CloudflareStorage(MemoryStorage):
         # Update metadata in D1. #1464: merge only the access keys into the
         # stored JSON instead of replacing it with this snapshot, so a metadata
         # update committed after the read is kept. D1 is SQLite: json_set works.
+        # Metadata text SQLite's JSON functions reject (Python writes NaN and
+        # Infinity) is left unchanged rather than reset to {}.
         merged_sql, merged_params = _access_metadata_merge_sql("metadata_json", memory.metadata)
         payload = {
             "sql": f"UPDATE memories SET metadata_json = {merged_sql} WHERE content_hash = ?",
