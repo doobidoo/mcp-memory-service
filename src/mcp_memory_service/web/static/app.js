@@ -7174,8 +7174,9 @@ class MemoryDashboard {
                     if (this._graphFocusNeighbors.has(s) && this._graphFocusNeighbors.has(t)) return 0.8;
                     return 0.15;
                 }
-                if (!highlightNode) return 0.4;
-                const hit = linkEndId(d.source) === highlightNode || linkEndId(d.target) === highlightNode;
+                const hNode = Graph.__highlightNode !== undefined ? Graph.__highlightNode : highlightNode;
+                if (!hNode) return 0.4;
+                const hit = linkEndId(d.source) === hNode || linkEndId(d.target) === hNode;
                 return hit ? 1.5 : 0.15;
             })
             .linkDirectionalParticles(d => {
@@ -7185,17 +7186,19 @@ class MemoryDashboard {
                     const fId = this._graphFocusedNode.id;
                     return (s === fId || t === fId) ? 3 : 0;
                 }
-                if (!highlightNode) return 0;
-                const hit = linkEndId(d.source) === highlightNode || linkEndId(d.target) === highlightNode;
+                const hNode = Graph.__highlightNode !== undefined ? Graph.__highlightNode : highlightNode;
+                if (!hNode) return 0;
+                const hit = linkEndId(d.source) === hNode || linkEndId(d.target) === hNode;
                 return hit ? 3 : 0;
             })
             .linkDirectionalParticleSpeed(0.01)
             .onNodeHover(node => {
                 container.style.cursor = node ? 'pointer' : '';
+                highlightNode = node ? node.id : null;
+                Graph.__highlightNode = highlightNode;
                 if (this._graphFocusedNode) {
                     return; // Retain focus opacities while focus mode is active
                 }
-                highlightNode = node ? node.id : null;
                 // Dim non-neighbor sprites; relight neighbors
                 nodes.forEach(n => {
                     if (!n.__mat) return;
@@ -7747,6 +7750,7 @@ class MemoryDashboard {
         ['_main', '_fs'].forEach(slot => {
             const graph3d = this['graph3d' + slot];
             if (graph3d && typeof graph3d.graphData === 'function') {
+                graph3d.__highlightNode = null;
                 const gData = graph3d.graphData();
                 (gData.nodes || []).forEach(n => {
                     if (!n.__mat) return;
