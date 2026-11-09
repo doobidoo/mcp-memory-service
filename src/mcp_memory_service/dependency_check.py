@@ -162,11 +162,39 @@ def run_dependency_check() -> bool:
 
     return all_installed
 
+def _onnx_model_cached() -> bool:
+    """
+    Check the ONNX model cache for a model with both its weights and tokenizer.
+    ONNXEmbeddingModel creates the model directory before downloading, so an
+    interrupted download can leave it empty.
+    """
+    onnx_root = os.path.expanduser("~/.cache/mcp_memory/onnx_models")
+    try:
+        models = os.listdir(onnx_root)
+    except OSError:
+        return False
+
+    for model in models:
+        model_dir = os.path.join(onnx_root, model)
+        # The bundled default model unpacks into <model>/onnx/, Hub exports keep
+        # model.onnx in <model>/ or <model>/onnx/ and tokenizer.json in <model>/
+        for weights_dir in (model_dir, os.path.join(model_dir, "onnx")):
+            if os.path.isfile(os.path.join(weights_dir, "model.onnx")) and any(
+                os.path.isfile(os.path.join(d, "tokenizer.json"))
+                for d in (weights_dir, model_dir)
+            ):
+                logger.debug("Found cached ONNX model in %s", _sanitize_log_value(weights_dir))
+                return True
+    return False
+
 def is_first_run() -> bool:
     """
     Check if this appears to be the first run of the server.
     Enhanced for Windows and Claude Desktop environments.
     """
+    if _onnx_model_cached():
+        return False
+
     # Enhanced cache detection for Windows and different environments
     cache_indicators = []
     
@@ -174,13 +202,6 @@ def is_first_run() -> bool:
     cache_indicators.extend([
         os.path.expanduser("~/.cache/huggingface/hub"),
         os.path.expanduser("~/.cache/torch/sentence_transformers"),
-    ])
-
-    # ONNX model cache: Hub exports keep their files in <model>/, the bundled
-    # default model unpacks them into all-MiniLM-L6-v2/onnx/
-    cache_indicators.extend([
-        os.path.expanduser("~/.cache/mcp_memory/onnx_models"),
-        os.path.expanduser("~/.cache/mcp_memory/onnx_models/all-MiniLM-L6-v2"),
     ])
     
     # Windows-specific locations

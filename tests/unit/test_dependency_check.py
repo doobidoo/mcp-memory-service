@@ -217,3 +217,17 @@ class TestIsFirstRunOnnxCache:
         (fake_home / ".cache" / "mcp_memory" / "onnx_models" / "all-MiniLM-L6-v2").mkdir(parents=True)
         from mcp_memory_service.dependency_check import is_first_run
         assert is_first_run() is True
+
+    def test_empty_hub_model_dir_is_first_run(self, fake_home):
+        """An interrupted Hub download leaves a directory whose name looks like a model."""
+        (fake_home / ".cache" / "mcp_memory" / "onnx_models" / "all-mpnet-base-v2").mkdir(parents=True)
+        from mcp_memory_service.dependency_check import is_first_run
+        assert is_first_run() is True
+
+    def test_weights_without_tokenizer_is_first_run(self, fake_home):
+        """model.onnx alone is not a usable model; the tokenizer may still be downloading."""
+        model_dir = fake_home / ".cache" / "mcp_memory" / "onnx_models" / "multilingual-e5-small" / "onnx"
+        model_dir.mkdir(parents=True)
+        (model_dir / "model.onnx").write_bytes(b"")
+        from mcp_memory_service.dependency_check import is_first_run
+        assert is_first_run() is True
