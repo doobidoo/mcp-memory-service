@@ -74,17 +74,17 @@ def _get_or_create_memory_service(storage: Any) -> Any:
     if storage_id in _MEMORY_SERVICE_CACHE:
         memory_service = _MEMORY_SERVICE_CACHE[storage_id]
         _CACHE_STATS["service_hits"] += 1
-        logger.info(f"✅ MemoryService Cache HIT - Reusing service instance (storage_id: {storage_id})")
+        logger.info("✅ MemoryService Cache HIT - Reusing service instance (storage_id: %d)", storage_id)
     else:
         _CACHE_STATS["service_misses"] += 1
-        logger.info(f"❌ MemoryService Cache MISS - Creating new service instance...")
+        logger.info("❌ MemoryService Cache MISS - Creating new service instance...")
 
         # Initialize memory service with shared business logic
         memory_service = MemoryService(storage)
 
         # Cache the memory service instance
         _MEMORY_SERVICE_CACHE[storage_id] = memory_service
-        logger.info(f"💾 Cached MemoryService instance (storage_id: {storage_id})")
+        logger.info("💾 Cached MemoryService instance (storage_id: %d)", storage_id)
 
     return memory_service
 
@@ -103,11 +103,17 @@ def _log_cache_performance(start_time: float) -> None:
     ) * 100
 
     logger.info(
-        f"📊 Cache Stats - "
-        f"Hit Rate: {cache_hit_rate:.1f}% | "
-        f"Storage: {_CACHE_STATS['storage_hits']}H/{_CACHE_STATS['storage_misses']}M | "
-        f"Service: {_CACHE_STATS['service_hits']}H/{_CACHE_STATS['service_misses']}M | "
-        f"Total Time: {total_time:.1f}ms"
+        "📊 Cache Stats - "
+        "Hit Rate: %.1f%% | "
+        "Storage: %dH/%dM | "
+        "Service: %dH/%dM | "
+        "Total Time: %.1fms",
+        cache_hit_rate,
+        _CACHE_STATS["storage_hits"],
+        _CACHE_STATS["storage_misses"],
+        _CACHE_STATS["service_hits"],
+        _CACHE_STATS["service_misses"],
+        total_time,
     )
 
 
@@ -136,9 +142,11 @@ def clear_all_caches() -> Dict[str, int]:
     _MEMORY_SERVICE_CACHE.clear()
 
     logger.info(
-        f"🧹 Caches cleared - "
-        f"Storage: {storage_count} instances, "
-        f"Service: {service_count} instances"
+        "🧹 Caches cleared - "
+        "Storage: %d instances, "
+        "Service: %d instances",
+        storage_count,
+        service_count,
     )
 
     return {
@@ -160,7 +168,7 @@ def get_memory_usage() -> Dict[str, Any]:
         - cache_stats: Hit/miss statistics
     """
     try:
-        import psutil
+        import psutil  # inline import
         process = psutil.Process()
         memory_info = process.memory_info()
         rss_mb = memory_info.rss / 1024 / 1024
