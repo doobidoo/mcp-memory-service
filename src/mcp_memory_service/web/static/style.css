@@ -6468,3 +6468,178 @@ body.dark-mode .content-toggle-btn {
 body.dark-mode .content-toggle-btn:hover {
     background: var(--neutral-200);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Graph Focus HUD Overlay (#1855)                                            */
+/* -------------------------------------------------------------------------- */
+.graph-focus-hud {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 300px;
+    max-height: calc(100% - 2rem);
+    background: rgba(14, 20, 32, 0.78);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 0.9rem;
+    color: var(--text-primary, #e2e8f0);
+    overflow-y: auto;
+    z-index: 90;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    font-size: 0.85rem;
+    animation: fadeIn 0.15s ease-out;
+    transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1), padding 0.2s ease, border-radius 0.2s ease;
+}
+.graph-focus-hud.collapsed {
+    width: auto;
+    max-width: 290px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 20px;
+    background: rgba(14, 20, 32, 0.88);
+    overflow: hidden;
+}
+.graph-focus-hud.collapsed .graph-focus-hud-body,
+.graph-focus-hud.collapsed .graph-focus-hud-actions {
+    display: none;
+}
+.graph-focus-hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.5rem;
+}
+.graph-focus-hud.collapsed .graph-focus-hud-header {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+    align-items: center;
+}
+.graph-focus-hud-header-info {
+    overflow: hidden;
+    flex: 1;
+}
+.graph-focus-hud-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #fff;
+    margin: 0;
+    word-break: break-word;
+}
+.graph-focus-hud.collapsed .graph-focus-hud-title {
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 170px;
+}
+.graph-focus-hud-type {
+    display: inline-block;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.12rem 0.45rem;
+    border-radius: 12px;
+    margin-top: 0.35rem;
+}
+.graph-focus-hud.collapsed .graph-focus-hud-type {
+    display: none;
+}
+.graph-focus-hud-header-btns {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+.graph-focus-hud-toggle,
+.graph-focus-hud-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #94a3b8);
+    font-size: 1.15rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+}
+.graph-focus-hud-toggle:hover,
+.graph-focus-hud-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+}
+.graph-focus-hud-actions {
+    margin: 0.75rem 0;
+}
+.graph-focus-hud-btn {
+    width: 100%;
+    padding: 0.45rem 0.75rem;
+    background: var(--primary, #3b82f6);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+}
+.graph-focus-hud-btn:hover {
+    filter: brightness(1.15);
+}
+.graph-focus-hud-group {
+    margin-top: 0.75rem;
+}
+.graph-focus-hud-group-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #94a3b8);
+    margin-bottom: 0.35rem;
+    display: flex;
+    justify-content: space-between;
+}
+.graph-focus-hud-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, outline-color 0.15s ease;
+    margin-bottom: 0.2rem;
+}
+.graph-focus-hud-item:hover,
+.graph-focus-hud-item:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+}
+.graph-focus-hud-item:focus-visible {
+    outline: 2px solid var(--primary, #3b82f6);
+    outline-offset: 1px;
+}
+.graph-focus-hud-item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+.graph-focus-hud-empty {
+    color: var(--text-muted, #94a3b8);
+    font-style: italic;
+    font-size: 0.8rem;
+    padding: 0.25rem 0;
+}
