@@ -128,3 +128,38 @@ def _safe_json_loads(text: str, context: str = "") -> Dict[str, Any]:
         logger.warning("Non-dict JSON in %s: %s", context, type(parsed).__name__)
         return {}
     return parsed
+
+
+# Keys that Memory.record_access() writes. The access write-back after a read
+# merges only these into the stored metadata JSON (#1464).
+ACCESS_METADATA_KEYS = ("access_count", "last_accessed_at", "access_queries")
+
+
+def _access_metadata_merge_sql(column: str, metadata: Dict[str, Any]) -> tuple:
+    """Build a SQL expression that writes only the access keys into ``column``.
+
+    Replacing the whole metadata JSON with an in-memory snapshot drops any key
+    another writer committed after the snapshot was read (#1464). The returned
+    expression ``json_set``s the access keys present in ``metadata`` into the
+    stored JSON instead. Stored metadata that is not a JSON object (or not
+    valid JSON) is treated as ``{}``, the same fallback as ``_safe_json_loads``.
+    Works on SQLite and Cloudflare D1.
+
+    Args:
+        column: Name of the metadata JSON column (a trusted identifier).
+        metadata: The memory's metadata after ``record_access()``.
+
+    Returns:
+        ``(sql_expression, params)``; ``params`` binds the expression's
+        placeholders in order.
+    """
+    base = (
+        f"CASE WHEN json_valid({column}) THEN "
+        f"CASE WHEN json_type({column}) = 'object' THEN {column} ELSE '{{}}' END "
+        "ELSE '{}' END"
+    )
+    keys = [key for key in ACCESS_METADATA_KEYS if key in metadata]
+    if not keys:
+        return base, []
+    paths = ", ".join(f"'$.{key}', json(?)" for key in keys)
+    return f"json_set({base}, {paths})", [json.dumps(metadata[key]) for key in keys]

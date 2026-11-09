@@ -33,6 +33,7 @@ from ..compat import _sanitize_log_value
 from ..config import CLOUDFLARE_MAX_CONTENT_LENGTH
 from ..models.memory import Memory, MemoryQueryResult
 from .base import MemoryStorage
+from .shared import _access_metadata_merge_sql
 
 logger = logging.getLogger(__name__)
 
@@ -1843,15 +1844,13 @@ class CloudflareStorage(MemoryStorage):
         Args:
             memory: Memory object with updated access metadata
         """
-        # Update metadata in D1
-        sql = """
-            UPDATE memories
-            SET metadata_json = ?
-            WHERE content_hash = ?
-        """
+        # Update metadata in D1. #1464: merge only the access keys into the
+        # stored JSON instead of replacing it with this snapshot, so a metadata
+        # update committed after the read is kept. D1 is SQLite: json_set works.
+        merged_sql, merged_params = _access_metadata_merge_sql("metadata_json", memory.metadata)
         payload = {
-            "sql": sql,
-            "params": [json.dumps(memory.metadata), memory.content_hash]
+            "sql": f"UPDATE memories SET metadata_json = {merged_sql} WHERE content_hash = ?",
+            "params": [*merged_params, memory.content_hash],
         }
         await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
 
