@@ -201,23 +201,31 @@ class TestMemoryResolveBatch:
 # ─── Unimplemented backend warning Tests ──────────────────────────────────────
 
 def _simulate_model_unreachable(monkeypatch):
-    """Make the ONNX load fail offline, deterministically.
+    """Make the ONNX load fail offline, deterministically, on every machine.
 
-    With huggingface_hub installed, hf_hub_download is the network boundary
-    of the load path; failing it there leaves the whole try/except
-    degradation contract under test real. Without the package the load path
-    raises ImportError on its own, which exercises the same contract — so
-    there is nothing to patch and nothing to skip.
+    Three things decide whether the load path runs, and a cached machine
+    short-circuits two of them before any network call: ``_fetch`` consults
+    ``try_to_load_from_cache`` first, and ``_ONNX_RUNTIME_CACHE`` keeps a
+    session from an earlier test in the same process. Patch all three —
+    the cache lookups return misses, the download raises, the session cache
+    starts empty — so the degradation contract is what runs, whether or not
+    the model happens to be cached locally. Without huggingface_hub the
+    load path raises ImportError on its own, which is the same contract.
     """
     try:
         import huggingface_hub
     except ImportError:
         return
 
+    import mcp_memory_service.reasoning.nli as nli_mod
+
     def _fail(*args, **kwargs):
         raise OSError("simulated: model download unavailable")
 
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", _fail)
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                        lambda *args, **kwargs: None)
+    monkeypatch.setattr(nli_mod, "_ONNX_RUNTIME_CACHE", {})
 
 
 class TestUnimplementedBackendWarning:

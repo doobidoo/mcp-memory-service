@@ -163,7 +163,8 @@ def main():
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_export = sub.add_parser("export", help="export band candidate pairs for labeling")
-    p_export.add_argument("--db", required=True, help="path to the sqlite memory.db (read-only use)")
+    p_export.add_argument("--db", required=True,
+                          help="path to a copy of the sqlite memory.db (the scan records access stats)")
     p_export.add_argument("--out", required=True, help="output JSONL path")
 
     p_score = sub.add_parser("score", help="score labeled pairs against the NLI backend")

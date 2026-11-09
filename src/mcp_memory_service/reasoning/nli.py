@@ -291,7 +291,10 @@ class NLIClassifier:
         build loads that instead. ``MCP_NLI_MODEL`` names the HF repo
         (default per the spec), ``MCP_NLI_ONNX_FILE`` the ONNX file inside
         it — ``onnx/model.onnx`` fp32 by default. Offline environments reuse
-        the hub cache.
+        the hub cache. A failed load is deliberately not cached: with this
+        backend on and no network, every new classifier (quarantine and
+        memory_service construct one per call) retries the download, pays
+        the retry timeout, and degrades to the heuristic for that call.
         """
         cache_key = (
             os.environ.get("MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"),

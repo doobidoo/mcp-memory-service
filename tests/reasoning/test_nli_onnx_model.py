@@ -15,16 +15,24 @@ from mcp_memory_service.reasoning.nli import NLIClassifier  # noqa: E402
 
 
 def _model_cached() -> bool:
+    """True only when every file the load actually uses is already local.
+
+    Checking the whole repo folder (or trusting MCP_NLI_MODEL) let a partial
+    cache pass and made the tests download the missing files. The load path
+    reads exactly three files; require all three.
+    """
     import os
     try:
-        from huggingface_hub import scan_cache_dir
-        for repo in scan_cache_dir().repos:
-            if repo.repo_id == "cross-encoder/nli-deberta-v3-small":
-                return True
+        from huggingface_hub import try_to_load_from_cache
+        repo = os.environ.get("MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small")
+        onnx_file = os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx")
+        for fname in (onnx_file, "tokenizer.json", "config.json"):
+            if not isinstance(try_to_load_from_cache(repo, fname), str):
+                return False
+        return True
     except Exception:
-        # No HF cache directory at all (fresh CI runner) — nothing cached.
+        # No huggingface_hub / no HF cache directory — nothing cached.
         return False
-    return os.environ.get("MCP_NLI_MODEL") is not None
 
 
 @pytest.mark.asyncio
