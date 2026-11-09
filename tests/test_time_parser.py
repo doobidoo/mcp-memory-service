@@ -255,7 +255,34 @@ class TestTimeParser:
         
         assert start_dt.month == 1
         assert end_dt.month == 3
-    
+
+    def test_from_to_covers_the_whole_window(self):
+        """`from X to Y` is a range, the same window `between X and Y` already is.
+
+        The recall handler documents "from January to March". Without a from/to
+        pattern the first date or month was returned alone, so an ISO range
+        collapsed to its first day.
+        """
+        start_ts, end_ts = parse_time_expression("from 2024-01-01 to 2024-03-31")
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
+        month_start, month_end = parse_time_expression("from january to march")
+        between_start, between_end = parse_time_expression("between january and march")
+        assert (month_start, month_end) == (between_start, between_end)
+        assert datetime.fromtimestamp(month_end).month == 3
+
+        _, (recall_start, recall_end) = extract_time_expression("from January to March")
+        assert datetime.fromtimestamp(recall_start).month == 1
+        assert datetime.fromtimestamp(recall_end).month == 3
+
+    def test_from_to_that_is_not_a_date_keeps_a_later_expression(self):
+        """`from Alice to Bob yesterday` is not a date range."""
+        start_ts, end_ts = parse_time_expression("from Alice to Bob yesterday")
+        yesterday_start, yesterday_end = parse_time_expression("yesterday")
+        assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
+
     def test_quarters(self):
         """Test quarter expressions"""
         start_ts, end_ts = parse_time_expression("first quarter of 2024")

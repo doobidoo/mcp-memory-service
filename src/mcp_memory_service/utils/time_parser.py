@@ -69,6 +69,7 @@ PATTERNS = {
     "month_name": re.compile(r'(january|february|march|april|may|june|july|august|september|october|november|december)'),
     # Use \S[^&]*? instead of .+? to prevent backtracking on whitespace-only strings
     "date_range": re.compile(r'between\s+(\S[^&]{0,50}?)\s+and\s+(\S[^&]{0,50}?)(?=\s|$)'),
+    "from_to": re.compile(r'from\s+(\S[^&]{0,50}?)\s+to\s+(\S[^&]{0,50}?)(?=\s|$)'),
     "time_of_day": re.compile(r'(morning|afternoon|evening|night|noon|midnight)'),
     "recent": re.compile(r'recent|lately|recently'),
     "specific_date": re.compile(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?'),
@@ -231,7 +232,21 @@ def parse_time_expression(
                 start_expr, end_expr, start_ts, end_ts
             )
             return start_ts, end_ts
-        
+
+        # Documented recall example. Ends that are not times fall through
+        # ("from Alice to Bob yesterday" is still yesterday).
+        from_to_match = PATTERNS["from_to"].search(query)
+        if from_to_match:
+            start_expr = from_to_match.group(1)
+            end_expr = from_to_match.group(2)
+            start_ts, _ = parse_time_expression(start_expr)
+            _, end_ts = parse_time_expression(end_expr)
+            if start_ts is not None or end_ts is not None:
+                start_ts, end_ts = _anchor_yearless_range(
+                    start_expr, end_expr, start_ts, end_ts
+                )
+                return start_ts, end_ts
+
         # Check for full ISO dates (YYYY-MM-DD) FIRST
         full_date_match = PATTERNS["full_date"].search(query)
         if full_date_match:
