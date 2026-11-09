@@ -284,6 +284,13 @@ class TestTimeParser:
         _, expected_end = parse_time_expression("1 day ago")
         assert (relative_start, relative_end) == (expected_start, expected_end)
 
+        daypart_start, daypart_end = parse_time_expression(
+            "from yesterday morning to today"
+        )
+        expected_start, _ = parse_time_expression("yesterday morning")
+        _, expected_end = parse_time_expression("today")
+        assert (daypart_start, daypart_end) == (expected_start, expected_end)
+
     def test_from_to_that_is_not_a_date_keeps_a_later_expression(self):
         """`from Alice to Bob yesterday` is not a date range."""
         yesterday_start, yesterday_end = parse_time_expression("yesterday")

@@ -95,6 +95,11 @@ _RANGE_ENDPOINT_PATTERNS = (
     "half_year",
     "quarter",
 )
+_RANGE_DAYPART_ENDPOINT = re.compile(
+    rf"(?:{PATTERNS['relative_days'].pattern})\s+"
+    rf"(?:{PATTERNS['time_of_day'].pattern})|"
+    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
+)
 
 
 def _parse_range_endpoint(
@@ -108,7 +113,7 @@ def _parse_range_endpoint(
         if any(
             PATTERNS[name].fullmatch(candidate)
             for name in _RANGE_ENDPOINT_PATTERNS
-        ):
+        ) or _RANGE_DAYPART_ENDPOINT.fullmatch(candidate):
             start_ts, end_ts = parse_time_expression(candidate)
             return candidate, start_ts, end_ts
     return None, None, None
