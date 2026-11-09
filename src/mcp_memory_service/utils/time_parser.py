@@ -69,7 +69,6 @@ PATTERNS = {
     "month_name": re.compile(r'(january|february|march|april|may|june|july|august|september|october|november|december)'),
     # Use \S[^&]*? instead of .+? to prevent backtracking on whitespace-only strings
     "date_range": re.compile(r'between\s+(\S[^&]{0,50}?)\s+and\s+(\S[^&]{0,50}?)(?=\s|$)'),
-    "from_to": re.compile(r'from\s+(\S[^&]{0,50}?)\s+to\s+(\S[^&]{0,50})'),
     "time_of_day": re.compile(r'(morning|afternoon|evening|night|noon|midnight)'),
     "recent": re.compile(r'recent|lately|recently'),
     "specific_date": re.compile(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?'),
@@ -80,43 +79,22 @@ PATTERNS = {
 
 _MAX_TIME_QUERY_LEN = 500  # guard against ReDoS on user-supplied input
 _RANGE_ENDPOINT_PATTERNS = (
-    "relative_days",
-    "relative_weeks",
-    "relative_months",
-    "relative_years",
-    "last_n_periods",
-    "last_period",
-    "this_period",
-    "month_name",
-    "recent",
-    "specific_date",
-    "full_date",
-    "named_period",
-    "half_year",
-    "quarter",
+    "relative_days", "relative_weeks", "relative_months", "relative_years",
+    "last_n_periods", "last_period", "this_period", "month_name", "recent",
+    "specific_date", "full_date", "named_period", "half_year", "quarter",
 )
 _RANGE_DAYPART_ENDPOINT = re.compile(
     rf"(?:{PATTERNS['relative_days'].pattern})\s+"
     rf"(?:{PATTERNS['time_of_day'].pattern})|"
     rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
 )
-
-
-def _parse_range_endpoint(
-    expression: str, allow_trailing: bool = False
-) -> tuple[str | None, float | None, float | None]:
-    """Parse a complete range endpoint, optionally before trailing query text."""
-    words = expression.split()
-    sizes = range(len(words), 0, -1) if allow_trailing else (len(words),)
-    for size in sizes:
-        candidate = " ".join(words[:size])
-        if any(
-            PATTERNS[name].fullmatch(candidate)
-            for name in _RANGE_ENDPOINT_PATTERNS
-        ) or _RANGE_DAYPART_ENDPOINT.fullmatch(candidate):
-            start_ts, end_ts = parse_time_expression(candidate)
-            return candidate, start_ts, end_ts
-    return None, None, None
+_RANGE_ENDPOINT = "|".join(
+    f"(?:{PATTERNS[name].pattern})" for name in _RANGE_ENDPOINT_PATTERNS
+)
+PATTERNS["from_to"] = re.compile(
+    rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
+    rf"({_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_ENDPOINT})(?=\s|$)"
+)
 
 
 def _resolve_yearless_date(
@@ -276,16 +254,11 @@ def parse_time_expression(
         # ("from Alice to Bob yesterday" is still yesterday).
         from_to_match = PATTERNS["from_to"].search(query)
         if from_to_match:
-            start_expr, start_ts, _ = _parse_range_endpoint(from_to_match.group(1))
-            end_expr, _, end_ts = _parse_range_endpoint(
-                from_to_match.group(2), allow_trailing=True
-            )
-            if (
-                start_expr is not None
-                and end_expr is not None
-                and start_ts is not None
-                and end_ts is not None
-            ):
+            start_expr = from_to_match.group(1)
+            end_expr = from_to_match.group(2)
+            start_ts, _ = parse_time_expression(start_expr)
+            _, end_ts = parse_time_expression(end_expr)
+            if start_ts is not None and end_ts is not None:
                 start_ts, end_ts = _anchor_yearless_range(
                     start_expr, end_expr, start_ts, end_ts
                 )
