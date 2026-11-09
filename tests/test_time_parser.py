@@ -277,11 +277,19 @@ class TestTimeParser:
         assert datetime.fromtimestamp(recall_start).month == 1
         assert datetime.fromtimestamp(recall_end).month == 3
 
+        relative_start, relative_end = parse_time_expression(
+            "from 3 days ago to 1 day ago"
+        )
+        expected_start, _ = parse_time_expression("3 days ago")
+        _, expected_end = parse_time_expression("1 day ago")
+        assert (relative_start, relative_end) == (expected_start, expected_end)
+
     def test_from_to_that_is_not_a_date_keeps_a_later_expression(self):
         """`from Alice to Bob yesterday` is not a date range."""
-        start_ts, end_ts = parse_time_expression("from Alice to Bob yesterday")
         yesterday_start, yesterday_end = parse_time_expression("yesterday")
-        assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
+        for query in ("from Alice to Bob yesterday", "from May to Bob yesterday"):
+            start_ts, end_ts = parse_time_expression(query)
+            assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
 
     def test_quarters(self):
         """Test quarter expressions"""
