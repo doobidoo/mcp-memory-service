@@ -67,27 +67,42 @@ def check_sentence_transformers_installed() -> Tuple[bool, Optional[str]]:
     except ImportError:
         return False, None
 
+def check_onnx_installed() -> Tuple[bool, Optional[str]]:
+    """
+    Check if the ONNX embedding backend (onnxruntime + tokenizers) is installed.
+    Returns (is_installed, onnxruntime_version)
+    """
+    try:
+        import onnxruntime  # inline import: presence of this package is exactly what is being probed
+        import tokenizers  # noqa: F401  # inline import: the ONNX backend cannot tokenize without it
+        return True, getattr(onnxruntime, '__version__', 'unknown')
+    except ImportError:
+        return False, None
+
 def check_critical_dependencies() -> Tuple[bool, list]:
     """
     Check if all critical dependencies are installed.
     Returns (all_installed, missing_packages)
     """
     missing = []
-    
-    # Check PyTorch
-    torch_installed, torch_version = check_torch_installed()
-    if not torch_installed:
-        missing.append("torch")
+
+    # Embeddings need one backend: ONNX (the [sqlite] extra) or PyTorch.
+    # Only with neither does the service fall back to hash embeddings.
+    onnx_installed, onnx_version = check_onnx_installed()
+    if onnx_installed:
+        logger.debug("onnxruntime %s and tokenizers are installed", _sanitize_log_value(onnx_version))
     else:
-        logger.debug(f"PyTorch {_sanitize_log_value(torch_version)} is installed")
-    
-    # Check sentence-transformers
-    st_installed, st_version = check_sentence_transformers_installed()
-    if not st_installed:
-        missing.append("sentence-transformers")
-    else:
-        logger.debug(f"sentence-transformers {_sanitize_log_value(st_version)} is installed")
-    
+        torch_installed, torch_version = check_torch_installed()
+        st_installed, st_version = check_sentence_transformers_installed()
+        if torch_installed and st_installed:
+            logger.debug(
+                "PyTorch %s and sentence-transformers %s are installed",
+                _sanitize_log_value(torch_version),
+                _sanitize_log_value(st_version),
+            )
+        else:
+            missing.append("onnxruntime + tokenizers (or torch + sentence-transformers)")
+
     # Check other critical packages
     critical_packages = [
         "sqlite-vec",
@@ -112,12 +127,8 @@ def suggest_installation_command(missing_packages: list) -> str:
     """
     if not missing_packages:
         return ""
-    
-    # For Windows, suggest running install.py
-    if platform.system() == "Windows":
-        return "python install.py"
-    else:
-        return "python install.py"
+
+    return 'pip install "mcp-memory-service[sqlite]"'
 
 def run_dependency_check() -> bool:
     """
@@ -163,6 +174,13 @@ def is_first_run() -> bool:
     cache_indicators.extend([
         os.path.expanduser("~/.cache/huggingface/hub"),
         os.path.expanduser("~/.cache/torch/sentence_transformers"),
+    ])
+
+    # ONNX model cache: Hub exports keep their files in <model>/, the bundled
+    # default model unpacks them into all-MiniLM-L6-v2/onnx/
+    cache_indicators.extend([
+        os.path.expanduser("~/.cache/mcp_memory/onnx_models"),
+        os.path.expanduser("~/.cache/mcp_memory/onnx_models/all-MiniLM-L6-v2"),
     ])
     
     # Windows-specific locations
