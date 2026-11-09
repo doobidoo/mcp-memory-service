@@ -137,6 +137,8 @@
   "analytics.graphCloseFocus": "포커스 모드 닫기 (Esc)",
   "analytics.graphConnectedNeighbors": "연결된 이웃 노드 ({count})",
   "analytics.graphNoNeighbors": "연결된 이웃 노드가 없습니다",
+  "analytics.minimize": "최소화",
+  "analytics.expand": "확장",
   "analytics.noConnectedMemories": "연결된 메모리가 없습니다. 최소 연결 수 필터를 낮춰 보세요.",
   "api.events.stats": "SSE 연결 통계 보기",
   "api.events.stream": "실시간 메모리 이벤트 스트림 구독",

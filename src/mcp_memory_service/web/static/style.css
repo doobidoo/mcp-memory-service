@@ -6611,14 +6611,25 @@ body.dark-mode .content-toggle-btn:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     padding: 0.35rem 0.5rem;
     border-radius: 6px;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: background 0.15s ease, outline-color 0.15s ease;
     margin-bottom: 0.2rem;
 }
-.graph-focus-hud-item:hover {
+.graph-focus-hud-item:hover,
+.graph-focus-hud-item:focus-visible {
     background: rgba(255, 255, 255, 0.08);
+}
+.graph-focus-hud-item:focus-visible {
+    outline: 2px solid var(--primary, #3b82f6);
+    outline-offset: 1px;
 }
 .graph-focus-hud-item-label {
     overflow: hidden;

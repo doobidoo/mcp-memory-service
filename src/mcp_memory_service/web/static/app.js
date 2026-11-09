@@ -654,8 +654,10 @@ class MemoryDashboard {
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this._graphFocusedNode) {
                 const fsModal = document.getElementById('graphFullscreenModal');
-                const isFs = fsModal && (fsModal.style.display !== 'none' || fsModal.classList.contains('active'));
-                this.clearGraphFocus(Boolean(isFs));
+                const isFs = (fsModal && (fsModal.style.display !== 'none' || fsModal.classList.contains('active'))) || this._graphFullscreenOpen;
+                if (!isFs) {
+                    this.clearGraphFocus(false);
+                }
             }
         });
 
@@ -7674,10 +7676,11 @@ class MemoryDashboard {
         const neighborGroups = {};
         const nodeColors = this.graphTypeColors || { 'untyped': '#9B59B6' };
 
-        // Determine source data
+        // Determine source data (use active 3D data or filtered 2D data)
         const gData = graph3d ? graph3d.graphData() : null;
-        const nodes = (gData && gData.nodes) || (this.currentGraphData ? this.currentGraphData.nodes : []);
-        const links = (gData && gData.links) || (this.currentGraphData ? (this.currentGraphData.edges || this.currentGraphData.links) : []);
+        const filtered2d = this.currentGraphData ? this._filterGraphData(this.currentGraphData) : { nodes: [], edges: [] };
+        const nodes = (gData && gData.nodes) || filtered2d.nodes || [];
+        const links = (gData && gData.links) || filtered2d.edges || [];
         const nodesById = new Map((nodes || []).map(n => [n.id, n]));
 
         (links || []).forEach(l => {
@@ -7728,7 +7731,7 @@ class MemoryDashboard {
     /**
      * Clear active graph focus mode and remove floating HUD.
      */
-    clearGraphFocus(isFullscreen) {
+    clearGraphFocus(_isFullscreen) {
         this._graphFocusedNode = null;
         this._graphFocusNeighbors.clear();
         if (this._graphClickTimer) {
@@ -7740,23 +7743,26 @@ class MemoryDashboard {
             this._graph2dClickTimer = null;
         }
 
-        const slot = isFullscreen ? '_fs' : '_main';
-        const graph3d = this['graph3d' + slot];
+        // Re-evaluate 3D link and particle accessors across both views with focus cleared
+        ['_main', '_fs'].forEach(slot => {
+            const graph3d = this['graph3d' + slot];
+            if (graph3d && typeof graph3d.graphData === 'function') {
+                const gData = graph3d.graphData();
+                (gData.nodes || []).forEach(n => {
+                    if (!n.__mat) return;
+                    n.__mat.opacity = 0.75;
+                    n.__mat.color.set(n.__baseColor);
+                });
+                graph3d.linkOpacity(graph3d.linkOpacity())
+                       .linkWidth(graph3d.linkWidth())
+                       .linkDirectionalParticles(graph3d.linkDirectionalParticles());
+            }
+        });
 
-        if (graph3d && typeof graph3d.graphData === 'function') {
-            const gData = graph3d.graphData();
-            (gData.nodes || []).forEach(n => {
-                if (!n.__mat) return;
-                n.__mat.opacity = 0.75;
-                n.__mat.color.set(n.__baseColor);
-            });
-            graph3d.linkOpacity(0.32)
-                   .linkWidth(0.4)
-                   .linkDirectionalParticles(0);
-        }
-
-        this._clear2DFocusState(isFullscreen);
-        this._removeFocusHUD(isFullscreen);
+        this._clear2DFocusState(false);
+        this._clear2DFocusState(true);
+        this._removeFocusHUD(false);
+        this._removeFocusHUD(true);
     }
 
     /**
@@ -7797,10 +7803,11 @@ class MemoryDashboard {
         } else {
             for (const [rel, items] of Object.entries(neighborGroups)) {
                 const relColor = edgeColors[rel] || edgeColors['related'];
+                const relLabel = this.t(`analytics.${rel}`, rel);
                 groupsHtml += `
                     <div class="graph-focus-hud-group">
                         <div class="graph-focus-hud-group-title">
-                            <span><span style="color: ${relColor};">●</span> ${this.escapeHtml(rel)}</span>
+                            <span><span style="color: ${relColor};">●</span> ${this.escapeHtml(relLabel)}</span>
                             <span>(${items.length})</span>
                         </div>
                         ${items.map(item => {
@@ -7809,11 +7816,11 @@ class MemoryDashboard {
                             const label = item.node.title || item.node.content || item.node.id;
                             const shortLabel = label.length > 35 ? label.substring(0, 32) + '...' : label;
                             return `
-                                <div class="graph-focus-hud-item" data-node-id="${this.escapeHtml(item.node.id)}" title="${this.escapeHtml(label)}">
+                                <button type="button" class="graph-focus-hud-item" data-node-id="${this.escapeHtml(item.node.id)}" title="${this.escapeHtml(label)}">
                                     <span style="color: var(--text-muted); font-size: 0.8rem;">${arrow}</span>
                                     <span style="color: ${nColor}; font-size: 0.75rem;">●</span>
                                     <span class="graph-focus-hud-item-label">${this.escapeHtml(shortLabel)}</span>
-                                </div>
+                                </button>
                             `;
                         }).join('')}
                     </div>
@@ -7821,6 +7828,7 @@ class MemoryDashboard {
             }
         }
 
+        const minLabel = this.t('analytics.minimize', 'Minimize');
         hud.innerHTML = `
             <div class="graph-focus-hud-header">
                 <div class="graph-focus-hud-header-info">
@@ -7830,7 +7838,7 @@ class MemoryDashboard {
                     </span>
                 </div>
                 <div class="graph-focus-hud-header-btns">
-                    <button type="button" class="graph-focus-hud-toggle" title="Minimize inspector" aria-label="Minimize">─</button>
+                    <button type="button" class="graph-focus-hud-toggle" title="${this.escapeHtml(minLabel)}" aria-label="${this.escapeHtml(minLabel)}">─</button>
                     <button type="button" class="graph-focus-hud-close" title="${this.escapeHtml(this.t('analytics.graphCloseFocus', 'Exit Focus Mode (Esc)'))}" aria-label="Close">&times;</button>
                 </div>
             </div>
@@ -7852,7 +7860,11 @@ class MemoryDashboard {
             const isCollapsed = hud.classList.contains('collapsed');
             if (toggleBtn) {
                 toggleBtn.textContent = isCollapsed ? '▲' : '─';
-                toggleBtn.title = isCollapsed ? 'Expand inspector' : 'Minimize inspector';
+                const label = isCollapsed
+                    ? this.t('analytics.expand', 'Expand')
+                    : this.t('analytics.minimize', 'Minimize');
+                toggleBtn.title = label;
+                toggleBtn.setAttribute('aria-label', label);
             }
         };
 
@@ -7886,7 +7898,8 @@ class MemoryDashboard {
                 const targetId = itemEl.getAttribute('data-node-id');
                 const slot = isFullscreen ? '_fs' : '_main';
                 const gData = this['graph3d' + slot]?.graphData();
-                const nodes = (gData && gData.nodes) || (this.currentGraphData ? this.currentGraphData.nodes : []);
+                const filtered2d = this.currentGraphData ? this._filterGraphData(this.currentGraphData) : { nodes: [], edges: [] };
+                const nodes = (gData && gData.nodes) || filtered2d.nodes || [];
                 const targetNode = nodes.find(n => n.id === targetId);
                 if (targetNode) {
                     this.setGraphFocus(targetNode, isFullscreen);

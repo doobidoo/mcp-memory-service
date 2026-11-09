@@ -396,6 +396,8 @@
   "analytics.graphCloseFocus": "फ़ोकस मोड बंद करें (Esc)",
   "analytics.graphConnectedNeighbors": "जुड़े हुए पड़ोसी ({count})",
   "analytics.graphNoNeighbors": "कोई जुड़ा हुआ पड़ोसी नहीं मिला",
+  "analytics.minimize": "छोटा करें",
+  "analytics.expand": "विस्तार करें",
   "analytics.noConnectedMemories": "कोई जुड़ी हुई मेमोरी नहीं मिली। न्यूनतम कनेक्शन फ़िल्टर कम करके देखें।",
   "analytics.graphLoadFailed": "ग्राफ़ दृश्य लोड नहीं हो सका",
   "analytics.loadingGraph": "ग्राफ़ लोड हो रहा है...",

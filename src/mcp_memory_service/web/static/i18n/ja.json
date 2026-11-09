@@ -137,6 +137,8 @@
   "analytics.graphCloseFocus": "フォーカスモードを閉じる (Esc)",
   "analytics.graphConnectedNeighbors": "接続された隣接ノード ({count})",
   "analytics.graphNoNeighbors": "接続された隣接ノードはありません",
+  "analytics.minimize": "最小化",
+  "analytics.expand": "展開",
   "analytics.noConnectedMemories": "接続されたメモリが見つかりません。最小接続数のフィルターを下げてみてください。",
   "api.events.stats": "SSE接続統計を表示",
   "api.events.stream": "リアルタイムメモリーイベントストリームをサブスクライブ",

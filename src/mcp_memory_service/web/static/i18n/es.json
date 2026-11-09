@@ -78,6 +78,8 @@
   "analytics.graphCloseFocus": "Cerrar modo de enfoque (Esc)",
   "analytics.graphConnectedNeighbors": "Vecinos conectados ({count})",
   "analytics.graphNoNeighbors": "Sin vecinos conectados",
+  "analytics.minimize": "Minimizar",
+  "analytics.expand": "Expandir",
   "analytics.noConnectedMemories": "No se encontraron memorias conectadas. Pruebe a reducir el filtro de conexiones mínimas.",
   "analytics.storage": "Informe de Almacenamiento",
   "analytics.tagUsage": "Distribución de Uso de Etiquetas",

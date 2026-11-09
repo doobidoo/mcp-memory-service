@@ -396,6 +396,8 @@
   "analytics.graphCloseFocus": "Close Focus Mode (Esc)",
   "analytics.graphConnectedNeighbors": "Connected Neighbors ({count})",
   "analytics.graphNoNeighbors": "No connected neighbors",
+  "analytics.minimize": "Minimize",
+  "analytics.expand": "Expand",
   "analytics.noConnectedMemories": "No connected memories found. Try lowering the minimum connections filter.",
   "analytics.graphLoadFailed": "Failed to load graph visualization",
   "analytics.loadingGraph": "Loading graph...",

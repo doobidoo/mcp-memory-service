@@ -133,6 +133,8 @@
   "analytics.graphCloseFocus": "Fokusmodus schließen (Esc)",
   "analytics.graphConnectedNeighbors": "Verbundene Nachbarn ({count})",
   "analytics.graphNoNeighbors": "Keine verbundenen Nachbarn",
+  "analytics.minimize": "Minimieren",
+  "analytics.expand": "Erweitern",
   "analytics.noConnectedMemories": "Keine verbundenen Erinnerungen gefunden. Senken Sie den Filter für Min. Verbindungen.",
   "analytics.minConnections": "Min. Verbindungen",
   "analytics.minConnectionsTip": "Nur Erinnerungen mit mindestens N Verknüpfungen in der Datenbank laden. Lädt den Graphen neu.",

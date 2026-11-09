@@ -82,6 +82,8 @@
   "analytics.graphCloseFocus": "Fermer le mode focus (Échap)",
   "analytics.graphConnectedNeighbors": "Voisins connectés ({count})",
   "analytics.graphNoNeighbors": "Aucun voisin connecté",
+  "analytics.minimize": "Réduire",
+  "analytics.expand": "Agrandir",
   "analytics.noConnectedMemories": "Aucune mémoire connectée trouvée. Essayez de réduire le filtre de connexions minimales.",
   "analytics.legend": "Légende",
   "analytics.nodeColors": "Couleurs des nœuds",
