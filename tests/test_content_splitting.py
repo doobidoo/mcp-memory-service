@@ -152,6 +152,40 @@ class TestContentSplitter:
         chunks = split_content("", max_length=100)
         assert chunks == []
 
+    def test_leading_blank_line_keeps_a_long_paragraph(self):
+        """A leading blank line must not discard a paragraph past the length limit.
+
+        Boundary mode prefers the rightmost blank line in the window. When that
+        blank line is only leading whitespace, the prefix strips to an empty
+        chunk. Stopping there used to drop the rest of the note, which is the
+        default auto-split path (max length 800, overlap 50).
+        """
+        sentence = "This is a normal sentence about memory storage. "
+        body = (sentence * 30).strip()
+        content = "\n\n" + body
+        assert len(content) > 800
+
+        chunks = split_content(
+            content, max_length=800, preserve_boundaries=True, overlap=50
+        )
+
+        assert chunks
+        assert all(chunk.strip() for chunk in chunks)
+        assert all(len(chunk) <= 800 for chunk in chunks)
+        assert chunks[0].startswith("This is a normal sentence")
+        assert body[-40:] in chunks[-1]
+
+    def test_leading_newline_keeps_a_long_unbroken_token(self):
+        """A leading newline before a token longer than max_length keeps the token."""
+        token = "x" * 100
+        chunks = split_content(
+            "\n" + token, max_length=20, preserve_boundaries=True, overlap=5
+        )
+
+        assert all(chunk.strip() for chunk in chunks)
+        assert all(len(chunk) <= 20 for chunk in chunks)
+        assert sum(chunk.count("x") for chunk in chunks) >= len(token)
+
     def test_split_exact_length(self):
         """Test content exactly at max_length."""
         content = "a" * 100
