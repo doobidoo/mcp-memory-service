@@ -488,6 +488,28 @@ class TestTimeParser:
         assert ago_cleaned == ""
         assert (ago_start, ago_end) == parse_time_expression("3 days ago morning")
 
+    def test_extract_reverse_daypart_and_overnight_window(self):
+        """Reverse-order dayparts are removed and night crosses midnight."""
+        today = date.today()
+        cleaned, (start_ts, end_ts) = extract_time_expression("notes morning today")
+        assert cleaned == "notes"
+        assert datetime.fromtimestamp(start_ts) == datetime(
+            today.year, today.month, today.day, 5
+        )
+        assert datetime.fromtimestamp(end_ts) == datetime(
+            today.year, today.month, today.day, 11, 59, 59
+        )
+
+        cleaned, (start_ts, end_ts) = extract_time_expression("notes night yesterday")
+        assert cleaned == "notes"
+        yesterday = today - timedelta(days=1)
+        assert datetime.fromtimestamp(start_ts) == datetime(
+            yesterday.year, yesterday.month, yesterday.day, 22
+        )
+        assert datetime.fromtimestamp(end_ts) == datetime(
+            today.year, today.month, today.day, 4, 59, 59
+        )
+
     def test_extract_recently_does_not_leave_ly(self):
         """`recently` was matched as `recent`, so the search text kept `ly`."""
         cleaned, (start_ts, end_ts) = extract_time_expression(
