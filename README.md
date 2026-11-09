@@ -61,8 +61,35 @@ Your AI assistant forgets everything when you start a new chat. You spend 10 min
 **1. Install:**
 
 ```bash
-pip install mcp-memory-service
+pip install "mcp-memory-service[sqlite]"
 ```
+
+The `[sqlite]` extra brings the local ONNX embedding model. Without it, semantic
+search falls back to hash embeddings.
+
+<details>
+<summary><strong>Using uv instead of pip</strong></summary>
+
+Install the `memory` command into its own environment:
+
+```bash
+uv tool install "mcp-memory-service[sqlite]"
+```
+
+Or skip the install and let your client start the server through `uvx`:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "uvx",
+      "args": ["--from", "mcp-memory-service[sqlite]", "memory", "server"]
+    }
+  }
+}
+```
+
+</details>
 
 **2. Configure your AI client:**
 
