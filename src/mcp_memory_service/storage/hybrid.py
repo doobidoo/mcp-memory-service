@@ -23,6 +23,7 @@ This implementation provides the best of both worlds:
 """
 
 import asyncio
+import inspect
 import logging
 import math
 import os
@@ -142,10 +143,59 @@ class SyncOperation:
     # #1560: an explicit restore (``store(recreate=True)``) is carried to the secondary
     # so a remote that deleted the same content restores it too instead of answering 409.
     recreate: Optional[bool] = None
+    # #1915: the store a queued 'store' operation was written to on the primary, so the
+    # secondary files it there too. None (an operation built without one) keeps the
+    # previous call, which lands in the secondary's default store.
+    store: Optional[str] = None
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = time.time()
+
+
+# Secondary types already warned about a store they cannot take (#1915), so the
+# warning is logged once per type instead of once per queued memory.
+_STORE_NOT_FORWARDED_WARNED: Set[type] = set()
+
+
+def _takes_store(method: Any) -> bool:
+    """Whether ``method`` accepts a ``store`` keyword, by name or through ``**kwargs``.
+
+    A positional-only ``store`` does not count: it cannot be passed as ``store=``.
+    """
+    try:
+        parameters = inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False
+    named = parameters.get("store")
+    if named is not None and named.kind is not inspect.Parameter.POSITIONAL_ONLY:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+
+
+def _store_kwargs(storage: Any, store: Optional[str]) -> Dict[str, str]:
+    """Keyword arguments that forward a queued operation's ``store`` to ``storage.store()`` (#1915).
+
+    Only a store other than ``"default"`` is forwarded. Every backend's ``store()``
+    defaults to ``"default"``, so leaving it out there changes nothing. A secondary
+    whose ``store()`` has no ``store`` parameter (a backend or test double written
+    before it existed) keeps receiving the call it received before, as with
+    ``recreate_kwargs``; the memory then lands in that secondary's default store,
+    which is logged once per type.
+    """
+    if store is None or store == "default":
+        return {}
+    if _takes_store(storage.store):
+        return {"store": store}
+    kind = type(storage)
+    if kind not in _STORE_NOT_FORWARDED_WARNED:
+        _STORE_NOT_FORWARDED_WARNED.add(kind)
+        logger.warning(
+            "Secondary %s.store() takes no store parameter; memories in named stores "
+            "are synced to its default store",
+            _sanitize_log_value(kind.__name__),
+        )
+    return {}
 
 
 def _normalize_metadata_for_cloudflare(updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -1209,7 +1259,9 @@ class BackgroundSyncService:
                             raise RuntimeError(validation_error)
 
                     success, message = await self.secondary.store(
-                        memory_to_sync, **recreate_kwargs(self.secondary, operation.recreate)
+                        memory_to_sync,
+                        **_store_kwargs(self.secondary, operation.store),
+                        **recreate_kwargs(self.secondary, operation.recreate),
                     )
                     if not success:
                         raise RuntimeError(f"Store operation failed: {message}")
@@ -2317,6 +2369,7 @@ class HybridMemoryStorage(MemoryStorage):
             operation = SyncOperation(
                 operation='store', memory=memory,
                 recreate=True if recreate is True else None,
+                store=store,
             )
             await self.sync_service.enqueue_operation(operation)
 
@@ -2412,7 +2465,10 @@ class HybridMemoryStorage(MemoryStorage):
         success, message = await self.primary.delete(content_hash, store=store)
 
         if success and self.sync_service:
-            # Queue for background sync to secondary
+            # Queue for background sync to secondary. Unscoped on purpose (#1915):
+            # content_hash is unique across stores on both sides and the primary has
+            # already confined the delete, while D1 rows synced before #1915 all carry
+            # "default", so a delete scoped to the real store would miss them.
             operation = SyncOperation(operation='delete', content_hash=content_hash)
             await self.sync_service.enqueue_operation(operation)
 

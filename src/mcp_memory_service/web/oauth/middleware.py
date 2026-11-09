@@ -112,8 +112,9 @@ class AuthenticationResult:
         """Raise 403 if ``operation`` on ``store`` is not permitted.
 
         A grant that holds only through ``operation:<store>`` additionally needs
-        a backend that confines hash lookups to the store. cloudflare, milvus
-        and remote_http accept ``store`` on get_by_hash and ignore it, so there
+        a backend that confines hash lookups to the store. cloudflare and
+        milvus accept ``store`` on get_by_hash and ignore it (remote_http honors
+        it only against a peer that advertises ``store_scoped_access``), so there
         a store-restricted credential would read or delete another partition's
         memory by hash; it is refused until the storage layer enforces
         ``store`` (#1683). Global grants are unaffected.

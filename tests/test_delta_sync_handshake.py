@@ -153,6 +153,39 @@ async def test_startup_probe_checks_capabilities_without_syncing(local_storage):
     assert status["last_sync_at"] is None
 
 
+@pytest.mark.parametrize("advertised", [True, False, None])
+@pytest.mark.asyncio
+async def test_startup_probe_reads_store_scoping_with_one_request(local_storage, advertised):
+    overrides = {} if advertised is None else {"store_scoped_access": advertised}
+    peer, requested = await _remote_peer(_capabilities(local_storage, **overrides))
+    scheduler = _scheduler(local_storage, peer)
+
+    await scheduler._probe_sync_peers()
+
+    assert requested == [("GET", "/api/sync/capabilities")]
+    assert peer.get_by_hash_is_store_scoped is (advertised is True)
+
+
+@pytest.mark.asyncio
+async def test_startup_probe_waits_for_an_unreachable_peer_once(local_storage):
+    requested = []
+
+    def handler(request):
+        requested.append((request.method, request.url.path))
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    peer = RemoteHTTPStorage("https://peer.test")
+    await peer.client.aclose()
+    peer.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    scheduler = _scheduler(local_storage, peer)
+
+    await scheduler._probe_sync_peers()
+
+    assert requested == [("GET", "/api/sync/capabilities")]
+    status = scheduler.get_sync_peer_status()[0]
+    assert status["status"] == "unavailable"
+
+
 @pytest.mark.parametrize("pull_failed,push_failed", [(1, 0), (0, 2)])
 @pytest.mark.asyncio
 async def test_cycle_reports_event_failures_and_preserves_last_success(
@@ -422,6 +455,7 @@ async def test_capabilities_endpoint_and_sync_status_expose_versions_and_peer_re
     assert data["embedding_model"] == expected_embedding_model
     assert data["embedding_dimension"] == expected_embedding_dimension
     assert data["version"]
+    assert data["store_scoped_access"] is True
     assert status_response.status_code == 200
     status = status_response.json()
     assert status["is_hybrid"] is False
@@ -433,3 +467,17 @@ async def test_capabilities_endpoint_and_sync_status_expose_versions_and_peer_re
         model_health_response.json()["embedding_dimension"]
         == data["embedding_dimension"]
     )
+
+
+@pytest.mark.asyncio
+async def test_capabilities_endpoint_reports_unconfined_storage(local_storage, monkeypatch):
+    monkeypatch.setattr(local_storage, "get_by_hash_is_store_scoped", False, raising=False)
+    app = FastAPI()
+    app.include_router(sync_router, prefix="/api")
+    app.dependency_overrides[get_storage] = lambda: local_storage
+    app.dependency_overrides[require_read_access] = lambda: None
+    with TestClient(app) as client:
+        response = client.get("/api/sync/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["store_scoped_access"] is False
