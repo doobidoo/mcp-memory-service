@@ -519,13 +519,15 @@ def create_app() -> FastAPI:
                     content=dashboard_html,
                     headers={"Content-Security-Policy": _DASHBOARD_CSP, "Cache-Control": "no-cache"},
                 )
-            else:
-                # Fallback to original template if dashboard not found
-                return html_template
+            logger.warning("Dashboard file not found: %s", dashboard_path)
         except Exception as e:
-            # Error fallback to original template
             logger.warning("Error loading migrated dashboard: %s", _sanitize_log_value(e))
-            return html_template
+        # The API keeps working without the static files; say so instead of a 500 (#1926).
+        return HTMLResponse(
+            content="<!doctype html><title>Dashboard unavailable</title>"
+            "<p>Dashboard files not found. The REST API is still available under /api.</p>",
+            status_code=503,
+        )
 
     @app.get("/api/languages")
     async def get_available_languages():
