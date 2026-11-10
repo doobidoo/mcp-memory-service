@@ -132,6 +132,17 @@ await storage.remove_memory_type("contract")                # tombstone
   it moved.
 - Removing a type does not touch stored memories. They keep the type; only
   new writes with it fall back to `observation`.
+- A new base type has no retention period in the consolidation config, so
+  its memories decay on the 30-day fallback. Store one next to the type:
+
+  ```python
+  await storage.set_retention("legal", 400)     # days, 1..3650
+  await storage.clear_retention("legal")        # back to the fallback
+  ```
+
+  Subtypes without their own entry use their parent's period. The overlay
+  only fills gaps: a type that has a built-in period or an
+  `MCP_RETENTION_*` override keeps it, and `set_retention` refuses it.
 - **Limit:** the table exists only in the local SQLite database. Cloudflare
   (D1) does not carry it, and it is not yet synced through the hub. On the
   `cloudflare` backend, and to keep several `hybrid` or hub nodes in
