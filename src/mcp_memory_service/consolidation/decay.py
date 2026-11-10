@@ -19,9 +19,10 @@ from typing import List, Dict, Any
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
+from ..compat import _sanitize_log_value
 from .base import ConsolidationBase, ConsolidationConfig
 from ..models.memory import Memory
-from ..models.ontology import get_parent_type
+from ..models.ontology import get_parent_type, get_retention_overlay
 
 @dataclass
 class RelevanceScore:
@@ -65,7 +66,7 @@ class ExponentialDecayCalculator(ConsolidationBase):
             )
             scores.append(score)
         
-        self.logger.info(f"Calculated relevance scores for {len(scores)} memories")
+        self.logger.info("Calculated relevance scores for %d memories", len(scores))
         return scores
     
     async def _calculate_memory_relevance(
@@ -98,12 +99,14 @@ class ExponentialDecayCalculator(ConsolidationBase):
         # so they inherit the base retention period instead of the 30-day
         # fallback. Legacy names stay in retention_periods and skip resolution.
         # The parent only selects the period; memory_type keeps the stored
-        # subtype for the score metadata.
+        # subtype for the score metadata. Periods stored in the DB overlay
+        # (#1897) cover types the config has no key for; the config wins.
         memory_type = self._extract_memory_type(memory)
+        retention_periods = {**get_retention_overlay(), **self.retention_periods}
         retention_type = memory_type
-        if retention_type not in self.retention_periods:
+        if retention_type not in retention_periods:
             retention_type = get_parent_type(memory_type) or memory_type
-        retention_period = self.retention_periods.get(retention_type, 30)
+        retention_period = retention_periods.get(retention_type, 30)
 
         # Calculate exponential decay factor
         decay_factor = math.exp(-age_days / retention_period)
@@ -197,7 +200,9 @@ class ExponentialDecayCalculator(ConsolidationBase):
                 score = float(memory.metadata['importance_score'])
                 return max(0.0, min(2.0, score))  # Clamp between 0 and 2
             except (ValueError, TypeError):
-                self.logger.warning(f"Invalid importance_score in memory {memory.content_hash}")
+                self.logger.warning(
+                    "Invalid importance_score in memory %s", _sanitize_log_value(memory.content_hash)
+                )
         
         # Derive importance from tags
         tag_importance = {
