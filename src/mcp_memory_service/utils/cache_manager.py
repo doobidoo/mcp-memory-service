@@ -31,6 +31,8 @@ import time
 from typing import Dict, Optional, Any, Callable, Awaitable, TypeVar, Tuple
 from dataclasses import dataclass, field
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
@@ -128,7 +130,8 @@ class CacheManager:
         start_time = time.time()
 
         logger.info(
-            f"🚀 {context_label} Call #{self._stats.total_calls}: Checking global cache..."
+            "🚀 %s Call #%d: Checking global cache...",
+            _sanitize_log_value(context_label), self._stats.total_calls
         )
 
         # Acquire lock for thread-safe cache access
@@ -148,7 +151,7 @@ class CacheManager:
 
             # Log overall cache performance
             total_time = (time.time() - start_time) * 1000
-            logger.info(f"📊 Cache Stats - {self._stats.format_stats(total_time)}")
+            logger.info("📊 Cache Stats - %s", self._stats.format_stats(total_time))
 
             return storage, memory_service
 
@@ -165,14 +168,16 @@ class CacheManager:
             storage = self._storage_cache[cache_key]
             self._stats.storage_hits += 1
             logger.info(
-                f"✅ Storage Cache HIT - Reusing {backend} instance (key: {cache_key})"
+                "✅ Storage Cache HIT - Reusing %s instance (key: %s)",
+                _sanitize_log_value(backend), _sanitize_log_value(cache_key)
             )
             return storage
 
         # Cache miss - create new storage
         self._stats.storage_misses += 1
         logger.info(
-            f"❌ Storage Cache MISS - Initializing {backend} instance..."
+            "❌ Storage Cache MISS - Initializing %s instance...",
+            _sanitize_log_value(backend)
         )
 
         storage = await storage_factory()
@@ -182,7 +187,8 @@ class CacheManager:
         init_time = (time.time() - start_time) * 1000
         self._stats.initialization_times.append(init_time)
         logger.info(
-            f"💾 Cached storage instance (key: {cache_key}, init_time: {init_time:.1f}ms)"
+            "💾 Cached storage instance (key: %s, init_time: %.1fms)",
+            _sanitize_log_value(cache_key), init_time
         )
 
         return storage
@@ -200,14 +206,15 @@ class CacheManager:
             memory_service = self._memory_service_cache[storage_id]
             self._stats.service_hits += 1
             logger.info(
-                f"✅ MemoryService Cache HIT - Reusing service instance (storage_id: {storage_id})"
+                "✅ MemoryService Cache HIT - Reusing service instance (storage_id: %d)",
+                storage_id
             )
             return memory_service
 
         # Cache miss - create new service
         self._stats.service_misses += 1
         logger.info(
-            f"❌ MemoryService Cache MISS - Creating new service instance..."
+            "❌ MemoryService Cache MISS - Creating new service instance..."
         )
 
         memory_service = service_factory(storage)
@@ -215,7 +222,8 @@ class CacheManager:
         # Cache the memory service instance
         self._memory_service_cache[storage_id] = memory_service
         logger.info(
-            f"💾 Cached MemoryService instance (storage_id: {storage_id})"
+            "💾 Cached MemoryService instance (storage_id: %d)",
+            storage_id
         )
 
         return memory_service
@@ -303,7 +311,7 @@ def calculate_cache_stats_dict(stats: CacheStats, cache_sizes: Tuple[int, int]) 
         >>> stats = cache_manager.get_stats()
         >>> sizes = cache_manager.cache_size
         >>> result = calculate_cache_stats_dict(stats, sizes)
-        >>> print(result['hit_rate'])
+        >>> result['hit_rate']
         95.5
     """
     storage_size, service_size = cache_sizes
