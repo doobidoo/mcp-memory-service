@@ -298,6 +298,20 @@ class TestTimeParser:
             start_ts, end_ts = parse_time_expression(query)
             assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
 
+    def test_from_to_edge_endpoints(self):
+        """Inverted month windows fall back, month-name years are kept, `now` is today."""
+        assert parse_time_expression("from march to january") == parse_time_expression("march")
+
+        start_ts, end_ts = parse_time_expression("from January 2024 to March 2024")
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
+        now_start, now_end = parse_time_expression("from 2024-01-01 to now")
+        _, today_end = parse_time_expression("today")
+        assert datetime.fromtimestamp(now_start) == datetime(2024, 1, 1, 0, 0, 0)
+        assert now_end == today_end
+
     def test_quarters(self):
         """Test quarter expressions"""
         start_ts, end_ts = parse_time_expression("first quarter of 2024")
