@@ -52,12 +52,16 @@ def clear_ontology_caches():
     _ALLOWED_PAIRS_CACHE = None
 
 
-# DB overlay (#1897). The sqlite_vec storage registers a source with two
-# methods, read_ontology_version() and read_memory_type_overlay(). Readers poll
+# DB overlay (#1897). The sqlite_vec storage registers a source with three
+# methods, read_ontology_version(), read_memory_type_overlay() and
+# read_retention_overlay(). Readers poll
 # the version and reload the overlay when it moved, so a write by the HTTP
 # server reaches the MCP server sharing the same database file.
 _OVERLAY_SOURCE = None
 _OVERLAY_ENTRIES: List[Tuple[str, Optional[str]]] = []
+_OVERLAY_RETENTION: Dict[str, int] = {}
+# Parent of every overlay subtype ever stored, removed ones included (retention only).
+_OVERLAY_STORED_PARENTS: Dict[str, str] = {}
 _OVERLAY_VERSION: Optional[int] = None
 _OVERLAY_CHECKED_AT = float("-inf")
 # ponytail: polled at most once per second, so a write in another process can
@@ -67,9 +71,12 @@ _OVERLAY_POLL_SECONDS = 1.0
 
 def set_overlay_source(source) -> None:
     """Register the DB overlay source. The last storage to register wins."""
-    global _OVERLAY_SOURCE, _OVERLAY_ENTRIES, _OVERLAY_VERSION
+    global _OVERLAY_SOURCE, _OVERLAY_ENTRIES, _OVERLAY_RETENTION, _OVERLAY_VERSION
+    global _OVERLAY_STORED_PARENTS
     _OVERLAY_SOURCE = source
     _OVERLAY_ENTRIES = []
+    _OVERLAY_RETENTION = {}
+    _OVERLAY_STORED_PARENTS = {}
     _OVERLAY_VERSION = None
     invalidate_overlay()
 
@@ -89,7 +96,8 @@ def invalidate_overlay() -> None:
 
 def _refresh_overlay() -> None:
     """Reload the overlay when the stored ontology_version has moved."""
-    global _OVERLAY_ENTRIES, _OVERLAY_VERSION, _OVERLAY_CHECKED_AT
+    global _OVERLAY_ENTRIES, _OVERLAY_RETENTION, _OVERLAY_VERSION, _OVERLAY_CHECKED_AT
+    global _OVERLAY_STORED_PARENTS
     source = _OVERLAY_SOURCE
     now = time.monotonic()
     if source is None or now - _OVERLAY_CHECKED_AT < _OVERLAY_POLL_SECONDS:
@@ -99,13 +107,16 @@ def _refresh_overlay() -> None:
         version = source.read_ontology_version()
         if version == _OVERLAY_VERSION:
             return
-        entries = list(source.read_memory_type_overlay())
+        rows = list(source.read_memory_type_overlay())
+        retention = dict(source.read_retention_overlay())
     except Exception as e:  # keep the last overlay we had; retry on the next poll
         logging.getLogger(__name__).warning(
             "Could not read the ontology overlay: %s", _sanitize_log_value(e)
         )
         return
-    _OVERLAY_ENTRIES = entries
+    _OVERLAY_ENTRIES = [(key, parent) for key, parent, live in rows if live]
+    _OVERLAY_STORED_PARENTS = {key: parent for key, parent, _ in rows if parent}
+    _OVERLAY_RETENTION = retention
     _OVERLAY_VERSION = version
     clear_ontology_caches()
 
@@ -129,6 +140,26 @@ def _merge_overlay(merged: Dict[str, List[str]]) -> None:
         else:
             continue
         known.add(key)
+
+
+def get_retention_overlay() -> Dict[str, int]:
+    """Retention days per memory type from the DB overlay (#1897, phase 4).
+
+    These only fill gaps: the consolidation config (built-in defaults and
+    ``MCP_RETENTION_*``) wins for any type it names.
+    """
+    _refresh_overlay()
+    return dict(_OVERLAY_RETENTION)
+
+
+def get_stored_parent(memory_type: str) -> Optional[str]:
+    """The parent an overlay subtype was stored with, even after it or its parent was removed.
+
+    For retention only: stored memories keep a removed type, and should keep
+    decaying on their base type's period instead of the 30-day fallback.
+    """
+    _refresh_overlay()
+    return _OVERLAY_STORED_PARENTS.get(memory_type)
 
 
 class BaseMemoryType(str, Enum):

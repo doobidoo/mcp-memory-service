@@ -26,8 +26,11 @@ from .base import MemoryStorage
 from .ontology_overlay import (
     OverlaySource,
     tombstone_memory_type,
+    tombstone_retention,
     upsert_memory_type,
+    upsert_retention,
     validate_memory_type_entry,
+    validate_retention_entry,
 )
 from .mixins import (
     BaseMixin,
@@ -141,3 +144,20 @@ class SqliteVecMemoryStorage(
         """
         name = ontology.canonicalize_memory_type(name)
         return await self._write_ontology(lambda conn: tombstone_memory_type(conn, name))
+
+    async def set_retention(self, memory_type: str, days: int) -> str:
+        """Store the retention period (days) of a memory type and return its canonical name.
+
+        For types the consolidation config has no period for, such as an
+        overlay base type that would otherwise decay on the 30-day fallback.
+        Raises ValueError for an unknown type, a type the config already
+        covers, or days outside 1..3650.
+        """
+        memory_type, days = validate_retention_entry(memory_type, days)
+        await self._write_ontology(lambda conn: upsert_retention(conn, memory_type, days))
+        return memory_type
+
+    async def clear_retention(self, memory_type: str) -> bool:
+        """Tombstone a stored retention period; the type falls back to its parent's."""
+        memory_type = ontology.canonicalize_memory_type(memory_type)
+        return await self._write_ontology(lambda conn: tombstone_retention(conn, memory_type))
