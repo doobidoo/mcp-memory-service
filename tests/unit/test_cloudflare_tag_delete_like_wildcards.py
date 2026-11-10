@@ -17,6 +17,7 @@ from mcp_memory_service.utils.hashing import generate_content_hash
 from tests.unit.test_cloudflare_store_scope import _FakeD1
 
 BACKSLASH_TAG = "dir" + chr(92) + "new"
+MULTI_BACKSLASH_TAG = "lib" + chr(92) + "x"
 
 # A wildcard match would also delete the *_lookalike memories.
 TAGS = {
@@ -29,6 +30,20 @@ TAGS = {
     "pair": ["keep", "other"],
     "single": ["solo"],
     "three": ["a", "b", "c"],
+    # Multi-tag rows go through the LIKE arms, so a valid match must still be
+    # deleted with the tag in the first, middle and last position.
+    "us_first": ["multi_tag", "p1"],
+    "us_mid": ["p2", "multi_tag", "p3"],
+    "us_last": ["p4", "multi_tag"],
+    "us_lookalike": ["multixtag", "p5"],
+    "pct_first": ["50%", "q1"],
+    "pct_mid": ["q2", "50%", "q3"],
+    "pct_last": ["q4", "50%"],
+    "pct_lookalike": ["500", "q5"],
+    "bs_first": [MULTI_BACKSLASH_TAG, "r1"],
+    "bs_mid": ["r2", MULTI_BACKSLASH_TAG, "r3"],
+    "bs_last": ["r4", MULTI_BACKSLASH_TAG],
+    "bs_lookalike": ["libyx", "r5"],
 }
 
 CASES = [
@@ -40,6 +55,9 @@ CASES = [
     ("solo", ["single"]),
     ("other", ["pair"]),
     ("b", ["three"]),
+    ("multi_tag", ["us_first", "us_last", "us_mid"]),
+    ("50%", ["pct_first", "pct_last", "pct_mid"]),
+    (MULTI_BACKSLASH_TAG, ["bs_first", "bs_last", "bs_mid"]),
 ]
 
 
