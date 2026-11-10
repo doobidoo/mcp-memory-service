@@ -179,6 +179,23 @@ def _store_clause(store: Optional[str], column: str = "store") -> Tuple[str, Lis
     return f" AND {column} = ?", [store]
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE wildcards so ``value`` matches literally under ``ESCAPE '\\'``."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# Matches one tag in a comma-separated ``tags`` column: first, middle, last or only.
+_TAG_MATCH_SQL = (
+    "(tags LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' "
+    "OR tags LIKE ? ESCAPE '\\' OR tags = ?)"
+)
+
+
+def _tag_match_params(tag: str) -> List[str]:
+    escaped = _escape_like(tag)
+    return [f"{escaped},%", f"%,{escaped},%", f"%,{escaped}", tag]
+
+
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
@@ -1671,8 +1688,8 @@ class CloudflareStorage(MemoryStorage):
             params = []
             for tag in tags:
                 stripped_tag = tag.strip()
-                conditions.append("(tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)")
-                params.extend([f"{stripped_tag},%", f"%,{stripped_tag},%", f"%,{stripped_tag}", stripped_tag])
+                conditions.append(_TAG_MATCH_SQL)
+                params.extend(_tag_match_params(stripped_tag))
 
             where_clause = " OR ".join(conditions)
             store_sql, store_params = _store_clause(store)
@@ -1719,13 +1736,13 @@ class CloudflareStorage(MemoryStorage):
 
             if tag:
                 # Delete with tag filter
-                sql = '''
+                sql = f'''
                     SELECT content_hash FROM memories
                     WHERE created_at >= ? AND created_at <= ?
-                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND {_TAG_MATCH_SQL}
                     AND deleted_at IS NULL
                 '''
-                params = (start_ts, end_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag)
+                params = (start_ts, end_ts, *_tag_match_params(tag))
             else:
                 # Delete all in timeframe
                 sql = '''
@@ -1766,13 +1783,13 @@ class CloudflareStorage(MemoryStorage):
 
             if tag:
                 # Delete with tag filter
-                sql = '''
+                sql = f'''
                     SELECT content_hash FROM memories
                     WHERE created_at < ?
-                    AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)
+                    AND {_TAG_MATCH_SQL}
                     AND deleted_at IS NULL
                 '''
-                params = (before_ts, f"{tag},%", f"%,{tag},%", f"%,{tag}", tag)
+                params = (before_ts, *_tag_match_params(tag))
             else:
                 # Delete all before date
                 sql = '''
