@@ -2591,6 +2591,29 @@ class CloudflareStorage(MemoryStorage):
             logger.error("Error getting all memories: %s", _sanitize_log_value(str(e)))
             return []
 
+    async def get_stores(self) -> List[str]:
+        """Name of every store with at least one live memory, in name order.
+
+        Mirrors the sqlite-vec version. Unlike the read paths above it lets a D1
+        failure propagate: an empty list here would make the exporter skip every
+        store without a warning.
+        """
+        payload = {
+            "sql": (
+                "SELECT DISTINCT COALESCE(store, 'default') AS store FROM memories "
+                "WHERE deleted_at IS NULL ORDER BY 1"
+            ),
+            "params": [],
+        }
+        response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+        result = response.json()
+
+        if not result.get("success"):
+            raise ValueError(f"D1 query failed: {result}")
+
+        rows = (result.get("result") or [{}])[0].get("results") or []
+        return [row["store"] for row in rows]
+
     def _row_to_memory(self, row: Dict[str, Any]) -> Memory:
         """Convert D1 row to Memory object without loading tags (for bulk operations)."""
         # Load content from R2 if needed

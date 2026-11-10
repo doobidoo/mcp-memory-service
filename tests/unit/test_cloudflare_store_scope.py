@@ -389,3 +389,31 @@ async def test_store_binds_in_order_with_every_other_filter(cloudflare_storage, 
     hostile = "a' OR '1'='1"
     assert await cloudflare_storage.get_all_memories(store=hostile, **filters) == []
     assert await cloudflare_storage.count_all_memories(store=hostile, **filters) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_stores_lists_every_store_with_a_live_memory(cloudflare_storage, d1, two_stores):
+    await _store(cloudflare_storage, "Nobody named a store for this one.", "default")
+
+    assert await cloudflare_storage.get_stores() == ["a", "b", "default"]
+
+
+@pytest.mark.asyncio
+async def test_get_stores_skips_a_store_whose_memories_are_all_deleted(cloudflare_storage, d1, two_stores):
+    d1.db.execute("UPDATE memories SET deleted_at = 1.0 WHERE store = 'b'")
+    d1.db.commit()
+
+    assert await cloudflare_storage.get_stores() == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_export_walks_every_cloudflare_store(cloudflare_storage, d1, two_stores):
+    """The exporter asks get_stores() for names, so Cloudflare has to answer it (#1915)."""
+    from mcp_memory_service.sync.exporter import MemoryExporter
+
+    pairs = await MemoryExporter(storage=cloudflare_storage)._get_all_memories_by_store()
+
+    assert {(store, memory.content_hash) for store, memory in pairs} == {
+        ("a", two_stores["a"]),
+        ("b", two_stores["b"]),
+    }
