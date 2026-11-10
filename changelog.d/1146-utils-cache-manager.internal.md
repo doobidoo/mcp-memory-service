@@ -5,3 +5,6 @@
   call counts and storage IDs are logged with `%d`, init times with `%.1f`.
   The module is added to `GUARDED_MODULES`, so the log-injection ratchet keeps
   it clean.
+  The ratchet's lazy scan treats `context_label` as outside data everywhere, and
+  `backend` in this module only (`self.backend` is internal in the PDF loader
+  and `reasoning/nli.py`), so dropping either wrapper fails the test.

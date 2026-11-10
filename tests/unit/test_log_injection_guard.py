@@ -217,7 +217,20 @@ EXTERNAL_NAMES = frozenset({
     # per-entity link cap is hit). No guarded module logs the name bare in a
     # %-style call, so listing it decides for nobody else.
     "entity_name",
+    # The label a caller hands utils/cache_manager.py's get_or_create() for its
+    # log lines. No other guarded module logs the name, so listing it decides
+    # for nobody else.
+    "context_label",
 })
+
+# Names that are outside data in one module only, checked on top of
+# EXTERNAL_NAMES for that module. `backend` is the storage backend a caller
+# hands utils/cache_manager.py's get_or_create(); elsewhere it is internal
+# (`self.backend` in ingestion/pdf_loader.py and reasoning/nli.py), so listing
+# it globally would flag those two.
+MODULE_EXTERNAL_NAMES = {
+    "mcp_memory_service/utils/cache_manager.py": frozenset({"backend"}),
+}
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
 # is an integer in a fixed range, so `response.status_code` is not the `response`
@@ -269,8 +282,8 @@ def _unsanitised_placeholders(call: ast.Call) -> bool:
     return False
 
 
-def _external_arguments(call: ast.Call) -> bool:
-    """True if a %-argument names outside data and is not wrapped."""
+def _external_arguments(call: ast.Call, names: frozenset[str]) -> bool:
+    """True if a %-argument mentions one of `names` and is not wrapped."""
     for argument in call.args[1:]:
         if _is_sanitised(argument):
             continue
@@ -278,12 +291,12 @@ def _external_arguments(call: ast.Call) -> bool:
         if source.rsplit(".", 1)[-1] in SAFE_ATTRIBUTES:
             continue
         tokens = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", source))
-        if tokens & EXTERNAL_NAMES and not (tokens & {SANITIZER}):
+        if tokens & names and not (tokens & {SANITIZER}):
             return True
     return False
 
 
-def _lazy_findings(source: str) -> list[str]:
+def _lazy_findings(source: str, extra_names: frozenset[str] = frozenset()) -> list[str]:
     """Unsanitised outside data handed to a %-style logger call.
 
     Moving off f-strings takes the values out of reach of the two scans above,
@@ -292,12 +305,16 @@ def _lazy_findings(source: str) -> list[str]:
     a person -- so it works off EXTERNAL_NAMES: names this codebase uses for
     data it did not produce. It catches the regression that matters (an
     exception or payload logged raw) and stays quiet about counters.
+
+    `extra_names` adds names that are outside data in the scanned module only
+    (see MODULE_EXTERNAL_NAMES).
     """
+    names = EXTERNAL_NAMES | extra_names
     tree = ast.parse(source)
     return [
         f"{node.lineno}: logger.{node.func.attr}(...)"
         for node in ast.walk(tree)
-        if _is_guarded_logger_call(node) and _external_arguments(node)
+        if _is_guarded_logger_call(node) and _external_arguments(node, names)
     ]
 
 
@@ -343,7 +360,7 @@ def test_no_unsanitised_interpolation_into_logs(module):
 @pytest.mark.parametrize("module", GUARDED_MODULES)
 def test_no_unsanitised_outside_data_in_lazy_log_calls(module):
     """The %-style calls this issue introduced must still wrap outside data."""
-    findings = _lazy_findings(_read(module))
+    findings = _lazy_findings(_read(module), MODULE_EXTERNAL_NAMES.get(module, frozenset()))
     assert not findings, (
         f"{module}: {len(findings)} logger calls passing outside data unwrapped\n  "
         + "\n  ".join(findings[:15])
@@ -674,3 +691,25 @@ def test_lazy_scan_flags_reasoning_entity_name():
     assert _lazy_findings(bare)
     assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("EntityLinker: created %s shares_entity edges for %s", edges_created, memory_hash)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_cache_manager_caller_inputs():
+    """What utils/cache_manager.py's get_or_create() is handed and logs.
+
+    `context_label` is listed in EXTERNAL_NAMES; `backend` only for this module,
+    through MODULE_EXTERNAL_NAMES. Every guarded logger call in the module
+    already wraps both, so the module scan stays green whether or not they are
+    listed. These are the samples that fail if either entry is dropped; the
+    PDF loader's internal `self.backend` stays allowed everywhere else.
+    """
+    extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/utils/cache_manager.py"]
+    for bare, wrapped in (
+        ('logger.info("%s Call #%d", context_label, total_calls)\n',
+         'logger.info("%s Call #%d", _sanitize_log_value(context_label), total_calls)\n'),
+        ('logger.info("Reusing %s instance", backend)\n',
+         'logger.info("Reusing %s instance", _sanitize_log_value(backend))\n'),
+    ):
+        assert _lazy_findings(bare, extra)
+        assert not _lazy_findings(wrapped, extra)
+    assert not _lazy_findings('logger.info("PDF: %s using %s", _sanitize_log_value(file_path), self.backend)\n')
