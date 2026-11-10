@@ -16,7 +16,7 @@ git clone https://github.com/xerj-org/xerj /tmp/xerj
 git -C /tmp/xerj checkout 50e4ffd
 H=/tmp/xerj/benchmarks/agent-memory
 
-python -m venv /tmp/mms-bench && /tmp/mms-bench/bin/pip install "mcp-memory-service[sqlite]"
+python -m venv /tmp/mms-bench && /tmp/mms-bench/bin/pip install "mcp-memory-service[sqlite]==12.7.0"
 /tmp/mms-bench/bin/python -I scripts/benchmarks/xerj_agent_memory/run_mms.py --harness "$H" --config default
 /tmp/mms-bench/bin/python -I scripts/benchmarks/xerj_agent_memory/run_mms.py --harness "$H" --config nodedup
 cd "$H" && python3 score.py
@@ -26,7 +26,9 @@ cd "$H" && python3 score.py
 - `nodedup` sets `MCP_SEMANTIC_DEDUP_ENABLED=false` and changes nothing else.
 
 The script stores into a fresh temp directory and exits if production settings
-(`MCP_API_KEY`, `MCP_SYNC_*`, `CLOUDFLARE_*`, `MCP_HYBRID_*`, `MCP_SEMANTIC_DEDUP_*`) are
-in the environment, before and after the package import, since the import loads an
-`.env` file. Use a throwaway venv as above, not a checkout whose `.env` points at a live
+(`MCP_API_KEY`, `MCP_SYNC_*`, `CLOUDFLARE_*`, `MCP_HYBRID_*`, `MCP_SEMANTIC_DEDUP_*`) or
+embedder settings (`MCP_EXTERNAL_EMBEDDING_*`, `MCP_EMBEDDING_MODEL`,
+`MCP_MEMORY_USE_ONNX`, `MCP_MEMORY_ALLOW_HASH_EMBEDDINGS`) are in the environment,
+before and after the package import, since the import loads an `.env` file. It also
+refuses to write results unless the loaded embedder is the ONNX all-MiniLM-L6-v2. Use a throwaway venv as above, not a checkout whose `.env` points at a live
 database.

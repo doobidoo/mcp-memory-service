@@ -24,7 +24,8 @@ def test_clean_environment_passes(clean_env):
 
 
 @pytest.mark.parametrize("key", ["MCP_API_KEY", "CLOUDFLARE_API_TOKEN", "MCP_SYNC_HUB_URL",
-                                 "MCP_SEMANTIC_DEDUP_THRESHOLD"])
+                                 "MCP_SEMANTIC_DEDUP_THRESHOLD", "MCP_EXTERNAL_EMBEDDING_URL",
+                                 "MCP_EMBEDDING_MODEL", "MCP_MEMORY_USE_ONNX"])
 def test_production_setting_exits(clean_env, key):
     clean_env.setenv(key, "x")
     with pytest.raises(SystemExit, match=key):
@@ -49,3 +50,32 @@ def test_isolate_points_storage_at_workdir(clean_env, tmp_path):
         assert os.environ["MCP_SEMANTIC_DEDUP_ENABLED"] == "false"
     finally:
         os.environ.pop("MCP_SEMANTIC_DEDUP_ENABLED", None)  # set by isolate(), not monkeypatch
+
+
+class _Storage:
+    def __init__(self, model_cls, name, dim):
+        self.embedding_model = model_cls()
+        self.embedding_model_name = name
+        self.embedding_dimension = dim
+
+
+class ONNXEmbeddingModel:
+    pass
+
+
+class SentenceTransformer:
+    pass
+
+
+def test_onnx_minilm_embedder_is_accepted():
+    run_mms.check_embedder(_Storage(ONNXEmbeddingModel, "all-MiniLM-L6-v2", 384))
+
+
+@pytest.mark.parametrize("storage", [
+    _Storage(SentenceTransformer, "all-MiniLM-L6-v2", 384),
+    _Storage(ONNXEmbeddingModel, "nomic-embed-text", 768),
+    _Storage(ONNXEmbeddingModel, "all-MiniLM-L6-v2", 768),
+])
+def test_other_embedder_is_refused(storage):
+    with pytest.raises(SystemExit, match="refusing to record"):
+        run_mms.check_embedder(storage)

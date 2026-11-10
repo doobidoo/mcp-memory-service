@@ -5,7 +5,9 @@ Derived from benchmarks/agent-memory/run_mms.py in https://github.com/xerj-org/x
 
 - runs on any OS: temp dir from tempfile instead of /dev/shm;
 - a ``nodedup`` config that sets MCP_SEMANTIC_DEDUP_ENABLED=false;
-- refuses to run when production settings leaked in from an .env file;
+- refuses to run when production settings leaked in from an .env file, or
+  when settings would swap the embedder, and checks the loaded embedder;
+- closes the storage and removes its temp dir, also after a failure;
 - writes results/<name>__<config>.json into the harness directory, so the
   harness's own score.py scores it next to the published results.
 
@@ -22,8 +24,12 @@ import sys
 import tempfile
 from importlib.metadata import version
 
-LEAK_PREFIXES = ("MCP_SYNC", "CLOUDFLARE_", "MCP_HYBRID", "MCP_SEMANTIC_DEDUP")
-LEAK_KEYS = ("MCP_API_KEY", "MCP_HTTPS_ENABLED")
+# Production settings, plus anything that would swap the embedder the results claim.
+LEAK_PREFIXES = ("MCP_SYNC", "CLOUDFLARE_", "MCP_HYBRID", "MCP_SEMANTIC_DEDUP",
+                 "MCP_EXTERNAL_EMBEDDING", "MCP_EMBEDDING_MODEL")
+LEAK_KEYS = ("MCP_API_KEY", "MCP_HTTPS_ENABLED", "MCP_MEMORY_USE_ONNX",
+             "MCP_MEMORY_ALLOW_HASH_EMBEDDINGS")
+EMBEDDER = "all-MiniLM-L6-v2"
 
 
 def parse_args():
@@ -39,7 +45,7 @@ def check_leaks(allowed=()):
     leaked = [k for k in os.environ
               if (k.startswith(LEAK_PREFIXES) or k in LEAK_KEYS) and k not in allowed]
     if leaked:
-        sys.exit(f"refusing to run, production settings in the environment: {leaked}")
+        sys.exit(f"refusing to run, production or embedder settings in the environment: {leaked}")
 
 
 def isolate(workdir, config):
@@ -56,11 +62,32 @@ def isolate(workdir, config):
     os.chdir(workdir)
 
 
+def check_embedder(storage):
+    """Exit unless the storage loaded the ONNX all-MiniLM-L6-v2 model the results name."""
+    model = type(storage.embedding_model).__name__
+    name = str(getattr(storage, "embedding_model_name", ""))
+    if "onnx" not in model.lower() or not name.endswith(EMBEDDER) or storage.embedding_dimension != 384:
+        sys.exit(f"refusing to record results: embedder is {model} {name!r} "
+                 f"({storage.embedding_dimension} dims), expected ONNX {EMBEDDER}")
+
+
 def main():
     args = parse_args()
     harness = os.path.abspath(args.harness)
     workdir = tempfile.mkdtemp(prefix="mms_xerj_")
-    isolate(workdir, args.config)
+    start_dir = os.getcwd()
+    try:
+        isolate(workdir, args.config)
+        run(args, harness, workdir)
+    finally:
+        os.chdir(start_dir)  # Windows cannot remove the current directory
+        shutil.rmtree(workdir, ignore_errors=True)
+        if os.path.exists(workdir):
+            print(f"warning: could not remove {workdir}", file=sys.stderr)
+
+
+def run(args, harness, workdir):
+    """Store the dataset, ask the questions, write the result file."""
     sys.path.insert(0, harness)
     import common  # inline import: xerj harness module, found via --harness
     from mcp_memory_service.services.memory_service import MemoryService  # inline import: after isolate()
@@ -71,8 +98,17 @@ def main():
     loop = asyncio.new_event_loop()
     storage = SqliteVecMemoryStorage(os.path.join(workdir, "mem.db"))
     loop.run_until_complete(storage.initialize())
-    assert storage.semantic_dedup_enabled == (args.config == "default")
-    service = MemoryService(storage)
+    try:
+        assert storage.semantic_dedup_enabled == (args.config == "default")
+        check_embedder(storage)
+        record(args, harness, loop, MemoryService(storage), common)
+    finally:
+        # Close before main() deletes workdir: Windows cannot remove open DB files.
+        loop.run_until_complete(storage.close())
+
+
+def record(args, harness, loop, service, common):
+    """Run the harness loop over the service and write results/<name>__<config>.json."""
     rejected = []
 
     def add(mem):
@@ -88,7 +124,7 @@ def main():
     res = common.run(args.name, args.config, add, search, {
         "version": "mcp-memory-service " + version("mcp-memory-service"),
         "commit": "installed package",
-        "embedder": "all-MiniLM-L6-v2 (default, ONNX)", "llm": None, "llm_calls_per_write": 0,
+        "embedder": f"{EMBEDDER} (default, ONNX)", "llm": None, "llm_calls_per_write": 0,
         "notes": f"in-process MemoryService, semantic dedup {dedup}",
     })
     res["meta"]["rejected_writes"] = rejected
@@ -97,7 +133,6 @@ def main():
     with open(out, "w") as fh:
         json.dump(res, fh, indent=1)
     print(f"wrote {out}; rejected writes: {len(rejected)} {[r['id'] for r in rejected]}")
-    shutil.rmtree(workdir, ignore_errors=True)
 
 
 if __name__ == "__main__":
