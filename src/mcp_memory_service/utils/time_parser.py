@@ -758,11 +758,16 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
         Tuple of (cleaned_query, (start_timestamp, end_timestamp))
         The cleaned_query has time expressions removed
     """
-    # Check for time expressions
+    # Check for time expressions. A daypart has to travel with the day:
+    # parse_time_expression("yesterday morning") is 05:00-11:59, but matching
+    # only "yesterday" left the whole day and the word "morning" as search text.
+    # "recently" must be tried before "recent" or the match stops at "recent"
+    # and the search text keeps "ly".
+    daypart = "morning|afternoon|evening|night|noon|midnight"
     time_expressions = [
-        r'\b\d+\s+days?\s+ago\b',
-        r'\byesterday\b',
-        r'\btoday\b',
+        rf'\b\d+\s+days?\s+ago(?:\s+(?:{daypart}))?\b',
+        rf'\b(?:{daypart})\s+(?:yesterday|today)\b',
+        rf'\b(?:yesterday|today)(?:\s+(?:{daypart}))?\b',
         r'\b\d+\s+weeks?\s+ago\b',
         r'\b\d+\s+months?\s+ago\b',
         r'\b\d+\s+years?\s+ago\b',
@@ -771,7 +776,7 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
         r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\b',
         r'\bbetween\s+.+?\s+and\s+.+?(?:\s|$)',
         r'\bin\s+the\s+(morning|afternoon|evening|night|noon|midnight)\b',
-        r'\brecent|lately|recently\b',
+        r'\b(?:recently|lately|recent)\b',
         r'\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b',
         r'\b\d{4}-\d{1,2}-\d{1,2}\b',
         r'\b(spring|summer|winter|fall|autumn|christmas|new\s*year|valentine|halloween|thanksgiving|spring\s*break|summer\s*break|winter\s*break)\b',
