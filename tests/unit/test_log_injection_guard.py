@@ -88,6 +88,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/embeddings/external_api.py",
     "mcp_memory_service/config/search.py",
     "mcp_memory_service/config/quality.py",
+    "mcp_memory_service/quality/metadata_codec.py",
     "mcp_memory_service/config/backup.py",
     "mcp_memory_service/ingestion/semtools_loader.py",
     "mcp_memory_service/ingestion/json_loader.py",
