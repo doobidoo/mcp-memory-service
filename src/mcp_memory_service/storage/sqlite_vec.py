@@ -19,18 +19,24 @@ Provides local vector similarity search using sqlite-vec extension.
 Decomposed into mixins (§10) — this file composes the final class.
 """
 
-from typing import Optional
+from typing import Optional, Sequence
 
 from ..models import ontology
 from .base import MemoryStorage
 from .ontology_overlay import (
     OverlaySource,
     tombstone_memory_type,
+    tombstone_relationship,
     tombstone_retention,
+    tombstone_type_pattern,
     upsert_memory_type,
+    upsert_relationship,
     upsert_retention,
+    upsert_type_pattern,
     validate_memory_type_entry,
+    validate_relationship_entry,
     validate_retention_entry,
+    validate_type_pattern_entry,
 )
 from .mixins import (
     BaseMixin,
@@ -161,3 +167,48 @@ class SqliteVecMemoryStorage(
         """Tombstone a stored retention period; the type falls back to its parent's."""
         memory_type = ontology.canonicalize_memory_type(memory_type)
         return await self._write_ontology(lambda conn: tombstone_retention(conn, memory_type))
+
+    async def add_relationship_type(
+        self,
+        name: str,
+        valid_patterns: Sequence[str],
+        description: str = "",
+        symmetric: bool = False,
+    ) -> str:
+        """Add a relationship type to the ontology overlay and return its canonical name.
+
+        ``valid_patterns`` are ``"source → target"`` strings over base types or
+        ``any``, as in ``RELATIONSHIPS``. Raises ValueError if the name exists.
+        """
+        name, spec = validate_relationship_entry(name, valid_patterns, description, symmetric)
+        await self._write_ontology(lambda conn: upsert_relationship(conn, name, spec))
+        return name
+
+    async def remove_relationship_type(self, name: str) -> bool:
+        """Tombstone an overlay relationship type. Built-in relationships cannot be removed.
+
+        Stored edges keep the type; new edges with it stop validating.
+        """
+        name = ontology.canonicalize_memory_type(name)
+        return await self._write_ontology(lambda conn: tombstone_relationship(conn, name))
+
+    async def set_type_pattern(
+        self, source: str, target: str, relationship: str, confidence: float
+    ) -> str:
+        """Store an inference type pattern: memories of base type ``source`` relating
+        to ``target`` get ``relationship`` with ``confidence``. Returns the row key.
+
+        Raises ValueError for a built-in pair, an unknown relationship, a pair its
+        valid_patterns do not allow, or confidence outside (0, 1].
+        """
+        key, payload = validate_type_pattern_entry(source, target, relationship, confidence)
+        await self._write_ontology(lambda conn: upsert_type_pattern(conn, key, payload))
+        return key
+
+    async def clear_type_pattern(self, source: str, target: str) -> bool:
+        """Tombstone an inference type pattern stored in the overlay."""
+        pair = ontology.parse_pattern(f"{source} → {target}")
+        if pair is None:
+            return False
+        key = "{} → {}".format(*pair)
+        return await self._write_ontology(lambda conn: tombstone_type_pattern(conn, key))

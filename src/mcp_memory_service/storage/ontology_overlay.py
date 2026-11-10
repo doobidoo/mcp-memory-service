@@ -1,8 +1,9 @@
-"""Ontology overlay stored in the memory DB (#1897, phases 1 and 4).
+"""Ontology overlay stored in the memory DB (#1897, phases 1, 3 and 4).
 
 The overlay adds memory types on top of the built-in ontology and
-``MCP_CUSTOM_MEMORY_TYPES``, and retention periods for types that have none
-in ``CONSOLIDATION_CONFIG``. It lives in the ``ontology_entries`` table, and
+``MCP_CUSTOM_MEMORY_TYPES``, relationship types and inference type patterns
+on top of ``RELATIONSHIPS`` and ``TYPE_PATTERNS``, and retention periods for
+types that have none in ``CONSOLIDATION_CONFIG``. It lives in the ``ontology_entries`` table, and
 every write bumps ``metadata.ontology_version``. ``models.ontology`` polls that
 counter and reloads the overlay when it moved.
 
@@ -15,7 +16,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..config.consolidation import CONSOLIDATION_CONFIG
 from ..models import ontology
@@ -23,6 +24,9 @@ from ..models import ontology
 # Same bounds as the MCP_RETENTION_* variables.
 RETENTION_MIN_DAYS = 1
 RETENTION_MAX_DAYS = 3650
+
+# Kinds that models.ontology reads through read_payload_overlay(kind).
+PAYLOAD_KINDS = ("relationship", "type_pattern")
 
 
 def read_ontology_version(conn: sqlite3.Connection) -> int:
@@ -57,24 +61,33 @@ def _valid_retention_days(days) -> bool:
     )
 
 
-def read_retention_overlay(conn: sqlite3.Connection) -> Dict[str, int]:
-    """Retention days per memory type. Rows with a malformed payload are skipped."""
+def read_payload_overlay(conn: sqlite3.Connection, kind: str) -> Dict[str, dict]:
+    """Live rows of ``kind`` as key -> parsed payload. Rows whose payload is not a JSON object are skipped."""
     try:
         rows = conn.execute(
-            "SELECT key, payload_json FROM ontology_entries "
-            "WHERE kind = 'retention' AND deleted_at IS NULL"
+            "SELECT key, payload_json FROM ontology_entries WHERE kind = ? AND deleted_at IS NULL",
+            (kind,),
         ).fetchall()
     except sqlite3.OperationalError:  # migration 022 not applied (yet)
         return {}
-    periods = {}
+    payloads = {}
     for key, payload in rows:
         try:
-            days = json.loads(payload)["days"]
-        except (TypeError, ValueError, KeyError):
+            value = json.loads(payload)
+        except (TypeError, ValueError):
             continue
-        if _valid_retention_days(days):
-            periods[key] = days
-    return periods
+        if isinstance(value, dict):
+            payloads[key] = value
+    return payloads
+
+
+def read_retention_overlay(conn: sqlite3.Connection) -> Dict[str, int]:
+    """Retention days per memory type. Rows with a malformed payload are skipped."""
+    return {
+        key: payload["days"]
+        for key, payload in read_payload_overlay(conn, "retention").items()
+        if _valid_retention_days(payload.get("days"))
+    }
 
 
 def _bump_version(conn: sqlite3.Connection) -> None:
@@ -113,17 +126,49 @@ def upsert_memory_type(conn: sqlite3.Connection, name: str, parent: Optional[str
     name since. The conflict update therefore only revives a tombstoned row, and
     a live row with that name makes the write fail instead of re-parenting it.
     """
+    _insert_or_revive(conn, "memory_type", name, parent=parent, error="a memory type")
+
+
+def _insert_or_revive(
+    conn: sqlite3.Connection,
+    kind: str,
+    key: str,
+    *,
+    parent: Optional[str] = None,
+    payload: Optional[dict] = None,
+    error: str,
+) -> None:
+    """Insert a row, or revive a tombstoned one, and bump the version in one transaction.
+
+    A live row with the same key makes the write fail instead of replacing it.
+    """
+    payload_json = json.dumps(payload) if payload is not None else None
     with conn:  # commits both statements, or rolls both back
         cursor = conn.execute(
-            "INSERT INTO ontology_entries (kind, key, parent, updated_at) "
-            "VALUES ('memory_type', ?, ?, ?) "
+            "INSERT INTO ontology_entries (kind, key, parent, payload_json, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT(kind, key) DO UPDATE SET "
-            "parent = excluded.parent, updated_at = excluded.updated_at, deleted_at = NULL "
+            "parent = excluded.parent, payload_json = excluded.payload_json, "
+            "updated_at = excluded.updated_at, deleted_at = NULL "
             "WHERE ontology_entries.deleted_at IS NOT NULL",
-            (name, parent, time.time()),
+            (kind, key, parent, payload_json, time.time()),
         )
         if cursor.rowcount == 0:
-            raise ValueError(f"'{name}' is already a memory type")
+            raise ValueError(f"'{key}' is already {error}")
+        _bump_version(conn)
+
+
+def _upsert_payload(conn: sqlite3.Connection, kind: str, key: str, payload: dict) -> None:
+    """Insert or replace a value row (retention, type_pattern) and bump the version."""
+    with conn:
+        conn.execute(
+            "INSERT INTO ontology_entries (kind, key, payload_json, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(kind, key) DO UPDATE SET "
+            "payload_json = excluded.payload_json, updated_at = excluded.updated_at, "
+            "deleted_at = NULL",
+            (kind, key, json.dumps(payload), time.time()),
+        )
         _bump_version(conn)
 
 
@@ -171,21 +216,98 @@ def validate_retention_entry(memory_type: str, days) -> Tuple[str, int]:
 
 def upsert_retention(conn: sqlite3.Connection, memory_type: str, days: int) -> None:
     """Set (or replace) the retention period of a memory type and bump the version."""
-    with conn:
-        conn.execute(
-            "INSERT INTO ontology_entries (kind, key, payload_json, updated_at) "
-            "VALUES ('retention', ?, ?, ?) "
-            "ON CONFLICT(kind, key) DO UPDATE SET "
-            "payload_json = excluded.payload_json, updated_at = excluded.updated_at, "
-            "deleted_at = NULL",
-            (memory_type, json.dumps({"days": days}), time.time()),
-        )
-        _bump_version(conn)
+    _upsert_payload(conn, "retention", memory_type, {"days": days})
 
 
 def tombstone_retention(conn: sqlite3.Connection, memory_type: str) -> bool:
     """Tombstone a retention entry; the type falls back to its parent's period."""
     return _tombstone(conn, "retention", memory_type)
+
+
+def _canonical_pattern(pattern, allow_any: bool) -> Tuple[str, str]:
+    """Parse ``"source → target"`` and check both ends are base types (or ``any``)."""
+    pair = ontology.parse_pattern(pattern)
+    if pair is None:
+        raise ValueError(f"'{pattern}' is not a 'source → target' pattern")
+    allowed = ontology.get_base_types() | ({"any"} if allow_any else set())
+    for end in pair:
+        if end not in allowed:
+            raise ValueError(f"'{end}' is not a base memory type")
+    return pair
+
+
+def validate_relationship_entry(
+    name: str, valid_patterns: Sequence[str], description: str = "", symmetric: bool = False
+) -> Tuple[str, dict]:
+    """Canonicalize a new relationship type and check it against the merged ontology.
+
+    Raises ValueError for a bad or existing name, a missing or malformed
+    pattern, a pattern end that is not a base type or ``any``, or a
+    non-string description / non-bool ``symmetric``.
+    """
+    name = ontology.canonicalize_memory_type(name)
+    if not ontology._is_valid_custom_type_name(name):
+        raise ValueError(
+            "Relationship names may contain lowercase letters, digits, underscore "
+            "and hyphen, and must start with a letter."
+        )
+    if ontology.validate_relationship(name):
+        raise ValueError(f"'{name}' is already a relationship type")
+    if isinstance(valid_patterns, str) or not valid_patterns:
+        raise ValueError("valid_patterns must be a non-empty list of 'source → target' strings")
+    if not isinstance(description, str) or not isinstance(symmetric, bool):
+        raise ValueError("description must be a string and symmetric a bool")
+    patterns = [
+        "{} → {}".format(*_canonical_pattern(p, allow_any=True)) for p in valid_patterns
+    ]
+    return name, {"description": description, "valid_patterns": patterns, "symmetric": symmetric}
+
+
+def upsert_relationship(conn: sqlite3.Connection, name: str, spec: dict) -> None:
+    """Write (or revive) an overlay relationship type. A live row with that name makes it fail."""
+    _insert_or_revive(conn, "relationship", name, payload=spec, error="a relationship type")
+
+
+def tombstone_relationship(conn: sqlite3.Connection, name: str) -> bool:
+    """Tombstone an overlay relationship type. Built-in relationships are not in the table."""
+    return _tombstone(conn, "relationship", name)
+
+
+def validate_type_pattern_entry(
+    source: str, target: str, relationship: str, confidence
+) -> Tuple[str, dict]:
+    """Check an inference type pattern and return its row key and payload.
+
+    Raises ValueError when an end is not a base type, the pair is a built-in
+    ``TYPE_PATTERNS`` pair, the relationship is unknown, one inference must not
+    emit (``has_entity``), or its valid_patterns do not allow the pair (inference
+    would drop it), or confidence is not in (0, 1].
+    """
+    pair = _canonical_pattern(f"{source} → {target}", allow_any=False)
+    if pair in ontology.TYPE_PATTERNS:
+        raise ValueError("{} → {} is a built-in type pattern".format(*pair))
+    relationship = ontology.canonicalize_memory_type(relationship)
+    if not ontology.validate_relationship(relationship):
+        raise ValueError(f"'{relationship}' is not a relationship type")
+    if relationship in ontology.NON_INFERABLE_RELATIONSHIPS:
+        raise ValueError(f"'{relationship}' links a memory to an entity; inference cannot emit it")
+    if not ontology.is_allowed_pair(relationship, *pair):
+        raise ValueError(
+            "the valid_patterns of '{}' do not allow {} → {}".format(relationship, *pair)
+        )
+    if not ontology._valid_confidence(confidence):
+        raise ValueError("confidence must be a number in (0, 1]")
+    return "{} → {}".format(*pair), {"relationship": relationship, "confidence": float(confidence)}
+
+
+def upsert_type_pattern(conn: sqlite3.Connection, key: str, payload: dict) -> None:
+    """Set (or replace) an inference type pattern and bump the version."""
+    _upsert_payload(conn, "type_pattern", key, payload)
+
+
+def tombstone_type_pattern(conn: sqlite3.Connection, key: str) -> bool:
+    """Tombstone an inference type pattern."""
+    return _tombstone(conn, "type_pattern", key)
 
 
 class OverlaySource:
@@ -199,7 +321,9 @@ class OverlaySource:
     """
 
     def __init__(self, db_path: str):
-        self._snapshot: Tuple[int, List[Tuple[str, Optional[str], bool]], Dict[str, int]] = (0, [], {})
+        self._snapshot: Tuple[
+            int, List[Tuple[str, Optional[str], bool]], Dict[str, int], Dict[str, Dict[str, dict]]
+        ] = (0, [], {}, {})
         if db_path in ("", ":memory:"):
             self.uri = None
         else:
@@ -214,6 +338,7 @@ class OverlaySource:
                 read_ontology_version(conn),
                 read_memory_type_overlay(conn),
                 read_retention_overlay(conn),
+                {kind: read_payload_overlay(conn, kind) for kind in PAYLOAD_KINDS},
             )
 
     def _read(self, query, snapshot_value):
@@ -233,3 +358,8 @@ class OverlaySource:
 
     def read_retention_overlay(self) -> Dict[str, int]:
         return self._read(read_retention_overlay, self._snapshot[2])
+
+    def read_payload_overlay(self, kind: str) -> Dict[str, dict]:
+        return self._read(
+            lambda conn: read_payload_overlay(conn, kind), self._snapshot[3].get(kind, {})
+        )

@@ -134,7 +134,8 @@ class TestBurst13RelationshipTypes:
     """Tests for Burst 1.3: Relationship Types Definition"""
 
     def test_relationship_types_defined(self):
-        """Should include core Burst 1.3 types plus derived_from (auto-capture / insights)."""
+        """Should include core Burst 1.3 types plus derived_from (auto-capture / insights)
+        and has_entity (entity links, a proper entry since #1897)."""
         expected_types = {
             "causes",
             "fixes",
@@ -144,6 +145,7 @@ class TestBurst13RelationshipTypes:
             "related",
             "derived_from",
             "shares_entity",
+            "has_entity",
         }
         actual_types = set(RELATIONSHIPS.keys())
         assert actual_types == expected_types

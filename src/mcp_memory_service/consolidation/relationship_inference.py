@@ -25,6 +25,7 @@ from typing import Tuple, Optional, List, Set
 
 from ..models.ontology import (
     get_parent_type,
+    get_type_patterns,
     is_allowed_pair,
 )
 
@@ -453,18 +454,8 @@ class RelationshipInferenceEngine:
 
         # Keys are base types: _resolve_parent_type maps subtypes such as note,
         # reference, document (observation) and configuration (decision) first.
-        type_patterns = {
-            ("learning", "error"): ("fixes", 0.8),
-            ("pattern", "error"): ("fixes", 0.75),
-            ("learning", "decision"): ("supports", 0.6),
-            ("pattern", "learning"): ("supports", 0.6),
-            ("error", "error"): ("causes", 0.6),
-            ("observation", "learning"): ("supports", 0.6),
-            ("observation", "error"): ("causes", 0.55),
-            ("observation", "observation"): ("follows", 0.5),
-        }
-
-        pattern = type_patterns.get((source_parent, target_parent))
+        # TYPE_PATTERNS in models/ontology.py, plus pairs stored in the DB (#1897).
+        pattern = get_type_patterns().get((source_parent, target_parent))
         return [pattern] if pattern else []
 
     def _analyze_content_semantics(
