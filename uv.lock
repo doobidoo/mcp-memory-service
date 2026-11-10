@@ -1411,7 +1411,9 @@ ml = [
     { name = "wandb" },
 ]
 nli = [
+    { name = "huggingface-hub" },
     { name = "onnxruntime" },
+    { name = "tokenizers" },
     { name = "transformers" },
 ]
 sqlite = [
@@ -1451,6 +1453,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.6" },
     { name = "fastapi", specifier = ">=0.115.5" },
     { name = "httpx", specifier = ">=0.24.0" },
+    { name = "huggingface-hub", marker = "extra == 'nli'", specifier = ">=0.20" },
     { name = "huggingface-hub", marker = "extra == 'sqlite'", specifier = ">=0.20" },
     { name = "mcp", specifier = ">=1.19.0,<2.0.0" },
     { name = "mcp-memory-service", extras = ["ml"], marker = "extra == 'milvus'" },
@@ -1486,6 +1489,7 @@ requires-dist = [
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "sse-starlette", specifier = ">=2.1.0" },
     { name = "tokenizers", marker = "extra == 'ml'", specifier = ">=0.22.2" },
+    { name = "tokenizers", marker = "extra == 'nli'", specifier = ">=0.22.2" },
     { name = "tokenizers", marker = "extra == 'sqlite'", specifier = ">=0.22.2" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.0.0" },
     { name = "transformers", marker = "extra == 'ml'", specifier = ">=5.5.0,<6.0.0" },

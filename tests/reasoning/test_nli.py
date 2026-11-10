@@ -200,20 +200,55 @@ class TestMemoryResolveBatch:
 
 # ─── Unimplemented backend warning Tests ──────────────────────────────────────
 
+def _simulate_model_unreachable(monkeypatch):
+    """Make the ONNX load fail offline, deterministically, on every machine.
+
+    Three things decide whether the load path runs, and a cached machine
+    short-circuits two of them before any network call: ``_fetch`` consults
+    ``try_to_load_from_cache`` first, and ``_ONNX_RUNTIME_CACHE`` keeps a
+    session from an earlier test in the same process. Patch all three —
+    the cache lookups return misses, the download raises, the session cache
+    starts empty — so the degradation contract is what runs, whether or not
+    the model happens to be cached locally. Without huggingface_hub the
+    load path raises ImportError on its own, which is the same contract.
+    """
+    try:
+        import huggingface_hub
+    except ImportError:
+        return
+
+    import mcp_memory_service.reasoning.nli as nli_mod
+
+    def _fail(*args, **kwargs):
+        raise OSError("simulated: model download unavailable")
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", _fail)
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                        lambda *args, **kwargs: None)
+    monkeypatch.setattr(nli_mod, "_ONNX_RUNTIME_CACHE", {})
+
+
 class TestUnimplementedBackendWarning:
     """Test that unimplemented backends emit a warning."""
 
     @pytest.mark.asyncio
-    async def test_transformers_backend_logs_warning(self, caplog):
-        """Backend 'transformers' should log warning and return neutral."""
+    async def test_transformers_backend_degrades_to_heuristic_without_model(self, caplog, monkeypatch):
+        """Backend 'transformers' with the model unreachable degrades to the heuristic.
+
+        The backend is implemented; the contract for a missing model is one
+        bounded warning plus heuristic verdicts — not neutral 0.0, which
+        would silently disable contradiction detection.
+        """
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
+        _simulate_model_unreachable(monkeypatch)
         classifier = NLIClassifier(backend="transformers")
+        expected = classifier._heuristic_classify("A is true", "A is false")
         with caplog.at_level(logging.WARNING):
             result = await classifier.classify("A is true", "A is false")
-        assert result.label == "neutral"
-        assert result.confidence == 0.0
-        assert "not implemented" in caplog.text.lower()
+        assert result == expected
+        assert "transformers inference failed" in caplog.text
+        assert classifier.degraded is True
 
     @pytest.mark.asyncio
     async def test_unknown_backend_logs_warning(self, caplog):
@@ -228,14 +263,21 @@ class TestUnimplementedBackendWarning:
         assert "some_unknown_backend" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_warning_logged_only_once_in_batch(self, caplog):
-        """Warning should only be emitted once per classifier instance, not per call."""
+    async def test_degradation_warning_logged_only_once_in_batch(self, caplog, monkeypatch):
+        """The degradation warning fires once per classifier instance, not per pair."""
         import logging
         from mcp_memory_service.reasoning.nli import NLIClassifier
+        _simulate_model_unreachable(monkeypatch)
         classifier = NLIClassifier(backend="transformers")
         pairs = [("A", "B"), ("C", "D"), ("E", "F")]
         with caplog.at_level(logging.WARNING):
             results = await classifier.classify_batch(pairs)
         assert len(results) == 3
-        assert all(r.label == "neutral" for r in results)
-        assert caplog.text.count("not implemented") == 1
+        assert caplog.text.count("transformers inference failed") == 1
+
+    @pytest.mark.asyncio
+    async def test_auto_backend_blank_env_means_heuristic(self, monkeypatch):
+        """MCP_NLI_BACKEND set but empty resolves to heuristic, not unknown."""
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+        monkeypatch.setenv("MCP_NLI_BACKEND", "")
+        assert NLIClassifier(backend="auto").backend == "heuristic"

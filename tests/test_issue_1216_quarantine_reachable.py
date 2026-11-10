@@ -78,8 +78,10 @@ class TestHeuristicCeiling:
         from mcp_memory_service.reasoning.nli import LLM_NONNEUTRAL_CONFIDENCE
         assert NLIClassifier(backend="heuristic").max_achievable_confidence() == HEURISTIC_MAX_CONFIDENCE
         assert NLIClassifier(backend="cascade").max_achievable_confidence() == LLM_NONNEUTRAL_CONFIDENCE
+        # The transformers backend emits real softmax probabilities (#1848).
+        assert NLIClassifier(backend="transformers").max_achievable_confidence() == 1.0
         # An unimplemented backend can only return neutral 0.0.
-        assert NLIClassifier(backend="transformers").max_achievable_confidence() == 0.0
+        assert NLIClassifier(backend="some_unknown_backend").max_achievable_confidence() == 0.0
 
     @pytest.mark.asyncio
     async def test_ceiling_matches_what_the_heuristic_emits(self):
