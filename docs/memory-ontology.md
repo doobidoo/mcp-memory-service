@@ -172,7 +172,8 @@ await storage.remove_relationship_type("blocks")
   drop it). Below 0.75 the typed-label gate falls back to `related`.
 - Removing a relationship type keeps existing edges; new edges with it stop
   validating, and its type patterns are ignored until it is added again.
-- `has_entity` (memory → entity key) is a built-in relationship.
+- `has_entity` (memory → entity key) is a built-in relationship. Its target is
+  an entity, not a memory, so a type pattern cannot name it.
 
 ## When in doubt
 

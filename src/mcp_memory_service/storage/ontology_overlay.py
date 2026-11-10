@@ -279,8 +279,9 @@ def validate_type_pattern_entry(
     """Check an inference type pattern and return its row key and payload.
 
     Raises ValueError when an end is not a base type, the pair is a built-in
-    ``TYPE_PATTERNS`` pair, the relationship is unknown or its valid_patterns
-    do not allow the pair (inference would drop it), or confidence is not in (0, 1].
+    ``TYPE_PATTERNS`` pair, the relationship is unknown, one inference must not
+    emit (``has_entity``), or its valid_patterns do not allow the pair (inference
+    would drop it), or confidence is not in (0, 1].
     """
     pair = _canonical_pattern(f"{source} → {target}", allow_any=False)
     if pair in ontology.TYPE_PATTERNS:
@@ -288,6 +289,8 @@ def validate_type_pattern_entry(
     relationship = ontology.canonicalize_memory_type(relationship)
     if not ontology.validate_relationship(relationship):
         raise ValueError(f"'{relationship}' is not a relationship type")
+    if relationship in ontology.NON_INFERABLE_RELATIONSHIPS:
+        raise ValueError(f"'{relationship}' links a memory to an entity; inference cannot emit it")
     if not ontology.is_allowed_pair(relationship, *pair):
         raise ValueError(
             "the valid_patterns of '{}' do not allow {} → {}".format(relationship, *pair)

@@ -350,6 +350,11 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
 # Symmetric relationships (bidirectional semantics)
 SYMMETRIC_RELATIONSHIPS: Final[set] = {"related", "contradicts", "shares_entity"}
 
+# Relationships inference must never emit. has_entity points a memory at an
+# entity key, not at another memory, so an inferred one would link two memory
+# hashes under a label the entity graph reads as an entity link.
+NON_INFERABLE_RELATIONSHIPS: Final[frozenset] = frozenset({"has_entity"})
+
 # Relationship inference by base-type pair: (source, target) -> (relationship,
 # confidence). Each pair must be allowed by that relationship's valid_patterns
 # (issue #1458). Below 0.75 the typed-label gate falls back to "related" (#541).
@@ -413,6 +418,28 @@ def _valid_confidence(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= 1
 
 
+def _overlay_type_pattern(
+    key: str, spec: dict, relationships: Dict[str, dict]
+) -> Optional[Tuple[Tuple[str, str], Tuple[str, float]]]:
+    """An overlay type_pattern row as (pair, (relationship, confidence)), or None if unusable.
+
+    Rows come from other processes and, later, other nodes: a field of the wrong
+    type must be skipped, never raise, or one row would break every inference call.
+    """
+    pair = parse_pattern(key)
+    relationship = spec.get("relationship")
+    confidence = spec.get("confidence")
+    if (
+        pair is None
+        or not isinstance(relationship, str)
+        or relationship in NON_INFERABLE_RELATIONSHIPS
+        or relationship not in relationships
+        or not _valid_confidence(confidence)
+    ):
+        return None
+    return pair, (relationship, float(confidence))
+
+
 def get_type_patterns() -> Dict[Tuple[str, str], Tuple[str, float]]:
     """Built-in TYPE_PATTERNS plus the DB overlay. An overlay row cannot replace a built-in pair."""
     global _TYPE_PATTERNS_CACHE
@@ -420,17 +447,9 @@ def get_type_patterns() -> Dict[Tuple[str, str], Tuple[str, float]]:
     if _TYPE_PATTERNS_CACHE is None:
         merged = dict(TYPE_PATTERNS)
         for key, spec in _OVERLAY_TYPE_PATTERNS.items():
-            pair = parse_pattern(key)
-            relationship = spec.get("relationship")
-            confidence = spec.get("confidence")
-            if (
-                pair is None
-                or pair in merged
-                or relationship not in relationships
-                or not _valid_confidence(confidence)
-            ):
-                continue
-            merged[pair] = (relationship, float(confidence))
+            entry = _overlay_type_pattern(key, spec, relationships)
+            if entry is not None and entry[0] not in merged:
+                merged[entry[0]] = entry[1]
         _TYPE_PATTERNS_CACHE = merged
     return dict(_TYPE_PATTERNS_CACHE)
 
@@ -755,7 +774,7 @@ def validate_relationship(rel_type: str) -> bool:
         >>> validate_relationship("invalid_rel")
         False
     """
-    return rel_type in _get_merged_relationships()
+    return isinstance(rel_type, str) and rel_type in _get_merged_relationships()
 
 
 def is_allowed_pair(rel_type: str, source_parent: Optional[str], target_parent: Optional[str]) -> bool:

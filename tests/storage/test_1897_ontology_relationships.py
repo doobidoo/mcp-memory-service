@@ -123,6 +123,8 @@ async def test_type_pattern_reaches_inference(storage):
         ("decision", "error", "related", 0),
         ("decision", "error", "related", 1.5),
         ("decision", "error", "related", True),
+        ("decision", "error", "has_entity", 0.9),  # targets an entity key, not a memory
+        ("decision", "error", [], 0.8),            # not a string
     ],
 )
 async def test_rejects_type_patterns_inference_would_drop(storage, source, target, relationship, confidence):
@@ -168,6 +170,27 @@ async def test_overlay_rows_cannot_rescope_builtins_or_smuggle_bad_specs(storage
     patterns = ontology.get_type_patterns()
     assert patterns[("learning", "error")] == ("fixes", 0.8)
     assert ("decision", "error") not in patterns
+
+
+async def test_a_malformed_type_pattern_row_does_not_break_inference(storage):
+    """Greptile on #1940: an unhashable relationship raised TypeError in
+    get_type_patterns(), so the cache never filled and every inference call failed."""
+    _write_directly(storage, "type_pattern", "decision → error", {"relationship": [], "confidence": 0.8})
+    _write_directly(storage, "type_pattern", "pattern → decision", {"relationship": {}, "confidence": 0.8})
+
+    engine = RelationshipInferenceEngine(min_confidence=0.0, min_typed_confidence=0.0)
+    assert engine._analyze_type_combination("learning", "error") == [("fixes", 0.8)]
+    assert engine._analyze_type_combination("decision", "error") == []
+    assert not ontology.validate_relationship([])
+
+
+async def test_has_entity_never_comes_out_of_inference(storage):
+    """Greptile on #1940: has_entity points at an entity key, so a type pattern
+    for it would link two memory hashes as if one were an entity."""
+    _write_directly(storage, "type_pattern", "decision → error", {"relationship": "has_entity", "confidence": 0.9})
+
+    assert ontology.validate_relationship("has_entity")  # still registered
+    assert ("decision", "error") not in ontology.get_type_patterns()
 
 
 async def test_in_memory_database_relationships_load(monkeypatch):

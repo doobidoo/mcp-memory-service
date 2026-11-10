@@ -7,4 +7,4 @@
   cannot be replaced. `validate_relationship`, `is_allowed_pair` and
   `is_symmetric_relationship` read the merged set, and the inline `type_patterns` dict moved
   to `TYPE_PATTERNS` in `models/ontology.py`. `has_entity` is now a proper entry in
-  `RELATIONSHIPS`.
+  `RELATIONSHIPS`; type patterns cannot name it, since its target is an entity key.
