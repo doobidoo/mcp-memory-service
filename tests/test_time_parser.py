@@ -472,7 +472,59 @@ class TestTimeParser:
         assert "coffee" in cleaned
         assert "yesterday" not in cleaned
         assert "in the morning" not in cleaned
-    
+
+    def test_extract_keeps_the_morning_window(self):
+        """`yesterday morning` is the morning, not the whole day plus the word morning."""
+        cleaned, (start_ts, end_ts) = extract_time_expression("notes from yesterday morning")
+        assert "notes" in cleaned
+        assert "yesterday" not in cleaned
+        assert "morning" not in cleaned
+        direct_start, direct_end = parse_time_expression("yesterday morning")
+        assert (start_ts, end_ts) == (direct_start, direct_end)
+        assert datetime.fromtimestamp(start_ts).hour == 5
+        assert datetime.fromtimestamp(end_ts).hour == 11
+
+        ago_cleaned, (ago_start, ago_end) = extract_time_expression("3 days ago morning")
+        assert ago_cleaned == ""
+        assert (ago_start, ago_end) == parse_time_expression("3 days ago morning")
+
+    def test_extract_reverse_daypart_and_overnight_window(self):
+        """Reverse-order dayparts are removed and night crosses midnight."""
+        today = date.today()
+        cleaned, (start_ts, end_ts) = extract_time_expression("notes morning today")
+        assert cleaned == "notes"
+        assert datetime.fromtimestamp(start_ts) == datetime(
+            today.year, today.month, today.day, 5
+        )
+        assert datetime.fromtimestamp(end_ts) == datetime(
+            today.year, today.month, today.day, 11, 59, 59
+        )
+
+        cleaned, (start_ts, end_ts) = extract_time_expression("notes night yesterday")
+        assert cleaned == "notes"
+        yesterday = today - timedelta(days=1)
+        assert datetime.fromtimestamp(start_ts) == datetime(
+            yesterday.year, yesterday.month, yesterday.day, 22
+        )
+        assert datetime.fromtimestamp(end_ts) == datetime(
+            today.year, today.month, today.day, 4, 59, 59
+        )
+
+    def test_extract_recently_does_not_leave_ly(self):
+        """`recently` was matched as `recent`, so the search text kept `ly`."""
+        cleaned, (start_ts, end_ts) = extract_time_expression(
+            "what did we decide recently about auth"
+        )
+        assert cleaned == "what did we decide about auth"
+        assert start_ts is not None and end_ts is not None
+        assert 6 <= (end_ts - start_ts) / 86400 <= 8
+
+        lately_cleaned, (lately_start, _) = extract_time_expression(
+            "lately the auth service failed"
+        )
+        assert lately_cleaned == "the auth service failed"
+        assert lately_start is not None
+
     def test_edge_cases(self):
         """Test edge cases and error handling"""
         # Test empty string
