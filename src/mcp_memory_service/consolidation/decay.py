@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from ..compat import _sanitize_log_value
 from .base import ConsolidationBase, ConsolidationConfig
 from ..models.memory import Memory
-from ..models.ontology import get_parent_type, get_retention_overlay
+from ..models.ontology import get_parent_type, get_retention_overlay, get_stored_parent
 
 @dataclass
 class RelevanceScore:
@@ -100,12 +100,15 @@ class ExponentialDecayCalculator(ConsolidationBase):
         # fallback. Legacy names stay in retention_periods and skip resolution.
         # The parent only selects the period; memory_type keeps the stored
         # subtype for the score metadata. Periods stored in the DB overlay
-        # (#1897) cover types the config has no key for; the config wins.
+        # (#1897) cover types the config has no key for; the config wins. A
+        # removed overlay subtype keeps the parent it was stored with.
         memory_type = self._extract_memory_type(memory)
         retention_periods = {**get_retention_overlay(), **self.retention_periods}
         retention_type = memory_type
         if retention_type not in retention_periods:
-            retention_type = get_parent_type(memory_type) or memory_type
+            retention_type = (
+                get_parent_type(memory_type) or get_stored_parent(memory_type) or memory_type
+            )
         retention_period = retention_periods.get(retention_type, 30)
 
         # Calculate exponential decay factor

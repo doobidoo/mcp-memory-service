@@ -70,6 +70,20 @@ async def test_a_subtype_entry_overrides_its_parent_and_clear_falls_back(storage
     assert await _retention_period("contract") == 400
 
 
+async def test_removed_types_keep_decaying_on_their_stored_parent(storage):
+    """Greptile on #1939: removing 'legal' left 'contract' memories without a
+    parent, so they fell back to 30 days although 'legal' still has 400."""
+    await storage.set_retention("legal", 400)
+    await storage.add_memory_type("postmortem", parent="learning")
+
+    assert await storage.remove_memory_type("legal")
+    assert await storage.remove_memory_type("postmortem")
+    assert ontology.get_parent_type("contract") is None  # no new writes with it
+
+    assert await _retention_period("contract") == 400
+    assert await _retention_period("postmortem") == 180  # built-in parent's period
+
+
 @pytest.mark.parametrize(
     "memory_type, days",
     [

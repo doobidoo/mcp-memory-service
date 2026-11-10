@@ -30,12 +30,21 @@ def read_ontology_version(conn: sqlite3.Connection) -> int:
     return int(row[0]) if row else 0
 
 
-def read_memory_type_overlay(conn: sqlite3.Connection) -> List[Tuple[str, Optional[str]]]:
+def read_memory_type_overlay(conn: sqlite3.Connection) -> List[Tuple[str, Optional[str], bool]]:
+    """All memory type rows as (key, parent, live), tombstoned ones included.
+
+    Only live rows extend the ontology. Tombstoned rows still say which base
+    type a removed subtype belonged to, which retention needs for the stored
+    memories that keep that type.
+    """
     try:
-        return conn.execute(
-            "SELECT key, parent FROM ontology_entries "
-            "WHERE kind = 'memory_type' AND deleted_at IS NULL"
-        ).fetchall()
+        return [
+            (key, parent, bool(live))
+            for key, parent, live in conn.execute(
+                "SELECT key, parent, deleted_at IS NULL FROM ontology_entries "
+                "WHERE kind = 'memory_type'"
+            )
+        ]
     except sqlite3.OperationalError:  # migration 022 not applied (yet)
         return []
 
@@ -190,7 +199,7 @@ class OverlaySource:
     """
 
     def __init__(self, db_path: str):
-        self._snapshot: Tuple[int, List[Tuple[str, Optional[str]]], Dict[str, int]] = (0, [], {})
+        self._snapshot: Tuple[int, List[Tuple[str, Optional[str], bool]], Dict[str, int]] = (0, [], {})
         if db_path in ("", ":memory:"):
             self.uri = None
         else:
@@ -219,7 +228,7 @@ class OverlaySource:
     def read_ontology_version(self) -> int:
         return self._read(read_ontology_version, self._snapshot[0])
 
-    def read_memory_type_overlay(self) -> List[Tuple[str, Optional[str]]]:
+    def read_memory_type_overlay(self) -> List[Tuple[str, Optional[str], bool]]:
         return self._read(read_memory_type_overlay, self._snapshot[1])
 
     def read_retention_overlay(self) -> Dict[str, int]:
