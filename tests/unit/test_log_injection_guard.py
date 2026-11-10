@@ -85,6 +85,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/mcp_server.py",
     "mcp_memory_service/lm_studio_compat.py",
     "mcp_memory_service/embeddings/onnx_embeddings.py",
+    "mcp_memory_service/embeddings/external_api.py",
     "mcp_memory_service/config/search.py",
     "mcp_memory_service/config/quality.py",
     "mcp_memory_service/config/backup.py",
@@ -221,15 +222,22 @@ EXTERNAL_NAMES = frozenset({
     # log lines. No other guarded module logs the name, so listing it decides
     # for nobody else.
     "context_label",
+    # The endpoint embeddings/external_api.py posts to, from
+    # MCP_EXTERNAL_EMBEDDING_URL or the constructor. No other guarded module
+    # logs the name, so listing it decides for nobody else.
+    "api_url",
 })
 
 # Names that are outside data in one module only, checked on top of
 # EXTERNAL_NAMES for that module. `backend` is the storage backend a caller
 # hands utils/cache_manager.py's get_or_create(); elsewhere it is internal
 # (`self.backend` in ingestion/pdf_loader.py and reasoning/nli.py), so listing
-# it globally would flag those two.
+# it globally would flag those two. `model_name` is MCP_EXTERNAL_EMBEDDING_MODEL
+# in embeddings/external_api.py; reasoning/nli.py logs its own model name bare,
+# and quality/onnx_ranker.py is not guarded yet (see `_hf_repo` above).
 MODULE_EXTERNAL_NAMES = {
     "mcp_memory_service/utils/cache_manager.py": frozenset({"backend"}),
+    "mcp_memory_service/embeddings/external_api.py": frozenset({"model_name"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -713,3 +721,25 @@ def test_lazy_scan_flags_cache_manager_caller_inputs():
         assert _lazy_findings(bare, extra)
         assert not _lazy_findings(wrapped, extra)
     assert not _lazy_findings('logger.info("PDF: %s using %s", _sanitize_log_value(file_path), self.backend)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_external_embedding_endpoint():
+    """The endpoint and model embeddings/external_api.py logs when it connects.
+
+    `api_url` is listed in EXTERNAL_NAMES; `model_name` only for this module,
+    through MODULE_EXTERNAL_NAMES. The module's guarded call already wraps both,
+    so the module scan stays green whether or not they are listed. These are
+    the samples that fail if either entry is dropped; the embedding dimension
+    logged next to them, and reasoning/nli.py's own model name, stay allowed.
+    """
+    extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/embeddings/external_api.py"]
+    for bare, wrapped in (
+        ('logger.info("connected: %s, dims: %d", self.api_url, self.embedding_dimension)\n',
+         'logger.info("connected: %s, dims: %d", _sanitize_log_value(self.api_url), self.embedding_dimension)\n'),
+        ('logger.info("model: %s", self.model_name)\n',
+         'logger.info("model: %s", _sanitize_log_value(self.model_name))\n'),
+    ):
+        assert _lazy_findings(bare, extra)
+        assert not _lazy_findings(wrapped, extra)
+    assert not _lazy_findings('logger.info("NLI model: %s", self.model_name)\n')
