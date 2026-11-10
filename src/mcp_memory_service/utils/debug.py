@@ -15,6 +15,8 @@
 """Debug utilities for memory service."""
 from typing import Dict, Any, List
 import logging
+
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
 
 logger = logging.getLogger(__name__)
@@ -135,9 +137,9 @@ async def exact_match_retrieve(storage, content: str) -> List[Memory]:
             return memories
 
         # No suitable method available
-        logger.warning(f"Storage backend {type(storage).__name__} does not support exact content match")
+        logger.warning("Storage backend %s does not support exact content match", type(storage).__name__)
         return []
 
     except Exception as e:
-        logger.error(f"Error in exact_match_retrieve: {str(e)}")
+        logger.error("Error in exact_match_retrieve: %s", _sanitize_log_value(e))
         return []
