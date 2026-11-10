@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 _DASHBOARD_CSP = (
     "default-src 'self'; "
     "script-src 'self' https://cdn.jsdelivr.net https://esm.sh "
-    "'sha256-rj3g3b9Kizq/pPLcsAR/BhFPUOl+9Wd0O8u2HGzfgnY='; "
+    "'sha256-+9dJjjHd5V3OuLS4ZtFtbrWm8oLQHO5xVJLfAzAGoAg='; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self'; "
     "font-src 'self'; "
