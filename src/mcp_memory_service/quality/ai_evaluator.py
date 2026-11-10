@@ -260,8 +260,8 @@ class QualityEvaluator:
                     msmarco_s = components.get('ms_marco_score', 'N/A')
 
                     logger.info(
-                        f"Fallback score: {score:.3f} ({decision}) - "
-                        f"DeBERTa: {deberta_s}, MS-MARCO: {msmarco_s}"
+                        "Fallback score: %.3f (%s) - DeBERTa: %s, MS-MARCO: %s",
+                        score, decision, deberta_s, msmarco_s
                     )
                 except Exception as e:
                     logger.error("Fallback scoring failed: %s, falling back to single model", _sanitize_log_value(str(e)))
@@ -622,7 +622,8 @@ class QualityEvaluator:
         deberta_threshold = self.config.deberta_threshold
         if deberta_score >= deberta_threshold:
             logger.debug(
-                f"DeBERTa confident ({deberta_score:.3f} >= {deberta_threshold}), using DeBERTa"
+                "DeBERTa confident (%.3f >= %s), using DeBERTa",
+                deberta_score, deberta_threshold
             )
             return deberta_score, {
                 'final_score': deberta_score,
@@ -659,8 +660,8 @@ class QualityEvaluator:
         ms_marco_threshold = self.config.ms_marco_threshold
         if ms_marco_score >= ms_marco_threshold:
             logger.info(
-                f"Technical content rescue: MS-MARCO {ms_marco_score:.3f} >= {ms_marco_threshold} "
-                f"(DeBERTa was {deberta_score:.3f})"
+                "Technical content rescue: MS-MARCO %.3f >= %s (DeBERTa was %.3f)",
+                ms_marco_score, ms_marco_threshold, deberta_score
             )
             return ms_marco_score, {
                 'final_score': ms_marco_score,
@@ -671,7 +672,8 @@ class QualityEvaluator:
 
         # Step 5: Both agree it's low quality, use DeBERTa
         logger.debug(
-            f"Both agree low quality: DeBERTa={deberta_score:.3f}, MS-MARCO={ms_marco_score:.3f}"
+            "Both agree low quality: DeBERTa=%.3f, MS-MARCO=%.3f",
+            deberta_score, ms_marco_score
         )
         return deberta_score, {
             'final_score': deberta_score,
