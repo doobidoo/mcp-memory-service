@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v12.7.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v12.8.0</title>
 <meta name="description" content="Memory layer for AI agents. REST API + MCP + OAuth + CLI + dashboard — one self-hosted service, every transport. 14+ client integrations, knowledge graph, automatic consolidation. LongMemEval R@5 86%, session ingestion, zero cloud cost.">
-<meta property="og:title" content="MCP Memory Service v12.7.0">
+<meta property="og:title" content="MCP Memory Service v12.8.0">
 <meta property="og:description" content="Self-hosted AI memory — REST, MCP, OAuth 2.1, CLI, dashboard. Semantic search, knowledge graph, automatic consolidation. LongMemEval R@5 86%, zero cloud cost.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/">
@@ -207,7 +207,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
       <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
       <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
     </ul>
-    <span class="ver">v12.7</span>
+    <span class="ver">v12.8</span>
   </nav>
   <nav class="language-switcher" aria-label="Choose language">
 <!-- locale-navigation:start -->
@@ -250,7 +250,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
   <dl class="facts">
     <div><dd>5 ms</dd><dt>local read latency</dt></div>
     <div><dd>86%</dd><dt>LongMemEval R@5, session mode</dt></div>
-    <div><dd>6,214</dd><dt>tests</dt></div>
+    <div><dd>6,597</dd><dt>tests</dt></div>
     <div><dd>25+</dd><dt>AI apps supported</dt></div>
   </dl>
 </div>
@@ -282,53 +282,53 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 
 <section class="sec" id="features">
   <div class="wrap">
-    <h2>What's new in v12.7</h2>
-    <p class="lede">Typed consolidation edges are off by default, store scoping is enforced in the storage layer, and a round of fixes for conflicts, entity linking and the dashboard.</p>
+    <h2>What's new in v12.8</h2>
+    <p class="lede">The NLI backend runs on ONNX Runtime, custom memory types and retention move into the database, and store scoping reaches Cloudflare, hybrid and remote HTTP storage.</p>
     <ul class="rel">
       <li>
-        <span class="tag">Consolidation</span>
+        <span class="tag">NLI</span>
         <div>
-          <h3>Typed edges are opt-in</h3>
-          <p><code>MCP_TYPED_EDGES_ENABLED</code> now defaults to <code>false</code>. Labels such as <code>fixes</code> and <code>contradicts</code> came from memory types, not content, and none of 139 hand-checked edges was right. Inferred associations are stored as <code>related</code>; set the variable to <code>true</code> to keep the old behavior, with the stricter #1457 gates.</p>
+          <h3>NLI runs on ONNX Runtime</h3>
+          <p><code>MCP_NLI_BACKEND=transformers</code> now classifies with <code>cross-encoder/nli-deberta-v3-small</code> through <code>onnxruntime</code>, <code>tokenizers</code> and <code>huggingface_hub</code>. torch is not on the inference path.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Ontology</span>
+        <div>
+          <h3>Memory types, relations and retention in the database</h3>
+          <p>Custom memory types, relationship types, inference type patterns and per-type retention periods can live in the memory database and change without a restart.</p>
+        </div>
+      </li>
+      <li>
+        <span class="tag">Search</span>
+        <div>
+          <h3>Look up a memory by content hash</h3>
+          <p><code>memory_search</code> retrieves a memory by its exact content hash, and recall keeps "recently" and "yesterday morning" intact.</p>
         </div>
       </li>
       <li>
         <span class="tag">Stores</span>
         <div>
-          <h3>Store scoping holds in storage</h3>
-          <p>Metadata updates, the <code>fallback=true</code> search and beliefs, including the NLI check on store, stay inside the store a call names, so a per-store credential no longer needs the global grant for them.</p>
+          <h3>Store scoping on Cloudflare, hybrid and remote HTTP</h3>
+          <p>Hash-addressed operations and the Cloudflare read paths stay inside the store a call names, and the hybrid backend queues its sync with the store.</p>
         </div>
       </li>
       <li>
-        <span class="tag">Conflicts</span>
+        <span class="tag">Export</span>
         <div>
-          <h3>Conflicts keep their edges and their tags</h3>
-          <p><code>conflict:unresolved</code> is cleared once the conflict is gone, and entity linking no longer overwrites <code>contradicts</code> edges with <code>shares_entity</code>.</p>
-        </div>
-      </li>
-      <li>
-        <span class="tag">Codex</span>
-        <div>
-          <h3>Short replies keep their context</h3>
-          <p>The new opt-in <code>contextualCapture</code> setting stores a short reply together with the assistant turn it answers, without an LLM call.</p>
-        </div>
-      </li>
-      <li>
-        <span class="tag">Dashboard</span>
-        <div>
-          <h3>Credentials tab and translations</h3>
-          <p>Test Connection and Save in Settings send their requests again, and the filter tooltips and most of the Documents tab are translated in all eleven languages.</p>
+          <h3>Entity graph as a Markdown vault</h3>
+          <p><code>scripts/maintenance/export_entity_vault.py</code> writes the entity graph out as a Markdown vault, and the dashboard knowledge graph focuses a node on click.</p>
         </div>
       </li>
       <li>
         <span class="tag">Fixes</span>
         <div>
-          <h3>Deleting untagged memories, compression</h3>
-          <p><code>delete-untagged</code> goes through the storage layer, so graph edges, beliefs and delta-sync events follow, and semantic compression keeps the exceptions and conditions of a rule.</p>
+          <h3>Sync, conflicts and caching</h3>
+          <p>A restored memory the sync queue gave up on reaches Cloudflare, conflicts can be listed and resolved on hybrid, and the dashboard revalidates its static files after an upgrade.</p>
         </div>
       </li>
     </ul>
-    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v12.7.0" target="_blank" rel="noopener">Full release notes for v12.7.0</a></p>
+    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v12.8.0" target="_blank" rel="noopener">Full release notes for v12.8.0</a></p>
   </div>
 </section>
 
