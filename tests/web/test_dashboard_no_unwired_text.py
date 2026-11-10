@@ -47,6 +47,11 @@ ATTRIBUTE_WIRING = {
     "aria-label": "data-i18n-aria",
 }
 
+# Attributes that replace an element's visible text. The attribute-localized
+# forms (data-i18n-title, -aria, -placeholder) translate only that attribute,
+# so they must not exempt the element's own text.
+TEXT_WIRING = {"data-i18n", "data-i18n-html"}
+
 
 class _UnwiredTextCollector(HTMLParser):
     """Collect visible text nodes and localization attributes that carry English words."""
@@ -58,7 +63,7 @@ class _UnwiredTextCollector(HTMLParser):
 
     def _wired_ancestry(self) -> bool:
         return any(
-            key.startswith("data-i18n")
+            key in TEXT_WIRING
             for _, attrs in self.stack
             for key in attrs
         )
@@ -106,7 +111,19 @@ def test_index_html_has_no_unwired_english_text():
     collector.feed(INDEX_HTML.read_text(encoding="utf-8"))
 
     assert collector.unwired == [
-        # Nothing should appear here: wire new UI text with data-i18n* attributes,
-        # and extend the allowlists above only for technical literals (with the
-        # reason in a comment) or text that app.js replaces on load.
+        # Nothing should appear here: wire new UI text with data-i18n or
+        # data-i18n-html, and extend the allowlists above only for technical
+        # literals (with the reason in a comment) or text that app.js
+        # replaces on load.
     ]
+
+
+def test_attribute_only_wiring_does_not_exempt_visible_text():
+    # data-i18n-title localizes the tooltip only; the button's label itself
+    # would stay English after a language switch, so the guard must flag it.
+    collector = _UnwiredTextCollector()
+    collector.feed(
+        '<button data-i18n-title="header.addMemoryTitle">Add Memory</button>'
+    )
+
+    assert collector.unwired == ['line 1: <button> \'Add Memory\'']
