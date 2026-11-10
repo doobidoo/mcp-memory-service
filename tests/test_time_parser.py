@@ -298,8 +298,14 @@ class TestTimeParser:
             start_ts, end_ts = parse_time_expression(query)
             assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
 
-    def test_from_to_edge_endpoints(self):
+    def test_from_to_edge_endpoints(self, monkeypatch):
         """Inverted month windows fall back, month-name years are kept, `now` is today."""
+        _freeze_clock(monkeypatch, date(2026, 1, 10))
+        march_start, _ = parse_time_expression("march")
+        _, january_end = parse_time_expression("january")
+        assert parse_time_expression("from march to january") == (march_start, january_end)
+
+        _freeze_clock(monkeypatch, date(2026, 11, 10))
         assert parse_time_expression("from march to january") == parse_time_expression("march")
 
         start_ts, end_ts = parse_time_expression("from January 2024 to March 2024")
