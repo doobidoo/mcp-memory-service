@@ -417,3 +417,15 @@ async def test_export_walks_every_cloudflare_store(cloudflare_storage, d1, two_s
         ("a", two_stores["a"]),
         ("b", two_stores["b"]),
     }
+
+
+@pytest.mark.asyncio
+async def test_count_excludes_soft_deleted_memories(cloudflare_storage, d1, two_stores):
+    d1.db.execute("UPDATE memories SET deleted_at = 1.0 WHERE store = 'b'")
+    d1.db.commit()
+
+    assert await cloudflare_storage.count_all_memories(store="b") == 0
+    assert await cloudflare_storage.count_all_memories(store="b") == len(
+        await cloudflare_storage.get_all_memories(store="b")
+    )
+    assert await cloudflare_storage.count_all_memories(store="all") == 1

@@ -2885,7 +2885,8 @@ class CloudflareStorage(MemoryStorage):
             # Build query with filters
             base_sql = "SELECT m.id FROM memories m"
             joins = ""
-            conditions = []
+            # Soft-deleted rows never count, as in get_all_memories().
+            conditions = ['m.deleted_at IS NULL']
             params: List[Any] = []
 
             # None and "all" stay unscoped, as in _store_clause (#1915).
