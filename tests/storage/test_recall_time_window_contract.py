@@ -133,7 +133,7 @@ class TestCloudflareRecallContract:
             "out": Memory(content="outside window", content_hash="out", created_at=50.0),
         }
 
-        async def fake_load(match):
+        async def fake_load(match, store=None):
             return loaded[match["id"]]
 
         storage._load_memory_from_match = fake_load
