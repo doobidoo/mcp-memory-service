@@ -95,6 +95,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/ingestion/csv_loader.py",
     "mcp_memory_service/ingestion/text_loader.py",
     "mcp_memory_service/ingestion/pdf_loader.py",
+    "mcp_memory_service/ingestion/chunker.py",
+    "mcp_memory_service/ingestion/registry.py",
     "mcp_memory_service/reasoning/inference.py",
     "mcp_memory_service/reasoning/entity_linker.py",
     "mcp_memory_service/reasoning/nli.py",
@@ -227,6 +229,10 @@ EXTERNAL_NAMES = frozenset({
     # MCP_EXTERNAL_EMBEDDING_URL or the constructor. No other guarded module
     # logs the name, so listing it decides for nobody else.
     "api_url",
+    # ingestion/registry.py's canonical form of the path a caller asks it to
+    # load, logged when the file does not exist. No other guarded module logs
+    # the name, so listing it decides for nobody else.
+    "resolved_path",
 })
 
 # Names that are outside data in one module only, checked on top of
@@ -744,3 +750,19 @@ def test_lazy_scan_flags_external_embedding_endpoint():
         assert _lazy_findings(bare, extra)
         assert not _lazy_findings(wrapped, extra)
     assert not _lazy_findings('logger.info("NLI model: %s", self.model_name)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_ingestion_resolved_path():
+    """The resolved form of a caller's path, logged by ingestion/registry.py.
+
+    The registry's guarded call already wraps it, so the module scan stays
+    green whether or not the name is listed. This is the sample that fails if
+    `resolved_path` is dropped from EXTERNAL_NAMES; the loader class name logged
+    next to the path stays unlisted on purpose.
+    """
+    bare = 'logger.warning("File does not exist: %s", resolved_path)\n'
+    wrapped = 'logger.warning("File does not exist: %s", _sanitize_log_value(resolved_path))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
+    assert not _lazy_findings('logger.debug("Found fallback loader %s for %s", loader_class.__name__, _sanitize_log_value(file_path))\n')
