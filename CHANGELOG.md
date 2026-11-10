@@ -17,6 +17,153 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.8.0] - 2026-11-10
+
+
+### Added
+
+- **The `transformers` NLI backend now exists and runs on ONNX Runtime (#1848).**
+  `MCP_NLI_BACKEND=transformers` used to answer `neutral 0.0` with a
+  "not implemented" warning; it now classifies through the spec's
+  `cross-encoder/nli-deberta-v3-small` loaded from the model repo's own ONNX
+  weights (`onnx/model.onnx` fp32 by default, quantized variants via
+  `MCP_NLI_ONNX_FILE`), using only `onnxruntime`, `tokenizers` and
+  `huggingface_hub` — torch and transformers are not on the inference path.
+  Batch classification goes through one session call; any load or inference
+  failure degrades to the heuristic for that call with one bounded warning.
+  No default changes: the backend stays opt-in.
+- **Export entity graph to a Markdown vault (`scripts/maintenance/export_entity_vault.py`, #1856, minaamulhaq).**
+  Generates an Obsidian-compatible Markdown vault from the memory entity graph with
+  one page per entity, YAML frontmatter, extractive summaries, ranked chunk quotes,
+  `[[entity_id]]` wikilinks to related entities, and an `index.md` grouped by type.
+  Extracts `get_entity_detail` and extractive summary logic in `server.handlers.graph`
+  for reuse while preserving store scoping and deleted memory filters.
+- **Custom memory types can live in the memory database, without a restart (#1897, phase 1).**
+  Migration 022 adds an `ontology_entries` table. `SqliteVecMemoryStorage.add_memory_type()`
+  and `remove_memory_type()` write to it, and the entries are merged after the built-ins and
+  `MCP_CUSTOM_MEMORY_TYPES`. The overlay only adds: it cannot replace or re-parent an existing
+  type. Every write bumps `ontology_version` in `metadata`, and processes sharing the database
+  file poll that counter (at most once per second) and reload their ontology caches when it
+  changes. The table is local to sqlite_vec for now. It is not synced through the hub and not
+  carried by Cloudflare, so multi-node setups still need `MCP_CUSTOM_MEMORY_TYPES`.
+- **Retrieve memories by exact content hash through `memory_search` (#1911).**
+  `content_hash` performs a store-scoped direct lookup instead of text search, and
+  misses return no results. An allowlist rejects `query` and unsupported search
+  arguments rather than ignoring them. Text queries, including hash-shaped strings,
+  are unchanged.
+- **Interactive Knowledge Graph focus mode on click (`src/mcp_memory_service/web/static/app.js`, #1855, itxmjr).**
+  Add interactive click-to-focus neighborhood mode in both 3D ForceGraph and 2D D3 graph
+  visualizations. Single-clicking a node highlights its direct connections and fades
+  distant nodes and edges across three visual tiers. Introduces a floating inspector HUD
+  with connection grouping by relationship type, quick neighbor pivoting, and full memory
+  detail launching, with smooth Escape key and canvas background dismissal.
+- **Relationship types and inference type patterns can live in the memory database (#1897, phase 3).**
+  `SqliteVecMemoryStorage.add_relationship_type()` / `remove_relationship_type()` store a
+  relationship with its `valid_patterns` and symmetry as a `relationship` row in
+  `ontology_entries`, and `set_type_pattern()` / `clear_type_pattern()` store the base-type
+  pairs relationship inference maps to a relationship (`type_pattern` rows). Both merge after
+  the built-ins and only add: built-in relationships, their patterns and the built-in pairs
+  cannot be replaced. `validate_relationship`, `is_allowed_pair` and
+  `is_symmetric_relationship` read the merged set, and the inline `type_patterns` dict moved
+  to `TYPE_PATTERNS` in `models/ontology.py`. `has_entity` is now a proper entry in
+  `RELATIONSHIPS`; type patterns cannot name it, since its target is an entity key.
+- **Retention periods for custom memory types, stored in the memory database (#1897, phase 4).**
+  A base type added through the ontology overlay had no key in `retention_periods`, so its
+  memories decayed on the 30-day fallback. `SqliteVecMemoryStorage.set_retention()` and
+  `clear_retention()` store a period (1..3650 days) as a `retention` row in `ontology_entries`,
+  and the decay calculator uses it for any type the consolidation config does not name.
+  Subtypes without their own entry inherit their parent's period. The overlay only fills gaps:
+  built-in periods and `MCP_RETENTION_*` overrides still win, and `set_retention()` refuses
+  those types. Like the rest of the overlay, the rows are local to sqlite_vec for now.
+
+### Fixed
+
+- **A search could erase metadata written while it ran (#1464).** After `retrieve()` the access write-back replaced the whole stored metadata JSON with the snapshot it had read, so a key that `update_memory_metadata()` committed in between (for example a `reviewed` flag set via `memory_update`) was lost without an error. The sqlite-vec and Cloudflare write-backs now `json_set` only `access_count`, `last_accessed_at` and `access_queries` into the stored JSON and keep every other key. Stored metadata that is not a JSON object is treated as `{}`, as on read.
+- **Cloudflare keeps a `store` per memory and confines hash-addressed operations to it (#1878, part of #1683).** D1 had no `store` column, so `get_by_hash`, `update_memory_metadata` and delete-by-hash accepted `store` and looked the memory up by `content_hash` alone. An existing D1 database now gets `store TEXT NOT NULL DEFAULT 'default'` on startup, which fills every existing row with `"default"`; the check runs on `PRAGMA table_info`, so a database that already has the column is left alone. `store()` writes the store it is given, and the three hash-addressed paths add `AND store = ?`, so a memory in another store is reported as not found and its D1 row, vector and R2 object stay untouched. `None` and `"all"` stay unscoped, and restoring a tombstone keeps the row's store. `get_by_hash_is_store_scoped` stays `False` for now: the server also grants per-store credentials `memory_search` and `memory_list` on that flag, and the Cloudflare read paths (`retrieve`, `recall`, `get_all_memories`, `count_all_memories` and others) still ignore `store`, so store-scoped credentials keep being refused on Cloudflare until those reads are confined too.
+- **`RemoteHTTPStorage` confines `get_by_hash`, `update_memory_metadata` and delete-by-hash to `store` (#1879, part of #1683).** `/api/sync/capabilities` now advertises `store_scoped_access`, taken from the server storage's `get_by_hash_is_store_scoped`. The HTTP client reads it when it initializes (and on each sync handshake) and sends a named store as the `store` query parameter, so a memory in another store comes back as not found. A peer that does not advertise the field (every server before this release) ignores the query parameter, so against it a call naming a store is refused without a request and logged once per peer. **Upgrade the hub before the clients:** once a caller passes a named store to an HTTP peer, an older hub refuses every such call. `None`, `"default"` and `"all"` keep working against an older hub: `"default"` is not sent because the server resolves a missing `store` to `"default"` itself, and `"all"` is passed through for reads.
+- **A restore the sync queue dropped after `max_retries` stayed off Cloudflare (#1890, massimiliano1991).**
+  `force_sync` protected every hash with a remote tombstone, so a restored row was never
+  pushed unless someone resolved the conflict by hand. A row stored after the tombstone
+  it conflicts with is now pushed through `store_if_tombstone_matches`; a local edit
+  racing a remote delete is still kept and reported as a conflict. The row is read again
+  around the upload, so one deleted while `force_sync` runs stays deleted on both sides.
+- **The dashboard and its static files are served with `Cache-Control: no-cache` (#1892).** Browsers kept running a stale `app.js` after an upgrade because nothing told them to check for a newer copy. They now revalidate every request against the ETag and get a `304` when the file is unchanged.
+- **Sync failures logged an empty reason whenever the exception carried no message (#1899, #1893, qwist1233-cpu).**
+  `str(exc)` is empty for most httpx timeout and transport errors, so a line like
+  "Delta-sync capability probe failed for peer hub: " ended at the colon and left no
+  trace of what went wrong. The remote-HTTP request path, the startup capability probe
+  and the sync cycle now log the exception class next to the message.
+- **A memory type the node did not know was overwritten with `observation` on read (#1897).**
+  `Memory()` coerced unknown types in its constructor, which also runs when storage
+  hydrates a stored row. A node without a peer's custom type (`MCP_CUSTOM_MEMORY_TYPES`
+  differs per process) turned the type into `observation` and wrote that back on the next
+  update. The coercion now happens only where a new memory is written, through
+  `coerce_memory_type()`, and the #843 warning in the store response is unchanged.
+  Merging custom subtypes also no longer extends the built-in `TAXONOMY` lists in place,
+  so a subtype removed from the env var stops validating after `clear_ontology_caches()`.
+- **Restore dashboard time-of-day cues (#1907).** Memory cards and document groups once again show the eight local time-of-day icons removed during emoji cleanup, alongside the clock time.
+- **Detected conflicts could not be listed, resolved or cleaned up on the hybrid backend (#1910, reported and diagnosed by mbreitkreuz).**
+  Hybrid stores through its sqlite-vec primary, which detects conflicts and tags both
+  memories `conflict:unresolved`, but hybrid did not delegate `get_conflicts()`,
+  `resolve_conflict()` or `reconcile_conflict_tags()`, so the base defaults applied:
+  `memory_conflicts` and `/api/conflicts` found nothing, `memory_resolve` and
+  `/api/conflicts/resolve` answered "not supported", and the `maintain` conflict steps
+  reported 0 conflicts and `{"supported": false}`. The three methods now run on the
+  primary, like `mark_superseded_batch()`.
+- **Cloudflare read paths honor `store` (part of #1915, tonydzi).** `retrieve`, `recall`, `get_all_memories`, `count_all_memories`, `get_memories_by_time_range`, `get_by_exact_content`, `get_all_tags_with_counts`, `get_memory_timestamps` and `delete_by_tags` accepted `store` and returned or deleted every store's memories. Each now adds the store predicate to its D1 statement; `retrieve` and the semantic branch of `recall` apply it when loading Vectorize matches from D1 by `vector_id`, since Vectorize holds every store's vectors, and `delete_by_tags` passes `store` on to `delete`. `None` and `"all"` stay unscoped, and the defaults are unchanged, so `get_all_memories`, `count_all_memories` and `retrieve` without a store now read `"default"` only, as on sqlite-vec. `get_by_hash_is_store_scoped` stays `False` until the hybrid sync queue carries `store` to Cloudflare as well.
+- **The dashboard answers 503 instead of 500 when its static files are missing (#1926).** Both fallbacks in `GET /` returned `html_template`, which no longer exists, so a missing or unreadable `web/static/index.html` raised `NameError` and hid the original error. The route now logs the cause and serves a short "Dashboard files not found" page with status 503; the REST API is unaffected.
+- **Five dashboard locale catalogs dropped seven dead `analytics.*` keys, and two guard
+  tests keep the i18n wiring from drifting again (#1928, Goldloli; follow-up to #1806).**
+  `de`, `es`, `fr`, `ja` and `ko` still carried `analytics.graphControls`,
+  `analytics.graphLegend`, `analytics.noRelationships`, `analytics.resetZoom`,
+  `analytics.untyped`, `analytics.zoomIn` and `analytics.zoomOut`, which `en.json` no
+  longer had and nothing referenced. `tests/web/test_i18n_catalog_parity.py` now fails
+  when any catalog's key set differs from `en.json`'s, missing or extra, and
+  `tests/web/test_dashboard_no_unwired_text.py` fails on visible text, `placeholder`,
+  `title` or `aria-label` values in `index.html` that carry English words without a
+  matching `data-i18n*` attribute, so hardcoded UI text cannot slip back in.
+- **The startup dependency check reported torch and sentence-transformers as missing on the ONNX install (#1930).**
+  `check_critical_dependencies()` only knew the PyTorch backend, so every start of a
+  `[sqlite]` install (onnxruntime + tokenizers, no torch) printed `[MISSING]` and timeout
+  warnings, doubled the init timeout, and pointed at `python install.py`, which pip,
+  `uv tool` and `uvx` installs do not have. Either backend now satisfies the check, the
+  hint is `pip install "mcp-memory-service[sqlite]"`, and `is_first_run()` also counts a
+  model in the ONNX model cache (`~/.cache/mcp_memory/onnx_models`) when its `model.onnx`
+  and `tokenizer.json` are both there.
+- **Auto-split dropped a note that started with a blank line (GPT-AGI).** With boundary preservation on (the default), a leading blank line was chosen as the split and the empty chunk aborted the loop, so a memory longer than the backend limit was stored as empty text. Leading whitespace is skipped and the rest of the note is split.
+- **Recall clipped "recently" and "yesterday morning" (GPT-AGI).** Extracting "recently" matched only "recent" and left "ly" in the search text. "yesterday morning" was the whole of yesterday, and "morning" was searched as text. Both now keep the window the time parser already returns for those phrases.
+- **Hybrid storage files the Cloudflare copy of a memory in the store it was written to (#1915, part of #1683).** `HybridMemoryStorage.store()` wrote the SQLite row into the named store but queued the sync without it, so the queue called `secondary.store(memory)` and every memory synced through hybrid landed in `default` on Cloudflare. The queued operation now carries the store, and the queue passes it to `secondary.store()` when the secondary's `store()` takes a `store` parameter; one that does not keeps the previous call and a warning is logged once. Of the other calls the issue lists, the queued delete and metadata update stay unscoped on purpose: `content_hash` is unique across stores in both SQLite and D1, the primary has already confined the operation, and D1 rows synced before this change all carry `default`, so a delete or update scoped to the real store would miss them. `force_sync()` reads only the primary's `default` store, so its uploads were already filed correctly, and a tombstone restore keeps the D1 row's own store. Memories pulled from Cloudflare by `get_by_hash()` still land in the local `default` store, because `Memory` carries no store. Existing D1 rows are not re-filed: D1 refuses a second `store()` of a live hash and `force_sync()` skips hashes already present, so the backfill needs its own step (an `UPDATE memories SET store = ? WHERE content_hash = ?` for each primary row outside `default`), and it has to land before `get_by_hash_is_store_scoped` flips on Cloudflare.
+
+### Internal
+
+- **Extract core entity detail and extractive summary logic for reuse (#1856).**
+  The core retrieval and hydration logic from `handle_memory_detail` and summary extraction from `_build_knowledge_map` are extracted into plain functions (`get_entity_detail` and `extract_extractive_summary`) for use by maintenance export scripts.
+- **The Claim Check passed PRs that named their issue without a closing keyword (#1901).**
+  PR #1895 referred to #1893 only as "Addresses #1893" plus a `Fixes #1893` that GitHub
+  did not parse, so it counted as linked for `no-issue` while the claim side saw no issue
+  and passed. Open issues of this repository mentioned in the description are now checked
+  for the author's assignment too, and an assignment re-runs the check of PRs that only
+  mention the issue.
+- **Documentation audit and consolidation for v11 & v12 features (#1905).**
+  Updates documentation guides for NLI cascade, harvest scheduler, decay and retention policies, and archives legacy ChromaDB migration guidance.
+- **`server/cache_manager.py` logs with lazy `%`-style arguments (#1146).**
+  Its f-string logger calls now pass their values as arguments. Storage IDs,
+  hit/miss counts, and instance totals are logged with `%d`, and percentages
+  and elapsed times with `%.1f`. The module is added to `GUARDED_MODULES`, so
+  the log-injection ratchet keeps it clean.
+- **`lm_studio_compat.py` logs with lazy `%`-style arguments (#1146).**
+  Its six f-string logger calls now pass their values as arguments; the values
+  that come from outside (the exception, the incoming notification and its
+  `reason`) stay wrapped in `_sanitize_log_value`. The module is added to
+  `GUARDED_MODULES`, so the log-injection ratchet keeps it clean.
+- **`web/oauth/storage/sqlite.py` logs with lazy `%`-style arguments (#1146).**
+  Its eight f-string logger calls now pass their values as arguments. The client
+  ids, the database path and the consumed authorization code stay wrapped in
+  `_sanitize_log_value`; the expired-row counts from the cleanup job are
+  internal integers and are logged with `%d`. The module is added to
+  `GUARDED_MODULES`, so the log-injection ratchet keeps it clean.
+- Expose untagged-memory and embedding-dimension storage APIs, share log sanitization, simplify ontology/taxonomy wrappers, and manage document cleanup through the web application lifespan.
+
 ## [12.7.0] - 2026-11-06
 
 
