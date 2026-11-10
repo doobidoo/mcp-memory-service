@@ -38,9 +38,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 
 async def _open_storage(db_path: str):
+    from mcp_memory_service.config.embedding import EMBEDDING_MODEL_NAME
     from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 
-    storage = SqliteVecMemoryStorage(db_path)
+    # The service passes the configured model into the constructor at startup;
+    # the bare default here would load all-MiniLM-L6-v2 against a store built
+    # with a different model and die on the dimension mismatch. Reuse the
+    # config default (MCP_EMBEDDING_MODEL) so a custom-model store opens.
+    storage = SqliteVecMemoryStorage(db_path, embedding_model=EMBEDDING_MODEL_NAME)
     await storage.initialize()
     return storage
 
