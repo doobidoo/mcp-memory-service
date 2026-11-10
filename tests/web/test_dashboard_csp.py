@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import json
 import re
 from pathlib import Path
 from urllib.parse import urljoin
@@ -42,6 +43,27 @@ def test_dashboard_and_static_assets_are_revalidated_after_upgrades():
 
         assert response.status_code == 200
         assert response.headers.get("cache-control") == "no-cache", path
+
+
+def test_import_map_shares_one_three_core_between_three_and_webgpu():
+    """A bundled three/webgpu embeds a second three core and makes three.js warn
+    "Multiple instances of Three.js being imported" on every load (#1944).
+
+    The unbundled build imports three.core.js by bare specifier, so it must be
+    mapped to the very module that "three" itself imports.
+    """
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    raw_map = re.search(
+        r"<script\s+type=\"importmap\">(.*?)</script\s*>",
+        html,
+        re.IGNORECASE | re.DOTALL,
+    ).group(1)
+    imports = json.loads(raw_map)["imports"]
+
+    assert "bundle=false" in imports["three/webgpu"]
+    assert imports["three/build/three.core.js"] == (
+        imports["three"].rstrip("/") + "/es2022/build/three.core.mjs"
+    )
 
 
 def test_index_import_map_is_the_only_hashed_inline_script():
