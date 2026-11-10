@@ -22,6 +22,8 @@ Used for Cloudflare sync to stay under 10KB D1 metadata limit.
 from typing import Dict, Any
 import logging
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Provider code mapping (70% size reduction)
@@ -185,7 +187,7 @@ def decode_quality_metadata(csv_string: str) -> Dict[str, Any]:
     parts = csv_string.split(',')
     # Support both old format (13 parts) and new format (16 parts)
     if len(parts) < 13:
-        logger.warning(f"Invalid CSV metadata format: expected at least 13 parts, got {len(parts)}")
+        logger.warning("Invalid CSV metadata format: expected at least 13 parts, got %d", len(parts))
         return {}
 
     metadata = {}
@@ -269,7 +271,7 @@ def decode_quality_metadata(csv_string: str) -> Dict[str, Any]:
                 metadata['quality_components'] = components
 
     except (ValueError, IndexError) as e:
-        logger.error(f"Error decoding CSV metadata: {e}")
+        logger.error("Error decoding CSV metadata: %s", _sanitize_log_value(e))
         return {}
 
     return metadata
