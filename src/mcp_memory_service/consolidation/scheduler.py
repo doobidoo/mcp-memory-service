@@ -109,6 +109,29 @@ def _classify_sync_failure(
     )
 
 
+# An ontology backlog exchange that failed (#1897): memories synced, the overlay may still differ.
+_ONTOLOGY_INCOMPLETE = "Ontology sync with this peer is incomplete; it is retried next cycle."
+
+
+def _cycle_outcome(ontology: Optional[dict]) -> dict:
+    """``synced``, or ``incomplete`` when the ontology backlog exchange failed."""
+    if ontology and ontology.get("failed"):
+        return {"cycle_status": "incomplete", "last_error": _ONTOLOGY_INCOMPLETE}
+    return {"cycle_status": "synced"}
+
+
+def _overall_sync_status(states: set, enabled: bool) -> str:
+    """Roll the peers' health up into one status, the most urgent first."""
+    for state in ("syncing", "error"):
+        if state in states:
+            return state
+    if not enabled:
+        return "disabled"
+    if not states or "pending" in states:
+        return "pending"
+    return "incomplete" if "incomplete" in states else "synced"
+
+
 class ConsolidationScheduler:
     """
     Scheduler for autonomous consolidation operations.
@@ -419,10 +442,9 @@ class ConsolidationScheduler:
             peer["health"] = peer.get("cycle_status", "pending")
             if peer["status"] in ("error", "incompatible", "unavailable"):
                 peer["health"] = "error"
-        states = {peer["health"] for peer in result["peers"]}
-        result["status"] = ("syncing" if "syncing" in states else "error" if "error" in states
-                            else "disabled" if not result["enabled"] else "pending" if not states or "pending" in states
-                            else "synced")
+        result["status"] = _overall_sync_status(
+            {peer["health"] for peer in result["peers"]}, result["enabled"]
+        )
         return result
 
     async def _broadcast_delta_sync_event(
@@ -574,7 +596,7 @@ class ConsolidationScheduler:
         cycle_start = datetime.now(timezone.utc).isoformat()
         cycle = {"cycle_status": "syncing", "last_cycle_started_at": cycle_start,
                  "last_cycle_at": None, "last_error": None, "pull": None, "push": None,
-                 "backlog": None}
+                 "backlog": None, "ontology": None}
         self._sync_peer_status.setdefault(peer_id, {"peer_id": peer_id}).update(cycle)
         try:
             await peer.initialize()
@@ -587,6 +609,8 @@ class ConsolidationScheduler:
                 compatibility,
                 operation_version=operation_version,
             )
+            from ..storage.sync.orchestrator import sync_ontology_backlog
+            cycle["ontology"] = await sync_ontology_backlog(storage, peer, peer_id=peer_id)
             pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
             cycle["pull"] = {"received": getattr(pull, "events_received", None),
                              "applied": pull.events_applied, "cursor": getattr(pull, "final_cursor", None)}
@@ -614,7 +638,7 @@ class ConsolidationScheduler:
                 getattr(pull, "events_applied", "?"),
                 getattr(push, "events_pushed", "?"),
             )
-            cycle["cycle_status"] = "synced"
+            cycle.update(_cycle_outcome(cycle["ontology"]))
         except Exception as exc:
             self.execution_stats['failed_jobs'] += 1
             status, message = _classify_sync_failure(
