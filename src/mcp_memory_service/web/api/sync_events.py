@@ -143,7 +143,7 @@ async def get_sync_events(
         if events and len(events) == limit:
             # Check if there's at least one more event beyond our result
             check_cursor = _sqlite(storage).conn.execute(
-                "SELECT 1 FROM sync_events WHERE seq > ? LIMIT 1",
+                "SELECT 1 FROM sync_events WHERE seq > ?" + EVENT_FILTERS[events_filter] + " LIMIT 1",
                 (next_seq,)
             )
             has_more = check_cursor.fetchone() is not None

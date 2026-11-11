@@ -130,8 +130,12 @@ def _apply_ontology_event(storage: MemoryStorage, event: Dict[str, Any]) -> Appl
     among every event for its ``ontology:<kind>:<key>`` hash. The state is a
     whole row, so the winner simply writes it. None of the memory liveness or
     content-repair rules apply. A malformed event is refused before it is
-    recorded and is skippable, so it cannot stall a feed.
+    recorded and is skippable, so it cannot stall a feed. An event with an
+    envelope version this node cannot read is refused and not skippable, as
+    in the memory path, so the cursor does not move past it.
     """
+    if event.get("schema_version", 1) > KNOWN_SCHEMA_VERSION:
+        return _newer_schema_result(event)
     error = ontology_event_error(event.get("op"), event.get("content_hash"), event.get("payload"))
     if error:
         logger.warning("Rejecting ontology sync event %s: %s",
@@ -140,9 +144,27 @@ def _apply_ontology_event(storage: MemoryStorage, event: Dict[str, Any]) -> Appl
                            reason=f"Malformed ontology event: {error}", skippable=True)
     with _sync_lock(storage):
         result = _apply_ontology_event_locked(storage, event)
+        if result.materialized:
+            _capture_overlay(storage, _sqlite(storage).conn)
     if result.materialized:
         ontology.invalidate_overlay()
     return result
+
+
+def _newer_schema_result(event: Dict[str, Any]) -> ApplyResult:
+    logger.warning("Rejecting ontology sync event %s: envelope schema_version %s > known %s",
+                   _sanitize_log_value(event.get("event_id")),
+                   _sanitize_log_value(event.get("schema_version")), KNOWN_SCHEMA_VERSION)
+    return ApplyResult(applied=False, materialized=False,
+                       reason=f"unknown envelope schema_version {event.get('schema_version')} "
+                              f"> {KNOWN_SCHEMA_VERSION}")
+
+
+def _capture_overlay(storage: MemoryStorage, conn) -> None:
+    """Refresh an in-memory database's overlay snapshot; file databases are re-read."""
+    source = getattr(storage, "_ontology_overlay", None)
+    if source is not None:
+        source.capture(conn)
 
 
 def _apply_ontology_event_locked(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyResult:
@@ -158,11 +180,11 @@ def _apply_ontology_event_locked(storage: MemoryStorage, event: Dict[str, Any]) 
     try:
         s.conn.execute("""
             INSERT INTO sync_events
-            (agent_id, event_id, op, content_hash, hlc_physical, hlc_logical,
+            (schema_version, agent_id, event_id, op, content_hash, hlc_physical, hlc_logical,
              payload, created_at, created_at_iso)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            agent_id, event_id, event["op"], event["content_hash"],
+            event.get("schema_version", 1), agent_id, event_id, event["op"], event["content_hash"],
             event["hlc_physical"], event["hlc_logical"], json.dumps(payload),
             time.time(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         ))

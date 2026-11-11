@@ -304,3 +304,69 @@ def test_remote_peer_trusts_only_an_explicit_capability(advertised, expected):
     peer = RemoteHTTPStorage.__new__(RemoteHTTPStorage)
     peer._note_store_scoping({"ontology_sync": advertised})
     assert peer.ontology_sync is expected
+
+
+# --- Greptile on #1956 ---
+
+
+@pytest.mark.parametrize("delete_first", [True, False])
+async def test_a_delete_wins_an_equal_hlc_tie_whatever_the_agent(stores, delete_first):
+    a, _ = stores
+    upsert = _event(agent_id="a-agent", event_id="up", hlc_physical=5, payload={
+        "kind": "memory_type", "key": "legal", "parent": None, "payload": None, "deleted_at": None})
+    delete = _event(agent_id="z-agent", event_id="del", op="ontology_delete", hlc_physical=5,
+                    payload={"kind": "memory_type", "key": "legal", "parent": None,
+                             "payload": None, "deleted_at": 5.0})
+    for event in ([delete, upsert] if delete_first else [upsert, delete]):
+        assert apply_remote_event(a, event).applied
+    assert _rows(a)[("memory_type", "legal")][2] is True
+
+
+async def test_an_unknown_envelope_version_is_refused_and_not_skippable(stores):
+    a, _ = stores
+    result = apply_remote_event(a, _event(schema_version=2))
+    assert not result.applied and not result.skippable
+    assert _events(a) == [] and _rows(a) == {}
+
+    assert apply_remote_event(a, _event()).applied
+    assert a.conn.execute("SELECT schema_version FROM sync_events").fetchone() == (1,)
+
+
+async def test_backlog_runs_again_after_the_peer_lost_and_regained_the_capability(stores):
+    a, b = stores
+    await a.add_memory_type("legal")
+    assert (await sync_ontology_backlog(a, Peer(b), peer_id="b"))["pushed"] == 1
+    await push_to_peer(a, Peer(b), peer_id="b")
+
+    # b is rolled back: a memory-only cycle moves the push cursor past a new ontology event.
+    await sync_ontology_backlog(a, Peer(b, ontology_sync=False), peer_id="b")
+    await a.set_retention("insight", 90)
+    await _store_memory(a, "memory pushed while the peer was on an older version")
+    await push_to_peer(a, Peer(b, ontology_sync=False), peer_id="b")
+    assert ("retention", "insight") not in _rows(b)
+
+    await sync_ontology_backlog(a, Peer(b), peer_id="b")  # b upgraded again
+    assert _rows(b)[("retention", "insight")][1] == {"days": 90}
+
+
+async def test_an_in_memory_database_sees_a_remote_row_at_once(monkeypatch):
+    s = SqliteVecMemoryStorage(":memory:")
+    await s.initialize()
+    try:
+        assert not ontology.validate_memory_type("legal")
+        assert apply_remote_event(s, _event()).materialized
+        assert ontology.validate_memory_type("legal")
+    finally:
+        await s.close()
+        ontology.clear_ontology_caches()
+
+
+async def test_a_filtered_feed_ends_when_only_excluded_events_follow(stores):
+    a, _ = stores
+    await _store_memory(a, "the only memory event in this feed")
+    await a.add_memory_type("legal")
+
+    page = await get_sync_events(since_seq=0, limit=1, events_filter="memory", _auth=True, storage=a)
+    assert [e.op for e in page.events] == ["create"] and page.has_more is False
+    page = await get_sync_events(since_seq=0, limit=1, events_filter="all", _auth=True, storage=a)
+    assert page.has_more is True

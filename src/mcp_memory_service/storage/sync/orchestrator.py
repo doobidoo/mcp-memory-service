@@ -392,6 +392,15 @@ def _mark_ontology_backlog_done(storage: MemoryStorage, peer_id: str) -> None:
         s.conn.commit()
 
 
+def _clear_ontology_backlog_done(storage: MemoryStorage, peer_id: str) -> None:
+    if not _ontology_backlog_done(storage, peer_id):
+        return
+    s = _sqlite(storage)
+    with _sync_lock(storage):
+        s.conn.execute("DELETE FROM metadata WHERE key = ?", (_ONTOLOGY_BACKLOG_KEY.format(peer_id),))
+        s.conn.commit()
+
+
 async def _pull_ontology_backlog(storage: MemoryStorage, peer, limit: int) -> int:
     cursor = applied = 0
     while True:
@@ -430,17 +439,28 @@ async def sync_ontology_backlog(
     pushes ours. Both sides apply by (agent_id, event_id), so repeats are
     duplicates. A failure is logged and leaves the flag unset for the next
     cycle; it never blocks the memory sync that follows.
+
+    A cycle with the peer not advertising the capability clears the flag: the
+    memory-only push and pull that follow can move the cursors past new ontology
+    events, so the exchange has to run again once the peer advertises it.
     """
-    if _peer_events_filter(peer) != "all" or _ontology_backlog_done(local_storage, peer_id):
-        return {"pulled": 0, "pushed": 0}
     try:
-        pulled = await _pull_ontology_backlog(local_storage, peer, limit)
-        pushed = await _push_ontology_backlog(local_storage, peer, limit)
+        return await _exchange_ontology_backlog(local_storage, peer, peer_id, limit)
     except Exception as e:  # noqa: BLE001 - retried next cycle; memory sync goes on
         logger.warning("Ontology backlog with %s incomplete, retrying next cycle: %s",
                        _sanitize_log_value(peer_id), _sanitize_log_value(e))
         return {"pulled": 0, "pushed": 0}
-    _mark_ontology_backlog_done(local_storage, peer_id)
+
+
+async def _exchange_ontology_backlog(storage: MemoryStorage, peer, peer_id: str, limit: int) -> Dict[str, int]:
+    if _peer_events_filter(peer) != "all":
+        _clear_ontology_backlog_done(storage, peer_id)
+        return {"pulled": 0, "pushed": 0}
+    if _ontology_backlog_done(storage, peer_id):
+        return {"pulled": 0, "pushed": 0}
+    pulled = await _pull_ontology_backlog(storage, peer, limit)
+    pushed = await _push_ontology_backlog(storage, peer, limit)
+    _mark_ontology_backlog_done(storage, peer_id)
     logger.info("Ontology backlog with %s: %s pulled, %s pushed",
                 _sanitize_log_value(peer_id), pulled, pushed)
     return {"pulled": pulled, "pushed": pushed}
