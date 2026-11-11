@@ -5584,8 +5584,11 @@ class MemoryDashboard {
     fillOntologySelect(id, names) {
         const select = document.getElementById(id);
         if (!select) return;
+        // Keep the user's choice across reloads (a language switch re-renders the section).
+        const selected = select.value;
         while (select.options.length > 1) select.remove(1);
         names.forEach(name => select.add(new Option(name, name)));
+        if (names.includes(selected)) select.value = selected;
     }
 
     /**
