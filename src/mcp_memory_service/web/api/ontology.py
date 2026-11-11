@@ -25,7 +25,7 @@ import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, StrictBool, StrictInt, StrictStr
+from pydantic import BaseModel, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 from ...config.consolidation import CONSOLIDATION_CONFIG
 from ...models import ontology
@@ -57,7 +57,7 @@ class RelationshipRequest(BaseModel):
 
 class TypePatternRequest(BaseModel):
     relationship: StrictStr
-    confidence: float = Field(..., description="In (0, 1]")
+    confidence: StrictFloat = Field(..., description="In (0, 1]; a JSON number, not a bool or string")
 
 
 def _writable(storage: MemoryStorage) -> MemoryStorage:

@@ -446,6 +446,7 @@
   "manage.ontology.retention.title": "Periode Retensi",
   "manage.ontology.retention.type": "Pilih tipe...",
   "manage.ontology.retention.days": "Hari (1-3650)",
+  "manage.ontology.retention.invalid": "Masukkan jumlah hari berupa bilangan bulat dari 1 sampai 3650.",
   "manage.ontology.save": "Simpan",
   "manage.ontology.loadFailed": "Gagal memuat ontologi",
   "manage.ontology.days": "{days} hari",

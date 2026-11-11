@@ -446,6 +446,7 @@
   "manage.ontology.retention.title": "रिटेंशन अवधि",
   "manage.ontology.retention.type": "प्रकार चुनें...",
   "manage.ontology.retention.days": "दिन (1-3650)",
+  "manage.ontology.retention.invalid": "1 से 3650 के बीच दिनों की पूर्ण संख्या दर्ज करें।",
   "manage.ontology.save": "सहेजें",
   "manage.ontology.loadFailed": "ऑन्टोलॉजी लोड नहीं हो सकी",
   "manage.ontology.days": "{days} दिन",

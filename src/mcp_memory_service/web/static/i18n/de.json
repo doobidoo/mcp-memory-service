@@ -325,6 +325,7 @@
   "manage.ontology.retention.title": "Aufbewahrungsfrist",
   "manage.ontology.retention.type": "Typ auswählen...",
   "manage.ontology.retention.days": "Tage (1-3650)",
+  "manage.ontology.retention.invalid": "Gib eine ganze Zahl von Tagen zwischen 1 und 3650 ein.",
   "manage.ontology.save": "Speichern",
   "manage.ontology.loadFailed": "Ontologie konnte nicht geladen werden",
   "manage.ontology.days": "{days} Tage",

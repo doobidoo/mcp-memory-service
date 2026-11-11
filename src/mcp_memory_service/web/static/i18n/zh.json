@@ -514,6 +514,7 @@
   "manage.ontology.retention.title": "保留期限",
   "manage.ontology.retention.type": "选择类型...",
   "manage.ontology.retention.days": "天数 (1-3650)",
+  "manage.ontology.retention.invalid": "请输入 1 到 3650 之间的整数天数。",
   "manage.ontology.save": "保存",
   "manage.ontology.loadFailed": "无法加载本体",
   "manage.ontology.days": "{days} 天",

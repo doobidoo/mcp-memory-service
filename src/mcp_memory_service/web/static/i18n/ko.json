@@ -325,6 +325,7 @@
   "manage.ontology.retention.title": "보존 기간",
   "manage.ontology.retention.type": "유형 선택...",
   "manage.ontology.retention.days": "일수 (1-3650)",
+  "manage.ontology.retention.invalid": "1에서 3650 사이의 정수 일수를 입력하세요.",
   "manage.ontology.save": "저장",
   "manage.ontology.loadFailed": "온톨로지를 불러오지 못했습니다",
   "manage.ontology.days": "{days}일",

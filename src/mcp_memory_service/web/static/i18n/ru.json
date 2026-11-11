@@ -446,6 +446,7 @@
   "manage.ontology.retention.title": "Срок хранения",
   "manage.ontology.retention.type": "Выберите тип...",
   "manage.ontology.retention.days": "Дни (1-3650)",
+  "manage.ontology.retention.invalid": "Введите целое число дней от 1 до 3650.",
   "manage.ontology.save": "Сохранить",
   "manage.ontology.loadFailed": "Не удалось загрузить онтологию",
   "manage.ontology.days": "{days} дн.",

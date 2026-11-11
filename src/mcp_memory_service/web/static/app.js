@@ -5625,6 +5625,8 @@ class MemoryDashboard {
             await this.apiCall(endpoint, method, body);
             this.showToast(this.t('toast.ontologyUpdated', 'Ontology updated'), 'success');
             await this.loadOntology();
+            // The search filter and memory forms list the types too (loaded at startup).
+            await this.loadMemoryTypes();
             return true;
         } catch (error) {
             console.error('Ontology write failed:', error);
@@ -5646,8 +5648,14 @@ class MemoryDashboard {
 
     async handleSetRetention() {
         const type = document.getElementById('ontologyRetentionType').value;
-        const days = parseInt(document.getElementById('ontologyRetentionDays').value, 10);
-        if (!type || Number.isNaN(days)) return;
+        const raw = document.getElementById('ontologyRetentionDays').value.trim();
+        const days = Number(raw);
+        if (!type || !raw) return;
+        // Number(), not parseInt(): "30.5" and "1e2" must not turn into 30 and 1.
+        if (!Number.isInteger(days) || days < 1 || days > 3650) {
+            this.showToast(this.t('manage.ontology.retention.invalid', 'Enter a whole number of days from 1 to 3650.'), 'error');
+            return;
+        }
         await this.ontologyWrite(`/ontology/retention/${encodeURIComponent(type)}`, 'PUT', { days });
     }
 

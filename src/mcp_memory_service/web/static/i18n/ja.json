@@ -325,6 +325,7 @@
   "manage.ontology.retention.title": "保持期間",
   "manage.ontology.retention.type": "タイプを選択...",
   "manage.ontology.retention.days": "日数 (1-3650)",
+  "manage.ontology.retention.invalid": "1 から 3650 までの整数の日数を入力してください。",
   "manage.ontology.save": "保存",
   "manage.ontology.loadFailed": "オントロジーを読み込めませんでした",
   "manage.ontology.days": "{days} 日",

@@ -325,6 +325,7 @@
   "manage.ontology.retention.title": "Periodo de retención",
   "manage.ontology.retention.type": "Selecciona un tipo...",
   "manage.ontology.retention.days": "Días (1-3650)",
+  "manage.ontology.retention.invalid": "Introduce un número entero de días entre 1 y 3650.",
   "manage.ontology.save": "Guardar",
   "manage.ontology.loadFailed": "No se pudo cargar la ontología",
   "manage.ontology.days": "{days} días",

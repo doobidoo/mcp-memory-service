@@ -86,10 +86,19 @@ async def test_writes_are_sync_events(storage):
     ("put", "/api/ontology/type-patterns/learning/error", {"relationship": "fixes", "confidence": 0.8}, 400),
     ("put", "/api/ontology/type-patterns/decision/error", {"relationship": "has_entity", "confidence": 0.8}, 400),
     ("put", "/api/ontology/type-patterns/decision/error", {"relationship": "fixes", "confidence": 1.5}, 400),
+    # Greptile on #1963: a bool or a numeric string must not be coerced to a confidence.
+    ("put", "/api/ontology/type-patterns/decision/error", {"relationship": "fixes", "confidence": True}, 422),
+    ("put", "/api/ontology/type-patterns/decision/error", {"relationship": "fixes", "confidence": "0.8"}, 422),
 ])
 async def test_invalid_writes_are_refused(storage, method, path, body, code):
     assert getattr(_client(storage), method)(path, json=body).status_code == code
     assert _client(storage).get("/api/ontology").json()["stored"] == []
+
+
+async def test_a_whole_number_confidence_is_accepted(storage):
+    resp = _client(storage).put("/api/ontology/type-patterns/decision/error",
+                                json={"relationship": "fixes", "confidence": 1})
+    assert resp.status_code == 200 and resp.json()["confidence"] == 1.0
 
 
 @pytest.mark.parametrize("scope", ["read", "read write:projectA"])
