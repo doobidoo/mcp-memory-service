@@ -28,9 +28,16 @@ real reason in `detail`, and both endpoints return pre_restart_pid +
 pre_restart_version so the client can verify rollover.
 """
 
+import asyncio
+import importlib.util
 import os
+import shutil
+import sys
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.testclient import TestClient
 
 # Import the route module + auth result type at module load so monkeypatch /
@@ -75,6 +82,13 @@ def test_app(monkeypatch):
         return None
 
     monkeypatch.setattr(server_module, '_restart_server_delayed', noop_restart)
+
+    # The update endpoint resolves an installer before git pull; pin it so the
+    # tests do not depend on whether the dev environment has pip or uv.
+    monkeypatch.setattr(
+        server_module, '_pip_command',
+        lambda args: ([sys.executable, '-m', 'pip', *args], 'Pip'),
+    )
 
     client = TestClient(app)
     yield client
@@ -223,3 +237,116 @@ def test_update_requires_confirm(test_app):
     """Update without confirm=true → HTTP 400."""
     response = test_app.post('/api/server/update', json={'confirm': False})
     assert response.status_code == 400
+
+
+def _no_pip(monkeypatch):
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: None)
+
+
+def test_pip_command_prefers_pip_when_importable(monkeypatch):
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: object())
+    monkeypatch.setattr(shutil, 'which', lambda name: 'C:/bin/uv.exe')
+    assert server_module._pip_command(['install', '-e', '.']) == (
+        [sys.executable, '-m', 'pip', 'install', '-e', '.'], 'Pip',
+    )
+
+
+def test_pip_command_falls_back_to_uv_pinned_to_this_interpreter(monkeypatch):
+    _no_pip(monkeypatch)
+    monkeypatch.delenv('UV', raising=False)
+    monkeypatch.setattr(shutil, 'which', lambda name: 'C:/bin/uv.exe')
+
+    with patch.object(server_module, '_run_command', return_value=('ok', True)) as mock_run:
+        server_module._run_pip_command(['install', '-e', '.'])
+    assert mock_run.call_args.args[0] == [
+        'C:/bin/uv.exe', 'pip', 'install', '--python', sys.executable, '-e', '.',
+    ]
+    assert mock_run.call_args.args[2] == 'uv'
+
+
+def test_pip_command_uses_the_uv_that_launched_the_server(monkeypatch, tmp_path):
+    # `uv run` exports UV with its own path; a scheduled task's PATH may lack uv.
+    uv_exe = tmp_path / 'uv.exe'
+    uv_exe.write_bytes(b'')
+    _no_pip(monkeypatch)
+    monkeypatch.setenv('UV', str(uv_exe))
+    monkeypatch.setattr(shutil, 'which', lambda name: None)
+    command, tool = server_module._pip_command(['install', '-e', '.'])
+    assert command[:2] == [str(uv_exe), 'pip']
+    assert tool == 'uv'
+
+
+def test_pip_command_ignores_a_stale_uv_variable(monkeypatch, tmp_path):
+    _no_pip(monkeypatch)
+    monkeypatch.setenv('UV', str(tmp_path / 'missing' / 'uv.exe'))
+    monkeypatch.setattr(shutil, 'which', lambda name: 'C:/bin/uv.exe')
+    command, _ = server_module._pip_command(['install'])
+    assert command[0] == 'C:/bin/uv.exe'
+
+
+def test_pip_command_none_without_pip_or_uv(monkeypatch):
+    _no_pip(monkeypatch)
+    monkeypatch.delenv('UV', raising=False)
+    monkeypatch.setattr(shutil, 'which', lambda name: None)
+    assert server_module._pip_command(['install']) is None
+    output, success = server_module._run_pip_command(['install', '-e', '.'])
+    assert not success
+    assert 'Neither pip nor uv' in output
+
+
+@pytest.mark.integration
+def test_update_without_installer_fails_before_git_pull(test_app, monkeypatch):
+    """No pip and no uv -> 500 and the checkout is never touched."""
+    monkeypatch.setattr(server_module, '_pip_command', lambda args: None)
+    with patch.object(
+        server_module, '_check_working_tree_clean', return_value=(True, []),
+    ), patch.object(
+        server_module, '_run_git_command', return_value=('', True),
+    ) as mock_git:
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 500
+    detail = response.json()['detail']
+    assert 'pip' in detail and 'uv' in detail
+    assert 'NOT changed' in detail
+    mock_git.assert_not_called()
+
+
+def _run_update(force=True):
+    request = server_module.UpdateRequest(confirm=True, force=force)
+    user = SimpleNamespace(client_id='test', auth_method='test')
+    return asyncio.run(server_module.update_server(request, BackgroundTasks(), user))
+
+
+def test_pipless_env_without_uv_never_pulls(monkeypatch):
+    """#1943: with no pip and no uv, the update stops before git pull."""
+    _no_pip(monkeypatch)
+    monkeypatch.delenv('UV', raising=False)
+    monkeypatch.setattr(shutil, 'which', lambda name: None)
+    with (
+        patch.object(server_module, '_run_git_command', return_value=('pulled', True)) as mock_git,
+        patch.object(server_module, '_run_command', return_value=('No module named pip', False)),
+        pytest.raises(HTTPException) as exc,
+    ):
+        _run_update()
+
+    mock_git.assert_not_called()
+    assert exc.value.status_code == 500
+    assert 'Neither pip nor uv' in exc.value.detail
+
+
+def test_pipless_env_with_uv_installs_through_uv(monkeypatch):
+    """#1943: a uv-managed env without pip installs with `uv pip` after the pull."""
+    _no_pip(monkeypatch)
+    monkeypatch.delenv('UV', raising=False)
+    monkeypatch.setattr(shutil, 'which', lambda name: 'C:/bin/uv.exe')
+    with (
+        patch.object(server_module, '_run_git_command', return_value=('pulled', True)),
+        patch.object(server_module, '_run_command', return_value=('installed', True)) as mock_run,
+    ):
+        response = _run_update()
+
+    assert response.status == 'success'
+    assert mock_run.call_args.args[0] == [
+        'C:/bin/uv.exe', 'pip', 'install', '--python', sys.executable, '-e', '.',
+    ]

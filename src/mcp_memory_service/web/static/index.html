@@ -15,12 +15,17 @@
     <!-- 3d-force-graph + three (ESM, single shared three instance) for the
          cinematic 3D knowledge graph with bloom + nebula (Orrery-style PoC).
          three/webgpu, three/tsl and three/examples/jsm/ must be mapped because
-         3d-force-graph statically imports them. -->
+         3d-force-graph statically imports them. The unbundled three/webgpu build
+         imports three.core.js by bare specifier; mapping it to the module that
+         "three" itself loads keeps a single copy of three's core (a bundled
+         webgpu build embeds a second one and triggers THREE.WARNING: Multiple
+         instances of Three.js being imported). -->
     <script type="importmap">
     {
       "imports": {
         "three": "https://esm.sh/three@0.184.0",
-        "three/webgpu": "https://esm.sh/three@0.184.0/webgpu?external=three",
+        "three/webgpu": "https://esm.sh/three@0.184.0/webgpu?external=three&bundle=false",
+        "three/build/three.core.js": "https://esm.sh/three@0.184.0/es2022/build/three.core.mjs",
         "three/tsl": "https://esm.sh/three@0.184.0/tsl?external=three",
         "three/examples/jsm/": "https://esm.sh/three@0.184.0/examples/jsm/",
         "three/addons/": "https://esm.sh/three@0.184.0/examples/jsm/"

@@ -1,14 +1,22 @@
 """NLI-based contradiction detection (Phase 3, RFC #732).
 
-Provides NLIClassifier with heuristic fallback (no ML deps required)
-and detect_contradictions_nli 4-stage pipeline function.
+Provides NLIClassifier with three backends:
 
-NOTE: This PR delivers the heuristic-only phase. The transformers backend
-(cross-encoder/nli-deberta-v3-small) will be implemented in a follow-up PR
-once the pipeline is validated in production with heuristic confidence scores.
-Install with `pip install .[nli]` when the transformers backend lands.
+- ``heuristic`` (default, no ML deps): regex/keyword patterns from
+  ``nli_patterns/*.yaml``
+- ``transformers``: local cross-encoder NLI model, per
+  ``specs/phase3-nli-contradiction.md`` — default
+  ``cross-encoder/nli-deberta-v3-small``. Runs through ONNX Runtime with
+  ``tokenizers`` and ``huggingface_hub`` only (``pip install .[nli]``);
+  torch and transformers are not on the inference path. Any load or
+  inference failure degrades to the heuristic for that call, bounded to one
+  warning, like the LLM backend.
+- ``cascade``/``llm``: LLM via the harvest provider chain.
+
+Also provides detect_contradictions_nli, the 4-stage pipeline function.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -34,11 +42,21 @@ LLM_NONNEUTRAL_CONFIDENCE = 0.9
 # Load patterns from YAML locale files (replaces hardcoded _NEGATION_PAIRS / _VERSION_RE)
 _PATTERNS = load_nli_patterns(tuple(get_active_locales()))
 
+# Module-level ONNX session cache (see NLIClassifier._get_onnx_runtime):
+# one load per (model, onnx file) per process, shared across classifier
+# instances, so per-detection construction does not re-pay the session load.
+_ONNX_RUNTIME_CACHE: dict = {}
+_ONNX_RUNTIME_LOCK = asyncio.Lock()
+
 
 @dataclass
 class NLIResult:
     label: str  # "entailment" | "contradiction" | "neutral"
     confidence: float  # 0.0-1.0
+    # True when this particular verdict came from the heuristic fallback of a
+    # model/LLM backend — per-result, not per-instance, so one failed call
+    # cannot relabel the verdicts of calls that succeeded (#1955).
+    degraded: bool = False
 
 
 _NLI_LABELS = ("entailment", "contradiction", "neutral")
@@ -89,24 +107,32 @@ class NLIClassifier:
 
     def __init__(self, backend: str = "auto"):
         if backend == "auto":
-            backend = os.environ.get("MCP_NLI_BACKEND", "heuristic")
+            # An empty/unset variable means the default, not an unknown backend:
+            # `MCP_NLI_BACKEND= python -m ...` must not silently disable NLI.
+            backend = (os.environ.get("MCP_NLI_BACKEND") or "heuristic").strip() or "heuristic"
         self.backend = backend
         self._warned_unimplemented = False
         # Phase 2 state (R10, R12)
         self._rewriter = None
         self._llm_available = None
         self._warned_degraded = False
+        # transformers backend state (RFC #732 Phase 3): (tokenizer, session,
+        # id2label) once loaded. True once any call degraded to the heuristic.
+        self._onnx_runtime = None
+        self.degraded = False
 
     async def classify(self, premise: str, hypothesis: str) -> NLIResult:
         """Classify relationship between two texts."""
         if self.backend == "heuristic":
             return self._heuristic_classify(premise, hypothesis)
+        if self.backend == "transformers":
+            return (await self._transformers_classify([(premise, hypothesis)]))[0]
         if self.backend in ("cascade", "llm"):
             return await self._llm_classify(premise, hypothesis)
         if not self._warned_unimplemented:
             logger.warning(
                 "NLI backend '%s' is not implemented; returning neutral. "
-                "Only 'heuristic' and 'cascade' are supported.",
+                "Only 'heuristic', 'transformers' and 'cascade' are supported.",
                 self.backend,
             )
             self._warned_unimplemented = True
@@ -124,6 +150,9 @@ class NLIClassifier:
         """
         if self.backend == "heuristic":
             return HEURISTIC_MAX_CONFIDENCE
+        if self.backend == "transformers":
+            # ONNX softmax probabilities top out at ~1.0.
+            return 1.0
         if self.backend in ("cascade", "llm"):
             return LLM_NONNEUTRAL_CONFIDENCE
         return 0.0
@@ -149,7 +178,7 @@ class NLIClassifier:
             
             # R11: If no provider configured, use heuristic directly
             if not self._llm_available:
-                return self._heuristic_classify(premise, hypothesis)
+                return self._degraded_heuristic(premise, hypothesis)
             
             prompt = (
                 "Classify the relationship between Statement A and Statement B.\n"
@@ -170,7 +199,7 @@ class NLIClassifier:
                     sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
                     self._warn_once(sanitized_reason)
                 # R14: Preserve exact heuristic values
-                return self._heuristic_classify(premise, hypothesis)
+                return self._degraded_heuristic(premise, hypothesis)
             return NLIResult(
                 label=label,
                 confidence=LLM_NONNEUTRAL_CONFIDENCE if label != "neutral" else 0.3,
@@ -182,11 +211,153 @@ class NLIClassifier:
                 sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
                 self._warn_once(sanitized_reason)
             # R14: Preserve exact heuristic values
-            return self._heuristic_classify(premise, hypothesis)
+            return self._degraded_heuristic(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
-        """Batch classification."""
+        """Batch classification.
+
+        The transformers backend runs the whole list through the model in one
+        ONNX session call; the other backends classify pair by pair.
+        """
+        if not pairs:
+            return []
+        if self.backend == "transformers":
+            # Chunked so a whole-store export cannot arrive as one padded
+            # tensor; 32 keeps the batch memory flat regardless of input size.
+            results = []
+            for i in range(0, len(pairs), 32):
+                results.extend(await self._transformers_classify(pairs[i:i + 32]))
+            return results
         return [await self.classify(p, h) for p, h in pairs]
+
+    async def _transformers_classify(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
+        """Local cross-encoder NLI through ONNX Runtime (RFC #732 Phase 3).
+
+        The weights ship as ONNX files in the model repo (fp32 default;
+        ``MCP_NLI_ONNX_FILE`` picks a quantized variant), the tokenizer loads
+        from ``tokenizer.json`` directly, so the runtime needs
+        ``onnxruntime`` + ``tokenizers`` + ``huggingface_hub`` — never torch.
+        Load and inference run in worker threads; both are synchronous. Any
+        failure degrades to the heuristic for every pair in this call, the
+        same contract the LLM backend offers, and sets ``self.degraded`` so
+        provenance (edge metadata, harness reports) can name the backend
+        that actually produced the verdict.
+        """
+        try:
+            tokenizer, session, id2label = await self._get_onnx_runtime()
+
+            def _run():
+                import numpy as np
+
+                encodings = tokenizer.encode_batch([list(p) for p in pairs])
+                feed = {
+                    name: np.array(
+                        [getattr(e, attr) for e in encodings], dtype=np.int64
+                    )
+                    for name, attr in (
+                        ("input_ids", "ids"),
+                        ("attention_mask", "attention_mask"),
+                        ("token_type_ids", "type_ids"),
+                    )
+                    if name in {i.name for i in session.get_inputs()}
+                }
+                logits = session.run(None, feed)[0]
+                results = []
+                for row in logits:
+                    row_max = row.max()
+                    exp = np.exp(row - row_max)
+                    probs = exp / exp.sum()
+                    idx = int(probs.argmax())
+                    results.append(
+                        {"label": id2label.get(idx, str(idx)), "score": float(probs[idx])}
+                    )
+                return results
+
+            results = await asyncio.to_thread(_run)
+            return [
+                self._nli_result_from_scored_label(out, fallback_pair=pair)
+                for out, pair in zip(results, pairs)
+            ]
+        except Exception as e:
+            if not self._warned_degraded:
+                self._warned_degraded = True
+                self._warn_once(_sanitize_log_value(f"transformers inference failed: {e}"))
+            return [self._degraded_heuristic(p, h) for p, h in pairs]
+
+    async def _get_onnx_runtime(self):
+        """Lazy (tokenizer, session, id2label) for the model, cached per model.
+
+        The cache is module-level: callers construct a fresh NLIClassifier
+        per detection (the quarantine path, detect_contradictions_nli), and
+        each instance used to pay the full ONNX session load again. Keyed by
+        (repo, onnx file) so switching ``MCP_NLI_ONNX_FILE`` to a quantized
+        build loads that instead. ``MCP_NLI_MODEL`` names the HF repo
+        (default per the spec), ``MCP_NLI_ONNX_FILE`` the ONNX file inside
+        it — ``onnx/model.onnx`` fp32 by default. Offline environments reuse
+        the hub cache. A failed load is deliberately not cached: with this
+        backend on and no network, every new classifier (quarantine and
+        memory_service construct one per call) retries the download, pays
+        the retry timeout, and degrades to the heuristic for that call.
+        """
+        cache_key = (
+            os.environ.get("MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small"),
+            os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx"),
+        )
+        model_name, onnx_file = cache_key
+        if self._onnx_runtime is None:
+            async with _ONNX_RUNTIME_LOCK:
+                if cache_key not in _ONNX_RUNTIME_CACHE:
+                    def _load():
+                        import json
+
+                        import onnxruntime as ort
+                        from huggingface_hub import (
+                            hf_hub_download, try_to_load_from_cache,
+                        )
+                        from tokenizers import Tokenizer
+
+                        def _fetch(fname):
+                            # Cached copy first: hf_hub_download HEAD-checks the
+                            # Hub even on a cache hit, which turns a flaky
+                            # connection into a failed load of a file we
+                            # already have. Delete the cache to refresh.
+                            cached = try_to_load_from_cache(model_name, fname)
+                            if isinstance(cached, str):
+                                return cached
+                            return hf_hub_download(model_name, fname)
+
+                        model_path = _fetch(onnx_file)
+                        tokenizer = Tokenizer.from_file(_fetch("tokenizer.json"))
+                        with open(_fetch("config.json"), encoding="utf-8") as fh:
+                            config = json.load(fh)
+                        id2label = {int(k): v for k, v in config["id2label"].items()}
+                        session = ort.InferenceSession(
+                            model_path, providers=["CPUExecutionProvider"]
+                        )
+                        tokenizer.enable_truncation(max_length=512)
+                        tokenizer.enable_padding()
+                        return tokenizer, session, id2label
+
+                    _ONNX_RUNTIME_CACHE[cache_key] = await asyncio.to_thread(_load)
+                    logger.info(
+                        "NLI transformers backend loaded (ONNX): %s/%s",
+                        model_name, onnx_file,
+                    )
+            self._onnx_runtime = _ONNX_RUNTIME_CACHE[cache_key]
+        return self._onnx_runtime
+
+    def _nli_result_from_scored_label(self, out: dict, fallback_pair: Tuple[str, str]) -> NLIResult:
+        """Map one inference output to NLIResult.
+
+        A label that is not one of the three NLI labels is treated like a
+        parse failure: the pair falls back to the heuristic rather than being
+        acted on at model confidence.
+        """
+        label = str(out.get("label", "")).lower()
+        confidence = float(out.get("score", 0.0))
+        if label in _NLI_LABELS:
+            return NLIResult(label=label, confidence=confidence)
+        return self._heuristic_classify(*fallback_pair)
 
     def _get_rewriter(self):
         """R10: Lazy initialization of HarvestRewriter to resolve config once per run."""
@@ -194,6 +365,19 @@ class NLIClassifier:
             from ..harvest.rewriter import HarvestRewriter
             self._rewriter = HarvestRewriter()
         return self._rewriter
+
+    def _degraded_heuristic(self, premise: str, hypothesis: str) -> NLIResult:
+        """Heuristic verdict that stands in for a failed model/LLM call.
+
+        Marks both the instance (a degradation happened at some point — what
+        harness reports read) and the result (this verdict is heuristic —
+        what per-pair provenance reads, so later successful calls from the
+        same classifier are not relabeled).
+        """
+        self.degraded = True
+        result = self._heuristic_classify(premise, hypothesis)
+        result.degraded = True
+        return result
 
     def _warn_once(self, sanitized_reason: str):
         """R12: Emit one degradation warning per run (reason already sanitized).
@@ -346,13 +530,17 @@ async def detect_contradictions_nli(
     if not dry_run and contradictions:
         for h, mem_b_data, nli_res in contradictions:
             try:
+                # Provenance is per pair: nli_res.degraded says whether THIS
+                # verdict came from the fallback, so one degraded call cannot
+                # relabel the edges of calls that succeeded.
+                backend_used = "heuristic" if nli_res.degraded else classifier.backend
                 await graph.store_association(
                     source_hash=memory_hash,
                     target_hash=h,
                     similarity=nli_res.confidence,
                     connection_types=["contradiction"],
                     relationship_type="contradicts",
-                    metadata={"confidence": nli_res.confidence, "method": "nli_heuristic"},
+                    metadata={"confidence": nli_res.confidence, "method": f"nli_{backend_used}"},
                 )
                 result["conflicts_registered"] += 1
             except Exception as e:

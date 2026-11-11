@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Protocol, Tuple
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
+from ..ontology_overlay import EVENT_FILTERS
 from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock
 from .bootstrap import bootstrap_from_peer
 
@@ -263,14 +264,20 @@ def advance_push_cursor(storage: MemoryStorage, peer_id: str, last_seq: int) -> 
         logger.error("Error advancing push cursor: %s", _sanitize_log_value(e))
 
 
-def _read_local_events_since(storage: MemoryStorage, since_seq: int, limit: int) -> List[Dict[str, Any]]:
-    """Read local sync_events with seq > since_seq, enriching create events with content (R8)."""
+def _read_local_events_since(
+    storage: MemoryStorage, since_seq: int, limit: int, events_filter: str = "memory"
+) -> List[Dict[str, Any]]:
+    """Read local sync_events with seq > since_seq, enriching create events with content (R8).
+
+    ``events_filter`` is a key of EVENT_FILTERS: ontology events (#1897) only go
+    to a peer that advertises ``ontology_sync``.
+    """
     cur = _sqlite(storage).conn.execute(
         """
         SELECT seq, schema_version, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                embedding_model, embedding_dim, payload
         FROM sync_events
-        WHERE seq > ?
+        WHERE seq > ?""" + EVENT_FILTERS[events_filter] + """
         ORDER BY seq
         LIMIT ?
         """,
@@ -319,7 +326,7 @@ async def push_to_peer(
     pushed = failed = 0
 
     while True:
-        events = _read_local_events_since(local_storage, cursor, limit)
+        events = _read_local_events_since(local_storage, cursor, limit, _peer_events_filter(peer))
         if not events:
             break
         resp = await peer.push_events(events)
@@ -356,3 +363,116 @@ async def push_to_peer(
                  _sanitize_log_value(peer_id), pushed, failed,
                  _sanitize_log_value(initial), _sanitize_log_value(cursor))
     return PushResult(events_pushed=pushed, events_failed=failed, final_seq=cursor)
+
+
+# --- Ontology overlay sync (#1897, phase 2) ---
+
+_ONTOLOGY_BACKLOG_KEY = "sync_ontology_backlog_done:{}"
+
+
+def _peer_events_filter(peer) -> str:
+    """'all' for a peer that advertised ontology_sync, else memory events only."""
+    return "all" if getattr(peer, "ontology_sync", False) is True else "memory"
+
+
+def _ontology_backlog_done(storage: MemoryStorage, peer_id: str) -> bool:
+    row = _sqlite(storage).conn.execute(
+        "SELECT 1 FROM metadata WHERE key = ?", (_ONTOLOGY_BACKLOG_KEY.format(peer_id),)
+    ).fetchone()
+    return row is not None
+
+
+def _mark_ontology_backlog_done(storage: MemoryStorage, peer_id: str) -> None:
+    s = _sqlite(storage)
+    with _sync_lock(storage):
+        s.conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+            (_ONTOLOGY_BACKLOG_KEY.format(peer_id), str(time.time())),
+        )
+        s.conn.commit()
+
+
+def _clear_ontology_backlog_done(storage: MemoryStorage, peer_id: str) -> None:
+    if not _ontology_backlog_done(storage, peer_id):
+        return
+    s = _sqlite(storage)
+    with _sync_lock(storage):
+        s.conn.execute("DELETE FROM metadata WHERE key = ?", (_ONTOLOGY_BACKLOG_KEY.format(peer_id),))
+        s.conn.commit()
+
+
+async def _pull_ontology_backlog(storage: MemoryStorage, peer, limit: int) -> int:
+    cursor = applied = 0
+    while True:
+        events, next_seq, has_more = await peer.get_events_since(cursor, limit, events_filter="ontology")
+        for event in events:
+            result = apply_remote_event(storage, event)
+            if not (result.applied or result.skippable):
+                raise RuntimeError(f"ontology event {event.get('event_id')} not applied: {result.reason}")
+            applied += result.applied
+        if not events or not has_more:
+            return applied
+        cursor = next_seq
+
+
+async def _push_ontology_backlog(storage: MemoryStorage, peer, limit: int) -> int:
+    cursor = pushed = 0
+    while True:
+        events = _read_local_events_since(storage, cursor, limit, "ontology")
+        if not events:
+            return pushed
+        resp = await peer.push_events(events)
+        if resp.get("failed"):
+            raise RuntimeError(f"{resp.get('failed')} ontology events failed on the peer")
+        pushed += len(events)
+        cursor = events[-1]["seq"]
+
+
+async def sync_ontology_backlog(
+    local_storage: MemoryStorage, peer, peer_id: str, limit: int = 100
+) -> Dict[str, Any]:
+    """Exchange every ontology event once with a peer that supports ontology sync.
+
+    Ontology events left out while either side lacked ``ontology_sync`` sit behind
+    both cursors, so the normal pull and push never carry them. The first cycle
+    with a peer that advertises it pulls the peer's whole ontology history and
+    pushes ours. Both sides apply by (agent_id, event_id), so repeats are
+    duplicates.
+
+    A failed exchange is logged, leaves the flag unset for the next cycle and is
+    returned as ``failed`` so the scheduler can report the cycle as incomplete. It
+    never stops the memory sync that follows.
+
+    A cycle with the peer not advertising the capability clears the flag: the
+    memory-only push and pull that follow can move the cursors past new ontology
+    events, so the exchange has to run again once the peer advertises it.
+    """
+    if _peer_events_filter(peer) != "all":
+        _forget_ontology_backlog(local_storage, peer_id)
+        return {"pulled": 0, "pushed": 0, "failed": False}
+    try:
+        return await _exchange_ontology_backlog(local_storage, peer, peer_id, limit)
+    except Exception as e:  # noqa: BLE001 - retried next cycle; memory sync goes on
+        logger.warning("Ontology backlog with %s incomplete, retrying next cycle: %s",
+                       _sanitize_log_value(peer_id), _sanitize_log_value(e))
+        return {"pulled": 0, "pushed": 0, "failed": True}
+
+
+def _forget_ontology_backlog(storage: MemoryStorage, peer_id: str) -> None:
+    """Clear the backlog flag; a failure is logged, never raised into the memory sync."""
+    try:
+        _clear_ontology_backlog_done(storage, peer_id)
+    except Exception as e:  # noqa: BLE001 - next cycle tries again
+        logger.warning("Could not reset the ontology backlog flag for %s: %s",
+                       _sanitize_log_value(peer_id), _sanitize_log_value(e))
+
+
+async def _exchange_ontology_backlog(storage: MemoryStorage, peer, peer_id: str, limit: int) -> Dict[str, Any]:
+    if _ontology_backlog_done(storage, peer_id):
+        return {"pulled": 0, "pushed": 0, "failed": False}
+    pulled = await _pull_ontology_backlog(storage, peer, limit)
+    pushed = await _push_ontology_backlog(storage, peer, limit)
+    _mark_ontology_backlog_done(storage, peer_id)
+    logger.info("Ontology backlog with %s: %s pulled, %s pushed",
+                _sanitize_log_value(peer_id), pulled, pushed)
+    return {"pulled": pulled, "pushed": pushed, "failed": False}

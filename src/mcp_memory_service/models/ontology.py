@@ -39,22 +39,26 @@ _PARENT_TYPE_MAP_CACHE: Optional[Dict[str, str]] = None
 _BASE_TYPES_CACHE: Optional[set] = None
 _MERGED_TAXONOMY_CACHE: Optional[Dict[str, List[str]]] = None
 _ALLOWED_PAIRS_CACHE: Optional[Dict[str, set]] = None
+_MERGED_RELATIONSHIPS_CACHE: Optional[Dict[str, dict]] = None
+_TYPE_PATTERNS_CACHE: Optional[Dict[Tuple[str, str], Tuple[str, float]]] = None
 
 
 def clear_ontology_caches():
     """Clear all ontology caches. Useful for testing and dynamic configuration changes."""
     global _ALL_TYPES_CACHE, _PARENT_TYPE_MAP_CACHE, _BASE_TYPES_CACHE, _MERGED_TAXONOMY_CACHE
-    global _ALLOWED_PAIRS_CACHE
+    global _ALLOWED_PAIRS_CACHE, _MERGED_RELATIONSHIPS_CACHE, _TYPE_PATTERNS_CACHE
     _ALL_TYPES_CACHE = None
     _PARENT_TYPE_MAP_CACHE = None
     _BASE_TYPES_CACHE = None
     _MERGED_TAXONOMY_CACHE = None
     _ALLOWED_PAIRS_CACHE = None
+    _MERGED_RELATIONSHIPS_CACHE = None
+    _TYPE_PATTERNS_CACHE = None
 
 
-# DB overlay (#1897). The sqlite_vec storage registers a source with three
-# methods, read_ontology_version(), read_memory_type_overlay() and
-# read_retention_overlay(). Readers poll
+# DB overlay (#1897). The sqlite_vec storage registers a source with four
+# methods, read_ontology_version(), read_memory_type_overlay(),
+# read_retention_overlay() and read_payload_overlay(kind). Readers poll
 # the version and reload the overlay when it moved, so a write by the HTTP
 # server reaches the MCP server sharing the same database file.
 _OVERLAY_SOURCE = None
@@ -62,6 +66,8 @@ _OVERLAY_ENTRIES: List[Tuple[str, Optional[str]]] = []
 _OVERLAY_RETENTION: Dict[str, int] = {}
 # Parent of every overlay subtype ever stored, removed ones included (retention only).
 _OVERLAY_STORED_PARENTS: Dict[str, str] = {}
+_OVERLAY_RELATIONSHIPS: Dict[str, dict] = {}
+_OVERLAY_TYPE_PATTERNS: Dict[str, dict] = {}
 _OVERLAY_VERSION: Optional[int] = None
 _OVERLAY_CHECKED_AT = float("-inf")
 # ponytail: polled at most once per second, so a write in another process can
@@ -72,11 +78,13 @@ _OVERLAY_POLL_SECONDS = 1.0
 def set_overlay_source(source) -> None:
     """Register the DB overlay source. The last storage to register wins."""
     global _OVERLAY_SOURCE, _OVERLAY_ENTRIES, _OVERLAY_RETENTION, _OVERLAY_VERSION
-    global _OVERLAY_STORED_PARENTS
+    global _OVERLAY_STORED_PARENTS, _OVERLAY_RELATIONSHIPS, _OVERLAY_TYPE_PATTERNS
     _OVERLAY_SOURCE = source
     _OVERLAY_ENTRIES = []
     _OVERLAY_RETENTION = {}
     _OVERLAY_STORED_PARENTS = {}
+    _OVERLAY_RELATIONSHIPS = {}
+    _OVERLAY_TYPE_PATTERNS = {}
     _OVERLAY_VERSION = None
     invalidate_overlay()
 
@@ -97,7 +105,7 @@ def invalidate_overlay() -> None:
 def _refresh_overlay() -> None:
     """Reload the overlay when the stored ontology_version has moved."""
     global _OVERLAY_ENTRIES, _OVERLAY_RETENTION, _OVERLAY_VERSION, _OVERLAY_CHECKED_AT
-    global _OVERLAY_STORED_PARENTS
+    global _OVERLAY_STORED_PARENTS, _OVERLAY_RELATIONSHIPS, _OVERLAY_TYPE_PATTERNS
     source = _OVERLAY_SOURCE
     now = time.monotonic()
     if source is None or now - _OVERLAY_CHECKED_AT < _OVERLAY_POLL_SECONDS:
@@ -109,6 +117,8 @@ def _refresh_overlay() -> None:
             return
         rows = list(source.read_memory_type_overlay())
         retention = dict(source.read_retention_overlay())
+        relationships = dict(source.read_payload_overlay("relationship"))
+        type_patterns = dict(source.read_payload_overlay("type_pattern"))
     except Exception as e:  # keep the last overlay we had; retry on the next poll
         logging.getLogger(__name__).warning(
             "Could not read the ontology overlay: %s", _sanitize_log_value(e)
@@ -117,6 +127,8 @@ def _refresh_overlay() -> None:
     _OVERLAY_ENTRIES = [(key, parent) for key, parent, live in rows if live]
     _OVERLAY_STORED_PARENTS = {key: parent for key, parent, _ in rows if parent}
     _OVERLAY_RETENTION = retention
+    _OVERLAY_RELATIONSHIPS = relationships
+    _OVERLAY_TYPE_PATTERNS = type_patterns
     _OVERLAY_VERSION = version
     clear_ontology_caches()
 
@@ -328,11 +340,118 @@ RELATIONSHIPS: Final[Dict[str, Dict[str, List[str]]]] = {
     "shares_entity": {
         "description": "A and B share a common entity (auto-linked)",
         "valid_patterns": ["any → any"]
+    },
+    "has_entity": {
+        "description": "Memory A mentions entity B (auto-linked; the target is an entity key, not a memory)",
+        "valid_patterns": ["any → any"]
     }
 }
 
 # Symmetric relationships (bidirectional semantics)
 SYMMETRIC_RELATIONSHIPS: Final[set] = {"related", "contradicts", "shares_entity"}
+
+# Relationships inference must never emit. has_entity points a memory at an
+# entity key, not at another memory, so an inferred one would link two memory
+# hashes under a label the entity graph reads as an entity link.
+NON_INFERABLE_RELATIONSHIPS: Final[frozenset] = frozenset({"has_entity"})
+
+# Relationship inference by base-type pair: (source, target) -> (relationship,
+# confidence). Each pair must be allowed by that relationship's valid_patterns
+# (issue #1458). Below 0.75 the typed-label gate falls back to "related" (#541).
+TYPE_PATTERNS: Final[Dict[Tuple[str, str], Tuple[str, float]]] = {
+    ("learning", "error"): ("fixes", 0.8),
+    ("pattern", "error"): ("fixes", 0.75),
+    ("learning", "decision"): ("supports", 0.6),
+    ("pattern", "learning"): ("supports", 0.6),
+    ("error", "error"): ("causes", 0.6),
+    ("observation", "learning"): ("supports", 0.6),
+    ("observation", "error"): ("causes", 0.55),
+    ("observation", "observation"): ("follows", 0.5),
+}
+
+
+def parse_pattern(pattern) -> Optional[Tuple[str, str]]:
+    """Split ``"source → target"`` (``->`` also accepted) into a canonical pair, or None."""
+    if not isinstance(pattern, str):
+        return None
+    parts = pattern.replace("->", "→").split("→")
+    if len(parts) != 2:
+        return None
+    pair = tuple(canonicalize_memory_type(part) for part in parts)
+    return pair if all(pair) else None
+
+
+def _valid_relationship_spec(name: str, spec: dict) -> bool:
+    patterns = spec.get("valid_patterns")
+    return (
+        _is_valid_custom_type_name(name)
+        and isinstance(spec.get("description", ""), str)
+        and isinstance(spec.get("symmetric", False), bool)
+        and isinstance(patterns, list)
+        and bool(patterns)
+        and all(parse_pattern(p) for p in patterns)
+    )
+
+
+def _get_merged_relationships() -> Dict[str, dict]:
+    """Built-in relationships plus the DB overlay. Additive only, like memory types."""
+    global _MERGED_RELATIONSHIPS_CACHE
+    _refresh_overlay()
+    if _MERGED_RELATIONSHIPS_CACHE is None:
+        merged = {
+            name: {**spec, "symmetric": name in SYMMETRIC_RELATIONSHIPS}
+            for name, spec in RELATIONSHIPS.items()
+        }
+        for name, spec in _OVERLAY_RELATIONSHIPS.items():
+            if name not in merged and _valid_relationship_spec(name, spec):
+                merged[name] = spec
+        _MERGED_RELATIONSHIPS_CACHE = merged
+    return _MERGED_RELATIONSHIPS_CACHE
+
+
+def get_relationship_types() -> Dict[str, dict]:
+    """All relationship types (built-in and DB overlay) with their specs."""
+    return {name: dict(spec) for name, spec in _get_merged_relationships().items()}
+
+
+def _valid_confidence(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < value <= 1
+
+
+def _overlay_type_pattern(
+    key: str, spec: dict, relationships: Dict[str, dict]
+) -> Optional[Tuple[Tuple[str, str], Tuple[str, float]]]:
+    """An overlay type_pattern row as (pair, (relationship, confidence)), or None if unusable.
+
+    Rows come from other processes and, later, other nodes: a field of the wrong
+    type must be skipped, never raise, or one row would break every inference call.
+    """
+    pair = parse_pattern(key)
+    relationship = spec.get("relationship")
+    confidence = spec.get("confidence")
+    if (
+        pair is None
+        or not isinstance(relationship, str)
+        or relationship in NON_INFERABLE_RELATIONSHIPS
+        or relationship not in relationships
+        or not _valid_confidence(confidence)
+    ):
+        return None
+    return pair, (relationship, float(confidence))
+
+
+def get_type_patterns() -> Dict[Tuple[str, str], Tuple[str, float]]:
+    """Built-in TYPE_PATTERNS plus the DB overlay. An overlay row cannot replace a built-in pair."""
+    global _TYPE_PATTERNS_CACHE
+    relationships = _get_merged_relationships()  # refreshes the overlay first
+    if _TYPE_PATTERNS_CACHE is None:
+        merged = dict(TYPE_PATTERNS)
+        for key, spec in _OVERLAY_TYPE_PATTERNS.items():
+            entry = _overlay_type_pattern(key, spec, relationships)
+            if entry is not None and entry[0] not in merged:
+                merged[entry[0]] = entry[1]
+        _TYPE_PATTERNS_CACHE = merged
+    return dict(_TYPE_PATTERNS_CACHE)
 
 
 def canonicalize_memory_type(memory_type: str) -> str:
@@ -655,7 +774,7 @@ def validate_relationship(rel_type: str) -> bool:
         >>> validate_relationship("invalid_rel")
         False
     """
-    return rel_type in RELATIONSHIPS
+    return isinstance(rel_type, str) and rel_type in _get_merged_relationships()
 
 
 def is_allowed_pair(rel_type: str, source_parent: Optional[str], target_parent: Optional[str]) -> bool:
@@ -675,10 +794,11 @@ def is_allowed_pair(rel_type: str, source_parent: Optional[str], target_parent: 
     """
     global _ALLOWED_PAIRS_CACHE
 
+    relationships = _get_merged_relationships()  # refreshes the overlay first
     if _ALLOWED_PAIRS_CACHE is None:
         _ALLOWED_PAIRS_CACHE = {
-            name: {tuple(part.strip() for part in pattern.split("→")) for pattern in spec["valid_patterns"]}
-            for name, spec in RELATIONSHIPS.items()
+            name: {parse_pattern(pattern) for pattern in spec["valid_patterns"]}
+            for name, spec in relationships.items()
         }
 
     pairs = _ALLOWED_PAIRS_CACHE.get(rel_type, set())
@@ -723,7 +843,7 @@ def is_symmetric_relationship(rel_type: str) -> bool:
     if not validate_relationship(rel_type):
         raise ValueError(f"Invalid relationship type: '{rel_type}'")
 
-    return rel_type in SYMMETRIC_RELATIONSHIPS
+    return _get_merged_relationships()[rel_type].get("symmetric", False)
 
 
 class MemoryTypeOntology:

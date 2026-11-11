@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-memory-service"
-version = "12.7.0"
+version = "12.8.0"
 description = "Semantic memory layer for AI applications. REST API + MCP transport + knowledge graph + autonomous consolidation. Works with 14+ AI clients. Self-host, zero cloud cost."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -102,10 +102,14 @@ ml = [
 clustering = [
     "scikit-learn>=1.3.0",
 ]
-# NLI contradiction detection (Phase 3, RFC #732)
+# NLI contradiction detection (Phase 3, RFC #732). The ONNX inference path
+# imports tokenizers and huggingface_hub directly, so they are declared here
+# too — whether or not transformers (kept for its other uses) is installed.
 nli = [
     "transformers>=5.5.0,<6.0.0",
     "onnxruntime>=1.17.0",
+    "tokenizers>=0.22.2",
+    "huggingface_hub>=0.20",
 ]
 # SQLite-vec with lightweight ONNX embeddings (recommended for most users)
 # The ONNX embedding path needs both onnxruntime and tokenizers; shipping only

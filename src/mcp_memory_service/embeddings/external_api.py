@@ -39,6 +39,8 @@ from typing import List, Optional, Union
 import numpy as np
 import requests
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,8 +124,10 @@ class ExternalEmbeddingModel:
                 if 'data' in data and len(data['data']) > 0:
                     self.embedding_dimension = len(data['data'][0]['embedding'])
                     logger.info(
-                        f"External embedding API connected: {self.api_url}, "
-                        f"model: {self.model_name}, dims: {self.embedding_dimension}"
+                        "External embedding API connected: %s, model: %s, dims: %d",
+                        _sanitize_log_value(self.api_url),
+                        _sanitize_log_value(self.model_name),
+                        self.embedding_dimension,
                     )
                     return
                 raise ConnectionError("API response missing embedding data")
@@ -216,7 +220,7 @@ class ExternalEmbeddingModel:
                     idx = item.get('index', pos)
 
                     if not (0 <= idx < len(batch)):
-                        logger.warning(f"API returned out-of-bounds index {idx} for batch size {len(batch)}")
+                        logger.warning("API returned out-of-bounds index %s for batch size %d", idx, len(batch))
                         continue
 
                     if idx in seen_indices:

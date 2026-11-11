@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from pydantic import BaseModel
 
 from ...storage.base import MemoryStorage
+from ...storage.ontology_overlay import EVENT_FILTERS
 from ...storage.sync.apply import _sqlite
 from ...storage.mixins.base import _sanitize_log_value
 from ..dependencies import get_storage
@@ -50,6 +51,15 @@ class SyncEventsResponse(BaseModel):
 async def get_sync_events(
     since_seq: int = Query(0, description="Return events with seq > since_seq"),
     limit: int = Query(100, description="Maximum number of events to return", le=1000),
+    events_filter: str = Query(
+        "memory",
+        alias="events",
+        pattern="^(memory|ontology|all)$",
+        description=(
+            "Which events to return. Ontology overlay events (#1897) only go to a "
+            "caller that asks for them: an older peer cannot apply them."
+        ),
+    ),
     _auth: bool = Depends(require_read_access),
     storage: MemoryStorage = Depends(get_storage),
 ) -> SyncEventsResponse:
@@ -79,7 +89,7 @@ async def get_sync_events(
                 seq, schema_version, event_id, op, content_hash, agent_id, hlc_physical, hlc_logical,
                 embedding_model, embedding_dim, payload
             FROM sync_events 
-            WHERE seq > ?
+            WHERE seq > ?""" + EVENT_FILTERS[events_filter] + """
             ORDER BY seq 
             LIMIT ?
         """, (since_seq, limit))
@@ -133,7 +143,7 @@ async def get_sync_events(
         if events and len(events) == limit:
             # Check if there's at least one more event beyond our result
             check_cursor = _sqlite(storage).conn.execute(
-                "SELECT 1 FROM sync_events WHERE seq > ? LIMIT 1",
+                "SELECT 1 FROM sync_events WHERE seq > ?" + EVENT_FILTERS[events_filter] + " LIMIT 1",
                 (next_seq,)
             )
             has_more = check_cursor.fetchone() is not None
@@ -268,6 +278,12 @@ class BaselineResponse(BaseModel):
 
 @router.get("/sync/baseline", response_model=BaselineResponse)
 async def get_sync_baseline(
+    events_filter: str = Query(
+        "memory",
+        alias="events",
+        pattern="^(memory|all)$",
+        description="'all' adds the ontology overlay rows (#1897) for a peer that can apply them.",
+    ),
     storage: MemoryStorage = Depends(get_storage),
     _auth=Depends(require_read_access),
 ) -> BaselineResponse:
@@ -283,7 +299,9 @@ async def get_sync_baseline(
         # BEGIN IMMEDIATE, reads the whole corpus and builds every event. Running it directly
         # on the event loop would stall unrelated HTTP requests. Offload to a worker thread
         # (its internal lock keeps the snapshot atomic regardless of thread).
-        events, watermark = await asyncio.to_thread(generate_baseline, storage)
+        events, watermark = await asyncio.to_thread(
+            generate_baseline, storage, include_ontology=events_filter == "all"
+        )
         return BaselineResponse(events=events, watermark=watermark, count=len(events))
     except Exception as e:
         logger.error("baseline generation failed: %s", _sanitize_log_value(e))

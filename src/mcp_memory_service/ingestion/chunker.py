@@ -100,7 +100,7 @@ class TextChunker:
             })
             result.append((chunk_text, chunk_metadata))
         
-        logger.debug(f"Created {len(result)} chunks from {len(text)} characters")
+        logger.debug("Created %d chunks from %d characters", len(chunks), len(text))
         return result
     
     def _chunk_by_paragraphs(self, text: str) -> List[str]:

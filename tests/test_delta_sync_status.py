@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mcp_memory_service.api import client as api_client
-from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler
+from mcp_memory_service.consolidation.scheduler import ConsolidationScheduler, _overall_sync_status
+from mcp_memory_service.storage.sync import orchestrator
 from mcp_memory_service.storage.sync.orchestrator import PushResult, SyncResult
 from mcp_memory_service.web.api.sync import require_read_access, router
 from mcp_memory_service.web.dependencies import get_storage
@@ -87,6 +88,41 @@ async def test_cycle_records_results_partial_failure_and_recovery(scheduler):
     push.side_effect = None
     await scheduler._run_sync_peer_cycle(None, "hub", peer, pull, push)
     assert scheduler.get_delta_sync_status()["peers"][0]["last_error"] is None
+
+
+
+@pytest.mark.asyncio
+async def test_failed_ontology_exchange_marks_the_cycle_incomplete(scheduler, monkeypatch):
+    """#1897 (Greptile on #1956): a failed ontology backlog must not read as synced,
+    and must not stop the memory pull and push."""
+    peer = SimpleNamespace(initialize=AsyncMock(), close=AsyncMock(), ontology_sync=True,
+                           check_sync_compatibility=AsyncMock(return_value={}))
+    pull = AsyncMock(return_value=SyncResult(3, 1, 42, events_received=4))
+    push = AsyncMock(return_value=PushResult(2, 0, 30))
+    monkeypatch.setattr(orchestrator, "_ontology_backlog_done", lambda storage, peer_id: False)
+    monkeypatch.setattr(orchestrator, "_pull_ontology_backlog",
+                        AsyncMock(side_effect=RuntimeError("peer refused an ontology event")))
+
+    await scheduler._run_sync_peer_cycle(None, "hub", peer, pull, push)
+    result = scheduler.get_delta_sync_status()["peers"][0]
+    assert result["health"] == "incomplete"
+    assert result["ontology"] == {"pulled": 0, "pushed": 0, "failed": True}
+    assert result["pull"]["applied"] == 3 and result["push"]["pushed"] == 2
+    assert result["last_sync_at"] and "refused" not in result["last_error"]
+
+
+
+@pytest.mark.parametrize("states, enabled, expected", [
+    ({"syncing", "error"}, True, "syncing"),
+    ({"error", "incomplete"}, True, "error"),
+    ({"incomplete"}, False, "disabled"),
+    (set(), True, "pending"),
+    ({"pending", "incomplete"}, True, "pending"),
+    ({"synced", "incomplete"}, True, "incomplete"),
+    ({"synced"}, True, "synced"),
+])
+def test_overall_status_rolls_up_the_most_urgent_peer(states, enabled, expected):
+    assert _overall_sync_status(states, enabled) == expected
 
 
 def test_sqlite_status_api_with_and_without_scheduler(scheduler, monkeypatch):
