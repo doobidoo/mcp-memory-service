@@ -156,7 +156,7 @@ async def test_nli_conflict_registration_log_does_not_carry_newlines(monkeypatch
 
     monkeypatch.setattr(nli_module, "NLIClassifier", MagicMock())
     monkeypatch.setattr(nli_module, "_classify_band", AsyncMock(
-        return_value=[("hashB", {}, SimpleNamespace(confidence=0.9))]
+        return_value=[("hashB", {}, SimpleNamespace(confidence=0.9, degraded=False))]
     ))
 
     with caplog.at_level(logging.DEBUG, logger=LOGGERS):

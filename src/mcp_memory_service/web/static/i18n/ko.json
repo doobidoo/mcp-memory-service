@@ -607,6 +607,7 @@
   "sync.status.error": "오류",
   "sync.status.synced": "동기화됨",
   "sync.status.disabled": "비활성화됨",
+  "sync.status.incomplete": "미완료",
   "sync.statusUnavailable": "상태를 사용할 수 없음",
   "sync.pendingOps": "{count}개 대기 중",
   "sync.opsCount": "{count}개 작업",

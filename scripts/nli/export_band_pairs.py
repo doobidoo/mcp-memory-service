@@ -126,41 +126,58 @@ async def cmd_score(args):
         for line in open(args.pairs, encoding="utf-8")
         if line.strip()
     ]
-    unlabeled = [i for i, r in enumerate(rows) if r.get("label") not in LABELS]
-    if unlabeled:
-        sys.exit(f"{len(unlabeled)} pairs are not labeled yet "
-                 f"(first at line {unlabeled[0] + 1}); fill every 'label' field with one of: "
-                 + ", ".join(LABELS))
+    # Unlabeled rows no longer abort the run: a machine pass over an
+    # unlabeled export is how the review lists get built (verdict counts for
+    # everything, gate tables for the labeled subset).
+    labeled = [r for r in rows if r.get("label") in LABELS]
+    bad_labels = [r.get("label") for r in rows
+                  if r.get("label") not in LABELS and r.get("label") not in (None, "")]
+    if bad_labels:
+        sys.exit(f"unknown label values present (e.g. {bad_labels[0]!r}); "
+                 f"label must be one of: " + ", ".join(LABELS))
 
-    classifier = NLIClassifier(backend="auto")
+    # Explicit backend, never "auto": a silently-heuristic run used to print
+    # backend_configured: heuristic with degraded_to_heuristic: false, which
+    # reads like a clean model run. The default is the model, because the
+    # harness exists to measure it; --backend heuristic opts out on purpose.
+    classifier = NLIClassifier(backend=args.backend)
     pairs = [(r["older"], r["newer"]) for r in rows]
     await classifier.classify_batch(pairs)  # cold load — model + session, untimed
     t0 = time.perf_counter()
     verdicts = await classifier.classify_batch(pairs)
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
-    golds = [r["label"] for r in rows]
     preds = [v.label for v in verdicts]
-
-    # Two gate readings, so the labeled data can settle the policy question
-    # in #1460 instead of presupposing it. The model only emits the three NLI
-    # labels; "updates" exists on the gold side.
-    #   contradiction_only: supersede iff the model says contradiction.
-    #   with_updates: gold positives are contradiction+updates (the Hindsight
-    #   reading — a later statement that updates an earlier one should also
-    #   supersede), model positives are contradiction+entailment, the NLI
-    #   label an update most often takes.
-    print(json.dumps({
+    report = {
         "n_pairs": len(rows),
-        "labels": {lbl: sum(1 for g in golds if g == lbl) for lbl in LABELS},
+        "labeled": len(labeled),
+        "unlabeled": len(rows) - len(labeled),
+        "labels": {lbl: sum(1 for r in labeled if r["label"] == lbl) for lbl in LABELS},
+        "verdicts": {lbl: preds.count(lbl) for lbl in ("contradiction", "neutral", "entailment")},
         "backend_configured": classifier.backend,
+        "backend_is_model": classifier.backend == "transformers",
         "degraded_to_heuristic": classifier.degraded,
-        "gate_contradiction_only": _prf(preds, golds, {"contradiction"}, {"contradiction"}),
-        "gate_with_updates": _prf(preds, golds, {"contradiction", "entailment"},
-                                  {"contradiction", "updates"}),
         "batch_ms_warm": round(elapsed_ms, 1),
         "per_pair_ms_warm": round(elapsed_ms / max(1, len(rows)), 1),
-    }, indent=2))
+    }
+    if labeled:
+        golds = [r["label"] for r in labeled]
+        labeled_preds = [p for p, r in zip(preds, rows) if r.get("label") in LABELS]
+
+        # Two gate readings, so the labeled data can settle the policy question
+        # in #1460 instead of presupposing it. The model only emits the three NLI
+        # labels; "updates" exists on the gold side.
+        #   contradiction_only: supersede iff the model says contradiction.
+        #   with_updates: gold positives are contradiction+updates (the Hindsight
+        #   reading — a later statement that updates an earlier one should also
+        #   supersede), model positives are contradiction+entailment, the NLI
+        #   label an update most often takes.
+        report["gate_contradiction_only"] = _prf(
+            labeled_preds, golds, {"contradiction"}, {"contradiction"})
+        report["gate_with_updates"] = _prf(
+            labeled_preds, golds, {"contradiction", "entailment"},
+            {"contradiction", "updates"})
+    print(json.dumps(report, indent=2))
 
 
 def main():
@@ -172,8 +189,13 @@ def main():
                           help="path to a copy of the sqlite memory.db (the scan records access stats)")
     p_export.add_argument("--out", required=True, help="output JSONL path")
 
-    p_score = sub.add_parser("score", help="score labeled pairs against the NLI backend")
-    p_score.add_argument("--pairs", required=True, help="labeled JSONL from the export step")
+    p_score = sub.add_parser("score", help="score pairs against an NLI backend")
+    p_score.add_argument("--pairs", required=True,
+                         help="JSONL from the export step; rows may be labeled or not")
+    p_score.add_argument("--backend", default="transformers",
+                         choices=("transformers", "heuristic", "cascade", "llm"),
+                         help="NLI backend to run (default: transformers — the thing this "
+                              "harness measures; heuristic is regex patterns, not the model)")
 
     args = parser.parse_args()
     asyncio.run({"export": cmd_export, "score": cmd_score}[args.cmd](args))

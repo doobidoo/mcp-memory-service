@@ -625,6 +625,7 @@
   "sync.status.error": "Kesalahan",
   "sync.status.synced": "Tersinkron",
   "sync.status.disabled": "Nonaktif",
+  "sync.status.incomplete": "Belum lengkap",
   "sync.statusUnavailable": "Status tidak tersedia",
   "sync.pendingOps": "{count} tertunda",
   "sync.opsCount": "{count} operasi",
