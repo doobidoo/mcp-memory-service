@@ -39,6 +39,10 @@ class EventView:
     # would diverge (ADR-0013). The resolver's total order is HLC → agent_id → event_id.
 
 
+# Ops that win an equal-HLC tie: a memory delete and an ontology overlay delete (#1897).
+DELETE_OPS = frozenset({"delete", "ontology_delete"})
+
+
 def _winner_key(e: EventView) -> tuple:
     """Total-order sort key for conflict resolution; the SMALLEST key wins.
 
@@ -49,7 +53,8 @@ def _winner_key(e: EventView) -> tuple:
 
     Each component is oriented so that SMALLER = winner:
       1. ``-hlc_physical`` / ``-hlc_logical`` — later HLC wins, so negate (ADR-0010).
-      2. ``0 if delete else 1`` — on equal HLC, delete beats update/create (ADR-0012).
+      2. ``0 if delete else 1`` — on equal HLC, delete beats update/create (ADR-0012);
+         ``ontology_delete`` counts as a delete.
       3. ``0 if agent_id else 1`` — a non-null agent beats a null one.
       4. ``agent_id`` then ``event_id`` then ``op`` then ``content_hash`` — lexicographically
          smaller wins; UUID ``event_id`` guarantees a stable, host-agnostic total order.
@@ -60,7 +65,7 @@ def _winner_key(e: EventView) -> tuple:
     return (
         -e.hlc_physical,
         -e.hlc_logical,
-        0 if e.op == 'delete' else 1,
+        0 if e.op in DELETE_OPS else 1,
         0 if e.agent_id is not None else 1,
         e.agent_id or "",
         e.event_id,

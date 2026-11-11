@@ -118,7 +118,12 @@ class SqliteVecMemoryStorage(
         await super().close()
 
     async def _write_ontology(self, write):
-        """Run an overlay write under the connection lock, then refresh readers."""
+        """Run an overlay write under the connection lock, then refresh readers.
+
+        Each write records an ontology sync event in the same transaction
+        (``_append_sync_event``, a no-op unless ``MCP_SYNC_EVENTLOG`` is on), so
+        the overlay reaches other nodes through the hub (#1897, phase 2).
+        """
         source = self._ontology_overlay
 
         def _op():
@@ -140,7 +145,7 @@ class SqliteVecMemoryStorage(
         which must be a base type. Raises ValueError if the name already exists.
         """
         name, parent = validate_memory_type_entry(name, parent)
-        await self._write_ontology(lambda conn: upsert_memory_type(conn, name, parent))
+        await self._write_ontology(lambda conn: upsert_memory_type(conn, name, parent, self._append_sync_event))
         return name
 
     async def remove_memory_type(self, name: str) -> bool:
@@ -149,7 +154,7 @@ class SqliteVecMemoryStorage(
         Stored memories keep the type verbatim; it just stops validating for new writes.
         """
         name = ontology.canonicalize_memory_type(name)
-        return await self._write_ontology(lambda conn: tombstone_memory_type(conn, name))
+        return await self._write_ontology(lambda conn: tombstone_memory_type(conn, name, self._append_sync_event))
 
     async def set_retention(self, memory_type: str, days: int) -> str:
         """Store the retention period (days) of a memory type and return its canonical name.
@@ -160,13 +165,13 @@ class SqliteVecMemoryStorage(
         covers, or days outside 1..3650.
         """
         memory_type, days = validate_retention_entry(memory_type, days)
-        await self._write_ontology(lambda conn: upsert_retention(conn, memory_type, days))
+        await self._write_ontology(lambda conn: upsert_retention(conn, memory_type, days, self._append_sync_event))
         return memory_type
 
     async def clear_retention(self, memory_type: str) -> bool:
         """Tombstone a stored retention period; the type falls back to its parent's."""
         memory_type = ontology.canonicalize_memory_type(memory_type)
-        return await self._write_ontology(lambda conn: tombstone_retention(conn, memory_type))
+        return await self._write_ontology(lambda conn: tombstone_retention(conn, memory_type, self._append_sync_event))
 
     async def add_relationship_type(
         self,
@@ -181,7 +186,7 @@ class SqliteVecMemoryStorage(
         ``any``, as in ``RELATIONSHIPS``. Raises ValueError if the name exists.
         """
         name, spec = validate_relationship_entry(name, valid_patterns, description, symmetric)
-        await self._write_ontology(lambda conn: upsert_relationship(conn, name, spec))
+        await self._write_ontology(lambda conn: upsert_relationship(conn, name, spec, self._append_sync_event))
         return name
 
     async def remove_relationship_type(self, name: str) -> bool:
@@ -190,7 +195,7 @@ class SqliteVecMemoryStorage(
         Stored edges keep the type; new edges with it stop validating.
         """
         name = ontology.canonicalize_memory_type(name)
-        return await self._write_ontology(lambda conn: tombstone_relationship(conn, name))
+        return await self._write_ontology(lambda conn: tombstone_relationship(conn, name, self._append_sync_event))
 
     async def set_type_pattern(
         self, source: str, target: str, relationship: str, confidence: float
@@ -202,7 +207,7 @@ class SqliteVecMemoryStorage(
         valid_patterns do not allow, or confidence outside (0, 1].
         """
         key, payload = validate_type_pattern_entry(source, target, relationship, confidence)
-        await self._write_ontology(lambda conn: upsert_type_pattern(conn, key, payload))
+        await self._write_ontology(lambda conn: upsert_type_pattern(conn, key, payload, self._append_sync_event))
         return key
 
     async def clear_type_pattern(self, source: str, target: str) -> bool:
@@ -211,4 +216,4 @@ class SqliteVecMemoryStorage(
         if pair is None:
             return False
         key = "{} → {}".format(*pair)
-        return await self._write_ontology(lambda conn: tombstone_type_pattern(conn, key))
+        return await self._write_ontology(lambda conn: tombstone_type_pattern(conn, key, self._append_sync_event))

@@ -607,6 +607,7 @@
   "sync.status.error": "Fehler",
   "sync.status.synced": "Synchronisiert",
   "sync.status.disabled": "Deaktiviert",
+  "sync.status.incomplete": "Unvollständig",
   "sync.statusUnavailable": "Status nicht verfügbar",
   "sync.pendingOps": "{count} ausstehend",
   "sync.opsCount": "{count} Vorgänge",

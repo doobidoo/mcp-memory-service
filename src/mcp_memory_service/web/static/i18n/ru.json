@@ -625,6 +625,7 @@
   "sync.status.error": "Ошибка",
   "sync.status.synced": "Синхронизировано",
   "sync.status.disabled": "Отключено",
+  "sync.status.incomplete": "Не завершено",
   "sync.statusUnavailable": "Статус недоступен",
   "sync.pendingOps": "Ожидают выполнения: {count}",
   "sync.opsCount": "Операций: {count}",

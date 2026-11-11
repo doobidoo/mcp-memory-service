@@ -61,6 +61,13 @@ class SyncCapabilitiesResponse(BaseModel):
     embedding_model: str = Field(description="Embedding model used by the vector storage")
     embedding_dimension: int = Field(description="Vector dimension used by the storage")
     version: str = Field(description="Installed MCP Memory Service package version")
+    ontology_sync: bool = Field(
+        default=False,
+        description=(
+            "Whether this server applies ontology overlay events (#1897). Peers send "
+            "and request them only when it is true; an older server omits the field."
+        ),
+    )
     store_scoped_access: bool = Field(
         default=False,
         description=(
@@ -84,6 +91,7 @@ async def get_sync_capabilities(
         embedding_model=embedding_model,
         embedding_dimension=embedding_dimension,
         version=__version__,
+        ontology_sync=True,
         store_scoped_access=bool(getattr(storage, "get_by_hash_is_store_scoped", False)),
     )
 

@@ -19,6 +19,13 @@ from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
 from ..source_retraction import retract_sources_for_deleted_hashes
 from .resolver import EventView, reduce_events, _winner_key
+from ..ontology_overlay import (
+    ONTOLOGY_HASH_PREFIX,
+    ONTOLOGY_OPS,
+    apply_remote_row,
+    ontology_event_error,
+)
+from ...models import ontology
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +114,101 @@ def apply_remote_event(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyRe
     the storage connection lock, so it never interleaves with an in-flight local write's
     savepoint on the shared SQLite connection.
     """
+    if event.get("op") in ONTOLOGY_OPS or str(event.get("content_hash", "")).startswith(
+        ONTOLOGY_HASH_PREFIX
+    ):
+        return _apply_ontology_event(storage, event)
     with _sync_lock(storage):
         return _apply_remote_event_locked(storage, event)
+
+
+def _apply_ontology_event(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyResult:
+    """Apply an ontology overlay event (#1897, phase 2).
+
+    Same contract as a memory event: the (agent_id, event_id) identity is
+    immutable, the event is recorded, and the HLC resolver picks the winner
+    among every event for its ``ontology:<kind>:<key>`` hash. The state is a
+    whole row, so the winner simply writes it. None of the memory liveness or
+    content-repair rules apply. A malformed event is refused before it is
+    recorded and is skippable, so it cannot stall a feed. An event with an
+    envelope version this node cannot read is refused and not skippable, as
+    in the memory path, so the cursor does not move past it.
+    """
+    if event.get("schema_version", 1) > KNOWN_SCHEMA_VERSION:
+        return _newer_schema_result(event)
+    error = ontology_event_error(event.get("op"), event.get("content_hash"), event.get("payload"))
+    if error:
+        logger.warning("Rejecting ontology sync event %s: %s",
+                       _sanitize_log_value(event.get("event_id")), _sanitize_log_value(error))
+        return ApplyResult(applied=False, materialized=False,
+                           reason=f"Malformed ontology event: {error}", skippable=True)
+    with _sync_lock(storage):
+        result = _apply_ontology_event_locked(storage, event)
+        if result.materialized:
+            _capture_overlay(storage, _sqlite(storage).conn)
+    if result.materialized:
+        ontology.invalidate_overlay()
+    return result
+
+
+def _newer_schema_result(event: Dict[str, Any]) -> ApplyResult:
+    logger.warning("Rejecting ontology sync event %s: envelope schema_version %s > known %s",
+                   _sanitize_log_value(event.get("event_id")),
+                   _sanitize_log_value(event.get("schema_version")), KNOWN_SCHEMA_VERSION)
+    return ApplyResult(applied=False, materialized=False,
+                       reason=f"unknown envelope schema_version {event.get('schema_version')} "
+                              f"> {KNOWN_SCHEMA_VERSION}")
+
+
+def _capture_overlay(storage: MemoryStorage, conn) -> None:
+    """Refresh an in-memory database's overlay snapshot; file databases are re-read."""
+    source = getattr(storage, "_ontology_overlay", None)
+    if source is not None:
+        source.capture(conn)
+
+
+def _apply_ontology_event_locked(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyResult:
+    s = _sqlite(storage)
+    agent_id, event_id, payload = event["agent_id"], event["event_id"], event["payload"]
+    pre_existing = _event_identity_payload(storage, agent_id, event_id)
+    if pre_existing is not None:
+        if pre_existing == payload:
+            return ApplyResult(applied=True, materialized=False,
+                               reason="Duplicate event (idempotent, no rewrite)")
+        return ApplyResult(applied=False, materialized=False,
+                           reason="Replay with altered payload rejected")
+    try:
+        s.conn.execute("""
+            INSERT INTO sync_events
+            (schema_version, agent_id, event_id, op, content_hash, hlc_physical, hlc_logical,
+             payload, created_at, created_at_iso)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            event.get("schema_version", 1), agent_id, event_id, event["op"], event["content_hash"],
+            event["hlc_physical"], event["hlc_logical"], json.dumps(payload),
+            time.time(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        ))
+        winner = reduce_events(
+            EventView(hlc_physical=r[0], hlc_logical=r[1], agent_id=r[2],
+                      event_id=r[3], op=r[4], content_hash=r[5])
+            for r in s.conn.execute(
+                "SELECT hlc_physical, hlc_logical, agent_id, event_id, op, content_hash "
+                "FROM sync_events WHERE content_hash = ?",
+                (event["content_hash"],),
+            )
+        )
+        _advance_local_hlc(storage, event["hlc_physical"], event["hlc_logical"])
+        won = winner.agent_id == agent_id and winner.event_id == event_id
+        if won:
+            apply_remote_row(s.conn, event["op"], payload)
+        s.conn.commit()
+    except Exception as e:  # noqa: BLE001 - nothing of a failed apply may commit
+        _rollback_apply(s)
+        logger.error("Ontology event apply failed: %s", _sanitize_log_value(e))
+        return ApplyResult(applied=False, materialized=False, reason=f"Ontology apply failed: {e}")
+    return ApplyResult(applied=True, materialized=won,
+                       reason="Remote event won and materialized" if won
+                       else "Remote event lost conflict resolution")
 
 
 def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) -> ApplyResult:
@@ -260,13 +360,24 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
             _advance_local_hlc(storage, hlc_physical, hlc_logical)
 
             # Step 3: materialize.
-            # - create/delete: only when THIS event wins the whole-event resolution.
+            # - create/update: also restore the winning create when a later metadata
+            #   edit wins overall; liveness alone would revive the superseded row (#1565).
+            # - delete: only when THIS event wins the whole-event resolution.
             # - update_metadata: ALWAYS re-materialize — the rebuild is a deterministic,
             #   order-independent fold over every update_metadata event for the hash
             #   (field-level LWW by HLC), so applying it on each event converges all peers
             #   even when this event is not the overall winner (Greptile P1 convergence).
             is_winner = bool(winner and winner.event_id == event_id and winner.agent_id == agent_id)
-            if is_winner or op == "update_metadata":
+            create_winner = reduce_events(
+                candidate for candidate in competing_events
+                if candidate.op in ("create", "update")
+            )
+            restores_create = (
+                op in ("create", "update")
+                and winner is not None and winner.op == "update_metadata"
+                and create_winner == remote_event_view
+            )
+            if is_winner or restores_create or op == "update_metadata":
                 try:
                     materialized = _materialize_event(storage, event)
                     if not materialized:
@@ -274,9 +385,15 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                         # including a tombstone whose citation cleanup returned
                         # False, rolls back so the retry is not a duplicate.
                         return _unmaterialized_result(s, op, payload)
+                    if restores_create and not is_winner:
+                        # The create provides the fresh row, store and timestamps; then
+                        # fold only edits belonging to this incarnation onto that seed.
+                        _materialize_update_metadata(s, content_hash, payload)
                     s.conn.commit()  # durability: persist event + materialization (ADR-0019/§8.5)
                     reason = ("Remote event won and materialized" if is_winner
                               else "update_metadata merged (field-level convergence)")
+                    if restores_create and not is_winner:
+                        reason = "Winning create restored with later metadata edits"
                     if locals().get("_is_content_repair"):
                         reason = "Empty-content create repaired with real content (via resolver)"
                     return ApplyResult(applied=True, materialized=True, reason=reason)
