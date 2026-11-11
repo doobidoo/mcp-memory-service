@@ -24,6 +24,8 @@ import time
 import asyncio
 import logging
 import platform
+import importlib.util
+import shutil
 import subprocess
 from typing import Optional, List, Tuple
 from datetime import datetime, timezone
@@ -175,9 +177,38 @@ def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tup
     return _run_command(['git'] + args, timeout, "Git")
 
 
+def _find_uv() -> Optional[str]:
+    """The uv that launched this server (``uv run`` exports it as ``UV``), else uv on PATH."""
+    uv_path = os.environ.get("UV")
+    if uv_path and os.path.isfile(uv_path):
+        return uv_path
+    return shutil.which("uv")
+
+
+def _pip_command(args: List[str]) -> Optional[Tuple[List[str], str]]:
+    """
+    Return ``(command, tool_name)`` that runs ``pip <args>`` for the running interpreter.
+
+    Prefers ``python -m pip``. Environments created by ``uv venv`` ship without
+    pip, so fall back to ``uv pip``, pinned to ``sys.executable`` (uv would
+    otherwise pick whichever environment it finds). Returns None when neither
+    is available.
+    """
+    if importlib.util.find_spec("pip") is not None:
+        return [sys.executable, '-m', 'pip'] + list(args), "Pip"
+    uv_path = _find_uv()
+    if uv_path:
+        return [uv_path, 'pip'] + list(args[:1]) + ['--python', sys.executable] + list(args[1:]), "uv"
+    return None
+
+
 def _run_pip_command(args: List[str], timeout: int = PIP_TIMEOUT_SECONDS) -> Tuple[str, bool]:
-    """Run a pip command and return output."""
-    return _run_command([sys.executable, '-m', 'pip'] + args, timeout, "Pip")
+    """Run a pip (or ``uv pip``) command for the running interpreter and return output."""
+    resolved = _pip_command(args)
+    if resolved is None:
+        return "Neither pip nor uv was found for the running Python interpreter.", False
+    command, tool_name = resolved
+    return _run_command(command, timeout, tool_name)
 
 
 def _format_uptime(seconds: float) -> str:
@@ -425,6 +456,18 @@ async def update_server(
                     f"{preview}"
                 ),
             )
+
+    # Resolve the installer before touching the checkout, so a pip-less env
+    # without uv fails cleanly instead of leaving a pulled-but-not-installed tree.
+    if _pip_command(['install']) is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Neither pip nor uv was found for the running Python interpreter. "
+                "The checkout was NOT changed (git pull was not run). "
+                "Install pip or uv in this environment and retry."
+            ),
+        )
 
     # Step 1: Git pull
     git_output, git_success = _run_git_command(['pull', 'origin', 'main'])

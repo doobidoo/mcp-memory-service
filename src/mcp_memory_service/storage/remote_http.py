@@ -198,6 +198,7 @@ class RemoteHTTPStorage(MemoryStorage):
         self.basic_pass = basic_pass
         self.expected_embedding_model = expected_embedding_model
         self.get_by_hash_is_store_scoped = False
+        self.ontology_sync = False
         # The capabilities response, or the error that stopped it, read by
         # initialize() and handed to the check_sync_compatibility() that the
         # scheduler calls right after it, so the peer is asked once per cycle
@@ -268,8 +269,9 @@ class RemoteHTTPStorage(MemoryStorage):
         return _sanitize_log_value(str(url))
 
     def _note_store_scoping(self, capabilities: Dict[str, Any]) -> None:
-        """Trust store scoping only when the peer says so explicitly."""
+        """Trust store scoping, and exchange ontology events, only when the peer says so explicitly."""
         self.get_by_hash_is_store_scoped = capabilities.get("store_scoped_access") is True
+        self.ontology_sync = capabilities.get("ontology_sync") is True
 
     async def _probe_store_scoping(self) -> None:
         """Read the peer's capabilities and set ``get_by_hash_is_store_scoped``.
@@ -279,6 +281,7 @@ class RemoteHTTPStorage(MemoryStorage):
         it, so a peer that times out is waited for once, not twice.
         """
         self.get_by_hash_is_store_scoped = False
+        self.ontology_sync = False
         self._capabilities_response = None
         self._capabilities_error = None
         try:
@@ -728,13 +731,17 @@ class RemoteHTTPStorage(MemoryStorage):
             )
             return []
 
-    async def get_events_since(self, cursor: int, limit: int = 100) -> Tuple[List[Dict[str, Any]], int, bool]:
+    async def get_events_since(
+        self, cursor: int, limit: int = 100, events_filter: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], int, bool]:
         """
         Get sync events from remote server since cursor (delta-sync Phase 4a).
         
         Args:
             cursor: Return events with seq > cursor
             limit: Maximum number of events to return
+            events_filter: 'memory', 'ontology' or 'all'. Defaults to 'all' when the
+                peer advertised ontology_sync (#1897), else 'memory'.
             
         Returns:
             Tuple of (events, next_seq, has_more)
@@ -742,7 +749,8 @@ class RemoteHTTPStorage(MemoryStorage):
         try:
             params = {
                 "since_seq": cursor,
-                "limit": limit
+                "limit": limit,
+                "events": events_filter or ("all" if self.ontology_sync else "memory"),
             }
 
             response = await self._request("GET", "/api/sync/events", params=params)
@@ -777,7 +785,9 @@ class RemoteHTTPStorage(MemoryStorage):
         Returns (events, watermark). Raises on a non-200/transport error so the caller does
         not mistake a failed bootstrap for an empty corpus.
         """
-        response = await self._request("GET", "/api/sync/baseline")
+        response = await self._request(
+            "GET", "/api/sync/baseline", params={"events": "all" if self.ontology_sync else "memory"}
+        )
         if response.status_code == 200:
             data = response.json()
             # Greptile P2-3: a malformed 200 ({"watermark": 100} with no events) must NOT look
