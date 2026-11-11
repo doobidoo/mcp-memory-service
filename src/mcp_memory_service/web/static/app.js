@@ -1235,6 +1235,7 @@ class MemoryDashboard {
             // Populate typeFilter (search filter) - keep "All types" option
             const typeFilter = document.getElementById('typeFilter');
             if (typeFilter) {
+                const selected = typeFilter.value;
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
                 allOpt.dataset.i18n = 'search.filters.type.all';
@@ -1246,6 +1247,13 @@ class MemoryDashboard {
                     return opt;
                 });
                 typeFilter.replaceChildren(allOpt, ...typeOpts);
+                // Keep the user's type filter. If that type was just removed, the filter
+                // falls back to "All types" and the search reruns so results and badge match.
+                if (types.includes(selected)) {
+                    typeFilter.value = selected;
+                } else if (selected) {
+                    typeFilter.dispatchEvent(new Event('change'));
+                }
             }
 
             // Populate all memoryType selects (document upload + add memory modal)
