@@ -5598,7 +5598,7 @@ class MemoryDashboard {
         const p = row.payload || {};
         if (row.kind === 'memory_type') return row.parent || '';
         if (row.kind === 'retention') return this.t('manage.ontology.days', '{days} days', { days: p.days });
-        if (row.kind === 'relationship') return (p.valid_patterns || []).join(', ');
+        if (row.kind === 'relationship') return Array.isArray(p.valid_patterns) ? p.valid_patterns.join(', ') : '';
         return `${p.relationship} (${p.confidence})`;
     }
 
