@@ -587,6 +587,8 @@ class ConsolidationScheduler:
                 compatibility,
                 operation_version=operation_version,
             )
+            from ..storage.sync.orchestrator import sync_ontology_backlog
+            await sync_ontology_backlog(storage, peer, peer_id=peer_id)
             pull = await sync_from_peer(storage, peer, peer_id=peer_id, limit=100)
             cycle["pull"] = {"received": getattr(pull, "events_received", None),
                              "applied": pull.events_applied, "cursor": getattr(pull, "final_cursor", None)}

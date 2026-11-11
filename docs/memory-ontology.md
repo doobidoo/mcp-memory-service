@@ -143,10 +143,15 @@ await storage.remove_memory_type("contract")                # tombstone
   Subtypes without their own entry use their parent's period. The overlay
   only fills gaps: a type that has a built-in period or an
   `MCP_RETENTION_*` override keeps it, and `set_retention` refuses it.
-- **Limit:** the table exists only in the local SQLite database. Cloudflare
-  (D1) does not carry it, and it is not yet synced through the hub. On the
-  `cloudflare` backend, and to keep several `hybrid` or hub nodes in
-  agreement, keep using `MCP_CUSTOM_MEMORY_TYPES`.
+- **Sync:** with delta sync on (`MCP_SYNC_EVENTLOG`), each overlay write is
+  also a sync event, so the rows reach the other `sqlite_vec` nodes through
+  the hub. Concurrent writes to the same entry resolve by HLC: the later one
+  wins on every node. A peer on an older version is not sent these events
+  and keeps syncing memories. Rows written while the event log was off only
+  reach a new peer through its first bootstrap.
+- **Limit:** Cloudflare (D1) does not carry the table. On the `cloudflare`
+  backend, and between `hybrid` nodes that only share Cloudflare, keep using
+  `MCP_CUSTOM_MEMORY_TYPES`.
 
 ### Relationship types and inference patterns
 

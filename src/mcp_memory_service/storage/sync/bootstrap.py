@@ -21,6 +21,13 @@ from typing import Any, Dict, List, Tuple
 
 from ..base import MemoryStorage
 from ..mixins.base import _sanitize_log_value
+from ..ontology_overlay import (
+    ONTOLOGY_DELETE,
+    ONTOLOGY_UPSERT,
+    ontology_event_hash,
+    parse_row_payload,
+    read_ontology_rows,
+)
 from .apply import apply_remote_event, advance_sync_cursor, _sqlite, _sync_lock, KNOWN_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
@@ -38,7 +45,12 @@ def _deterministic_event_id(content_hash: str, updated_at, op: str) -> str:
 
 
 def _read_snapshot(storage: MemoryStorage):
-    """Read the atomic snapshot: (memory rows, watermark, hlc_by_hash). Extracted to keep
+    """Read the atomic snapshot: (memory rows, watermark, hlc_by_hash)."""
+    return _read_snapshot_with_ontology(storage)[:3]
+
+
+def _read_snapshot_with_ontology(storage: MemoryStorage):
+    """Read the atomic snapshot: (memory rows, watermark, hlc_by_hash, ontology rows). Extracted to keep
     generate_baseline under the repo complexity limit (Greptile P2).
 
     R3 (Tuvok P1-2): the threading lock alone does NOT make the cut atomic — a writer
@@ -84,26 +96,34 @@ def _read_snapshot(storage: MemoryStorage):
                 """
             ).fetchall()
             hlc_by_hash = {r[0]: (r[1] or 0, r[2] or 0) for r in hlc_rows}
+            ontology_rows = read_ontology_rows(s.conn)
         finally:
             # Read-only transaction: end it without writing (COMMIT releases the lock).
             s.conn.commit()
-    return rows, watermark, hlc_by_hash
+    return rows, watermark, hlc_by_hash, ontology_rows
 
 
-def generate_baseline(storage: MemoryStorage) -> Tuple[List[Dict[str, Any]], int]:
+def generate_baseline(
+    storage: MemoryStorage, include_ontology: bool = False
+) -> Tuple[List[Dict[str, Any]], int]:
     """Generate baseline events from the current state, plus the watermark. ON DEMAND (G1).
 
     Returns (events, watermark). The watermark is MAX(seq) of sync_events read in the SAME
     transaction as the memory snapshot (R3 atomic cut): any memory mutated concurrently is
     either captured here or produces an event with seq > watermark — never lost.
+
+    ``include_ontology`` adds the ontology overlay rows (#1897) from the same snapshot,
+    for a peer that advertised ``ontology_sync``; an older peer cannot apply them.
     """
-    rows, watermark, hlc_by_hash = _read_snapshot(storage)
+    rows, watermark, hlc_by_hash, ontology_rows = _read_snapshot_with_ontology(storage)
 
     events: List[Dict[str, Any]] = []
     for r in rows:
         ev = _row_to_baseline_event(r, hlc_by_hash)
         if ev is not None:
             events.append(ev)
+    if include_ontology:
+        events.extend(_ontology_row_to_baseline_event(r, hlc_by_hash) for r in ontology_rows)
 
     logger.info("Generated %s baseline events at watermark %s",
                 _sanitize_log_value(len(events)), _sanitize_log_value(watermark))
@@ -169,6 +189,32 @@ def _row_to_baseline_event(r, hlc_by_hash) -> Dict[str, Any]:
         "embedding_model": None,
         "embedding_dim": None,
         "payload": payload,
+    }
+
+
+def _ontology_row_to_baseline_event(r, hlc_by_hash) -> Dict[str, Any]:
+    """Convert one ontology_entries row into a baseline event, with the row's real clock."""
+    kind, key, parent, payload_json, updated_at, deleted_at = r
+    content_hash = ontology_event_hash(kind, key)
+    op = ONTOLOGY_DELETE if deleted_at is not None else ONTOLOGY_UPSERT
+    hlc_physical, hlc_logical = hlc_by_hash.get(content_hash, (int((updated_at or 0) * 1000), 0))
+    return {
+        "schema_version": KNOWN_SCHEMA_VERSION,
+        "agent_id": "unattributed",
+        "event_id": _deterministic_event_id(content_hash, updated_at, op),
+        "op": op,
+        "content_hash": content_hash,
+        "hlc_physical": hlc_physical,
+        "hlc_logical": hlc_logical,
+        "embedding_model": None,
+        "embedding_dim": None,
+        "payload": {
+            "kind": kind,
+            "key": key,
+            "parent": parent,
+            "payload": parse_row_payload(payload_json),
+            "deleted_at": deleted_at,
+        },
     }
 
 
