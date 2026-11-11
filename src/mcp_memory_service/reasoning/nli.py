@@ -53,6 +53,10 @@ _ONNX_RUNTIME_LOCK = asyncio.Lock()
 class NLIResult:
     label: str  # "entailment" | "contradiction" | "neutral"
     confidence: float  # 0.0-1.0
+    # True when this particular verdict came from the heuristic fallback of a
+    # model/LLM backend — per-result, not per-instance, so one failed call
+    # cannot relabel the verdicts of calls that succeeded (#1955).
+    degraded: bool = False
 
 
 _NLI_LABELS = ("entailment", "contradiction", "neutral")
@@ -174,7 +178,7 @@ class NLIClassifier:
             
             # R11: If no provider configured, use heuristic directly
             if not self._llm_available:
-                return self._heuristic_classify(premise, hypothesis)
+                return self._degraded_heuristic(premise, hypothesis)
             
             prompt = (
                 "Classify the relationship between Statement A and Statement B.\n"
@@ -195,7 +199,7 @@ class NLIClassifier:
                     sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
                     self._warn_once(sanitized_reason)
                 # R14: Preserve exact heuristic values
-                return self._heuristic_classify(premise, hypothesis)
+                return self._degraded_heuristic(premise, hypothesis)
             return NLIResult(
                 label=label,
                 confidence=LLM_NONNEUTRAL_CONFIDENCE if label != "neutral" else 0.3,
@@ -207,7 +211,7 @@ class NLIClassifier:
                 sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
                 self._warn_once(sanitized_reason)
             # R14: Preserve exact heuristic values
-            return self._heuristic_classify(premise, hypothesis)
+            return self._degraded_heuristic(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
         """Batch classification.
@@ -275,11 +279,10 @@ class NLIClassifier:
                 for out, pair in zip(results, pairs)
             ]
         except Exception as e:
-            self.degraded = True
             if not self._warned_degraded:
                 self._warned_degraded = True
                 self._warn_once(_sanitize_log_value(f"transformers inference failed: {e}"))
-            return [self._heuristic_classify(p, h) for p, h in pairs]
+            return [self._degraded_heuristic(p, h) for p, h in pairs]
 
     async def _get_onnx_runtime(self):
         """Lazy (tokenizer, session, id2label) for the model, cached per model.
@@ -362,6 +365,19 @@ class NLIClassifier:
             from ..harvest.rewriter import HarvestRewriter
             self._rewriter = HarvestRewriter()
         return self._rewriter
+
+    def _degraded_heuristic(self, premise: str, hypothesis: str) -> NLIResult:
+        """Heuristic verdict that stands in for a failed model/LLM call.
+
+        Marks both the instance (a degradation happened at some point — what
+        harness reports read) and the result (this verdict is heuristic —
+        what per-pair provenance reads, so later successful calls from the
+        same classifier are not relabeled).
+        """
+        self.degraded = True
+        result = self._heuristic_classify(premise, hypothesis)
+        result.degraded = True
+        return result
 
     def _warn_once(self, sanitized_reason: str):
         """R12: Emit one degradation warning per run (reason already sanitized).
@@ -514,10 +530,10 @@ async def detect_contradictions_nli(
     if not dry_run and contradictions:
         for h, mem_b_data, nli_res in contradictions:
             try:
-                # Provenance names the backend that actually classified —
-                # a degraded transformers run is heuristic evidence, not
-                # model evidence.
-                backend_used = "heuristic" if classifier.degraded else classifier.backend
+                # Provenance is per pair: nli_res.degraded says whether THIS
+                # verdict came from the fallback, so one degraded call cannot
+                # relabel the edges of calls that succeeded.
+                backend_used = "heuristic" if nli_res.degraded else classifier.backend
                 await graph.store_association(
                     source_hash=memory_hash,
                     target_hash=h,
