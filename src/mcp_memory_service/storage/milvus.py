@@ -1477,8 +1477,43 @@ class MilvusMemoryStorage(MemoryStorage):
             new_content=memory.content,
         )
 
+    def _versioned_lineage_lock(self) -> asyncio.Lock:
+        """The in-process lock ``update_memory_versioned`` already uses.
+
+        Semantic supersede shares it so a versioned update and a dedup
+        supersede cannot both claim the same current row.
+        """
+        lock = getattr(self, "_versioned_update_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._versioned_update_lock = lock
+        return lock
+
     async def _link_semantic_supersede(self, old_hash: str, new_hash: str) -> bool:
-        """Mark ``old_hash`` superseded by ``new_hash``, as versioned update does."""
+        """Mark ``old_hash`` superseded by ``new_hash`` if it is still current.
+
+        ``update_memory_metadata`` upserts ``superseded_by`` with no
+        compare-and-swap. Two stores can both match the same row and both
+        insert before either links. The versioned-update lock plus a recheck
+        makes the second link fail closed: it does not overwrite
+        ``superseded_by``, and the caller drops the new row.
+        """
+        async with self._versioned_lineage_lock():
+            existing = await self.get_by_hash(old_hash)
+            still_current = (
+                existing is not None
+                and (existing.metadata or {}).get("superseded_by") is None
+            )
+            if not still_current:
+                logger.debug(
+                    "semantic supersede skipped for %s: no longer current",
+                    _sanitize_log_value(old_hash[:8]),
+                )
+                return False
+            return await self._write_semantic_supersede(old_hash, new_hash)
+
+    async def _write_semantic_supersede(self, old_hash: str, new_hash: str) -> bool:
+        """Upsert the lineage keys. Caller holds the versioned-update lock."""
         updates = {
             "metadata": {
                 "superseded_by": new_hash,
