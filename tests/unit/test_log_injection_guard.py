@@ -71,6 +71,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/store.py",
     "mcp_memory_service/utils/db_utils.py",
     "mcp_memory_service/utils/health_check.py",
+    "mcp_memory_service/utils/debug.py",
     "mcp_memory_service/server/handlers/utility.py",
     "mcp_memory_service/server/handlers/documents.py",
     "mcp_memory_service/web/api/server.py",
