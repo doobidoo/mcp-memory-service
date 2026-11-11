@@ -97,17 +97,63 @@ class TestNLIClassifier:
         assert result.confidence <= 0.6
 
     @pytest.mark.asyncio
-    async def test_llm_backend_without_provider_flags_degraded(self):
+    async def test_llm_backend_without_provider_flags_degraded(self, monkeypatch):
         """A cascade/llm backend with no provider configured runs the heuristic
         and must say so: ``degraded`` is what makes a harness report honest
-        about which engine produced the verdicts."""
+        about which engine produced the verdicts.
+
+        The rewriter is stubbed to "not configured" so the test cannot turn
+        into a live provider call on a machine with GROQ_API_KEY set — the
+        provider chain is the external boundary here, not the code under test.
+        """
         from mcp_memory_service.reasoning.nli import NLIClassifier
 
+        class _NoProviderRewriter:
+            is_configured = False
+
+        monkeypatch.setattr(NLIClassifier, "_get_rewriter",
+                            lambda self: _NoProviderRewriter())
         clf = NLIClassifier(backend="cascade")
-        # No HARVEST_LLM_PROVIDERS configured in tests -> is_configured False
         result = await clf.classify("A is true", "A is false")
         expected = clf._heuristic_classify("A is true", "A is false")
-        assert result == expected
+        assert (result.label, result.confidence) == (expected.label, expected.confidence)
+        assert result.degraded is True
+        assert clf.degraded is True
+
+    @pytest.mark.asyncio
+    async def test_degraded_flag_is_per_result_not_sticky(self, monkeypatch):
+        """One failed LLM call must not relabel later successful calls.
+
+        The instance flag stays True (a degradation happened — harness
+        reports want that), but each NLIResult says whether that verdict
+        itself is heuristic, which is what edge provenance reads.
+        """
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+
+        class _FlakyRewriter:
+            is_configured = True
+
+            def __init__(self):
+                self.calls = 0
+
+            async def _call_llm(self, prompt, timeout):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("simulated provider outage")
+                return ("contradiction", "stub-provider", "stub-model")
+
+        rewriter = _FlakyRewriter()
+        monkeypatch.setattr(NLIClassifier, "_get_rewriter", lambda self: rewriter)
+        clf = NLIClassifier(backend="cascade")
+
+        first = await clf.classify("A is true", "A is false")
+        second = await clf.classify("B is true", "B is false")
+
+        assert first.degraded is True
+        plain = clf._heuristic_classify("A is true", "A is false")
+        assert (first.label, first.confidence) == (plain.label, plain.confidence)
+        assert second.degraded is False
+        assert second.label == "contradiction"
         assert clf.degraded is True
 
 
@@ -260,7 +306,7 @@ class TestUnimplementedBackendWarning:
         expected = classifier._heuristic_classify("A is true", "A is false")
         with caplog.at_level(logging.WARNING):
             result = await classifier.classify("A is true", "A is false")
-        assert result == expected
+        assert (result.label, result.confidence) == (expected.label, expected.confidence)
         assert "transformers inference failed" in caplog.text
         assert classifier.degraded is True
 
