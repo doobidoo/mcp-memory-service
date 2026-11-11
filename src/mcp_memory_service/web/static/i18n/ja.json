@@ -607,6 +607,7 @@
   "sync.status.error": "エラー",
   "sync.status.synced": "同期済み",
   "sync.status.disabled": "無効",
+  "sync.status.incomplete": "未完了",
   "sync.statusUnavailable": "状態を取得できません",
   "sync.pendingOps": "{count} 件保留中",
   "sync.opsCount": "{count} 件",

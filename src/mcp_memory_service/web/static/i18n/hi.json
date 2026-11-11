@@ -625,6 +625,7 @@
   "sync.status.error": "त्रुटि",
   "sync.status.synced": "सिंक हो गया",
   "sync.status.disabled": "अक्षम",
+  "sync.status.incomplete": "अधूरा",
   "sync.statusUnavailable": "स्थिति अनुपलब्ध",
   "sync.pendingOps": "{count} लंबित",
   "sync.opsCount": "{count} ऑपरेशन",

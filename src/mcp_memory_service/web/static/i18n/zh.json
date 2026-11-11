@@ -693,6 +693,7 @@
   "sync.status.error": "错误",
   "sync.status.synced": "已同步",
   "sync.status.disabled": "已禁用",
+  "sync.status.incomplete": "未完成",
   "sync.statusUnavailable": "状态不可用",
   "sync.pendingOps": "{count} 个待处理",
   "sync.opsCount": "{count} 个操作",
