@@ -82,6 +82,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/sse.py",
     "mcp_memory_service/server/environment.py",
     "mcp_memory_service/server/cache_manager.py",
+    "mcp_memory_service/server/client_detection.py",
     "mcp_memory_service/utils/cache_manager.py",
     "mcp_memory_service/mcp_server.py",
     "mcp_memory_service/lm_studio_compat.py",
