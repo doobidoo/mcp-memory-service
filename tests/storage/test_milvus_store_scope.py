@@ -266,6 +266,69 @@ async def test_unscoped_delete_is_by_id():
     assert delete == {"collection_name": "unit_test_collection", "ids": [_HASH]}
 
 
+def _client_deleting(rows: list[dict[str, Any]], delete_result: Any) -> AsyncMock:
+    """Like ``_client``, but ``delete`` answers ``delete_result``."""
+
+    async def call(method: str, **kwargs):
+        if method == "get":
+            wanted = set(kwargs.get("ids") or [])
+            return [r for r in rows if r["id"] in wanted]
+        if method == "delete":
+            return delete_result
+        return None
+
+    return AsyncMock(side_effect=call)
+
+
+@pytest.mark.asyncio
+async def test_delete_that_removed_nothing_is_not_a_success():
+    """Between the read and the delete another client moved the row to a
+    different store: the confined filter matches nothing, and the access
+    record and graph edges of the row that is there now must stay."""
+    storage = _make_storage(has_store=True)
+    storage._has_access_collection = True
+    storage._access_collection = "unit_test_collection_access"
+    storage._call_client = _client_deleting([_row(store="team")], {"delete_count": 0, "cost": 0})
+
+    ok, msg = await storage.delete(_HASH, store="team")
+
+    assert ok is False
+    assert "not found in store 'team'" in msg
+    assert len(_calls(storage._call_client, "delete")) == 1  # only the row delete, no access delete
+    storage._delete_graph_edges.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delete_result", [
+    {"delete_count": 1, "cost": 0},  # pymilvus >= 2.3.2
+    [_HASH],                        # primary keys, older servers
+    None,                           # no count reported: taken as deleted, as before
+])
+async def test_delete_that_removed_the_row_cleans_up_after_it(delete_result):
+    storage = _make_storage(has_store=True)
+    storage._has_access_collection = True
+    storage._access_collection = "unit_test_collection_access"
+    storage._call_client = _client_deleting([_row(store="team")], delete_result)
+
+    ok, msg = await storage.delete(_HASH, store="team")
+
+    assert ok, msg
+    assert len(_calls(storage._call_client, "delete")) == 2  # the row, then its access record
+    storage._delete_graph_edges.assert_awaited_once_with([_HASH])
+
+
+@pytest.mark.asyncio
+async def test_unscoped_delete_of_a_row_gone_meanwhile_is_not_a_success():
+    storage = _make_storage(has_store=True)
+    storage._call_client = _client_deleting([_row(store="team")], {"delete_count": 0, "cost": 0})
+
+    ok, msg = await storage.delete(_HASH)
+
+    assert ok is False
+    assert msg == f"Memory with hash {_HASH} not found"
+    storage._delete_graph_edges.assert_not_awaited()
+
+
 # -- Legacy collection: fail closed on a named store -------------------------
 
 

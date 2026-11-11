@@ -9,3 +9,6 @@
   before), and the collection has to be recreated to pick up confinement, as for
   `content_lower`. `get_by_hash_is_store_scoped` stays `False`: search and listing still
   ignore `store` on this backend.
+  A confined `delete` whose filter removes nothing (the row was deleted, or re-stored
+  elsewhere, between the read and the delete) now reports "not found" and leaves the
+  access record and graph edges alone, instead of removing them and reporting success.

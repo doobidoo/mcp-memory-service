@@ -12,6 +12,8 @@ Run: pytest tests/storage/test_milvus_store_scope_e2e.py -v
 import uuid
 
 import numpy as np
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 
@@ -111,3 +113,28 @@ async def test_store_is_kept_and_confines_the_hash_addressed_calls(storage):
     ok, msg = await storage.delete(team, store="team")
     assert ok, msg
     assert await _stored_in(storage, team) is None
+
+
+@pytest.mark.asyncio
+async def test_a_delete_that_removes_nothing_says_so_and_keeps_the_links(storage, monkeypatch):
+    """The read saw the row in "team"; by the time of the delete another
+    client had stored the same content in "ops". The confined filter deletes
+    nothing on Milvus Lite too, and the call must not report success or
+    remove the graph edges of the row that is there now."""
+    moved = await _store(storage, "stored again in ops meanwhile", store="ops")
+    memory = await storage.get_by_hash(moved)
+    assert memory is not None
+
+    async def _stale_read(content_hash, store):
+        return memory, "team"
+
+    monkeypatch.setattr(storage, "_get_for_write", _stale_read)
+    edges = AsyncMock()
+    monkeypatch.setattr(storage, "_delete_graph_edges", edges)
+
+    ok, msg = await storage.delete(moved, store="team")
+
+    assert ok is False
+    assert "not found in store 'team'" in msg
+    assert await _stored_in(storage, moved) == "ops"
+    edges.assert_not_awaited()

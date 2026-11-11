@@ -154,6 +154,22 @@ _MAX_TAGS_FOR_SEARCH = 100
 # -- Storage implementation --------------------------------------------------
 
 
+def _deleted_rows(result: Any) -> Optional[int]:
+    """How many rows a ``MilvusClient.delete`` call removed, if it says.
+
+    pymilvus returns ``{"delete_count": n, "cost": c}`` (an ``OmitZeroDict``,
+    whose zeros are still readable), or a list of primary keys from servers
+    before 2.3.2. Anything else is ``None``: unknown, treated as a delete that
+    went through, which is what every caller assumed before this check.
+    """
+    if isinstance(result, dict):
+        count = result.get("delete_count")
+        return int(count) if isinstance(count, int) else None
+    if isinstance(result, (list, tuple)):
+        return len(result)
+    return None
+
+
 class MilvusMemoryStorage(MemoryStorage):
     """Milvus-backed storage implementation.
 
@@ -2003,7 +2019,7 @@ class MilvusMemoryStorage(MemoryStorage):
             target = {"ids": [content_hash]}
 
         try:
-            await self._call_client(
+            result = await self._call_client(
                 "delete",
                 collection_name=self.collection_name,
                 **target,
@@ -2011,6 +2027,19 @@ class MilvusMemoryStorage(MemoryStorage):
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to delete memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(exc))
             return False, f"Failed to delete memory: {exc}"
+
+        # The delete can match nothing: between the read above and this call
+        # another client may have removed the row, or removed it and stored
+        # the same content in a different store, which the confined filter
+        # rightly leaves alone. Then nothing went, and the access record and
+        # graph edges belong to the row that is there now, so they stay.
+        if _deleted_rows(result) == 0:
+            where = f" in store '{row_store}'" if confine is not None else ""
+            logger.info(
+                "Memory %s was not deleted: no row%s at delete time",
+                _sanitize_log_value(content_hash), _sanitize_log_value(where),
+            )
+            return False, f"Memory with hash {content_hash} not found{where}"
 
         logger.info("Deleted memory %s", _sanitize_log_value(content_hash))
         # Clean up access tracking record
