@@ -35,6 +35,8 @@ from functools import wraps
 from typing import Callable, TypeVar, Any
 import logging
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Type variable for generic function wrapping
@@ -93,7 +95,11 @@ def sync_wrapper(async_func: Callable[..., Any]) -> Callable[..., Any]:
             return result
         except Exception as e:
             # Re-raise exception with context
-            logger.error(f"Error in sync wrapper for {async_func.__name__}: {e}")
+            logger.error(
+                "Error in sync wrapper for %s: %s",
+                async_func.__name__,
+                _sanitize_log_value(e),
+            )
             raise
 
     return wrapper
@@ -114,7 +120,7 @@ def run_async(coro: Any) -> Any:
 
     Example:
         >>> result = run_async(storage.retrieve("query", limit=5))
-        >>> print(len(result))
+        >>> len(result)
 
     Note:
         Prefer sync_wrapper() for repeated calls to the same function,
