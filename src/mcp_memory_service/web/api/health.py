@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from ...compat import _sanitize_log_value
 from ...storage.base import MemoryStorage
 from ...storage.sync.protocol import resolve_embedding_identity
 from ..dependencies import get_storage
@@ -95,7 +96,7 @@ async def _count_missing_embeddings(storage, storage_info: Dict[str, Any]):
                 _check_embedding_integrity, conn)
         except Exception as e:
             # Non-fatal: the health request still answers, but not with a count.
-            logger.warning("Embedding integrity check failed: %s", e)
+            logger.warning("Embedding integrity check failed: %s", _sanitize_log_value(e))
             return None, True
         if not integrity:
             return None, True
