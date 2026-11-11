@@ -147,8 +147,8 @@ await storage.remove_memory_type("contract")                # tombstone
   also a sync event, so the rows reach the other `sqlite_vec` nodes through
   the hub. Concurrent writes to the same entry resolve by HLC: the later one
   wins on every node. A peer on an older version is not sent these events
-  and keeps syncing memories. Rows written while the event log was off only
-  reach a new peer through its first bootstrap.
+  and keeps syncing memories. A row written while the event log was off has
+  no event and does not sync; write it again with the event log on.
 - **Limit:** Cloudflare (D1) does not carry the table. On the `cloudflare`
   backend, and between `hybrid` nodes that only share Cloudflare, keep using
   `MCP_CUSTOM_MEMORY_TYPES`.

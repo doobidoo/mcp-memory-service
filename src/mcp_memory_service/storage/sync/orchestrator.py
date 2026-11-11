@@ -430,37 +430,49 @@ async def _push_ontology_backlog(storage: MemoryStorage, peer, limit: int) -> in
 
 async def sync_ontology_backlog(
     local_storage: MemoryStorage, peer, peer_id: str, limit: int = 100
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Exchange every ontology event once with a peer that supports ontology sync.
 
     Ontology events left out while either side lacked ``ontology_sync`` sit behind
     both cursors, so the normal pull and push never carry them. The first cycle
     with a peer that advertises it pulls the peer's whole ontology history and
     pushes ours. Both sides apply by (agent_id, event_id), so repeats are
-    duplicates. A failure is logged and leaves the flag unset for the next
-    cycle; it never blocks the memory sync that follows.
+    duplicates.
+
+    A failed exchange is logged, leaves the flag unset for the next cycle and is
+    returned as ``failed`` so the scheduler can report the cycle as incomplete. It
+    never stops the memory sync that follows.
 
     A cycle with the peer not advertising the capability clears the flag: the
     memory-only push and pull that follow can move the cursors past new ontology
     events, so the exchange has to run again once the peer advertises it.
     """
+    if _peer_events_filter(peer) != "all":
+        _forget_ontology_backlog(local_storage, peer_id)
+        return {"pulled": 0, "pushed": 0, "failed": False}
     try:
         return await _exchange_ontology_backlog(local_storage, peer, peer_id, limit)
     except Exception as e:  # noqa: BLE001 - retried next cycle; memory sync goes on
         logger.warning("Ontology backlog with %s incomplete, retrying next cycle: %s",
                        _sanitize_log_value(peer_id), _sanitize_log_value(e))
-        return {"pulled": 0, "pushed": 0}
+        return {"pulled": 0, "pushed": 0, "failed": True}
 
 
-async def _exchange_ontology_backlog(storage: MemoryStorage, peer, peer_id: str, limit: int) -> Dict[str, int]:
-    if _peer_events_filter(peer) != "all":
+def _forget_ontology_backlog(storage: MemoryStorage, peer_id: str) -> None:
+    """Clear the backlog flag; a failure is logged, never raised into the memory sync."""
+    try:
         _clear_ontology_backlog_done(storage, peer_id)
-        return {"pulled": 0, "pushed": 0}
+    except Exception as e:  # noqa: BLE001 - next cycle tries again
+        logger.warning("Could not reset the ontology backlog flag for %s: %s",
+                       _sanitize_log_value(peer_id), _sanitize_log_value(e))
+
+
+async def _exchange_ontology_backlog(storage: MemoryStorage, peer, peer_id: str, limit: int) -> Dict[str, Any]:
     if _ontology_backlog_done(storage, peer_id):
-        return {"pulled": 0, "pushed": 0}
+        return {"pulled": 0, "pushed": 0, "failed": False}
     pulled = await _pull_ontology_backlog(storage, peer, limit)
     pushed = await _push_ontology_backlog(storage, peer, limit)
     _mark_ontology_backlog_done(storage, peer_id)
     logger.info("Ontology backlog with %s: %s pulled, %s pushed",
                 _sanitize_log_value(peer_id), pulled, pushed)
-    return {"pulled": pulled, "pushed": pushed}
+    return {"pulled": pulled, "pushed": pushed, "failed": False}

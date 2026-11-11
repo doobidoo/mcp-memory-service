@@ -30,7 +30,11 @@ from mcp_memory_service.storage.sync.orchestrator import (
 )
 from mcp_memory_service.utils.hashing import generate_content_hash
 from mcp_memory_service.web.api.sync import get_sync_capabilities
-from mcp_memory_service.web.api.sync_events import get_sync_events
+from mcp_memory_service.web.api.sync_events import (
+    IngestEventsRequest,
+    get_sync_events,
+    ingest_sync_events,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -252,9 +256,9 @@ async def test_backlog_exchanges_events_hidden_from_the_cursors_once(stores):
     assert result["pulled"] == 1  # a then pushes its own event and b's, as a duplicate
     assert _rows(a) == _rows(b) and len(_rows(a)) == 2
 
-    assert await sync_ontology_backlog(a, peer, peer_id="b") == {"pulled": 0, "pushed": 0}
+    assert await sync_ontology_backlog(a, peer, peer_id="b") == {"pulled": 0, "pushed": 0, "failed": False}
     assert await sync_ontology_backlog(a, Peer(b, ontology_sync=False), peer_id="c") == {
-        "pulled": 0, "pushed": 0}
+        "pulled": 0, "pushed": 0, "failed": False}
 
 
 async def test_a_failed_backlog_is_retried_next_cycle(stores):
@@ -265,8 +269,8 @@ async def test_a_failed_backlog_is_retried_next_cycle(stores):
         async def push_events(self, events):
             return {"applied": 0, "failed": len(events)}
 
-    assert await sync_ontology_backlog(a, Broken(b), peer_id="b") == {"pulled": 0, "pushed": 0}
-    assert await sync_ontology_backlog(a, Peer(b), peer_id="b") == {"pulled": 0, "pushed": 1}
+    assert await sync_ontology_backlog(a, Broken(b), peer_id="b") == {"pulled": 0, "pushed": 0, "failed": True}
+    assert await sync_ontology_backlog(a, Peer(b), peer_id="b") == {"pulled": 0, "pushed": 1, "failed": False}
 
 
 async def test_baseline_carries_the_overlay_only_when_asked(stores):
@@ -370,3 +374,36 @@ async def test_a_filtered_feed_ends_when_only_excluded_events_follow(stores):
     assert [e.op for e in page.events] == ["create"] and page.has_more is False
     page = await get_sync_events(since_seq=0, limit=1, events_filter="all", _auth=True, storage=a)
     assert page.has_more is True
+
+
+async def test_a_bootstrapped_spoke_can_push_through_the_hub_allow_list(stores, monkeypatch):
+    """Greptile on #1956: synthetic 'unattributed' baseline events came back on the
+    spoke's first push and an allow-list without 'unattributed' rejected the batch."""
+    hub, spoke = stores
+    await _write_overlay(hub)
+    events, watermark = generate_baseline(hub, include_ontology=True)
+    ontology_events = [e for e in events if e["content_hash"].startswith("ontology:")]
+    hub_identities = set(hub.conn.execute(
+        "SELECT agent_id, event_id FROM sync_events WHERE content_hash LIKE 'ontology:%'"))
+    assert ontology_events and {(e["agent_id"], e["event_id"]) for e in ontology_events} <= hub_identities
+    install_baseline(spoke, events, peer_id="hub", watermark=watermark)
+
+    monkeypatch.setenv("MCP_SYNC_PUSH_ALLOWED_AGENTS", "some-other-agent")
+
+    class Hub:
+        ontology_sync = True
+
+        async def push_events(self, batch):
+            resp = await ingest_sync_events(IngestEventsRequest(events=batch), _auth=True, storage=hub)
+            return resp.model_dump()
+
+    result = await push_to_peer(spoke, Hub(), peer_id="hub")
+    assert result.events_pushed == len(ontology_events) and result.events_failed == 0
+
+
+async def test_a_row_written_without_the_event_log_is_not_in_the_baseline(stores, monkeypatch):
+    a, _ = stores
+    monkeypatch.delenv("MCP_SYNC_EVENTLOG")
+    await a.add_memory_type("legal")
+    events, _ = generate_baseline(a, include_ontology=True)
+    assert not [e for e in events if e["content_hash"].startswith("ontology:")]
