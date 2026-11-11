@@ -19,11 +19,15 @@ Tests the store_memory endpoint for:
 - X-Agent-ID header auto-tagging (agent:<id> appended to tags)
 """
 
+import math
+
 import pytest
 import pytest_asyncio
 import tempfile
 import os
 from fastapi.testclient import TestClient
+
+from tests.unit.dedup_fixtures import XERJ_UPDATE_PAIRS
 
 from mcp_memory_service.web.dependencies import set_storage
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
@@ -569,3 +573,65 @@ def test_store_memory_rejects_blank_content(test_app, content):
 
     assert response.status_code == 422, response.text
     assert "content" in str(response.json()["detail"])
+
+
+def _install_cosine_embeddings(storage, contents):
+    """Map each content string to a vector at the given cosine from the first."""
+    dimension = storage.embedding_dimension
+    axis = [0.0] * dimension
+    axis[0] = 1.0
+    storage._cosine_vectors = {contents[0][0]: axis}
+
+    def _at(cosine: float) -> list[float]:
+        sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
+        vector = [0.0] * dimension
+        vector[0] = cosine
+        if dimension > 1:
+            vector[1] = sine
+        return vector
+
+    for content, cosine in contents[1:]:
+        storage._cosine_vectors[content] = _at(cosine)
+
+    def _embed(content: str) -> list[float]:
+        return storage._cosine_vectors[content]
+
+    storage._generate_embedding = _embed
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode,expected_success,expected_outcome", [
+    ("reject", False, "deduplicated"),
+    ("supersede", True, "superseded"),
+])
+def test_store_memory_reports_semantic_dedup_outcome(
+    test_app, initialized_storage, mode, expected_success, expected_outcome
+):
+    """REST store responses name a dedup rejection or a supersede (#1938)."""
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = mode
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    _install_cosine_embeddings(
+        initialized_storage, [(old, None), (new, cosine)]
+    )
+
+    first = test_app.post("/api/memories", json={"content": old})
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["success"] is True
+    assert first_body["dedup_outcome"] is None
+
+    second = test_app.post("/api/memories", json={"content": new})
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert body["success"] is expected_success
+    assert body["dedup_outcome"] == expected_outcome
+    assert body["matched_hash"] == first_body["content_hash"]
+    if expected_outcome == "superseded":
+        assert body["content_hash"]
+        assert f"superseded {first_body['content_hash']}" in body["message"]
+    else:
+        assert body["content_hash"] is None
+        assert "semantically similar" in body["message"]

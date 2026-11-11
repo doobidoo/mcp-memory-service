@@ -33,6 +33,7 @@ from ..config import (
     MCP_QUALITY_BOOST_ENABLED
 )
 from ..storage.base import MemoryStorage, RecreateRefused, recreate_kwargs
+from ..storage.semantic_dedup import SemanticDedupResult
 from ..models.memory import Memory
 from ..models.ontology import coerce_memory_type
 from ..plugins import PluginContext, PluginRegistry
@@ -160,6 +161,9 @@ class StoreMemorySingleSuccess(TypedDict):
     """Return type for successful single memory storage."""
     success: bool
     memory: MemoryResult
+    # #1938: set when semantic dedup stored this memory in place of an older one.
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
 
 
 class StoreMemoryChunkedSuccess(TypedDict):
@@ -179,6 +183,17 @@ class StoreMemoryFailure(TypedDict):
     # on record and the caller did not pass restore_deleted. Keys: event_id, hlc
     # ([hlc_physical, hlc_logical, agent_id]), deleted_at (ISO-8601 UTC).
     refused_recreate: NotRequired[Dict[str, Any]]
+    # #1938: ``deduplicated`` names the existing hash that caused the refusal.
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
+
+
+def _attach_dedup_outcome(response: dict, message) -> dict:
+    """Copy a semantic-dedup decision onto a store_memory response, when there is one."""
+    if isinstance(message, SemanticDedupResult):
+        response["dedup_outcome"] = message.outcome
+        response["matched_hash"] = message.matched_hash
+    return response
 
 
 def _chunk_metadata(
@@ -635,12 +650,11 @@ class MemoryService:
                         # quarantine leaves the memory stored *and* active.
                         key = "filed_as_contradiction" if filed_ok else "contradiction_filing_failed"
                         response[key] = filing
-                    return response
+                    return _attach_dedup_outcome(response, message)
                 else:
-                    return {
-                        "success": False,
-                        "error": message
-                    }
+                    return _attach_dedup_outcome(
+                        {"success": False, "error": message}, message
+                    )
 
         except ValueError as e:
             # Handle validation errors specifically

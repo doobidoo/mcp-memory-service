@@ -201,6 +201,17 @@ def _get_truncated_response_if_needed(
     return [types.TextContent(type="text", text=response_text)]
 
 
+def _dedup_outcome_note(result: dict) -> str:
+    """One clause naming a semantic-dedup decision, or empty when there was none."""
+    outcome = result.get("dedup_outcome")
+    matched = result.get("matched_hash") or ""
+    if outcome == "superseded" and matched:
+        return f"\nSuperseded previous memory {matched} (dedup_outcome: superseded)."
+    if outcome == "deduplicated" and matched:
+        return f" (dedup_outcome: deduplicated, matched_hash: {matched})"
+    return ""
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -253,6 +264,8 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
             error_msg = result.get("error", "Unknown error")
+            if result.get("dedup_outcome") == "deduplicated":
+                error_msg = f"{error_msg}{_dedup_outcome_note(result)}"
             if result.get("refused_recreate"):
                 # #1560: a refused re-create is the answer the caller chose by not
                 # passing restore_deleted — plain text, not isError. Unlike the
@@ -283,6 +296,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             # Single memory response
             memory_hash = result["memory"]["content_hash"]
             message = f"Memory stored successfully (hash: {memory_hash})"
+            message += _dedup_outcome_note(result)
             effective_type = result["memory"].get("memory_type")
 
         # Surface ontology coercion: when the requested memory_type is not

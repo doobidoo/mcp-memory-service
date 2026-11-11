@@ -150,8 +150,11 @@ Two caveats. The update category is weak for every system in the table: 13.3% me
 15 questions rank the newer fact first, because similarity search has no notion of which
 fact is newer. And dedup exists for a reason: it keeps an agent that stores the same
 observation every session from filling the database with copies. Turning it off trades
-that protection for the updates. The proposed fix is to supersede instead of reject
-when the match is close but not near-identical: [#1938](https://github.com/doobidoo/mcp-memory-service/issues/1938).
+that protection for the updates. `MCP_SEMANTIC_DEDUP_MODE=supersede` stores a match
+that is above the dedup threshold and below the near-identical cutoff (default 0.97)
+and marks the old memory superseded, instead of refusing the write
+([#1938](https://github.com/doobidoo/mcp-memory-service/issues/1938)). The default
+mode is still `reject`, which is what the table above measured.
 
 Write and query latency was 14 ms p50 on the M4 Pro for both configs. The published runs
 used other hardware (x86_64 Linux, store on tmpfs), so their latencies are not

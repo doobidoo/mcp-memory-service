@@ -43,6 +43,47 @@ async def test_store_memory_explicit_valid_type_no_warning():
 
 
 @pytest.mark.asyncio
+async def test_store_memory_names_a_supersede():
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    server = _make_server()
+    server.memory_service.store_memory = AsyncMock(return_value={
+        "success": True,
+        "memory": {"content_hash": "new-hash", "memory_type": "note"},
+        "dedup_outcome": "superseded",
+        "matched_hash": "old-hash",
+    })
+
+    result = await handle_store_memory(server, {"content": "updated fact"})
+
+    text = result[0].text
+    assert "Memory stored successfully (hash: new-hash)" in text
+    assert "Superseded previous memory old-hash" in text
+    assert "dedup_outcome: superseded" in text
+
+
+@pytest.mark.asyncio
+async def test_store_memory_names_a_dedup_rejection():
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    server = _make_server()
+    server.memory_service.store_memory = AsyncMock(return_value={
+        "success": False,
+        "error": "Duplicate content detected (semantically similar to old-hash)",
+        "dedup_outcome": "deduplicated",
+        "matched_hash": "old-hash",
+    })
+
+    with pytest.raises(RuntimeError) as caught:
+        await handle_store_memory(server, {"content": "same fact again"})
+
+    message = str(caught.value)
+    assert "semantically similar to old-hash" in message
+    assert "dedup_outcome: deduplicated" in message
+    assert "matched_hash: old-hash" in message
+
+
+@pytest.mark.asyncio
 async def test_store_memory_implicit_default_type_no_warning():
     """When the user omits `type`, the default 'note' is applied silently —
     no warning should fire even though we technically substituted a value."""
