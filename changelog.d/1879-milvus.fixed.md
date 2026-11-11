@@ -12,3 +12,6 @@
   A confined `delete` whose filter removes nothing (the row was deleted, or re-stored
   elsewhere, between the read and the delete) now reports "not found" and leaves the
   access record and graph edges alone, instead of removing them and reporting success.
+  A scoped update is confined within one client only: it is not race-safe across clients
+  sharing a collection, since a row re-stored elsewhere while the update is in flight is
+  written back by the unconditional upsert (the cross-client guard is a separate issue).
