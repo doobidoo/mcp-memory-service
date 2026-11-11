@@ -360,13 +360,24 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
             _advance_local_hlc(storage, hlc_physical, hlc_logical)
 
             # Step 3: materialize.
-            # - create/delete: only when THIS event wins the whole-event resolution.
+            # - create/update: also restore the winning create when a later metadata
+            #   edit wins overall; liveness alone would revive the superseded row (#1565).
+            # - delete: only when THIS event wins the whole-event resolution.
             # - update_metadata: ALWAYS re-materialize — the rebuild is a deterministic,
             #   order-independent fold over every update_metadata event for the hash
             #   (field-level LWW by HLC), so applying it on each event converges all peers
             #   even when this event is not the overall winner (Greptile P1 convergence).
             is_winner = bool(winner and winner.event_id == event_id and winner.agent_id == agent_id)
-            if is_winner or op == "update_metadata":
+            create_winner = reduce_events(
+                candidate for candidate in competing_events
+                if candidate.op in ("create", "update")
+            )
+            restores_create = (
+                op in ("create", "update")
+                and winner is not None and winner.op == "update_metadata"
+                and create_winner == remote_event_view
+            )
+            if is_winner or restores_create or op == "update_metadata":
                 try:
                     materialized = _materialize_event(storage, event)
                     if not materialized:
@@ -374,9 +385,15 @@ def _apply_remote_event_locked(storage: MemoryStorage, event: Dict[str, Any]) ->
                         # including a tombstone whose citation cleanup returned
                         # False, rolls back so the retry is not a duplicate.
                         return _unmaterialized_result(s, op, payload)
+                    if restores_create and not is_winner:
+                        # The create provides the fresh row, store and timestamps; then
+                        # fold only edits belonging to this incarnation onto that seed.
+                        _materialize_update_metadata(s, content_hash, payload)
                     s.conn.commit()  # durability: persist event + materialization (ADR-0019/§8.5)
                     reason = ("Remote event won and materialized" if is_winner
                               else "update_metadata merged (field-level convergence)")
+                    if restores_create and not is_winner:
+                        reason = "Winning create restored with later metadata edits"
                     if locals().get("_is_content_repair"):
                         reason = "Empty-content create repaired with real content (via resolver)"
                     return ApplyResult(applied=True, materialized=True, reason=reason)
