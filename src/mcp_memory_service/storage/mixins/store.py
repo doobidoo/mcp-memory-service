@@ -22,7 +22,7 @@ from ..semantic_dedup import (
     SUPERSEDE_REASON,
     SemanticMatch,
     annotate_store_message,
-    supersede_rollback_result,
+    deduplicated_result,
     verdict_for_match,
 )
 from ..shared import _versioned_conflict_exclusion
@@ -294,52 +294,39 @@ class StoreMixin:
         try:
             self._write_supersede_lineage(old_hash, new_hash, store, new_version, old_meta)
             self.conn.execute(f"RELEASE SAVEPOINT {sp}")
-            self.conn.commit()
             return True
         except Exception:
             self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
             self.conn.execute(f"RELEASE SAVEPOINT {sp}")
             raise
 
-    async def _link_semantic_supersede(self, old_hash: str, new_hash: str, store: str) -> bool:
-        """Point ``old_hash`` at ``new_hash`` inside ``store`` only.
+    def _finish_supersede_in_savepoint(
+        self, savepoint: str, old_hash: Optional[str], new_hash: str, store_name: str
+    ) -> bool:
+        """Link inside the open insert savepoint, or roll that savepoint back.
 
-        Same lineage as ``update_memory_versioned``: ``parent_id`` and
-        ``version`` on the new row, ``superseded_by`` / ``superseded_at`` on
-        the old row, and the sync event those columns already produce.
+        The insert, its create event, and the lineage update commit together.
+        A failed link undoes the insert, so the caller is left with no new row,
+        no create event, and no delete event. ``delete()`` is not used: that
+        soft-deletes and records a delete, and the next store with
+        ``recreate=False`` then refuses the retry.
         """
-        if not self.conn:
-            return False
+        if not old_hash:
+            return True
         try:
-            return await self._execute_with_retry(
-                lambda: self._link_semantic_supersede_row(old_hash, new_hash, store)
-            )
-        except Exception as exc:  # noqa: BLE001 — caller drops the unlinked new row
+            linked = self._link_semantic_supersede_row(old_hash, new_hash, store_name)
+        except Exception as exc:  # noqa: BLE001 — the insert savepoint is the rollback
             logger.error(
                 "semantic supersede link failed for %s: %s",
                 _sanitize_log_value(old_hash[:8]),
                 _sanitize_log_value(exc),
             )
-            return False
-
-    async def _drop_unlinked_supersede(self, content_hash: str) -> bool:
-        """Remove a new row whose supersede link did not commit."""
-        try:
-            removed, message = await self.delete(content_hash)
-        except Exception as exc:  # noqa: BLE001 — the caller reports the leftover row
-            logger.error(
-                "Failed to remove unlinked memory %s after supersede: %s",
-                _sanitize_log_value(content_hash[:8]),
-                _sanitize_log_value(exc),
-            )
-            return False
-        if not removed:
-            logger.error(
-                "Failed to remove unlinked memory %s after supersede: %s",
-                _sanitize_log_value(content_hash[:8]),
-                _sanitize_log_value(message),
-            )
-        return bool(removed)
+            linked = False
+        if linked:
+            return True
+        self.conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        self.conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return False
 
     async def _semantic_dedup_gate(self, memory: Memory, store: str, skip_semantic_dedup: bool):
         """Return ``(reject_message, supersede_hash)``. Either value may be None."""
@@ -349,16 +336,6 @@ class StoreMixin:
         if verdict.reject_message is not None:
             return verdict.reject_message, None
         return None, verdict.supersede_hash
-
-    async def _commit_semantic_supersede(self, old_hash: Optional[str], new_hash: str, store: str):
-        """Link the lineage, or return the ``(False, message)`` store() should use."""
-        if not old_hash:
-            return None
-        linked = await self._link_semantic_supersede(old_hash, new_hash, store)
-        if linked:
-            return None
-        removed = await self._drop_unlinked_supersede(new_hash)
-        return supersede_rollback_result(old_hash, removed)
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default',
                     recreate: Optional[bool] = None) -> Tuple[bool, str]:
@@ -412,6 +389,7 @@ class StoreMixin:
 
             _sp_name = f"store_{os.urandom(4).hex()}"
             _refused: List[Tuple[str, list]] = []
+            _supersede_failed: List[str] = []
             def insert_memory_and_embedding():
                 self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
@@ -492,7 +470,13 @@ class StoreMixin:
                         else:
                             payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
-                    
+
+                    if not self._finish_supersede_in_savepoint(
+                        _sp_name, supersede_hash, memory.content_hash, store
+                    ):
+                        if supersede_hash:
+                            _supersede_failed.append(supersede_hash)
+                        return
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                 except Exception:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {_sp_name}')
@@ -504,12 +488,8 @@ class StoreMixin:
                 await self._execute_with_retry(self.conn.commit)
                 if _refused:
                     return False, RecreateRefused(_refused[0][0], _refused[0][1])
-
-            failed = await self._commit_semantic_supersede(
-                supersede_hash, memory.content_hash, store
-            )
-            if failed is not None:
-                return failed
+                if _supersede_failed:
+                    return False, deduplicated_result(_supersede_failed[0])
 
             # Conflict detection (P3) — runs after commit, outside the lock
             try:

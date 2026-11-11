@@ -2,11 +2,15 @@
 
 The metadata upsert has no compare-and-swap. Two stores can both match the
 same memory and both insert. The second link has to notice, leave
-superseded_by alone, and drop its new row. No live Milvus server: the
-storage object is built with __new__ and the client calls are fakes.
+superseded_by alone, and drop its new row. A soft-deleted row is not a match
+in either dedup mode. No live Milvus server: the storage object is built with
+__new__ and the client calls are fakes.
 """
 
 import asyncio
+import json
+import math
+import time
 
 import pytest
 
@@ -131,3 +135,73 @@ def _async(fn):
 
 def _boom():
     raise AssertionError("update_memory_metadata must not run")
+
+
+def _vector_at(cosine: float) -> list[float]:
+    sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
+    return [cosine, sine, 0.0]
+
+
+def _deleted_row(cosine: float) -> dict:
+    return {
+        "id": "deleted-old",
+        "vector": _vector_at(cosine),
+        "content": "deleted fact",
+        "metadata": json.dumps({"deleted_at": time.time()}),
+        "created_at": time.time(),
+    }
+
+
+def _dedup_storage(mode: str) -> MilvusMemoryStorage:
+    storage = _storage()
+    storage._initialized = True
+    storage.client = object()
+    storage.collection_name = "unit"
+    storage.semantic_dedup_enabled = True
+    storage.semantic_dedup_mode = mode
+    storage.semantic_dedup_threshold = 0.85
+    storage.semantic_dedup_near_identical_threshold = 0.97
+    storage.semantic_dedup_time_window = 24
+    storage._generate_embedding = lambda _content: [1.0, 0.0, 0.0]
+    storage._has_content_lower = False
+    storage._memory_to_entity = lambda memory, embedding: {"id": memory.content_hash}
+
+    async def _no_conflicts(*_args, **_kwargs):
+        return []
+
+    storage._detect_conflicts = _no_conflicts
+    return storage
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,cosine", [
+    ("reject", 0.99),
+    ("reject", 0.90),
+    ("supersede", 0.99),
+    ("supersede", 0.90),
+])
+async def test_deleted_memory_does_not_block_a_new_store(mode, cosine):
+    storage = _dedup_storage(mode)
+    calls = {"insert": 0, "cleanup": 0}
+
+    async def _call(method_name, *_args, **_kwargs):
+        if method_name == "query":
+            return [_deleted_row(cosine)]
+        if method_name == "insert":
+            calls["insert"] += 1
+        return []
+
+    async def _cleanup(content_hash: str) -> bool:
+        calls["cleanup"] += 1
+        return True
+
+    storage._call_client = _call
+    storage._cleanup_unlinked_version = _cleanup
+    memory = Memory(content=f"new fact {mode} {cosine}", content_hash="new-hash")
+
+    ok, message = await storage.store(memory)
+
+    assert ok is True, message
+    assert calls["insert"] == 1
+    assert calls["cleanup"] == 0
+    assert not isinstance(message, SemanticDedupResult)

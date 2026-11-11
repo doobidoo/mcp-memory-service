@@ -1421,9 +1421,18 @@ class MilvusMemoryStorage(MemoryStorage):
         similarity_threshold: float,
         current_only: bool,
     ):
-        """Rows at or above the dedup threshold, optionally skipping superseded ones."""
+        """Rows at or above the dedup threshold.
+
+        Soft-deleted rows are never a match: sqlite-vec already excludes
+        ``deleted_at``, and ``get_by_hash`` hides them here. A deleted hit
+        would reject a new write, or supersede it and then roll the new row
+        back when the link recheck cannot see the tombstone. Superseded rows
+        are skipped only in supersede mode, which replaces the live fact.
+        """
         scored = []
         for row in rows:
+            if not self._row_is_live(row):
+                continue
             if current_only and self._row_is_superseded(row):
                 continue
             similarity = self._row_cosine(row, embedding, norm_embedding)

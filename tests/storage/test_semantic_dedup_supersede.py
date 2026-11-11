@@ -12,6 +12,7 @@ import pytest
 
 from mcp_memory_service.models.memory import Memory
 from mcp_memory_service.services.memory_service import MemoryService
+from mcp_memory_service.storage.base import RecreateRefused
 from mcp_memory_service.storage.semantic_dedup import SemanticDedupResult
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
 from mcp_memory_service.utils.hashing import generate_content_hash
@@ -203,6 +204,46 @@ async def test_exact_duplicate_is_not_a_semantic_outcome(storage):
     assert ok is False
     assert not isinstance(message, SemanticDedupResult)
     assert "exact match" in message
+
+
+@pytest.mark.asyncio
+async def test_failed_supersede_retry_is_not_a_refused_recreate(storage, monkeypatch):
+    """A failed link rolls the insert back. The retry is not a deleted-memory restore."""
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "on")
+    storage.semantic_dedup_mode = "supersede"
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    first = _remember(storage, old, None)
+    assert (await storage.store(first))[0]
+    update = _remember(storage, new, cosine)
+    original = storage._link_semantic_supersede_row
+
+    def fail_once(_old_hash, _new_hash, _store_name):
+        storage._link_semantic_supersede_row = original
+        return False
+
+    storage._link_semantic_supersede_row = fail_once
+    ok, message = await storage.store(update)
+
+    assert ok is False
+    assert not isinstance(message, RecreateRefused)
+    assert storage.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?",
+        (update.content_hash,),
+    ).fetchone() is None
+    events = storage.conn.execute(
+        "SELECT op FROM sync_events WHERE content_hash = ?",
+        (update.content_hash,),
+    ).fetchall()
+    assert events == []
+
+    result = await MemoryService(storage=storage).store_memory(content=new)
+    assert result["success"] is True, result
+    assert "refused_recreate" not in result
+    row = storage.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?",
+        (update.content_hash,),
+    ).fetchone()
+    assert row is not None and row[0] is None
 
 
 @pytest.mark.asyncio
