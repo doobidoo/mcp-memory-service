@@ -835,6 +835,8 @@ class MemoryDashboard {
         document.getElementById('cleanupDuplicatesBtn')?.addEventListener('click', this.handleCleanupDuplicates.bind(this));
         document.getElementById('deleteByDateBtn')?.addEventListener('click', this.handleBulkDeleteByDate.bind(this));
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
+        document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
+        document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
         document.getElementById('optimizeDbBtn')?.addEventListener('click', this.handleOptimizeDatabase.bind(this));
         document.getElementById('rebuildIndexBtn')?.addEventListener('click', this.handleRebuildIndex.bind(this));
 
@@ -5541,10 +5543,124 @@ class MemoryDashboard {
             await this.loadTagSelectOptions();
             await this.loadTagManagementStats();
             await this.loadUntaggedCount();
+            await this.loadOntology();
         } catch (error) {
             console.error('Failed to load manage data:', error);
             this.showToast(this.t('toast.loadManageFail', 'Failed to load management data'), 'error');
         }
+    }
+
+    /**
+     * Load the ontology overlay (#1897): the type selects and the stored-entries table.
+     */
+    async loadOntology() {
+        const container = document.getElementById('ontologyStoredContainer');
+        if (!container) return;
+        try {
+            const data = await this.apiCall('/ontology');
+            document.getElementById('ontologyForms').style.display = data.writable ? '' : 'none';
+            document.getElementById('ontologyReadOnly').style.display = data.writable ? 'none' : '';
+            const types = data.memory_types.map(t => t.name);
+            this.fillOntologySelect('ontologyTypeParent', data.memory_types.filter(t => !t.parent).map(t => t.name));
+            this.fillOntologySelect('ontologyRetentionType', types);
+            this.renderOntologyStored(data.stored, data.writable);
+        } catch (error) {
+            console.error('Failed to load ontology:', error);
+            container.innerHTML = `<p class="error" data-i18n="manage.ontology.loadFailed">${this.escapeHtml(this.t('manage.ontology.loadFailed', 'Failed to load the ontology'))}</p>`;
+        }
+    }
+
+    /**
+     * Replace a select's options after its first (placeholder) option.
+     */
+    fillOntologySelect(id, names) {
+        const select = document.getElementById(id);
+        if (!select) return;
+        while (select.options.length > 1) select.remove(1);
+        names.forEach(name => select.add(new Option(name, name)));
+    }
+
+    /**
+     * One line of detail for a stored overlay row.
+     */
+    ontologyDetail(row) {
+        const p = row.payload || {};
+        if (row.kind === 'memory_type') return row.parent || '';
+        if (row.kind === 'retention') return this.t('manage.ontology.days', '{days} days', { days: p.days });
+        if (row.kind === 'relationship') return (p.valid_patterns || []).join(', ');
+        return `${p.relationship} (${p.confidence})`;
+    }
+
+    renderOntologyStored(rows, writable) {
+        const container = document.getElementById('ontologyStoredContainer');
+        if (!rows.length) {
+            container.innerHTML = `<p class="text-neutral-600" data-i18n="manage.ontology.empty">${this.escapeHtml(this.t('manage.ontology.empty', 'Nothing stored yet. Built-in types and types from MCP_CUSTOM_MEMORY_TYPES are not listed here.'))}</p>`;
+            return;
+        }
+        const th = (key, fallback) => `<th data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</th>`;
+        let html = '<table class="tag-stats-table"><thead><tr>';
+        html += th('manage.ontology.column.kind', 'Kind') + th('manage.ontology.column.name', 'Name')
+            + th('manage.ontology.column.detail', 'Details');
+        if (writable) html += th('manage.tags.column.actions', 'Actions');
+        html += '</tr></thead><tbody>';
+        rows.forEach(row => {
+            html += `<tr><td>${this.escapeHtml(row.kind)}</td><td class="tag-name">${this.escapeHtml(row.key)}</td>`;
+            html += `<td>${this.escapeHtml(this.ontologyDetail(row))}</td>`;
+            if (writable) {
+                html += `<td class="tag-actions"><button class="tag-action-btn danger" data-kind="${this.escapeHtml(row.kind)}" data-key="${this.escapeHtml(row.key)}" data-i18n="manage.ontology.remove">${this.escapeHtml(this.t('manage.ontology.remove', 'Remove'))}</button></td>`;
+            }
+            html += '</tr>';
+        });
+        container.innerHTML = html + '</tbody></table>';
+        // Assigned, not added: the table re-renders on every visit and language switch.
+        container.onclick = (e) => {
+            const button = e.target.closest('[data-kind]');
+            if (button) this.handleRemoveOntologyEntry(button.dataset.kind, button.dataset.key);
+        };
+    }
+
+    async ontologyWrite(endpoint, method, body) {
+        this.setLoading(true);
+        try {
+            await this.apiCall(endpoint, method, body);
+            this.showToast(this.t('toast.ontologyUpdated', 'Ontology updated'), 'success');
+            await this.loadOntology();
+            return true;
+        } catch (error) {
+            console.error('Ontology write failed:', error);
+            this.showToast(error.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
+            return false;
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    async handleAddMemoryType() {
+        const name = document.getElementById('ontologyTypeName');
+        const parent = document.getElementById('ontologyTypeParent').value || null;
+        if (!name.value.trim()) return;
+        if (await this.ontologyWrite('/ontology/memory-types', 'POST', { name: name.value.trim(), parent })) {
+            name.value = '';
+        }
+    }
+
+    async handleSetRetention() {
+        const type = document.getElementById('ontologyRetentionType').value;
+        const days = parseInt(document.getElementById('ontologyRetentionDays').value, 10);
+        if (!type || Number.isNaN(days)) return;
+        await this.ontologyWrite(`/ontology/retention/${encodeURIComponent(type)}`, 'PUT', { days });
+    }
+
+    async handleRemoveOntologyEntry(kind, key) {
+        const paths = {
+            memory_type: () => `/ontology/memory-types/${encodeURIComponent(key)}`,
+            retention: () => `/ontology/retention/${encodeURIComponent(key)}`,
+            relationship: () => `/ontology/relationships/${encodeURIComponent(key)}`,
+            type_pattern: () => '/ontology/type-patterns/' + key.split(' → ').map(encodeURIComponent).join('/'),
+        };
+        if (!paths[kind]) return;
+        if (!confirm(this.t('manage.ontology.removeConfirm', 'Remove {name}? Stored memories and edges keep it.', { name: key }))) return;
+        await this.ontologyWrite(paths[kind](), 'DELETE');
     }
 
     /**
