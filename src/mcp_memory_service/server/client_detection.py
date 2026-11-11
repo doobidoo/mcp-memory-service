@@ -23,6 +23,8 @@ import os
 import logging
 import psutil
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +57,7 @@ def detect_mcp_client():
                 if 'lmstudio' in cmdline_str or 'lm-studio' in cmdline_str:
                     return 'lm_studio'
             except (OSError, IndexError, AttributeError) as e:
-                logger.debug(f"Could not detect client from process: {e}")
+                logger.debug("Could not detect client from process: %s", _sanitize_log_value(e))
 
         # Fallback: check environment variables
         if os.getenv('CLAUDE_DESKTOP'):
