@@ -96,6 +96,20 @@ class TestNLIClassifier:
         )
         assert result.confidence <= 0.6
 
+    @pytest.mark.asyncio
+    async def test_llm_backend_without_provider_flags_degraded(self):
+        """A cascade/llm backend with no provider configured runs the heuristic
+        and must say so: ``degraded`` is what makes a harness report honest
+        about which engine produced the verdicts."""
+        from mcp_memory_service.reasoning.nli import NLIClassifier
+
+        clf = NLIClassifier(backend="cascade")
+        # No HARVEST_LLM_PROVIDERS configured in tests -> is_configured False
+        result = await clf.classify("A is true", "A is false")
+        expected = clf._heuristic_classify("A is true", "A is false")
+        assert result == expected
+        assert clf.degraded is True
+
 
 # ─── Contradiction Pipeline Tests ─────────────────────────────────────────────
 

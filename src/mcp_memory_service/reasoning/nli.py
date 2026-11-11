@@ -174,6 +174,7 @@ class NLIClassifier:
             
             # R11: If no provider configured, use heuristic directly
             if not self._llm_available:
+                self.degraded = True
                 return self._heuristic_classify(premise, hypothesis)
             
             prompt = (
@@ -195,6 +196,7 @@ class NLIClassifier:
                     sanitized_reason = _sanitize_log_value("unparseable or empty response from LLM")
                     self._warn_once(sanitized_reason)
                 # R14: Preserve exact heuristic values
+                self.degraded = True
                 return self._heuristic_classify(premise, hypothesis)
             return NLIResult(
                 label=label,
@@ -207,6 +209,7 @@ class NLIClassifier:
                 sanitized_reason = _sanitize_log_value(f"LLM call failed: {e}")
                 self._warn_once(sanitized_reason)
             # R14: Preserve exact heuristic values
+            self.degraded = True
             return self._heuristic_classify(premise, hypothesis)
 
     async def classify_batch(self, pairs: List[Tuple[str, str]]) -> List[NLIResult]:
