@@ -385,3 +385,88 @@ async def test_update_metadata_null_clears_key_and_converges(store):
     assert "foo" in md and md["foo"] is None, f"None metadata value must write null (clear), got {md}"
     assert md.get("bar") == "real", f"real metadata value should be written, got {md}"
     assert md.get("existing") == "value", f"existing metadata should survive, got {md}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("order", ["dru", "dur", "rdu", "rud", "udr", "urd"])
+@pytest.mark.parametrize("named_recreation", [False, True])
+async def test_losing_recreation_restores_fields_and_later_edits(
+    store, order, named_recreation
+):
+    """A later edit must not prevent restoration of the winning create (#1565)."""
+    content = "Recreated memory delivered after its metadata edit"
+    h = generate_content_hash(content)
+    original = _create_event(h, content=content, tags=["old"], event_id="original")
+    original["payload"]["metadata"] = {"old_only": True, "shared": "old"}
+    assert apply_remote_event(store, original).applied
+    recreation = _create_event(
+        h, content=content, tags=["fresh"], memory_type="reference",
+        store="fresh-store", created_at=3000.0, updated_at=3000.0,
+        event_id="recreation", hlc_physical=30,
+    )
+    recreation["payload"]["metadata"] = {"new_only": True, "shared": "seed"}
+    if named_recreation:
+        recreation["payload"]["recreate_of"] = "deletion"
+    events = {
+        "d": _delete_event(h, event_id="deletion", hlc_physical=20),
+        "r": recreation,
+        "u": _update_metadata_event(
+            h, updates={"tags": ["edited"], "metadata": {"shared": "changed"}},
+            event_id="later-edit", hlc_physical=40, updated_at=4000.0,
+        ),
+    }
+    for key in order:
+        result = apply_remote_event(store, events[key])
+        assert result.applied, result.reason
+
+    for replay in (False, True):
+        if replay:
+            for key in reversed(order):
+                assert apply_remote_event(store, events[key]).applied
+        row = store.conn.execute(
+            "SELECT content, tags, memory_type, metadata, store, created_at, "
+            "updated_at, deleted_at FROM memories WHERE content_hash = ?", (h,),
+        ).fetchone()
+        assert tuple(row[:3]) == (content, "edited", "reference")
+        assert json.loads(row[3]) == {"new_only": True, "shared": "changed"}
+        assert tuple(row[4:]) == ("fresh-store", 3000.0, 4000.0, None)
+        assert store.conn.execute("SELECT COUNT(*) FROM memory_embeddings").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_losing_recreation_merge_failure_can_be_retried(store):
+    """The fresh row and event must roll back if merging the later edit fails."""
+    content = "Recreation with a transient metadata write failure"
+    h = generate_content_hash(content)
+    assert apply_remote_event(store, _create_event(h, content=content)).applied
+    assert apply_remote_event(
+        store, _delete_event(h, event_id="deleted", hlc_physical=20)
+    ).applied
+    assert apply_remote_event(
+        store, _update_metadata_event(
+            h, updates={"tags": ["edited"]}, event_id="later", hlc_physical=40
+        )
+    ).applied
+    recreation = _create_event(
+        h, content=content, tags=["fresh"], event_id="recreated", hlc_physical=30
+    )
+    store.conn.execute(
+        "CREATE TRIGGER reject_merged_tags BEFORE UPDATE OF tags ON memories "
+        "WHEN NEW.tags = 'edited' BEGIN SELECT RAISE(ABORT, 'merge failed'); END"
+    )
+    store.conn.commit()
+    result = apply_remote_event(store, recreation)
+    assert not result.applied
+    assert "merge failed" in result.reason
+    assert store.conn.execute(
+        "SELECT 1 FROM sync_events WHERE event_id = 'recreated'"
+    ).fetchone() is None
+    assert store.conn.execute(
+        "SELECT deleted_at FROM memories WHERE content_hash = ?", (h,)
+    ).fetchone()[0] is not None
+    store.conn.execute("DROP TRIGGER reject_merged_tags")
+    store.conn.commit()
+    result = apply_remote_event(store, recreation)
+    assert result.applied and result.materialized, result.reason
+    memory = await store.get_by_hash(h)
+    assert memory is not None and memory.tags == ["edited"]
