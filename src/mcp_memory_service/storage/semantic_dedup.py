@@ -84,6 +84,19 @@ class DedupVerdict:
     supersede_hash: Optional[str] = None
 
 
+def chunk_family_hash(metadata: Optional[dict], mode: str) -> Optional[str]:
+    """``original_hash`` shared by chunks of one write, only in supersede mode.
+
+    Later chunks must not treat an earlier sibling as the memory to replace.
+    """
+    if mode != "supersede" or not metadata:
+        return None
+    value = metadata.get("original_hash")
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
 def normalize_dedup_text(content: str) -> str:
     """Collapse whitespace and case so a trivial restatement is the same text."""
     return " ".join(content.split()).casefold()

@@ -95,6 +95,7 @@ from .semantic_dedup import (
     SUPERSEDE_REASON,
     SemanticMatch,
     annotate_store_message,
+    chunk_family_hash,
     apply_semantic_dedup_config,
     supersede_rollback_result,
     verdict_for_match,
@@ -1485,6 +1486,7 @@ class MilvusMemoryStorage(MemoryStorage):
         time_window_hours: int,
         similarity_threshold: float,
         current_only: bool = False,
+        exclude_original_hash: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Look for a recently stored memory that is semantically similar.
 
@@ -1534,7 +1536,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, None
 
         return self._choose_semantic_hit(
-            rows, embedding, norm_embedding, similarity_threshold, current_only
+            rows, embedding, norm_embedding, similarity_threshold, current_only,
+            exclude_original_hash=exclude_original_hash,
         )
 
     @staticmethod
@@ -1549,6 +1552,20 @@ class MilvusMemoryStorage(MemoryStorage):
         dot = sum(x * y for x, y in zip(embedding, row_vec))
         return dot / (norm_embedding * norm_row)
 
+    def _supersede_target_excluded(self, row: Dict[str, Any], exclude_original_hash: Optional[str]) -> bool:
+        """True when this row must not be the memory a supersede replaces.
+
+        Already-superseded rows stay history. Chunks that share
+        ``original_hash`` are siblings of the write in progress.
+        """
+        if self._row_is_superseded(row):
+            return True
+        if not exclude_original_hash:
+            return False
+        raw = row.get("metadata", "")
+        metadata = raw if isinstance(raw, dict) else _safe_json_loads(raw or "", "milvus_dedup_sibling")
+        return metadata.get("original_hash") == exclude_original_hash
+
     def _scored_dedup_rows(
         self,
         rows: List[Dict[str, Any]],
@@ -1556,6 +1573,7 @@ class MilvusMemoryStorage(MemoryStorage):
         norm_embedding: float,
         similarity_threshold: float,
         current_only: bool,
+        exclude_original_hash: Optional[str] = None,
     ):
         """Rows at or above the dedup threshold.
 
@@ -1564,12 +1582,14 @@ class MilvusMemoryStorage(MemoryStorage):
         would reject a new write, or supersede it and then roll the new row
         back when the link recheck cannot see the tombstone. Superseded rows
         are skipped only in supersede mode, which replaces the live fact.
+        Chunks of the same split write share ``original_hash`` and are not
+        supersede targets for each other.
         """
         scored = []
         for row in rows:
             if not self._row_is_live(row):
                 continue
-            if current_only and self._row_is_superseded(row):
+            if current_only and self._supersede_target_excluded(row, exclude_original_hash):
                 continue
             similarity = self._row_cosine(row, embedding, norm_embedding)
             if similarity is None or similarity < similarity_threshold:
@@ -1584,10 +1604,12 @@ class MilvusMemoryStorage(MemoryStorage):
         norm_embedding: float,
         similarity_threshold: float,
         current_only: bool,
+        exclude_original_hash: Optional[str] = None,
     ) -> SemanticMatch:
         """Pick the dedup hit. Reject mode keeps the first row over the threshold."""
         scored = self._scored_dedup_rows(
-            rows, embedding, norm_embedding, similarity_threshold, current_only
+            rows, embedding, norm_embedding, similarity_threshold, current_only,
+            exclude_original_hash=exclude_original_hash,
         )
         if not scored:
             return SemanticMatch(False, None)
@@ -1601,11 +1623,13 @@ class MilvusMemoryStorage(MemoryStorage):
         """Reject, supersede, or proceed for one Milvus ``store()``."""
         mode = getattr(self, "semantic_dedup_mode", "reject")
         cutoff = getattr(self, "semantic_dedup_near_identical_threshold", NEAR_IDENTICAL_DEFAULT)
+        exclude_original_hash = chunk_family_hash(memory.metadata, mode)
         result = await self._check_semantic_duplicate(
             memory.content,
             time_window_hours=self.semantic_dedup_time_window,
             similarity_threshold=self.semantic_dedup_threshold,
             current_only=(mode == "supersede"),
+            exclude_original_hash=exclude_original_hash,
         )
         is_duplicate, existing_hash = result[0], result[1]
         matched = getattr(result, "matched_content", None)

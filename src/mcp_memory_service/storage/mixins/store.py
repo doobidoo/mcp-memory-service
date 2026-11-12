@@ -22,6 +22,7 @@ from ..semantic_dedup import (
     SUPERSEDE_REASON,
     SemanticMatch,
     annotate_store_message,
+    chunk_family_hash,
     deduplicated_result,
     verdict_for_match,
 )
@@ -151,12 +152,15 @@ class StoreMixin:
         similarity_threshold: float = 0.85,
         store: str = 'default',
         current_only: bool = False,
+        exclude_original_hash: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Check for a similar memory in ``store`` within the configured time window.
 
         ``current_only`` ignores memories that already have ``superseded_by`` set,
         so supersede mode replaces the live fact rather than a historical one.
-        The default query is the reject-mode query. sqlite-vec's
+        ``exclude_original_hash`` skips other chunks of the same split write:
+        they share that hash, and a later chunk must not supersede an earlier
+        one. The default query is the reject-mode query. sqlite-vec's
         ``vec_distance_cosine`` is a distance (``1 - cosine``); the returned
         ``SemanticMatch.similarity`` is the cosine.
         """
@@ -167,8 +171,15 @@ class StoreMixin:
         embedding = self._generate_embedding(content)
         embedding_blob = serialize_float32(embedding)
         current_sql = ""
+        params: List = [embedding_blob, cutoff_timestamp, store]
         if current_only:
             current_sql = " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+            if exclude_original_hash:
+                current_sql += (
+                    " AND (json_extract(m.metadata, '$.original_hash') IS NULL"
+                    " OR json_extract(m.metadata, '$.original_hash') != ?)"
+                )
+                params.append(exclude_original_hash)
 
         def _search_semantic_dup():
             cursor = self.conn.execute(
@@ -181,7 +192,7 @@ class StoreMixin:
                 "AND m.store = ?"
                 + current_sql
                 + " ORDER BY similarity IS NULL, similarity ASC LIMIT 1",
-                (embedding_blob, cutoff_timestamp, store),
+                tuple(params),
             )
             return cursor.fetchone()
 
@@ -224,12 +235,14 @@ class StoreMixin:
         """Reject, supersede, or proceed for one sqlite-vec ``store()``."""
         mode = getattr(self, "semantic_dedup_mode", "reject")
         cutoff = getattr(self, "semantic_dedup_near_identical_threshold", NEAR_IDENTICAL_DEFAULT)
+        exclude_original_hash = chunk_family_hash(memory.metadata, mode)
         result = await self._check_semantic_duplicate(
             memory.content,
             time_window_hours=self.semantic_dedup_time_window,
             similarity_threshold=self.semantic_dedup_threshold,
             store=store,
             current_only=(mode == "supersede"),
+            exclude_original_hash=exclude_original_hash,
         )
         is_duplicate, existing_hash = result[0], result[1]
         matched = getattr(result, "matched_content", None)

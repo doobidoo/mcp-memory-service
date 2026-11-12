@@ -137,6 +137,35 @@ def _boom():
     raise AssertionError("update_memory_metadata must not run")
 
 
+def test_sibling_chunk_is_not_a_supersede_target():
+    storage = _storage()
+    sibling = {
+        "id": "chunk-1",
+        "vector": [1.0, 0.0, 0.0],
+        "content": "first chunk",
+        "metadata": json.dumps({"original_hash": "whole-document"}),
+    }
+    other = {
+        "id": "other-fact",
+        "vector": [0.9, math.sqrt(1.0 - 0.81), 0.0],
+        "content": "a different fact",
+        "metadata": "{}",
+    }
+
+    only_sibling = storage._choose_semantic_hit(
+        [sibling], [1.0, 0.0, 0.0], 1.0, 0.85, True,
+        exclude_original_hash="whole-document",
+    )
+    assert only_sibling[0] is False
+
+    hit = storage._choose_semantic_hit(
+        [sibling, other], [1.0, 0.0, 0.0], 1.0, 0.85, True,
+        exclude_original_hash="whole-document",
+    )
+    assert hit[0] is True
+    assert hit[1] == "other-fact"
+
+
 def _vector_at(cosine: float) -> list[float]:
     sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
     return [cosine, sine, 0.0]
@@ -164,7 +193,7 @@ def _dedup_storage(mode: str) -> MilvusMemoryStorage:
     storage.semantic_dedup_time_window = 24
     storage._generate_embedding = lambda _content: [1.0, 0.0, 0.0]
     storage._has_content_lower = False
-    storage._memory_to_entity = lambda memory, embedding: {"id": memory.content_hash}
+    storage._memory_to_entity = lambda memory, embedding, *_args, **_kwargs: {"id": memory.content_hash}
 
     async def _no_conflicts(*_args, **_kwargs):
         return []

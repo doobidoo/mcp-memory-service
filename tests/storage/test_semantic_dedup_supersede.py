@@ -292,6 +292,39 @@ async def test_chunked_store_reports_the_superseded_memory(storage, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_sibling_chunks_in_the_supersede_band_both_stay_current(storage, monkeypatch):
+    """A later chunk of the same write must not retire an earlier chunk."""
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.ENABLE_AUTO_SPLIT", True
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_PRESERVE_BOUNDARIES", False
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_SPLIT_OVERLAP", 0
+    )
+    monkeypatch.setattr(
+        type(storage), "max_content_length", property(lambda _self: 40)
+    )
+    storage.semantic_dedup_mode = "supersede"
+    body = ("A" * 40) + ("B" * 40)
+    chunks = split_content(body, max_length=40, preserve_boundaries=False, overlap=0)
+    assert len(chunks) == 2
+    dimension = storage.embedding_dimension
+    storage._vectors[chunks[0]] = _axis(dimension)
+    storage._vectors[chunks[1]] = _at_cosine(0.90, dimension)
+
+    result = await MemoryService(storage=storage).store_memory(content=body)
+
+    assert result["success"] is True, result
+    assert "dedup_outcome" not in result
+    for chunk in chunks:
+        row = _lineage(storage, generate_content_hash(chunk))
+        assert row is not None
+        assert row[0] in (None, "")
+
+
+@pytest.mark.asyncio
 async def test_service_reports_both_outcomes(storage):
     old, new, cosine = XERJ_UPDATE_PAIRS[2]
     _remember(storage, old, None)
