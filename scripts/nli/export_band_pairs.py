@@ -32,6 +32,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 
@@ -147,9 +148,14 @@ PRED_ACTIONS = {"changes": "supersede", "ends": "supersede",
                 "repeats": "dedup", "unrelated": "leave"}
 
 
+# Word-boundary anchored: "The details were disclosed" must not fire on
+# "closed" — a substring hit here turns an inert single-direction
+# contradiction into a retirement decision (#1967 review).
+_ENDS_RE = re.compile(r"\b(?:" + "|".join(ENDS_SIGNALS) + r")\b", re.IGNORECASE)
+
+
 def _ends_signal(text: str) -> bool:
-    t = text.lower()
-    return any(s in t for s in ENDS_SIGNALS)
+    return bool(_ENDS_RE.search(text))
 
 
 def fourway_decide(older: str, newer: str, fwd_label: str, rev_label: str) -> str:
@@ -247,6 +253,18 @@ async def cmd_score(args):
         t0 = time.perf_counter()
         reverse = await classifier.classify_batch([(r["newer"], r["older"]) for r in rows])
         fourway_ms = (time.perf_counter() - t0) * 1000 / max(1, len(rows))
+        # The guard above was checked before this call; the second direction
+        # can still fail (and degrade to the heuristic) after the first one
+        # succeeded. A half-model table must not present itself as model-run:
+        # re-check, refresh the flag the report already copied, and bail to
+        # the explicit refusal instead.
+        if classifier.degraded:
+            report["degraded_to_heuristic"] = True
+            report["fourway"] = None
+            report["fourway_note"] = ("degraded to the heuristic during the second "
+                                      "direction; no 4-way table")
+            print(json.dumps(report, indent=2))
+            return
         fourway_preds = [
             fourway_decide(r["older"], r["newer"], f.label, rv.label)
             for r, f, rv in zip(rows, verdicts, reverse)

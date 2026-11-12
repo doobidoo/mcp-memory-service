@@ -63,6 +63,16 @@ class TestFourwayDecide:
         assert harness.fourway_decide(
             "a", "2.3.1 is no longer live", "contradiction", "contradiction") == "changes"
 
+    def test_word_fragments_do_not_fire(self):
+        # "disclosed" contains "closed"; a substring hit would turn an inert
+        # single-direction contradiction into a retirement decision
+        assert harness.fourway_decide(
+            "a", "The details were disclosed at the meeting",
+            "contradiction", "neutral") == "unrelated"
+        # ... while the real word still does
+        assert harness.fourway_decide(
+            "a", "Project Atlas is closed", "contradiction", "neutral") == "ends"
+
     def test_neutral_neutral_is_unrelated(self):
         assert harness.fourway_decide("a", "b", "neutral", "neutral") == "unrelated"
 
@@ -144,8 +154,16 @@ FOURWAY_SET = [
 
 
 def _model_cached() -> bool:
+    """Weights cached AND the runtime packages importable.
+
+    The cache check alone let a weights-present, packages-missing venv enable
+    the test, which then degraded at load time and failed the
+    ``degraded is False`` assert instead of skipping (#1967 review).
+    """
     import os
     try:
+        import onnxruntime  # noqa: F401
+        import tokenizers  # noqa: F401
         from huggingface_hub import try_to_load_from_cache
         repo = os.environ.get("MCP_NLI_MODEL", "cross-encoder/nli-deberta-v3-small")
         onnx_file = os.environ.get("MCP_NLI_ONNX_FILE", "onnx/model.onnx")
