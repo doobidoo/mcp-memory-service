@@ -742,5 +742,7 @@
   "settings.quality.saving": "Menyimpan…",
   "settings.quality.saveFailed": "✗ Penyimpanan gagal: {error}",
   "settings.quality.loadFailed": "✗ Tidak dapat memuat pengaturan saat ini: {error}. Buka kembali tab ini untuk mencoba lagi.",
-  "settings.quality.saveHint": "Disimpan ke .env. Server akan dimulai ulang untuk menerapkan perubahan."
+  "settings.quality.saveHint": "Disimpan ke .env. Server akan dimulai ulang untuk menerapkan perubahan.",
+  "manage.tags.minimumCount": "Tampilkan tag yang digunakan setidaknya N kali",
+  "manage.tags.showingCount": "Menampilkan {shown} dari {total} tag"
 }
