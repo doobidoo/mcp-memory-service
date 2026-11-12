@@ -435,6 +435,17 @@ def apply_remote_row(conn: sqlite3.Connection, op: str, payload: dict) -> None:
     _bump_version(conn)
 
 
+def read_ontology_rows(conn: sqlite3.Connection) -> List[tuple]:
+    """Every overlay row, tombstones included, for the REST API (phase 5)."""
+    try:
+        return conn.execute(
+            "SELECT kind, key, parent, payload_json, updated_at, deleted_at "
+            "FROM ontology_entries ORDER BY kind, key"
+        ).fetchall()
+    except sqlite3.OperationalError:  # migration 022 not applied (yet)
+        return []
+
+
 class OverlaySource:
     """What ``models.ontology`` polls.
 

@@ -68,6 +68,7 @@ from .api.server import router as server_router
 from .api.configuration import router as configuration_router
 from .api.oauth_status import router as oauth_status_router
 from .api.conflicts import router as conflicts_router
+from .api.ontology import router as ontology_router
 from .api.harvest import router as harvest_router
 from .api.sync_events import router as sync_events_router
 from .sse import sse_manager
@@ -444,6 +445,10 @@ def create_app() -> FastAPI:
     # Include conflicts router (P3 conflict detection)
     app.include_router(conflicts_router, prefix="/api", tags=["conflicts"])
     logger.info("✓ Included conflicts router with %s routes", _sanitize_log_value(len(conflicts_router.routes)))
+
+    # Include ontology overlay router (#1897)
+    app.include_router(ontology_router, prefix="/api", tags=["ontology"])
+    logger.info("✓ Included ontology router with %s routes", _sanitize_log_value(len(ontology_router.routes)))
 
     # Include session harvest router (Issue #630)
     app.include_router(harvest_router, tags=["harvest"])
