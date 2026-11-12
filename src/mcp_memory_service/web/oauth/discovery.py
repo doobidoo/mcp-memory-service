@@ -20,6 +20,7 @@ Implements .well-known endpoints required for OAuth 2.1 Dynamic Client Registrat
 
 import logging
 from fastapi import APIRouter
+from ...compat import _sanitize_log_value
 from ...config import OAUTH_ISSUER, get_jwt_algorithm, join_url
 from .models import OAuthServerMetadata, OAuthProtectedResourceMetadata
 
@@ -74,7 +75,7 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         code_challenge_methods_supported=["S256"]
     )
 
-    logger.debug(f"Returning OAuth metadata: issuer={metadata.issuer}")
+    logger.debug("Returning OAuth metadata: issuer=%s", _sanitize_log_value(metadata.issuer))
     return metadata
 
 

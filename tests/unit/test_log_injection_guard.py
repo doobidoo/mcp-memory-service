@@ -115,6 +115,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/harvest/auto_capture.py",
     "mcp_memory_service/server_impl.py",
     "mcp_memory_service/utils/system_detection.py",
+    "mcp_memory_service/web/oauth/discovery.py",
+    "mcp_memory_service/web/oauth/storage/factory.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
