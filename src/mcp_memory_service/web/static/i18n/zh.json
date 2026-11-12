@@ -742,5 +742,7 @@
   "sync.pushCursor": "推送游标",
   "sync.backlog": "积压",
   "sync.notAvailable": "不可用",
-  "sync.unknown": "未知"
+  "sync.unknown": "未知",
+  "manage.tags.minimumCount": "显示至少使用 N 次的标签",
+  "manage.tags.showingCount": "显示 {shown} 个标签，共 {total} 个"
 }
