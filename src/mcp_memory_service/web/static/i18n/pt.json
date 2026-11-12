@@ -742,5 +742,7 @@
   "settings.quality.saving": "Salvando…",
   "settings.quality.saveFailed": "✗ Falha ao salvar: {error}",
   "settings.quality.loadFailed": "✗ Não foi possível carregar as configurações atuais: {error}. Reabra esta aba para tentar novamente.",
-  "settings.quality.saveHint": "Salvo em .env. O servidor será reiniciado para aplicar a alteração."
+  "settings.quality.saveHint": "Salvo em .env. O servidor será reiniciado para aplicar a alteração.",
+  "manage.tags.minimumCount": "Mostrar etiquetas usadas pelo menos N vezes",
+  "manage.tags.showingCount": "Mostrando {shown} de {total} etiquetas"
 }
