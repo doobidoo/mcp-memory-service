@@ -29,6 +29,7 @@ without pymilvus or a model.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import time
@@ -182,9 +183,36 @@ async def test_update_metadata_on_a_legacy_collection_reads_the_vector_separatel
     assert ok, msg
     gets = collection.of("get")
     assert len(gets) == 2
-    assert gets[1]["output_fields"] == ["vector"]
+    assert gets[1]["output_fields"] == ["vector", "metadata"]
     (upsert,) = collection.of("upsert")
     assert upsert["data"][0]["vector"] == _STORED
+    storage._generate_embedding.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_on_a_legacy_collection_stops_at_a_tombstone():
+    # The second get reads the metadata with the vector: a row soft-deleted
+    # between the two reads is not found, and nothing is written back.
+    storage = _make_storage(has_store=False)
+    collection = _Collection([_row(store=None)])
+    inner = collection.client()
+
+    async def tombstone_after_first_read(method: str, **kwargs: Any) -> Any:
+        result = await inner(method, **kwargs)
+        if method == "get":
+            collection.rows[_HASH]["metadata"] = json.dumps(
+                {"deleted_at": "2026-11-12T21:00:00Z"}
+            )
+        return result
+
+    storage._call_client = AsyncMock(side_effect=tombstone_after_first_read)
+
+    ok, msg = await storage.update_memory_metadata(_HASH, {"tags": ["x"]})
+
+    assert not ok
+    assert "not found" in msg
+    assert len(collection.of("get")) == 2
+    assert collection.of("upsert") == []
     storage._generate_embedding.assert_not_called()
 
 

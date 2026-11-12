@@ -929,22 +929,33 @@ class MilvusMemoryStorage(MemoryStorage):
             return None
         return memory, self._row_store(rows[0])
 
-    async def _stored_vector(self, content_hash: str) -> Optional[List[float]]:
-        """The vector stored under ``content_hash``, or ``None``. Never raises."""
+    async def _stored_vector(
+        self, content_hash: str
+    ) -> Tuple[bool, Optional[List[float]]]:
+        """Read the vector stored under ``content_hash`` on a legacy collection.
+
+        Returns ``(live, vector)``. ``live`` is False when the row is gone or
+        carries a soft-delete tombstone, as every other read of a memory
+        here treats it (``_fetch_live_row``). A failed read is reported as
+        live with no vector, so the caller embeds the content again, as it
+        did before #1966. Never raises.
+        """
         try:
             rows = await self._call_client(
                 "get",
                 collection_name=self.collection_name,
                 ids=[content_hash],
-                output_fields=["vector"],
+                output_fields=["vector", "metadata"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to read the vector of %s: %s",
                 _sanitize_log_value(content_hash), _sanitize_log_value(exc),
             )
-            return None
-        return self._coerce_vector(rows[0]) if rows else None
+            return True, None
+        if not rows or not self._row_is_live(rows[0]):
+            return False, None
+        return True, self._coerce_vector(rows[0])
 
     async def _get_for_write(
         self, content_hash: str, store: Optional[str], include_embedding: bool = False
@@ -957,13 +968,17 @@ class MilvusMemoryStorage(MemoryStorage):
 
         With ``include_embedding`` the row's vector is read too (on a legacy
         collection with a second ``get``, since ``get_by_hash`` does not
-        carry it), so the caller can write it back without an embedding
-        call between the read and the upsert (#1966).
+        carry it; a row tombstoned by then reads as not found), so the
+        caller can write it back without an embedding call between the read
+        and the upsert (#1966).
         """
         if not self._has_store:
             memory = await self.get_by_hash(content_hash, store)
             if memory is not None and include_embedding and not memory.embedding:
-                memory.embedding = await self._stored_vector(content_hash)
+                live, vector = await self._stored_vector(content_hash)
+                if not live:
+                    return None, "default"
+                memory.embedding = vector
             return memory, "default"
         refused, confine = self._store_scope(store)
         found = None if refused else await self._fetch_live_row(
