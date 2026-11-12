@@ -68,6 +68,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/delete.py",
     "mcp_memory_service/api/client.py",
     "mcp_memory_service/api/operations.py",
+    "mcp_memory_service/api/sync_wrapper.py",
     "mcp_memory_service/storage/mixins/store.py",
     "mcp_memory_service/utils/db_utils.py",
     "mcp_memory_service/utils/health_check.py",
