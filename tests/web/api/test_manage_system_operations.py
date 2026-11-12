@@ -71,8 +71,10 @@ def test_unknown_operation_is_rejected(client):
 def test_cleanup_duplicates_is_still_routed(client):
     response = client.post("/api/manage/system/cleanup_duplicates")
 
-    # Still dispatched to the duplicate cleanup, not refused as unknown.
-    assert response.status_code != 400
-    assert response.json().get("detail") != "Unknown operation: cleanup_duplicates"
-    direct = client.post("/api/manage/cleanup-duplicates")
-    assert response.status_code == direct.status_code
+    # Still dispatched to the duplicate cleanup and run on the empty database.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["operation"] == "cleanup_duplicates"
+    assert body["affected_count"] == 0
+    assert body["success"] is False
+    assert body == client.post("/api/manage/cleanup-duplicates").json()
