@@ -742,5 +742,7 @@
   "settings.quality.saving": "सहेजा जा रहा है…",
   "settings.quality.saveFailed": "✗ सहेजना विफल: {error}",
   "settings.quality.loadFailed": "✗ वर्तमान सेटिंग्स लोड नहीं हो सकीं: {error}। पुनः प्रयास करने के लिए इस टैब को दोबारा खोलें।",
-  "settings.quality.saveHint": "सेटिंग्स .env में सहेजी गई हैं। बदलाव लागू करने के लिए सर्वर पुनः प्रारंभ होगा।"
+  "settings.quality.saveHint": "सेटिंग्स .env में सहेजी गई हैं। बदलाव लागू करने के लिए सर्वर पुनः प्रारंभ होगा।",
+  "manage.tags.minimumCount": "कम से कम N बार उपयोग किए गए टैग दिखाएँ",
+  "manage.tags.showingCount": "कुल {total} टैग में से {shown} दिखाए जा रहे हैं"
 }
