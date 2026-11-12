@@ -75,6 +75,7 @@ class MemoryDashboard {
         this.apiBase = 'api';
         this.eventSource = null;
         this.memories = [];
+        this.tagManagementMinCount = 2;
         this.currentView = 'dashboard';
         // 国际化状态
         this.currentLang = 'en';
@@ -5754,25 +5755,49 @@ class MemoryDashboard {
         const container = document.getElementById('tagManagementContainer');
         if (!container) return;
 
-        let html = '<table class="tag-stats-table">';
+        const minimum = this.tagManagementMinCount ?? 2;
+        let html = '<div class="tag-management-filter">';
+        html += `<label for="tagManagementMinCount" data-i18n="manage.tags.minimumCount">${this.escapeHtml(this.t('manage.tags.minimumCount', 'Show tags used at least N times'))}</label> `;
+        html += `<input id="tagManagementMinCount" class="form-control" style="max-width: 6rem; display: inline-block;" type="number" min="1" step="1" value="${minimum}">`;
+        html += '<p class="tag-management-count" aria-live="polite"></p></div>';
+        html += '<table class="tag-stats-table">';
         html += '<thead><tr>';
         html += `<th data-i18n="manage.tags.column.tag">${this.escapeHtml(this.t('manage.tags.column.tag', 'Tag'))}</th>`;
         html += `<th data-i18n="manage.tags.column.count">${this.escapeHtml(this.t('manage.tags.column.count', 'Count'))}</th>`;
         html += `<th data-i18n="manage.tags.column.actions">${this.escapeHtml(this.t('manage.tags.column.actions', 'Actions'))}</th>`;
-        html += '</tr></thead><tbody>';
-
-        data.tags.forEach(tagStat => {
-        html += '<tr>';
-        html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
-        html += `<td class="tag-count">${tagStat.count}</td>`;
-        html += '<td class="tag-actions">';
-        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
-        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
-        html += '</td></tr>';
-        });
-
-        html += '</tbody></table>';
+        html += '</tr></thead><tbody></tbody></table>';
         container.innerHTML = html;
+
+        const input = container.querySelector('#tagManagementMinCount');
+        const body = container.querySelector('tbody');
+        const summary = container.querySelector('.tag-management-count');
+        const renderRows = () => {
+            const tags = data.tags.filter(tagStat => tagStat.count >= (this.tagManagementMinCount ?? 2));
+            body.innerHTML = tags.map(tagStat => {
+                let row = '<tr>';
+                row += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
+                row += `<td class="tag-count">${tagStat.count}</td>`;
+                row += '<td class="tag-actions">';
+                row += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
+                row += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
+                return row + '</td></tr>';
+            }).join('');
+            summary.textContent = this.t('manage.tags.showingCount', 'Showing {shown} of {total} tags', { shown: tags.length, total: data.tags.length });
+        };
+        // Update just the rows while typing, so the input keeps its focus.
+        input.oninput = () => {
+            const value = Number(input.value);
+            if (!Number.isInteger(value) || value < 1) return;
+            this.tagManagementMinCount = value;
+            renderRows();
+        };
+        input.onchange = () => {
+            const value = Number(input.value);
+            this.tagManagementMinCount = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+            input.value = String(this.tagManagementMinCount);
+            renderRows();
+        };
+        renderRows();
 
         // Assigned, not added: the table re-renders on every visit and language switch.
         container.onclick = (e) => {

@@ -733,5 +733,7 @@
   "settings.quality.saving": "Сохранение…",
   "settings.quality.saveFailed": "✗ Не удалось сохранить: {error}",
   "settings.quality.loadFailed": "✗ Не удалось загрузить текущие настройки: {error}. Откройте эту вкладку повторно.",
-  "settings.quality.saveHint": "Сохранено в .env. Для применения изменений сервер будет перезапущен."
+  "settings.quality.saveHint": "Сохранено в .env. Для применения изменений сервер будет перезапущен.",
+  "manage.tags.minimumCount": "Показывать теги, использованные не менее N раз",
+  "manage.tags.showingCount": "Показано {shown} из {total} тегов"
 }
