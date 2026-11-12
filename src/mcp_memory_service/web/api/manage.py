@@ -79,7 +79,7 @@ class TagStatsListResponse(BaseModel):
 
 class SystemOperationRequest(BaseModel):
     """Request model for system operations."""
-    operation: str = Field(..., description="Operation: 'cleanup_duplicates', 'optimize_db', 'rebuild_index'")
+    operation: str = Field(..., description="Operation: 'cleanup_duplicates'")
 
 
 @router.post("/bulk-delete", response_model=BulkOperationResponse, tags=["management"])
@@ -399,19 +399,11 @@ async def perform_system_operation(
     """
     Perform system maintenance operations.
 
-    Supported operations: cleanup_duplicates, optimize_db, rebuild_index
+    Supported operations: cleanup_duplicates. Any other operation answers 400.
     """
     try:
         if operation == "cleanup_duplicates":
             return await cleanup_duplicates(storage, user)
-
-        elif operation == "optimize_db":
-            # Database optimization (would need storage-specific implementation)
-            raise HTTPException(status_code=501, detail="Database optimization not yet implemented")
-
-        elif operation == "rebuild_index":
-            # Rebuild search indexes (would need storage-specific implementation)
-            raise HTTPException(status_code=501, detail="Index rebuilding not yet implemented")
 
         else:
             raise HTTPException(status_code=400, detail=f"Unknown operation: {operation}")

@@ -837,8 +837,6 @@ class MemoryDashboard {
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
         document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
         document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
-        document.getElementById('optimizeDbBtn')?.addEventListener('click', this.handleOptimizeDatabase.bind(this));
-        document.getElementById('rebuildIndexBtn')?.addEventListener('click', this.handleRebuildIndex.bind(this));
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
@@ -5933,20 +5931,6 @@ class MemoryDashboard {
         } finally {
             this.setLoading(false);
         }
-    }
-
-    /**
-     * Handle database optimization
-     */
-    async handleOptimizeDatabase() {
-        this.showToast(this.t('toast.dbOptimizeTodo', 'Database optimization not yet implemented'), 'warning');
-    }
-
-    /**
-     * Handle index rebuild
-     */
-    async handleRebuildIndex() {
-        this.showToast(this.t('toast.indexRebuildTodo', 'Index rebuild not yet implemented'), 'warning');
     }
 
     /**
