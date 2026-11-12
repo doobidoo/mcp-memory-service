@@ -743,5 +743,7 @@
   "toast.uploadFailed": "Upload fehlgeschlagen: {message}",
   "toast.uploadFileFail": "Upload von {name} fehlgeschlagen: {message}",
   "toast.uploadStartedBatch": "Batch-Upload gestartet für {count} Dateien",
-  "toast.uploadStartedSingle": "Upload gestartet für {name}"
+  "toast.uploadStartedSingle": "Upload gestartet für {name}",
+  "manage.tags.minimumCount": "Tags anzeigen, die mindestens N-mal verwendet werden",
+  "manage.tags.showingCount": "{shown} von {total} Tags werden angezeigt"
 }
