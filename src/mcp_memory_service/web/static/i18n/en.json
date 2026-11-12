@@ -742,5 +742,7 @@
   "settings.quality.saving": "Saving…",
   "settings.quality.saveFailed": "✗ Save failed: {error}",
   "settings.quality.loadFailed": "✗ Could not load the current settings: {error}. Reopen this tab to retry.",
-  "settings.quality.saveHint": "Saved to .env. The server restarts to apply the change."
+  "settings.quality.saveHint": "Saved to .env. The server restarts to apply the change.",
+  "manage.tags.minimumCount": "Show tags used at least N times",
+  "manage.tags.showingCount": "Showing {shown} of {total} tags"
 }
