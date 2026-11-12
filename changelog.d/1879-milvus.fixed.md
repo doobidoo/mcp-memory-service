@@ -15,3 +15,5 @@
   A scoped update is confined within one client only: it is not race-safe across clients
   sharing a collection, since a row re-stored elsewhere while the update is in flight is
   written back by the unconditional upsert (the cross-client guard is a separate issue).
+  `update_memories_batch` and `mark_superseded_batch` now skip soft-deleted rows, as
+  `get_by_hash` does, instead of writing them back and counting them as updated.

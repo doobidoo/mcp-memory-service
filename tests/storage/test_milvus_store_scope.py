@@ -172,6 +172,43 @@ async def test_mark_superseded_batch_writes_back_the_rows_store():
     assert upsert["data"][0]["store"] == "team"
 
 
+_TOMBSTONE = '{"deleted_at": 1762905600.0}'
+
+
+@pytest.mark.asyncio
+async def test_update_memories_batch_skips_a_soft_deleted_row():
+    # A tombstone is "not found", as for get_by_hash: not written back, not counted.
+    storage = _make_storage(has_store=True)
+    gone = "c" * 64
+    storage._call_client = _client([
+        _row(store="team"),
+        _row(store="team", content_hash=gone, metadata=_TOMBSTONE),
+    ])
+    storage.embedding_model.encode = MagicMock(return_value=[[0.1] * 4])
+
+    results = await storage.update_memories_batch([
+        Memory(content="body", content_hash=_HASH, tags=["x"], memory_type="note"),
+        Memory(content="body", content_hash=gone, tags=["y"], memory_type="note"),
+    ])
+
+    assert results == [True, False]
+    (upsert,) = _calls(storage._call_client, "upsert")
+    assert [e["id"] for e in upsert["data"]] == [_HASH]
+
+
+@pytest.mark.asyncio
+async def test_mark_superseded_batch_skips_a_soft_deleted_loser():
+    storage = _make_storage(has_store=True)
+    storage._call_client = _client([
+        _row(store="team", vector=[0.1, 0.2, 0.3, 0.4], metadata=_TOMBSTONE),
+    ])
+
+    marked = await storage.mark_superseded_batch([("w" * 64, _HASH)])
+
+    assert marked == 0
+    assert _calls(storage._call_client, "upsert") == []
+
+
 @pytest.mark.asyncio
 async def test_versioned_update_keeps_the_new_version_in_the_old_store():
     storage = _make_storage(has_store=True)

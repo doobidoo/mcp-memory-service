@@ -2682,7 +2682,9 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             for row in (fetched or []):
                 mem = self._entity_to_memory(row)
-                if mem:
+                # Skip tombstones, as _fetch_live_row does: a soft-deleted
+                # memory is "not found" here, not written back and counted.
+                if mem and mem.metadata.get("deleted_at") is None:
                     existing_map[mem.content_hash] = mem
                     store_map[mem.content_hash] = self._row_store(row)
         except Exception as exc:  # noqa: BLE001
@@ -2803,7 +2805,9 @@ class MilvusMemoryStorage(MemoryStorage):
             )
             for row in (fetched or []):
                 mem = self._entity_to_memory(row, include_embedding=True)
-                if mem:
+                # Skip tombstones, as _fetch_live_row does (sqlite-vec's
+                # _supersede_with_event matches ``deleted_at IS NULL``).
+                if mem and mem.metadata.get("deleted_at") is None:
                     existing_map[mem.content_hash] = mem
                     store_map[mem.content_hash] = self._row_store(row)
         except Exception as exc:  # noqa: BLE001
