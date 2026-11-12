@@ -25,6 +25,8 @@ import subprocess
 from typing import Dict, Any
 import json
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Hardware acceleration types
@@ -105,7 +107,7 @@ class SystemInfo:
                 return round(memoryStatus.ullTotalPhys / (1024**3), 2)  # Convert to GB
                 
         except Exception as e:
-            logger.warning(f"Failed to get system memory: {e}")
+            logger.warning("Failed to get system memory: %s", _sanitize_log_value(e))
             
         # Default fallback
         return 4.0  # Assume 4GB as a conservative default
@@ -144,7 +146,7 @@ class SystemInfo:
                 logger.warning("PyTorch installed but appears broken (no cuda attribute)")
                 return False
         except (ImportError, AttributeError, OSError) as e:
-            logger.debug(f"CUDA check failed: {e}")
+            logger.debug("CUDA check failed: %s", _sanitize_log_value(e))
             # If torch is not installed or broken, try to check for CUDA using environment
             return 'CUDA_HOME' in os.environ or 'CUDA_PATH' in os.environ
             
@@ -158,7 +160,7 @@ class SystemInfo:
                 logger.warning("PyTorch installed but appears broken (no backends attribute)")
                 return False
         except (ImportError, AttributeError, OSError) as e:
-            logger.debug(f"MPS check failed: {e}")
+            logger.debug("MPS check failed: %s", _sanitize_log_value(e))
             # Check for Metal support using system profiler
             try:
                 output = subprocess.check_output(

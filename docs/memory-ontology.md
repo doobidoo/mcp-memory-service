@@ -180,6 +180,34 @@ await storage.remove_relationship_type("blocks")
 - `has_entity` (memory → entity key) is a built-in relationship. Its target is
   an entity, not a memory, so a type pattern cannot name it.
 
+### REST API and dashboard
+
+The HTTP server exposes the overlay under `/api/ontology`. Reads need the
+`read` scope. Writes need the global `write` scope: the ontology is shared by
+every store, so a `write:<store>` token is refused.
+
+| Method | Path | Body |
+|---|---|---|
+| `GET` | `/api/ontology` | none |
+| `POST` | `/api/ontology/memory-types` | `{"name", "parent"}` |
+| `DELETE` | `/api/ontology/memory-types/{name}` | none |
+| `PUT` | `/api/ontology/retention/{memory_type}` | `{"days"}` |
+| `DELETE` | `/api/ontology/retention/{memory_type}` | none |
+| `POST` | `/api/ontology/relationships` | `{"name", "valid_patterns", "description", "symmetric"}` |
+| `DELETE` | `/api/ontology/relationships/{name}` | none |
+| `PUT` | `/api/ontology/type-patterns/{source}/{target}` | `{"relationship", "confidence"}` |
+| `DELETE` | `/api/ontology/type-patterns/{source}/{target}` | none |
+
+`GET` returns the merged memory types, relationships, type patterns and
+retention periods, plus `stored`: the live overlay rows, which are the only
+entries the `DELETE` routes can remove. A write the storage refuses is a
+`400` with the reason; a `DELETE` with nothing stored is a `404`. On a
+backend without the overlay table the writes return `501`.
+
+The dashboard's **Manage** tab has an **Ontology** section that adds memory
+types, sets retention periods and lists the stored rows with a remove button.
+Relationship types and type patterns are added through the API.
+
 ## When in doubt
 
 - **Prototyping?** Use the closest base type (`observation`, `note`).
