@@ -17,8 +17,9 @@ pairs for a store you point it at, on a read-only basis, in three steps:
     #    Hindsight note in #1460)
 
     # 3. score the labels against the NLI backend (local model) and print a
-    #    summary table that carries counts, precision/recall and latency —
-    #    never the pair texts, so a private store stays private
+    #    summary table that carries counts, precision/recall, the 4-way
+    #    judgment table and latency — never the pair texts, so a private
+    #    store stays private
     python scripts/nli/export_band_pairs.py score --pairs pairs.jsonl
 
 Point ``--db`` at a copy of the store: initialization runs the storage's
@@ -107,6 +108,64 @@ async def cmd_export(args):
 
 LABELS = ("contradiction", "updates", "neutral", "entailment")
 
+# ── 4-way judgment (#1460) ───────────────────────────────────────────────────
+#
+# The policy needs four answers — unrelated / repeats / changes / ends — and a
+# 3-class NLI model cannot emit them directly. The prototype in the issue
+# shows they fall out of running the SAME model in both directions plus a
+# short end-of-life word list:
+#
+#   repeats   newer->older entailment, nothing contradictory: paraphrases and
+#             supersets share this shape; both belong on dedup, which merges
+#             instead of retiring, so one bucket is the safe call
+#   changes   contradiction both ways, no end-of-life word
+#   ends      contradiction (one- or two-way) AND a core end-of-life word in
+#             the newer side — the word list is the prior that makes a
+#             single-direction contradiction actionable
+#   unrelated everything else; single-direction contradiction without an
+#             end-of-life word is deliberately inert (it caused 3 of the 5
+#             unrelated false positives in the prototype's v1 rules)
+FOURWAY_CLASSES = ("unrelated", "repeats", "changes", "ends")
+
+ENDS_SIGNALS = (
+    "closed", "cancelled", "canceled", "deprecated", "removed", "retired",
+    "shut down", "shutdown", "taken offline", "was returned", "ended",
+)
+# deliberately NOT in the list: "disabled" (usually a config change, cf.
+# "dark mode is disabled by default"), "no longer" (usually a version bump,
+# cf. "2.3.1 is no longer live"), "stopped"/"gone" (too generic).
+
+# What each side implies as an action, spelled out so the report never
+# implies more than the labels say. Gold: the policy in #1460 — updates
+# supersede, entailment is dedup material, neutral is left alone, and a
+# labeled contradiction goes to review, not supersede (point 2: both sides
+# claim to be current). Pred: changes/ends supersede, repeats dedup,
+# unrelated left alone.
+GOLD_ACTIONS = {"updates": "supersede", "entailment": "dedup",
+                "neutral": "leave", "contradiction": "review"}
+PRED_ACTIONS = {"changes": "supersede", "ends": "supersede",
+                "repeats": "dedup", "unrelated": "leave"}
+
+
+def _ends_signal(text: str) -> bool:
+    t = text.lower()
+    return any(s in t for s in ENDS_SIGNALS)
+
+
+def fourway_decide(older: str, newer: str, fwd_label: str, rev_label: str) -> str:
+    """Map one bidirectional NLI result to the four policy classes.
+
+    Pure function of the two verdict labels plus the newer text's ends
+    signal, so tests can drive it without a model.
+    """
+    if rev_label == "entailment" and fwd_label != "contradiction":
+        return "repeats"
+    if fwd_label == "contradiction" and rev_label == "contradiction":
+        return "ends" if _ends_signal(newer) else "changes"
+    if "contradiction" in (fwd_label, rev_label) and _ends_signal(newer):
+        return "ends"
+    return "unrelated"
+
 
 def _prf(preds, golds, pred_positive, gold_positive):
     tp = sum(1 for p, g in zip(preds, golds) if p in pred_positive and g in gold_positive)
@@ -177,6 +236,49 @@ async def cmd_score(args):
         report["gate_with_updates"] = _prf(
             labeled_preds, golds, {"contradiction", "entailment"},
             {"contradiction", "updates"})
+
+    # 4-way report (#1460): the same model run in both directions, mapped
+    # through fourway_decide. Gold labels stay as labeled — contradiction is
+    # its own row, not folded into changes, so the table shows whether the
+    # "both sides claim to be current" class lands where the policy sends it
+    # to review. Only the transformers backend emits it: the second direction
+    # is the whole point.
+    if classifier.backend == "transformers" and not classifier.degraded:
+        t0 = time.perf_counter()
+        reverse = await classifier.classify_batch([(r["newer"], r["older"]) for r in rows])
+        fourway_ms = (time.perf_counter() - t0) * 1000 / max(1, len(rows))
+        fourway_preds = [
+            fourway_decide(r["older"], r["newer"], f.label, rv.label)
+            for r, f, rv in zip(rows, verdicts, reverse)
+        ]
+        report["fourway"] = {
+            "confusion_gold_x_pred": {
+                gold: {pred: sum(
+                    1 for r, p in zip(rows, fourway_preds)
+                    if r.get("label") == gold and p == pred)
+                    for pred in FOURWAY_CLASSES}
+                for gold in LABELS
+            },
+            "gold_actions": GOLD_ACTIONS,
+            "pred_actions": PRED_ACTIONS,
+            "action_agreement": sum(
+                1 for r, p in zip(rows, fourway_preds)
+                if r.get("label") in GOLD_ACTIONS
+                and GOLD_ACTIONS[r["label"]] == PRED_ACTIONS[p]
+            ),
+            # The number that decides shipping (#1460): labeled non-updates
+            # the 4-way judgment would retire. On its own line.
+            "non_updates_retired": sum(
+                1 for r, p in zip(rows, fourway_preds)
+                if r.get("label") not in (None, "", "updates")
+                and PRED_ACTIONS[p] == "supersede"
+            ),
+            "per_pair_ms_second_direction": round(fourway_ms, 1),
+        }
+    else:
+        report["fourway"] = None
+        report["fourway_note"] = ("bidirectional judgment needs the transformers "
+                                  "backend; not computed for " + classifier.backend)
     print(json.dumps(report, indent=2))
 
 
