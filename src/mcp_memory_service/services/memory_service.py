@@ -173,6 +173,10 @@ class StoreMemoryChunkedSuccess(TypedDict):
     total_chunks: int
     original_hash: str
     failed_chunks: NotRequired[int]  # Number of chunks that failed to store
+    # #1938: one entry per chunk whose semantic dedup decided something.
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
+    dedup_decisions: NotRequired[List[Dict[str, Any]]]
 
 
 class StoreMemoryFailure(TypedDict):
@@ -186,6 +190,7 @@ class StoreMemoryFailure(TypedDict):
     # #1938: ``deduplicated`` names the existing hash that caused the refusal.
     dedup_outcome: NotRequired[str]
     matched_hash: NotRequired[str]
+    dedup_decisions: NotRequired[List[Dict[str, Any]]]
 
 
 def _attach_dedup_outcome(response: dict, message) -> dict:
@@ -193,6 +198,28 @@ def _attach_dedup_outcome(response: dict, message) -> dict:
     if isinstance(message, SemanticDedupResult):
         response["dedup_outcome"] = message.outcome
         response["matched_hash"] = message.matched_hash
+    return response
+
+
+def _chunk_dedup_decision(index: int, message) -> Optional[Dict[str, Any]]:
+    """One chunk's semantic-dedup decision, or None when dedup did not decide."""
+    if not isinstance(message, SemanticDedupResult):
+        return None
+    return {
+        "chunk_index": index,
+        "dedup_outcome": message.outcome,
+        "matched_hash": message.matched_hash,
+    }
+
+
+def _with_chunk_dedup(response: dict, decisions: List[Dict[str, Any]]) -> dict:
+    """Attach per-chunk dedup decisions. A single decision also fills the top-level fields."""
+    if not decisions:
+        return response
+    response["dedup_decisions"] = decisions
+    if len(decisions) == 1:
+        response["dedup_outcome"] = decisions[0]["dedup_outcome"]
+        response["matched_hash"] = decisions[0]["matched_hash"]
     return response
 
 
@@ -526,6 +553,7 @@ class MemoryService:
                 stored_memories = []
                 failed_chunks = []
                 refused_chunks = []  # #1560: chunks that met a delete on record
+                dedup_decisions = []
 
                 for i, chunk in enumerate(chunks):
                     chunk_hash = generate_content_hash(chunk)
@@ -543,6 +571,9 @@ class MemoryService:
                         memory, skip_semantic_dedup=skip_dedup, store=store,
                         **recreate_kwargs(self.storage, recreate)
                     )
+                    decision = _chunk_dedup_decision(i, message)
+                    if decision is not None:
+                        dedup_decisions.append(decision)
                     if success:
                         stored_memories.append(self._format_memory_response(memory))
                         # Queue chunk for AI quality scoring if enabled
@@ -564,17 +595,17 @@ class MemoryService:
                         # #1560: every chunk met a delete on record — one refusal, not
                         # a generic failure, so REST can answer 409 for the whole write.
                         return _refused_recreate_failure(refusals[0])
-                    reasons = ", ".join(set(fc["reason"] for fc in failed_chunks))
-                    return {
+                    reasons = ", ".join(set(str(fc["reason"]) for fc in failed_chunks))
+                    return _with_chunk_dedup({
                         "success": False,
                         "error": f"Failed to store all {len(chunks)} chunks: {reasons}"
-                    }
+                    }, dedup_decisions)
 
                 # If SOME chunks were stored, return partial success
                 for mem_dict in stored_memories:
                     await self._plugin_registry.fire('on_store', mem_dict)
 
-                return {
+                return _with_chunk_dedup({
                     "success": True,
                     "memories": stored_memories,
                     "total_chunks": len(chunks),
@@ -583,7 +614,7 @@ class MemoryService:
                     # #1560: a partial write that skipped deleted chunks must say so — the
                     # stored chunks alone would read as the whole content.
                     "refused_chunks": refused_chunks,
-                }
+                }, dedup_decisions)
             else:
                 # Store as single memory
                 memory = Memory(

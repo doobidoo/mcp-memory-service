@@ -15,6 +15,7 @@ from mcp_memory_service.services.memory_service import MemoryService
 from mcp_memory_service.storage.base import RecreateRefused
 from mcp_memory_service.storage.semantic_dedup import SemanticDedupResult
 from mcp_memory_service.storage.sqlite_vec import SqliteVecMemoryStorage
+from mcp_memory_service.utils.content_splitter import split_content
 from mcp_memory_service.utils.hashing import generate_content_hash
 from tests.unit.dedup_fixtures import XERJ_UPDATE_PAIRS
 
@@ -244,6 +245,50 @@ async def test_failed_supersede_retry_is_not_a_refused_recreate(storage, monkeyp
         (update.content_hash,),
     ).fetchone()
     assert row is not None and row[0] is None
+
+
+def _orthogonal(dimension: int) -> list[float]:
+    vector = [0.0] * dimension
+    vector[min(2, dimension - 1)] = 1.0
+    return vector
+
+
+@pytest.mark.asyncio
+async def test_chunked_store_reports_the_superseded_memory(storage, monkeypatch):
+    """A split write names the memory a chunk replaced."""
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.ENABLE_AUTO_SPLIT", True
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_PRESERVE_BOUNDARIES", False
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_SPLIT_OVERLAP", 0
+    )
+    monkeypatch.setattr(
+        type(storage), "max_content_length", property(lambda _self: 40)
+    )
+    storage.semantic_dedup_mode = "supersede"
+    old, _new, _cosine = XERJ_UPDATE_PAIRS[0]
+    first = _remember(storage, old, None)
+    assert (await storage.store(first))[0]
+
+    body = ("A" * 40) + ("B" * 40)
+    chunks = split_content(body, max_length=40, preserve_boundaries=False, overlap=0)
+    assert len(chunks) == 2
+    storage._vectors[chunks[0]] = _at_cosine(0.90, storage.embedding_dimension)
+    storage._vectors[chunks[1]] = _orthogonal(storage.embedding_dimension)
+
+    result = await MemoryService(storage=storage).store_memory(content=body)
+
+    assert result["success"] is True, result
+    assert result["dedup_outcome"] == "superseded"
+    assert result["matched_hash"] == first.content_hash
+    assert result["dedup_decisions"] == [{
+        "chunk_index": 0,
+        "dedup_outcome": "superseded",
+        "matched_hash": first.content_hash,
+    }]
 
 
 @pytest.mark.asyncio

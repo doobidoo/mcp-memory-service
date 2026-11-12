@@ -333,6 +333,8 @@ class StoreMemorySuccess(TypedDict):
     success: bool
     message: str
     content_hash: str
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
 
 class StoreMemorySplitSuccess(TypedDict):
     """Return type for successful chunked memory storage."""
@@ -340,6 +342,9 @@ class StoreMemorySplitSuccess(TypedDict):
     message: str
     chunks_created: int
     chunk_hashes: List[str]
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
+    dedup_decisions: NotRequired[List[Dict[str, Any]]]
 
 class StoreMemoryFailure(TypedDict):
     """Return type for failed memory storage."""
@@ -347,6 +352,21 @@ class StoreMemoryFailure(TypedDict):
     message: str
     chunks_created: NotRequired[int]
     chunk_hashes: NotRequired[List[str]]
+    dedup_outcome: NotRequired[str]
+    matched_hash: NotRequired[str]
+    dedup_decisions: NotRequired[List[Dict[str, Any]]]
+
+
+def _dedup_tool_fields(result: dict) -> Dict[str, Any]:
+    """Semantic-dedup fields the MemoryService already decided, if any."""
+    fields: Dict[str, Any] = {}
+    if result.get("dedup_outcome"):
+        fields["dedup_outcome"] = result["dedup_outcome"]
+        if result.get("matched_hash"):
+            fields["matched_hash"] = result["matched_hash"]
+    if result.get("dedup_decisions"):
+        fields["dedup_decisions"] = result["dedup_decisions"]
+    return fields
 
 # =============================================================================
 # PER-CALLER RATE LIMITING (#1606)
@@ -509,7 +529,8 @@ Examples:
     if not result.get("success"):
         return StoreMemoryFailure(
             success=False,
-            message=result.get("error", "Failed to store memory")
+            message=result.get("error", "Failed to store memory"),
+            **_dedup_tool_fields(result),
         )
 
     # Handle chunked response (multiple memories)
@@ -519,7 +540,8 @@ Examples:
             success=True,
             message=f"Successfully stored {len(result['memories'])} memory chunks",
             chunks_created=result["total_chunks"],
-            chunk_hashes=chunk_hashes
+            chunk_hashes=chunk_hashes,
+            **_dedup_tool_fields(result),
         )
 
     # Handle single memory response
@@ -527,7 +549,8 @@ Examples:
     return StoreMemorySuccess(
         success=True,
         message="Memory stored successfully",
-        content_hash=memory_data["content_hash"]
+        content_hash=memory_data["content_hash"],
+        **_dedup_tool_fields(result),
     )
 
 @mcp.tool(

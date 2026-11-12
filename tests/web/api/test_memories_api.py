@@ -635,3 +635,56 @@ def test_store_memory_reports_semantic_dedup_outcome(
     else:
         assert body["content_hash"] is None
         assert "semantically similar" in body["message"]
+
+
+@pytest.mark.integration
+def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_storage, monkeypatch):
+    """A split REST write names the memory a chunk superseded."""
+    from mcp_memory_service.utils.content_splitter import split_content
+
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.ENABLE_AUTO_SPLIT", True
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_PRESERVE_BOUNDARIES", False
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.CONTENT_SPLIT_OVERLAP", 0
+    )
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = "supersede"
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    old, _new, _cosine = XERJ_UPDATE_PAIRS[0]
+    _install_cosine_embeddings(initialized_storage, [(old, None)])
+    first = test_app.post("/api/memories", json={"content": old})
+    assert first.status_code == 200, first.text
+    old_hash = first.json()["content_hash"]
+
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 40)
+    )
+    dimension = initialized_storage.embedding_dimension
+    body = ("A" * 40) + ("B" * 40)
+    chunks = split_content(body, max_length=40, preserve_boundaries=False, overlap=0)
+    sine = math.sqrt(max(0.0, 1.0 - 0.90 * 0.90))
+    near = [0.0] * dimension
+    near[0] = 0.90
+    near[1] = sine
+    other = [0.0] * dimension
+    other[min(2, dimension - 1)] = 1.0
+    initialized_storage._cosine_vectors[chunks[0]] = near
+    initialized_storage._cosine_vectors[chunks[1]] = other
+
+    response = test_app.post("/api/memories", json={"content": body})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["dedup_outcome"] == "superseded"
+    assert payload["matched_hash"] == old_hash
+    assert payload["dedup_decisions"] == [{
+        "chunk_index": 0,
+        "dedup_outcome": "superseded",
+        "matched_hash": old_hash,
+    }]
+    assert f"superseded {old_hash}" in payload["message"]

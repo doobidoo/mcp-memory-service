@@ -128,22 +128,51 @@ class MemoryCreateResponse(BaseModel):
         None,
         description="Content hash of the memory semantic dedup matched. See dedup_outcome.",
     )
+    dedup_decisions: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description=(
+            "Per-chunk semantic-dedup decisions when the write was split. "
+            "Each item has chunk_index, dedup_outcome, and matched_hash. "
+            "A single decision is also copied to dedup_outcome and matched_hash."
+        ),
+    )
 
 
 def _dedup_response_fields(result: dict) -> dict:
     """Semantic-dedup fields for MemoryCreateResponse. Empty when dedup did not decide."""
+    fields = {}
     outcome = result.get("dedup_outcome")
-    if not outcome:
-        return {}
-    return {"dedup_outcome": outcome, "matched_hash": result.get("matched_hash")}
+    if outcome:
+        fields["dedup_outcome"] = outcome
+        fields["matched_hash"] = result.get("matched_hash")
+    decisions = result.get("dedup_decisions")
+    if decisions:
+        fields["dedup_decisions"] = decisions
+    return fields
+
+
+def _superseded_hashes(result: dict) -> List[str]:
+    """Hashes retired by this store, from the chunk list or the single decision."""
+    decisions = result.get("dedup_decisions") or []
+    hashes = [
+        decision.get("matched_hash")
+        for decision in decisions
+        if decision.get("dedup_outcome") == "superseded" and decision.get("matched_hash")
+    ]
+    if hashes:
+        return hashes
+    matched = result.get("matched_hash")
+    if result.get("dedup_outcome") == "superseded" and matched:
+        return [matched]
+    return []
 
 
 def _with_supersede_note(result: dict, message: str) -> str:
     """Append the replaced hash when this store superseded an older memory."""
-    matched = result.get("matched_hash")
-    if result.get("dedup_outcome") == "superseded" and matched:
-        return f"{message} (superseded {matched})"
-    return message
+    hashes = _superseded_hashes(result)
+    if not hashes:
+        return message
+    return f"{message} (superseded {', '.join(hashes)})"
 
 
 class MemoryDeleteResponse(BaseModel):
@@ -304,7 +333,9 @@ async def store_memory(
             else:
                 # Chunked memory response
                 first_memory = result["memories"][0]
-                base_msg = f"Memory stored as {result['total_chunks']} chunks"
+                base_msg = _with_supersede_note(
+                    result, f"Memory stored as {result['total_chunks']} chunks"
+                )
                 refused_chunks = result.get("refused_chunks") or []
                 if refused_chunks:
                     # #1560: not the whole content — name the chunks a recorded delete

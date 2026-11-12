@@ -84,6 +84,60 @@ async def test_store_memory_names_a_dedup_rejection():
 
 
 @pytest.mark.asyncio
+async def test_chunked_store_names_each_superseded_memory():
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    server = _make_server()
+    server.memory_service.store_memory = AsyncMock(return_value={
+        "success": True,
+        "memories": [{"content_hash": "chunk-hash", "memory_type": "note"}],
+        "total_chunks": 2,
+        "original_hash": "original",
+        "failed_chunks": 0,
+        "dedup_decisions": [{
+            "chunk_index": 0,
+            "dedup_outcome": "superseded",
+            "matched_hash": "old-hash",
+        }],
+    })
+
+    result = await handle_store_memory(server, {"content": "a long note"})
+
+    text = result[0].text
+    assert "Successfully stored 1 memory chunks" in text
+    assert "Superseded previous memory old-hash" in text
+    assert "chunk 0: dedup_outcome: superseded" in text
+
+
+@pytest.mark.asyncio
+async def test_fastmcp_store_memory_reports_a_supersede():
+    from mcp_memory_service import mcp_server
+
+    class _Service:
+        async def store_memory(self, **_kwargs):
+            return {
+                "success": True,
+                "memory": {"content_hash": "new-hash"},
+                "dedup_outcome": "superseded",
+                "matched_hash": "old-hash",
+            }
+
+    class _RequestContext:
+        lifespan_context = type("Life", (), {"memory_service": _Service()})()
+        request = None
+
+    class _Ctx:
+        request_context = _RequestContext()
+
+    result = await mcp_server.store_memory("updated fact", _Ctx())
+
+    assert result["success"] is True
+    assert result["content_hash"] == "new-hash"
+    assert result["dedup_outcome"] == "superseded"
+    assert result["matched_hash"] == "old-hash"
+
+
+@pytest.mark.asyncio
 async def test_store_memory_implicit_default_type_no_warning():
     """When the user omits `type`, the default 'note' is applied silently —
     no warning should fire even though we technically substituted a value."""
