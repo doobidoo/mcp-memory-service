@@ -2,6 +2,8 @@
 import os
 import logging
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -19,8 +21,13 @@ if CUSTOM_MEMORY_TYPES_JSON:
         custom_types = json.loads(CUSTOM_MEMORY_TYPES_JSON)
         total_base = len(custom_types)
         total_subtypes = sum(len(subtypes) for subtypes in custom_types.values() if isinstance(subtypes, list))
-        logger.info(f"  Custom types: {total_base} base types, {total_subtypes} subtypes")
-        logger.info(f"  Custom base types: {', '.join(custom_types.keys())}")
+        logger.info(
+            "  Custom types: %d base types, %d subtypes", total_base, total_subtypes
+        )
+        logger.info(
+            "  Custom base types: %s",
+            _sanitize_log_value(', '.join(custom_types.keys())),
+        )
     except json.JSONDecodeError:
         logger.error("  Failed to parse MCP_CUSTOM_MEMORY_TYPES (invalid JSON)")
 else:
