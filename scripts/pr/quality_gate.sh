@@ -82,13 +82,50 @@ else
     LLM_BACKEND="local ($RESOLVED_MODEL)"
 fi
 
-# analyze <prompt> - one model call, empty output on failure so callers stay simple.
+# A failed call used to print nothing, and every check read nothing as clean, so
+# an unreachable or overloaded model passed the gate. Failures are counted here
+# and turn a clean run into SKIPPED (see the summary).
+LLM_FAILURES=$(mktemp)
+trap 'rm -f "$LLM_FAILURES"' EXIT
+# Replies are cached by model and prompt; the prompt holds the whole file, so a
+# rerun on unchanged files makes no model call. Lives in the shared git dir, so
+# all worktrees of a checkout use it.
+# ponytail: never pruned; entries are a few hundred bytes. Prune by age if it grows.
+CACHE_DIR=""
+if git_dir=$(git rev-parse --git-common-dir 2>/dev/null); then
+    CACHE_DIR="$git_dir/quality-gate-cache"
+fi
+
+# analyze <prompt> - one model call; prints the reply, or nothing on failure.
 analyze() {
-    if [ "$LLM_BACKEND" = "gemini" ]; then
-        gemini "$1" 2>&1 || echo ""
-    else
-        printf '%s' "$1" | python3 "$LLM_HELPER" 2>/dev/null || echo ""
+    local key="" reply=""
+    if [ -n "$CACHE_DIR" ]; then
+        # The reviewer is backend + endpoint + model: "local (<model>)" or "gemini",
+        # plus the URL, since one model name can be served by different endpoints.
+        key=$(printf '%s\n%s\n%s' "$LLM_BACKEND" "${MCP_QUALITY_LLM_URL:-}" "$1" \
+            | git hash-object --stdin)
+        # -s, not -f: an empty entry is not an answer.
+        if [ -s "$CACHE_DIR/$key" ]; then
+            cat "$CACHE_DIR/$key"
+            return
+        fi
     fi
+    if [ "$LLM_BACKEND" = "gemini" ]; then
+        reply=$(gemini "$1" 2>/dev/null) || reply=""
+    else
+        reply=$(printf '%s' "$1" | python3 "$LLM_HELPER") || reply=""
+    fi
+    if [ -z "$reply" ]; then
+        echo "failed" >> "$LLM_FAILURES"
+        return
+    fi
+    # Write aside and rename: a gate in another worktree must never read a
+    # half-written entry, and an interrupted write must not leave one behind.
+    if [ -n "$key" ] && mkdir -p "$CACHE_DIR"; then
+        printf '%s\n' "$reply" > "$CACHE_DIR/$key.tmp.$$" \
+            && mv -f "$CACHE_DIR/$key.tmp.$$" "$CACHE_DIR/$key"
+    fi
+    printf '%s\n' "$reply"
 }
 
 if [ "$MODE" = "staged" ]; then
@@ -341,6 +378,15 @@ fi
 # Report results
 echo "=== Quality Gate Summary ==="
 echo ""
+
+llm_failed=$(wc -l < "$LLM_FAILURES" | tr -d ' ')
+if [ "$llm_failed" -gt 0 ] && [ $exit_code -eq 0 ]; then
+    echo "WARNING: $llm_failed model call(s) got no usable reply (error above, or no reply"
+    echo "   within MCP_QUALITY_LLM_TIMEOUT=${MCP_QUALITY_LLM_TIMEOUT:-600}s)."
+    echo "   Skipped, NOT passed: complexity and security were not fully evaluated."
+    echo "   Rerun when the endpoint is less busy; answered calls are cached."
+    exit $EXIT_SKIPPED
+fi
 
 if [ $exit_code -eq 0 ]; then
     echo "ALL CHECKS PASSED"
