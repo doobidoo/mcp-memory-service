@@ -268,3 +268,24 @@ def test_takeover_label_rechecks_the_pr_before_writing(reminders, current):
                    current=current)
     reminders.run(api, "o/r", NOW, post=True)
     assert not any(p.endswith("/labels") for p, m, _ in api.calls if m == "POST")
+
+
+def conversation(*turns):
+    """A thread from (author, hours_ago) pairs, oldest first."""
+    return {"isResolved": False, "isOutdated": False, "comments": {"nodes": [
+        {"author": {"login": who}, "createdAt": stamp(hours),
+         "url": "https://github.com/o/r/pull/1#discussion_r1"} for who, hours in turns]}}
+
+
+def test_reviewer_nudge_on_a_reminded_thread_still_counts(reminders):
+    # Waiting since 120h, reminded at 100h, reviewer nudged at 50h; the author
+    # never answered, so the nudge must not hide the thread from takeover.
+    nudged = conversation(("reviewer", 120), ("reviewer", 50))
+    api = fake_api(threads=[nudged], comments=[history(1, hours=100)])
+    assert [p["number"] for p in reminders.run(api, "o/r", NOW)["takeover"]] == [1]
+
+
+def test_feedback_after_the_author_answered_starts_a_new_wait(reminders):
+    answered = conversation(("reviewer", 120), ("contributor", 90), ("reviewer", 72))
+    api = fake_api(threads=[answered], comments=[history(1, hours=100)])
+    assert reminders.run(api, "o/r", NOW)["takeover"] == []

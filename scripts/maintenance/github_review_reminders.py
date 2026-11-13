@@ -37,7 +37,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
       reviewThreads(first: 100, after: $cursor) {
         nodes {
           isResolved isOutdated
-          comments(last: 1) { nodes { author { login } createdAt url } }
+          comments(last: 20) { nodes { author { login } createdAt url } }
         }
         pageInfo { hasNextPage endCursor }
       }
@@ -146,15 +146,28 @@ def next_stage(comments: list[dict], now: dt.datetime) -> int | None:
     return 2 if now - sent >= dt.timedelta(days=7) else None
 
 
-def takeover_due(threads: list[dict], comments: list[dict], now: dt.datetime) -> bool:
+def waiting_since(thread: dict, author: str) -> dt.datetime:
+    """When the thread started waiting on the author: the first comment after
+    the author's last one. A reviewer nudge does not restart the wait."""
+    nodes = thread["comments"]["nodes"]
+    since = nodes[0]
+    for previous, node in zip(nodes, nodes[1:]):
+        if ((previous.get("author") or {}).get("login") or "").casefold() == author.casefold():
+            since = node
+    return parse(since["createdAt"])
+
+
+def takeover_due(threads: list[dict], author: str, comments: list[dict],
+                 now: dt.datetime) -> bool:
     """A thread the reminder covered is still unanswered three days later.
 
-    Feedback that arrived after the reminder was never reminded about, so it
-    does not count, even though the reminder allowance itself is not reset.
+    A thread counts if it was already waiting on the author when the reminder
+    went out. Feedback that started waiting later was never reminded about;
+    the reminder allowance itself is not reset.
     """
     sent = reminded_at(comments)
     return sent is not None and now - sent >= TAKEOVER_AFTER and any(
-        parse(t["comments"]["nodes"][-1]["createdAt"]) <= sent for t in threads)
+        waiting_since(t, author) <= sent for t in threads)
 
 
 def render_reminder(author: str, threads: list[dict], stage: int) -> str:
@@ -190,7 +203,8 @@ def inspect(api, repo: str, pull: dict, now: dt.datetime) -> tuple[list, list, i
     if not due:
         return due, reviewer, None, False
     comments = pages(api, f"/repos/{repo}/issues/{pull['number']}/comments")
-    return due, reviewer, next_stage(comments, now), takeover_due(due, comments, now)
+    takeover = takeover_due(due, pull["user"]["login"], comments, now)
+    return due, reviewer, next_stage(comments, now), takeover
 
 
 def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
