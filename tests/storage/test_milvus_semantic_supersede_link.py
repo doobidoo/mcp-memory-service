@@ -32,7 +32,7 @@ def _memory(content_hash: str, metadata: dict | None) -> Memory:
 @pytest.mark.asyncio
 async def test_link_refuses_when_the_match_is_already_superseded():
     storage = _storage()
-    storage.get_by_hash = _async(lambda _hash: _memory("old", {"superseded_by": "winner"}))
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {"superseded_by": "winner"}))
     storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
 
     linked = await storage._link_semantic_supersede("old", "second")
@@ -43,7 +43,7 @@ async def test_link_refuses_when_the_match_is_already_superseded():
 @pytest.mark.asyncio
 async def test_link_refuses_when_the_match_is_gone():
     storage = _storage()
-    storage.get_by_hash = _async(lambda _hash: None)
+    storage.get_by_hash = _async(lambda _hash, store=None: None)
     storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
 
     assert await storage._link_semantic_supersede("old", "second") is False
@@ -53,7 +53,7 @@ async def test_link_refuses_when_the_match_is_gone():
 async def test_second_link_rolls_the_new_row_back():
     storage = _storage()
     removed = []
-    storage.get_by_hash = _async(lambda _hash: _memory("old", {"superseded_by": "winner"}))
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {"superseded_by": "winner"}))
     storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
 
     async def _cleanup(content_hash: str) -> bool:
@@ -77,9 +77,9 @@ async def test_second_link_rolls_the_new_row_back():
 async def test_current_row_is_linked_once():
     storage = _storage()
     written = []
-    storage.get_by_hash = _async(lambda _hash: _memory("old", {}))
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {}))
 
-    async def _update(content_hash, updates, preserve_timestamps=True):
+    async def _update(content_hash, updates, preserve_timestamps=True, store=None):
         written.append((content_hash, updates, preserve_timestamps))
         return True, "Updated fields: custom_metadata"
 
@@ -101,12 +101,12 @@ async def test_overlapping_links_keep_the_first_winner():
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def _get(content_hash: str):
+    async def _get(content_hash: str, store: str | None = None):
         winner = committed.get(content_hash)
         metadata = {"superseded_by": winner} if winner else {}
         return _memory(content_hash, metadata)
 
-    async def _update(content_hash, updates, preserve_timestamps=True):
+    async def _update(content_hash, updates, preserve_timestamps=True, store=None):
         entered.set()
         await release.wait()
         committed[content_hash] = updates["metadata"]["superseded_by"]
@@ -233,4 +233,95 @@ async def test_deleted_memory_does_not_block_a_new_store(mode, cosine):
     assert ok is True, message
     assert calls["insert"] == 1
     assert calls["cleanup"] == 0
+    assert not isinstance(message, SemanticDedupResult)
+
+
+def test_other_store_row_is_not_a_supersede_target():
+    """A close memory in another store must not be chosen as the replacement."""
+    storage = _storage()
+    storage._has_store = True
+    other = {
+        "id": "docs-fact",
+        "vector": [1.0, 0.0, 0.0],
+        "content": "a fact in docs",
+        "store": "docs",
+        "metadata": "{}",
+    }
+    same = {
+        "id": "default-fact",
+        "vector": _vector_at(0.90),
+        "content": "a fact in default",
+        "store": "default",
+        "metadata": "{}",
+    }
+
+    only_other = storage._choose_semantic_hit(
+        [other], [1.0, 0.0, 0.0], 1.0, 0.85, True, store="default",
+    )
+    assert only_other[0] is False
+
+    hit = storage._choose_semantic_hit(
+        [other, same], [1.0, 0.0, 0.0], 1.0, 0.85, True, store="default",
+    )
+    assert hit[0] is True
+    assert hit[1] == "default-fact"
+
+
+def test_dedup_query_filter_confines_to_the_destination_store():
+    storage = _storage()
+    storage._has_store = True
+    assert storage._semantic_dedup_filter(100.0, "default") == (
+        'created_at >= 100.0 and store == "default"'
+    )
+    assert storage._semantic_dedup_filter(100.0, "docs") == (
+        'created_at >= 100.0 and store == "docs"'
+    )
+
+
+@pytest.mark.asyncio
+async def test_link_refuses_when_the_match_is_in_another_store():
+    storage = _storage()
+
+    async def _get(content_hash: str, store: str | None = None):
+        if store == "default":
+            return None
+        return _memory(content_hash, {})
+
+    storage.get_by_hash = _get
+    storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
+
+    assert await storage._link_semantic_supersede("old", "new", store="default") is False
+
+
+@pytest.mark.asyncio
+async def test_store_does_not_supersede_a_memory_in_another_store():
+    """Storing into default must not retire a close fact that lives in docs."""
+    storage = _dedup_storage("supersede")
+    storage._has_store = True
+    queried = {}
+
+    async def _call(method_name, *_args, **kwargs):
+        if method_name == "query":
+            queried["filter"] = kwargs.get("filter")
+            return [{
+                "id": "docs-old",
+                "vector": _vector_at(0.90),
+                "content": "a fact in docs",
+                "store": "docs",
+                "metadata": "{}",
+                "created_at": time.time(),
+            }]
+        if method_name in {"insert", "get"}:
+            return []
+        return []
+
+    storage._call_client = _call
+    storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
+    storage.get_by_hash = _async(lambda _hash, store=None: None)
+    memory = Memory(content="updated fact in default", content_hash="new-hash")
+
+    ok, message = await storage.store(memory, store="default")
+
+    assert ok is True, message
+    assert 'store == "default"' in (queried.get("filter") or "")
     assert not isinstance(message, SemanticDedupResult)
