@@ -28,6 +28,24 @@ def _exclude_versioned_parent(content_hash: str) -> Iterator[None]:
     finally:
         _versioned_conflict_exclusion.reset(token)
 
+
+# A vector computed before the row was read, for ``store()`` to write instead
+# of embedding the content again. ``update_memory_versioned`` embeds the new
+# content ahead of its read so that no embedding call sits between the read
+# and the write (#1966).
+_precomputed_store_vector: ContextVar[Optional[List[float]]] = ContextVar(
+    "precomputed_store_vector", default=None
+)
+
+
+@contextmanager
+def _store_with_vector(embedding: List[float]) -> Iterator[None]:
+    token = _precomputed_store_vector.set(embedding)
+    try:
+        yield
+    finally:
+        _precomputed_store_vector.reset(token)
+
 # ---------------------------------------------------------------------------
 # Bounded LRU embedding cache
 # ---------------------------------------------------------------------------

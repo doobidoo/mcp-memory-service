@@ -97,6 +97,7 @@ from .shared import (
     _exclude_versioned_parent,
     _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads, _versioned_conflict_exclusion,
+    _precomputed_store_vector, _store_with_vector,
 )
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
@@ -890,14 +891,24 @@ class MilvusMemoryStorage(MemoryStorage):
     def _row_store(row: Dict[str, Any]) -> str:
         return row.get("store") or "default"
 
-    async def _fetch_live_row(self, content_hash: str) -> Optional[Tuple[Memory, str]]:
-        """Return the live memory under ``content_hash`` and the store it is in."""
+    async def _fetch_live_row(
+        self, content_hash: str, include_embedding: bool = False
+    ) -> Optional[Tuple[Memory, str]]:
+        """Return the live memory under ``content_hash`` and the store it is in.
+
+        With ``include_embedding`` the stored vector comes back on
+        ``Memory.embedding``, so a write that keeps the content can write it
+        back instead of embedding the content again (#1966).
+        """
+        fields = self._OUTPUT_FIELDS
+        if include_embedding:
+            fields = self._OUTPUT_FIELDS_WITH_VECTOR
         try:
             rows = await self._call_client(
                 "get",
                 collection_name=self.collection_name,
                 ids=[content_hash],
-                output_fields=self._row_fields(self._OUTPUT_FIELDS),
+                output_fields=self._row_fields(fields),
             )
         except Exception as exc:  # noqa: BLE001
             logger.error(
@@ -908,7 +919,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         if not rows:
             return None
-        memory = self._entity_to_memory(rows[0])
+        memory = self._entity_to_memory(rows[0], include_embedding=include_embedding)
         # Soft-deleted rows carry ``metadata.deleted_at``. Milvus can't filter a
         # JSON sub-field in the ``get`` expression, so drop the tombstone here to
         # match the other backends (sqlite_vec at mixins/retrieve.py, cloudflare
@@ -918,19 +929,61 @@ class MilvusMemoryStorage(MemoryStorage):
             return None
         return memory, self._row_store(rows[0])
 
+    async def _stored_vector(
+        self, content_hash: str
+    ) -> Tuple[bool, Optional[List[float]]]:
+        """Read the vector stored under ``content_hash`` on a legacy collection.
+
+        Returns ``(live, vector)``. ``live`` is False when the row is gone or
+        carries a soft-delete tombstone, as every other read of a memory
+        here treats it (``_fetch_live_row``). A failed read is reported as
+        live with no vector, so the caller embeds the content again, as it
+        did before #1966. Never raises.
+        """
+        try:
+            rows = await self._call_client(
+                "get",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+                output_fields=["vector", "metadata"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to read the vector of %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
+            return True, None
+        if not rows or not self._row_is_live(rows[0]):
+            return False, None
+        return True, self._coerce_vector(rows[0])
+
     async def _get_for_write(
-        self, content_hash: str, store: Optional[str]
+        self, content_hash: str, store: Optional[str], include_embedding: bool = False
     ) -> Tuple[Optional[Memory], str]:
         """Read the row a hash-addressed write will replace, with its store.
 
         Milvus ``upsert`` replaces the whole row, so the row's own store is
         written back with it and an update never moves a memory between
         stores. A legacy collection has no store to carry.
+
+        With ``include_embedding`` the row's vector is read too (on a legacy
+        collection with a second ``get``, since ``get_by_hash`` does not
+        carry it; a row tombstoned by then reads as not found), so the
+        caller can write it back without an embedding call between the read
+        and the upsert (#1966).
         """
         if not self._has_store:
-            return await self.get_by_hash(content_hash, store), "default"
+            memory = await self.get_by_hash(content_hash, store)
+            if memory is not None and include_embedding and not memory.embedding:
+                live, vector = await self._stored_vector(content_hash)
+                if not live:
+                    return None, "default"
+                memory.embedding = vector
+            return memory, "default"
         refused, confine = self._store_scope(store)
-        found = None if refused else await self._fetch_live_row(content_hash)
+        found = None if refused else await self._fetch_live_row(
+            content_hash, include_embedding=include_embedding
+        )
         if found is None:
             return None, "default"
         memory, row_store = found
@@ -1570,11 +1623,19 @@ class MilvusMemoryStorage(MemoryStorage):
                 if is_dup:
                     return False, f"Duplicate content detected (semantically similar to {hit_hash})"
 
-            try:
-                embedding = self._generate_embedding(memory.content)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Failed to embed memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(exc))
-                return False, f"Failed to generate embedding: {exc}"
+            # ``update_memory_versioned`` embeds the new content before it
+            # reads the old row, so the call does not sit between that read
+            # and the write (#1966).
+            embedding = _precomputed_store_vector.get()
+            if embedding is None:
+                try:
+                    embedding = self._generate_embedding(memory.content)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "Failed to embed memory %s: %s",
+                        _sanitize_log_value(memory.content_hash), _sanitize_log_value(exc),
+                    )
+                    return False, f"Failed to generate embedding: {exc}"
 
             entity = self._memory_to_entity(memory, embedding, store)
 
@@ -2471,7 +2532,9 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
-        existing, row_store = await self._get_for_write(content_hash, store)
+        existing, row_store = await self._get_for_write(
+            content_hash, store, include_embedding=True
+        )
         if existing is None:
             return False, f"Memory with hash {content_hash} not found"
 
@@ -2481,10 +2544,16 @@ class MilvusMemoryStorage(MemoryStorage):
 
         timestamps = self._compute_update_timestamps(existing, updates, preserve_timestamps)
 
-        try:
-            embedding = self._generate_embedding(existing.content)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Failed to generate embedding for upsert: {exc}"
+        # The content does not change here, so neither does its vector: write
+        # the stored one back, as mark_superseded_batch does, and keep the
+        # embedding call out of the read-upsert window (#1966). A row whose
+        # vector did not come back is re-embedded.
+        embedding = existing.embedding
+        if not embedding:
+            try:
+                embedding = self._generate_embedding(existing.content)
+            except Exception as exc:  # noqa: BLE001
+                return False, f"Failed to generate embedding for upsert: {exc}"
 
         entity = self._build_update_entity(existing, merged, timestamps, embedding, row_store)
 
@@ -2546,6 +2615,14 @@ class MilvusMemoryStorage(MemoryStorage):
                 self._versioned_update_lock = lock
 
             async with lock:
+                # The new content is known before the old row is read, so its
+                # vector is computed here and not between the read and the
+                # writes below (#1966).
+                try:
+                    new_embedding = self._generate_embedding(new_content)
+                except Exception as exc:  # noqa: BLE001
+                    return False, f"Failed to generate embedding: {exc}", None
+
                 existing, row_store = await self._get_for_write(content_hash, None)
                 if existing is None:
                     return False, f"Memory {content_hash} not found", None
@@ -2575,7 +2652,10 @@ class MilvusMemoryStorage(MemoryStorage):
                     memory_type=resolved_type,
                     metadata=inherited_metadata,
                 )
-                with _exclude_versioned_parent(content_hash):
+                with (
+                    _exclude_versioned_parent(content_hash),
+                    _store_with_vector(new_embedding),
+                ):
                     # The new version stays in the old row's store, as on
                     # sqlite_vec (mixins/metadata.py).
                     store_ok, store_msg = await self.store(
@@ -2678,10 +2758,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 "get",
                 collection_name=self.collection_name,
                 ids=hashes,
-                output_fields=self._row_fields(self._OUTPUT_FIELDS),
+                output_fields=self._row_fields(self._OUTPUT_FIELDS_WITH_VECTOR),
             )
             for row in (fetched or []):
-                mem = self._entity_to_memory(row)
+                mem = self._entity_to_memory(row, include_embedding=True)
                 # Skip tombstones, as _fetch_live_row does: a soft-deleted
                 # memory is "not found" here, not written back and counted.
                 if mem and mem.metadata.get("deleted_at") is None:
@@ -2721,19 +2801,30 @@ class MilvusMemoryStorage(MemoryStorage):
         if not valid_items:
             return results
 
-        # -- Step 3: Batch embedding generation --
-        contents = [existing.content or "" for (_, existing, _, _) in valid_items]
-        try:
-            if not self.embedding_model:
-                raise RuntimeError("Embedding model not loaded")
-            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
-            embeddings = [
-                e.tolist() if hasattr(e, "tolist") else list(e)
-                for e in raw_embeddings
-            ]
-        except Exception as exc:  # noqa: BLE001
-            logger.error("update_memories_batch: batch embedding failed: %s", _sanitize_log_value(exc))
-            return results
+        # -- Step 3: Vectors --
+        # The content does not change, so the stored vectors are written back
+        # (#1966); only rows whose vector did not come back are embedded, in
+        # one batch call.
+        embeddings: List[Optional[List[float]]] = [
+            existing.embedding or None for (_, existing, _, _) in valid_items
+        ]
+        missing = [i for i, e in enumerate(embeddings) if e is None]
+        if missing:
+            contents = [valid_items[i][1].content or "" for i in missing]
+            try:
+                if not self.embedding_model:
+                    raise RuntimeError("Embedding model not loaded")
+                raw_embeddings = self.embedding_model.encode(
+                    contents, convert_to_numpy=True
+                )
+                for i, e in zip(missing, raw_embeddings):
+                    embeddings[i] = e.tolist() if hasattr(e, "tolist") else list(e)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "update_memories_batch: batch embedding failed: %s",
+                    _sanitize_log_value(exc),
+                )
+                return results
 
         # -- Step 4: Build entities --
         entities: List[Dict[str, Any]] = []
