@@ -24,7 +24,7 @@ Environment:
     MCP_QUALITY_LLM_URL      base URL, default http://127.0.0.1:11437/v1
     MCP_QUALITY_LLM_MODEL    model id; prompt mode defaults to first listed model
     MCP_QUALITY_LLM_API_KEY  optional bearer token
-    MCP_QUALITY_LLM_TIMEOUT  seconds per request, default 180
+    MCP_QUALITY_LLM_TIMEOUT  wall-clock seconds per request, default 600
 
 Exit codes:
     0  reply printed on stdout
@@ -41,11 +41,15 @@ listed models are unavailable (for example, return HTTP 507).
 import json
 import os
 import re
+import signal
 import sys
 import urllib.error
 import urllib.request
 
 DEFAULT_URL = "http://127.0.0.1:11437/v1"
+# Measured on a shared omlx server: gate prompts of 3-12k tokens waited 2-11
+# minutes behind agent traffic, so 180s skipped most calls on a busy machine.
+DEFAULT_TIMEOUT = "600"
 EXIT_NO_BACKEND = 3
 THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
@@ -65,10 +69,23 @@ def _headers() -> dict:
 def _request(path: str, payload=None):
     """POST payload (or GET when payload is None) and return the parsed body."""
     data = json.dumps(payload).encode() if payload is not None else None
-    timeout = float(os.environ.get("MCP_QUALITY_LLM_TIMEOUT", "180"))
+    timeout = float(os.environ.get("MCP_QUALITY_LLM_TIMEOUT", DEFAULT_TIMEOUT))
     req = urllib.request.Request(_base_url() + path, data=data, headers=_headers())
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        return json.load(response)
+    # The urlopen timeout limits each socket read, not the request. omlx sends a
+    # whitespace keepalive while a request waits in its queue, so that limit
+    # never fired and a call could block for as long as the queue was. SIGALRM
+    # bounds the whole request.
+    def on_deadline(signum, frame):
+        raise TimeoutError(f"no reply within {timeout:g}s")
+
+    previous = signal.signal(signal.SIGALRM, on_deadline)
+    signal.setitimer(signal.ITIMER_REAL, timeout)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return json.load(response)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def model_candidates() -> list[str]:
