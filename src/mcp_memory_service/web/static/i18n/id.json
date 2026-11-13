@@ -459,6 +459,8 @@
   "manage.tags.column.actions": "Aksi",
   "manage.tags.rename": "Ganti Nama",
   "manage.tags.delete": "Hapus",
+  "manage.tags.filter.minCount": "Tampilkan tag yang digunakan setidaknya N kali",
+  "manage.tags.filter.showing": "Menampilkan {count} dari {extra} tag",
   "search.results.title": "Hasil Pencarian",
   "search.results.count": "{count} hasil",
   "search.results.count.one": "{count} hasil",

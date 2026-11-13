@@ -762,6 +762,11 @@
                     <!-- Tag Management Section -->
                     <section class="manage-section">
                         <h2 data-i18n="manage.tags.title">Tag Management</h2>
+                        <div id="tagFilterControls" class="tag-filter-controls">
+                            <label for="tagMinCountInput" data-i18n="manage.tags.filter.minCount">Show tags used at least N times</label>
+                            <input type="number" id="tagMinCountInput" class="form-control" min="1" value="2">
+                            <p id="tagFilterShowing" class="tag-filter-showing" data-i18n="manage.tags.filter.showing" data-count="0" data-extra="0"></p>
+                        </div>
                         <div id="tagManagementContainer">
                             <div class="loading-spinner"></div>
                             <p data-i18n="manage.tags.loading">Loading tag statistics...</p>

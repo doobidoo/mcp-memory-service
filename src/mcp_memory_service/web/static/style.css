@@ -3461,6 +3461,32 @@ body.dark-mode .growth-dot {
 }
 
 /* Tag Management Styles */
+.tag-filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.tag-filter-controls label {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--neutral-700);
+}
+
+.tag-filter-controls input[type="number"] {
+    width: 80px;
+    padding: var(--space-1) var(--space-2);
+}
+
+.tag-filter-showing {
+    font-size: var(--text-sm);
+    color: var(--neutral-600);
+    margin: 0;
+}
+
 /* On phones the tag table scrolls inside its section instead of widening the page */
 #tagManagementContainer {
     overflow-x: auto;
@@ -3952,6 +3978,14 @@ body.dark-mode .tag-stats-table .tag-name {
 
 body.dark-mode .tag-stats-table .tag-count {
     color: var(--neutral-900) !important;
+}
+
+body.dark-mode .tag-filter-controls label {
+    color: var(--neutral-300);
+}
+
+body.dark-mode .tag-filter-showing {
+    color: var(--neutral-400);
 }
 
 /* Tag action buttons dark mode */

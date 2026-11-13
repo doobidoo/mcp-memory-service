@@ -459,6 +459,8 @@
   "manage.tags.column.actions": "Действия",
   "manage.tags.rename": "Переименовать",
   "manage.tags.delete": "Удалить",
+  "manage.tags.filter.minCount": "Показывать теги, использованные не менее N раз",
+  "manage.tags.filter.showing": "Отображаются {count} из {extra} тегов",
   "search.results.title": "Результаты поиска",
   "search.results.count.one": "Найдено: {count}",
   "search.results.count": "Найдено: {count}",

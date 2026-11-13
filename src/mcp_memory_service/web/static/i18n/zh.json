@@ -527,6 +527,8 @@
   "manage.tags.column.actions": "操作",
   "manage.tags.rename": "重命名",
   "manage.tags.delete": "删除",
+  "manage.tags.filter.minCount": "显示至少使用 N 次的标签",
+  "manage.tags.filter.showing": "显示 {count} / {extra} 个标签",
   "search.results.title": "搜索结果",
   "search.results.count": "{count} 条结果",
   "search.results.count.one": "{count} 条结果",

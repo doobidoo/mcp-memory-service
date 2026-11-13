@@ -459,6 +459,8 @@
   "manage.tags.column.actions": "Ações",
   "manage.tags.rename": "Renomear",
   "manage.tags.delete": "Excluir",
+  "manage.tags.filter.minCount": "Mostrar tags usadas pelo menos N vezes",
+  "manage.tags.filter.showing": "Mostrando {count} de {extra} tags",
   "search.results.title": "Resultados da pesquisa",
   "search.results.count": "{count} resultados",
   "search.results.count.one": "{count} resultado",

@@ -837,6 +837,11 @@ class MemoryDashboard {
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
         document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
         document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
+        document.getElementById('tagMinCountInput')?.addEventListener('input', () => {
+            if (this.tagManagementStats) {
+                this.renderTagManagementTable(this.tagManagementStats);
+            }
+        });
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
@@ -5751,8 +5756,35 @@ class MemoryDashboard {
      * Render tag management table
      */
     renderTagManagementTable(data) {
+        this.tagManagementStats = data;
         const container = document.getElementById('tagManagementContainer');
         if (!container) return;
+
+        const allTags = data && Array.isArray(data.tags) ? data.tags : [];
+        const minCountInput = document.getElementById('tagMinCountInput');
+        const minCount = minCountInput ? Math.max(1, parseInt(minCountInput.value, 10) || 1) : 2;
+
+        const filteredTags = allTags.filter(t => (t.count ?? 0) >= minCount);
+
+        const showingEl = document.getElementById('tagFilterShowing');
+        if (showingEl && showingEl.dataset) {
+            if (typeof this.setCountedText === 'function') {
+                this.setCountedText(
+                    showingEl,
+                    'manage.tags.filter.showing',
+                    'Showing {count} of {extra} tags',
+                    filteredTags.length,
+                    allTags.length
+                );
+            } else {
+                showingEl.dataset.i18n = 'manage.tags.filter.showing';
+                showingEl.dataset.count = String(filteredTags.length);
+                showingEl.dataset.extra = String(allTags.length);
+                showingEl.textContent = typeof this.t === 'function'
+                    ? this.t('manage.tags.filter.showing', `Showing ${filteredTags.length} of ${allTags.length} tags`, { count: filteredTags.length, extra: allTags.length })
+                    : `Showing ${filteredTags.length} of ${allTags.length} tags`;
+            }
+        }
 
         let html = '<table class="tag-stats-table">';
         html += '<thead><tr>';
@@ -5761,7 +5793,7 @@ class MemoryDashboard {
         html += `<th data-i18n="manage.tags.column.actions">${this.escapeHtml(this.t('manage.tags.column.actions', 'Actions'))}</th>`;
         html += '</tr></thead><tbody>';
 
-        data.tags.forEach(tagStat => {
+        filteredTags.forEach(tagStat => {
         html += '<tr>';
         html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
         html += `<td class="tag-count">${tagStat.count}</td>`;

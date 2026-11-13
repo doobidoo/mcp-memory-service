@@ -459,6 +459,8 @@
   "manage.tags.column.actions": "कार्रवाइयाँ",
   "manage.tags.rename": "नाम बदलें",
   "manage.tags.delete": "हटाएँ",
+  "manage.tags.filter.minCount": "कम से कम N बार उपयोग किए गए टैग दिखाएं",
+  "manage.tags.filter.showing": "{extra} में से {count} टैग दिखाए जा रहे हैं",
   "search.results.title": "खोज परिणाम",
   "search.results.count": "{count} परिणाम",
   "search.results.count.one": "{count} परिणाम",
