@@ -256,3 +256,43 @@ class TestTransportRecordsScope:
         scope = {"headers": [(b"x-api-key", b"the-key")]}
         assert await startup_orchestrator._credentials_authenticate(scope) is True
         assert "write" in scope["mcp_auth_scope"].split()
+
+
+async def _get_named_prompt(server, scope, name, arguments=None):
+    token = _as_caller(scope)
+    try:
+        handler = server.server.request_handlers[types.GetPromptRequest]
+        req = types.GetPromptRequest(
+            method="prompts/get",
+            params=types.GetPromptRequestParams(name=name, arguments=arguments or {}),
+        )
+        return await handler(req)
+    finally:
+        request_ctx.reset(token)
+
+
+class TestPromptStoreScope:
+    """GHSA-wpp8-2qcw-x4pc: prompts read store-less, so a store-restricted
+    token must be refused before any prompt helper runs."""
+
+    PROMPTS = ["memory_review", "memory_analysis", "knowledge_export", "memory_cleanup", "learning_session"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", PROMPTS)
+    async def test_store_restricted_token_is_refused(self, server, name):
+        with pytest.raises(PermissionError, match="insufficient_scope"):
+            await _get_named_prompt(server, "read:projectB", name, {"filter": "notes,secrets"})
+        server.storage.search_by_tag.assert_not_called()
+        server.storage.store.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_global_read_token_reaches_tag_search(self, server):
+        server.storage.search_by_tag.return_value = []
+        await _get_named_prompt(server, "read", "knowledge_export", {"filter": "notes,secrets"})
+        server.storage.search_by_tag.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_local_server_keeps_prompts(self, server):
+        server.storage.search_by_tag.return_value = []
+        await _get_named_prompt(server, None, "knowledge_export", {"filter": "notes,secrets"})
+        server.storage.search_by_tag.assert_called_once()

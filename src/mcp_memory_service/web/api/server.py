@@ -61,11 +61,12 @@ class ServerStatusResponse(BaseModel):
     version: str
     uptime_seconds: float
     uptime_formatted: str
-    pid: int
-    platform: str
-    platform_version: str
-    python_version: str
     timestamp: str
+    # Host details: admin scope only (GHSA-hm53-3f6c-cm5h), None otherwise.
+    pid: Optional[int] = None
+    platform: Optional[str] = None
+    platform_version: Optional[str] = None
+    python_version: Optional[str] = None
 
 
 class VersionCheckResponse(BaseModel):
@@ -275,20 +276,27 @@ async def get_server_status(
     """
     Get server status information.
 
-    Returns current version, uptime, process ID, platform details, and Python version.
-    Requires read access.
+    Returns current version and uptime. Requires read access. Process ID,
+    platform, kernel and Python version are host fingerprinting data and are
+    returned to admin callers only (GHSA-hm53-3f6c-cm5h), matching the policy
+    of /api/health/detailed (GHSA-73hc-m4hx-79pj).
     """
     uptime = time.time() - _startup_time
+    host = {}
+    if user.has_scope("admin"):
+        host = dict(
+            pid=os.getpid(),
+            platform=platform.system(),
+            platform_version=platform.version(),
+            python_version=platform.python_version(),
+        )
 
     return ServerStatusResponse(
         version=__version__,
         uptime_seconds=uptime,
         uptime_formatted=_format_uptime(uptime),
-        pid=os.getpid(),
-        platform=platform.system(),
-        platform_version=platform.version(),
-        python_version=platform.python_version(),
-        timestamp=datetime.now(timezone.utc).isoformat()
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        **host,
     )
 
 

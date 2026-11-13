@@ -1231,6 +1231,17 @@ class MemoryServer:
             """Handle prompt execution with provided arguments."""
             await self._ensure_storage_initialized()
 
+            # Prompts read through store-less helpers (search_by_tag spans every
+            # store, the rest read `default`), so a store-restricted caller (a
+            # read:<store> token without global `read`) can't be confined here
+            # and is refused, as in handle_read_resource (GHSA-wpp8-2qcw-x4pc).
+            _scope = self._caller_scope_str()
+            if _scope is not None and "read" not in _scope.split():
+                raise PermissionError(
+                    "insufficient_scope: MCP prompts require a global 'read' scope; "
+                    "a store-restricted token cannot read cross-store prompts"
+                )
+
             # Dispatch to specific prompt handler
             if name == "memory_review":
                 messages = await _prompt_memory_review(self, arguments)
