@@ -251,10 +251,10 @@ Keep everything inside a new folder named mcp-memory-trial in the current direct
 2. In mcp-memory-trial, create a virtual environment named .venv and install into it:
    pip install "mcp-memory-service[sqlite]"
 3. Run the health check with the database inside the folder. TRIAL stands for the absolute path of mcp-memory-trial:
-   MCP_MEMORY_STORAGE_BACKEND=sqlite_vec MCP_MEMORY_BASE_DIR=TRIAL/data TRIAL/.venv/bin/memory status --deep
+   MCP_MEMORY_STORAGE_BACKEND=sqlite_vec MCP_MEMORY_BASE_DIR=TRIAL/data MCP_MEMORY_SQLITE_PATH=TRIAL/data/sqlite_vec.db TRIAL/.venv/bin/memory status --deep
    The first run downloads the embedding model, about 170 MB, to ~/.cache/mcp_memory. Show me the output. It has to contain "Backend class: ONNXEmbeddingModel" and "Service is healthy". If it does not, stop and show me what it says.
 4. From inside mcp-memory-trial, register the server for this folder only:
-   claude mcp add --scope project memory-trial -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec -e MCP_MEMORY_BASE_DIR=TRIAL/data -- TRIAL/.venv/bin/memory server
+   claude mcp add --scope project memory-trial -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec -e MCP_MEMORY_BASE_DIR=TRIAL/data -e MCP_MEMORY_SQLITE_PATH=TRIAL/data/sqlite_vec.db -- TRIAL/.venv/bin/memory server
 5. List what you created. Then tell me to start a new Claude Code session inside mcp-memory-trial, approve the memory-trial server, and try these two messages:
    Use memory-trial to remember that our staging database is Postgres 16 behind PgBouncer.
    Use memory-trial: what do you know about our staging setup?
