@@ -11,7 +11,10 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/pt-br/">
 <meta property="og:locale" content="pt_BR">
+<meta property="og:site_name" content="MCP Memory Service">
 <meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Memória persistente para assistentes de IA | MCP Memory Service">
 <meta name="twitter:description" content="Guarde e recupere o conhecimento dos seus projetos no Claude Code e em outros assistentes de IA. Hospede o MCP Memory Service você mesmo: busca semântica, MCP e API REST.">
@@ -27,7 +30,27 @@
 <link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
 <link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
 <link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": "https://mcpmemory.services/pt-br/#page",
+  "url": "https://mcpmemory.services/pt-br/",
+  "name": "Memória persistente para assistentes de IA | MCP Memory Service",
+  "description": "Guarde e recupere o conhecimento dos seus projetos no Claude Code e em outros assistentes de IA. Hospede o MCP Memory Service você mesmo: busca semântica, MCP e API REST.",
+  "inLanguage": "pt-br",
+  "isPartOf": {
+    "@id": "https://mcpmemory.services/#website"
+  },
+  "about": {
+    "@id": "https://mcpmemory.services/#software"
+  }
+}
+</script>
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/fonts/fonts.css">
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/localized.css">
@@ -37,7 +60,7 @@
 <div class="band">
   <div class="wrap">
     <nav class="nav" aria-label="Navegação principal">
-      <a class="brand" href="/pt-br/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a class="brand" href="/pt-br/"><img src="/brain-icon.png" width="28" height="28" alt="">mcp-memory-service</a>
       <a href="#install">Instalação</a>
     </nav>
     <nav class="language-switcher" aria-label="Escolher idioma"><a href="/" lang="en" hreflang="en">English</a>
@@ -56,7 +79,7 @@
       <h1>Memória persistente para os seus assistentes de IA</h1>
       <p class="intro">As decisões, as preferências e as soluções de um projeto também deveriam estar à mão na próxima sessão. O MCP Memory Service guarda esse conhecimento no seu próprio sistema, para que o Claude Code e outros assistentes de IA possam consultá-lo.</p>
       <div class="btns">
-        <a class="btn" href="#install">Começar a configuração</a>
+        <a class="btn btn-primary" href="#install">Começar a configuração</a>
         <a href="https://github.com/doobidoo/mcp-memory-service">Ver o projeto no GitHub</a>
       </div>
     </div>
@@ -98,7 +121,7 @@
     </div>
   </section>
   <section class="sec">
-    <div class="wrap locale-faq">
+    <div class="wrap faq">
       <h2>Perguntas frequentes</h2>
       <details><summary>Todas as conversas são guardadas automaticamente?</summary><p>Conectar o serviço por MCP não guarda automaticamente todas as conversas: o seu cliente precisa usar as ferramentas. Os hooks opcionais e os recursos de importação de sessões têm configuração própria.</p></details>
       <details><summary>As memórias ficam no meu ambiente?</summary><p>Na configuração local com SQLite, as memórias ficam guardadas no seu sistema e os embeddings são calculados localmente. Os dados que o seu cliente de IA envia ao provedor do modelo dependem do próprio cliente. O armazenamento no Cloudflare e a sincronização são opções configuradas separadamente.</p></details>
