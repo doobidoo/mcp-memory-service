@@ -175,8 +175,12 @@ def _find_best_split_point(text: str, max_length: int) -> int:
         return pos + 1
 
     # Priority 3: Sentence ending
-    sentence_pattern = r'[.!?](?=\s|$)'
-    matches = list(re.finditer(sentence_pattern, text_to_search))
+    sentence_pattern = r'[.!?](?=\s)'
+    matches = [
+        match
+        for match in re.finditer(sentence_pattern, text[:max_length + 1])
+        if match.end() <= max_length
+    ]
     if matches:
         return matches[-1].end()
 

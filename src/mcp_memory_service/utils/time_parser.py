@@ -78,6 +78,28 @@ PATTERNS = {
 }
 
 _MAX_TIME_QUERY_LEN = 500  # guard against ReDoS on user-supplied input
+_RANGE_ENDPOINT_PATTERNS = (
+    "relative_days", "relative_weeks", "relative_months", "relative_years",
+    "last_n_periods", "last_period", "this_period", "month_name", "recent",
+    "specific_date", "full_date", "named_period", "half_year", "quarter",
+)
+_RANGE_DAYPART_ENDPOINT = re.compile(
+    rf"(?:{PATTERNS['relative_days'].pattern})\s+(?:in\s+the\s+)?"
+    rf"(?:{PATTERNS['time_of_day'].pattern})|"
+    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
+)
+_RANGE_ENDPOINT = "|".join(
+    f"(?:{PATTERNS[name].pattern})" for name in _RANGE_ENDPOINT_PATTERNS
+)
+_RANGE_MONTH_YEAR = re.compile(rf"{PATTERNS['month_name'].pattern}\s+(\d{{4}})")
+PATTERNS["from_to"] = re.compile(
+    rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
+    rf"({_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)"
+    # Sentence punctuation may follow a complete endpoint; only "\s|$" made
+    # "march 2024." fall back to "march" and dropped "2024-03-31." entirely.
+    rf"(?=[\s.,;:!?]|$)"
+)
+
 
 def _resolve_yearless_date(
     month: int, day: int, today: date, anchor_year: Optional[int] = None
@@ -157,6 +179,21 @@ def _anchor_yearless_range(
     )
 
 
+def _parse_range_side(expr: str) -> Tuple[Optional[float], Optional[float]]:
+    """Parse one end of a ``from X to Y`` range.
+
+    ``now`` means today, and a month name with a year ("march 2024") keeps
+    that year instead of resolving to the most recent such month.
+    """
+    expr = expr.strip()
+    if expr == "now":
+        expr = "today"
+    month_year = _RANGE_MONTH_YEAR.fullmatch(expr)
+    if month_year:
+        return get_month_range(month_year.group(1), int(month_year.group(2)))
+    return parse_time_expression(expr)
+
+
 def _calculate_season_date_range(
     period: str,
     season_info: Dict[str, int],
@@ -231,7 +268,24 @@ def parse_time_expression(
                 start_expr, end_expr, start_ts, end_ts
             )
             return start_ts, end_ts
-        
+
+        # Documented recall example. Ends that are not times fall through
+        # ("from Alice to Bob yesterday" is still yesterday).
+        from_to_match = PATTERNS["from_to"].search(query)
+        if from_to_match:
+            start_expr = from_to_match.group(1)
+            end_expr = from_to_match.group(2)
+            start_ts, _ = _parse_range_side(start_expr)
+            _, end_ts = _parse_range_side(end_expr)
+            if start_ts is not None and end_ts is not None:
+                start_ts, end_ts = _anchor_yearless_range(
+                    start_expr, end_expr, start_ts, end_ts
+                )
+                # An inverted window ("from march to january") falls through
+                # to the single-expression parse, as before this pattern.
+                if start_ts <= end_ts:
+                    return start_ts, end_ts
+
         # Check for full ISO dates (YYYY-MM-DD) FIRST
         full_date_match = PATTERNS["full_date"].search(query)
         if full_date_match:
@@ -619,8 +673,8 @@ def get_this_period_range(period: str) -> Tuple[float, float]:
         
     return start_dt.timestamp(), end_dt.timestamp()
 
-def get_month_range(month_name: str) -> Tuple[float, float]:
-    """Get timestamp range for a named month."""
+def get_month_range(month_name: str, year: Optional[int] = None) -> Tuple[float, float]:
+    """Get timestamp range for a named month (the most recent one unless ``year`` is given)."""
     # Map month name to number
     month_map = {
         "january": 1, "february": 2, "march": 3, "april": 4,
@@ -630,11 +684,12 @@ def get_month_range(month_name: str) -> Tuple[float, float]:
     
     if month_name in month_map:
         month_num = month_map[month_name]
-        current_year = datetime.now().year
-        
-        # If the month is in the future for this year, use last year
-        current_month = datetime.now().month
-        year = current_year if month_num <= current_month else current_year - 1
+        if year is None:
+            current_year = datetime.now().year
+
+            # If the month is in the future for this year, use last year
+            current_month = datetime.now().month
+            year = current_year if month_num <= current_month else current_year - 1
         
         # Get first and last day of the month
         first_day = date(year, month_num, 1)
