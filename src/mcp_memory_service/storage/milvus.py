@@ -1593,16 +1593,7 @@ class MilvusMemoryStorage(MemoryStorage):
             filter_expr = self._semantic_dedup_filter(cutoff, store)
             if filter_expr is None:
                 return SemanticMatch(False, None)
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=filter_expr,
-                output_fields=self._row_fields(
-                    ("id", "vector", "created_at", "content", "metadata")
-                ),
-                limit=50,
-                consistency_level="Strong",
-            )
+            rows = await self._dedup_candidate_rows(filter_expr, exhaustive=current_only)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Semantic dedup query failed: %s", _sanitize_log_value(exc))
             return False, None
@@ -1620,6 +1611,67 @@ class MilvusMemoryStorage(MemoryStorage):
             exclude_original_hash=exclude_original_hash,
             store=store,
         )
+
+    _DEDUP_SAMPLE_LIMIT = 50
+
+    async def _dedup_candidate_rows(self, filter_expr: str, exhaustive: bool) -> List[Dict[str, Any]]:
+        """Rows inside the dedup window that may match the new write.
+
+        Reject mode keeps the historical 50-row sample: any hit over the
+        threshold refuses the write. Supersede mode must pick the closest
+        live memory, and the query neither ranks by similarity nor skips
+        deleted or superseded rows, so it reads every row in the window.
+        """
+        fields = self._row_fields(("id", "vector", "created_at", "content", "metadata"))
+        if not exhaustive:
+            return await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=filter_expr,
+                output_fields=fields,
+                limit=self._DEDUP_SAMPLE_LIMIT,
+                consistency_level="Strong",
+            )
+        return await self._scan_dedup_rows(filter_expr, fields)
+
+    async def _scan_dedup_rows(self, filter_expr: str, fields: List[str]) -> List[Dict[str, Any]]:
+        """Every row matching ``filter_expr`` via ``QueryIterator``."""
+        async with self._write_lock:
+            if self.client is None:
+                raise RuntimeError("MilvusMemoryStorage was not initialized")
+            return await self._scan_with_lite_retry(
+                self._drain_dedup_rows, filter_expr, fields,
+            )
+
+    def _drain_dedup_rows(self, filter_expr: str, fields: List[str]) -> List[Dict[str, Any]]:
+        """Sync drain of the dedup window, deduplicated by ``id``."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr,
+            output_fields=list(fields),
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        seen_ids: set = set()
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001 — teardown must not raise
+                pass
+        return rows
 
     @staticmethod
     def _row_cosine(row: Dict[str, Any], embedding: List[float], norm_embedding: float) -> Optional[float]:

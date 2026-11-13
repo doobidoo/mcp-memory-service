@@ -199,6 +199,12 @@ def _dedup_storage(mode: str) -> MilvusMemoryStorage:
         return []
 
     storage._detect_conflicts = _no_conflicts
+
+    async def _scan(filter_expr, fields):
+        # Supersede mode reads the whole window; route it through the test's query mock.
+        return await storage._call_client("query", filter=filter_expr, output_fields=fields)
+
+    storage._scan_dedup_rows = _scan
     return storage
 
 
@@ -325,3 +331,113 @@ async def test_store_does_not_supersede_a_memory_in_another_store():
     assert ok is True, message
     assert 'store == "default"' in (queried.get("filter") or "")
     assert not isinstance(message, SemanticDedupResult)
+
+
+def _live_row(row_id: str, cosine: float, **metadata) -> dict:
+    return {
+        "id": row_id,
+        "vector": _vector_at(cosine),
+        "content": f"fact {row_id}",
+        "metadata": json.dumps(metadata),
+        "created_at": time.time(),
+    }
+
+
+@pytest.mark.asyncio
+async def test_supersede_reads_the_whole_window_not_a_50_row_sample():
+    """The closest live match past the first 50 rows still wins."""
+    storage = _dedup_storage("supersede")
+    filler = [_live_row(f"dead-{i}", 0.99, deleted_at=1.0) for i in range(40)]
+    filler += [_live_row(f"old-{i}", 0.99, superseded_by="x") for i in range(20)]
+    weak = _live_row("weak", 0.86)
+    best = _live_row("best", 0.93)
+    rows = filler + [weak] + [_live_row(f"far-{i}", 0.10) for i in range(30)] + [best]
+    seen = {}
+
+    async def _scan(filter_expr, fields):
+        seen["scanned"] = True
+        return rows
+
+    async def _no_sample(*_args, **_kwargs):
+        raise AssertionError("supersede mode must not use the 50-row sample")
+
+    storage._scan_dedup_rows = _scan
+    storage._call_client = _no_sample
+
+    match = await storage._check_semantic_duplicate(
+        "new fact", time_window_hours=24, similarity_threshold=0.85, current_only=True,
+    )
+
+    assert seen.get("scanned") is True
+    assert match[0] is True
+    assert match[1] == "best"
+
+
+@pytest.mark.asyncio
+async def test_supersede_sees_a_near_identical_match_beyond_the_sample():
+    storage = _dedup_storage("supersede")
+    rows = [_live_row(f"far-{i}", 0.10) for i in range(80)] + [_live_row("twin", 0.99)]
+
+    async def _scan(filter_expr, fields):
+        return rows
+
+    storage._scan_dedup_rows = _scan
+
+    match = await storage._check_semantic_duplicate(
+        "new fact", time_window_hours=24, similarity_threshold=0.85, current_only=True,
+    )
+
+    assert match[1] == "twin"
+    assert match.similarity >= 0.97
+
+
+@pytest.mark.asyncio
+async def test_reject_mode_keeps_the_bounded_sample():
+    storage = _dedup_storage("reject")
+    calls = {}
+
+    async def _call(method_name, *_args, **kwargs):
+        calls[method_name] = kwargs
+        return []
+
+    async def _no_scan(*_args, **_kwargs):
+        raise AssertionError("reject mode should not scan the whole window")
+
+    storage._call_client = _call
+    storage._scan_dedup_rows = _no_scan
+
+    await storage._check_semantic_duplicate(
+        "new fact", time_window_hours=24, similarity_threshold=0.85, current_only=False,
+    )
+
+    assert calls["query"]["limit"] == 50
+
+
+def test_dedup_drain_reads_every_batch_once():
+    storage = _storage()
+    storage.collection_name = "unit"
+
+    class _Iter:
+        def __init__(self):
+            self.batches = [[{"id": "a"}, {"id": "b"}], [{"id": "c"}], [{"id": "c"}], []]
+            self.closed = False
+
+        def next(self):
+            return self.batches.pop(0)
+
+        def close(self):
+            self.closed = True
+
+    it = _Iter()
+
+    class _Client:
+        def query_iterator(self, **kwargs):
+            assert kwargs["filter"] == "created_at >= 1"
+            assert "vector" in kwargs["output_fields"]
+            return it
+
+    storage.client = _Client()
+    rows = storage._drain_dedup_rows("created_at >= 1", ["id", "vector"])
+
+    assert [r["id"] for r in rows] == ["a", "b", "c"]
+    assert it.closed is True
