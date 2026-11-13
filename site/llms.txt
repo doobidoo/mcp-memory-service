@@ -1,0 +1,26 @@
+# MCP Memory Service
+
+> Open-source, self-hosted memory service for AI agents. It stores memories, finds them again by meaning (semantic search) and links them in a knowledge graph. Clients reach it over MCP (stdio or Remote MCP with OAuth 2.1), a REST API or a CLI. License: Apache 2.0.
+
+Install with `pip install "mcp-memory-service[sqlite]"` on Python 3.11 or newer. The default backend is SQLite-vec with a local ONNX embedding model; Cloudflare, hybrid sync and Milvus are optional backends. The service returns stored memories; it is not a language model. Connecting it does not record conversations by itself: the client calls the store and recall tools.
+
+## Site
+
+- [Home](https://mcpmemory.services/): what the service is, how clients connect, comparison, questions
+- [Live demo](https://mcpmemory.services/demo/): semantic search running in the browser with sqlite-vec and an ONNX model
+- [Architecture diagram](https://mcpmemory.services/architecture/): the three ways into the service, with source references
+- [Tutorial: persistent memory for claude.ai](https://mcpmemory.services/blog/remote-mcp-tutorial): Remote MCP with OAuth, step by step
+
+## Documentation
+
+- [README](https://github.com/doobidoo/mcp-memory-service/blob/main/README.md): overview, installation, supported clients
+- [Setup guide](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/setup-guide.md): installation and client configuration
+- [Integrations](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/integrations.md): supported clients and frameworks
+- [Benchmarks](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md): LongMemEval results, conditions and the commands to reproduce them
+- [Wiki](https://github.com/doobidoo/mcp-memory-service/wiki): guides and troubleshooting
+
+## Optional
+
+- [Deployment landscape](https://mcpmemory.services/deployment/): where releases and the site are built and published
+- [Source code](https://github.com/doobidoo/mcp-memory-service)
+- [PyPI package](https://pypi.org/project/mcp-memory-service/)

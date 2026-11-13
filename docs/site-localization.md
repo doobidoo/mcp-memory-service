@@ -58,7 +58,9 @@ To update or add a language:
 
 4. Commit the catalog and generated HTML, root-page language links and sitemap.
    The generator updates reciprocal `hreflang` links automatically. Each page has
-   its own canonical URL; the existing English root is the default language.
+   its own canonical URL; the existing English root is the default language. It
+   also writes each page's JSON-LD block from the catalog's `title` and
+   `description`, so there is nothing to translate twice.
 5. Check narrow and wide screens, light and dark modes, keyboard navigation,
    installation commands, local asset links and readable accented characters.
 6. Have a fluent speaker review the complete page before publication. Record the

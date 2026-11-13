@@ -11,7 +11,10 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/ko/">
 <meta property="og:locale" content="ko_KR">
+<meta property="og:site_name" content="MCP Memory Service">
 <meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="AI 어시스턴트를 위한 영구 메모리 | MCP Memory Service">
 <meta name="twitter:description" content="Claude Code와 다른 AI 어시스턴트에서 프로젝트 지식을 저장하고 다시 찾아보세요. MCP Memory Service를 직접 호스팅하여 의미 기반 검색, MCP, REST API를 사용할 수 있습니다.">
@@ -27,7 +30,27 @@
 <link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
 <link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
 <link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": "https://mcpmemory.services/ko/#page",
+  "url": "https://mcpmemory.services/ko/",
+  "name": "AI 어시스턴트를 위한 영구 메모리 | MCP Memory Service",
+  "description": "Claude Code와 다른 AI 어시스턴트에서 프로젝트 지식을 저장하고 다시 찾아보세요. MCP Memory Service를 직접 호스팅하여 의미 기반 검색, MCP, REST API를 사용할 수 있습니다.",
+  "inLanguage": "ko",
+  "isPartOf": {
+    "@id": "https://mcpmemory.services/#website"
+  },
+  "about": {
+    "@id": "https://mcpmemory.services/#software"
+  }
+}
+</script>
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/fonts/fonts.css">
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/localized.css">
@@ -37,7 +60,7 @@
 <div class="band">
   <div class="wrap">
     <nav class="nav" aria-label="주요 메뉴">
-      <a class="brand" href="/ko/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a class="brand" href="/ko/"><img src="/brain-icon.png" width="28" height="28" alt="">mcp-memory-service</a>
       <a href="#install">설치</a>
     </nav>
     <nav class="language-switcher" aria-label="언어 선택"><a href="/" lang="en" hreflang="en">English</a>
@@ -56,7 +79,7 @@
       <h1>AI 어시스턴트를 위한 기억력</h1>
       <p class="intro">프로젝트의 결정 사항, 설정, 해결 방법을 다음 세션에서도 활용하세요. MCP Memory Service는 이 지식을 사용자의 시스템에 저장하여 Claude Code와 다른 AI 어시스턴트가 검색할 수 있게 합니다.</p>
       <div class="btns">
-        <a class="btn" href="#install">설정 시작하기</a>
+        <a class="btn btn-primary" href="#install">설정 시작하기</a>
         <a href="https://github.com/doobidoo/mcp-memory-service">GitHub에서 프로젝트 보기</a>
       </div>
     </div>
@@ -98,7 +121,7 @@
     </div>
   </section>
   <section class="sec">
-    <div class="wrap locale-faq">
+    <div class="wrap faq">
       <h2>자주 묻는 질문</h2>
       <details><summary>모든 대화가 자동으로 저장되나요?</summary><p>MCP로 연결하는 것만으로 모든 대화가 자동 저장되지는 않습니다. 클라이언트가 메모리 도구를 사용해야 합니다. 선택 사항인 훅과 세션 가져오기 기능은 별도로 설정해야 합니다.</p></details>
       <details><summary>메모리는 제 시스템에 보관되나요?</summary><p>로컬 SQLite 구성에서는 메모리가 사용자의 시스템에 저장되고 임베딩도 로컬에서 계산됩니다. AI 클라이언트가 모델 제공업체에 어떤 데이터를 보내는지는 해당 클라이언트에 따라 다릅니다. Cloudflare 저장소와 동기화는 별도로 설정하는 선택 사항입니다.</p></details>

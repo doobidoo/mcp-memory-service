@@ -12,7 +12,7 @@
   .brand img{width:56px;height:56px;border-radius:13px}
   h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-stretch:90%;font-size:88px;line-height:1;letter-spacing:-.025em;margin-bottom:28px}
   p{font-size:31px;line-height:1.35;color:#b8c8d6;max-width:30ch;margin-bottom:40px}
-  .cmd{align-self:flex-start;font-family:'JetBrains Mono',monospace;font-size:25px;color:#e9f2f7;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);padding:13px 22px;border-radius:4px}
+  .cmd{align-self:flex-start;font-family:'JetBrains Mono',monospace;font-size:21px;white-space:nowrap;color:#e9f2f7;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);padding:13px 22px;border-radius:4px}
   .cmd b{color:#19c2da;font-weight:500}
 </style>
 <div class="glow"></div>
@@ -21,7 +21,7 @@
   <div class="brand"><img src="/brain-icon.png" alt="">mcp-memory-service</div>
   <h1>Memory for<br>AI agents</h1>
   <p>One self-hosted service your agents search by meaning.</p>
-  <div class="cmd"><b>$</b> pip install mcp-memory-service</div>
+  <div class="cmd"><b>$</b> pip install "mcp-memory-service[sqlite]"</div>
 </div>
 <script>
 // Fixed seed so the picture is the same on every run.

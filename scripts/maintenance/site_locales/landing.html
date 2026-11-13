@@ -11,14 +11,21 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="$canonical">
 <meta property="og:locale" content="$og_locale">
+<meta property="og:site_name" content="MCP Memory Service">
 <meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="$title">
 <meta name="twitter:description" content="$description">
 <meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
 <link rel="canonical" href="$canonical">
 $alternates
+$structured_data
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/fonts/fonts.css">
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/localized.css">
@@ -28,7 +35,7 @@ $alternates
 <div class="band">
   <div class="wrap">
     <nav class="nav" aria-label="$navigation">
-      <a class="brand" href="/$locale/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a class="brand" href="/$locale/"><img src="/brain-icon.png" width="28" height="28" alt="">mcp-memory-service</a>
       <a href="#install">$install_link</a>
     </nav>
     <nav class="language-switcher" aria-label="$languages">$language_links</nav>
@@ -39,7 +46,7 @@ $alternates
       <h1>$headline</h1>
       <p class="intro">$intro</p>
       <div class="btns">
-        <a class="btn" href="#install">$start</a>
+        <a class="btn btn-primary" href="#install">$start</a>
         <a href="https://github.com/doobidoo/mcp-memory-service">$github_link</a>
       </div>
     </div>
@@ -81,7 +88,7 @@ $alternates
     </div>
   </section>
   <section class="sec">
-    <div class="wrap locale-faq">
+    <div class="wrap faq">
       <h2>$faq_heading</h2>
       <details><summary>$faq_1_question</summary><p>$faq_1_answer</p></details>
       <details><summary>$faq_2_question</summary><p>$faq_2_answer</p></details>
