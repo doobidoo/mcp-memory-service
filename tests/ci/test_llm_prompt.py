@@ -253,3 +253,45 @@ def test_rerun_on_unchanged_files_reuses_cached_replies(
     assert second.returncode == 0, second.stdout + second.stderr
     assert calls_after_first > 0
     assert _GateHandler.analysis_calls == calls_after_first
+
+
+def _cache_files(path: Path) -> list[Path]:
+    return [p for p in (path / ".git" / "quality-gate-cache").glob("*") if p.is_file()]
+
+
+def test_empty_cache_entry_is_not_a_clean_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A half-written entry must not stand in for an answer."""
+    _staged_repo(tmp_path)
+    monkeypatch.setattr(_GateHandler, "mode", "clean")
+    server, url = _serve(_GateHandler)
+    try:
+        assert _run_gate(tmp_path, url).returncode == 0
+        for entry in _cache_files(tmp_path):
+            entry.write_text("")
+        monkeypatch.setattr(_GateHandler, "mode", "fail")
+        result = _run_gate(tmp_path, url)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result.returncode == 3, result.stdout + result.stderr
+
+
+def test_cache_does_not_carry_answers_across_endpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same model name on another endpoint is another reviewer."""
+    _staged_repo(tmp_path)
+    monkeypatch.setattr(_GateHandler, "mode", "clean")
+    first_server, first_url = _serve(_GateHandler)
+    second_server, second_url = _serve(_GateHandler)
+    try:
+        assert _run_gate(tmp_path, first_url).returncode == 0
+        monkeypatch.setattr(_GateHandler, "mode", "fail")
+        result = _run_gate(tmp_path, second_url)
+    finally:
+        for server in (first_server, second_server):
+            server.shutdown()
+            server.server_close()
+    assert result.returncode == 3, result.stdout + result.stderr

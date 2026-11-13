@@ -100,8 +100,12 @@ fi
 analyze() {
     local key="" reply=""
     if [ -n "$CACHE_DIR" ]; then
-        key=$(printf '%s\n%s' "${MCP_QUALITY_LLM_MODEL:-$LLM_BACKEND}" "$1" | git hash-object --stdin)
-        if [ -f "$CACHE_DIR/$key" ]; then
+        # The reviewer is backend + endpoint + model: "local (<model>)" or "gemini",
+        # plus the URL, since one model name can be served by different endpoints.
+        key=$(printf '%s\n%s\n%s' "$LLM_BACKEND" "${MCP_QUALITY_LLM_URL:-}" "$1" \
+            | git hash-object --stdin)
+        # -s, not -f: an empty entry is not an answer.
+        if [ -s "$CACHE_DIR/$key" ]; then
             cat "$CACHE_DIR/$key"
             return
         fi
@@ -115,8 +119,11 @@ analyze() {
         echo "failed" >> "$LLM_FAILURES"
         return
     fi
+    # Write aside and rename: a gate in another worktree must never read a
+    # half-written entry, and an interrupted write must not leave one behind.
     if [ -n "$key" ] && mkdir -p "$CACHE_DIR"; then
-        printf '%s\n' "$reply" > "$CACHE_DIR/$key"
+        printf '%s\n' "$reply" > "$CACHE_DIR/$key.tmp.$$" \
+            && mv -f "$CACHE_DIR/$key.tmp.$$" "$CACHE_DIR/$key"
     fi
     printf '%s\n' "$reply"
 }
