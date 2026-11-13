@@ -256,13 +256,16 @@ class TestTimeParser:
         assert start_dt.month == 1
         assert end_dt.month == 3
 
-    def test_from_to_covers_the_whole_window(self):
+    def test_from_to_covers_the_whole_window(self, monkeypatch):
         """`from X to Y` is a range, the same window `between X and Y` already is.
 
         The recall handler documents "from January to March". Without a from/to
         pattern the first date or month was returned alone, so an ISO range
         collapsed to its first day.
         """
+        # In January and February "march" resolves to last year, which would
+        # invert the month window; pin the clock after March.
+        _freeze_clock(monkeypatch, date(2026, 11, 10))
         start_ts, end_ts = parse_time_expression("from 2024-01-01 to 2024-03-31")
         assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
         end_dt = datetime.fromtimestamp(end_ts)
@@ -290,6 +293,17 @@ class TestTimeParser:
         expected_start, _ = parse_time_expression("yesterday morning")
         _, expected_end = parse_time_expression("today")
         assert (daypart_start, daypart_end) == (expected_start, expected_end)
+
+        # "today in the morning" is a supported expression on its own, so the
+        # range end keeps the daypart instead of widening to the whole day.
+        for query, end_expr in (
+            ("from yesterday to today in the morning", "today in the morning"),
+            ("from yesterday to today morning", "today morning"),
+        ):
+            range_start, range_end = parse_time_expression(query)
+            expected_start, _ = parse_time_expression("yesterday")
+            _, expected_end = parse_time_expression(end_expr)
+            assert (range_start, range_end) == (expected_start, expected_end)
 
     def test_from_to_that_is_not_a_date_keeps_a_later_expression(self):
         """`from Alice to Bob yesterday` is not a date range."""

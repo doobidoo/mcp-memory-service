@@ -84,7 +84,7 @@ _RANGE_ENDPOINT_PATTERNS = (
     "specific_date", "full_date", "named_period", "half_year", "quarter",
 )
 _RANGE_DAYPART_ENDPOINT = re.compile(
-    rf"(?:{PATTERNS['relative_days'].pattern})\s+"
+    rf"(?:{PATTERNS['relative_days'].pattern})\s+(?:in\s+the\s+)?"
     rf"(?:{PATTERNS['time_of_day'].pattern})|"
     rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
 )
