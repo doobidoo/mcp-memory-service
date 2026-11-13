@@ -192,3 +192,12 @@ def test_no_section_header_is_left_without_items(digest):
                 assert lines[n + 1].startswith("- "), (extra, line)
         shown = [l for l in lines if l.startswith("**")]
         assert len(shown) == 4 or "No room in" in lines[-2], extra
+
+
+def test_takeover_candidates_are_listed_first(digest):
+    data = digest.collect(fake_get([issue(n, days_old=0.1) for n in range(1, 9)], []), 14, NOW)
+    data["waiting_reviewer"] = [dict(issue(80), threads=["https://x/80#r1"])]
+    data["takeover"] = [{"number": 81, "title": "stalled fix"}]
+    text = digest.render(data, 14, NOW)
+    assert text.index("Ready for maintainer takeover") < text.index("Review threads awaiting")
+    assert "`#81` stalled fix" in text

@@ -17,6 +17,184 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.9.0] - 2026-11-13
+
+### Added
+
+- Add an adjustable minimum-use filter to dashboard tag management, defaulting to tags used at least twice.
+- **REST API and dashboard section for the ontology overlay (#1897, phase 5).**
+  `GET /api/ontology` returns the merged memory types, relationships, type patterns and
+  retention periods, plus the stored overlay rows. `POST`/`PUT`/`DELETE` routes under
+  `/api/ontology/` add and remove memory types, retention periods, relationship types and
+  type patterns through the same storage methods, so writes are validated and synced the
+  same way. Writes need the global `write` scope, since the ontology is shared by every
+  store. The dashboard's Manage tab gets an Ontology section to add memory types, set
+  retention periods and remove stored entries.
+- **The ontology overlay syncs between sqlite_vec nodes through the hub (#1897, phase 2).**
+  With `MCP_SYNC_EVENTLOG` on, every overlay write (memory types, retention, relationship
+  types, type patterns) records an `ontology_upsert` or `ontology_delete` sync event keyed
+  `ontology:<kind>:<key>`. Peers resolve them per key by HLC, as they do memory events, and
+  write the winning row. `/api/sync/capabilities` advertises `ontology_sync`; the feed
+  (`GET /api/sync/events?events=memory|ontology|all`), push and baseline carry ontology events
+  only to a peer that advertises it, so an older peer keeps syncing memories without
+  stalling on an op it does not know. The first cycle with a capable peer exchanges the
+  ontology events both cursors had already passed. If that exchange fails, the peer's
+  cycle shows as `incomplete` and the exchange is retried, while memories keep syncing.
+  Malformed ontology events are skipped, not retried.
+
+### Fixed
+
+- Delta sync restores the recreated memory's fields before merging later metadata edits, regardless of delivery order.
+- **A "from … to …" recall range kept only the start (GPT-AGI).** `from January to March` and `from 2024-01-01 to 2024-03-31` were read as the first month or the first day. They now cover the whole window, the same way `between … and …` already did. A from/to phrase that is not a date still falls through, so `from Alice to Bob yesterday` stays yesterday. A month name with a year keeps that year (`from January 2024 to March 2024`), `to now` ends today, and a window whose start comes after its end (`from march to january`) keeps the previous single-month reading.
+- **Dashboard update failed in pip-less uv environments after `git pull` had already moved the checkout (#1943).**
+  `/api/server/update` now resolves the installer for the running interpreter before `git pull`. It uses
+  `python -m pip` when pip is importable. Otherwise it uses `uv pip --python <interpreter>`, taking the uv that
+  launched the server (`$UV`) or else uv on PATH. If neither is available, it refuses with a clear error and
+  leaves the checkout unchanged.
+- **Dashboard logged `THREE.WARNING: Multiple instances of Three.js being imported` on every load (#1944).**
+  The import map pointed `three/webgpu` at esm.sh's bundled build, which embeds its own copy of
+  three's core next to the one `three` loads. It now maps `three/webgpu` to the unbundled build and
+  maps the `three/build/three.core.js` specifier it imports to the same module `three` uses, so one
+  core is loaded. The import map's CSP hash in `web/app.py` is updated to match.
+- **Cloudflare tag deletes treated `%` and `_` in a tag as wildcards and deleted memories that did not have the tag (#1948).**
+  `delete_by_tags`, `delete_by_timeframe` and `delete_before_date` built their D1
+  `tags LIKE ?` patterns from the raw tag, so deleting the tag `%` deleted every memory
+  with two or more tags, and `snake_case` also deleted a memory tagged `snakeXcase`. The
+  patterns are escaped now and carry `ESCAPE '\'`, as the sqlite-vec deletes and the
+  Cloudflare exact-content search already do.
+- **The `cascade`/`llm` NLI backends no longer hide their heuristic fallback.**
+  With no LLM provider configured, or on an unparseable/failed LLM response,
+  the classifier silently returned heuristic verdicts while `degraded`
+  stayed `false` — a harness or quarantine report then read as a clean LLM
+  run. All three fallback paths now set `degraded`, matching the
+  transformers backend.
+- **Milvus updates no longer embed the content between the read and the upsert**
+  (#1966). `update_memory_metadata` (and so `update_memory`) and
+  `update_memories_batch` read the stored vector with the row and write it back,
+  as `mark_superseded_batch` already did; only a row whose vector does not come
+  back is re-embedded. `update_memory_versioned` embeds the new content before it
+  reads the old row. The window between the read and the whole-row upsert is now
+  two round-trips with no embedding call in it; it is not closed, since pymilvus
+  has no conditional upsert, and that limit stays documented.
+- **Avoid false sentence breaks at content chunk-window edges (#1975).** A truncated
+  window no longer treats its artificial end as punctuation; a fitting URL, version,
+  or decimal remains whole when the next real boundary is a word break.
+- **mcpmemory.services told readers to install without the embedding runtime, and hid its navigation on phones (#1983).**
+  The home page, the browser demo, the remote MCP tutorial and the Open Graph card showed
+  `pip install mcp-memory-service`, which has no ONNX runtime, so semantic search falls back
+  to hash embeddings. They now show `pip install "mcp-memory-service[sqlite]"`, as the
+  language pages already did. Below 880px the main navigation was `display:none` with no
+  replacement; it wraps into its own row. The hero console was empty without JavaScript and
+  now has its first example in the HTML. "OAuth 2.0" is corrected to 2.1, "Cost: $0" and
+  "100% local" are reworded. The pages gain JSON-LD, the tutorial's canonical and sitemap
+  entry use the extensionless URL Cloudflare Pages redirects to, and the home page's first
+  load drops from 2,837 to 535 KiB because the loop video loads only while visible.
+- **Milvus dropped the store a memory was written to and served it from any store (#1879, massimiliano1991).**
+  The collection had no `store` field, so `store()` and `store_batch()` discarded the
+  value, and `get_by_hash`, `update_memory_metadata` and `delete` found a memory whatever
+  store the caller named. New collections get a `store` field (default `"default"`), the
+  three hash-addressed calls are confined to it, and every upsert writes the row's own
+  store back, so an update or a versioned update never moves a memory to `"default"`.
+  A collection created before this has no field to confine on: there a named store is
+  refused with one warning per instance (`None`, `"all"` and `"default"` are served as
+  before), and the collection has to be recreated to pick up confinement, as for
+  `content_lower`. `get_by_hash_is_store_scoped` stays `False`: search and listing still
+  ignore `store` on this backend.
+  A confined `delete` whose filter removes nothing (the row was deleted, or re-stored
+  elsewhere, between the read and the delete) now reports "not found" and leaves the
+  access record and graph edges alone, instead of removing them and reporting success.
+  A scoped update is confined within one client only: it is not race-safe across clients
+  sharing a collection, since a row re-stored elsewhere while the update is in flight is
+  written back by the unconditional upsert (the cross-client guard is a separate issue).
+  `update_memories_batch` and `mark_superseded_batch` now skip soft-deleted rows, as
+  `get_by_hash` does, instead of writing them back and counting them as updated.
+- **`/api/server/status` no longer discloses host details below admin scope
+  (GHSA-hm53-3f6c-cm5h).** Process ID, OS, kernel and Python version are now
+  returned to admin callers only; read-scoped and anonymous callers get
+  version, uptime and timestamp. The dashboard shows `-` for those fields
+  without admin scope.
+- **MCP prompts refuse store-restricted tokens (GHSA-wpp8-2qcw-x4pc).**
+  `prompts/get` applied no scope check, so a `read:<store>` token could read
+  other stores' memories through `knowledge_export` and `memory_analysis`
+  (tag search spans every store) and the `default` store through the other
+  prompts. Prompts now require a global `read` scope, like MCP resources.
+
+### Removed
+
+- **Dashboard: removed the System Maintenance placeholders (#1974).** The Manage tab
+  showed "Optimize DB" and "Rebuild Index" buttons that were disabled and, behind them,
+  only answered "not yet implemented". The section, its handlers, its strings in all
+  eleven catalogs and the `optimize_db` / `rebuild_index` branches of
+  `POST /api/manage/system/{operation}` are gone; the route now answers both with the
+  400 for an unknown operation. `cleanup_duplicates` is unchanged.
+
+### Internal
+
+- **`quality/ai_evaluator.py` logs with lazy `%`-style arguments (#1146).**
+  Its four multi-line f-string logger calls in the DeBERTa / MS-MARCO
+  fallback path now pass the scores (`%.3f`), thresholds and decision (`%s`)
+  as arguments. They were invisible to the line gate and only the AST scan
+  caught them. The module is added to `GUARDED_MODULES`.
+- **`server/client_detection.py` logs with lazy `%`-style arguments (#1146).**
+  When reading the parent process's command line fails, the error is now
+  passed through `_sanitize_log_value` instead of an f-string, so text from
+  another process cannot forge a log line. The module is added to
+  `GUARDED_MODULES`.
+- **`utils/content_splitter.py` logs with lazy `%`-style arguments (#1146).**
+  The two logger calls in `split_content()` and `validate_chunk_lengths()` now
+  log integer character counts and chunk indices via `%d` instead of f-strings,
+  and the module is added to `GUARDED_MODULES`.
+- **`embeddings/external_api.py` logs with lazy `%`-style arguments (#1146).**
+  Its two f-string logger calls now pass their values as arguments. The API
+  URL and model name, read from `MCP_EXTERNAL_EMBEDDING_URL` and
+  `MCP_EXTERNAL_EMBEDDING_MODEL`, go through `_sanitize_log_value`; the
+  embedding dimension and batch size are logged with `%d`. The module is added
+  to `GUARDED_MODULES`, with `api_url` in `EXTERNAL_NAMES` and `model_name`
+  listed for this module only, so dropping either wrapper fails the test.
+- **`ingestion/chunker.py` logs with lazy `%`-style arguments (#1146).**
+  Its one f-string logger call now passes the chunk and character counts as
+  `%d` arguments. `chunker.py` and the already clean `registry.py` join the
+  five loaders in `GUARDED_MODULES`, so every module in `ingestion/` that logs
+  is now held by the log-injection ratchet. `resolved_path`, the registry's
+  canonical form of the caller's path, is added to `EXTERNAL_NAMES`.
+- **`quality/metadata_codec.py` logs with lazy `%`-style arguments (#1146).**
+  Its two f-string logger calls now pass their values as arguments: the part
+  count of a malformed quality-metadata CSV string with `%d`, and the decode
+  error through `_sanitize_log_value`. The module is added to
+  `GUARDED_MODULES`, so the log-injection ratchet keeps it clean.
+- **`server_impl.py` logs with lazy `%`-style arguments (#1146).**
+  Its four f-string logger calls each spanned lines, so the line gate never
+  saw them and only the AST scan did. The Milvus URI and collection name read
+  from the environment are wrapped in `_sanitize_log_value` on both the eager
+  and the lazy init path; the caller-provided storage class name and the
+  unresolved-conflict count go as `%s` arguments. The module is added to
+  `GUARDED_MODULES`.
+- **`api/sync_wrapper.py` logs with lazy `%`-style arguments (#1146).**
+  When a wrapped call from the code-execution API fails, the exception is now
+  passed through `_sanitize_log_value` instead of an f-string, so error text
+  that echoes a caller's query or content cannot forge a log line. The module
+  is added to `GUARDED_MODULES`.
+- **`utils/system_detection.py` logs with sanitised lazy `%`-style arguments (#1146).**
+  The three exception logger calls in `_get_system_memory()`, `_check_cuda_available()`,
+  and `_check_mps_available()` now pass `_sanitize_log_value(e)` to `%s` instead of
+  f-strings, and the module is added to `GUARDED_MODULES`.
+- **`utils/cache_manager.py` logs with lazy `%`-style arguments (#1146).**
+  Its f-string logger calls now pass their values as arguments. The backend
+  name, the `backend:path` cache key and the caller's context label go through
+  `_sanitize_log_value`, as the same cache lines in `mcp_server.py` already do;
+  call counts and storage IDs are logged with `%d`, init times with `%.1f`.
+  The module is added to `GUARDED_MODULES`, so the log-injection ratchet keeps
+  it clean.
+  The ratchet's lazy scan treats `context_label` as outside data everywhere, and
+  `backend` in this module only (`self.backend` is internal in the PDF loader
+  and `reasoning/nli.py`), so dropping either wrapper fails the test.
+- **`utils/debug.py` logs with lazy `%`-style arguments (#1146).**
+  `exact_match_retrieve()`, which backs the `exact_match_retrieve` MCP tool,
+  logged the backend's exception through an f-string. A backend error that
+  echoed the caller's content could forge a second log line. The error now
+  goes through `_sanitize_log_value`, and the backend class name is a `%s`
+  argument. The module is added to `GUARDED_MODULES`.
+
 ## [12.8.0] - 2026-11-10
 
 

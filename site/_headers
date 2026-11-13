@@ -15,10 +15,13 @@
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval' blob: https://static.cloudflareinsights.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob: https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'
 
 # The Archify diagrams carry their own font as a data: URI, so they need font-src data:.
+# Archify cannot write a canonical link into the page, so the header carries it.
 # "!" drops the global policy first, for the reason given above the /demo/* block.
 /architecture/*
+  Link: <https://mcpmemory.services/architecture/>; rel="canonical"
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'
 /deployment/*
+  Link: <https://mcpmemory.services/deployment/>; rel="canonical"
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://cloudflareinsights.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'

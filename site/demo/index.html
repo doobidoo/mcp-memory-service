@@ -10,7 +10,48 @@
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
 <meta property="og:url" content="https://mcpmemory.services/demo/">
+<meta property="og:site_name" content="MCP Memory Service">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
 <link rel="canonical" href="https://mcpmemory.services/demo/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://mcpmemory.services/demo/#page",
+      "url": "https://mcpmemory.services/demo/",
+      "name": "Live demo: semantic memory in your browser",
+      "inLanguage": "en",
+      "isPartOf": {
+        "@id": "https://mcpmemory.services/#website"
+      },
+      "about": {
+        "@id": "https://mcpmemory.services/#software"
+      }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "MCP Memory Service",
+          "item": "https://mcpmemory.services/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Live demo"
+        }
+      ]
+    }
+  ]
+}
+</script>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
@@ -52,7 +93,7 @@
 .progress-track .bar{height:100%;width:0%;background:var(--cyan);border-radius:2px;transition:width .3s}
 .progress-track.done{opacity:0}
 
-.field-label{font:400 .8rem var(--mono);color:var(--console-muted);margin-bottom:.4rem}
+.field-label{display:block;font:400 .8rem var(--mono);color:var(--console-muted);margin-bottom:.4rem}
 .row{display:flex;gap:.6rem;margin-bottom:1.4rem}
 .row input{flex:1;min-width:0;background:#050b13;border:1px solid var(--console-line);color:var(--console-text);padding:.7rem .9rem;border-radius:6px;font:inherit;font-size:1rem;transition:border-color .2s}
 .row input:focus-visible{outline:2px solid var(--cyan);outline-offset:1px;border-color:var(--cyan)}
@@ -91,6 +132,13 @@ ul.mem-list{list-style:none}
 .map-row .label{display:block;font:400 .78rem var(--mono);color:var(--muted);margin-bottom:.2rem}
 .map-row .arrow{color:var(--muted)}
 .cta-buttons{display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.4rem}
+
+/* A prompt the visitor can hand to their own agent; selectable text, not a button label */
+.agent-prompt{margin-top:3rem;max-width:900px}
+.agent-prompt h3{font:600 1.35rem var(--display);margin-bottom:.5rem}
+.agent-prompt pre{margin:1.1rem 0;padding:1.1rem 1.3rem;background:var(--console);color:var(--console-text);border-radius:var(--r);font:400 .86rem/1.65 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.agent-prompt button{background:none;color:inherit;font:inherit;cursor:pointer}
+.agent-prompt .note{margin-top:1rem;font-size:.92rem;color:var(--muted)}
 .btn-primary{background:var(--cyan);border-color:var(--cyan);color:#06121f}
 
 @media(max-width:640px){
@@ -108,11 +156,12 @@ ul.mem-list{list-style:none}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 
 <div class="band">
   <div class="wrap">
     <nav class="nav" aria-label="Main">
-      <a class="brand" href="/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a class="brand" href="/"><img src="/brain-icon.png" width="28" height="28" alt="">mcp-memory-service</a>
       <ul>
         <li><a href="/#features">Release</a></li>
         <li><a href="/#compare">Compare</a></li>
@@ -129,18 +178,19 @@ ul.mem-list{list-style:none}
   </div>
 </div>
 
+<main id="main">
 <div class="demo-wrap">
   <div class="demo-card">
     <div class="status-line" id="status"><span class="dot"></span><span id="status-text">Preparing&hellip;</span></div>
     <div class="progress-track" id="progress"><div class="bar" id="progress-bar"></div></div>
 
-    <div class="field-label">Add a memory</div>
+    <label class="field-label" for="memInput">Add a memory</label>
     <div class="row">
       <input id="memInput" placeholder="e.g. Switched the staging cluster to spot instances to cut cost" maxlength="500" disabled>
       <button class="btn btn-secondary" id="addBtn" disabled>Store</button>
     </div>
 
-    <div class="field-label">Semantic search</div>
+    <label class="field-label" for="queryInput">Semantic search</label>
     <div class="row">
       <input id="queryInput" placeholder="e.g. security credentials expiring" maxlength="500" disabled>
       <button class="btn btn-primary" id="searchBtn" disabled>Search</button>
@@ -179,31 +229,75 @@ ul.mem-list{list-style:none}
       <div class="map-row">
         <div class="cell"><span class="label">In this demo</span>one page, one session</div>
         <div class="arrow">&rarr;</div>
-        <div class="cell"><span class="label">In the service</span>MCP + REST + OAuth 2.1 for 20+ AI clients, knowledge graph, consolidation</div>
+        <div class="cell"><span class="label">In the service</span>MCP + REST + OAuth 2.1 for 25+ AI clients, knowledge graph, consolidation</div>
       </div>
     </div>
     <div>
-      <button class="cmd" type="button" onclick="copyInstall(this)" aria-label="Copy install command"><span>pip install mcp-memory-service</span><span>copy</span></button>
+      <button class="cmd" type="button" onclick="copyInstall(this)"><span>pip install "mcp-memory-service[sqlite]"</span><span>copy</span></button>
+      <span class="sr-only" role="status" id="copy-status"></span>
       <div class="cta-buttons">
         <a href="/" class="btn btn-primary">Back to mcpmemory.services</a>
         <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank" rel="noopener">View the source</a>
       </div>
     </div>
+    <div class="agent-prompt" id="agent-trial">
+      <h3>Or hand the trial to your coding agent</h3>
+      <p>Paste this into Claude Code in any directory. It installs the service into one new folder, proves that storing and searching work, and registers it for that folder only. Read it first: it is everything your agent will be told.</p>
+      <pre id="agent-prompt" tabindex="0" aria-label="Prompt for a coding agent">Set up a trial of MCP Memory Service (https://github.com/doobidoo/mcp-memory-service) for Claude Code.
+
+Keep everything inside a new folder named mcp-memory-trial in the current directory. Tell me what you are about to do and wait for my OK before you install or register anything. Do not change any other configuration, and leave an existing MCP server named "memory" alone.
+
+1. Find Python 3.11 or newer. If there is none, stop and tell me. Do not install Python.
+2. In mcp-memory-trial, create a virtual environment named .venv and install into it:
+   pip install "mcp-memory-service[sqlite]"
+3. Run the health check with the database inside the folder. TRIAL stands for the absolute path of mcp-memory-trial:
+   MCP_MEMORY_STORAGE_BACKEND=sqlite_vec MCP_MEMORY_BASE_DIR=TRIAL/data MCP_MEMORY_SQLITE_PATH=TRIAL/data/sqlite_vec.db TRIAL/.venv/bin/memory status --deep
+   The first run downloads the embedding model, about 170 MB, to ~/.cache/mcp_memory. Show me the output. It has to contain "Backend class: ONNXEmbeddingModel" and "Service is healthy". If it does not, stop and show me what it says.
+4. From inside mcp-memory-trial, register the server for this folder only:
+   claude mcp add --scope project memory-trial -e MCP_MEMORY_STORAGE_BACKEND=sqlite_vec -e MCP_MEMORY_BASE_DIR=TRIAL/data -e MCP_MEMORY_SQLITE_PATH=TRIAL/data/sqlite_vec.db -- TRIAL/.venv/bin/memory server
+5. List what you created. Then tell me to start a new Claude Code session inside mcp-memory-trial, approve the memory-trial server, and try these two messages:
+   Use memory-trial to remember that our staging database is Postgres 16 behind PgBouncer.
+   Use memory-trial: what do you know about our staging setup?
+6. Tell me how to undo it: delete the mcp-memory-trial folder. Say whether ~/.cache/mcp_memory existed before this trial; only if it did not, I can delete it as well.</pre>
+      <button class="btn btn-secondary" type="button" onclick="copyPrompt(this)">Copy prompt</button>
+      <p class="note">Tested with Claude Code on macOS. The folder takes about 250 MB. A first install also downloads the 170 MB embedding model to <code>~/.cache/mcp_memory</code>, which is outside the folder.</p>
+    </div>
   </div>
 </section>
+</main>
 
 <footer>
-  <div class="wrap">MCP Memory Service, open source under Apache 2.0 &middot; <a href="https://github.com/doobidoo/mcp-memory-service">github.com/doobidoo/mcp-memory-service</a> &middot; <a href="https://discord.gg/zrsNMEzmCj">Discord</a></div>
+  <div class="wrap foot">
+    <p>MCP Memory Service, open source under Apache 2.0</p>
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/demo/">Live demo</a></li>
+      <li><a href="/architecture/">Architecture</a></li>
+      <li><a href="/deployment/">Deployment</a></li>
+      <li><a href="/blog/remote-mcp-tutorial">claude.ai tutorial</a></li>
+      <li><a href="https://github.com/doobidoo/mcp-memory-service">GitHub</a></li>
+      <li><a href="https://discord.gg/zrsNMEzmCj">Discord</a></li>
+    </ul>
+  </div>
 </footer>
 
 <script>
-function copyInstall(el) {
-  navigator.clipboard.writeText('pip install mcp-memory-service');
-  const hint = el.lastElementChild;
-  hint.textContent = 'copied';
+// Same behaviour as the home page: the try also covers a missing navigator.clipboard,
+// and the status line repeats the result for screen readers.
+// The copied text is always the visible text of an element, so there is one source for it.
+async function copyText(el, hint, text, what) {
+  const status = document.getElementById('copy-status');
+  hint.dataset.idle = hint.dataset.idle || hint.textContent;
+  let state = 'copied';
+  try { await navigator.clipboard.writeText(text); } catch { state = 'failed'; }
+  el.dataset.state = state;
+  hint.textContent = state === 'copied' ? 'copied' : 'select and copy';
+  status.textContent = state === 'copied' ? what + ' copied' : 'Copying was blocked, select the text and copy it';
   clearTimeout(el.timer);
-  el.timer = setTimeout(() => { hint.textContent = 'copy'; }, 1800);
+  el.timer = setTimeout(() => { delete el.dataset.state; hint.textContent = hint.dataset.idle; status.textContent = ''; }, 2000);
 }
+const copyInstall = el => copyText(el, el.lastElementChild, el.firstElementChild.textContent, 'Install command');
+const copyPrompt = el => copyText(el, el, document.getElementById('agent-prompt').textContent, 'Prompt');
 </script>
 
 <script type="module">
