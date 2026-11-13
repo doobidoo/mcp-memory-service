@@ -144,6 +144,11 @@ class El {
     this.hidden = 'hidden' in this.attrs;
     this.tabIndex = this.attrs.tabindex === undefined ? 0 : Number(this.attrs.tabindex);
     this.listeners = {};
+    this.textContent = this.attrs.text || '';
+    this.dataset = {};
+    for (const [k, v] of Object.entries(this.attrs)) {
+      if (k.startsWith('data-')) this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
+    }
     const cls = new Set((this.attrs.class || '').split(/\s+/).filter(Boolean));
     this.classList = {
       add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c),
@@ -151,6 +156,7 @@ class El {
     };
   }
   getAttribute(n) { return n in this.attrs ? String(this.attrs[n]) : null; }
+  hasAttribute(n) { return n in this.attrs; }
   setAttribute(n, v) { this.attrs[n] = String(v); }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   dispatch(type, extra) {
@@ -162,24 +168,51 @@ class El {
 }
 let focused = null;
 const markup = __MARKUP__;
+const tablist = new El(markup.tablist);
 const tabs = markup.tabs.map(a => new El(a));
 const panels = markup.sections.map(a => new El(a));
 const views = [new El({ id: 'dashboardView', class: 'view-container' }), new El({ id: 'manageView', class: 'view-container' })];
 const byId = Object.fromEntries([...tabs, ...panels, ...views].map(e => [e.id, e]));
 global.document = {
+  title: 'MCP Memory Service - Dashboard',
   getElementById: id => byId[id] || null,
   querySelector: () => null,
   querySelectorAll: sel => {
     if (sel === '#manageView [role="tab"]') return tabs;
     if (sel === '.view-container') return views;
+    if (sel.startsWith('[data-i18n]')) return [tablist, ...tabs];
     return [];
   },
 };
+// Only the network and the browser storage are stubbed: the catalog fetch
+// serves the real de.json, and the Manage loaders' API calls are recorded.
+const catalogs = { de: __DE__ };
+global.fetch = async url => {
+  const lang = url.match(/i18n\/(\w+)\.json$/)[1];
+  return { ok: lang in catalogs, json: async () => catalogs[lang] };
+};
+global.localStorage = { setItem() {} };
 const app = {
   loaded: [],
-  loadViewData(name) { this.loaded.push(name); },
+  apiLoads: 0,
+  currentView: 'dashboard',
+  currentLang: 'en',
+  supportedLanguages: ['en', 'de'],
+  translations: __EN__,
+  fallbackTranslations: __EN__,
+  async loadTagSelectOptions() { this.apiLoads++; },
+  async loadTagManagementStats() { this.apiLoads++; },
+  async loadUntaggedCount() { this.apiLoads++; },
+  async loadOntology() { this.apiLoads++; },
+  async loadDashboardData() {},
+  updateActiveFilters() {},
+  updateLanguageSwitcher() {},
+  showToast() {},
   __METHODS__
 };
+// Record the views opened, then hand over to the real loadViewData().
+const realLoadViewData = app.loadViewData;
+app.loadViewData = async function (name) { this.loaded.push(name); return realLoadViewData.call(this, name); };
 const state = () => ({
   selected: tabs.filter(t => t.getAttribute('aria-selected') === 'true').map(t => t.id),
   active: tabs.filter(t => t.classList.contains('active')).map(t => t.id),
@@ -206,10 +239,21 @@ out.otherKey = Object.assign(state(), { prevented: other.defaultPrevented });
 app.switchView('dashboard');
 app.switchView('manage');
 out.reopen = Object.assign(state(), { loaded: [...app.loaded] });
-app.switchManageTab('manageTabTags');
-app.loadViewData('manage');  // a language switch reloads the view without reopening it
-out.languageSwitch = state();
-process.stdout.write(JSON.stringify(out));
+(async () => {
+  app.switchManageTab('manageTabTags');
+  // Let the load that switchView('manage') started settle first, so only the
+  // language switch's own reload is counted below.
+  await new Promise(r => setTimeout(r, 0));
+  const loadsBefore = app.apiLoads;
+  await app.setLanguage('de');  // the real switch: catalog, applyTranslations, rerenderActiveView
+  out.languageSwitch = Object.assign(state(), {
+    lang: app.currentLang,
+    reloaded: app.apiLoads > loadsBefore,
+    labels: tabs.map(t => t.textContent),
+    listLabel: tablist.getAttribute('aria-label'),
+  });
+  process.stdout.write(JSON.stringify(out));
+})().catch(e => { process.stdout.write(JSON.stringify({ error: String(e.stack || e) })); });
 """
 
 
@@ -219,14 +263,25 @@ def results():
     if not node:
         pytest.skip("node is not installed")
     js = APP_JS.read_text(encoding="utf-8")
-    names = ["initializeManageTabs", "switchManageTab", "switchView"]
+    names = [
+        "initializeManageTabs", "switchManageTab", "switchView", "loadViewData", "loadManageData",
+        "setLanguage", "loadTranslations", "applyTranslations", "rerenderActiveView", "t", "replacePlaceholders",
+    ]
     methods = [_method(js, n) for n in names]
     assert all(methods), dict(zip(names, methods))
     view = _view()
-    markup = {"tabs": [{k: v for k, v in t.items() if k != "text"} for t in view.tabs], "sections": view.sections}
-    script = HARNESS.replace("__MARKUP__", json.dumps(markup)).replace("__METHODS__", ",\n".join(methods))
-    result = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=60, check=True)
-    return json.loads(result.stdout)
+    markup = {"tablist": view.tablists[0], "tabs": view.tabs, "sections": view.sections}
+    script = (
+        HARNESS.replace("__MARKUP__", json.dumps(markup))
+        .replace("__DE__", json.dumps(_catalog("de.json")))
+        .replace("__EN__", json.dumps(_catalog("en.json")))
+        .replace("__METHODS__", ",\n".join(methods))
+    )
+    # Through stdin: with both catalogs inlined the script is too long for argv.
+    result = subprocess.run([node], input=script, capture_output=True, text=True, timeout=60, check=True)
+    out = json.loads(result.stdout)
+    assert "error" not in out, out.get("error")
+    return out
 
 
 def _only(tab, panel, focused=None):
@@ -264,5 +319,17 @@ def test_opening_the_manage_tab_starts_on_the_first_sub_tab(results):
     assert reopen == _only("manageTabBulk", "managePanelBulk", "manageTabOntology")
 
 
-def test_a_language_switch_keeps_the_chosen_sub_tab(results):
-    assert results["languageSwitch"] == _only("manageTabTags", "managePanelTags", "manageTabOntology")
+def test_a_language_switch_keeps_the_chosen_sub_tab_and_relabels_it(results):
+    switch = results["languageSwitch"]
+    de = _catalog("de.json")
+    # setLanguage() really ran: German loaded and the Manage view reloaded its data.
+    assert (switch.pop("lang"), switch.pop("reloaded")) == ("de", True)
+    assert switch.pop("labels") == [de["manage.tabs.bulk"], de["manage.tabs.tags"], de["manage.tabs.ontology"]]
+    assert switch.pop("listLabel") == de["manage.tabs.label"]
+    assert switch == _only("manageTabTags", "managePanelTags", "manageTabOntology")
+
+
+def test_german_labels_differ_from_english():
+    # Otherwise the relabel check above could pass on untranslated English.
+    de = _catalog("de.json")
+    assert [k for k in ("manage.tabs.label", "manage.tabs.bulk", "manage.tabs.ontology") if de[k] == NEW_STRINGS[k]] == []
