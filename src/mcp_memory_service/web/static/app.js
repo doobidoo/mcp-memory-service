@@ -2871,6 +2871,11 @@ class MemoryDashboard {
         const typeFilter = document.getElementById('typeFilter')?.value;
         const query = document.getElementById('quickSearch')?.value?.trim() || '';
 
+        // A newer filter search or Clear All makes this one outdated: it must
+        // stop paging and must not replace what the newer one shows.
+        const searchId = this.filterSearchId = (this.filterSearchId || 0) + 1;
+        const isCurrent = () => searchId === this.filterSearchId;
+
         // Add loading state
         const applyBtn = document.getElementById('applyFiltersBtn');
         if (applyBtn) {
@@ -2951,6 +2956,7 @@ class MemoryDashboard {
                 let page = 1;
                 let hasMore = true;
                 while (hasMore) {
+                    if (!isCurrent()) return;
                     const response = await this.apiCall(
                         `/memories?page=${page}&page_size=${pageSize}&memory_type=${memoryType}`
                     );
@@ -2964,18 +2970,20 @@ class MemoryDashboard {
                 results = [];
             }
 
+            if (!isCurrent()) return;
             this.searchResults = results;
             this.renderSearchResults(results);
             this.updateResultsCount(results.length);
             this.updateActiveFilters();
 
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Filter search error:', error);
             this.showToast(this.t('toast.filterSearchFailed', 'Filter search failed'), 'error');
         } finally {
-            // Remove loading state
+            // Remove loading state, unless a newer search owns it now
             const applyBtn = document.getElementById('applyFiltersBtn');
-            if (applyBtn) {
+            if (applyBtn && isCurrent()) {
                 applyBtn.classList.remove('loading');
                 applyBtn.disabled = false;
             }
@@ -3946,6 +3954,14 @@ class MemoryDashboard {
         if (tagFilter) tagFilter.value = '';
         if (dateFilter) dateFilter.value = '';
         if (typeFilter) typeFilter.value = '';
+
+        // Cancel a filter search that is still running, and drop its loading state
+        this.filterSearchId = (this.filterSearchId || 0) + 1;
+        const applyBtn = document.getElementById('applyFiltersBtn');
+        if (applyBtn) {
+            applyBtn.classList.remove('loading');
+            applyBtn.disabled = false;
+        }
 
         this.searchResults = [];
         this.renderSearchResults([]);

@@ -12,19 +12,27 @@ const vm = require('node:vm');
 
 const PAGE_SIZE_CAP = 100;
 
-function store() {
+function store(notes = 150) {
     const memories = [];
-    for (let i = 0; i < 150; i++) memories.push({ content_hash: `n${i}`, memory_type: 'note', tags: ['seed'] });
+    for (let i = 0; i < notes; i++) memories.push({ content_hash: `n${i}`, memory_type: 'note', tags: ['seed'] });
     for (let i = 0; i < 20; i++) memories.push({ content_hash: `r${i}`, memory_type: 'reference', tags: ['seed'] });
     return memories;
 }
 
-function dashboard({ type = '', tags = '', date = '', query = '' } = {}) {
+function dashboard({ type = '', tags = '', date = '', query = '', notes = 150, gate = null } = {}) {
     const fields = {
         typeFilter: { value: type },
         tagFilter: { value: tags },
         dateFilter: { value: date },
         quickSearch: { value: query },
+        applyFiltersBtn: {
+            disabled: false,
+            loading: false,
+            classList: {
+                add(name) { if (name === 'loading') fields.applyFiltersBtn.loading = true; },
+                remove(name) { if (name === 'loading') fields.applyFiltersBtn.loading = false; },
+            },
+        },
     };
     const context = vm.createContext({
         console: { log() {}, error() {}, warn() {} },
@@ -43,7 +51,7 @@ function dashboard({ type = '', tags = '', date = '', query = '' } = {}) {
         context
     );
     const app = Object.create(context.Dashboard.prototype);
-    const memories = store();
+    const memories = store(notes);
     const calls = [];
     const toasts = [];
     let rendered = null;
@@ -55,10 +63,12 @@ function dashboard({ type = '', tags = '', date = '', query = '' } = {}) {
     app.updateActiveFilters = () => {};
     app.searchMemories = async (q, filters) => {
         calls.push({ endpoint: 'searchMemories', q, filters });
+        if (gate) await gate('searchMemories');
         return memories.filter(m => !filters.type || m.memory_type === filters.type).map(memory => ({ memory }));
     };
     app.apiCall = async (endpoint, method = 'GET', data = null) => {
         calls.push({ endpoint, method, data });
+        if (gate) await gate(endpoint);
         if (endpoint.startsWith('/memories?')) {
             const params = new URLSearchParams(endpoint.split('?')[1]);
             const page = Number(params.get('page') || 1);
@@ -84,7 +94,7 @@ function dashboard({ type = '', tags = '', date = '', query = '' } = {}) {
         }
         throw new Error(`unexpected endpoint ${endpoint}`);
     };
-    return { app, calls, toasts, rendered: () => rendered };
+    return { app, calls, toasts, fields, rendered: () => rendered };
 }
 
 test('type-only filter returns every memory of a type with more than 100', async () => {
@@ -136,4 +146,122 @@ test('the other filter branches still apply the type the same way', async () => 
     assert.equal(byQuery.calls[0].endpoint, 'searchMemories');
     assert.equal(byQuery.calls[0].filters.type, 'reference');
     assert.equal(byQuery.rendered().length, 20);
+});
+
+// Greptile on #1984: a type-only search that pages can finish after a newer
+// search (or a Clear All) and overwrite what that one showed. A held-back page
+// stands in for a slow response.
+function held() {
+    const waiting = new Map();
+    const gate = endpoint => {
+        if (!endpoint.includes('page=2&')) return Promise.resolve();
+        return new Promise(resolve => waiting.set(endpoint, resolve));
+    };
+    const release = () => { for (const resolve of waiting.values()) resolve(); waiting.clear(); };
+    const isHeld = () => waiting.size > 0;
+    return { gate, release, isHeld };
+}
+
+async function untilHeld(h) {
+    for (let i = 0; i < 50 && !h.isHeld(); i++) await new Promise(r => setImmediate(r));
+    assert.ok(h.isHeld(), 'the first search should be waiting on page 2');
+}
+
+test('a newer type-only search is not overwritten by an older one still paging', async () => {
+    const h = held();
+    const d = dashboard({ type: 'note', notes: 250, gate: h.gate });
+    const older = d.app.handleFilterChange();
+    await untilHeld(h);
+
+    d.fields.typeFilter.value = 'reference';
+    await d.app.handleFilterChange();
+    assert.equal(d.rendered().length, 20);
+
+    h.release();
+    await older;
+    assert.equal(d.rendered().length, 20, 'the reference results stay on screen');
+    assert.ok(d.rendered().every(r => r.memory.memory_type === 'reference'));
+    assert.ok(!d.calls.some(c => c.endpoint.includes('page=3&')), 'the outdated search stops paging');
+    assert.equal(d.toasts.length, 0);
+});
+
+test('an empty newer type is not overwritten by an older search', async () => {
+    const h = held();
+    const d = dashboard({ type: 'note', notes: 250, gate: h.gate });
+    const older = d.app.handleFilterChange();
+    await untilHeld(h);
+
+    d.fields.typeFilter.value = 'decision';
+    await d.app.handleFilterChange();
+    assert.equal(d.rendered().length, 0);
+
+    h.release();
+    await older;
+    assert.equal(d.rendered().length, 0);
+});
+
+test('Clear All cancels a type-only search that is still paging', async () => {
+    const h = held();
+    const d = dashboard({ type: 'note', notes: 250, gate: h.gate });
+    const older = d.app.handleFilterChange();
+    await untilHeld(h);
+
+    d.app.clearAllFilters();
+    assert.equal(d.fields.typeFilter.value, '');
+    assert.equal(d.rendered().length, 0);
+
+    h.release();
+    await older;
+    assert.equal(d.rendered().length, 0, 'cleared results stay cleared');
+    assert.equal(d.app.searchResults.length, 0);
+    assert.ok(!d.calls.some(c => c.endpoint.includes('page=3&')));
+});
+
+test('a slow query search does not overwrite a newer type-only search', async () => {
+    let releaseQuery;
+    const gate = endpoint => endpoint === 'searchMemories'
+        ? new Promise(resolve => { releaseQuery = resolve; })
+        : Promise.resolve();
+    const d = dashboard({ type: 'note', query: 'anything', gate });
+    const older = d.app.handleFilterChange();
+    for (let i = 0; i < 50 && !releaseQuery; i++) await new Promise(r => setImmediate(r));
+
+    d.fields.quickSearch.value = '';
+    d.fields.typeFilter.value = 'reference';
+    await d.app.handleFilterChange();
+    assert.equal(d.rendered().length, 20);
+
+    releaseQuery();
+    await older;
+    assert.equal(d.rendered().length, 20);
+});
+
+test('an outdated search that fails shows no error, and the button is not left loading', async () => {
+    let failOlder;
+    const gate = endpoint => endpoint.includes('page=2&') && !failOlder
+        ? new Promise((_, reject) => { failOlder = () => reject(new Error('HTTP 500')); })
+        : Promise.resolve();
+    const d = dashboard({ type: 'note', gate });
+    const older = d.app.handleFilterChange();
+    for (let i = 0; i < 50 && !failOlder; i++) await new Promise(r => setImmediate(r));
+    assert.equal(d.fields.applyFiltersBtn.loading, true);
+
+    d.app.clearAllFilters();
+    assert.equal(d.fields.applyFiltersBtn.loading, false, 'Clear All drops the loading state');
+    assert.equal(d.fields.applyFiltersBtn.disabled, false);
+
+    failOlder();
+    await older;
+    assert.equal(d.toasts.filter(t => t.kind === 'error').length, 0, 'no error toast for a cancelled search');
+    assert.equal(d.fields.applyFiltersBtn.loading, false);
+    assert.equal(d.rendered().length, 0);
+});
+
+test('the current search still clears the loading state and reports its own error', async () => {
+    const d = dashboard({ type: 'note' });
+    d.app.apiCall = async () => { throw new Error('HTTP 500'); };
+    await d.app.handleFilterChange();
+    assert.equal(d.toasts.filter(t => t.kind === 'error').length, 1);
+    assert.equal(d.fields.applyFiltersBtn.loading, false);
+    assert.equal(d.fields.applyFiltersBtn.disabled, false);
 });
