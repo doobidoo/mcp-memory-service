@@ -95,6 +95,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/quality/metadata_codec.py",
     "mcp_memory_service/quality/ai_evaluator.py",
     "mcp_memory_service/config/backup.py",
+    "mcp_memory_service/config/oauth.py",
+    "mcp_memory_service/config/ontology.py",
     "mcp_memory_service/ingestion/semtools_loader.py",
     "mcp_memory_service/ingestion/json_loader.py",
     "mcp_memory_service/ingestion/csv_loader.py",
@@ -253,6 +255,10 @@ MODULE_EXTERNAL_NAMES = {
     "mcp_memory_service/utils/cache_manager.py": frozenset({"backend"}),
     "mcp_memory_service/embeddings/external_api.py": frozenset({"model_name"}),
     "mcp_memory_service/server_impl.py": frozenset({"MILVUS_URI", "MILVUS_COLLECTION_NAME"}),
+    # The dict config/ontology.py parses from MCP_CUSTOM_MEMORY_TYPES; its keys
+    # are logged. models/ontology.py and the ontology tests use the same name
+    # for built-in data, so it is listed for this module only.
+    "mcp_memory_service/config/ontology.py": frozenset({"custom_types"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -682,6 +688,31 @@ def test_lazy_scan_flags_config_environment_strings():
         assert _lazy_findings(bare)
         assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.info("Backup configuration: retention=%s days", BACKUP_RETENTION)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_config_oauth_and_ontology_values():
+    """What config/oauth.py and config/ontology.py log at import time.
+
+    oauth.py logs the ValueError from validate_oauth_configuration(), whose
+    text carries MCP_OAUTH_ISSUER and a key path verbatim; `e` is already
+    listed. ontology.py logs the base-type names parsed from
+    MCP_CUSTOM_MEMORY_TYPES; `custom_types` is listed for that module only,
+    through MODULE_EXTERNAL_NAMES. The JWT algorithm and the two counts stay
+    unlisted on purpose.
+    """
+    extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/config/ontology.py"]
+    for bare, wrapped in (
+        ('logger.error("OAuth configuration validation failed: %s", e)\n',
+         'logger.error("OAuth configuration validation failed: %s", _sanitize_log_value(e))\n'),
+        ('logger.info("  Custom base types: %s", ", ".join(custom_types.keys()))\n',
+         'logger.info("  Custom base types: %s", _sanitize_log_value(", ".join(custom_types.keys())))\n'),
+    ):
+        assert _lazy_findings(bare, extra)
+        assert not _lazy_findings(wrapped, extra)
+    assert not _lazy_findings('logger.info("  Custom base types: %s", ", ".join(custom_types.keys()))\n')
+    assert not _lazy_findings('logger.debug("OAuth JWT algorithm validation: %s", algorithm)\n')
+    assert not _lazy_findings('logger.info("  Custom types: %d base types, %d subtypes", total_base, total_subtypes)\n')
 
 
 @pytest.mark.unit

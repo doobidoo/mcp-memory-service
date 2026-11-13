@@ -6030,7 +6030,13 @@ body.dark-mode .settings-tabs {
     border-bottom-color: var(--neutral-700);
 }
 
-.settings-tab {
+/* Manage tab sub-tabs (#1973): the layout's gap already separates them from the section */
+.manage-subtabs {
+    margin-bottom: 0;
+}
+
+.settings-tab,
+.manage-subtab {
     padding: var(--space-3) var(--space-5);
     background: transparent;
     border: none;
@@ -6044,20 +6050,24 @@ body.dark-mode .settings-tabs {
     position: relative;
 }
 
-body.dark-mode .settings-tab {
+body.dark-mode .settings-tab,
+body.dark-mode .manage-subtab {
     color: var(--neutral-400);
 }
 
-.settings-tab:hover {
+.settings-tab:hover,
+.manage-subtab:hover {
     color: var(--primary-text);
     background: var(--neutral-100);
 }
 
-body.dark-mode .settings-tab:hover {
+body.dark-mode .settings-tab:hover,
+body.dark-mode .manage-subtab:hover {
     background: var(--neutral-800);
 }
 
-.settings-tab.active {
+.settings-tab.active,
+.manage-subtab.active {
     color: var(--primary-text);
     border-bottom-color: var(--primary);
 }
@@ -6303,7 +6313,8 @@ body.dark-mode .env-param-description {
         padding: 0 var(--space-3);
     }
 
-    .settings-tab {
+    .settings-tab,
+    .manage-subtab {
         padding: var(--space-2) var(--space-3);
         font-size: var(--text-xs);
     }

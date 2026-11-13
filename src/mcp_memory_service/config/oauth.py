@@ -5,6 +5,7 @@ import logging
 
 from .base import safe_get_int_env, safe_get_bool_env, get_base_directory
 from .transport import HTTPS_ENABLED, HTTP_HOST, HTTP_PORT, HTTP_ROOT_PATH
+from ..compat import _sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def validate_oauth_configuration() -> None:
     # Validate JWT configuration
     try:
         algorithm = get_jwt_algorithm()
-        logger.debug(f"OAuth JWT algorithm validation: {algorithm}")
+        logger.debug("OAuth JWT algorithm validation: %s", algorithm)
 
         # Test key access
         signing_key = get_jwt_signing_key()
@@ -237,7 +238,8 @@ def validate_oauth_configuration() -> None:
     # Log validation results
     # Note: errors/warnings may contain key-config info; log count only, raise with details
     if errors:
-        logger.error("OAuth configuration validation failed with %d error(s)", len(errors))
+        error_count = len(errors)
+        logger.error("OAuth configuration validation failed with %d error(s)", error_count)
         raise ValueError(f"Invalid OAuth configuration: {'; '.join(errors)}")
 
     if warnings:
@@ -330,5 +332,7 @@ if OAUTH_ENABLED:
     try:
         validate_oauth_configuration()
     except ValueError as e:
-        logger.error(f"OAuth configuration validation failed: {e}")
+        logger.error(
+            "OAuth configuration validation failed: %s", _sanitize_log_value(e)
+        )
         logger.error("OAuth will be disabled. To enable OAuth, fix configuration errors or set MCP_OAUTH_ENABLED=false")

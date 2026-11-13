@@ -1,9 +1,12 @@
 """
-Log-injection tests for config/search.py, config/quality.py and config/backup.py (#1146).
+Log-injection tests for config/search.py, config/quality.py, config/backup.py,
+config/oauth.py and config/ontology.py (#1146).
 
-The three modules log, at import time, values read from the environment. Three
-of them are strings taken verbatim (lower-cased) from ``MCP_HYBRID_FUSION_METHOD``,
-``MCP_QUALITY_AI_PROVIDER`` and ``MCP_BACKUP_INTERVAL``; a newline in one of
+The modules log, at import time, values read from the environment. Three of
+them are strings taken verbatim (lower-cased) from ``MCP_HYBRID_FUSION_METHOD``,
+``MCP_QUALITY_AI_PROVIDER`` and ``MCP_BACKUP_INTERVAL``; oauth.py logs the
+validation error that quotes ``MCP_OAUTH_ISSUER``; ontology.py logs the
+base-type names parsed from ``MCP_CUSTOM_MEMORY_TYPES``. A newline in any of
 them must not reach the log as a line break.
 
 The logging happens when the module is imported, so each test reloads the
@@ -13,11 +16,12 @@ values of the real environment.
 """
 
 import importlib
+import json
 import logging
 
 import pytest
 
-from mcp_memory_service.config import backup, quality, search
+from mcp_memory_service.config import backup, oauth, ontology, quality, search
 
 # The modules lower-case the three values before logging them.
 FORGED = "forged admin authenticated"
@@ -90,3 +94,23 @@ def test_invalid_backup_interval_is_logged_without_newline(reload_under):
     _assert_clean(messages, f"Invalid backup interval: daily\\n{FORGED}, falling back to 'daily'")
     assert backup.BACKUP_INTERVAL == "daily"
     _assert_clean(messages, "Backup configuration: enabled=True, interval=daily, retention=")
+
+
+@pytest.mark.unit
+def test_oauth_validation_error_is_logged_without_newline(reload_under):
+    messages = reload_under(oauth, logging.DEBUG, MCP_OAUTH_ENABLED="true", MCP_OAUTH_ISSUER=f"ftp://issuer\n{FORGED}")
+    _assert_clean(
+        messages,
+        "OAuth configuration validation failed: Invalid OAuth configuration: "
+        f"OAuth issuer URL must start with http:// or https://: ftp://issuer\\n{FORGED}",
+    )
+    assert "OAuth configuration validation failed with 1 error(s)" in messages
+    assert any(m.startswith("OAuth JWT algorithm validation: ") for m in messages), messages
+
+
+@pytest.mark.unit
+def test_custom_base_types_are_logged_without_newline(reload_under):
+    custom = {f"planning\n{FORGED}": ["sprint_goal"], "meeting": ["action_item", "decision"]}
+    messages = reload_under(ontology, MCP_CUSTOM_MEMORY_TYPES=json.dumps(custom))
+    assert "  Custom types: 2 base types, 3 subtypes" in messages
+    _assert_clean(messages, f"  Custom base types: planning\\n{FORGED}, meeting")

@@ -838,6 +838,7 @@ class MemoryDashboard {
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
         document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
         document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
+        this.initializeManageTabs();
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
@@ -2752,6 +2753,11 @@ class MemoryDashboard {
             targetView.classList.add('active');
             this.currentView = viewName;
 
+            // Opening the Manage tab always starts on its first sub-tab (#1973)
+            if (viewName === 'manage') {
+                this.switchManageTab('manageTabBulk');
+            }
+
             // Load view-specific data
             this.loadViewData(viewName);
         }
@@ -2871,6 +2877,11 @@ class MemoryDashboard {
         const typeFilter = document.getElementById('typeFilter')?.value;
         const query = document.getElementById('quickSearch')?.value?.trim() || '';
 
+        // A newer filter search or Clear All makes this one outdated: it must
+        // stop paging and must not replace what the newer one shows.
+        const searchId = this.filterSearchId = (this.filterSearchId || 0) + 1;
+        const isCurrent = () => searchId === this.filterSearchId;
+
         // Add loading state
         const applyBtn = document.getElementById('applyFiltersBtn');
         if (applyBtn) {
@@ -2944,29 +2955,41 @@ class MemoryDashboard {
             }
             // Priority 4: Type-only filter
             else if (typeFilter && typeFilter.trim()) {
-                const allMemoriesResponse = await this.apiCall('/memories?page=1&page_size=1000');
-                if (allMemoriesResponse.memories) {
-                    results = allMemoriesResponse.memories
-                        .filter(memory => (memory.memory_type || 'note') === typeFilter)
-                        .map(memory => ({ memory, similarity: 1.0 }));
+                // Let the server filter by type and page through the result:
+                // GET /memories caps page_size at 100 (#1971).
+                const pageSize = 100;
+                const memoryType = encodeURIComponent(typeFilter);
+                let page = 1;
+                let hasMore = true;
+                while (hasMore) {
+                    if (!isCurrent()) return;
+                    const response = await this.apiCall(
+                        `/memories?page=${page}&page_size=${pageSize}&memory_type=${memoryType}`
+                    );
+                    const memories = response.memories || [];
+                    results.push(...memories.map(memory => ({ memory, similarity: 1.0 })));
+                    hasMore = Boolean(response.has_more) && memories.length > 0;
+                    page++;
                 }
             } else {
                 // No filters, clear results
                 results = [];
             }
 
+            if (!isCurrent()) return;
             this.searchResults = results;
             this.renderSearchResults(results);
             this.updateResultsCount(results.length);
             this.updateActiveFilters();
 
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Filter search error:', error);
             this.showToast(this.t('toast.filterSearchFailed', 'Filter search failed'), 'error');
         } finally {
-            // Remove loading state
+            // Remove loading state, unless a newer search owns it now
             const applyBtn = document.getElementById('applyFiltersBtn');
-            if (applyBtn) {
+            if (applyBtn && isCurrent()) {
                 applyBtn.classList.remove('loading');
                 applyBtn.disabled = false;
             }
@@ -3937,6 +3960,14 @@ class MemoryDashboard {
         if (tagFilter) tagFilter.value = '';
         if (dateFilter) dateFilter.value = '';
         if (typeFilter) typeFilter.value = '';
+
+        // Cancel a filter search that is still running, and drop its loading state
+        this.filterSearchId = (this.filterSearchId || 0) + 1;
+        const applyBtn = document.getElementById('applyFiltersBtn');
+        if (applyBtn) {
+            applyBtn.classList.remove('loading');
+            applyBtn.disabled = false;
+        }
 
         this.searchResults = [];
         this.renderSearchResults([]);
@@ -5072,6 +5103,43 @@ class MemoryDashboard {
         // Initialize copy button for environment config
         document.getElementById('copyEnvBtn')?.addEventListener('click', () => {
             this.copyEnvironmentConfig();
+        });
+    }
+
+    /**
+     * Initialize the Manage tab's sub-tabs (#1973): a click or the arrow,
+     * Home and End keys select a sub-tab.
+     */
+    initializeManageTabs() {
+        const tabs = Array.from(document.querySelectorAll('#manageView [role="tab"]'));
+        tabs.forEach((tab, index) => {
+            tab.addEventListener('click', () => this.switchManageTab(tab.id));
+            tab.addEventListener('keydown', (e) => {
+                let next = null;
+                if (e.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
+                else if (e.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
+                else if (e.key === 'Home') next = tabs[0];
+                else if (e.key === 'End') next = tabs[tabs.length - 1];
+                if (!next) return;
+                e.preventDefault();
+                this.switchManageTab(next.id);
+                next.focus();
+            });
+        });
+    }
+
+    /**
+     * Show one Manage section and hide the others.
+     * @param {string} tabId - id of the sub-tab button to select
+     */
+    switchManageTab(tabId) {
+        document.querySelectorAll('#manageView [role="tab"]').forEach(tab => {
+            const selected = tab.id === tabId;
+            tab.classList.toggle('active', selected);
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+            const panel = document.getElementById(tab.getAttribute('aria-controls'));
+            if (panel) panel.hidden = !selected;
         });
     }
 
