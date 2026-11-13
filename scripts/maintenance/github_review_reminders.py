@@ -6,9 +6,11 @@ GitHub metadata; never checks out or executes contributor code. Durable comment
 markers allow one reminder and one follow-up per PR, seven days apart. New
 commits, new threads and resolving/reopening threads do not reset that allowance.
 
-Three days after the first reminder with author threads still open, the PR is
-reported as ready for maintainer takeover (CONTRIBUTING.md, "Review Process")
-and, with --post, labelled maintainer-takeover.
+Three days after the first reminder, if a thread that reminder covered is still
+waiting on the author, the PR is reported as ready for maintainer takeover
+(CONTRIBUTING.md, "Review Process"). With --post the script keeps the
+maintainer-takeover label in step: added when a PR qualifies, removed when it
+no longer does.
 """
 
 from __future__ import annotations
@@ -144,9 +146,15 @@ def next_stage(comments: list[dict], now: dt.datetime) -> int | None:
     return 2 if now - sent >= dt.timedelta(days=7) else None
 
 
-def takeover_due(comments: list[dict], now: dt.datetime) -> bool:
+def takeover_due(threads: list[dict], comments: list[dict], now: dt.datetime) -> bool:
+    """A thread the reminder covered is still unanswered three days later.
+
+    Feedback that arrived after the reminder was never reminded about, so it
+    does not count, even though the reminder allowance itself is not reset.
+    """
     sent = reminded_at(comments)
-    return sent is not None and now - sent >= TAKEOVER_AFTER
+    return sent is not None and now - sent >= TAKEOVER_AFTER and any(
+        parse(t["comments"]["nodes"][-1]["createdAt"]) <= sent for t in threads)
 
 
 def render_reminder(author: str, threads: list[dict], stage: int) -> str:
@@ -182,7 +190,7 @@ def inspect(api, repo: str, pull: dict, now: dt.datetime) -> tuple[list, list, i
     if not due:
         return due, reviewer, None, False
     comments = pages(api, f"/repos/{repo}/issues/{pull['number']}/comments")
-    return due, reviewer, next_stage(comments, now), takeover_due(comments, now)
+    return due, reviewer, next_stage(comments, now), takeover_due(due, comments, now)
 
 
 def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
@@ -202,6 +210,22 @@ def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
     return True
 
 
+def has_takeover_label(pull: dict) -> bool:
+    return any(label["name"] == TAKEOVER_LABEL for label in pull.get("labels", []))
+
+
+def sync_takeover_label(api, repo: str, number: int, now: dt.datetime) -> None:
+    # Recheck like post_reminder: the PR may have closed, become a draft or got
+    # a reply while earlier PRs were scanned.
+    current = api(f"/repos/{repo}/pulls/{number}")
+    wanted = eligible(current) and inspect(api, repo, current, now)[3]
+    if wanted and not has_takeover_label(current):
+        api(f"/repos/{repo}/issues/{number}/labels", method="POST",
+            body={"labels": [TAKEOVER_LABEL]})
+    elif has_takeover_label(current) and not wanted:
+        api(f"/repos/{repo}/issues/{number}/labels/{TAKEOVER_LABEL}", method="DELETE")
+
+
 def run(api, repo: str, now: dt.datetime, post: bool = False) -> dict:
     report = {"waiting_reviewer": [], "takeover": [], "planned": [], "posted": []}
     for pull in pages(api, f"/repos/{repo}/pulls?state=open&sort=created&direction=asc"):
@@ -216,9 +240,8 @@ def run(api, repo: str, now: dt.datetime, post: bool = False) -> dict:
             })
         if takeover:
             report["takeover"].append({"number": number, "title": clean_text(pull["title"])})
-            if post:
-                api(f"/repos/{repo}/issues/{number}/labels", method="POST",
-                    body={"labels": [TAKEOVER_LABEL]})
+        if post and takeover != has_takeover_label(pull):
+            sync_takeover_label(api, repo, number, now)
         if stage is None:
             continue
         report["planned"].append(number)

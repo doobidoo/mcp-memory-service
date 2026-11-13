@@ -100,7 +100,7 @@ def pull(**updates):
     return dict(value, **updates)
 
 
-def fake_api(threads=None, comments=None, current=None):
+def fake_api(threads=None, comments=None, current=None, listed=None):
     calls = []
     saved = {}
 
@@ -108,6 +108,8 @@ def fake_api(threads=None, comments=None, current=None):
         calls.append((path, method, body))
         if method == "POST" and path.endswith("/labels"):
             return body["labels"]
+        if method == "DELETE":
+            return []
         if method == "POST" and path != "graphql":
             saved.update(id=42, body=body["body"])
             return saved
@@ -122,7 +124,7 @@ def fake_api(threads=None, comments=None, current=None):
             return comments or []
         if "/pulls/1" in path:
             return current or pull()
-        return [pull()]
+        return [listed or pull()]
 
     api.calls = calls
     return api
@@ -235,7 +237,34 @@ def test_takeover_needs_a_trusted_reminder_and_open_author_threads(reminders):
 
 
 def test_takeover_label_is_only_written_with_post(reminders):
-    api = fake_api(comments=[history(1, hours=100)])
+    api = fake_api(threads=[thread(hours=120)], comments=[history(1, hours=100)])
     reminders.run(api, "o/r", NOW, post=True)
     labels = [b for p, m, b in api.calls if m == "POST" and p.endswith("/issues/1/labels")]
     assert labels == [{"labels": ["maintainer-takeover"]}]
+
+
+def test_feedback_newer_than_the_reminder_does_not_count_toward_takeover(reminders):
+    # The author answered the reminded threads; a reviewer then left new feedback
+    # that has waited 72h. The 100h-old reminder never covered it.
+    api = fake_api(threads=[thread(hours=72)], comments=[history(1, hours=100)])
+    assert reminders.run(api, "o/r", NOW)["takeover"] == []
+
+
+TAKEOVER_LABELS = [{"name": "maintainer-takeover"}]
+
+
+def test_takeover_label_is_removed_once_the_author_replies(reminders):
+    labelled = pull(labels=TAKEOVER_LABELS)
+    api = fake_api(threads=[thread("contributor")], comments=[history(1, hours=200)],
+                   current=labelled, listed=labelled)
+    reminders.run(api, "o/r", NOW, post=True)
+    assert [p for p, m, _ in api.calls if m == "DELETE"] == [
+        "/repos/o/r/issues/1/labels/maintainer-takeover"]
+
+
+@pytest.mark.parametrize("current", [pull(state="closed"), pull(draft=True)])
+def test_takeover_label_rechecks_the_pr_before_writing(reminders, current):
+    api = fake_api(threads=[thread(hours=120)], comments=[history(1, hours=100)],
+                   current=current)
+    reminders.run(api, "o/r", NOW, post=True)
+    assert not any(p.endswith("/labels") for p, m, _ in api.calls if m == "POST")
