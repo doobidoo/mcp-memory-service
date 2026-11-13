@@ -2944,11 +2944,20 @@ class MemoryDashboard {
             }
             // Priority 4: Type-only filter
             else if (typeFilter && typeFilter.trim()) {
-                const allMemoriesResponse = await this.apiCall('/memories?page=1&page_size=1000');
-                if (allMemoriesResponse.memories) {
-                    results = allMemoriesResponse.memories
-                        .filter(memory => (memory.memory_type || 'note') === typeFilter)
-                        .map(memory => ({ memory, similarity: 1.0 }));
+                // Let the server filter by type and page through the result:
+                // GET /memories caps page_size at 100 (#1971).
+                const pageSize = 100;
+                const memoryType = encodeURIComponent(typeFilter);
+                let page = 1;
+                let hasMore = true;
+                while (hasMore) {
+                    const response = await this.apiCall(
+                        `/memories?page=${page}&page_size=${pageSize}&memory_type=${memoryType}`
+                    );
+                    const memories = response.memories || [];
+                    results.push(...memories.map(memory => ({ memory, similarity: 1.0 })));
+                    hasMore = Boolean(response.has_more) && memories.length > 0;
+                    page++;
                 }
             } else {
                 // No filters, clear results
