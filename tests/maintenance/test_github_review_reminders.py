@@ -106,6 +106,8 @@ def fake_api(threads=None, comments=None, current=None):
 
     def api(path, method="GET", body=None):
         calls.append((path, method, body))
+        if method == "POST" and path.endswith("/labels"):
+            return body["labels"]
         if method == "POST" and path != "graphql":
             saved.update(id=42, body=body["body"])
             return saved
@@ -215,3 +217,25 @@ def test_rest_pagination_is_not_silently_capped(reminders):
 
     assert len(reminders.pages(api, "/repos/o/r/pulls?state=open")) == 101
     assert "page=2" in calls[1]
+
+
+@pytest.mark.parametrize("hours, expected", [(71, []), (72, [1])])
+def test_takeover_after_three_silent_days_following_the_reminder(reminders, hours, expected):
+    api = fake_api(comments=[history(1, hours=hours)])
+    report = reminders.run(api, "o/r", NOW, post=False)
+    assert [p["number"] for p in report["takeover"]] == expected
+    assert all(method == "GET" or path == "graphql" for path, method, _ in api.calls)
+
+
+def test_takeover_needs_a_trusted_reminder_and_open_author_threads(reminders):
+    untrusted = fake_api(comments=[history(1, hours=200, login="contributor")])
+    assert reminders.run(untrusted, "o/r", NOW)["takeover"] == []
+    replied = fake_api(threads=[thread("contributor")], comments=[history(1, hours=200)])
+    assert reminders.run(replied, "o/r", NOW)["takeover"] == []
+
+
+def test_takeover_label_is_only_written_with_post(reminders):
+    api = fake_api(comments=[history(1, hours=100)])
+    reminders.run(api, "o/r", NOW, post=True)
+    labels = [b for p, m, b in api.calls if m == "POST" and p.endswith("/issues/1/labels")]
+    assert labels == [{"labels": ["maintainer-takeover"]}]

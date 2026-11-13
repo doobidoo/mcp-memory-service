@@ -5,6 +5,10 @@ Uses the runner's authenticated gh CLI and Python standard library. Only reads
 GitHub metadata; never checks out or executes contributor code. Durable comment
 markers allow one reminder and one follow-up per PR, seven days apart. New
 commits, new threads and resolving/reopening threads do not reset that allowance.
+
+Three days after the first reminder with author threads still open, the PR is
+reported as ready for maintainer takeover (CONTRIBUTING.md, "Review Process")
+and, with --post, labelled maintainer-takeover.
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ import unicodedata
 
 MAINTAINERS = {"doobidoo"}
 MARKER = "<!-- review-reminder:v1:{} -->"
+TAKEOVER_AFTER = dt.timedelta(days=3)
+TAKEOVER_LABEL = "maintainer-takeover"
 LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 QUERY = """
 query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
@@ -117,18 +123,30 @@ def due_threads(threads: list[dict], now: dt.datetime) -> list[dict]:
             if now - parse(t["comments"]["nodes"][-1]["createdAt"]) >= dt.timedelta(hours=48)]
 
 
-def next_stage(comments: list[dict], now: dt.datetime) -> int | None:
-    trusted = [c for c in comments
-               if c["user"]["login"] == "github-actions[bot]"
-               or c.get("author_association") in {"OWNER", "MEMBER", "COLLABORATOR"}]
-    if any(MARKER.format(2) in c["body"] for c in trusted):
-        return None
-    first = [c for c in trusted if MARKER.format(1) in c["body"]]
-    if not first:
-        return 1
+def trusted_comments(comments: list[dict]) -> list[dict]:
+    return [c for c in comments
+            if c["user"]["login"] == "github-actions[bot]"
+            or c.get("author_association") in {"OWNER", "MEMBER", "COLLABORATOR"}]
+
+
+def reminded_at(comments: list[dict]) -> dt.datetime | None:
+    first = [c for c in trusted_comments(comments) if MARKER.format(1) in c["body"]]
     # Use the latest timestamp if a previous manual run accidentally duplicated it.
-    sent = max(parse(c["created_at"]) for c in first)
+    return max((parse(c["created_at"]) for c in first), default=None)
+
+
+def next_stage(comments: list[dict], now: dt.datetime) -> int | None:
+    if any(MARKER.format(2) in c["body"] for c in trusted_comments(comments)):
+        return None
+    sent = reminded_at(comments)
+    if sent is None:
+        return 1
     return 2 if now - sent >= dt.timedelta(days=7) else None
+
+
+def takeover_due(comments: list[dict], now: dt.datetime) -> bool:
+    sent = reminded_at(comments)
+    return sent is not None and now - sent >= TAKEOVER_AFTER
 
 
 def render_reminder(author: str, threads: list[dict], stage: int) -> str:
@@ -157,12 +175,14 @@ def eligible(pull: dict) -> bool:
             and author["login"].casefold() not in MAINTAINERS)
 
 
-def inspect(api, repo: str, pull: dict, now: dt.datetime) -> tuple[list, list, int | None]:
+def inspect(api, repo: str, pull: dict, now: dt.datetime) -> tuple[list, list, int | None, bool]:
     author, reviewer = partition_threads(review_threads(api, repo, pull["number"]),
                                          pull["user"]["login"])
     due = due_threads(author, now)
-    comments = pages(api, f"/repos/{repo}/issues/{pull['number']}/comments") if due else []
-    return due, reviewer, next_stage(comments, now) if due else None
+    if not due:
+        return due, reviewer, None, False
+    comments = pages(api, f"/repos/{repo}/issues/{pull['number']}/comments")
+    return due, reviewer, next_stage(comments, now), takeover_due(comments, now)
 
 
 def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
@@ -171,7 +191,7 @@ def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
     current = api(f"/repos/{repo}/pulls/{number}")
     if not eligible(current):
         return False
-    due, _, stage = inspect(api, repo, current, now)
+    due, _, stage, _ = inspect(api, repo, current, now)
     if stage is None:
         return False
     body = render_reminder(current["user"]["login"], due, stage)
@@ -183,17 +203,22 @@ def post_reminder(api, repo: str, number: int, now: dt.datetime) -> bool:
 
 
 def run(api, repo: str, now: dt.datetime, post: bool = False) -> dict:
-    report = {"waiting_reviewer": [], "planned": [], "posted": []}
+    report = {"waiting_reviewer": [], "takeover": [], "planned": [], "posted": []}
     for pull in pages(api, f"/repos/{repo}/pulls?state=open&sort=created&direction=asc"):
         if not eligible(pull):
             continue
         number = pull["number"]
-        _, reviewer, stage = inspect(api, repo, pull, now)
+        _, reviewer, stage, takeover = inspect(api, repo, pull, now)
         if reviewer:
             report["waiting_reviewer"].append({
                 "number": number, "title": clean_text(pull["title"]),
                 "threads": [t["comments"]["nodes"][-1]["url"] for t in reviewer],
             })
+        if takeover:
+            report["takeover"].append({"number": number, "title": clean_text(pull["title"])})
+            if post:
+                api(f"/repos/{repo}/issues/{number}/labels", method="POST",
+                    body={"labels": [TAKEOVER_LABEL]})
         if stage is None:
             continue
         report["planned"].append(number)
@@ -221,7 +246,8 @@ def main() -> int:
     mode = "posted" if args.post else "planned (dry run; nothing posted)"
     print(f"### Review reminders: {mode}\n")
     print(f"{len(report['planned'])} PR(s) eligible; {len(report['posted'])} reminder(s) posted; "
-          f"{len(report['waiting_reviewer'])} PR(s) waiting on reviewer replies.")
+          f"{len(report['waiting_reviewer'])} PR(s) waiting on reviewer replies; "
+          f"{len(report['takeover'])} PR(s) ready for maintainer takeover.")
     for number in report["planned"]:
         print(f"- `#{number}`")
     return 0

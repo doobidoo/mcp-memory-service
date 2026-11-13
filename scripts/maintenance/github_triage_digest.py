@@ -219,6 +219,8 @@ def render(data: dict[str, Any], stale_days: int, now: dt.datetime) -> str:
             return
         lines.extend([text, ""])
 
+    section("Ready for maintainer takeover", data.get("takeover", []), 5,
+            lambda p: f"- {ref(p)} {title(p, 72)}")
     section("Review threads awaiting reviewer reply", data.get("waiting_reviewer", []), 5,
             lambda p: f"- {ref(p)} {title(p, 64)} — "
             f"[thread]({p['threads'][0]}) ({len(p['threads'])} open)")
@@ -263,7 +265,9 @@ def main() -> int:
     now = dt.datetime.now(dt.timezone.utc)
     data = collect(api, args.stale_days, now, args.issue)
     if args.review_report:
-        data["waiting_reviewer"] = json.loads(args.review_report.read_text())["waiting_reviewer"]
+        review = json.loads(args.review_report.read_text())
+        data["waiting_reviewer"] = review["waiting_reviewer"]
+        data["takeover"] = review.get("takeover", [])
     digest = render(data, args.stale_days, now)
     # Print before posting, so a failed post still leaves the digest in the run log.
     print(digest, flush=True)
