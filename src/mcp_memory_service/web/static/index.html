@@ -717,8 +717,15 @@
             <!-- Manage View -->
             <div id="manageView" class="view-container">
                 <div class="manage-layout">
+                    <!-- Sub-tabs: one section at a time (#1973) -->
+                    <div class="settings-tabs manage-subtabs" role="tablist" aria-label="Manage sections" data-i18n-aria="manage.tabs.label">
+                        <button type="button" class="manage-subtab active" role="tab" id="manageTabBulk" aria-controls="managePanelBulk" aria-selected="true" data-i18n="manage.tabs.bulk">Bulk Operations</button>
+                        <button type="button" class="manage-subtab" role="tab" id="manageTabTags" aria-controls="managePanelTags" aria-selected="false" tabindex="-1" data-i18n="manage.tabs.tags">Tags</button>
+                        <button type="button" class="manage-subtab" role="tab" id="manageTabOntology" aria-controls="managePanelOntology" aria-selected="false" tabindex="-1" data-i18n="manage.tabs.ontology">Ontology</button>
+                    </div>
+
                     <!-- Bulk Operations Section -->
-                    <section class="manage-section">
+                    <section class="manage-section" id="managePanelBulk" role="tabpanel" aria-labelledby="manageTabBulk">
                         <h2 data-i18n="manage.bulk.title">Bulk Operations</h2>
                         <div class="bulk-ops-grid">
                             <div class="bulk-op-card">
@@ -760,7 +767,7 @@
                     </section>
 
                     <!-- Tag Management Section -->
-                    <section class="manage-section">
+                    <section class="manage-section" id="managePanelTags" role="tabpanel" aria-labelledby="manageTabTags" hidden>
                         <h2 data-i18n="manage.tags.title">Tag Management</h2>
                         <div id="tagManagementContainer">
                             <div class="loading-spinner"></div>
@@ -769,7 +776,7 @@
                     </section>
 
                     <!-- Ontology Section (#1897) -->
-                    <section class="manage-section">
+                    <section class="manage-section" id="managePanelOntology" role="tabpanel" aria-labelledby="manageTabOntology" hidden>
                         <h2 data-i18n="manage.ontology.title">Ontology</h2>
                         <p data-i18n="manage.ontology.desc">Memory types and retention periods stored in this database. They reach other nodes through sync.</p>
                         <p id="ontologyReadOnly" style="display: none;" data-i18n="manage.ontology.readOnly">The ontology can only be edited on the sqlite_vec backend. Use MCP_CUSTOM_MEMORY_TYPES instead.</p>

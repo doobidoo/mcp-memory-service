@@ -838,6 +838,7 @@ class MemoryDashboard {
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
         document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
         document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
+        this.initializeManageTabs();
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
@@ -2751,6 +2752,11 @@ class MemoryDashboard {
         if (targetView) {
             targetView.classList.add('active');
             this.currentView = viewName;
+
+            // Opening the Manage tab always starts on its first sub-tab (#1973)
+            if (viewName === 'manage') {
+                this.switchManageTab('manageTabBulk');
+            }
 
             // Load view-specific data
             this.loadViewData(viewName);
@@ -5097,6 +5103,43 @@ class MemoryDashboard {
         // Initialize copy button for environment config
         document.getElementById('copyEnvBtn')?.addEventListener('click', () => {
             this.copyEnvironmentConfig();
+        });
+    }
+
+    /**
+     * Initialize the Manage tab's sub-tabs (#1973): a click or the arrow,
+     * Home and End keys select a sub-tab.
+     */
+    initializeManageTabs() {
+        const tabs = Array.from(document.querySelectorAll('#manageView [role="tab"]'));
+        tabs.forEach((tab, index) => {
+            tab.addEventListener('click', () => this.switchManageTab(tab.id));
+            tab.addEventListener('keydown', (e) => {
+                let next = null;
+                if (e.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
+                else if (e.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
+                else if (e.key === 'Home') next = tabs[0];
+                else if (e.key === 'End') next = tabs[tabs.length - 1];
+                if (!next) return;
+                e.preventDefault();
+                this.switchManageTab(next.id);
+                next.focus();
+            });
+        });
+    }
+
+    /**
+     * Show one Manage section and hide the others.
+     * @param {string} tabId - id of the sub-tab button to select
+     */
+    switchManageTab(tabId) {
+        document.querySelectorAll('#manageView [role="tab"]').forEach(tab => {
+            const selected = tab.id === tabId;
+            tab.classList.toggle('active', selected);
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+            const panel = document.getElementById(tab.getAttribute('aria-controls'));
+            if (panel) panel.hidden = !selected;
         });
     }
 
