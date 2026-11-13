@@ -492,7 +492,13 @@ When adding features or making significant changes:
   silently), and stop once all threads are resolved and the checks are green. A 5/5
   confidence score is not required. Commits still follow the conventional format
   above; do not stage with `git add -A`.
-- Address review feedback promptly
+- Address review feedback promptly. When a review thread has waited 48 hours on
+  you, a bot posts one reminder on the PR. If your threads are still unanswered three
+  days after that reminder, the PR is labelled `maintainer-takeover`, and a
+  maintainer may finish it (on your branch when "Allow edits by maintainers" is on,
+  otherwise in a new PR that credits you) or close it. Your commits keep your
+  authorship. A reply in the thread, even one that only asks for more time, keeps
+  the PR yours.
 - Keep discussions focused and constructive
 - Be patient - reviews may take a few days
 
