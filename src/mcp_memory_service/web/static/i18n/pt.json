@@ -118,8 +118,6 @@
   "toast.selectDate": "Selecione uma data",
   "toast.bulkDeleteByDateSuccess": "{message}",
   "toast.bulkDeleteByDateFailedWithReason": "{message}",
-  "toast.dbOptimizeTodo": "Otimização do banco de dados ainda não implementada",
-  "toast.indexRebuildTodo": "Reconstrução do índice ainda não implementada",
   "toast.tagRenameTodo": "Renomeação de tags ainda não implementada",
   "toast.tagDeleteTodo": "Exclusão de tags ainda não implementada",
   "toast.loadAnalyticsFail": "Falha ao carregar os dados de análises",
@@ -461,13 +459,6 @@
   "manage.tags.column.actions": "Ações",
   "manage.tags.rename": "Renomear",
   "manage.tags.delete": "Excluir",
-  "manage.system.title": "Manutenção do sistema",
-  "manage.system.dbOpt.title": "Otimização do banco de dados",
-  "manage.system.dbOpt.desc": "Otimiza o desempenho do banco de dados",
-  "manage.system.dbOpt.btn": "Otimizar BD",
-  "manage.system.rebuild.title": "Reconstruir índice de pesquisa",
-  "manage.system.rebuild.desc": "Reconstrói os índices de pesquisa para melhor desempenho",
-  "manage.system.rebuild.btn": "Reconstruir índice",
   "search.results.title": "Resultados da pesquisa",
   "search.results.count": "{count} resultados",
   "search.results.count.one": "{count} resultado",
@@ -742,5 +733,7 @@
   "settings.quality.saving": "Salvando…",
   "settings.quality.saveFailed": "✗ Falha ao salvar: {error}",
   "settings.quality.loadFailed": "✗ Não foi possível carregar as configurações atuais: {error}. Reabra esta aba para tentar novamente.",
-  "settings.quality.saveHint": "Salvo em .env. O servidor será reiniciado para aplicar a alteração."
+  "settings.quality.saveHint": "Salvo em .env. O servidor será reiniciado para aplicar a alteração.",
+  "manage.tags.minimumCount": "Mostrar etiquetas usadas pelo menos N vezes",
+  "manage.tags.showingCount": "Mostrando {shown} de {total} etiquetas"
 }

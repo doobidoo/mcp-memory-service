@@ -302,13 +302,6 @@
   "manage.bulk.deleteTag.placeholder": "Tag auswählen...",
   "manage.bulk.deleteTag.title": "Nach Tag löschen",
   "manage.bulk.title": "Massenoperationen",
-  "manage.system.dbOpt.btn": "DB optimieren",
-  "manage.system.dbOpt.desc": "Datenbankleistung optimieren",
-  "manage.system.dbOpt.title": "Datenbank-Optimierung",
-  "manage.system.rebuild.btn": "Index neuaufbauen",
-  "manage.system.rebuild.desc": "Suchindizes für bessere Leistung neuaufbauen",
-  "manage.system.rebuild.title": "Suchindex neuaufbauen",
-  "manage.system.title": "Systemwartung",
   "manage.tags.column.actions": "Aktionen",
   "manage.tags.column.count": "Anzahl",
   "manage.tags.column.tag": "Tag",
@@ -675,7 +668,6 @@
   "toast.cleanupSuccess": "{message}",
   "toast.copyFailed": "Kopieren in Zwischenablage fehlgeschlagen",
   "toast.copySuccess": "Erinnerung in Zwischenablage kopiert",
-  "toast.dbOptimizeTodo": "Datenbank-Optimierung noch nicht implementiert",
   "toast.documentChunksPartial": "{count} Chunks gefunden (Teilergebnisse)",
   "toast.documentRemoved": "\"{name}\" entfernt ({count} Erinnerungen gelöscht)",
   "toast.duplicateMemoryWarning": "Erinnerung aktualisiert, aber Originalversion existiert noch. Möglicherweise muss das Duplikat manuell gelöscht werden.",
@@ -691,7 +683,6 @@
   "toast.filterSearchFailed": "Filtersuche fehlgeschlagen",
   "toast.filtersCleared": "Alle Filter gelöscht",
   "toast.genericSuccess": "{message}",
-  "toast.indexRebuildTodo": "Index-Neuaufbau noch nicht implementiert",
   "toast.languageSwitched": "Sprache gewechselt",
   "toast.loadAnalyticsFail": "Analysedaten konnten nicht geladen werden",
   "error.authRequired": "Authentifizierung erforderlich",
@@ -743,5 +734,7 @@
   "toast.uploadFailed": "Upload fehlgeschlagen: {message}",
   "toast.uploadFileFail": "Upload von {name} fehlgeschlagen: {message}",
   "toast.uploadStartedBatch": "Batch-Upload gestartet für {count} Dateien",
-  "toast.uploadStartedSingle": "Upload gestartet für {name}"
+  "toast.uploadStartedSingle": "Upload gestartet für {name}",
+  "manage.tags.minimumCount": "Tags anzeigen, die mindestens N-mal verwendet werden",
+  "manage.tags.showingCount": "{shown} von {total} Tags werden angezeigt"
 }

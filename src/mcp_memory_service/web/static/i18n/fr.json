@@ -302,13 +302,6 @@
   "manage.bulk.deleteTag.placeholder": "Sélectionner un tag...",
   "manage.bulk.deleteTag.title": "Supprimer par Tag",
   "manage.bulk.title": "Opérations en Masse",
-  "manage.system.dbOpt.btn": "Optimiser DB",
-  "manage.system.dbOpt.desc": "Optimiser les performances de la base de données",
-  "manage.system.dbOpt.title": "Optimisation de la Base de Données",
-  "manage.system.rebuild.btn": "Reconstruire l'Index",
-  "manage.system.rebuild.desc": "Reconstruire les index de recherche pour de meilleures performances",
-  "manage.system.rebuild.title": "Reconstruire l'Index de Recherche",
-  "manage.system.title": "Maintenance Système",
   "manage.tags.column.actions": "Actions",
   "manage.tags.column.count": "Nombre",
   "manage.tags.column.tag": "Tag",
@@ -675,7 +668,6 @@
   "toast.cleanupSuccess": "{message}",
   "toast.copyFailed": "Échec de la copie dans le presse-papiers",
   "toast.copySuccess": "Mémoire copiée dans le presse-papiers",
-  "toast.dbOptimizeTodo": "Optimisation de la base de données pas encore implémentée",
   "toast.documentChunksPartial": "{count} fragments trouvés (résultats partiels)",
   "toast.documentRemoved": "\"{name}\" supprimé ({count} mémoires supprimées)",
   "toast.duplicateMemoryWarning": "Mémoire mise à jour, mais la version originale existe toujours. Vous devrez peut-être supprimer manuellement le doublon.",
@@ -691,7 +683,6 @@
   "toast.filterSearchFailed": "Échec de la recherche avec filtres",
   "toast.filtersCleared": "Tous les filtres effacés",
   "toast.genericSuccess": "{message}",
-  "toast.indexRebuildTodo": "Reconstruction de l'index pas encore implémentée",
   "toast.languageSwitched": "Langue changée",
   "toast.loadAnalyticsFail": "Échec du chargement des données d'analyse",
   "error.authRequired": "Authentification requise",
@@ -743,5 +734,7 @@
   "toast.uploadFailed": "Téléchargement échoué : {message}",
   "toast.uploadFileFail": "Échec du téléchargement de {name} : {message}",
   "toast.uploadStartedBatch": "Téléchargement par lot démarré pour {count} fichiers",
-  "toast.uploadStartedSingle": "Téléchargement démarré pour {name}"
+  "toast.uploadStartedSingle": "Téléchargement démarré pour {name}",
+  "manage.tags.minimumCount": "Afficher les tags utilisés au moins N fois",
+  "manage.tags.showingCount": "Affichage de {shown} tags sur {total}"
 }

@@ -118,8 +118,6 @@
   "toast.selectDate": "Silakan pilih tanggal",
   "toast.bulkDeleteByDateSuccess": "{message}",
   "toast.bulkDeleteByDateFailedWithReason": "{message}",
-  "toast.dbOptimizeTodo": "Optimasi basis data belum diimplementasikan",
-  "toast.indexRebuildTodo": "Pembangunan ulang indeks belum diimplementasikan",
   "toast.tagRenameTodo": "Penggantian nama tag belum diimplementasikan",
   "toast.tagDeleteTodo": "Penghapusan tag belum diimplementasikan",
   "toast.loadAnalyticsFail": "Gagal memuat data analitik",
@@ -461,13 +459,6 @@
   "manage.tags.column.actions": "Aksi",
   "manage.tags.rename": "Ganti Nama",
   "manage.tags.delete": "Hapus",
-  "manage.system.title": "Pemeliharaan Sistem",
-  "manage.system.dbOpt.title": "Optimasi Basis Data",
-  "manage.system.dbOpt.desc": "Optimalkan kinerja basis data",
-  "manage.system.dbOpt.btn": "Optimalkan DB",
-  "manage.system.rebuild.title": "Bangun Ulang Indeks Pencarian",
-  "manage.system.rebuild.desc": "Bangun ulang indeks pencarian untuk kinerja lebih baik",
-  "manage.system.rebuild.btn": "Bangun Ulang Indeks",
   "search.results.title": "Hasil Pencarian",
   "search.results.count": "{count} hasil",
   "search.results.count.one": "{count} hasil",
@@ -742,5 +733,7 @@
   "settings.quality.saving": "Menyimpan…",
   "settings.quality.saveFailed": "✗ Penyimpanan gagal: {error}",
   "settings.quality.loadFailed": "✗ Tidak dapat memuat pengaturan saat ini: {error}. Buka kembali tab ini untuk mencoba lagi.",
-  "settings.quality.saveHint": "Disimpan ke .env. Server akan dimulai ulang untuk menerapkan perubahan."
+  "settings.quality.saveHint": "Disimpan ke .env. Server akan dimulai ulang untuk menerapkan perubahan.",
+  "manage.tags.minimumCount": "Tampilkan tag yang digunakan setidaknya N kali",
+  "manage.tags.showingCount": "Menampilkan {shown} dari {total} tag"
 }
