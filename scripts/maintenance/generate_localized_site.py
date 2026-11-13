@@ -11,7 +11,7 @@ from string import Template
 BASE_URL = "https://mcpmemory.services"
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = Path("scripts/maintenance/site_locales")
-AUTOMATIC_KEYS = {"canonical", "alternates", "language_links"}
+AUTOMATIC_KEYS = {"canonical", "alternates", "language_links", "structured_data"}
 GENERATED_MARKER = "<!-- Generated localized introduction. -->"
 
 
@@ -68,6 +68,29 @@ def language_links(languages, current):
     return "\n".join(links)
 
 
+def structured_data(catalog):
+    """Describe the page as a translation of the site, tied to the home page's entities.
+
+    Built from the raw catalog text: HTML entities are not decoded inside a script
+    element, so html.escape would corrupt it. Escaping "</" keeps a translation from
+    closing the element early.
+    """
+    url = f'{BASE_URL}/{catalog["locale"]}/'
+    page = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "@id": f"{url}#page",
+        "url": url,
+        "name": catalog["title"],
+        "description": catalog["description"],
+        "inLanguage": catalog["locale"],
+        "isPartOf": {"@id": f"{BASE_URL}/#website"},
+        "about": {"@id": f"{BASE_URL}/#software"},
+    }
+    body = json.dumps(page, ensure_ascii=False, indent=2).replace("</", "<\\/")
+    return f'<script type="application/ld+json">\n{body}\n</script>'
+
+
 def replace_block(source, name, content):
     """Replace one owned block, refusing missing or repeated markers."""
     start, end = f"<!-- {name}:start -->", f"<!-- {name}:end -->"
@@ -93,6 +116,7 @@ def generated_files(root):
             canonical=f"{BASE_URL}/{locale}/",
             alternates=alternate_links,
             language_links=language_links(languages, locale),
+            structured_data=structured_data(catalog),
         )
         outputs[Path(f"site/{locale}/index.html")] = template.substitute(values)
 

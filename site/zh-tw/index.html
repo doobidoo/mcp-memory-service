@@ -11,7 +11,10 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://mcpmemory.services/zh-tw/">
 <meta property="og:locale" content="zh_TW">
+<meta property="og:site_name" content="MCP Memory Service">
 <meta property="og:image" content="https://mcpmemory.services/assets/images/og-home.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="給 AI 助理的持久記憶 | MCP Memory Service">
 <meta name="twitter:description" content="幫 Claude Code 等 AI 助理保存專案知識，之後隨時再找出來。自行架設 MCP Memory Service：支援語意搜尋、MCP 與 REST API。">
@@ -27,7 +30,27 @@
 <link rel="alternate" hreflang="zh-cn" href="https://mcpmemory.services/zh-cn/">
 <link rel="alternate" hreflang="zh-tw" href="https://mcpmemory.services/zh-tw/">
 <link rel="alternate" hreflang="x-default" href="https://mcpmemory.services/">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": "https://mcpmemory.services/zh-tw/#page",
+  "url": "https://mcpmemory.services/zh-tw/",
+  "name": "給 AI 助理的持久記憶 | MCP Memory Service",
+  "description": "幫 Claude Code 等 AI 助理保存專案知識，之後隨時再找出來。自行架設 MCP Memory Service：支援語意搜尋、MCP 與 REST API。",
+  "inLanguage": "zh-tw",
+  "isPartOf": {
+    "@id": "https://mcpmemory.services/#website"
+  },
+  "about": {
+    "@id": "https://mcpmemory.services/#software"
+  }
+}
+</script>
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/assets/fonts/fonts.css">
 <link rel="stylesheet" href="/assets/site.css">
 <link rel="stylesheet" href="/assets/localized.css">
@@ -37,7 +60,7 @@
 <div class="band">
   <div class="wrap">
     <nav class="nav" aria-label="主選單">
-      <a class="brand" href="/zh-tw/"><img src="/brain-icon.png" alt="">mcp-memory-service</a>
+      <a class="brand" href="/zh-tw/"><img src="/brain-icon.png" width="28" height="28" alt="">mcp-memory-service</a>
       <a href="#install">安裝</a>
     </nav>
     <nav class="language-switcher" aria-label="選擇語言"><a href="/" lang="en" hreflang="en">English</a>
@@ -56,7 +79,7 @@
       <h1>讓你的 AI 助理記得住</h1>
       <p class="intro">專案裡做過的決定、偏好和解法，下一次對話也該找得到。MCP Memory Service 把這些知識存在你自己的系統上，讓 Claude Code 等 AI 助理隨時可以搜尋。</p>
       <div class="btns">
-        <a class="btn" href="#install">開始設定</a>
+        <a class="btn btn-primary" href="#install">開始設定</a>
         <a href="https://github.com/doobidoo/mcp-memory-service">到 GitHub 看專案</a>
       </div>
     </div>
@@ -98,7 +121,7 @@
     </div>
   </section>
   <section class="sec">
-    <div class="wrap locale-faq">
+    <div class="wrap faq">
       <h2>常見問題</h2>
       <details><summary>會自動存下所有對話內容嗎？</summary><p>只透過 MCP 連上服務，並不會自動存下整段對話，還要由用戶端呼叫工具。選用的 hook 和對話匯入功能各有自己的設定步驟。</p></details>
       <details><summary>記憶會留在我自己的電腦上嗎？</summary><p>使用本機 SQLite 設定時，記憶存在你自己的系統上，Embedding 也在本機計算。AI 用戶端會把哪些資料送給模型供應商，取決於用戶端本身。Cloudflare 儲存與同步都是要另外設定的選項。</p></details>

@@ -3,6 +3,7 @@
 import html
 import importlib.util
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -91,6 +92,21 @@ class LocalizedSiteTests(unittest.TestCase):
         page = site.generated_files(root)[Path("site/de/index.html")]
         self.assertIn("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;", page)
         self.assertNotIn('<script>alert("x")</script>', page)
+
+    def test_structured_data_is_valid_json_from_raw_text(self):
+        root, path, catalog = self.catalog_fixture()
+        catalog["title"] = 'Größe & "Zitat" </script><b>'
+        path.write_text(json.dumps(catalog))
+        page = site.generated_files(root)[Path("site/de/index.html")]
+        blocks = re.findall(
+            r'<script type="application/ld\+json">\n(.*?)\n</script>', page, re.S
+        )
+        self.assertEqual(len(blocks), 1)
+        data = json.loads(blocks[0])
+        self.assertEqual(data["name"], catalog["title"])
+        self.assertEqual(data["url"], "https://mcpmemory.services/de/")
+        self.assertEqual(data["inLanguage"], "de")
+        self.assertNotIn("&amp;", blocks[0])
 
     def test_new_language_updates_all_alternates(self):
         root, _, catalog = self.catalog_fixture()
