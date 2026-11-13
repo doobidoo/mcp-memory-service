@@ -310,8 +310,8 @@ class MemoryServer:
                 self.memory_service = MemoryService(storage)
                 self._storage_initialized = True
                 logger.info(
-                    f"Using caller-provided {storage.__class__.__name__} storage; "
-                    f"deferred init skipped"
+                    "Using caller-provided %s storage; deferred init skipped",
+                    storage.__class__.__name__,
                 )
             else:
                 # DEFER STORAGE INITIALIZATION - Initialize storage lazily when needed
@@ -507,8 +507,10 @@ class MemoryServer:
                 logger.info("🧬 EAGER INIT: Importing MilvusMemoryStorage...")
                 from .storage.milvus import MilvusMemoryStorage
                 logger.info(
-                    f"🧬 EAGER INIT: Creating MilvusMemoryStorage (uri={MILVUS_URI}, "
-                    f"collection={MILVUS_COLLECTION_NAME}, auth={'yes' if MILVUS_TOKEN else 'no'})"
+                    "🧬 EAGER INIT: Creating MilvusMemoryStorage (uri=%s, collection=%s, auth=%s)",
+                    _sanitize_log_value(MILVUS_URI),
+                    _sanitize_log_value(MILVUS_COLLECTION_NAME),
+                    "yes" if MILVUS_TOKEN else "no",
                 )
                 self.storage = MilvusMemoryStorage(
                     uri=MILVUS_URI,
@@ -670,8 +672,10 @@ class MemoryServer:
                     logger.info("🧬 LAZY INIT: Importing MilvusMemoryStorage...")
                     from .storage.milvus import MilvusMemoryStorage
                     logger.info(
-                        f"🧬 LAZY INIT: Creating MilvusMemoryStorage (uri={MILVUS_URI}, "
-                        f"collection={MILVUS_COLLECTION_NAME}, auth={'yes' if MILVUS_TOKEN else 'no'})"
+                        "🧬 LAZY INIT: Creating MilvusMemoryStorage (uri=%s, collection=%s, auth=%s)",
+                        _sanitize_log_value(MILVUS_URI),
+                        _sanitize_log_value(MILVUS_COLLECTION_NAME),
+                        "yes" if MILVUS_TOKEN else "no",
                     )
                     self.storage = MilvusMemoryStorage(
                         uri=MILVUS_URI,
@@ -1226,6 +1230,17 @@ class MemoryServer:
         async def handle_get_prompt(name: str, arguments: dict) -> types.GetPromptResult:
             """Handle prompt execution with provided arguments."""
             await self._ensure_storage_initialized()
+
+            # Prompts read through store-less helpers (search_by_tag spans every
+            # store, the rest read `default`), so a store-restricted caller (a
+            # read:<store> token without global `read`) can't be confined here
+            # and is refused, as in handle_read_resource (GHSA-wpp8-2qcw-x4pc).
+            _scope = self._caller_scope_str()
+            if _scope is not None and "read" not in _scope.split():
+                raise PermissionError(
+                    "insufficient_scope: MCP prompts require a global 'read' scope; "
+                    "a store-restricted token cannot read cross-store prompts"
+                )
 
             # Dispatch to specific prompt handler
             if name == "memory_review":
@@ -2554,7 +2569,7 @@ class MemoryServer:
                 unresolved = [c for c in conflicts if c.get("status") != "resolved"]
                 if unresolved:
                     logger.warning(
-                        f"Contradiction check: {len(unresolved)} unresolved conflict(s)"
+                        "Contradiction check: %s unresolved conflict(s)", len(unresolved)
                     )
         except Exception as e:
             logger.warning("Scheduled contradiction_check failed (non-fatal): %s", _sanitize_log_value(e))

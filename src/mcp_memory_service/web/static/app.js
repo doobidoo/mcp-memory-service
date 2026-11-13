@@ -75,6 +75,7 @@ class MemoryDashboard {
         this.apiBase = 'api';
         this.eventSource = null;
         this.memories = [];
+        this.tagManagementMinCount = 2;
         this.currentView = 'dashboard';
         // 国际化状态
         this.currentLang = 'en';
@@ -835,8 +836,8 @@ class MemoryDashboard {
         document.getElementById('cleanupDuplicatesBtn')?.addEventListener('click', this.handleCleanupDuplicates.bind(this));
         document.getElementById('deleteByDateBtn')?.addEventListener('click', this.handleBulkDeleteByDate.bind(this));
         document.getElementById('deleteUntaggedBtn')?.addEventListener('click', this.handleDeleteUntagged.bind(this));
-        document.getElementById('optimizeDbBtn')?.addEventListener('click', this.handleOptimizeDatabase.bind(this));
-        document.getElementById('rebuildIndexBtn')?.addEventListener('click', this.handleRebuildIndex.bind(this));
+        document.getElementById('ontologyAddTypeBtn')?.addEventListener('click', this.handleAddMemoryType.bind(this));
+        document.getElementById('ontologySetRetentionBtn')?.addEventListener('click', this.handleSetRetention.bind(this));
 
         // Analytics tab event listeners
         document.getElementById('growthPeriodSelect')?.addEventListener('change', this.handleGrowthPeriodChange.bind(this));
@@ -1233,6 +1234,7 @@ class MemoryDashboard {
             // Populate typeFilter (search filter) - keep "All types" option
             const typeFilter = document.getElementById('typeFilter');
             if (typeFilter) {
+                const selected = typeFilter.value;
                 const allOpt = document.createElement('option');
                 allOpt.value = '';
                 allOpt.dataset.i18n = 'search.filters.type.all';
@@ -1244,6 +1246,13 @@ class MemoryDashboard {
                     return opt;
                 });
                 typeFilter.replaceChildren(allOpt, ...typeOpts);
+                // Keep the user's type filter. If that type was just removed, the filter
+                // falls back to "All types" and the search reruns so results and badge match.
+                if (types.includes(selected)) {
+                    typeFilter.value = selected;
+                } else if (selected) {
+                    typeFilter.dispatchEvent(new Event('change'));
+                }
             }
 
             // Populate all memoryType selects (document upload + add memory modal)
@@ -5541,10 +5550,135 @@ class MemoryDashboard {
             await this.loadTagSelectOptions();
             await this.loadTagManagementStats();
             await this.loadUntaggedCount();
+            await this.loadOntology();
         } catch (error) {
             console.error('Failed to load manage data:', error);
             this.showToast(this.t('toast.loadManageFail', 'Failed to load management data'), 'error');
         }
+    }
+
+    /**
+     * Load the ontology overlay (#1897): the type selects and the stored-entries table.
+     */
+    async loadOntology() {
+        const container = document.getElementById('ontologyStoredContainer');
+        if (!container) return;
+        try {
+            const data = await this.apiCall('/ontology');
+            document.getElementById('ontologyForms').style.display = data.writable ? '' : 'none';
+            document.getElementById('ontologyReadOnly').style.display = data.writable ? 'none' : '';
+            const types = data.memory_types.map(t => t.name);
+            this.fillOntologySelect('ontologyTypeParent', data.memory_types.filter(t => !t.parent).map(t => t.name));
+            this.fillOntologySelect('ontologyRetentionType', types);
+            this.renderOntologyStored(data.stored, data.writable);
+        } catch (error) {
+            console.error('Failed to load ontology:', error);
+            container.innerHTML = `<p class="error" data-i18n="manage.ontology.loadFailed">${this.escapeHtml(this.t('manage.ontology.loadFailed', 'Failed to load the ontology'))}</p>`;
+        }
+    }
+
+    /**
+     * Replace a select's options after its first (placeholder) option.
+     */
+    fillOntologySelect(id, names) {
+        const select = document.getElementById(id);
+        if (!select) return;
+        // Keep the user's choice across reloads (a language switch re-renders the section).
+        const selected = select.value;
+        while (select.options.length > 1) select.remove(1);
+        names.forEach(name => select.add(new Option(name, name)));
+        if (names.includes(selected)) select.value = selected;
+    }
+
+    /**
+     * One line of detail for a stored overlay row.
+     */
+    ontologyDetail(row) {
+        const p = row.payload || {};
+        if (row.kind === 'memory_type') return row.parent || '';
+        if (row.kind === 'retention') return this.t('manage.ontology.days', '{days} days', { days: p.days });
+        if (row.kind === 'relationship') return Array.isArray(p.valid_patterns) ? p.valid_patterns.join(', ') : '';
+        return `${p.relationship} (${p.confidence})`;
+    }
+
+    renderOntologyStored(rows, writable) {
+        const container = document.getElementById('ontologyStoredContainer');
+        if (!rows.length) {
+            container.innerHTML = `<p class="text-neutral-600" data-i18n="manage.ontology.empty">${this.escapeHtml(this.t('manage.ontology.empty', 'Nothing stored yet. Built-in types and types from MCP_CUSTOM_MEMORY_TYPES are not listed here.'))}</p>`;
+            return;
+        }
+        const th = (key, fallback) => `<th data-i18n="${key}">${this.escapeHtml(this.t(key, fallback))}</th>`;
+        let html = '<table class="tag-stats-table"><thead><tr>';
+        html += th('manage.ontology.column.kind', 'Kind') + th('manage.ontology.column.name', 'Name')
+            + th('manage.ontology.column.detail', 'Details');
+        if (writable) html += th('manage.tags.column.actions', 'Actions');
+        html += '</tr></thead><tbody>';
+        rows.forEach(row => {
+            html += `<tr><td>${this.escapeHtml(row.kind)}</td><td class="tag-name">${this.escapeHtml(row.key)}</td>`;
+            html += `<td>${this.escapeHtml(this.ontologyDetail(row))}</td>`;
+            if (writable) {
+                html += `<td class="tag-actions"><button class="tag-action-btn danger" data-kind="${this.escapeHtml(row.kind)}" data-key="${this.escapeHtml(row.key)}" data-i18n="manage.ontology.remove">${this.escapeHtml(this.t('manage.ontology.remove', 'Remove'))}</button></td>`;
+            }
+            html += '</tr>';
+        });
+        container.innerHTML = html + '</tbody></table>';
+        // Assigned, not added: the table re-renders on every visit and language switch.
+        container.onclick = (e) => {
+            const button = e.target.closest('[data-kind]');
+            if (button) this.handleRemoveOntologyEntry(button.dataset.kind, button.dataset.key);
+        };
+    }
+
+    async ontologyWrite(endpoint, method, body) {
+        this.setLoading(true);
+        try {
+            await this.apiCall(endpoint, method, body);
+            this.showToast(this.t('toast.ontologyUpdated', 'Ontology updated'), 'success');
+            await this.loadOntology();
+            // The search filter and memory forms list the types too (loaded at startup).
+            await this.loadMemoryTypes();
+            return true;
+        } catch (error) {
+            console.error('Ontology write failed:', error);
+            this.showToast(error.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
+            return false;
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    async handleAddMemoryType() {
+        const name = document.getElementById('ontologyTypeName');
+        const parent = document.getElementById('ontologyTypeParent').value || null;
+        if (!name.value.trim()) return;
+        if (await this.ontologyWrite('/ontology/memory-types', 'POST', { name: name.value.trim(), parent })) {
+            name.value = '';
+        }
+    }
+
+    async handleSetRetention() {
+        const type = document.getElementById('ontologyRetentionType').value;
+        const raw = document.getElementById('ontologyRetentionDays').value.trim();
+        const days = Number(raw);
+        if (!type || !raw) return;
+        // Number(), not parseInt(): "30.5" and "1e2" must not turn into 30 and 1.
+        if (!Number.isInteger(days) || days < 1 || days > 3650) {
+            this.showToast(this.t('manage.ontology.retention.invalid', 'Enter a whole number of days from 1 to 3650.'), 'error');
+            return;
+        }
+        await this.ontologyWrite(`/ontology/retention/${encodeURIComponent(type)}`, 'PUT', { days });
+    }
+
+    async handleRemoveOntologyEntry(kind, key) {
+        const paths = {
+            memory_type: () => `/ontology/memory-types/${encodeURIComponent(key)}`,
+            retention: () => `/ontology/retention/${encodeURIComponent(key)}`,
+            relationship: () => `/ontology/relationships/${encodeURIComponent(key)}`,
+            type_pattern: () => '/ontology/type-patterns/' + key.split(' → ').map(encodeURIComponent).join('/'),
+        };
+        if (!paths[kind]) return;
+        if (!confirm(this.t('manage.ontology.removeConfirm', 'Remove {name}? Stored memories and edges keep it.', { name: key }))) return;
+        await this.ontologyWrite(paths[kind](), 'DELETE');
     }
 
     /**
@@ -5621,25 +5755,49 @@ class MemoryDashboard {
         const container = document.getElementById('tagManagementContainer');
         if (!container) return;
 
-        let html = '<table class="tag-stats-table">';
+        const minimum = this.tagManagementMinCount ?? 2;
+        let html = '<div class="tag-management-filter">';
+        html += `<label for="tagManagementMinCount" data-i18n="manage.tags.minimumCount">${this.escapeHtml(this.t('manage.tags.minimumCount', 'Show tags used at least N times'))}</label> `;
+        html += `<input id="tagManagementMinCount" class="form-control" style="max-width: 6rem; display: inline-block;" type="number" min="1" step="1" value="${minimum}">`;
+        html += '<p class="tag-management-count" aria-live="polite"></p></div>';
+        html += '<table class="tag-stats-table">';
         html += '<thead><tr>';
         html += `<th data-i18n="manage.tags.column.tag">${this.escapeHtml(this.t('manage.tags.column.tag', 'Tag'))}</th>`;
         html += `<th data-i18n="manage.tags.column.count">${this.escapeHtml(this.t('manage.tags.column.count', 'Count'))}</th>`;
         html += `<th data-i18n="manage.tags.column.actions">${this.escapeHtml(this.t('manage.tags.column.actions', 'Actions'))}</th>`;
-        html += '</tr></thead><tbody>';
-
-        data.tags.forEach(tagStat => {
-        html += '<tr>';
-        html += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
-        html += `<td class="tag-count">${tagStat.count}</td>`;
-        html += '<td class="tag-actions">';
-        html += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
-        html += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
-        html += '</td></tr>';
-        });
-
-        html += '</tbody></table>';
+        html += '</tr></thead><tbody></tbody></table>';
         container.innerHTML = html;
+
+        const input = container.querySelector('#tagManagementMinCount');
+        const body = container.querySelector('tbody');
+        const summary = container.querySelector('.tag-management-count');
+        const renderRows = () => {
+            const tags = data.tags.filter(tagStat => tagStat.count >= (this.tagManagementMinCount ?? 2));
+            body.innerHTML = tags.map(tagStat => {
+                let row = '<tr>';
+                row += `<td class="tag-name">${this.escapeHtml(tagStat.tag)}</td>`;
+                row += `<td class="tag-count">${tagStat.count}</td>`;
+                row += '<td class="tag-actions">';
+                row += `<button class="tag-action-btn" data-action="rename-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-i18n="manage.tags.rename">${this.escapeHtml(this.t('manage.tags.rename', 'Rename'))}</button>`;
+                row += `<button class="tag-action-btn danger" data-action="delete-tag" data-tag="${this.escapeHtml(tagStat.tag)}" data-count="${tagStat.count}" data-i18n="manage.tags.delete">${this.escapeHtml(this.t('manage.tags.delete', 'Delete'))}</button>`;
+                return row + '</td></tr>';
+            }).join('');
+            summary.textContent = this.t('manage.tags.showingCount', 'Showing {shown} of {total} tags', { shown: tags.length, total: data.tags.length });
+        };
+        // Update just the rows while typing, so the input keeps its focus.
+        input.oninput = () => {
+            const value = Number(input.value);
+            if (!Number.isInteger(value) || value < 1) return;
+            this.tagManagementMinCount = value;
+            renderRows();
+        };
+        input.onchange = () => {
+            const value = Number(input.value);
+            this.tagManagementMinCount = Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+            input.value = String(this.tagManagementMinCount);
+            renderRows();
+        };
+        renderRows();
 
         // Assigned, not added: the table re-renders on every visit and language switch.
         container.onclick = (e) => {
@@ -5798,20 +5956,6 @@ class MemoryDashboard {
         } finally {
             this.setLoading(false);
         }
-    }
-
-    /**
-     * Handle database optimization
-     */
-    async handleOptimizeDatabase() {
-        this.showToast(this.t('toast.dbOptimizeTodo', 'Database optimization not yet implemented'), 'warning');
-    }
-
-    /**
-     * Handle index rebuild
-     */
-    async handleRebuildIndex() {
-        this.showToast(this.t('toast.indexRebuildTodo', 'Index rebuild not yet implemented'), 'warning');
     }
 
     /**

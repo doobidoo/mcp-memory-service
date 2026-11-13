@@ -68,10 +68,12 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/mixins/delete.py",
     "mcp_memory_service/api/client.py",
     "mcp_memory_service/api/operations.py",
+    "mcp_memory_service/api/sync_wrapper.py",
     "mcp_memory_service/storage/mixins/store.py",
     "mcp_memory_service/utils/db_utils.py",
     "mcp_memory_service/utils/health_check.py",
     "mcp_memory_service/utils/debug.py",
+    "mcp_memory_service/utils/content_splitter.py",
     "mcp_memory_service/server/handlers/utility.py",
     "mcp_memory_service/server/handlers/documents.py",
     "mcp_memory_service/web/api/server.py",
@@ -109,6 +111,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/harvest/harvester.py",
     "mcp_memory_service/harvest/extractor.py",
     "mcp_memory_service/harvest/auto_capture.py",
+    "mcp_memory_service/server_impl.py",
+    "mcp_memory_service/utils/system_detection.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -248,6 +252,7 @@ EXTERNAL_NAMES = frozenset({
 MODULE_EXTERNAL_NAMES = {
     "mcp_memory_service/utils/cache_manager.py": frozenset({"backend"}),
     "mcp_memory_service/embeddings/external_api.py": frozenset({"model_name"}),
+    "mcp_memory_service/server_impl.py": frozenset({"MILVUS_URI", "MILVUS_COLLECTION_NAME"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -769,3 +774,19 @@ def test_lazy_scan_flags_ingestion_resolved_path():
     assert _lazy_findings(bare)
     assert not _lazy_findings(wrapped)
     assert not _lazy_findings('logger.debug("Found fallback loader %s for %s", loader_class.__name__, _sanitize_log_value(file_path))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_server_impl_milvus_settings():
+    """MILVUS_URI and MILVUS_COLLECTION_NAME reach server_impl.py's init logs
+    from the environment, and neither is in EXTERNAL_NAMES, so they are listed
+    through MODULE_EXTERNAL_NAMES. Both init paths already wrap them; this is
+    the sample that fails if either name is dropped from the entry.
+    """
+    extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/server_impl.py"]
+    for name in ("MILVUS_URI", "MILVUS_COLLECTION_NAME"):
+        bare = f'logger.info("Creating MilvusMemoryStorage (uri=%s)", {name})\n'
+        wrapped = f'logger.info("Creating MilvusMemoryStorage (uri=%s)", _sanitize_log_value({name}))\n'
+        assert _lazy_findings(bare, extra)
+        assert not _lazy_findings(bare), "not an EXTERNAL_NAMES entry: the module list carries it"
+        assert not _lazy_findings(wrapped, extra)

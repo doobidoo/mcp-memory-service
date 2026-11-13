@@ -97,6 +97,7 @@ from .shared import (
     _exclude_versioned_parent,
     _escape_like, _tags_to_string, _string_to_tags,
     _safe_json_loads, _versioned_conflict_exclusion,
+    _precomputed_store_vector, _store_with_vector,
 )
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory, MemoryQueryResult
@@ -154,6 +155,22 @@ _MAX_TAGS_FOR_SEARCH = 100
 # -- Storage implementation --------------------------------------------------
 
 
+def _deleted_rows(result: Any) -> Optional[int]:
+    """How many rows a ``MilvusClient.delete`` call removed, if it says.
+
+    pymilvus returns ``{"delete_count": n, "cost": c}`` (an ``OmitZeroDict``,
+    whose zeros are still readable), or a list of primary keys from servers
+    before 2.3.2. Anything else is ``None``: unknown, treated as a delete that
+    went through, which is what every caller assumed before this check.
+    """
+    if isinstance(result, dict):
+        count = result.get("delete_count")
+        return int(count) if isinstance(count, int) else None
+    if isinstance(result, (list, tuple)):
+        return len(result)
+    return None
+
+
 class MilvusMemoryStorage(MemoryStorage):
     """Milvus-backed storage implementation.
 
@@ -173,6 +190,14 @@ class MilvusMemoryStorage(MemoryStorage):
         SentenceTransformer model name. ``all-MiniLM-L6-v2`` (384-dim) by
         default — matches the rest of the project.
     """
+
+    # Whether the live collection has a ``store`` field (#1879). Class-level
+    # defaults so instances built without ``__init__`` read as a legacy
+    # collection; ``_ensure_collection`` sets the instance value.
+    _has_store = False
+    # A named-store call against a legacy collection is refused with one
+    # warning per instance, not one per call.
+    _legacy_store_warned = False
 
     @property
     def max_content_length(self) -> Optional[int]:
@@ -226,6 +251,11 @@ class MilvusMemoryStorage(MemoryStorage):
         # may not. ``get_by_exact_content`` falls back to a client-side scan
         # when this is False. Set in ``_ensure_collection``.
         self._has_content_lower = False
+
+        # Whether the live collection has a ``store`` field. New collections
+        # do; older ones have no column to confine on, so a named-store
+        # hash-addressed call fails closed there (#1879).
+        self._has_store = False
 
         # Whether the collection has a BM25 function index on ``content``.
         # New collections get one automatically; pre-existing collections
@@ -352,6 +382,14 @@ class MilvusMemoryStorage(MemoryStorage):
             datatype=DataType.VARCHAR,
             max_length=_MILVUS_VARCHAR_MAX,
         )
+        # The store a memory belongs to (#1879). A row written without the
+        # key lands in "default", like an unnamed store on the other backends.
+        schema.add_field(
+            field_name="store",
+            datatype=DataType.VARCHAR,
+            max_length=_ID_MAX_LEN,
+            default_value="default",
+        )
         schema.add_field(
             field_name="tags",
             datatype=DataType.VARCHAR,
@@ -423,6 +461,7 @@ class MilvusMemoryStorage(MemoryStorage):
             index_params=index_params,
         )
         self._has_content_lower = True
+        self._has_store = True
         logger.info(
             "Created Milvus collection '%s' (dim=%s)",
             self.collection_name, self.embedding_dimension,
@@ -493,6 +532,15 @@ class MilvusMemoryStorage(MemoryStorage):
                 "Collection '%s' lacks the 'content_lower' field — "
                 "get_by_exact_content will fall back to a slower client-side "
                 "scan. Recreate the collection to pick up server-side filtering.",
+                self.collection_name,
+            )
+
+        self._has_store = "store" in field_names
+        if not self._has_store:
+            logger.warning(
+                "Collection '%s' lacks the 'store' field — a get, update or "
+                "delete by hash confined to a named store is refused. Recreate "
+                "the collection to pick up store confinement.",
                 self.collection_name,
             )
 
@@ -783,7 +831,9 @@ class MilvusMemoryStorage(MemoryStorage):
         updated_iso = memory.updated_at_iso or self._iso_from_epoch(updated_at)
         return created_at, created_iso, updated_at, updated_iso
 
-    def _memory_to_entity(self, memory: Memory, embedding: List[float]) -> Dict[str, Any]:
+    def _memory_to_entity(
+        self, memory: Memory, embedding: List[float], store: Optional[str] = "default"
+    ) -> Dict[str, Any]:
         created_at, created_iso, updated_at, updated_iso = self._resolve_timestamps(memory)
         content = memory.content or ""
         entity: Dict[str, Any] = {
@@ -800,7 +850,146 @@ class MilvusMemoryStorage(MemoryStorage):
         }
         if self._has_content_lower:
             entity["content_lower"] = content.lower()
+        if self._has_store:
+            entity["store"] = store or "default"
         return entity
+
+    # -- Store confinement (#1879) --------------------------------------------
+
+    def _store_scope(self, store: Optional[str]) -> Tuple[bool, Optional[str]]:
+        """Resolve ``store`` for a hash-addressed call to ``(refused, confine_to)``.
+
+        ``None`` and ``"all"`` are unscoped. On a collection with the ``store``
+        field every other value confines, ``"default"`` included. A legacy
+        collection has nothing to confine on: ``"default"`` stays unscoped
+        there, as it does in ``remote_http`` against an older hub, and a named
+        store is refused rather than served from every store.
+        """
+        if store is None or store == "all":
+            return False, None
+        if self._has_store:
+            return False, store
+        if store == "default":
+            return False, None
+        if not self._legacy_store_warned:
+            self._legacy_store_warned = True
+            logger.warning(
+                "Collection '%s' has no 'store' field; refusing a call confined "
+                "to store %s and every later one. Recreate the collection.",
+                self.collection_name, _sanitize_log_value(store),
+            )
+        return True, None
+
+    def _row_fields(self, base: Tuple[str, ...]) -> List[str]:
+        """``base`` plus ``store`` when the collection has it."""
+        fields = list(base)
+        if self._has_store:
+            fields.append("store")
+        return fields
+
+    @staticmethod
+    def _row_store(row: Dict[str, Any]) -> str:
+        return row.get("store") or "default"
+
+    async def _fetch_live_row(
+        self, content_hash: str, include_embedding: bool = False
+    ) -> Optional[Tuple[Memory, str]]:
+        """Return the live memory under ``content_hash`` and the store it is in.
+
+        With ``include_embedding`` the stored vector comes back on
+        ``Memory.embedding``, so a write that keeps the content can write it
+        back instead of embedding the content again (#1966).
+        """
+        fields = self._OUTPUT_FIELDS
+        if include_embedding:
+            fields = self._OUTPUT_FIELDS_WITH_VECTOR
+        try:
+            rows = await self._call_client(
+                "get",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+                output_fields=self._row_fields(fields),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to get memory %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
+            return None
+
+        if not rows:
+            return None
+        memory = self._entity_to_memory(rows[0], include_embedding=include_embedding)
+        # Soft-deleted rows carry ``metadata.deleted_at``. Milvus can't filter a
+        # JSON sub-field in the ``get`` expression, so drop the tombstone here to
+        # match the other backends (sqlite_vec at mixins/retrieve.py, cloudflare
+        # since #1255): get_by_hash returns only live memories. is_deleted() has
+        # its own lookup that still sees the tombstone.
+        if memory is None or memory.metadata.get("deleted_at") is not None:
+            return None
+        return memory, self._row_store(rows[0])
+
+    async def _stored_vector(
+        self, content_hash: str
+    ) -> Tuple[bool, Optional[List[float]]]:
+        """Read the vector stored under ``content_hash`` on a legacy collection.
+
+        Returns ``(live, vector)``. ``live`` is False when the row is gone or
+        carries a soft-delete tombstone, as every other read of a memory
+        here treats it (``_fetch_live_row``). A failed read is reported as
+        live with no vector, so the caller embeds the content again, as it
+        did before #1966. Never raises.
+        """
+        try:
+            rows = await self._call_client(
+                "get",
+                collection_name=self.collection_name,
+                ids=[content_hash],
+                output_fields=["vector", "metadata"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to read the vector of %s: %s",
+                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
+            )
+            return True, None
+        if not rows or not self._row_is_live(rows[0]):
+            return False, None
+        return True, self._coerce_vector(rows[0])
+
+    async def _get_for_write(
+        self, content_hash: str, store: Optional[str], include_embedding: bool = False
+    ) -> Tuple[Optional[Memory], str]:
+        """Read the row a hash-addressed write will replace, with its store.
+
+        Milvus ``upsert`` replaces the whole row, so the row's own store is
+        written back with it and an update never moves a memory between
+        stores. A legacy collection has no store to carry.
+
+        With ``include_embedding`` the row's vector is read too (on a legacy
+        collection with a second ``get``, since ``get_by_hash`` does not
+        carry it; a row tombstoned by then reads as not found), so the
+        caller can write it back without an embedding call between the read
+        and the upsert (#1966).
+        """
+        if not self._has_store:
+            memory = await self.get_by_hash(content_hash, store)
+            if memory is not None and include_embedding and not memory.embedding:
+                live, vector = await self._stored_vector(content_hash)
+                if not live:
+                    return None, "default"
+                memory.embedding = vector
+            return memory, "default"
+        refused, confine = self._store_scope(store)
+        found = None if refused else await self._fetch_live_row(
+            content_hash, include_embedding=include_embedding
+        )
+        if found is None:
+            return None, "default"
+        memory, row_store = found
+        if confine is not None and row_store != confine:
+            return None, "default"
+        return memory, row_store
 
     def _entity_to_memory(
         self,
@@ -1410,10 +1599,10 @@ class MilvusMemoryStorage(MemoryStorage):
                     recreate: Optional[bool] = None) -> Tuple[bool, str]:
         # `recreate` accepted for BaseStorage parity (#1560) and intentionally unused:
         # Milvus keeps no tombstones / sync event log, so there is no delete to refuse.
-        # `store` accepted for BaseStorage parity (multi-store, issue #133).
-        # The Milvus backend is single-collection and does not partition by
-        # store yet, so the value is intentionally not used (matches
-        # get_all_memories/count_all_memories/search_memories here).
+        # `store` is written to the row's ``store`` field when the collection
+        # has one (#1879); a legacy collection has nowhere to keep it. Reads
+        # other than the hash-addressed ones still ignore it (single collection,
+        # see get_all_memories/count_all_memories/search_memories here).
         # Explicit invariant log: if this ever reports True, something
         # outside ``close()`` has nulled out the client and that is a bug.
         logger.debug("store() entry — self.client is None: %r", self.client is None)
@@ -1434,13 +1623,21 @@ class MilvusMemoryStorage(MemoryStorage):
                 if is_dup:
                     return False, f"Duplicate content detected (semantically similar to {hit_hash})"
 
-            try:
-                embedding = self._generate_embedding(memory.content)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Failed to embed memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(exc))
-                return False, f"Failed to generate embedding: {exc}"
+            # ``update_memory_versioned`` embeds the new content before it
+            # reads the old row, so the call does not sit between that read
+            # and the write (#1966).
+            embedding = _precomputed_store_vector.get()
+            if embedding is None:
+                try:
+                    embedding = self._generate_embedding(memory.content)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "Failed to embed memory %s: %s",
+                        _sanitize_log_value(memory.content_hash), _sanitize_log_value(exc),
+                    )
+                    return False, f"Failed to generate embedding: {exc}"
 
-            entity = self._memory_to_entity(memory, embedding)
+            entity = self._memory_to_entity(memory, embedding, store)
 
             await self._call_client(
                 "insert",
@@ -1474,7 +1671,7 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, f"Failed to store memory: {exc}"
 
     async def _prepare_batch_entity(
-        self, memory: Memory
+        self, memory: Memory, store: Optional[str] = "default"
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """Build a single batch entity or return a failure message for it."""
         try:
@@ -1484,7 +1681,7 @@ class MilvusMemoryStorage(MemoryStorage):
             embedding = self._generate_embedding(memory.content)
         except Exception as exc:  # noqa: BLE001 — report per-item, don't abort the batch
             return None, f"Failed to prepare memory: {exc}"
-        return self._memory_to_entity(memory, embedding), None
+        return self._memory_to_entity(memory, embedding, store), None
 
     async def _flush_batch_insert(
         self,
@@ -1512,8 +1709,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self, memories: List[Memory], store: str = "default", recreate: Optional[bool] = None
     ) -> List[Tuple[bool, str]]:
         # `recreate` accepted for BaseStorage parity (#1560), unused — see store().
-        # `store` accepted for BaseStorage parity (multi-store, issue #133).
-        # Single-collection backend — see store() for the full rationale.
+        # `store` is written as in store().
         if not memories:
             return []
         if not self._ensure_initialized():
@@ -1524,7 +1720,7 @@ class MilvusMemoryStorage(MemoryStorage):
         insert_indices: List[int] = []
 
         for idx, memory in enumerate(memories):
-            entity, err = await self._prepare_batch_entity(memory)
+            entity, err = await self._prepare_batch_entity(memory, store)
             if entity is None:
                 results[idx] = (False, err or "Failed to prepare memory")
             else:
@@ -1866,19 +2062,45 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
-        existing = await self.get_by_hash(content_hash)
+        existing, row_store = await self._get_for_write(content_hash, store)
         if existing is None:
             return False, f"Memory with hash {content_hash} not found"
 
+        # Confined, the store is part of the delete itself (#1879), so the
+        # check above and the removal agree on which row goes.
+        _, confine = self._store_scope(store)
+        if confine is not None:
+            target: Dict[str, Any] = {
+                "filter": (
+                    f'id == "{escape_expr_value(content_hash)}" '
+                    f'and store == "{escape_expr_value(row_store)}"'
+                )
+            }
+        else:
+            target = {"ids": [content_hash]}
+
         try:
-            await self._call_client(
+            result = await self._call_client(
                 "delete",
                 collection_name=self.collection_name,
-                ids=[content_hash],
+                **target,
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Failed to delete memory %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(exc))
             return False, f"Failed to delete memory: {exc}"
+
+        # The delete can match nothing: between the read above and this call
+        # another client may have removed the row, or removed it and stored
+        # the same content in a different store, which the confined filter
+        # rightly leaves alone. Then nothing went, and the access record and
+        # graph edges belong to the row that is there now, so they stay.
+        if _deleted_rows(result) == 0:
+            where = f" in store '{row_store}'" if confine is not None else ""
+            logger.info(
+                "Memory %s was not deleted: no row%s at delete time",
+                _sanitize_log_value(content_hash), _sanitize_log_value(where),
+            )
+            return False, f"Memory with hash {content_hash} not found{where}"
 
         logger.info("Deleted memory %s", _sanitize_log_value(content_hash))
         # Clean up access tracking record
@@ -2111,29 +2333,16 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return None
 
-        try:
-            rows = await self._call_client(
-                "get",
-                collection_name=self.collection_name,
-                ids=[content_hash],
-                output_fields=list(self._OUTPUT_FIELDS),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "Failed to get memory %s: %s",
-                _sanitize_log_value(content_hash), _sanitize_log_value(exc),
-            )
+        refused, confine = self._store_scope(store)
+        if refused:
             return None
-
-        if not rows:
+        found = await self._fetch_live_row(content_hash)
+        if found is None:
             return None
-        memory = self._entity_to_memory(rows[0])
-        # Soft-deleted rows carry ``metadata.deleted_at``. Milvus can't filter a
-        # JSON sub-field in the ``get`` expression, so drop the tombstone here to
-        # match the other backends (sqlite_vec at mixins/retrieve.py, cloudflare
-        # since #1255): get_by_hash returns only live memories. is_deleted() has
-        # its own lookup that still sees the tombstone.
-        if memory is not None and memory.metadata.get("deleted_at") is not None:
+        memory, row_store = found
+        # A memory in another store reads as not found, as on sqlite_vec and
+        # cloudflare (#1879).
+        if confine is not None and row_store != confine:
             return None
         return memory
 
@@ -2279,6 +2488,7 @@ class MilvusMemoryStorage(MemoryStorage):
         merged: Tuple[List[str], Optional[str], Dict[str, Any]],
         timestamps: Tuple[Optional[float], Optional[str], float, str],
         embedding: List[float],
+        store: str = "default",
     ) -> Dict[str, Any]:
         new_tags, new_type, new_metadata = merged
         created_at, created_at_iso, updated_at, updated_at_iso = timestamps
@@ -2306,6 +2516,10 @@ class MilvusMemoryStorage(MemoryStorage):
         }
         if self._has_content_lower:
             entity["content_lower"] = content.lower()
+        if self._has_store:
+            # ``upsert`` replaces the whole row: without the row's own store
+            # the field would fall back to "default" (#1879).
+            entity["store"] = store
         return entity
 
     async def update_memory_metadata(
@@ -2313,11 +2527,14 @@ class MilvusMemoryStorage(MemoryStorage):
         content_hash: str,
         updates: Dict[str, Any],
         preserve_timestamps: bool = True,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str]:
         if not self._ensure_initialized():
             return False, "Milvus storage not initialized"
 
-        existing = await self.get_by_hash(content_hash)
+        existing, row_store = await self._get_for_write(
+            content_hash, store, include_embedding=True
+        )
         if existing is None:
             return False, f"Memory with hash {content_hash} not found"
 
@@ -2327,12 +2544,18 @@ class MilvusMemoryStorage(MemoryStorage):
 
         timestamps = self._compute_update_timestamps(existing, updates, preserve_timestamps)
 
-        try:
-            embedding = self._generate_embedding(existing.content)
-        except Exception as exc:  # noqa: BLE001
-            return False, f"Failed to generate embedding for upsert: {exc}"
+        # The content does not change here, so neither does its vector: write
+        # the stored one back, as mark_superseded_batch does, and keep the
+        # embedding call out of the read-upsert window (#1966). A row whose
+        # vector did not come back is re-embedded.
+        embedding = existing.embedding
+        if not embedding:
+            try:
+                embedding = self._generate_embedding(existing.content)
+            except Exception as exc:  # noqa: BLE001
+                return False, f"Failed to generate embedding for upsert: {exc}"
 
-        entity = self._build_update_entity(existing, merged, timestamps, embedding)
+        entity = self._build_update_entity(existing, merged, timestamps, embedding, row_store)
 
         try:
             await self._call_client(
@@ -2392,7 +2615,15 @@ class MilvusMemoryStorage(MemoryStorage):
                 self._versioned_update_lock = lock
 
             async with lock:
-                existing = await self.get_by_hash(content_hash)
+                # The new content is known before the old row is read, so its
+                # vector is computed here and not between the read and the
+                # writes below (#1966).
+                try:
+                    new_embedding = self._generate_embedding(new_content)
+                except Exception as exc:  # noqa: BLE001
+                    return False, f"Failed to generate embedding: {exc}", None
+
+                existing, row_store = await self._get_for_write(content_hash, None)
                 if existing is None:
                     return False, f"Memory {content_hash} not found", None
                 if (existing.metadata or {}).get("superseded_by") is not None:
@@ -2421,9 +2652,14 @@ class MilvusMemoryStorage(MemoryStorage):
                     memory_type=resolved_type,
                     metadata=inherited_metadata,
                 )
-                with _exclude_versioned_parent(content_hash):
+                with (
+                    _exclude_versioned_parent(content_hash),
+                    _store_with_vector(new_embedding),
+                ):
+                    # The new version stays in the old row's store, as on
+                    # sqlite_vec (mixins/metadata.py).
                     store_ok, store_msg = await self.store(
-                        new_memory, skip_semantic_dedup=True
+                        new_memory, skip_semantic_dedup=True, store=row_store
                     )
                 if not store_ok:
                     return False, f"Failed to store new version: {store_msg}", None
@@ -2516,17 +2752,21 @@ class MilvusMemoryStorage(MemoryStorage):
         # -- Step 1: Batch fetch all existing records in one call --
         hashes = [m.content_hash for m in memories]
         existing_map: Dict[str, Memory] = {}
+        store_map: Dict[str, str] = {}
         try:
             fetched = await self._call_client(
                 "get",
                 collection_name=self.collection_name,
                 ids=hashes,
-                output_fields=list(self._OUTPUT_FIELDS),
+                output_fields=self._row_fields(self._OUTPUT_FIELDS_WITH_VECTOR),
             )
             for row in (fetched or []):
-                mem = self._entity_to_memory(row)
-                if mem:
+                mem = self._entity_to_memory(row, include_embedding=True)
+                # Skip tombstones, as _fetch_live_row does: a soft-deleted
+                # memory is "not found" here, not written back and counted.
+                if mem and mem.metadata.get("deleted_at") is None:
                     existing_map[mem.content_hash] = mem
+                    store_map[mem.content_hash] = self._row_store(row)
         except Exception as exc:  # noqa: BLE001
             logger.error("update_memories_batch: batch fetch failed: %s", _sanitize_log_value(exc))
             return results
@@ -2561,19 +2801,30 @@ class MilvusMemoryStorage(MemoryStorage):
         if not valid_items:
             return results
 
-        # -- Step 3: Batch embedding generation --
-        contents = [existing.content or "" for (_, existing, _, _) in valid_items]
-        try:
-            if not self.embedding_model:
-                raise RuntimeError("Embedding model not loaded")
-            raw_embeddings = self.embedding_model.encode(contents, convert_to_numpy=True)
-            embeddings = [
-                e.tolist() if hasattr(e, "tolist") else list(e)
-                for e in raw_embeddings
-            ]
-        except Exception as exc:  # noqa: BLE001
-            logger.error("update_memories_batch: batch embedding failed: %s", _sanitize_log_value(exc))
-            return results
+        # -- Step 3: Vectors --
+        # The content does not change, so the stored vectors are written back
+        # (#1966); only rows whose vector did not come back are embedded, in
+        # one batch call.
+        embeddings: List[Optional[List[float]]] = [
+            existing.embedding or None for (_, existing, _, _) in valid_items
+        ]
+        missing = [i for i, e in enumerate(embeddings) if e is None]
+        if missing:
+            contents = [valid_items[i][1].content or "" for i in missing]
+            try:
+                if not self.embedding_model:
+                    raise RuntimeError("Embedding model not loaded")
+                raw_embeddings = self.embedding_model.encode(
+                    contents, convert_to_numpy=True
+                )
+                for i, e in zip(missing, raw_embeddings):
+                    embeddings[i] = e.tolist() if hasattr(e, "tolist") else list(e)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "update_memories_batch: batch embedding failed: %s",
+                    _sanitize_log_value(exc),
+                )
+                return results
 
         # -- Step 4: Build entities --
         entities: List[Dict[str, Any]] = []
@@ -2584,7 +2835,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 existing, updates, preserve_timestamps
             )
             embedding = embeddings[i]
-            entity = self._build_update_entity(existing, merged, timestamps, embedding)
+            entity = self._build_update_entity(
+                existing, merged, timestamps, embedding,
+                store_map.get(existing.content_hash, "default"),
+            )
             entities.append(entity)
             entity_indices.append(idx)
 
@@ -2632,17 +2886,21 @@ class MilvusMemoryStorage(MemoryStorage):
 
         # -- Batch fetch all losers (including vectors to avoid re-encoding) --
         existing_map: Dict[str, Memory] = {}
+        store_map: Dict[str, str] = {}
         try:
             fetched = await self._call_client(
                 "get",
                 collection_name=self.collection_name,
                 ids=loser_hashes,
-                output_fields=list(self._OUTPUT_FIELDS_WITH_VECTOR),
+                output_fields=self._row_fields(self._OUTPUT_FIELDS_WITH_VECTOR),
             )
             for row in (fetched or []):
                 mem = self._entity_to_memory(row, include_embedding=True)
-                if mem:
+                # Skip tombstones, as _fetch_live_row does (sqlite-vec's
+                # _supersede_with_event matches ``deleted_at IS NULL``).
+                if mem and mem.metadata.get("deleted_at") is None:
                     existing_map[mem.content_hash] = mem
+                    store_map[mem.content_hash] = self._row_store(row)
         except Exception as exc:  # noqa: BLE001
             logger.error("mark_superseded_batch: batch fetch failed: %s", _sanitize_log_value(exc))
             return 0
@@ -2695,7 +2953,10 @@ class MilvusMemoryStorage(MemoryStorage):
                     )
                     continue
 
-            entity = self._build_update_entity(existing, merged, timestamps, embedding)
+            entity = self._build_update_entity(
+                existing, merged, timestamps, embedding,
+                store_map.get(loser_hash, "default"),
+            )
             entities.append(entity)
 
         if not entities:

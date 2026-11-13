@@ -3275,32 +3275,6 @@ margin-top: 3rem;
     flex: 1;
 }
 
-.system-ops-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
-    gap: var(--space-4);
-}
-
-.system-op-card {
-    background: var(--neutral-50);
-    border: 1px solid var(--neutral-200);
-    border-radius: var(--radius-lg);
-    padding: var(--space-4);
-    text-align: center;
-}
-
-.system-op-card h3 {
-    margin: 0 0 var(--space-2) 0;
-    font-size: var(--text-base);
-    font-weight: 500;
-}
-
-.system-op-card p {
-    margin: 0 0 var(--space-4) 0;
-    font-size: var(--text-sm);
-    color: var(--neutral-600);
-}
-
 /* Analytics View Styles */
 .analytics-layout {
     display: flex;
@@ -3562,7 +3536,6 @@ body.dark-mode .analytics-section h2 {
 }
 
 body.dark-mode .bulk-op-card,
-body.dark-mode .system-op-card,
 body.dark-mode .chart-card,
 body.dark-mode .report-card {
     background: var(--neutral-200) !important;  /* Lighter nested card background for contrast */
@@ -3571,14 +3544,12 @@ body.dark-mode .report-card {
 }
 
 body.dark-mode .bulk-op-card h3,
-body.dark-mode .system-op-card h3,
 body.dark-mode .chart-card h3,
 body.dark-mode .report-card h3 {
     color: var(--neutral-900) !important;
 }
 
 body.dark-mode .bulk-op-card p,
-body.dark-mode .system-op-card p,
 body.dark-mode .chart-card p,
 body.dark-mode .report-card p {
     color: var(--neutral-600) !important;
@@ -3869,7 +3840,6 @@ body.dark-mode .chart-card select:focus {
 
 /* Buttons in Manage/Analytics dark mode */
 body.dark-mode .bulk-op-card .btn,
-body.dark-mode .system-op-card .btn,
 body.dark-mode .chart-card .btn {
     opacity: 1;
 }

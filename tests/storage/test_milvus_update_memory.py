@@ -97,10 +97,12 @@ class TestUpdateMemory:
         result = await storage.update_memory(updated)
 
         assert result is True
-        # Verify upsert was called (through update_memory_metadata)
-        storage._call_client.assert_called_once()
-        call_args = storage._call_client.call_args
-        assert call_args[0][0] == "upsert"
+        # Verify upsert was called (through update_memory_metadata). The
+        # mocked get_by_hash carries no vector, so the row's vector is read
+        # with a second client call before the upsert (#1966).
+        upserts = [c for c in storage._call_client.call_args_list if c[0][0] == "upsert"]
+        assert len(upserts) == 1
+        assert storage._call_client.call_args[0][0] == "upsert"
 
     @pytest.mark.asyncio
     async def test_not_found_returns_false(self):
