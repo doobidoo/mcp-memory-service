@@ -227,6 +227,7 @@ ul.mem-list{list-style:none}
     </div>
     <div>
       <button class="cmd" type="button" onclick="copyInstall(this)"><span>pip install "mcp-memory-service[sqlite]"</span><span>copy</span></button>
+      <span class="sr-only" role="status" id="copy-status"></span>
       <div class="cta-buttons">
         <a href="/" class="btn btn-primary">Back to mcpmemory.services</a>
         <a href="https://github.com/doobidoo/mcp-memory-service" class="btn btn-secondary" target="_blank" rel="noopener">View the source</a>
@@ -252,15 +253,17 @@ ul.mem-list{list-style:none}
 </footer>
 
 <script>
-function copyInstall(el) {
-  const hint = el.lastElementChild;
-  const done = state => {
-    el.dataset.state = state;
-    hint.textContent = state === 'copied' ? 'copied' : 'select and copy';
-    clearTimeout(el.timer);
-    el.timer = setTimeout(() => { delete el.dataset.state; hint.textContent = 'copy'; }, 2000);
-  };
-  navigator.clipboard.writeText('pip install "mcp-memory-service[sqlite]"').then(() => done('copied'), () => done('failed'));
+// Same behaviour as the home page: the try also covers a missing navigator.clipboard,
+// and the status line repeats the result for screen readers.
+async function copyInstall(el) {
+  const hint = el.lastElementChild, status = document.getElementById('copy-status');
+  let state = 'copied';
+  try { await navigator.clipboard.writeText('pip install "mcp-memory-service[sqlite]"'); } catch { state = 'failed'; }
+  el.dataset.state = state;
+  hint.textContent = state === 'copied' ? 'copied' : 'select and copy';
+  status.textContent = state === 'copied' ? 'Install command copied' : 'Copying was blocked, select the command and copy it';
+  clearTimeout(el.timer);
+  el.timer = setTimeout(() => { delete el.dataset.state; hint.textContent = 'copy'; status.textContent = ''; }, 2000);
 }
 </script>
 
