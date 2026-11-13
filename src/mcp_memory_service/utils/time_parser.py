@@ -95,7 +95,9 @@ _RANGE_MONTH_YEAR = re.compile(rf"{PATTERNS['month_name'].pattern}\s+(\d{{4}})")
 PATTERNS["from_to"] = re.compile(
     rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
     rf"({_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)"
-    rf"(?=\s|$)"
+    # Sentence punctuation may follow a complete endpoint; only "\s|$" made
+    # "march 2024." fall back to "march" and dropped "2024-03-31." entirely.
+    rf"(?=[\s.,;:!?]|$)"
 )
 
 

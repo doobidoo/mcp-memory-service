@@ -332,6 +332,17 @@ class TestTimeParser:
         assert datetime.fromtimestamp(now_start) == datetime(2024, 1, 1, 0, 0, 0)
         assert now_end == today_end
 
+        # Sentence punctuation after the end must not shorten the endpoint
+        # ("march 2024." falling back to "march") or drop the range.
+        for query in (
+            "from January 2024 to March 2024",
+            "from 2024-01-01 to 2024-03-31",
+            "from yesterday to today in the morning",
+        ):
+            expected = parse_time_expression(query)
+            for punct in (".", ",", "?", "!", ";", ":"):
+                assert parse_time_expression(query + punct) == expected, query + punct
+
     def test_quarters(self):
         """Test quarter expressions"""
         start_ts, end_ts = parse_time_expression("first quarter of 2024")
