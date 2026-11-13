@@ -255,7 +255,94 @@ class TestTimeParser:
         
         assert start_dt.month == 1
         assert end_dt.month == 3
-    
+
+    def test_from_to_covers_the_whole_window(self, monkeypatch):
+        """`from X to Y` is a range, the same window `between X and Y` already is.
+
+        The recall handler documents "from January to March". Without a from/to
+        pattern the first date or month was returned alone, so an ISO range
+        collapsed to its first day.
+        """
+        # In January and February "march" resolves to last year, which would
+        # invert the month window; pin the clock after March.
+        _freeze_clock(monkeypatch, date(2026, 11, 10))
+        start_ts, end_ts = parse_time_expression("from 2024-01-01 to 2024-03-31")
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
+        month_start, month_end = parse_time_expression("from january to march")
+        between_start, between_end = parse_time_expression("between january and march")
+        assert (month_start, month_end) == (between_start, between_end)
+        assert datetime.fromtimestamp(month_end).month == 3
+
+        _, (recall_start, recall_end) = extract_time_expression("from January to March")
+        assert datetime.fromtimestamp(recall_start).month == 1
+        assert datetime.fromtimestamp(recall_end).month == 3
+
+        relative_start, relative_end = parse_time_expression(
+            "from 3 days ago to 1 day ago"
+        )
+        expected_start, _ = parse_time_expression("3 days ago")
+        _, expected_end = parse_time_expression("1 day ago")
+        assert (relative_start, relative_end) == (expected_start, expected_end)
+
+        daypart_start, daypart_end = parse_time_expression(
+            "from yesterday morning to today"
+        )
+        expected_start, _ = parse_time_expression("yesterday morning")
+        _, expected_end = parse_time_expression("today")
+        assert (daypart_start, daypart_end) == (expected_start, expected_end)
+
+        # "today in the morning" is a supported expression on its own, so the
+        # range end keeps the daypart instead of widening to the whole day.
+        for query, end_expr in (
+            ("from yesterday to today in the morning", "today in the morning"),
+            ("from yesterday to today morning", "today morning"),
+        ):
+            range_start, range_end = parse_time_expression(query)
+            expected_start, _ = parse_time_expression("yesterday")
+            _, expected_end = parse_time_expression(end_expr)
+            assert (range_start, range_end) == (expected_start, expected_end)
+
+    def test_from_to_that_is_not_a_date_keeps_a_later_expression(self):
+        """`from Alice to Bob yesterday` is not a date range."""
+        yesterday_start, yesterday_end = parse_time_expression("yesterday")
+        for query in ("from Alice to Bob yesterday", "from May to Bob yesterday"):
+            start_ts, end_ts = parse_time_expression(query)
+            assert (start_ts, end_ts) == (yesterday_start, yesterday_end)
+
+    def test_from_to_edge_endpoints(self, monkeypatch):
+        """Inverted month windows fall back, month-name years are kept, `now` is today."""
+        _freeze_clock(monkeypatch, date(2026, 1, 10))
+        march_start, _ = parse_time_expression("march")
+        _, january_end = parse_time_expression("january")
+        assert parse_time_expression("from march to january") == (march_start, january_end)
+
+        _freeze_clock(monkeypatch, date(2026, 11, 10))
+        assert parse_time_expression("from march to january") == parse_time_expression("march")
+
+        start_ts, end_ts = parse_time_expression("from January 2024 to March 2024")
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
+        now_start, now_end = parse_time_expression("from 2024-01-01 to now")
+        _, today_end = parse_time_expression("today")
+        assert datetime.fromtimestamp(now_start) == datetime(2024, 1, 1, 0, 0, 0)
+        assert now_end == today_end
+
+        # Sentence punctuation after the end must not shorten the endpoint
+        # ("march 2024." falling back to "march") or drop the range.
+        for query in (
+            "from January 2024 to March 2024",
+            "from 2024-01-01 to 2024-03-31",
+            "from yesterday to today in the morning",
+        ):
+            expected = parse_time_expression(query)
+            for punct in (".", ",", "?", "!", ";", ":"):
+                assert parse_time_expression(query + punct) == expected, query + punct
+
     def test_quarters(self):
         """Test quarter expressions"""
         start_ts, end_ts = parse_time_expression("first quarter of 2024")
