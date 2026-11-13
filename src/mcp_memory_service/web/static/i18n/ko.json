@@ -734,5 +734,7 @@
   "toast.uploadFailed": "업로드 실패: {message}",
   "toast.uploadFileFail": "{name} 업로드 실패: {message}",
   "toast.uploadStartedBatch": "{count}개 파일의 일괄 업로드를 시작했습니다",
-  "toast.uploadStartedSingle": "{name} 업로드를 시작했습니다"
+  "toast.uploadStartedSingle": "{name} 업로드를 시작했습니다",
+  "manage.tags.minimumCount": "N회 이상 사용된 태그 표시",
+  "manage.tags.showingCount": "전체 {total}개 중 {shown}개 태그 표시"
 }

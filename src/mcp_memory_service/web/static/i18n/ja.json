@@ -734,5 +734,7 @@
   "toast.uploadFailed": "アップロードに失敗しました: {message}",
   "toast.uploadFileFail": "{name} のアップロードに失敗しました: {message}",
   "toast.uploadStartedBatch": "{count} ファイルのバッチアップロードを開始しました",
-  "toast.uploadStartedSingle": "{name} のアップロードを開始しました"
+  "toast.uploadStartedSingle": "{name} のアップロードを開始しました",
+  "manage.tags.minimumCount": "N回以上使用されたタグを表示",
+  "manage.tags.showingCount": "{total}個中{shown}個のタグを表示"
 }

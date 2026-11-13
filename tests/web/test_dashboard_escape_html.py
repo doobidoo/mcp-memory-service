@@ -51,7 +51,10 @@ def test_dashboard_renders_stored_labels_as_text(view):
     script += "\nconst app = Object.create(MemoryDashboard.prototype);\n"
     script += f"const payload = {json.dumps(payload)};\n"
     script += """
-const container = {innerHTML: '', addEventListener() {}};
+const children = {};
+const container = {innerHTML: '', addEventListener() {},
+    querySelector(key) { return children[key] ??= {innerHTML: '', value: ''}; }
+};
 global.document = {getElementById: () => container};
 const tag = {tag: payload, count: 11, percentage: 100, growth_rate: null};
 const view = process.argv[2];
@@ -64,7 +67,7 @@ if (view === 'cooccurrence') app.renderTopTagsReport(container, {
 if (view === 'types') app.renderMemoryTypesChart(container, {
     types: [{memory_type: payload, count: 11, percentage: 100}]
 });
-console.log(container.innerHTML);
+console.log(container.innerHTML + Object.values(children).map(c => c.innerHTML).join(''));
 """
     result = subprocess.run(["node", "-", view], input=script, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

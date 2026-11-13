@@ -734,5 +734,7 @@
   "toast.uploadFailed": "Téléchargement échoué : {message}",
   "toast.uploadFileFail": "Échec du téléchargement de {name} : {message}",
   "toast.uploadStartedBatch": "Téléchargement par lot démarré pour {count} fichiers",
-  "toast.uploadStartedSingle": "Téléchargement démarré pour {name}"
+  "toast.uploadStartedSingle": "Téléchargement démarré pour {name}",
+  "manage.tags.minimumCount": "Afficher les tags utilisés au moins N fois",
+  "manage.tags.showingCount": "Affichage de {shown} tags sur {total}"
 }

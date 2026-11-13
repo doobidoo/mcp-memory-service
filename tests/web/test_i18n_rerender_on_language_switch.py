@@ -118,6 +118,7 @@ FAKE_DOM = """
 const out = {};
 function el(tag) {
   return { tag, children: [], value: '', dataset: {}, listeners: 0, innerHTML: '',
+    querySelector(key) { this.parts ??= {}; return this.parts[key] ??= el(key); },
     appendChild(c) { this.children.push(c); },
     removeChild() { this.children.pop(); this.value = ''; },
     get lastChild() { return this.children[this.children.length - 1]; },
