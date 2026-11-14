@@ -441,3 +441,168 @@ def test_dedup_drain_reads_every_batch_once():
 
     assert [r["id"] for r in rows] == ["a", "b", "c"]
     assert it.closed is True
+
+
+@pytest.mark.asyncio
+async def test_link_to_the_same_replacement_counts_as_linked():
+    """A second save of the same text finds its own hash already linked."""
+    storage = _storage()
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {"superseded_by": "new"}))
+    storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
+
+    assert await storage._link_semantic_supersede("old", "new") is True
+
+
+@pytest.mark.asyncio
+async def test_commit_keeps_the_replacement_the_old_row_points_to():
+    storage = _storage()
+    removed = []
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {"superseded_by": "new"}))
+    storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
+
+    async def _cleanup(content_hash: str) -> bool:
+        removed.append(content_hash)
+        return True
+
+    storage._cleanup_unlinked_version = _cleanup
+
+    assert await storage._commit_semantic_supersede("old", "new") is None
+    assert removed == []
+
+
+@pytest.mark.asyncio
+async def test_commit_still_rolls_back_when_another_hash_won():
+    storage = _storage()
+    removed = []
+    storage.get_by_hash = _async(lambda _hash, store=None: _memory("old", {"superseded_by": "other"}))
+    storage.update_memory_metadata = _async(lambda *_args, **_kwargs: (_boom()))
+
+    async def _cleanup(content_hash: str) -> bool:
+        removed.append(content_hash)
+        return True
+
+    storage._cleanup_unlinked_version = _cleanup
+
+    success, message = await storage._commit_semantic_supersede("old", "new")
+
+    assert success is False
+    assert isinstance(message, SemanticDedupResult)
+    assert message.outcome == "deduplicated"
+    assert removed == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_commit_rechecks_the_link_before_deleting():
+    """The write failed here, but another process linked the same hash."""
+    storage = _storage()
+    removed = []
+    reads = []
+
+    async def _get(content_hash: str, store: str | None = None):
+        reads.append(content_hash)
+        metadata = {} if len(reads) == 1 else {"superseded_by": "new"}
+        return _memory(content_hash, metadata)
+
+    async def _update(*_args, **_kwargs):
+        return False, "write lost"
+
+    async def _cleanup(content_hash: str) -> bool:
+        removed.append(content_hash)
+        return True
+
+    storage.get_by_hash = _get
+    storage.update_memory_metadata = _update
+    storage._cleanup_unlinked_version = _cleanup
+
+    assert await storage._commit_semantic_supersede("old", "new") is None
+    assert removed == []
+    assert reads == ["old", "old"]
+
+
+@pytest.mark.asyncio
+async def test_commit_keeps_the_row_when_the_recheck_fails():
+    storage = _storage()
+    removed = []
+    reads = []
+
+    async def _get(content_hash: str, store: str | None = None):
+        reads.append(content_hash)
+        if len(reads) > 1:
+            raise RuntimeError("milvus unavailable")
+        return _memory(content_hash, {})
+
+    async def _update(*_args, **_kwargs):
+        return False, "write lost"
+
+    async def _cleanup(content_hash: str) -> bool:
+        removed.append(content_hash)
+        return True
+
+    storage.get_by_hash = _get
+    storage.update_memory_metadata = _update
+    storage._cleanup_unlinked_version = _cleanup
+
+    success, message = await storage._commit_semantic_supersede("old", "new")
+
+    assert success is False
+    assert "could not be rolled back" in message
+    assert removed == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_saves_of_the_same_update_keep_the_replacement():
+    """Both saves match the same old row; one row is stored and stays linked."""
+    storage = _dedup_storage("supersede")
+    rows = {"old": {}}
+    inserted = []
+    removed = []
+    both_matched = asyncio.Event()
+    scans = []
+
+    async def _scan(filter_expr, fields):
+        scans.append(filter_expr)
+        if len(scans) == 2:
+            both_matched.set()
+        await both_matched.wait()
+        return [_live_row("old", 0.90)]
+
+    async def _call(method_name, *_args, **kwargs):
+        if method_name == "insert":
+            for entity in kwargs["data"]:
+                inserted.append(entity["id"])
+                rows[entity["id"]] = {}
+        return []
+
+    async def _get(content_hash: str, store: str | None = None):
+        if content_hash not in rows:
+            return None
+        return _memory(content_hash, rows[content_hash])
+
+    async def _update(content_hash, updates, preserve_timestamps=True, store=None):
+        rows[content_hash] = dict(rows[content_hash], **updates["metadata"])
+        return True, "ok"
+
+    async def _cleanup(content_hash: str) -> bool:
+        removed.append(content_hash)
+        rows.pop(content_hash, None)
+        return True
+
+    storage._scan_dedup_rows = _scan
+    storage._call_client = _call
+    storage.get_by_hash = _get
+    storage.update_memory_metadata = _update
+    storage._cleanup_unlinked_version = _cleanup
+
+    first, second = await asyncio.gather(
+        storage.store(Memory(content="updated fact", content_hash="new")),
+        storage.store(Memory(content="updated fact", content_hash="new")),
+    )
+
+    outcomes = sorted([first[0], second[0]])
+    assert outcomes == [False, True]
+    loser = first if first[0] is False else second
+    assert loser[1] == "Duplicate content detected (exact match)"
+    assert inserted == ["new"]
+    assert removed == []
+    assert rows["old"]["superseded_by"] == "new"
+    assert "new" in rows

@@ -1809,18 +1809,59 @@ class MilvusMemoryStorage(MemoryStorage):
         ``superseded_by``, and the caller drops the new row.
         """
         async with self._versioned_lineage_lock():
-            existing = await self.get_by_hash(old_hash, store=store)
-            still_current = (
-                existing is not None
-                and (existing.metadata or {}).get("superseded_by") is None
+            return await self._link_semantic_supersede_locked(old_hash, new_hash, store)
+
+    async def _link_semantic_supersede_locked(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> bool:
+        """``_link_semantic_supersede`` body. Caller holds the versioned-update lock.
+
+        A row already superseded by ``new_hash`` counts as linked. Two saves
+        of the same updated text insert the same hash, so the second one
+        finds its own replacement already in place. Reporting that as a
+        failure would make the caller delete the row the old memory now
+        points to.
+        """
+        existing = await self.get_by_hash(old_hash, store=store)
+        if existing is None:
+            logger.debug(
+                "semantic supersede skipped for %s: no longer current",
+                _sanitize_log_value(old_hash[:8]),
             )
-            if not still_current:
-                logger.debug(
-                    "semantic supersede skipped for %s: no longer current",
-                    _sanitize_log_value(old_hash[:8]),
-                )
-                return False
-            return await self._write_semantic_supersede(old_hash, new_hash, store)
+            return False
+        superseded_by = (existing.metadata or {}).get("superseded_by")
+        if superseded_by == new_hash:
+            logger.debug(
+                "semantic supersede of %s already points at %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(new_hash[:8]),
+            )
+            return True
+        if superseded_by is not None:
+            logger.debug(
+                "semantic supersede skipped for %s: no longer current",
+                _sanitize_log_value(old_hash[:8]),
+            )
+            return False
+        return await self._write_semantic_supersede(old_hash, new_hash, store)
+
+    async def _is_superseded_by(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> Optional[bool]:
+        """Whether ``old_hash`` names ``new_hash`` as its replacement; None if unknown."""
+        try:
+            existing = await self.get_by_hash(old_hash, store=store)
+        except Exception as exc:  # noqa: BLE001 — an unknown link keeps the row
+            logger.warning(
+                "semantic supersede recheck failed for %s: %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return None
+        return (
+            existing is not None
+            and (existing.metadata or {}).get("superseded_by") == new_hash
+        )
 
     async def _write_semantic_supersede(
         self, old_hash: str, new_hash: str, store: str = "default"
@@ -1868,11 +1909,49 @@ class MilvusMemoryStorage(MemoryStorage):
         """Link the lineage, or return the ``(False, message)`` store() should use."""
         if not old_hash:
             return None
-        linked = await self._link_semantic_supersede(old_hash, new_hash, store)
+        async with self._versioned_lineage_lock():
+            return await self._commit_semantic_supersede_locked(old_hash, new_hash, store)
+
+    async def _commit_semantic_supersede_locked(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ):
+        """``_commit_semantic_supersede`` body. Caller holds the versioned-update lock.
+
+        The row is only deleted when the old memory does not point at it.
+        Another process can link the same hash between the failed link and
+        the delete, so the link is read again first.
+        """
+        linked = await self._link_semantic_supersede_locked(old_hash, new_hash, store)
         if linked:
             return None
+        relinked = await self._is_superseded_by(old_hash, new_hash, store)
+        if relinked:
+            return None
+        if relinked is None:
+            return supersede_rollback_result(old_hash, False)
         removed = await self._cleanup_unlinked_version(new_hash)
         return supersede_rollback_result(old_hash, removed)
+
+    async def _insert_and_supersede(
+        self, entity: Dict[str, Any], old_hash: str, new_hash: str, store: str
+    ):
+        """Insert a superseding row and link it, one save at a time.
+
+        Two saves of the same updated text in this process would otherwise
+        both pass the exact-hash check and insert the same id twice. Under
+        the lock the second save sees the first row and is an exact duplicate.
+        Returns ``(False, message)`` on failure, else None.
+        """
+        async with self._versioned_lineage_lock():
+            if await self.get_by_hash(new_hash) is not None:
+                return False, "Duplicate content detected (exact match)"
+            await self._call_client(
+                "insert",
+                collection_name=self.collection_name,
+                data=[entity],
+            )
+            logger.info("Stored memory %s", _sanitize_log_value(new_hash))
+            return await self._commit_semantic_supersede_locked(old_hash, new_hash, store)
 
     # -- Store ---------------------------------------------------------------
 
@@ -1917,19 +1996,19 @@ class MilvusMemoryStorage(MemoryStorage):
 
             entity = self._memory_to_entity(memory, embedding, store)
 
-            await self._call_client(
-                "insert",
-                collection_name=self.collection_name,
-                data=[entity],
-            )
-
-            logger.info("Stored memory %s", _sanitize_log_value(memory.content_hash))
-
-            failed = await self._commit_semantic_supersede(
-                supersede_hash, memory.content_hash, store
-            )
-            if failed is not None:
-                return failed
+            if supersede_hash:
+                failed = await self._insert_and_supersede(
+                    entity, supersede_hash, memory.content_hash, store
+                )
+                if failed is not None:
+                    return failed
+            else:
+                await self._call_client(
+                    "insert",
+                    collection_name=self.collection_name,
+                    data=[entity],
+                )
+                logger.info("Stored memory %s", _sanitize_log_value(memory.content_hash))
 
             # --- Conflict detection (post-commit) ---
             try:
