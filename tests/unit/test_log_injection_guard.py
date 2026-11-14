@@ -117,6 +117,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/utils/system_detection.py",
     "mcp_memory_service/web/oauth/discovery.py",
     "mcp_memory_service/web/oauth/storage/factory.py",
+    "mcp_memory_service/storage/milvus_graph.py",
+    "mcp_memory_service/models/ontology.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -635,6 +637,21 @@ def test_lazy_scan_flags_store_backend_errors():
     for name in ("vec_err", "error_msg"):
         assert _lazy_findings(f'logger.error("failed: %s", {name})\n')
         assert not _lazy_findings(f'logger.error("failed: %s", _sanitize_log_value({name}))\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_milvus_graph_backend_errors():
+    """What storage/milvus_graph.py logs when a pymilvus call raises.
+
+    The `exc` of each `except Exception` block is wrapped, as the entity-link
+    blocks in the same module already did. The hop list that
+    `find_shortest_path` reconstructs is named `hops`, not `path`: the guard
+    reads `path` as a file path, and this list holds content hashes.
+    """
+    assert _lazy_findings('logger.error("Failed to store association: %s", exc)\n')
+    assert not _lazy_findings('logger.error("Failed to store association: %s", _sanitize_log_value(exc))\n')
+    assert _lazy_findings('logger.debug("Found path of length %d: %s → %s", len(path), hash1, hash2)\n')
+    assert not _lazy_findings('logger.debug("Found path of length %d: %s → %s", len(hops), hash1, hash2)\n')
 
 
 @pytest.mark.unit
