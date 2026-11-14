@@ -7,6 +7,7 @@ on:
       - 'scripts/maintenance/generate_localized_site.py'
       - 'scripts/maintenance/site_locales/**'
       - 'tests/ci/test_localized_site.py'
+      - 'tests/ci/test_demo_page.py'
       - '.github/workflows/site.yml'
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - 'scripts/maintenance/generate_localized_site.py'
       - 'scripts/maintenance/site_locales/**'
       - 'tests/ci/test_localized_site.py'
+      - 'tests/ci/test_demo_page.py'
       - '.github/workflows/site.yml'
 
 permissions:
@@ -30,3 +32,4 @@ jobs:
         run: |
           python3 scripts/maintenance/generate_localized_site.py --check
           python3 -m unittest discover -s tests/ci -p test_localized_site.py -v
+          python3 -m unittest discover -s tests/ci -p test_demo_page.py -v
