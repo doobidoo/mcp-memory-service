@@ -1,5 +1,7 @@
 """Issue #1103: exercise the real MCP route and SQLite storage, mocking HTTP only."""
 
+import asyncio
+import contextlib
 import copy
 import json
 import runpy
@@ -456,8 +458,6 @@ async def test_oversized_provider_response_falls_back_to_raw(search_server, llm_
 
 @pytest.mark.asyncio
 async def test_cancellation_propagates_through_handler(search_server, llm_post):
-    import asyncio
-
     server, _, _ = search_server
     llm_post.side_effect = asyncio.CancelledError
     with pytest.raises(asyncio.CancelledError):
@@ -546,32 +546,37 @@ async def test_retrieval_error_does_not_call_llm(search_server, llm_post):
     llm_post.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("answer", ["Ordering matters [1].", "Invented source [999]."])
-@pytest.mark.parametrize("operator_enabled", [False, True])
-@pytest.mark.parametrize("query", ["replication ordering", "nonexistent content"])
-async def test_http_mcp_round_trip_with_read_scope(
-    search_server, monkeypatch, answer, operator_enabled, query
-):
+def _assert_round_trip_text(text, rows, answer, operator_enabled, query):
+    """What a caller may see for each operator switch, query and model answer."""
+    assert "HTTP private prior query" not in text
+    assert "access_queries" not in text
+    found_nothing = f"No memories found for query: '{query}'"
+    if not operator_enabled:
+        assert "disabled by MCP_SEARCH_SUMMARIZE_ENABLED" in text
+        if query == "nonexistent content":
+            assert text.endswith(found_nothing)
+        else:
+            assert all(memory.content in text for memory in rows)
+    elif query == "nonexistent content":
+        assert text == found_nothing
+    elif "999" in answer:
+        assert "Summarization unavailable" in text
+        assert all(memory.content in text for memory in rows)
+    else:
+        result = json.loads(text)
+        assert result["summary"] == answer
+        assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
+
+
+def _mcp_app_for_read_only_user():
+    """The real /mcp router, called as a client whose token carries the read scope only."""
     from fastapi import FastAPI
 
-    from mcp_memory_service.config import search as search_config
-    from mcp_memory_service.server import MemoryServer
     from mcp_memory_service.web.api import mcp as mcp_module
     from mcp_memory_service.web.oauth.middleware import (
         AuthenticationResult,
-        require_read_access,
+        get_current_user,
     )
-
-    monkeypatch.setattr(search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", operator_enabled)
-    _, storage, rows = search_server
-    rows[0].record_access("HTTP private prior query")
-    assert await storage.update_memory(rows[0])
-    monkeypatch.setenv("HARVEST_LLM_PROVIDERS", "test")
-    monkeypatch.setenv("HARVEST_LLM_TEST_BASE_URL", "https://llm.example/v1")
-    monkeypatch.setenv("HARVEST_LLM_TEST_MODEL", "summary-model")
-    monkeypatch.delenv("HARVEST_LLM_TEST_API_KEY", raising=False)
-    monkeypatch.setattr(mcp_module, "_memory_server", MemoryServer(storage=storage))
 
     async def read_user():
         return AuthenticationResult(
@@ -583,11 +588,19 @@ async def test_http_mcp_round_trip_with_read_scope(
 
     app = FastAPI()
     app.include_router(mcp_module.router)
-    app.dependency_overrides[require_read_access] = read_user
-    provider_requests = []
+    # POST /mcp depends on get_current_user and checks the scope per tool call. Overriding
+    # require_read_access, as this test used to, never reached that route: the request was
+    # authenticated by whatever the environment allowed, which was anonymous "read write"
+    # in CI (MCP_ALLOW_ANONYMOUS_ACCESS=true) and a 401 anywhere else.
+    app.dependency_overrides[get_current_user] = read_user
+    return app
+
+
+def _summary_provider(answer, seen):
+    """Stand-in for the LLM provider: records each request and checks nothing private leaves."""
 
     def provider(request):
-        provider_requests.append(request)
+        seen.append(request)
         payload = json.loads(request.content)
         assert request.url == "https://llm.example/v1/chat/completions"
         assert payload["max_tokens"] == 200
@@ -596,75 +609,67 @@ async def test_http_mcp_round_trip_with_read_scope(
         assert "access_queries" not in request.content.decode()
         return httpx.Response(200, json={"choices": [{"message": {"content": answer}}]})
 
+    return provider
+
+
+async def _mcp(client, request_id, method, params=None):
+    body = {"jsonrpc": "2.0", "id": request_id, "method": method}
+    if params is not None:
+        body["params"] = params
+    return await client.post("/mcp", json=body)
+
+
+@contextlib.asynccontextmanager
+async def _read_only_mcp_client(monkeypatch, storage, answer, provider_requests):
+    """An HTTP client on the real /mcp route and MemoryServer; only the LLM provider is replaced."""
+    from mcp_memory_service.server import MemoryServer
+    from mcp_memory_service.web.api import mcp as mcp_module
+
+    monkeypatch.setenv("HARVEST_LLM_PROVIDERS", "test")
+    monkeypatch.setenv("HARVEST_LLM_TEST_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("HARVEST_LLM_TEST_MODEL", "summary-model")
+    monkeypatch.delenv("HARVEST_LLM_TEST_API_KEY", raising=False)
+    monkeypatch.setattr(mcp_module, "_memory_server", MemoryServer(storage=storage))
     # Keep real HTTP request/response serialization. Replace only the external
     # provider transport; the /mcp route and MemoryServer dispatch are real.
     async_client = httpx.AsyncClient
+    provider = httpx.MockTransport(_summary_provider(answer, provider_requests))
     monkeypatch.setattr(
-        httpx,
-        "AsyncClient",
-        lambda **kwargs: async_client(
-            transport=httpx.MockTransport(provider), **kwargs
-        ),
+        httpx, "AsyncClient", lambda **kwargs: async_client(transport=provider, **kwargs)
     )
     async with async_client(
-        transport=httpx.ASGITransport(app), base_url="http://test"
+        transport=httpx.ASGITransport(_mcp_app_for_read_only_user()), base_url="http://test"
     ) as client:
-        advertised = (
-            await client.post(
-                "/mcp",
-                json={
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/list",
-                },
-            )
-        ).json()
-        search_tool = next(
-            tool
-            for tool in advertised["result"]["tools"]
-            if tool["name"] == "memory_search"
-        )
-        assert search_tool["inputSchema"]["properties"]["summarize"]["default"] is False
+        yield client
 
-        response = await client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "memory_search",
-                    "arguments": {
-                        "query": query,
-                        "mode": "exact",
-                        "summarize": True,
-                    },
-                },
-            },
-        )
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["Ordering matters [1].", "Invented source [999]."])
+@pytest.mark.parametrize("operator_enabled", [False, True])
+@pytest.mark.parametrize("query", ["replication ordering", "nonexistent content"])
+async def test_http_mcp_round_trip_with_read_scope(
+    search_server, monkeypatch, answer, operator_enabled, query
+):
+    from mcp_memory_service.config import search as search_config
+
+    monkeypatch.setattr(search_config, "MCP_SEARCH_SUMMARIZE_ENABLED", operator_enabled)
+    _, storage, rows = search_server
+    rows[0].record_access("HTTP private prior query")
+    assert await storage.update_memory(rows[0])
+    provider_requests = []
+    search = {"query": query, "mode": "exact", "summarize": True}
+
+    async with _read_only_mcp_client(monkeypatch, storage, answer, provider_requests) as client:
+        tools = (await _mcp(client, 1, "tools/list")).json()["result"]["tools"]
+        response = await _mcp(client, 2, "tools/call", {"name": "memory_search", "arguments": search})
+
+    schema = {tool["name"]: tool["inputSchema"] for tool in tools}["memory_search"]
+    assert schema["properties"]["summarize"]["default"] is False
     assert response.status_code == 200
     wire_result = response.json()
     assert "error" not in wire_result
     text = wire_result["result"]["content"][0]["text"]
-    assert "HTTP private prior query" not in text
-    assert "access_queries" not in text
-    if not operator_enabled:
-        assert "disabled by MCP_SEARCH_SUMMARIZE_ENABLED" in text
-        if query == "nonexistent content":
-            assert text.endswith(f"No memories found for query: '{query}'")
-        else:
-            assert all(memory.content in text for memory in rows)
-    elif query == "nonexistent content":
-        assert text == f"No memories found for query: '{query}'"
-    elif "999" in answer:
-        assert "Summarization unavailable" in text
-        assert all(memory.content in text for memory in rows)
-    else:
-        result = json.loads(text)
-        assert result["summary"] == answer
-        assert result["source_hashes"] == [result["snapshot"][0]["content_hash"]]
-    assert len(provider_requests) == int(
-        operator_enabled and query == "replication ordering"
-    )
+    _assert_round_trip_text(text, rows, answer, operator_enabled, query)
+    assert len(provider_requests) == int(operator_enabled and query == "replication ordering")
     stored = await storage.get_by_hash(rows[0].content_hash)
     assert stored.metadata["access_queries"][0]["query"] == "HTTP private prior query"
