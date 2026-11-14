@@ -47,6 +47,7 @@ from .storage import get_oauth_storage
 from .rate_limit import auth_rate_limit
 from .redirect import (
     build_redirect_url as _build_redirect_url,
+    reject_ambiguous_redirect_uri,
     resolve_registered_redirect_uri,
 )
 from .limits import (
@@ -255,6 +256,9 @@ async def _resolve_authorize_request(
     both go through here, so the page shows exactly what the POST will issue.
     """
     validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
+    # Also here, not only at registration: a client registered before the
+    # check existed still has its URI in the store.
+    reject_ambiguous_redirect_uri(validated_redirect_uri)
     client = await get_oauth_storage().get_client(client_id)
     scope, denied = _bind_scope_to_ceiling(
         _grantable_scope(scope, client), client.allowed_scope
@@ -886,7 +890,20 @@ def _refreshed_scope(
                 "error_description": "Requested scope exceeds originally granted scope",
             },
         )
-    return _grantable_scope(requested_scope or original_scope, client)
+    scope = requested_scope or original_scope
+    granted = _grantable_scope(scope, client)
+    if granted != scope and not _without(granted, OFFLINE_ACCESS_SCOPE):
+        # admin was all the data access there was. Passing the empty rest on
+        # would let create_access_token() default it to the global
+        # "read write", wider than what was granted.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "The admin scope is no longer granted to this client",
+            },
+        )
+    return granted
 
 
 async def _handle_refresh_token_grant(

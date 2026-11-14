@@ -220,6 +220,61 @@ async def test_refresh_token_issued_before_the_fix_loses_admin(http, storage, op
 
 
 @pytest.mark.asyncio
+async def test_refresh_narrowed_to_admin_does_not_widen_to_the_default(
+    http, storage, open_dcr
+):
+    # Stripping admin leaves nothing; an empty scope would be defaulted to the
+    # global "read write", which is more than read:projectA.
+    client_id = await _store_client(storage, None)
+    await storage.store_refresh_token(
+        token="old-refresh",
+        client_id=client_id,
+        scope="read:projectA admin offline_access",
+        expires_in=3600,
+    )
+    resp = http.post(
+        "/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "old-refresh",
+            "client_id": client_id,
+            "scope": "admin",
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "access_token" not in resp.text
+
+
+BACKSLASH_CB = "https://attacker.example\\@claude.ai/cb"
+
+
+def test_registration_refuses_a_redirect_uri_browsers_read_differently(http, open_dcr):
+    # urlsplit reads the host as claude.ai; a browser navigates to attacker.example.
+    resp = http.post(
+        "/oauth/register",
+        json={
+            "redirect_uris": [BACKSLASH_CB],
+            "token_endpoint_auth_method": "none",
+        },
+    )
+    assert resp.status_code in (400, 422), resp.text
+
+
+@pytest.mark.asyncio
+async def test_stored_backslash_redirect_uri_is_refused_at_authorize(
+    http, storage, open_dcr
+):
+    client_id = await _store_client(storage, None)
+    (await storage.get_client(client_id)).redirect_uris[:] = [BACKSLASH_CB]
+    params = {**_authorize_params(client_id), "redirect_uri": BACKSLASH_CB}
+    page = http.get("/oauth/authorize", params=params)
+    granted = http.post("/oauth/authorize", params=params, data={"api_key": OWNER_KEY})
+    for resp in (page, granted):
+        assert resp.status_code == 400, resp.text
+        assert "code=" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_page_cannot_be_framed_and_wrong_key_keeps_the_details(
     http, storage, open_dcr
 ):

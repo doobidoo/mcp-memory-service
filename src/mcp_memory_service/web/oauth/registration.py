@@ -32,7 +32,7 @@ from .models import (
 )
 from .storage import get_oauth_storage
 from .rate_limit import auth_rate_limit
-from .redirect import validate_registration_redirect_uris
+from .redirect import reject_ambiguous_redirect_uri, validate_registration_redirect_uris
 from mcp_memory_service.config import DCR_REGISTRATION_KEY
 
 logger = logging.getLogger(__name__)
@@ -150,6 +150,9 @@ def _refuse_client_credentials_while_open(grant_types) -> None:
 
 def _validate_client_metadata(request: ClientRegistrationRequest) -> None:
     """Validate the redirect URIs, grant types and response types of a registration."""
+    for uri in request.redirect_uris or []:
+        reject_ambiguous_redirect_uri(str(uri))
+
     if request.redirect_uris:
         validate_redirect_uris([str(uri) for uri in request.redirect_uris])
 
