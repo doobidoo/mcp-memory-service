@@ -201,6 +201,27 @@ def _get_truncated_response_if_needed(
     return [types.TextContent(type="text", text=response_text)]
 
 
+def _one_dedup_note(decision: dict) -> str:
+    """One clause for a single dedup decision, including a chunk index when present."""
+    outcome = decision.get("dedup_outcome")
+    matched = decision.get("matched_hash") or ""
+    index = decision.get("chunk_index")
+    where = f"chunk {index}: " if index is not None else ""
+    if outcome == "superseded" and matched:
+        return f"\nSuperseded previous memory {matched} ({where}dedup_outcome: superseded)."
+    if outcome == "deduplicated" and matched:
+        return f" ({where}dedup_outcome: deduplicated, matched_hash: {matched})"
+    return ""
+
+
+def _dedup_outcome_note(result: dict) -> str:
+    """Name every semantic-dedup decision on a store, or empty when there was none."""
+    decisions = result.get("dedup_decisions")
+    if decisions:
+        return "".join(_one_dedup_note(decision) for decision in decisions)
+    return _one_dedup_note(result)
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -253,6 +274,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
             error_msg = result.get("error", "Unknown error")
+            error_msg = f"{error_msg}{_dedup_outcome_note(result)}"
             if result.get("refused_recreate"):
                 # #1560: a refused re-create is the answer the caller chose by not
                 # passing restore_deleted — plain text, not isError. Unlike the
@@ -278,11 +300,13 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             num_chunks = len(result["memories"])
             original_hash = result.get("original_hash", "unknown")
             message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash})"
+            message += _dedup_outcome_note(result)
             effective_type = result["memories"][0].get("memory_type") if result["memories"] else None
         else:
             # Single memory response
             memory_hash = result["memory"]["content_hash"]
             message = f"Memory stored successfully (hash: {memory_hash})"
+            message += _dedup_outcome_note(result)
             effective_type = result["memory"].get("memory_type")
 
         # Surface ontology coercion: when the requested memory_type is not

@@ -21,6 +21,7 @@ except ImportError:
 
 from ...models.memory import Memory
 from ...config import SQLITEVEC_MAX_CONTENT_LENGTH
+from ..semantic_dedup import apply_semantic_dedup_config
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +70,8 @@ class BaseMixin:
         self.enable_cache = True
         self.batch_size = 32
 
-        # Semantic deduplication configuration
-        self.semantic_dedup_enabled = os.getenv('MCP_SEMANTIC_DEDUP_ENABLED', 'true').lower() == 'true'
-        self.semantic_dedup_time_window = int(os.getenv('MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS', '24'))
-        self.semantic_dedup_threshold = float(os.getenv('MCP_SEMANTIC_DEDUP_THRESHOLD', '0.85'))
+        # Semantic deduplication configuration (mode and cutoff: #1938).
+        apply_semantic_dedup_config(self)
 
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else '.', exist_ok=True)

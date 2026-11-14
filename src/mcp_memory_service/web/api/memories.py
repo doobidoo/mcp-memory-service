@@ -115,6 +115,64 @@ class MemoryCreateResponse(BaseModel):
     message: str
     content_hash: Optional[str] = None
     memory: Optional[MemoryResponse] = None
+    dedup_outcome: Optional[str] = Field(
+        None,
+        description=(
+            "Semantic-dedup decision, when one was made. "
+            "'deduplicated': nothing new was stored; matched_hash is the existing memory. "
+            "'superseded': the new memory was stored and matched_hash was marked superseded "
+            "by it (MCP_SEMANTIC_DEDUP_MODE=supersede). Null when dedup did not decide."
+        ),
+    )
+    matched_hash: Optional[str] = Field(
+        None,
+        description="Content hash of the memory semantic dedup matched. See dedup_outcome.",
+    )
+    dedup_decisions: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description=(
+            "Per-chunk semantic-dedup decisions when the write was split. "
+            "Each item has chunk_index, dedup_outcome, and matched_hash. "
+            "A single decision is also copied to dedup_outcome and matched_hash."
+        ),
+    )
+
+
+def _dedup_response_fields(result: dict) -> dict:
+    """Semantic-dedup fields for MemoryCreateResponse. Empty when dedup did not decide."""
+    fields = {}
+    outcome = result.get("dedup_outcome")
+    if outcome:
+        fields["dedup_outcome"] = outcome
+        fields["matched_hash"] = result.get("matched_hash")
+    decisions = result.get("dedup_decisions")
+    if decisions:
+        fields["dedup_decisions"] = decisions
+    return fields
+
+
+def _superseded_hashes(result: dict) -> List[str]:
+    """Hashes retired by this store, from the chunk list or the single decision."""
+    decisions = result.get("dedup_decisions") or []
+    hashes = [
+        decision.get("matched_hash")
+        for decision in decisions
+        if decision.get("dedup_outcome") == "superseded" and decision.get("matched_hash")
+    ]
+    if hashes:
+        return hashes
+    matched = result.get("matched_hash")
+    if result.get("dedup_outcome") == "superseded" and matched:
+        return [matched]
+    return []
+
+
+def _with_supersede_note(result: dict, message: str) -> str:
+    """Append the replaced hash when this store superseded an older memory."""
+    hashes = _superseded_hashes(result)
+    if not hashes:
+        return message
+    return f"{message} (superseded {', '.join(hashes)})"
 
 
 class MemoryDeleteResponse(BaseModel):
@@ -264,17 +322,20 @@ async def store_memory(
             # Return appropriate response based on MemoryService result
             if "memory" in result:
                 # Single memory response
-                base_msg = "Memory stored successfully"
+                base_msg = _with_supersede_note(result, "Memory stored successfully")
                 return MemoryCreateResponse(
                     success=True,
                     message=base_msg + _coercion_warning(result["memory"].get("memory_type")),
                     content_hash=result["memory"]["content_hash"],
-                    memory=result["memory"]
+                    memory=result["memory"],
+                    **_dedup_response_fields(result),
                 )
             else:
                 # Chunked memory response
                 first_memory = result["memories"][0]
-                base_msg = f"Memory stored as {result['total_chunks']} chunks"
+                base_msg = _with_supersede_note(
+                    result, f"Memory stored as {result['total_chunks']} chunks"
+                )
                 refused_chunks = result.get("refused_chunks") or []
                 if refused_chunks:
                     # #1560: not the whole content — name the chunks a recorded delete
@@ -288,7 +349,8 @@ async def store_memory(
                     success=True,
                     message=base_msg + _coercion_warning(first_memory.get("memory_type")),
                     content_hash=first_memory["content_hash"],
-                    memory=first_memory
+                    memory=first_memory,
+                    **_dedup_response_fields(result),
                 )
         else:
             refused = result.get("refused_recreate")
@@ -304,8 +366,9 @@ async def store_memory(
                 )
             return MemoryCreateResponse(
                 success=False,
-                message=result.get("error", "Failed to store memory"),
-                content_hash=None
+                message=str(result.get("error", "Failed to store memory")),
+                content_hash=None,
+                **_dedup_response_fields(result),
             )
             
     except HTTPException:
