@@ -124,6 +124,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/migration_runner.py",
     "mcp_memory_service/sync/litestream_config.py",
     "mcp_memory_service/utils/directory_ingestion.py",
+    "mcp_memory_service/consolidation/quarantine.py",
+    "mcp_memory_service/consolidation/relationship_inference.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -670,6 +672,21 @@ def test_lazy_scan_flags_milvus_graph_backend_errors():
     assert not _lazy_findings('logger.error("Failed to store association: %s", _sanitize_log_value(exc))\n')
     assert _lazy_findings('logger.debug("Found path of length %d: %s → %s", len(path), hash1, hash2)\n')
     assert not _lazy_findings('logger.debug("Found path of length %d: %s → %s", len(hops), hash1, hash2)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_quarantine_hashes():
+    """What consolidation/quarantine.py logs about the memory it checks.
+
+    The `content_hash[:8]` prefix is wrapped, as storage/hybrid.py already
+    does for the same slice; `content_hash` is listed. The count the NLI check
+    returns is read into `pairs_detected` before it is logged: `result` is
+    listed, an integer field of it is not outside data.
+    """
+    assert _lazy_findings('logger.error("Failed to quarantine memory %s: %s", content_hash[:8], _sanitize_log_value(msg))\n')
+    assert not _lazy_findings('logger.error("Failed to quarantine memory %s: %s", _sanitize_log_value(content_hash[:8]), _sanitize_log_value(msg))\n')
+    assert _lazy_findings('logger.info("NLI background check: pairs_detected=%s", result.get("pairs_detected", 0))\n')
+    assert not _lazy_findings('logger.info("NLI background check: pairs_detected=%s", pairs_detected)\n')
 
 
 @pytest.mark.unit

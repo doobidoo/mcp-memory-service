@@ -315,13 +315,14 @@ class RelationshipInferenceEngine:
         # Apply generic minimum confidence threshold
         if best_confidence < self.min_confidence:
             logger.debug(
-                f"Confidence {best_confidence:.2f} below threshold {self.min_confidence}, "
-                f"defaulting to 'related'"
+                "Confidence %.2f below threshold %s, defaulting to 'related'",
+                best_confidence,
+                self.min_confidence,
             )
             return ("related", best_confidence)
 
         logger.debug(
-            f"Inferred relationship type '{best_type}' with confidence {best_confidence:.2f}"
+            "Inferred relationship type '%s' with confidence %.2f", best_type, best_confidence
         )
         return (best_type, best_confidence)
 
@@ -338,8 +339,9 @@ class RelationshipInferenceEngine:
         # Guard 1: similarity threshold (only when a similarity is supplied)
         if similarity is not None and similarity < self.min_typed_similarity:
             logger.debug(
-                f"Similarity {similarity:.3f} below typed threshold "
-                f"{self.min_typed_similarity}, downgrading to 'related'"
+                "Similarity %.3f below typed threshold %s, downgrading to 'related'",
+                similarity,
+                self.min_typed_similarity,
             )
             return True
 
@@ -356,8 +358,9 @@ class RelationshipInferenceEngine:
         # Guard 3: typed confidence threshold
         if confidence < self.min_typed_confidence:
             logger.debug(
-                f"Typed confidence {confidence:.2f} below typed threshold "
-                f"{self.min_typed_confidence}, downgrading to 'related'"
+                "Typed confidence %.2f below typed threshold %s, downgrading to 'related'",
+                confidence,
+                self.min_typed_confidence,
             )
             return True
         return False
