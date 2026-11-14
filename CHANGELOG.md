@@ -17,6 +17,139 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.10.0] - 2026-11-14
+
+### Security
+
+- **The OAuth authorize page did not say who was asking, and could hand out `admin` (GHSA-w8p9-5v6q-h9ch, reported by @hgrgr).**
+  With `MCP_DCR_REGISTRATION_KEY` unset, anyone could register a client with their own
+  redirect URI and send the owner a link to the owner's own authorize page. The page asked
+  for the API key and showed nothing else, so a third party's request looked exactly like a
+  Claude.ai reconnect, and the resulting token could carry `read write admin`. The page now
+  shows the redirect host, the self-reported application name (unverified) and the scope
+  that will be granted, it cannot be framed, and redirect URIs containing backslashes,
+  whitespace or control characters are refused. Upgrade if you run OAuth with open
+  registration, which is the Claude.ai connector setup.
+  **Behaviour change:** the `admin` scope is granted only to a client that declared `admin`
+  in a registration gated by `MCP_DCR_REGISTRATION_KEY`. A client that obtained `admin`
+  through open registration, or through a gated registration that named no `scope`, now
+  gets `read write`; to get it back, register again with the registration key and
+  `"scope": "read write admin"`. A refresh that asks only for `admin` on such a client is
+  refused with `invalid_scope`.
+  **Cleanup:** a client registered with an `admin` ceiling while registration was open keeps
+  that ceiling in the store and can hold `admin` again if the key is set later. Review with
+  `memory oauth list-clients` and remove what you do not recognise with
+  `memory oauth delete-client <client_id>`.
+
+### Added
+
+- **Semantic dedup can supersede an updated fact instead of dropping it (#1938).**
+  A changed fact is often phrased almost exactly like the one it replaces, so the
+  default dedup check (cosine 0.85, 24 h) refused the write and left the old value
+  as the only one retrieval could return. `MCP_SEMANTIC_DEDUP_MODE=supersede`
+  stores that update and marks the matched memory `superseded_by` the new hash,
+  the same lineage `memory_update` writes. A near-identical match (cosine at or
+  above `MCP_SEMANTIC_DEDUP_NEAR_IDENTICAL_THRESHOLD`, default 0.97, or the same
+  text once whitespace and case are collapsed) is still rejected. The default
+  mode stays `reject`, so nothing changes until the setting is opted in. Store
+  responses name the outcome: `deduplicated` with the existing hash, or
+  `superseded` with the old hash, on the service, REST and MCP paths.
+- **The dashboard's Manage tab shows one section at a time (#1973, shu-chen-dot-ca).**
+  Bulk Operations, Tag Management and Ontology were stacked on one page, so on a store
+  with many tags the Ontology section sat below the whole tag table. The tab now has
+  sub-tabs (Bulk Operations, Tags, Ontology) that show only the chosen section, work
+  with the arrow, Home and End keys and a screen reader, and are translated in all
+  eleven catalogs. Opening the Manage tab starts on Bulk Operations.
+- **The browser demo offers a prompt that lets a coding agent set up a trial (#1985).**
+  The demo at mcpmemory.services/demo/ ended with an install command. It now also shows a
+  prompt for Claude Code, as visible text with a copy button: the agent asks before it
+  acts, installs the service into one new folder, proves a store and search round trip
+  with `memory status --deep`, and registers the server as `memory-trial` with its own
+  `MCP_MEMORY_BASE_DIR` and `MCP_MEMORY_SQLITE_PATH`, so an existing installation and its database are not touched.
+- **The browser demo reports what it is doing in one status capsule, and the agent prompt opens in Claude Code (#1999).**
+  The capsule at the top of the demo card shows the real start-up steps, each store and
+  each search, and keeps an error with a retry on screen until it is handled. The model
+  download used to show "100%" from the first chunk when the server sent no
+  `Content-Length`; a percentage now needs a real total. A failed store or search no longer
+  leaves its button disabled, and Enter no longer stores a memory several times. The trial
+  prompt gains "Open in Claude Code" (`claude://code/new?q=`, built from the visible text)
+  and a copy-and-open entry for ChatGPT.
+- **The dashboard shows its connection state in a status capsule in the header (#2000).**
+  The "Connected" badge was a fixed overlay in the bottom right corner that covered content
+  on narrow screens, said "Connected" before the event stream was open, and showed
+  "Unknown" when the server refused the stream. It is replaced by a capsule in the logo
+  row (`web/static/status-island.js`) that reports connecting, connected, disconnected with
+  a reconnect action, and "Authentication required". The capsule keeps one entry per named
+  source and shows the most important one, an error before work in progress before a
+  confirmation, so further sources (sync, imports, consolidation, backup) can report to it
+  without covering each other's failures. It adds no catalog keys.
+
+### Fixed
+
+- **The dashboard's type-only search filter always failed with "Filter search failed" (#1971).**
+  Choosing a content type with no query, tag or date asked `GET /api/memories` for
+  `page_size=1000`, above the route's cap of 100, so the request was a 422. It now passes
+  the type to the server and pages through the result 100 at a time, so a type with more
+  than 100 memories is listed in full.
+- **The Memory Types chart heading was cut short in German, Spanish, French, Japanese and Korean (#1993).**
+  Those five catalogs defined `analytics.memoryTypes` twice. The second entry, a short
+  "Memory Types" label left over from the Knowledge Graph translations, came later in the
+  file, and `JSON.parse` keeps the last of two equal keys, so the dashboard showed it
+  instead of "Memory Types Distribution". The leftover entry is gone, and
+  `tests/web/test_i18n_catalog_parity.py` now fails on any key a catalog defines twice.
+  It replaces five tests that asserted the duplicate was still there.
+### Internal
+
+- **A search summarization test passed only where anonymous access was switched on (#2014).**
+  `test_http_mcp_round_trip_with_read_scope` overrode `require_read_access`, but `POST /mcp`
+  depends on `get_current_user` and checks the scope per tool call. The request was therefore
+  authenticated by the environment: as anonymous "read write" in CI, which sets
+  `MCP_ALLOW_ANONYMOUS_ACCESS=true`, and not at all elsewhere, where eight cases failed with
+  `authorization_required` and took `scripts/pr/pre_pr_check.sh` down for any change under
+  `src/`. The test now overrides the dependency the route uses, so it runs with the read-only
+  user its name promises, in every environment.
+- **`auto-assign` alone opts an issue into `/claim`, and a claim written in prose is told the command (#2015).**
+  Automatic assignment needed `good first issue` as well, so a bug with a settled scope stayed
+  on the manual path. On #1998 a contributor waited three hours for a go-ahead and someone
+  else opened a pull request in that window. `scripts/ci/mark_claim_pending.py` now takes the
+  `auto-assign` label as the maintainer's approval on any issue. A prose claim on such an
+  issue gets one reply per person naming the command; prose still does not assign. The claim
+  matcher also accepts "this one", "this issue", a trailing "too" or "as well" and "I would
+  like to take this", which is how the two claims on #1997 and #1998 were worded and why
+  neither was labelled `claim-pending`.
+- **`config/oauth.py` and `config/ontology.py` log with lazy `%`-style arguments (#1146).**
+  The `ValueError` that `validate_oauth_configuration()` raises at import time
+  carries `MCP_OAUTH_ISSUER` and a key path verbatim, and the base-type names
+  parsed from `MCP_CUSTOM_MEMORY_TYPES` are logged as given: both are wrapped in
+  `_sanitize_log_value`. The JWT algorithm and the three counts go as `%s`/`%d`
+  arguments. Both modules are added to `GUARDED_MODULES`.
+- **`storage/milvus_graph.py` and `models/ontology.py` log without bare outside values (#1146).**
+  The `exc` of the `except Exception` blocks around the pymilvus calls, and the
+  caller-supplied relationship type logged when it fails validation, are wrapped
+  in `_sanitize_log_value`, as the entity-link blocks of the same module already
+  did; the hop list in `find_shortest_path` is renamed so the guard no longer
+  reads it as a file path. The f-strings in `load_custom_memory_types` become
+  lazy `%s`/`%d` arguments with the same text. Both modules are added to
+  `GUARDED_MODULES`.
+- **`web/oauth/discovery.py` and `web/oauth/storage/factory.py` log with sanitised lazy `%`-style arguments (#1146).**
+  `oauth_authorization_server_metadata()` and `create_oauth_storage()` now pass
+  `_sanitize_log_value()` to `%s` instead of f-strings, and both modules are added
+  to `GUARDED_MODULES`.
+- **`consolidation/quarantine.py` and `consolidation/relationship_inference.py` log without bare outside values (#1146).**
+  The `content_hash[:8]` prefix in the quarantine, unquarantine and background
+  check messages goes through `_sanitize_log_value`, as `storage/hybrid.py`
+  already does for the same slice; the belief-challenged message and the four
+  confidence/threshold messages of the relationship inferrer become lazy
+  `%s`/`%.2f` arguments with the same text. Both modules are added to
+  `GUARDED_MODULES`.
+- **Clear the remaining five `Check 6.5` f-string logger modules and guard `self.logger` calls (#1146).**
+  `config/documents.py`, `consolidation/associations.py`, `storage/migration_runner.py`,
+  `sync/litestream_config.py`, and `utils/directory_ingestion.py` now use lazy `%`-style
+  logger arguments with `_sanitize_log_value()` around migration names, error messages,
+  config paths, and ingested filenames. All five join `GUARDED_MODULES`, and
+  `test_log_injection_guard.py` now inspects `self.logger.<level>()` calls alongside
+  module-level `logger` and `logging`.
+
 ## [12.9.0] - 2026-11-13
 
 ### Added
