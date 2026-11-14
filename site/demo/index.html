@@ -559,7 +559,11 @@ try {
       else setStatus('success', `${rows.length} closest of ${memories.length} memories`, { detail: `A vector search always returns the nearest memories, here the ${rows.length} closest of ${memories.length}. The similarity value tells you how close each one is.` });
     } catch (err) {
       console.error(err);
-      if (id !== opSeq) return;
+      // An error is never hidden by another operation. Taking a new number makes whatever
+      // is still running stale for the capsule, so its confirmation cannot cover the error.
+      // Only a search that a newer search has replaced stays quiet.
+      if (sid !== searchSeq) return;
+      ++opSeq;
       setStatus('error', 'Search failed', { detail: 'The search did not finish: ' + err.message, retry: () => doSearch(q) });
     }
   };
@@ -579,7 +583,8 @@ try {
     } catch (err) {
       // store() throws before or at the insert, so nothing was written and a retry cannot duplicate.
       console.error(err);
-      if (id === opSeq) setStatus('error', 'Storing failed', { detail: 'The memory was not stored: ' + err.message, retry: () => doStore(t) });
+      ++opSeq;
+      setStatus('error', 'Storing failed', { detail: 'The memory was not stored: ' + err.message, retry: () => doStore(t) });
     } finally {
       storing = false;
       addBtn.disabled = false;
