@@ -165,6 +165,15 @@ def train(args, lbl, id2lbl):
     model.eval()
     model.save_pretrained(args.out)
     tok.save_pretrained(args.out)
+    # Persist the truncation limit with the head: scoring must truncate the
+    # way training did, whatever --max-len was used (review: a head trained
+    # at 256 and scored at 128 silently discards the ends of long notes).
+    cfg_path = os.path.join(args.out, "config.json")
+    with open(cfg_path, encoding="utf-8") as fh:
+        head_cfg = json.load(fh)
+    head_cfg["fourway_max_len"] = args.max_len
+    with open(cfg_path, "w", encoding="utf-8") as fh:
+        json.dump(head_cfg, fh, indent=1)
     return model, tok, {
         "train": len(train_rows), "val": len(val_rows),
         "label_counts": dict(Counter(r[0] for r in train_rows)),
@@ -254,7 +263,7 @@ async def eval_baseline(rows):
     return clf.degraded, (time.perf_counter() - t0) * 1000 / len(rows), preds
 
 
-def eval_head(rows, out, tok):
+def eval_head(rows, out, tok, max_len):
     """The trained head through ONNX Runtime, single direction."""
     import numpy as np
     import onnxruntime as ort
@@ -265,7 +274,7 @@ def eval_head(rows, out, tok):
 
     def run(batch):
         enc = tok([o for _, o, _ in batch], [n for _, _, n in batch],
-                  truncation=True, max_length=128, padding=True,
+                  truncation=True, max_length=max_len, padding=True,
                   return_tensors="np")
         feed = {k: enc[k].astype(np.int64) for k in
                 ("input_ids", "attention_mask", "token_type_ids") if k in names}
@@ -278,8 +287,8 @@ def eval_head(rows, out, tok):
     return (time.perf_counter() - t0) * 1000 / len(rows), preds
 
 
-def run_probes(out, tok):
-    return eval_head(PROBES, out, tok)
+def run_probes(out, tok, max_len):
+    return eval_head(PROBES, out, tok, max_len)
 
 
 async def main_async(args):
@@ -301,12 +310,14 @@ async def main_async(args):
                        ("testC_life40", D.TEST_C)):
         degraded, ms, preds = await eval_baseline(rows)
         out[name] = {"baseline_bidirectional": score(rows, preds, ms)}
-        out.setdefault("baseline_degraded", degraded)
-        ms, preds = eval_head(rows, args.out, tok)
+        # any pass, not just the first: a later degradation must not hide
+        # behind an earlier clean run (review: setdefault kept the first)
+        out["baseline_degraded"] = out.get("baseline_degraded", False) or degraded
+        ms, preds = eval_head(rows, args.out, tok, args.max_len)
         out[name]["head_single_direction"] = score(rows, preds, ms)
         log(f"{name} done")
 
-    _, probe_preds = run_probes(args.out, tok)
+    _, probe_preds = run_probes(args.out, tok, args.max_len)
     out["probes"] = {
         "correct": f"{sum(1 for (g, *_), p in zip(PROBES, probe_preds) if g == p)}/{len(PROBES)}",
         "preds": [p for p in probe_preds],

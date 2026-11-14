@@ -45,8 +45,10 @@ class TestGeneratorInvariants:
 
     def test_held_out_domains_stay_out_of_training_text(self):
         # testC's worlds must not appear even as substrings in training
+        # ("neighbors" included — the recipe pool once said "recipe swap
+        # with the neighbors once", which is why it is the supper club now)
         words = ("chess", "wedding", "choir", "volunteering", "boardgame",
-                 "fantasy", "allotment", "stickers")
+                 "fantasy", "allotment", "stickers", "neighbors")
         train, val = data.build(seed=13)
         hits = [w for _, o, n in train + val for w in words if w in o or w in n]
         assert hits == []

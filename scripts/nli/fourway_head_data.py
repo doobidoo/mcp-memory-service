@@ -513,7 +513,7 @@ LIFE_WORDS = {
     "kids": ["kids swim lessons saturdays", "kids share the ipad 30min", "kids dentist in june", "kids school lunch prefs", "kids flu shots done"],
     "car": ["car service every 10k km", "car insurance renews in march", "car snow tires in the garage", "car pool tuesdays with ana", "car charger lives in the trunk"],
     "gym2": ["gym peak hours 6-8pm", "gym buddy: dmitri", "gym closed on holidays", "home gym rack arrived", "gym towel rule actually enforced"],
-    "recipe": ["recipe blog: no-knead bread", "recipe box synced to phone", "recipe swap with the neighbors once", "recipe fail: souffle collapsed", "family recipe book scanned"],
+    "recipe": ["recipe blog: no-knead bread", "recipe box synced to phone", "recipe swap with the supper club once", "recipe fail: souffle collapsed", "family recipe book scanned"],
     "book": ["book budget 20 a month", "book list in the notes app", "book swap shelf in the lobby", "book: dune reread started", "book club pickup: thursday deliveries"],
     "phone": ["phone plan 10gb shared", "phone screen repaired, 80", "phone photos auto-upload on wifi", "phone storage full again", "work phone separate sim"],
     "landlord": ["landlord: rent due the 1st", "landlord fixing the balcony", "landlord contact via building mgmt", "landlord ok with the cat", "landlord inspection in april"],

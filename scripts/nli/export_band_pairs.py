@@ -233,14 +233,18 @@ def _head_fourway(head_dir, rows):
     except ImportError as e:
         sys.exit(f"--fourway-head needs onnxruntime and tokenizers: {e}")
     with open(os.path.join(head_dir, "config.json"), encoding="utf-8") as fh:
-        id2label = {int(k): v for k, v in json.load(fh)["id2label"].items()}
+        head_cfg = json.load(fh)
+    id2label = {int(k): v for k, v in head_cfg["id2label"].items()}
     if set(id2label.values()) != set(FOURWAY_CLASSES):
         sys.exit(f"--fourway-head {head_dir}: id2label must be exactly "
                  f"{sorted(FOURWAY_CLASSES)}, got {sorted(id2label.values())}")
+    # truncate the way the head was trained to; train_fourway_head.py writes
+    # the limit next to the weights, 128 predates that and stays the default
+    max_len = int(head_cfg.get("fourway_max_len", 128))
     session = ort.InferenceSession(
         os.path.join(head_dir, "model.onnx"), providers=["CPUExecutionProvider"])
     tok = Tokenizer.from_file(os.path.join(head_dir, "tokenizer.json"))
-    tok.enable_truncation(max_length=128)
+    tok.enable_truncation(max_length=max_len)
     tok.enable_padding()
     names = {i.name for i in session.get_inputs()}
     preds = []
