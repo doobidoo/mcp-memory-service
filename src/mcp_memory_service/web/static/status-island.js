@@ -45,6 +45,10 @@
             entry.state, entry.label, entry.text, entry.progress, entry.dismissible,
             entry.actions.map((action) => [action.id, action.label]),
         ]);
+        // A caller may keep one text object and change its values between reports. The
+        // entry therefore holds its own copy of everything that is displayed, and its
+        // signature is fixed when the report is accepted, not recomputed from live objects.
+        const copy = (value) => (value === null || value === undefined ? value : JSON.parse(JSON.stringify(value)));
 
         function put(id, entry) {
             if (!RANK[entry.state]) throw new Error(`status island: unknown state "${entry.state}"`);
@@ -52,10 +56,11 @@
             const stored = {
                 id,
                 state: entry.state,
-                label: entry.label || null,
-                text: entry.text || { key: '', fallback: '' },
+                label: copy(entry.label) || null,
+                text: copy(entry.text) || { key: '', fallback: '' },
                 progress: entry.state === 'busy' ? normalizeProgress(entry.progress) : null,
-                actions: Array.isArray(entry.actions) ? entry.actions : [],
+                actions: (Array.isArray(entry.actions) ? entry.actions : [])
+                    .map((action) => ({ id: action.id, label: copy(action.label), run: action.run })),
                 dismissible: entry.state === 'error' && entry.dismissible === true,
                 settle: entry.settle || null,
                 // The position a source got when it first appeared; it decides who leads when idle.
@@ -64,7 +69,8 @@
             // A poll that reports what is already shown changes nothing: no new rank, no
             // redraw, and a running "steps back" timer keeps running. Only the callbacks
             // are taken over, because they may close over newer data.
-            if (previous && signature(previous) === signature(stored)) {
+            stored.signature = signature(stored);
+            if (previous && previous.signature === stored.signature) {
                 previous.actions = stored.actions;
                 previous.settle = stored.settle;
                 previous.unchanged = true;

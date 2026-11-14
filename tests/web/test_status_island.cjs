@@ -49,6 +49,30 @@ test('a report that changes nothing is not a new report', () => {
     assert.notEqual(changed.unchanged, true);
 });
 
+test('a caller that reuses one object and changes its values gets a new report', () => {
+    const model = StatusIsland.createModel();
+    const shared = { key: 'sync.progress', fallback: '{done} of {total}', vars: { done: 1, total: 10 } };
+    const label = { key: 'sync.title', fallback: 'Sync' };
+    const action = { id: 'pause', label: { key: '', fallback: 'Pause' }, run() {} };
+    const first = model.report('sync', { state: 'busy', text: shared, label, actions: [action] });
+    assert.equal(first.text.vars.done, 1);
+
+    shared.vars.done = 2;
+    assert.equal(model.get('sync').text.vars.done, 1, 'the stored entry is not changed from outside');
+    const second = model.report('sync', { state: 'busy', text: shared, label, actions: [action] });
+    assert.notEqual(second.unchanged, true);
+    assert.ok(second.seq > first.seq);
+    assert.equal(model.get('sync').text.vars.done, 2);
+
+    label.fallback = 'Delta sync';
+    assert.notEqual(model.report('sync', { state: 'busy', text: shared, label, actions: [action] }).unchanged, true);
+    action.label.fallback = 'Resume';
+    assert.notEqual(model.report('sync', { state: 'busy', text: shared, label, actions: [action] }).unchanged, true);
+    assert.equal(model.get('sync').actions[0].label.fallback, 'Resume');
+
+    assert.equal(model.report('sync', { state: 'busy', text: shared, label, actions: [action] }).unchanged, true, 'and the same values again are still no report');
+});
+
 test('an unchanged report still takes over the newer callbacks', () => {
     const model = StatusIsland.createModel();
     const action = (run) => ({ state: 'error', text: text('Failed'), actions: [{ id: 'retry', label: text('Retry'), run }] });
