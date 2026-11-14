@@ -32,11 +32,27 @@ def _get_embedding_model(storage):
     else:
         raise AttributeError(f"Storage backend {type(storage).__name__} has no embedding model attribute")
 
+def _encode_single_vector(model, text: str) -> List[float]:
+    """Encode one text and normalise the backend's return shape.
+
+    ``SentenceTransformer.encode("text")`` returns a 1-D array, but the pure
+    Python ``_HashEmbeddingModel`` treats a string as a sequence of texts and
+    returns one vector per character, and without numpy it returns a list of
+    lists rather than an ndarray. Ask every backend for a batch of one and
+    unwrap both layers so the caller always gets a flat list of floats.
+    """
+    encoded = model.encode([text], convert_to_numpy=True)
+    if len(encoded):
+        encoded = encoded[0]
+    if hasattr(encoded, "tolist"):
+        encoded = encoded.tolist()
+    return [float(value) for value in encoded]
+
 def get_raw_embedding(storage, content: str) -> Dict[str, Any]:
     """Get raw embedding vector for content."""
     try:
         model = _get_embedding_model(storage)
-        embedding = model.encode(content).tolist()
+        embedding = _encode_single_vector(model, content)
         return {
             "status": "success",
             "embedding": embedding,

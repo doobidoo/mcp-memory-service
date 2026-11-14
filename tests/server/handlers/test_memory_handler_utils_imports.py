@@ -41,8 +41,10 @@ class _FakeVector(list):
 
 
 class _FakeModel:
-    def encode(self, content):
-        return _FakeVector([0.25, 0.5, -0.75])
+    """Mirror ``SentenceTransformer.encode``: batch in, one row per text out."""
+
+    def encode(self, texts, convert_to_numpy=False):
+        return [_FakeVector([0.25, 0.5, -0.75]) for _ in texts]
 
 
 class _FakeStorage:
@@ -77,6 +79,26 @@ async def test_get_raw_embedding_uses_real_debug_helper(server):
     assert "No module named" not in text
     assert "Embedding generated successfully" in text
     assert "Dimension: 3" in text
+
+
+@pytest.mark.asyncio
+async def test_get_raw_embedding_supports_hash_embedding_backend():
+    """The pure Python fallback returns a list of lists; the handler must flatten it.
+
+    The ML-free CI job runs on ``_HashEmbeddingModel``, whose ``encode`` treats a
+    plain string as a sequence of texts. Passing the content as a batch of one and
+    unwrapping the vector keeps the handler working on that backend.
+    """
+    from mcp_memory_service.storage.mixins.embeddings import _HashEmbeddingModel
+
+    class _HashStorage:
+        embedding_model = _HashEmbeddingModel(6)
+
+    result = await handle_get_raw_embedding(_FakeServer(_HashStorage()), {"content": "hello"})
+    text = result[0].text
+
+    assert "Embedding generated successfully" in text
+    assert "Dimension: 6" in text
 
 
 @pytest.mark.asyncio
