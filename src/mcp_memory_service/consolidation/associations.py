@@ -98,7 +98,7 @@ class CreativeAssociationEngine(ConsolidationBase):
                     association = await self._create_association_memory(analysis)
                     associations.append(association)
         
-        self.logger.info(f"Discovered {len(associations)} creative associations from {len(pairs)} pairs")
+        self.logger.info("Discovered %d creative associations from %d pairs", len(associations), len(pairs))
         return associations
     
     def _sample_memory_pairs(self, memories: List[Memory]) -> List[Tuple[Memory, Memory]]:

@@ -22,6 +22,8 @@ import platform
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -205,7 +207,7 @@ class LitestreamManager:
         with open(config_path, 'w') as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         
-        logger.info(f"Litestream configuration written to {config_path}")
+        logger.info("Litestream configuration written to %s", _sanitize_log_value(config_path))
         return config_path
     
     def generate_systemd_service(self, config_path: Path) -> str:

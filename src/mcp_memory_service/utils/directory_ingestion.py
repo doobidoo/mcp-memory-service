@@ -23,6 +23,8 @@ import logging
 from pathlib import Path
 from typing import List, Set, Any
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,7 +120,12 @@ class FileIngestionProcessor:
         from .document_processing import _process_and_store_chunk
 
         try:
-            self.logger.info(f"Processing file {file_index}/{total_files}: {file_path.name}")
+            self.logger.info(
+                "Processing file %d/%d: %s",
+                file_index,
+                total_files,
+                _sanitize_log_value(file_path.name),
+            )
 
             # Get appropriate document loader
             loader = get_loader_for_file(file_path)
