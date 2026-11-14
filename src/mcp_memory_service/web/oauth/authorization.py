@@ -26,7 +26,7 @@ import logging
 import base64
 import secrets
 from typing import Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from fastapi import APIRouter, Depends, HTTPException, status, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import jwt
@@ -37,15 +37,17 @@ from ...config import (
     OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES,
     OAUTH_REFRESH_TOKEN_EXPIRE_DAYS,
     API_KEY,
+    DCR_REGISTRATION_KEY,
     get_jwt_algorithm,
     get_jwt_signing_key,
 )
-from .models import TokenResponse
+from .models import RegisteredClient, TokenResponse
 from .middleware import scope_within_ceiling
 from .storage import get_oauth_storage
 from .rate_limit import auth_rate_limit
 from .redirect import (
     build_redirect_url as _build_redirect_url,
+    reject_ambiguous_redirect_uri,
     resolve_registered_redirect_uri,
 )
 from .limits import (
@@ -192,6 +194,94 @@ async def create_refresh_token(
     return token, expires_in
 
 
+def _without(scope: Optional[str], token: str) -> Optional[str]:
+    """``scope`` with ``token`` removed, or None when nothing is left."""
+    return " ".join(t for t in (scope or "").split() if t != token) or None
+
+
+def _may_hold_admin(client: Optional[RegisteredClient]) -> bool:
+    """Whether ``admin`` may be granted to this client.
+
+    Only to a client whose registered ceiling names it, and only while
+    registration is gated by MCP_DCR_REGISTRATION_KEY. With registration open
+    anyone can register a client and pick its ceiling, so the ceiling says
+    nothing about who is asking (GHSA-w8p9-5v6q-h9ch).
+    """
+    if not DCR_REGISTRATION_KEY or client is None:
+        return False
+    return "admin" in (client.allowed_scope or "").split()
+
+
+def _grantable_scope(scope: Optional[str], client: Optional[RegisteredClient]) -> Optional[str]:
+    """Drop ``admin`` from ``scope`` unless this client may hold it.
+
+    The scope is narrowed rather than refused because clients commonly request
+    every scope the server advertises.
+    """
+    if _may_hold_admin(client):
+        return scope
+    return _without(scope, "admin")
+
+
+def _bind_scope_to_ceiling(
+    scope: Optional[str], ceiling: Optional[str]
+) -> Tuple[Optional[str], bool]:
+    """Apply a client's registered scope ceiling. Returns ``(scope, denied)``.
+
+    offline_access is a protocol scope (refresh-token request), not a
+    data-access grant, so it is exempt from the data-scope ceiling. A client
+    with no ceiling (``None``) is unaffected.
+    """
+    if ceiling is None:
+        return scope, False
+    data_scope = _without(scope, OFFLINE_ACCESS_SCOPE)
+    if data_scope:
+        return scope, not scope_within_ceiling(data_scope, ceiling)
+    # No data scope requested. create_access_token() defaults an empty scope to
+    # the global "read write", which would ESCAPE a store-scoped ceiling. Bind
+    # the grant to the ceiling instead (never conferring admin), preserving an
+    # explicit offline_access.
+    ceil = _without(ceiling, "admin")
+    offline = OFFLINE_ACCESS_SCOPE if _scope_has_offline_access(scope) else None
+    bound = " ".join(t for t in (ceil, offline) if t) or None
+    return bound, not ceil  # an admin-only ceiling has nothing to grant here
+
+
+async def _resolve_authorize_request(
+    client_id: str, redirect_uri: Optional[str], scope: Optional[str]
+) -> Tuple[RegisteredClient, str, Optional[str], bool]:
+    """Resolve what an authorize request would grant, and to whom.
+
+    Returns ``(client, validated_redirect_uri, scope, denied)``. GET and POST
+    both go through here, so the page shows exactly what the POST will issue.
+    """
+    validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
+    # Also here, not only at registration: a client registered before the
+    # check existed still has its URI in the store.
+    reject_ambiguous_redirect_uri(validated_redirect_uri)
+    client = await get_oauth_storage().get_client(client_id)
+    scope, denied = _bind_scope_to_ceiling(
+        _grantable_scope(scope, client), client.allowed_scope
+    )
+    return client, validated_redirect_uri, scope, denied
+
+
+def _callback_url(redirect_uri: str, params: dict[str, str], state: Optional[str]) -> str:
+    """The client's callback URL with ``params``, echoing ``state`` when one was sent."""
+    if state:
+        params = {**params, "state": state}
+    return _build_redirect_url(redirect_uri, params)
+
+
+def _scope_denied_redirect(redirect_uri: str, state: Optional[str]) -> RedirectResponse:
+    logger.warning("Authorization denied: requested scope exceeds client ceiling")
+    error_params = {
+        "error": "invalid_scope",
+        "error_description": "Requested scope exceeds the scope this client is registered for",
+    }
+    return RedirectResponse(url=_callback_url(redirect_uri, error_params, state))
+
+
 async def validate_redirect_uri(client_id: str, redirect_uri: Optional[str]) -> str:
     """Validate redirect URI against registered client and return the trusted value."""
     client = await get_oauth_storage().get_client(client_id)
@@ -285,12 +375,68 @@ def _authorize_form_query(
     return html.escape(urlencode(params), quote=True)
 
 
-def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str:
+_MAX_DISPLAYED_CLIENT_NAME_LEN = 80
+
+
+def _redirect_destination(redirect_uri: str) -> str:
+    """The part of a redirect URI the owner has to recognise.
+
+    The hostname only, so userinfo cannot dress the URI up
+    (``https://claude.ai@evil.example/cb`` shows ``evil.example``). A native
+    client's custom scheme has no host; the whole URI is shown then.
+    """
+    parts = urlsplit(redirect_uri)
+    if not parts.hostname:
+        return redirect_uri
+    return f"{parts.hostname}:{parts.port}" if parts.port else parts.hostname
+
+
+def _authorize_page_response(
+    query_string: str,
+    client: RegisteredClient,
+    redirect_uri: str,
+    scope: Optional[str],
+    error: Optional[str] = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    """Render the consent page, with headers that forbid framing it."""
+    page = _build_authorize_page(
+        query_string,
+        error,
+        client_name=client.client_name,
+        destination=_redirect_destination(redirect_uri),
+        # create_access_token() turns an empty scope into "read write".
+        scope=scope or "read write",
+    )
+    return HTMLResponse(
+        page,
+        status_code=status_code,
+        headers={
+            "X-Frame-Options": "DENY",
+            "Content-Security-Policy": "frame-ancestors 'none'",
+        },
+    )
+
+
+def _build_authorize_page(
+    query_string: str,
+    error: Optional[str] = None,
+    *,
+    client_name: Optional[str],
+    destination: str,
+    scope: str,
+) -> str:
     """Build the HTML authorization/login page.
 
     ``query_string`` MUST already be HTML-attribute-safe (see
-    ``_authorize_form_query``). ``error`` is HTML-escaped here defensively.
+    ``_authorize_form_query``). Everything else is HTML-escaped here:
+    ``client_name`` and ``destination`` come from a client registration,
+    which anyone can make while registration is open.
     """
+    name = (client_name or "").strip()[:_MAX_DISPLAYED_CLIENT_NAME_LEN] or "(none given)"
+    safe_name = html.escape(name, quote=True)
+    safe_destination = html.escape(destination, quote=True)
+    safe_scope = html.escape(", ".join(scope.split()), quote=True)
     error_html = ""
     if error:
         safe_error = html.escape(error, quote=True)
@@ -307,6 +453,12 @@ def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str
   .card {{ background: #1e293b; border-radius: 12px; padding: 32px; width: 100%; max-width: 400px; box-shadow: 0 4px 24px rgba(0,0,0,0.3); }}
   h1 {{ font-size: 20px; margin: 0 0 8px; color: #f8fafc; }}
   p {{ font-size: 14px; color: #94a3b8; margin: 0 0 24px; }}
+  dl {{ margin: 0 0 16px; padding: 12px; border: 1px solid #334155; border-radius: 8px; font-size: 14px; }}
+  dt {{ font-size: 12px; color: #94a3b8; }}
+  dd {{ margin: 2px 0 10px; color: #f8fafc; overflow-wrap: anywhere; }}
+  dd:last-child {{ margin-bottom: 0; }}
+  dd.dest {{ font-size: 17px; font-weight: 600; }}
+  p.warn {{ color: #fbbf24; margin: 0 0 16px; }}
   label {{ display: block; font-size: 13px; font-weight: 500; color: #cbd5e1; margin-bottom: 6px; }}
   input[type=password] {{ width: 100%; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #f8fafc; font-size: 15px; box-sizing: border-box; }}
   input[type=password]:focus {{ outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }}
@@ -317,7 +469,16 @@ def _build_authorize_page(query_string: str, error: Optional[str] = None) -> str
 <body>
 <div class="card">
   <h1>MCP Memory Service</h1>
-  <p>Enter your API key to authorize this connection.</p>
+  <p>An application is asking for access to your memories.</p>
+  <dl>
+    <dt>Access will be sent to</dt>
+    <dd class="dest">{safe_destination}</dd>
+    <dt>Application name (chosen by the application, not verified)</dt>
+    <dd>{safe_name}</dd>
+    <dt>Access it will get</dt>
+    <dd>{safe_scope}</dd>
+  </dl>
+  <p class="warn">Only continue if you started this connection yourself and recognise the destination above. If you got here from a link someone sent you, close this page.</p>
   {error_html}
   <form method="POST" action="authorize?{query_string}">
     <label for="api_key">API Key</label>
@@ -361,8 +522,9 @@ async def authorize_get(
     _validate_authorize_param_lengths(scope, state)
 
     # Validate client and redirect_uri before showing the form
-    if redirect_uri:
-        await validate_redirect_uri(client_id, redirect_uri)
+    client, validated_redirect_uri, granted_scope, denied = await _resolve_authorize_request(
+        client_id, redirect_uri, scope
+    )
 
     if response_type != "code":
         raise HTTPException(
@@ -375,12 +537,76 @@ async def authorize_get(
 
     await _validate_pkce_authorize_params(client_id, code_challenge, code_challenge_method)
 
-    # Show login form — re-serialize the validated params (never reflect the raw query)
+    # Show login form — re-serialize the validated params (never reflect the raw
+    # query). The form carries the scope shown on the page, not the one asked for.
     form_query = _authorize_form_query(
-        response_type, client_id, redirect_uri, scope, state,
+        response_type, client_id, redirect_uri, granted_scope, state,
         code_challenge, code_challenge_method,
     )
-    return HTMLResponse(_build_authorize_page(form_query))
+    if denied:
+        return _scope_denied_redirect(validated_redirect_uri, state)
+    return _authorize_page_response(form_query, client, validated_redirect_uri, granted_scope)
+
+
+def _redirect_page(redirect_url: str) -> HTMLResponse:
+    """Send the browser to the client's callback after a granted authorization.
+
+    Uses HTML meta-refresh + JS redirect for maximum popup compatibility.
+    Some OAuth clients (Claude.ai) use popups where HTTP 302 from a form POST
+    can be unreliable across cross-origin boundaries.
+    """
+    # HTML-attribute-escape the URL for the meta refresh tag.
+    # For the <script> context, json.dumps() produces a valid JS string
+    # literal but does NOT escape the ``</script>`` sequence, which would
+    # close the script element in HTML parsing before JS parsing begins.
+    # Replace ``</`` with ``<\/`` so the redirect URL cannot break out of
+    # the script element even if the allowlist regresses.
+    # ``validate_redirect_uri`` already allowlists the URI; both escapes
+    # are defense-in-depth.
+    safe_url_attr = html.escape(redirect_url, quote=True)
+    safe_url_js = json.dumps(redirect_url).replace("</", "<\\/")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html><head>
+<meta http-equiv=\"refresh\" content=\"0;url={safe_url_attr}\">
+<script>window.location.href = {safe_url_js};</script>
+</head><body>Redirecting...</body></html>""")
+
+
+async def _grant_authorization_code(
+    client_id: str,
+    redirect_uri: str,
+    scope: Optional[str],
+    state: Optional[str],
+    code_challenge: Optional[str],
+    code_challenge_method: Optional[str],
+) -> HTMLResponse:
+    """Store an authorization code and send the browser to the client's callback.
+
+    ``redirect_uri`` is the validated one, so a failure here can be reported
+    to the client as well.
+    """
+    try:
+        auth_code = get_oauth_storage().generate_authorization_code()
+        await get_oauth_storage().store_authorization_code(
+            code=auth_code,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            scope=scope,
+            expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+        )
+        logger.info("Authorization granted, redirecting to callback")
+        return _redirect_page(_callback_url(redirect_uri, {"code": auth_code}, state))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.error("Authorization error occurred", exc_info=True)
+        error_params = {
+            "error": "server_error",
+            "error_description": "Internal server error",
+        }
+        return RedirectResponse(url=_callback_url(redirect_uri, error_params, state))
 
 
 @router.post("/authorize", dependencies=[Depends(auth_rate_limit)])
@@ -407,6 +633,11 @@ async def authorize_post(
     _validate_authorize_param_lengths(scope, state)
     await _validate_pkce_authorize_params(client_id, code_challenge, code_challenge_method)
 
+    # Resolved before the key check so a wrong key re-renders the same details.
+    client, validated_redirect_uri, scope, denied = await _resolve_authorize_request(
+        client_id, redirect_uri, scope
+    )
+
     form_query = _authorize_form_query(
         response_type, client_id, redirect_uri, scope, state,
         code_challenge, code_challenge_method,
@@ -415,106 +646,18 @@ async def authorize_post(
     # Validate API key
     if not API_KEY or not secrets.compare_digest(api_key.encode(), API_KEY.encode()):
         logger.warning("Authorization denied: invalid API key")
-        return HTMLResponse(
-            _build_authorize_page(
-                form_query, error="Invalid API key. Please try again."
-            ),
-            status_code=403,
+        return _authorize_page_response(
+            form_query, client, validated_redirect_uri, scope,
+            error="Invalid API key. Please try again.", status_code=403,
         )
 
-    try:
-        # Validate redirect_uri against the registered client once and keep the
-        # validated value for both success and error redirects.
-        validated_redirect_uri = await validate_redirect_uri(client_id, redirect_uri)
+    if denied:
+        return _scope_denied_redirect(validated_redirect_uri, state)
 
-        # Enforce the client's registered scope ceiling. offline_access is a
-        # protocol scope (refresh-token request), not a data-access grant, so it
-        # is exempt from the data-scope ceiling. A client with no ceiling
-        # (allowed_scope is None) is unaffected.
-        client = await get_oauth_storage().get_client(client_id)
-        if client and client.allowed_scope is not None:
-            tokens = (scope or "").split()
-            data_scope = " ".join(t for t in tokens if t != OFFLINE_ACCESS_SCOPE)
-            deny = False
-            if not data_scope:
-                # No data scope requested. create_access_token() defaults an
-                # empty scope to the global "read write", which would ESCAPE a
-                # store-scoped ceiling. Bind the grant to the ceiling instead
-                # (never conferring admin), preserving an explicit offline_access.
-                ceil = " ".join(t for t in client.allowed_scope.split() if t != "admin")
-                offline = [t for t in tokens if t == OFFLINE_ACCESS_SCOPE]
-                scope = " ".join(([ceil] if ceil else []) + offline).strip() or None
-                deny = not ceil  # an admin-only ceiling has nothing to grant here
-            elif not scope_within_ceiling(data_scope, client.allowed_scope):
-                deny = True
-            if deny:
-                logger.warning("Authorization denied: requested scope exceeds client ceiling")
-                error_params = {
-                    "error": "invalid_scope",
-                    "error_description": "Requested scope exceeds the scope this client is registered for",
-                }
-                if state:
-                    error_params["state"] = state
-                return RedirectResponse(
-                    url=_build_redirect_url(validated_redirect_uri, error_params)
-                )
-
-        # Generate and store authorization code
-        auth_code = get_oauth_storage().generate_authorization_code()
-        await get_oauth_storage().store_authorization_code(
-            code=auth_code,
-            client_id=client_id,
-            redirect_uri=validated_redirect_uri,
-            scope=scope,
-            expires_in=OAUTH_AUTHORIZATION_CODE_EXPIRE_MINUTES * 60,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method,
-        )
-
-        # Redirect with authorization code
-        redirect_params = {"code": auth_code}
-        if state:
-            redirect_params["state"] = state
-
-        redirect_url = _build_redirect_url(validated_redirect_uri, redirect_params)
-        logger.info("Authorization granted, redirecting to callback")
-        # Use HTML meta-refresh + JS redirect for maximum popup compatibility.
-        # Some OAuth clients (Claude.ai) use popups where HTTP 302 from a
-        # form POST can be unreliable across cross-origin boundaries.
-
-        # HTML-attribute-escape the URL for the meta refresh tag.
-        # For the <script> context, json.dumps() produces a valid JS string
-        # literal but does NOT escape the ``</script>`` sequence, which would
-        # close the script element in HTML parsing before JS parsing begins.
-        # Replace ``</`` with ``<\/`` so the redirect URL cannot break out of
-        # the script element even if the allowlist regresses.
-        # ``validate_redirect_uri`` already allowlists the URI; both escapes
-        # are defense-in-depth.
-        safe_url_attr = html.escape(redirect_url, quote=True)
-        safe_url_js = json.dumps(redirect_url).replace("</", "<\\/")
-        return HTMLResponse(f"""<!DOCTYPE html>
-<html><head>
-<meta http-equiv=\"refresh\" content=\"0;url={safe_url_attr}\">
-<script>window.location.href = {safe_url_js};</script>
-</head><body>Redirecting...</body></html>""")
-
-    except HTTPException:
-        raise
-    except Exception:
-        logger.error("Authorization error occurred", exc_info=True)
-        error_params = {
-            "error": "server_error",
-            "error_description": "Internal server error",
-        }
-        if state:
-            error_params["state"] = state
-        if validated_redirect_uri:
-            return RedirectResponse(
-                url=_build_redirect_url(validated_redirect_uri, error_params)
-            )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_params
-        )
+    return await _grant_authorization_code(
+        client_id, validated_redirect_uri, scope, state,
+        code_challenge, code_challenge_method,
+    )
 
 
 async def _handle_authorization_code_grant(
@@ -687,6 +830,82 @@ async def _handle_authorization_code_grant(
     )
 
 
+async def _authenticate_refresh_client(
+    client: RegisteredClient,
+    bound_client_id: str,
+    final_client_id: Optional[str],
+    final_client_secret: Optional[str],
+) -> None:
+    """Enforce client identification and authentication on a refresh."""
+    # Public clients still MUST send client_id (RFC 6749 §6) — the token's
+    # internal binding is not a substitute for the explicit parameter.
+    if client.token_endpoint_auth_method == "none" and not final_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_request",
+                "error_description": "Missing required parameter: client_id",
+            },
+        )
+
+    # Confidential clients must authenticate on refresh (RFC 6749 §6).
+    # Public clients (token_endpoint_auth_method=none) do not present a secret;
+    # the rotated refresh token itself is the binding.
+    if client.token_endpoint_auth_method != "none":
+        if not final_client_secret:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client authentication required",
+                },
+            )
+        if not await get_oauth_storage().authenticate_client(
+            bound_client_id, final_client_secret
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": "invalid_client",
+                    "error_description": "Client authentication failed",
+                },
+            )
+
+
+def _refreshed_scope(
+    requested_scope: Optional[str],
+    original_scope: Optional[str],
+    client: RegisteredClient,
+) -> Optional[str]:
+    """Resolve the scope of a refreshed token.
+
+    RFC 6749 §6: scope may be narrowed on refresh but not broadened. A refresh
+    token issued before admin was restricted must not keep minting it.
+    """
+    if requested_scope is not None and not _is_scope_subset(requested_scope, original_scope):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "Requested scope exceeds originally granted scope",
+            },
+        )
+    scope = requested_scope or original_scope
+    granted = _grantable_scope(scope, client)
+    if granted != scope and not _without(granted, OFFLINE_ACCESS_SCOPE):
+        # admin was all the data access there was. Passing the empty rest on
+        # would let create_access_token() default it to the global
+        # "read write", wider than what was granted.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_scope",
+                "error_description": "The admin scope is no longer granted to this client",
+            },
+        )
+    return granted
+
+
 async def _handle_refresh_token_grant(
     final_client_id: Optional[str],
     final_client_secret: Optional[str],
@@ -759,52 +978,10 @@ async def _handle_refresh_token_grant(
             },
         )
 
-    # Public clients still MUST send client_id (RFC 6749 §6) — the token's
-    # internal binding is not a substitute for the explicit parameter.
-    if client.token_endpoint_auth_method == "none" and not final_client_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "invalid_request",
-                "error_description": "Missing required parameter: client_id",
-            },
-        )
-
-    # Confidential clients must authenticate on refresh (RFC 6749 §6).
-    # Public clients (token_endpoint_auth_method=none) do not present a secret;
-    # the rotated refresh token itself is the binding.
-    if client.token_endpoint_auth_method != "none":
-        if not final_client_secret:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={
-                    "error": "invalid_client",
-                    "error_description": "Client authentication required",
-                },
-            )
-        if not await get_oauth_storage().authenticate_client(
-            bound_client_id, final_client_secret
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={
-                    "error": "invalid_client",
-                    "error_description": "Client authentication failed",
-                },
-            )
-
-    original_scope = token_data["scope"]
-
-    # RFC 6749 §6: scope may be narrowed on refresh but not broadened.
-    if requested_scope is not None and not _is_scope_subset(requested_scope, original_scope):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "invalid_scope",
-                "error_description": "Requested scope exceeds originally granted scope",
-            },
-        )
-    granted_scope = requested_scope if requested_scope else original_scope
+    await _authenticate_refresh_client(
+        client, bound_client_id, final_client_id, final_client_secret
+    )
+    granted_scope = _refreshed_scope(requested_scope, token_data["scope"], client)
 
     # Rotation: atomically revoke the presented refresh token. If we lose the
     # race (another refresh already consumed it), fail the grant — defense in

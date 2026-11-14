@@ -21,13 +21,22 @@ Implements .well-known endpoints required for OAuth 2.1 Dynamic Client Registrat
 import logging
 from fastapi import APIRouter
 from ...compat import _sanitize_log_value
-from ...config import OAUTH_ISSUER, get_jwt_algorithm, join_url
+from ...config import DCR_REGISTRATION_KEY, OAUTH_ISSUER, get_jwt_algorithm, join_url
 from .models import OAuthServerMetadata, OAuthProtectedResourceMetadata
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+
+def _data_scopes_supported() -> list[str]:
+    """``admin`` is advertised only while registration is gated.
+
+    With open registration no client can be granted it (GHSA-w8p9-5v6q-h9ch),
+    and clients tend to request every scope they are shown.
+    """
+    return ["read", "write", "admin"] if DCR_REGISTRATION_KEY else ["read", "write"]
 
 
 @router.get("/.well-known/oauth-protected-resource")
@@ -43,7 +52,7 @@ async def oauth_protected_resource_metadata() -> OAuthProtectedResourceMetadata:
     return OAuthProtectedResourceMetadata(
         resource=OAUTH_ISSUER,
         authorization_servers=[OAUTH_ISSUER],
-        scopes_supported=["read", "write", "admin"],
+        scopes_supported=_data_scopes_supported(),
         bearer_methods_supported=["header"],
         resource_documentation=join_url(OAUTH_ISSUER, "/docs"),
     )
@@ -70,7 +79,7 @@ async def oauth_authorization_server_metadata() -> OAuthServerMetadata:
         grant_types_supported=["authorization_code", "client_credentials", "refresh_token"],
         response_types_supported=["code"],
         token_endpoint_auth_methods_supported=["client_secret_basic", "client_secret_post", "none"],
-        scopes_supported=["read", "write", "admin", "offline_access"],
+        scopes_supported=[*_data_scopes_supported(), "offline_access"],
         id_token_signing_alg_values_supported=[algorithm],
         code_challenge_methods_supported=["S256"]
     )

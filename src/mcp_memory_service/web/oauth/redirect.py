@@ -63,6 +63,20 @@ def _invalid_uri(description: str) -> HTTPException:
     )
 
 
+def reject_ambiguous_redirect_uri(uri: str) -> None:
+    """Refuse a redirect URI that a browser reads differently from ``urlsplit``.
+
+    Browsers treat a backslash in an http(s) URL as a slash and drop tabs and
+    newlines, so ``https://evil.example\\@claude.ai/cb`` parses here with the
+    host ``claude.ai`` and navigates to ``evil.example``. No legitimate
+    redirect URI carries a backslash, whitespace or a control character.
+    """
+    if any(ch == "\\" or ch <= " " or ch == "\x7f" for ch in uri):
+        raise _invalid_uri(
+            "redirect URI must not contain backslashes, whitespace or control characters"
+        )
+
+
 def validate_registration_redirect_uris(redirect_uris: Optional[List[str]]) -> None:
     """
     Validate redirect URIs supplied at client registration (RFC 7591).
