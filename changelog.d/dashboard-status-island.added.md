@@ -1,0 +1,9 @@
+- **The dashboard shows its connection state in a status capsule in the header.**
+  The "Connected" badge was a fixed overlay in the bottom right corner that covered content
+  on narrow screens, said "Connected" before the event stream was open, and showed
+  "Unknown" when the server refused the stream. It is replaced by a capsule in the logo
+  row (`web/static/status-island.js`) that reports connecting, connected, disconnected with
+  a reconnect action, and "Authentication required". The capsule keeps one entry per named
+  source and shows the most important one, an error before work in progress before a
+  confirmation, so further sources (sync, imports, consolidation, backup) can report to it
+  without covering each other's failures. It adds no catalog keys.
