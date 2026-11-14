@@ -82,16 +82,40 @@
 .demo-wrap{max-width:820px;margin:-4.2rem auto 0;padding:0 1.5rem}
 .demo-card{background:var(--console);color:var(--console-text);border:1px solid var(--console-line);border-radius:10px;padding:1.8rem;box-shadow:0 24px 60px rgba(0,0,0,.35),0 0 80px rgba(25,194,218,.08)}
 .demo-card a{text-decoration-color:var(--console-line)}
-.status-line{display:flex;align-items:center;gap:.6rem;font:400 .85rem var(--mono);color:var(--amber);margin-bottom:1.2rem;flex-wrap:wrap}
-.status-line .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);flex:none;animation:blink 1.2s ease-in-out infinite}
+/* Status island: one capsule for what the demo is doing right now. It sits in the normal
+   flow at the top of the card, so it never covers an input or a result. */
+.island{margin-bottom:1.2rem}
+.island-bar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
+.island-toggle{display:inline-flex;align-items:center;gap:.6rem;max-width:100%;min-height:2.25rem;padding:.3rem .85rem;background:rgba(255,255,255,.04);border:1px solid var(--console-line);border-radius:var(--r-pill);color:var(--console-muted);font:400 .85rem var(--mono);text-align:left;cursor:pointer;transition:color var(--t),border-color var(--t),background-color var(--t)}
+.island-toggle:hover{border-color:currentColor}
+.island-toggle:focus-visible,.island-act:focus-visible{outline:2px solid var(--console-text);outline-offset:2px}
+.island-toggle #status-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.island .dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.island .chev{width:.45rem;height:.45rem;flex:none;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg) translateY(-2px);opacity:.7;transition:transform var(--t) var(--ease)}
+.island-toggle[aria-expanded=true] .chev{transform:rotate(-135deg) translateY(-2px)}
+.island[data-state=preparing] .island-toggle,.island[data-state=busy] .island-toggle{color:var(--amber);border-color:rgba(251,191,36,.4)}
+.island[data-state=preparing] .dot,.island[data-state=busy] .dot{animation:blink 1.2s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
-.status-line.ready{color:var(--green)}
-.status-line.ready .dot{background:var(--green);animation:none}
-.status-line.error{color:var(--red)}
-.status-line.error .dot{background:var(--red);animation:none}
-.progress-track{width:100%;height:4px;background:var(--console-line);border-radius:2px;overflow:hidden;margin:-.4rem 0 1.2rem;transition:opacity .4s}
-.progress-track .bar{height:100%;width:0%;background:var(--cyan);border-radius:2px;transition:width .3s}
-.progress-track.done{opacity:0}
+.island[data-state=ready] .island-toggle,.island[data-state=success] .island-toggle{color:var(--green)}
+.island[data-state=success] .island-toggle{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.08)}
+.island[data-state=error] .island-toggle{color:var(--red);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.08)}
+.island-act{min-height:2.25rem;padding:.3rem .85rem;background:none;border:1px solid var(--console-line);border-radius:var(--r-pill);color:var(--console-text);font:400 .85rem var(--mono);cursor:pointer}
+.island-act:hover{border-color:var(--cyan);color:var(--cyan)}
+/* The track keeps its 3px in every state, so a state change never moves the form below. */
+.island-track{height:3px;margin-top:.55rem;background:var(--console-line);border-radius:2px;overflow:hidden;opacity:0;transition:opacity .3s}
+.island-track .bar{height:100%;width:0;background:var(--cyan);border-radius:2px;transition:width .3s}
+.island[data-progress] .island-track{opacity:1}
+.island[data-progress=unknown] .bar{width:35%;transition:none;animation:slide 1.3s ease-in-out infinite}
+@keyframes slide{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+.island-detail{margin-top:.7rem;padding:.85rem 1rem;border:1px solid var(--console-line);border-radius:var(--r);font-size:.92rem;line-height:1.55;color:var(--console-muted)}
+.island-detail p{color:var(--console-text);overflow-wrap:anywhere}
+.island-detail ol{list-style:none;margin-top:.6rem;font:400 .8rem var(--mono)}
+.island-detail li{display:flex;gap:.6rem;padding:.15rem 0}
+.island-detail li::before{content:"\00b7";width:1ch;flex:none;text-align:center}
+.island-detail li[data-step=active]{color:var(--amber)}
+.island-detail li[data-step=active]::before{content:"\203a"}
+.island-detail li[data-step=done]{color:var(--green)}
+.island-detail li[data-step=done]::before{content:"\2713"}
 
 .field-label{display:block;font:400 .8rem var(--mono);color:var(--console-muted);margin-bottom:.4rem}
 .row{display:flex;gap:.6rem;margin-bottom:1.4rem}
@@ -138,6 +162,8 @@ ul.mem-list{list-style:none}
 .agent-prompt h3{font:600 1.35rem var(--display);margin-bottom:.5rem}
 .agent-prompt pre{margin:1.1rem 0;padding:1.1rem 1.3rem;background:var(--console);color:var(--console-text);border-radius:var(--r);font:400 .86rem/1.65 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .agent-prompt button{background:none;color:inherit;font:inherit;cursor:pointer}
+.agent-actions{display:flex;flex-wrap:wrap;gap:.7rem}
+.agent-actions .btn{font-size:1rem}
 .agent-prompt .note{margin-top:1rem;font-size:.92rem;color:var(--muted)}
 .btn-primary{background:var(--cyan);border-color:var(--cyan);color:#06121f}
 
@@ -150,8 +176,10 @@ ul.mem-list{list-style:none}
   .map-row .arrow{transform:rotate(90deg);justify-self:start}
 }
 @media(prefers-reduced-motion:reduce){
-  .status-line .dot,.result{animation:none}
-  .progress-track,.progress-track .bar{transition:none}
+  .island[data-state] .dot,.result{animation:none}
+  .island-toggle,.island .chev,.island-track,.island-track .bar{transition:none}
+  /* No moving stripe: an unmeasured task shows a still, full-width bar. */
+  .island[data-progress=unknown] .bar{animation:none;width:100%;opacity:.45}
 }
 </style>
 </head>
@@ -181,8 +209,28 @@ ul.mem-list{list-style:none}
 <main id="main">
 <div class="demo-wrap">
   <div class="demo-card">
-    <div class="status-line" id="status"><span class="dot"></span><span id="status-text">Preparing&hellip;</span></div>
-    <div class="progress-track" id="progress"><div class="bar" id="progress-bar"></div></div>
+    <div class="island" id="status" data-state="preparing">
+      <div class="island-bar">
+        <button class="island-toggle" type="button" id="island-toggle" aria-expanded="false" aria-controls="island-detail">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="status-text">Preparing&hellip;</span>
+          <span class="sr-only">, details</span>
+          <span class="chev" aria-hidden="true"></span>
+        </button>
+        <button class="island-act" type="button" id="island-retry" hidden>Retry</button>
+        <button class="island-act" type="button" id="island-dismiss" hidden>Dismiss</button>
+      </div>
+      <div class="island-track" id="progress" aria-hidden="true"><div class="bar" id="progress-bar"></div></div>
+      <div class="island-detail" id="island-detail" hidden>
+        <p id="island-msg">The demo starts as soon as the page script runs.</p>
+        <ol id="island-steps" aria-label="Start-up steps">
+          <li data-step="todo">Embedding model, loaded from this site</li>
+          <li data-step="todo">sqlite-vec database, in memory</li>
+          <li data-step="todo">Example memories embedded</li>
+        </ol>
+      </div>
+      <span class="sr-only" role="status" id="island-live"></span>
+    </div>
 
     <label class="field-label" for="memInput">Add a memory</label>
     <div class="row">
@@ -259,8 +307,13 @@ Keep everything inside a new folder named mcp-memory-trial in the current direct
    Use memory-trial to remember that our staging database is Postgres 16 behind PgBouncer.
    Use memory-trial: what do you know about our staging setup?
 6. Tell me how to undo it: delete the mcp-memory-trial folder. Say whether ~/.cache/mcp_memory existed before this trial; only if it did not, I can delete it as well.</pre>
-      <button class="btn btn-secondary" type="button" onclick="copyPrompt(this)">Copy prompt</button>
-      <p class="note">Tested with Claude Code on macOS. The folder takes about 250 MB. A first install also downloads the 170 MB embedding model to <code>~/.cache/mcp_memory</code>, which is outside the folder.</p>
+      <div class="agent-actions">
+        <button class="btn btn-secondary" type="button" onclick="copyPrompt(this)">Copy prompt</button>
+        <a class="btn btn-secondary" id="open-claude" href="https://claude.com/download" onclick="openInClaudeCode(this)">Open in Claude Code</a>
+        <a class="btn btn-secondary" id="open-chatgpt" href="https://chatgpt.com/" target="_blank" rel="noopener" onclick="copyAndOpen(this)">Copy, then open ChatGPT (new tab)</a>
+      </div>
+      <p class="note">&ldquo;Open in Claude Code&rdquo; hands this exact text to the Claude desktop app, where you review it before sending; the app has to be installed. ChatGPT has no documented way to receive a prompt through a link, so that button copies the text and opens ChatGPT for you to paste. A chat window cannot install anything: it can walk you through the steps, while a coding agent carries them out.</p>
+      <p class="note">Tested with the Claude Code command line on macOS; the hand-over to the desktop app passes the same text but was not run there. The folder takes about 250 MB. A first install also downloads the 170 MB embedding model to <code>~/.cache/mcp_memory</code>, which is outside the folder.</p>
     </div>
   </div>
 </section>
@@ -297,7 +350,15 @@ async function copyText(el, hint, text, what) {
   el.timer = setTimeout(() => { delete el.dataset.state; hint.textContent = hint.dataset.idle; status.textContent = ''; }, 2000);
 }
 const copyInstall = el => copyText(el, el.lastElementChild, el.firstElementChild.textContent, 'Install command');
-const copyPrompt = el => copyText(el, el, document.getElementById('agent-prompt').textContent, 'Prompt');
+// Every way of handing the prompt over reads the same visible text.
+const promptText = () => document.getElementById('agent-prompt').textContent;
+const copyPrompt = el => copyText(el, el, promptText(), 'Prompt');
+// Documented deep link: claude://code/new?q=... prefills the composer of Claude Code in
+// Claude Desktop and waits for the reader to send it. Built on click, so the link carries
+// nothing but the prompt. Without JavaScript the link goes to the download page.
+function openInClaudeCode(a) { a.href = 'claude://code/new?q=' + encodeURIComponent(promptText()); }
+// No documented prefill for ChatGPT: copy first, the link itself opens the new tab.
+const copyAndOpen = a => copyText(a, a, promptText(), 'Prompt');
 </script>
 
 <script type="module">
@@ -308,7 +369,7 @@ const copyPrompt = el => copyText(el, el, document.getElementById('agent-prompt'
 // ---------------------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status'), statusText = $('status-text');
-const progress = $('progress'), progressBar = $('progress-bar');
+const progressBar = $('progress-bar');
 const memInput = $('memInput'), addBtn = $('addBtn');
 const queryInput = $('queryInput'), searchBtn = $('searchBtn'), searchHint = $('search-hint');
 const resultsEl = $('results'), memList = $('mem-list'), memCount = $('mem-count');
@@ -336,16 +397,55 @@ function renderMemories() {
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 renderMemories();
 
-function setStatus(msg, cls) {
-  statusText.textContent = msg;
-  statusEl.className = 'status-line' + (cls ? ' ' + cls : '');
+// ---- Status island ----
+// One writer for the capsule. States: preparing, ready, busy, success, error.
+// progress: a number 0-100 only when it was measured, 'unknown' for work without a
+// measure, null for none. The demo must run without it, so every call is guarded.
+const island = (() => { try {
+  const toggle = $('island-toggle'), detail = $('island-detail'), msg = $('island-msg');
+  const retryBtn = $('island-retry'), dismissBtn = $('island-dismiss'), live = $('island-live');
+  const steps = [...document.querySelectorAll('#island-steps li')];
+  let state = 'preparing', onRetry = null, revert = 0, idle = null;
+  const open = (yes) => { detail.hidden = !yes; toggle.setAttribute('aria-expanded', String(yes)); };
+  const set = (next, text, o = {}) => {
+    clearTimeout(revert);
+    const changed = next !== state;
+    state = next;
+    statusEl.dataset.state = next;
+    statusText.textContent = text;
+    if (o.detail !== undefined) msg.textContent = o.detail;
+    if (o.progress == null) delete statusEl.dataset.progress;
+    else {
+      statusEl.dataset.progress = typeof o.progress === 'number' ? 'known' : 'unknown';
+      progressBar.style.width = typeof o.progress === 'number' ? o.progress + '%' : '';
+    }
+    onRetry = o.retry || null;
+    retryBtn.hidden = !onRetry;
+    retryBtn.textContent = o.retryLabel || 'Retry';
+    dismissBtn.hidden = next !== 'error' || !idle;
+    if (next === 'error') open(true);
+    // Announce a change of state and every result, not every progress tick.
+    if (changed || o.announce || next === 'success' || next === 'error') live.textContent = o.say ?? text;
+    if (next === 'ready') idle = { text, detail: msg.textContent };
+    // A confirmation steps back to "ready" by itself. An error never does.
+    if (next === 'success' && idle) revert = setTimeout(() => set('ready', idle.text, { detail: idle.detail, say: '' }), 5000);
+  };
+  toggle.addEventListener('click', () => open(detail.hidden));
+  retryBtn.addEventListener('click', () => { const run = onRetry; if (run) run(); });
+  dismissBtn.addEventListener('click', () => { open(false); set('ready', idle.text, { detail: idle.detail }); toggle.focus(); });
+  return { set, step: (i, s) => { steps[i].dataset.step = s; } };
+} catch (e) { console.warn('status island', e); return { set() {}, step() {} }; } })();
+function setStatus(state, text, o) {
+  try { island.set(state, text, o); } catch (e) { console.warn('status island', e); }
 }
+function setStep(i, s) { try { island.step(i, s); } catch (e) { console.warn('status island', e); } }
 
 try {
   if (typeof WebAssembly !== 'object') throw new Error('WebAssembly unavailable');
 
   // ---- 1. Embedding pipeline (transformers.js 4.2.0, self-hosted) ----
-  setStatus('Loading embedding model (0% of ~23 MB)...');
+  setStatus('preparing', 'Loading model\u2026', { progress: 'unknown', detail: 'Downloading the embedding model from this site. Nothing comes from a CDN.' });
+  setStep(0, 'active');
   const { env, pipeline } = await import('./assets/transformers.min.js');
   env.localModelPath = './assets/models/';
   env.allowLocalModels = true;    // browser builds default this to false
@@ -357,13 +457,20 @@ try {
     wasm: new URL('./assets/ort/ort-wasm-simd-threaded.wasm', location.href).href,
   };
 
+  let modelBytes = 0;
   const embedPipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
     dtype: 'q8', device: 'wasm',
     progress_callback: (p) => {
       if (p.status === 'progress' && p.file && p.file.endsWith('.onnx')) {
-        const pct = Math.round((p.loaded / p.total) * 100);
-        setStatus(`Loading embedding model (${pct}% of ${(p.total / 1048576).toFixed(0)} MB)...`);
-        progressBar.style.width = pct + '%';
+        // A percentage needs a real total. Without a Content-Length the library reports
+        // total = loaded, which reads as 100% from the first chunk on; then only the
+        // received megabytes are shown.
+        if (p.total > p.loaded) modelBytes = p.total;
+        const mb = (n) => (n / 1048576).toFixed(0);
+        if (modelBytes) {
+          const pct = Math.round((p.loaded / modelBytes) * 100);
+          setStatus('preparing', `Loading \u00b7 ${pct}% of ${mb(modelBytes)} MB`, { progress: pct });
+        } else setStatus('preparing', `Loading \u00b7 ${mb(p.loaded)} MB received`, { progress: 'unknown' });
       }
     },
   });
@@ -371,8 +478,8 @@ try {
     (await embedPipe(texts, { pooling: 'mean', normalize: true })).tolist();
 
   // ---- 2. sqlite-vec WASM (sqlite-vec-wasm-demo 0.1.9) ----
-  setStatus('Starting sqlite-vec (WASM)...');
-  progressBar.style.width = '100%';
+  setStep(0, 'done'); setStep(1, 'active');
+  setStatus('preparing', 'Starting database\u2026', { progress: 'unknown', detail: 'The model is loaded. Starting sqlite-vec as WebAssembly.', announce: true });
   const sqlite3InitModule = (await import('./assets/sqlite3.mjs')).default;
   // --- COMPAT SHIM for sqlite-vec-wasm-demo 0.1.9 in modern browsers ---
   // The bundled sqlite3 WASM is an assertions build whose post-js runs after
@@ -419,8 +526,12 @@ try {
   };
 
   // ---- 3. Embed the seed memories ----
-  setStatus('Embedding ' + SEEDS.length + ' example memories...');
-  for (const s of SEEDS) await store(s);
+  setStep(1, 'done'); setStep(2, 'active');
+  for (const [i, s] of SEEDS.entries()) {
+    setStatus('preparing', `Embedding examples \u00b7 ${i} of ${SEEDS.length}`, { progress: (i / SEEDS.length) * 100, detail: 'Turning the example memories into vectors and storing them.' });
+    await store(s);
+  }
+  setStep(2, 'done');
 
   // ---- 4. Wire UI ----
   // Vectors are L2-normalized, so cosine similarity = 1 - distance^2 / 2.
@@ -430,39 +541,64 @@ try {
       return `<div class="result${i === 0 ? ' top' : ''}"><span class="sim">${sim.toFixed(3)} sim</span><span class="txt">${esc(c)}</span></div>`;
     }).join('');
   };
-  const doSearch = async () => {
-    const q = queryInput.value.trim();
+  // Every operation takes a number. Only the newest one may write to the island or the
+  // result list, so a slow search cannot overwrite the answer to a later one.
+  // The result list has its own counter: a store that starts while a search is running
+  // takes over the island, but must not swallow the search results.
+  let opSeq = 0, searchSeq = 0, storing = false;
+  const doSearch = async (again) => {
+    const q = typeof again === 'string' ? again : queryInput.value.trim();
     if (!q) return;
-    searchBtn.disabled = true;
-    renderResults(await search(q));
-    searchBtn.disabled = false;
+    const id = ++opSeq, sid = ++searchSeq;
+    setStatus('busy', 'Searching by meaning\u2026', { progress: 'unknown', detail: `Embedding the query and comparing it with ${memories.length} stored memories.` });
+    try {
+      const rows = await search(q);
+      if (sid === searchSeq) renderResults(rows);
+      if (id !== opSeq) return;
+      if (!rows.length) setStatus('success', 'No memories to search', { detail: 'The database returned no rows. Store a memory first.' });
+      else setStatus('success', `${rows.length} closest of ${memories.length} memories`, { detail: `A vector search always returns the nearest memories, here the ${rows.length} closest of ${memories.length}. The similarity value tells you how close each one is.` });
+    } catch (err) {
+      console.error(err);
+      if (id !== opSeq) return;
+      setStatus('error', 'Search failed', { detail: 'The search did not finish: ' + err.message, retry: () => doSearch(q) });
+    }
   };
-  const doStore = async () => {
-    const t = memInput.value.trim();
-    if (!t) return;
+  const doStore = async (again) => {
+    const t = typeof again === 'string' ? again : memInput.value.trim();
+    if (!t || storing) return;
+    storing = true;
     addBtn.disabled = true;
-    await store(t);
-    memories.push({ text: t, seed: false });
-    renderMemories();
-    memCount.textContent = memories.length + ' memories, all local';
-    memInput.value = '';
-    addBtn.disabled = false;
+    const id = ++opSeq;
+    setStatus('busy', 'Storing memory\u2026', { progress: 'unknown', detail: 'Embedding the text and writing it to the local database.' });
+    try {
+      await store(t);
+      memories.push({ text: t, seed: false });
+      renderMemories();
+      if (memInput.value.trim() === t) memInput.value = '';
+      if (id === opSeq) setStatus('success', `Stored \u00b7 ${memories.length} memories`, { detail: 'The memory is in the local database and can be found by meaning. Reloading the page discards it.' });
+    } catch (err) {
+      // store() throws before or at the insert, so nothing was written and a retry cannot duplicate.
+      console.error(err);
+      if (id === opSeq) setStatus('error', 'Storing failed', { detail: 'The memory was not stored: ' + err.message, retry: () => doStore(t) });
+    } finally {
+      storing = false;
+      addBtn.disabled = false;
+    }
   };
-  addBtn.addEventListener('click', doStore);
+  addBtn.addEventListener('click', () => doStore());
   memInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doStore(); });
-  searchBtn.addEventListener('click', doSearch);
+  searchBtn.addEventListener('click', () => doSearch());
   queryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
 
   memInput.disabled = addBtn.disabled = queryInput.disabled = searchBtn.disabled = false;
-  progress.classList.add('done');
   searchHint.textContent = 'Try: "security credentials expiring", "database performance problems", or "what did we decide about the mobile release".';
-  setStatus('Ready - model and database running locally. Nothing leaves this browser.', 'ready');
+  // "Ready" only here: model, database and example vectors are all in place.
+  setStatus('ready', 'Ready \u00b7 runs in this tab', { detail: 'Model and database are running locally. Nothing leaves this browser.' });
   document.body.dataset.demoReady = '1'; // hook for automated verification
 } catch (err) {
   console.error(err);
-  progress.classList.add('done');
-  setStatus('Live demo could not start in this browser: ' + err.message, 'error');
-  searchHint.textContent = 'The live demo requires a desktop-class browser with WebAssembly support. The example memories above are shown statically - install the service to run semantic search locally.';
+  setStatus('error', 'Demo could not start', { detail: 'The live demo could not start in this browser: ' + err.message, retry: () => location.reload(), retryLabel: 'Reload page' });
+  searchHint.textContent = 'The live demo did not start, so search is off. Reload the page to try again; it needs a browser with WebAssembly. The example memories below are shown as plain text.';
   document.body.dataset.demoReady = '0';
 }
 </script>
