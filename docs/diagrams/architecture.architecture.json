@@ -11,7 +11,7 @@
       "url": "https://github.com/doobidoo/mcp-memory-service",
       "provider": "github",
       "link_mode": "web",
-      "revision": "48d7d7f595bc28834b2fc096aa2c8f4895ebca89"
+      "revision": "f53e3c7483d41674b950960cc8907c34b7717668"
     },
     "views": [
       {
@@ -109,20 +109,20 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/web/app.py",
-          "line": 356,
-          "end_line": 360,
+          "line": 403,
+          "end_line": 407,
           "label": "API routers"
         },
         {
           "path": "src/mcp_memory_service/web/api/memories.py",
-          "line": 142,
-          "end_line": 147,
+          "line": 219,
+          "end_line": 224,
           "label": "POST /memories"
         },
         {
           "path": "src/mcp_memory_service/web/oauth/middleware.py",
-          "line": 449,
-          "end_line": 460,
+          "line": 624,
+          "end_line": 635,
           "label": "access checks"
         }
       ]
@@ -143,20 +143,20 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
-          "line": 296,
-          "end_line": 298,
+          "line": 475,
+          "end_line": 477,
           "label": "run_stdio"
         },
         {
           "path": "src/mcp_memory_service/server_impl.py",
-          "line": 3068,
-          "end_line": 3079,
+          "line": 3360,
+          "end_line": 3371,
           "label": "mode switch"
         },
         {
           "path": "pyproject.toml",
-          "line": 157,
-          "end_line": 160,
+          "line": 162,
+          "end_line": 165,
           "label": "entry points"
         }
       ]
@@ -178,20 +178,20 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
-          "line": 416,
-          "end_line": 440,
+          "line": 589,
+          "end_line": 627,
           "label": "run_streamable_http"
         },
         {
           "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
-          "line": 523,
-          "end_line": 540,
+          "line": 186,
+          "end_line": 196,
           "label": "auth on /mcp"
         },
         {
           "path": "src/mcp_memory_service/server_impl.py",
-          "line": 1458,
-          "end_line": 1484,
+          "line": 1502,
+          "end_line": 1528,
           "label": "local_only_tools"
         }
       ]
@@ -212,20 +212,20 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/utils/startup_orchestrator.py",
-          "line": 444,
-          "end_line": 452,
+          "line": 212,
+          "end_line": 249,
           "label": "OAuth sub-app"
         },
         {
           "path": "src/mcp_memory_service/web/oauth/authorization.py",
-          "line": 343,
-          "end_line": 343,
+          "line": 340,
+          "end_line": 340,
           "label": "/authorize"
         },
         {
           "path": "src/mcp_memory_service/web/oauth/authorization.py",
-          "line": 920,
-          "end_line": 920,
+          "line": 1015,
+          "end_line": 1015,
           "label": "/token"
         }
       ]
@@ -246,15 +246,15 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/server_impl.py",
-          "line": 243,
-          "end_line": 243,
+          "line": 246,
+          "end_line": 246,
           "label": "MemoryServer"
         },
         {
           "path": "src/mcp_memory_service/server_impl.py",
-          "line": 1486,
-          "end_line": 1520,
-          "label": "tool dispatch"
+          "line": 1798,
+          "end_line": 1800,
+          "label": "call_tool dispatch"
         },
         {
           "path": "src/mcp_memory_service/tools/routing.py",
@@ -280,8 +280,8 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/storage/base.py",
-          "line": 40,
-          "end_line": 40,
+          "line": 116,
+          "end_line": 116,
           "label": "MemoryStorage"
         },
         {
@@ -314,14 +314,14 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/web/app.py",
-          "line": 190,
-          "end_line": 200,
+          "line": 217,
+          "end_line": 227,
           "label": "scheduler setup"
         },
         {
           "path": "src/mcp_memory_service/consolidation/scheduler.py",
-          "line": 62,
-          "end_line": 62,
+          "line": 135,
+          "end_line": 135,
           "label": "ConsolidationScheduler"
         }
       ]
@@ -342,8 +342,8 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/storage/sqlite_vec.py",
-          "line": 57,
-          "end_line": 57,
+          "line": 75,
+          "end_line": 75,
           "label": "SqliteVecMemoryStorage"
         }
       ]
@@ -364,14 +364,14 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/storage/hybrid.py",
-          "line": 1031,
-          "end_line": 1040,
+          "line": 1553,
+          "end_line": 1562,
           "label": "HybridMemoryStorage"
         },
         {
           "path": "src/mcp_memory_service/storage/hybrid.py",
-          "line": 248,
-          "end_line": 249,
+          "line": 485,
+          "end_line": 486,
           "label": "primary, secondary"
         }
       ]
@@ -392,9 +392,43 @@
       "sources": [
         {
           "path": "src/mcp_memory_service/storage/cloudflare.py",
-          "line": 163,
-          "end_line": 163,
+          "line": 199,
+          "end_line": 199,
           "label": "CloudflareStorage"
+        }
+      ]
+    },
+    {
+      "id": "milvus",
+      "type": "database",
+      "label": "Milvus",
+      "sublabel": "Lite file or remote server",
+      "pos": [
+        1210,
+        560
+      ],
+      "size": [
+        170,
+        66
+      ],
+      "sources": [
+        {
+          "path": "src/mcp_memory_service/storage/milvus.py",
+          "line": 184,
+          "end_line": 184,
+          "label": "MilvusMemoryStorage"
+        },
+        {
+          "path": "src/mcp_memory_service/storage/milvus.py",
+          "line": 238,
+          "end_line": 238,
+          "label": "default uri: Milvus Lite"
+        },
+        {
+          "path": "src/mcp_memory_service/storage/factory.py",
+          "line": 71,
+          "end_line": 74,
+          "label": "backend = milvus"
         }
       ]
     }
@@ -414,7 +448,8 @@
       "wraps": [
         "sqlite",
         "hybrid",
-        "cloudflare"
+        "cloudflare",
+        "milvus"
       ]
     }
   ],
@@ -507,6 +542,11 @@
       "id": "storage-cloudflare",
       "from": "storage-api",
       "to": "cloudflare"
+    },
+    {
+      "id": "storage-milvus",
+      "from": "storage-api",
+      "to": "milvus"
     }
   ],
   "cards": [
