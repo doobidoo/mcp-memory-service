@@ -142,7 +142,7 @@ async def quarantine_memory(
             # actually stays dedup-bypassed and active — the very leak #1216
             # asks to close. Propagate the error so _file_contradiction and
             # check_beliefs_on_store see status != "quarantined".
-            logger.error("Failed to quarantine memory %s: %s", content_hash[:8], _sanitize_log_value(msg))
+            logger.error("Failed to quarantine memory %s: %s", _sanitize_log_value(content_hash[:8]), _sanitize_log_value(msg))
             return {"status": "error", "message": msg}
         return result
     except Exception as e:
@@ -165,7 +165,7 @@ async def unquarantine_memory(storage, content_hash: str) -> dict:
         if not ok:
             # Same honest-reporting rule as quarantine_memory: a non-raising
             # (False, message) failure must not be reported as unquarantined.
-            logger.error("Failed to unquarantine memory %s: %s", content_hash[:8], _sanitize_log_value(msg))
+            logger.error("Failed to unquarantine memory %s: %s", _sanitize_log_value(content_hash[:8]), _sanitize_log_value(msg))
             return {"status": "error", "message": msg}
         return {"status": "unquarantined", "content_hash": content_hash}
     except Exception as e:
@@ -235,8 +235,9 @@ async def check_beliefs_on_store(
                 if contradiction_count >= CONTRADICTION_THRESHOLD:
                     await belief_service.challenge_belief(belief["belief_hash"])
                     logger.info(
-                        f"Belief {_sanitize_log_value(belief['belief_hash'][:8])} challenged "
-                        f"after {contradiction_count} contradictions"
+                        "Belief %s challenged after %d contradictions",
+                        _sanitize_log_value(belief["belief_hash"][:8]),
+                        contradiction_count,
                     )
 
                 stop_reason = "contradiction"
@@ -359,10 +360,11 @@ async def _run_on_store_checks(
             result = await detect_contradictions_nli(
                 storage, memory_hash=content_hash, dry_run=False
             )
+            pairs_detected = result.get("pairs_detected", 0)
             logger.info(
                 "NLI background check (%s): pairs_detected=%s",
-                content_hash[:8],
-                result.get("pairs_detected", 0),
+                _sanitize_log_value(content_hash[:8]),
+                pairs_detected,
             )
         except Exception as e:
             logger.warning("NLI background contradiction check failed: %s", _sanitize_log_value(e))
@@ -379,13 +381,13 @@ async def _run_on_store_checks(
             if status == "error":
                 logger.warning(
                     "NLI background belief check (%s) failed: %s",
-                    content_hash[:8],
+                    _sanitize_log_value(content_hash[:8]),
                     _sanitize_log_value(str((outcome or {}).get("message", ""))),
                 )
             else:
                 logger.info(
                     "NLI background belief check (%s): status=%s",
-                    content_hash[:8],
+                    _sanitize_log_value(content_hash[:8]),
                     status,
                 )
         except Exception as e:
@@ -411,7 +413,7 @@ def schedule_on_store_checks(
         logger.warning(
             "NLI background check dropped for %s: %d already running "
             "(MCP_NLI_BACKGROUND_CONCURRENCY=%d)",
-            content_hash[:8],
+            _sanitize_log_value(content_hash[:8]),
             _background_state.active,
             limite,
         )
