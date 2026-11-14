@@ -1606,37 +1606,247 @@ body.dark-mode .form-group label {
     }
 }
 
-/* Connection Status */
-.connection-status {
-    position: fixed;
-    bottom: var(--space-6);
-    right: var(--space-6);
-    background: white;
-    border: 1px solid var(--neutral-200);
-    border-radius: var(--radius-lg);
-    padding: var(--space-3) var(--space-4);
-    box-shadow: var(--shadow-md);
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-sm);
-    z-index: 100;
+/* Status island: one capsule in the header for what the dashboard is doing
+   (static/status-island.js). It sits in the logo row, so it never covers content;
+   its panel drops down like the language menu. The text stays neutral because the
+   state colours do not have enough contrast as text on these surfaces; the dot and,
+   for an error, the border carry the state next to it. */
+.status-island {
+    position: relative;
+    margin-left: auto;
+    min-width: 0;
 }
 
-.status-indicator {
+.status-island[hidden] {
+    display: none;
+}
+
+.status-island-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* A fixed width: the search field next to it must not move when the text changes.
+       A longer text is cut with an ellipsis and stands in full in the panel. */
+    width: 11rem;
+    max-width: 100%;
+    min-height: 28px;
+    padding: var(--space-1) var(--space-3);
+    background: var(--neutral-100);
+    border: 1px solid var(--neutral-200);
+    border-radius: 999px;
+    color: var(--neutral-700);
+    font: 500 var(--text-xs) var(--font-primary);
+    cursor: pointer;
+    transition: background-color var(--transition-base), border-color var(--transition-base);
+}
+
+.status-island-toggle:hover {
+    border-color: var(--neutral-400);
+}
+
+.status-island-toggle:focus-visible,
+.status-island-action:focus-visible {
+    outline: 2px solid var(--primary-text);
+    outline-offset: 2px;
+}
+
+.status-island-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-island-dot {
+    flex: none;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--success);
 }
 
-.status-indicator.disconnected {
+[data-state="busy"] > .status-island-toggle .status-island-dot,
+.status-island-row[data-state="busy"] .status-island-dot {
+    background: var(--warning);
+    animation: pulse 1.5s infinite;
+}
+
+[data-state="error"] > .status-island-toggle .status-island-dot,
+.status-island-row[data-state="error"] .status-island-dot {
     background: var(--error);
 }
 
-.status-indicator.connecting {
-    background: var(--warning);
-    animation: pulse 1.5s infinite;
+.status-island[data-state="error"] > .status-island-toggle {
+    border-color: var(--error);
+    color: var(--neutral-900);
+}
+
+.status-island-count {
+    flex: none;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--neutral-200);
+    font-family: var(--font-mono);
+}
+
+.status-island-count[hidden] {
+    display: none;
+}
+
+.status-island-chevron {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-left: auto;
+    margin-top: -3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+}
+
+.status-island-toggle[aria-expanded="true"] .status-island-chevron {
+    margin-top: 3px;
+    transform: rotate(-135deg);
+}
+
+.status-island-panel {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    width: 20rem;
+    max-width: calc(100vw - 2 * var(--space-6));
+    padding: var(--space-2);
+    background: white;
+    border: 1px solid var(--neutral-300);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 1000;
+}
+
+.status-island-panel[hidden] {
+    display: none;
+}
+
+.status-island-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.status-island-row {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--neutral-700);
+}
+
+.status-island-row + .status-island-row {
+    border-top: 1px solid var(--neutral-200);
+}
+
+.status-island-row-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.status-island-row-label {
+    color: var(--neutral-500);
+}
+
+.status-island-track {
+    height: 3px;
+    margin-top: var(--space-2);
+    border-radius: 2px;
+    background: var(--neutral-200);
+    overflow: hidden;
+}
+
+.status-island-bar {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--primary);
+    transition: width var(--transition-slow);
+}
+
+.status-island-track[data-progress="unknown"] .status-island-bar {
+    width: 35%;
+    animation: status-island-slide 1.3s ease-in-out infinite;
+}
+
+@keyframes status-island-slide {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(290%); }
+}
+
+.status-island-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.status-island-action {
+    min-height: 28px;
+    padding: var(--space-1) var(--space-3);
+    background: none;
+    border: 1px solid var(--neutral-300);
+    border-radius: var(--radius-md);
+    color: var(--neutral-800);
+    font: 500 var(--text-xs) var(--font-primary);
+    cursor: pointer;
+}
+
+.status-island-action:hover {
+    border-color: var(--primary-text);
+    color: var(--primary-text);
+}
+
+/* Where the logo row has no room for the text (phones, and the one-row header up to
+   1200px), the capsule is the dot and the chevron. The text is in the panel and in the accessible name, and an error
+   is marked by a red dot and a red border only: a sighted reader has to open the
+   panel to read what failed. */
+@media (max-width: 480px), (min-width: 769px) and (max-width: 1200px) {
+    .status-island-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+    }
+
+    .status-island-toggle {
+        width: auto;
+        padding: var(--space-1) var(--space-2);
+    }
+
+    /* The count would change the capsule's width; the panel lists every source. */
+    .status-island-count {
+        display: none;
+    }
+}
+
+/* Stacked header: the capsule gives way first, so a long title does not wrap. */
+@media (max-width: 768px) {
+    .logo-section .app-title,
+    .logo-section .version-badge {
+        flex-shrink: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-island-dot {
+        animation: none !important;
+    }
+
+    .status-island-bar {
+        transition: none;
+    }
+
+    .status-island-track[data-progress="unknown"] .status-island-bar {
+        width: 100%;
+        opacity: 0.45;
+        animation: none;
+    }
 }
 
 @keyframes pulse {
@@ -1913,7 +2123,7 @@ body.dark-mode .form-group label {
     .main-nav,
     .modal-overlay,
     .toast-container,
-    .connection-status {
+    .status-island {
         display: none !important;
     }
 
@@ -2566,11 +2776,10 @@ body.dark-mode .action-card span {
     color: var(--neutral-900);
 }
 
-/* Connection status indicator dark mode */
-body.dark-mode .connection-status {
-    background: var(--neutral-100) !important;
-    border-color: var(--neutral-200) !important;
-    color: var(--neutral-900) !important;
+/* Status island panel dark mode */
+body.dark-mode .status-island-panel {
+    background: var(--neutral-100);
+    border-color: var(--neutral-300);
 }
 
 body.dark-mode .action-card svg {
