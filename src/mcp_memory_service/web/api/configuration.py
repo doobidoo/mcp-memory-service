@@ -164,6 +164,8 @@ PARAM_DESCRIPTIONS = {
     "MCP_SEMANTIC_DEDUP_ENABLED": "Enable automatic semantic deduplication",
     "MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS": "Time window for deduplication (hours)",
     "MCP_SEMANTIC_DEDUP_THRESHOLD": "Similarity threshold for deduplication (0.0-1.0)",
+    "MCP_SEMANTIC_DEDUP_MODE": "reject (default) or supersede: store an updated fact and mark the match superseded",
+    "MCP_SEMANTIC_DEDUP_NEAR_IDENTICAL_THRESHOLD": "Cosine at or above this is still a duplicate in supersede mode (default 0.97)",
 
     # Document Processing
     "LLAMAPARSE_API_KEY": "LlamaParse API key for enhanced document parsing",
@@ -365,6 +367,8 @@ ENV_CATEGORIES = {
             ("MCP_SEMANTIC_DEDUP_ENABLED", "boolean", None, False),
             ("MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS", "integer", None, False),
             ("MCP_SEMANTIC_DEDUP_THRESHOLD", "float", None, False),
+            ("MCP_SEMANTIC_DEDUP_MODE", "choice", ["reject", "supersede"], False),
+            ("MCP_SEMANTIC_DEDUP_NEAR_IDENTICAL_THRESHOLD", "float", None, False),
         ]
     },
     "content": {
