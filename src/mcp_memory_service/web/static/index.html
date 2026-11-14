@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
     <title data-i18n="meta.title">MCP Memory Service - Dashboard</title>
-    <link rel="stylesheet" href="static/style.css?v=delta-sync-ui-1">
+    <link rel="stylesheet" href="static/style.css?v=status-island-1">
     <link rel="icon" type="image/png" href="static/brain-icon.png">
     <!-- Chart.js for quality analytics visualizations -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -46,6 +46,8 @@
                     <img class="app-logo" src="static/brain-icon.png" alt="" width="28" height="28">
                     <h1 class="app-title" data-i18n="header.title">MCP Memory</h1>
                     <span id="versionBadge" class="version-badge" data-i18n="header.versionLoading">Loading...</span>
+                    <!-- Status island: built by static/status-island.js, hidden until a source reports -->
+                    <div id="statusIsland" class="status-island" hidden></div>
                 </div>
 
                 <!-- SVG Icon Definitions -->
@@ -1662,12 +1664,6 @@
         <div id="toastContainer" class="toast-container"></div>
     </div>
 
-    <!-- Connection Status Indicator -->
-    <div id="connectionStatus" class="connection-status">
-        <div class="status-indicator"></div>
-        <span class="status-text" data-i18n="status.connected">Connected</span>
-    </div>
-
     <!-- Memory Viewer Modal -->
     <div id="memoryViewerModal" class="modal" style="display: none;">
         <div class="modal-content memory-viewer-content">
@@ -1722,7 +1718,8 @@
         </div>
     </div>
 
-    <script src="static/app.js?v=delta-sync-ui-1"></script>
-    <link rel="stylesheet" href="static/style.css?v=delta-sync-ui-1">
+    <script src="static/status-island.js?v=status-island-1"></script>
+    <script src="static/app.js?v=status-island-1"></script>
+    <link rel="stylesheet" href="static/style.css?v=status-island-1">
 </body>
 </html>

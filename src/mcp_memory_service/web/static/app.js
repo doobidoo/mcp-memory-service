@@ -146,6 +146,7 @@ class MemoryDashboard {
         this.applyTheme();
         this.watchSystemColorScheme();
         this.setupEventListeners();
+        this.setupStatusIsland();
         this.setupAuthListeners();
 
         // Check for secure context
@@ -171,7 +172,6 @@ class MemoryDashboard {
         await this.loadVersion();
         await this.loadMemoryTypes();
         await this.loadDashboardData();
-        this.updateConnectionStatus('connected');
 
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
@@ -527,6 +527,8 @@ class MemoryDashboard {
                 syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
             }
         }
+
+        this.statusIsland?.refresh();
 
         // 更新语言按钮状态
         this.updateLanguageSwitcher();
@@ -904,6 +906,7 @@ class MemoryDashboard {
             // credential travels in a body no access-log line contains, and the
             // ticket is dead within a minute and cannot be replayed.
             const sseUrl = new URL(`${this.apiBase}/events`, document.baseURI);
+            this.updateConnectionStatus('connecting');
             if (this.authState.apiKey) {
                 this._openSSEWithTicket(sseUrl);
                 return;
@@ -1043,7 +1046,7 @@ class MemoryDashboard {
                 // what a retry can fix.
                 if (resp.status === 401 || resp.status === 403) {
                     console.error(`SSE ticket refused (${resp.status}); not retrying`);
-                    this.updateConnectionStatus('error');
+                    this.updateConnectionStatus('unauthorized');
                     return;
                 }
                 if (!resp.ok) throw new Error(`ticket request failed: ${resp.status}`);
@@ -1056,7 +1059,8 @@ class MemoryDashboard {
                 if (attempt !== this._sseSetupGeneration) return;
                 if (i === maxAttempts - 1) {
                     console.error('SSE ticket exchange failed:', err);
-                    this.updateConnectionStatus('error');
+                    // Network or server trouble, not a refusal: the reader can try again.
+                    this.updateConnectionStatus('disconnected');
                     return;
                 }
                 // 250ms, 500ms, 1000ms — short, because the user is waiting
@@ -4053,32 +4057,54 @@ class MemoryDashboard {
      * Update connection status indicator
      */
     updateConnectionStatus(status) {
-        const statusElement = document.getElementById('connectionStatus');
-        if (statusElement) {
-            const indicator = statusElement.querySelector('.status-indicator');
-            const text = statusElement.querySelector('.status-text');
-            if (!indicator || !text) return;
+        if (!this.statusIsland) return;
+        // The island keeps the key, not the text, so a language switch re-renders it.
+        const text = (key, fallback) => ({ key, fallback });
+        let entry;
+        switch (status) {
+            case 'connected':
+                entry = { state: 'ready', text: text('status.connected', 'Connected') };
+                break;
+            case 'connecting':
+                entry = { state: 'busy', progress: 'unknown', text: text('status.connecting', 'Connecting...') };
+                break;
+            case 'disconnected':
+                // The stream retries by itself with a growing delay; the action skips the wait.
+                // It is offered only where a new attempt can help, not while signed out.
+                entry = {
+                    state: 'error',
+                    text: text('status.disconnected', 'Disconnected'),
+                    actions: this.authState.requiresAuth && !this.authState.isAuthenticated ? [] : [{
+                        id: 'reconnect',
+                        label: text('analytics.refresh', 'Refresh'),
+                        run: () => this.setupSSE(),
+                    }],
+                };
+                break;
+            case 'unauthorized':
+                // The server refused the stream ticket (401/403): trying again cannot help.
+                entry = { state: 'error', text: text('error.authRequired', 'Authentication required') };
+                break;
+            default:
+                entry = { state: 'error', text: text('status.unknown', 'Unknown') };
+        }
+        // A connection failure is not dismissible: it ends with the next report of this source.
+        this.statusIsland.report('connection', entry);
+    }
 
-            // Reset indicator classes
-            indicator.className = 'status-indicator';
-
-            switch (status) {
-                case 'connected':
-                    text.textContent = this.t('status.connected', 'Connected');
-                    // Connected uses default green color (no additional class needed)
-                    break;
-                case 'connecting':
-                    text.textContent = this.t('status.connecting', 'Connecting...');
-                    indicator.classList.add('connecting');
-                    break;
-                case 'disconnected':
-                    text.textContent = this.t('status.disconnected', 'Disconnected');
-                    indicator.classList.add('disconnected');
-                    break;
-                default:
-                    text.textContent = this.t('status.unknown', 'Unknown');
-                    indicator.classList.add('disconnected');
+    /**
+     * Create the header's status island. It is an addition: if the script is missing
+     * or the island throws, the dashboard works without it.
+     */
+    setupStatusIsland() {
+        this.statusIsland = null;
+        try {
+            const root = document.getElementById('statusIsland');
+            if (root && typeof StatusIsland === 'function') {
+                this.statusIsland = new StatusIsland({ root, t: (key, fallback, vars) => this.t(key, fallback, vars) });
             }
+        } catch (error) {
+            console.warn('Status island unavailable:', error);
         }
     }
 

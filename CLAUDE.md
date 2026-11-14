@@ -280,7 +280,9 @@ the release notes.
 
 ### Gotchas when changing things
 
-- Dashboard (`web/static/`): the JS has no automated coverage. Verify in a browser and
+- Dashboard (`web/static/`): the JS is covered only where someone wrote a node test for it
+  (`tests/web/*.cjs`, run through their pytest wrappers) plus static guards for text, style
+  and CSP. Layout and behaviour in a real browser are not. Verify in a browser and
   attach manual testing evidence or screenshots to the PR.
 - Removing a feature, port or command: run `grep -r "<term>" docs/ README.md` and clean
   up references in the same PR. `scripts/ci/check_dead_refs.sh` catches new dead refs
@@ -312,7 +314,7 @@ Work is not "done" until the relevant checks below have been run and pass. Repor
 - [ ] `Memory` fields are accessed by attribute (`memory.tags`), never `memory.metadata.get('tags')`.
 - [ ] If a feature/port/command was removed: `grep -r "<term>" docs/ README.md` and clean up references in the same change.
 
-**Dashboard changes (`web/static/`):** verified in a browser (no automated JS coverage) — include a screenshot or a note of what was exercised.
+**Dashboard changes (`web/static/`):** verified in a browser (node tests cover rules, not layout) — include a screenshot or a note of what was exercised.
 
 **Before a release / version bump:** the Release Workflow Checklist above.
 
