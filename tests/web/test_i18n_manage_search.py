@@ -307,7 +307,10 @@ const snap = el => ({{ key: el.dataset.i18n, count: el.dataset.count, text: el.t
   console.log(JSON.stringify({{ one, oneDe, manyDe, zeroDe, zeroEn, chunkOne, chunkOneDe, chunkManyDe, chunkZeroDe }}));
 }})();
 """
-    result = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=30)
+    # node - reads the program from stdin: the inlined catalogues make `-e` exceed the
+    # 32k Windows CreateProcessW command-line limit (WinError 206).
+    result = subprocess.run([node, "-"], input=script, capture_output=True, text=True,
+                            encoding="utf-8", timeout=30)
     assert result.returncode == 0, result.stderr
     out = json.loads(result.stdout)
     assert out["one"] == {"key": "search.results.count.one", "count": "1", "text": "1 result"}
