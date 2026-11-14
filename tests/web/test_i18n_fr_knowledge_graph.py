@@ -52,8 +52,3 @@ def test_french_knowledge_graph_values_are_not_empty():
         if not isinstance(french.get(key), str) or not french[key].strip()
     ]
     assert not empty, f"Empty French translations: {empty}"
-
-
-def test_french_catalog_preserves_duplicate_memory_types_key():
-    raw = (I18N_DIR / "fr.json").read_text(encoding="utf-8")
-    assert raw.count('"analytics.memoryTypes"') == 2

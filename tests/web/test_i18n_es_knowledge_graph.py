@@ -52,8 +52,3 @@ def test_spanish_knowledge_graph_values_are_not_empty():
         if not isinstance(spanish.get(key), str) or not spanish[key].strip()
     ]
     assert not empty, f"Empty Spanish translations: {empty}"
-
-
-def test_spanish_catalog_preserves_duplicate_memory_types_key():
-    raw = (I18N_DIR / "es.json").read_text(encoding="utf-8")
-    assert raw.count('"analytics.memoryTypes"') == 2

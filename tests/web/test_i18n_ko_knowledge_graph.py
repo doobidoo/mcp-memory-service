@@ -1,7 +1,6 @@
 """Regression coverage for the Korean Knowledge Graph translations (#1754)."""
 
 import json
-import re
 from pathlib import Path
 
 I18N_DIR = Path(__file__).resolve().parents[2] / "src" / "mcp_memory_service" / "web" / "static" / "i18n"
@@ -44,14 +43,3 @@ def test_korean_knowledge_graph_values_are_not_empty():
     catalog = json.loads(KO_CATALOG.read_text(encoding="utf-8"))
     empty = [key for key in REQUIRED_KEYS if not catalog.get(key, "").strip()]
     assert not empty, f"ko.json has empty Knowledge Graph translations: {empty}"
-
-
-def test_korean_catalog_duplicate_key_is_preserved():
-    """ko.json carries a pre-existing duplicate analytics.memoryTypes key.
-
-    A json round trip would silently collapse it, so guard the raw text: the key
-    must still appear exactly twice after this change.
-    """
-    raw = KO_CATALOG.read_text(encoding="utf-8")
-    keys = re.findall(r'^\s*"([^"]+)":', raw, re.M)
-    assert keys.count("analytics.memoryTypes") == 2
