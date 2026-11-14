@@ -183,6 +183,85 @@ def _prf(preds, golds, pred_positive, gold_positive):
             "tp": tp, "fp": fp, "fn": fn}
 
 
+def _fourway_table(rows, fourway_preds):
+    """The gate block every judgment path shares: confusion against gold as
+    labeled (contradiction keeps its own row, not folded into changes), the
+    action maps, and the shipping number — labeled non-updates the judgment
+    would retire, on its own line.
+    """
+    return {
+        "confusion_gold_x_pred": {
+            gold: {pred: sum(
+                1 for r, p in zip(rows, fourway_preds)
+                if r.get("label") == gold and p == pred)
+                for pred in FOURWAY_CLASSES}
+            for gold in LABELS
+        },
+        "gold_actions": GOLD_ACTIONS,
+        "pred_actions": PRED_ACTIONS,
+        "action_agreement": sum(
+            1 for r, p in zip(rows, fourway_preds)
+            if r.get("label") in GOLD_ACTIONS
+            and GOLD_ACTIONS[r["label"]] == PRED_ACTIONS[p]
+        ),
+        "non_updates_retired": sum(
+            1 for r, p in zip(rows, fourway_preds)
+            if r.get("label") not in (None, "", "updates")
+            and PRED_ACTIONS[p] == "supersede"
+        ),
+    }
+
+
+def _head_fourway(head_dir, rows):
+    """Score every pair with a fine-tuned 4-way head: one inference.
+
+    The head replaces the bidirectional 3-way run + fourway_decide — it was
+    trained on ordered (older, newer) pairs to answer the store's question
+    directly ("does B make A out of date?"), so the temporal order the rule
+    machinery reconstructs is already what the model reads. Expects the
+    files scripts/nli/train_fourway_head.py writes into --out: model.onnx,
+    tokenizer.json, config.json. Returns (preds, ms_per_pair).
+    """
+    missing = [f for f in ("model.onnx", "tokenizer.json", "config.json")
+               if not os.path.isfile(os.path.join(head_dir, f))]
+    if missing:
+        sys.exit(f"--fourway-head {head_dir}: missing {', '.join(missing)}")
+    try:
+        import numpy as np
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+    except ImportError as e:
+        sys.exit(f"--fourway-head needs onnxruntime and tokenizers: {e}")
+    with open(os.path.join(head_dir, "config.json"), encoding="utf-8") as fh:
+        head_cfg = json.load(fh)
+    id2label = {int(k): v for k, v in head_cfg["id2label"].items()}
+    if set(id2label.values()) != set(FOURWAY_CLASSES):
+        sys.exit(f"--fourway-head {head_dir}: id2label must be exactly "
+                 f"{sorted(FOURWAY_CLASSES)}, got {sorted(id2label.values())}")
+    # truncate the way the head was trained to; train_fourway_head.py writes
+    # the limit next to the weights, 128 predates that and stays the default
+    max_len = int(head_cfg.get("fourway_max_len", 128))
+    session = ort.InferenceSession(
+        os.path.join(head_dir, "model.onnx"), providers=["CPUExecutionProvider"])
+    tok = Tokenizer.from_file(os.path.join(head_dir, "tokenizer.json"))
+    tok.enable_truncation(max_length=max_len)
+    tok.enable_padding()
+    names = {i.name for i in session.get_inputs()}
+    preds = []
+    t0 = time.perf_counter()
+    for i in range(0, len(rows), 32):
+        enc = tok.encode_batch([[r["older"], r["newer"]] for r in rows[i:i + 32]])
+        feed = {name: np.array([getattr(e, attr) for e in enc], dtype=np.int64)
+                for name, attr in (("input_ids", "ids"),
+                                   ("attention_mask", "attention_mask"),
+                                   ("token_type_ids", "type_ids"))
+                if name in names}
+        logits = session.run(None, feed)[0]
+        preds.extend(id2label[int(row.argmax())] for row in logits)
+    ms = (time.perf_counter() - t0) * 1000 / max(1, len(rows))
+    return preds, round(ms, 1)
+
+
 async def cmd_score(args):
     from mcp_memory_service.reasoning.nli import NLIClassifier
 
@@ -243,13 +322,21 @@ async def cmd_score(args):
             labeled_preds, golds, {"contradiction", "entailment"},
             {"contradiction", "updates"})
 
-    # 4-way report (#1460): the same model run in both directions, mapped
-    # through fourway_decide. Gold labels stay as labeled — contradiction is
-    # its own row, not folded into changes, so the table shows whether the
-    # "both sides claim to be current" class lands where the policy sends it
-    # to review. Only the transformers backend emits it: the second direction
-    # is the whole point.
-    if classifier.backend == "transformers" and not classifier.degraded:
+    # 4-way report (#1460). Two producers of the same table:
+    #   --fourway-head: a fine-tuned 4-way head, one inference per pair
+    #   default: the 3-way model in both directions, mapped through
+    #     fourway_decide — the second direction is the whole point
+    # Gold labels stay as labeled — contradiction is its own row, not folded
+    # into changes, so the table shows whether the "both sides claim to be
+    # current" class lands where the policy sends it to review.
+    if args.fourway_head:
+        fourway_preds, head_ms = _head_fourway(args.fourway_head, rows)
+        report["fourway"] = {
+            **_fourway_table(rows, fourway_preds),
+            "head_model": args.fourway_head,
+            "per_pair_ms_head": head_ms,
+        }
+    elif classifier.backend == "transformers" and not classifier.degraded:
         t0 = time.perf_counter()
         reverse = await classifier.classify_batch([(r["newer"], r["older"]) for r in rows])
         fourway_ms = (time.perf_counter() - t0) * 1000 / max(1, len(rows))
@@ -270,27 +357,7 @@ async def cmd_score(args):
             for r, f, rv in zip(rows, verdicts, reverse)
         ]
         report["fourway"] = {
-            "confusion_gold_x_pred": {
-                gold: {pred: sum(
-                    1 for r, p in zip(rows, fourway_preds)
-                    if r.get("label") == gold and p == pred)
-                    for pred in FOURWAY_CLASSES}
-                for gold in LABELS
-            },
-            "gold_actions": GOLD_ACTIONS,
-            "pred_actions": PRED_ACTIONS,
-            "action_agreement": sum(
-                1 for r, p in zip(rows, fourway_preds)
-                if r.get("label") in GOLD_ACTIONS
-                and GOLD_ACTIONS[r["label"]] == PRED_ACTIONS[p]
-            ),
-            # The number that decides shipping (#1460): labeled non-updates
-            # the 4-way judgment would retire. On its own line.
-            "non_updates_retired": sum(
-                1 for r, p in zip(rows, fourway_preds)
-                if r.get("label") not in (None, "", "updates")
-                and PRED_ACTIONS[p] == "supersede"
-            ),
+            **_fourway_table(rows, fourway_preds),
             "per_pair_ms_second_direction": round(fourway_ms, 1),
         }
     else:
@@ -316,6 +383,10 @@ def main():
                          choices=("transformers", "heuristic", "cascade", "llm"),
                          help="NLI backend to run (default: transformers — the thing this "
                               "harness measures; heuristic is regex patterns, not the model)")
+    p_score.add_argument("--fourway-head", metavar="DIR", default=None,
+                         help="score the 4-way table with a fine-tuned head (dir written "
+                              "by scripts/nli/train_fourway_head.py) instead of the "
+                              "bidirectional 3-way run + fourway_decide")
 
     args = parser.parse_args()
     asyncio.run({"export": cmd_export, "score": cmd_score}[args.cmd](args))
