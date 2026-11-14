@@ -256,6 +256,29 @@ def test_refusals_and_questions_get_no_hint(tmp_path, monkeypatch, body):
     assert not api.replies
 
 
+def test_hint_survives_a_replaced_run(tmp_path, monkeypatch):
+    # Actions can replace a pending run. The run for the claim never executes; the one
+    # that survives was started by someone else's discussion comment and has to find
+    # the claim in the history.
+    api = GitHub([
+        comment(10, "alice", "I would like to take this one."),
+        comment(11, "bob", "The stack trace above is from the nightly build."),
+    ])
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert not api.issue["assignees"]
+    assert len(api.replies) == 1
+    assert api.replies[0].startswith("<!-- auto-claim:10:hint -->\n@alice, ")
+
+
+def test_hint_goes_to_the_earliest_claim_of_the_author(tmp_path, monkeypatch):
+    api = GitHub([
+        comment(10, "alice", "I'll take this"),
+        comment(11, "alice", "Actually, I would like to take this one too."),
+    ])
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert [reply.split("\n")[0] for reply in api.replies] == ["<!-- auto-claim:10:hint -->"]
+
+
 def test_command_after_the_hint_assigns(tmp_path, monkeypatch):
     api = GitHub([comment(body="I would like to take this one too.")])
     run_cli(tmp_path, monkeypatch, api)
@@ -268,7 +291,7 @@ def test_command_after_the_hint_assigns(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "case",
     ["no-opt-in", "assigned", "maintainer", "second-claimant", "withdrew", "discussion",
-     "open-pr", "released-before"],
+     "open-pr", "released-before", "edited-earlier-claim", "edited-this-claim"],
 )
 def test_no_hint_where_the_command_would_not_assign(tmp_path, monkeypatch, case):
     prose = "I'd like to take this one."
@@ -290,6 +313,13 @@ def test_no_hint_where_the_command_would_not_assign(tmp_path, monkeypatch, case)
         api.open_pr = True
     if case == "released-before":
         api.timeline = [{"event": "unassigned"}]
+    # An edited claim makes a later /claim a case for the maintainer (claim_ambiguity),
+    # so the reply must not promise an assignment.
+    if case == "edited-earlier-claim":
+        earlier = comment(9, "alice", "I'll take this", updated_at="2026-11-01T11:00:00Z")
+        api.comments = [earlier, trigger]
+    if case == "edited-this-claim":
+        trigger["updated_at"] = "2026-11-01T11:00:00Z"
     before = list(api.issue["assignees"])
     assert run_cli(tmp_path, monkeypatch, api, trigger=trigger) == 0
     assert api.issue["assignees"] == before

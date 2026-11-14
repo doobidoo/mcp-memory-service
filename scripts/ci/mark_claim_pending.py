@@ -518,7 +518,6 @@ def hint_command(
     issue: dict,
     comments: list[dict],
     claims: list[dict],
-    event: dict,
 ) -> None:
     """Tell a contributor who claimed in prose that one command assigns the issue.
 
@@ -526,16 +525,20 @@ def hint_command(
     newcomer cannot know the command, so a prose claim on a prepared issue gets one
     reply naming it, once per person.
 
-    The trigger has to pass is_claim(), the tight matcher that knows negation:
+    The claim is taken from the history, not from the triggering event: Actions can
+    replace a pending run, so the run that survives may have been started by a later
+    discussion comment. Like the assignment, the reply goes to the earliest claim.
+
+    It has to pass is_claim(), the tight matcher that knows negation:
     possible_claim() is deliberately broad, so "I don't think I can take this"
     is in `claims` and must not be answered with an offer. Nothing is said either
     when the command would not lead to an assignment: the issue is taken, someone
-    else claimed first, the author withdrew, or work on it already exists.
+    else claimed first, the author withdrew or edited a claim (both make a later
+    /claim a case for the maintainer), or work on it already exists.
     Maintainers are not told how their own repository works.
     """
-    trigger_id = event.get("comment", {}).get("id")
-    claim = next((c for c in claims if c["id"] == trigger_id), None)
-    if claim is None or not is_claim(prose(claim.get("body", ""))):
+    claim = next((c for c in claims if is_claim(prose(c.get("body", "")))), None)
+    if claim is None:
         return
     if not auto_eligible(issue) or issue.get("assignees"):
         return
@@ -545,6 +548,8 @@ def hint_command(
     if any(c["user"]["login"].lower() != login for c in claims):
         return
     if any(WITHDRAWAL.search(prose(c.get("body", ""))) for c in claims):
+        return
+    if any(c.get("updated_at") != c.get("created_at") for c in claims):
         return
     if _already_hinted(comments, claim["user"]["login"]):
         return
@@ -655,7 +660,7 @@ def handle_auto_claim(event: dict, repo: str) -> bool:
         return True
     comments, claims, commands = read_claim_history(api)
     if not commands:
-        hint_command(api, repo, issue, comments, claims, event)
+        hint_command(api, repo, issue, comments, claims)
         event["issue"] = (
             issue  # label-only fallback uses live state, not the event snapshot
         )
