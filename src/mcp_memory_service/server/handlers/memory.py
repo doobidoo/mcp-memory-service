@@ -1770,7 +1770,7 @@ async def handle_debug_retrieve(server, arguments: dict) -> List[types.TextConte
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
-        from ..utils.debug import debug_retrieve_memory
+        from ...utils.debug import debug_retrieve_memory
         results = await debug_retrieve_memory(
             storage,
             query,
@@ -1823,7 +1823,7 @@ async def handle_exact_match_retrieve(server, arguments: dict) -> List[types.Tex
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
-        from ..utils.debug import exact_match_retrieve
+        from ...utils.debug import exact_match_retrieve
         memories = await exact_match_retrieve(storage, content)
 
         if not memories:
@@ -1859,7 +1859,7 @@ async def handle_get_raw_embedding(server, arguments: dict) -> List[types.TextCo
         # Initialize storage lazily when needed
         storage = await server._ensure_storage_initialized()
 
-        from ..utils.debug import get_raw_embedding
+        from ...utils.debug import get_raw_embedding
         result = await asyncio.to_thread(get_raw_embedding, storage, content)
 
         if result["status"] == "success":
@@ -1898,7 +1898,7 @@ async def handle_recall_memory(server, arguments: dict) -> List[types.TextConten
     - "last Monday"
     - "from January to March"
     """
-    from ..utils.time_parser import extract_time_expression, parse_time_expression
+    from ...utils.time_parser import extract_time_expression, parse_time_expression
 
     query = arguments.get("query", "")
     n_results = arguments.get("n_results", 5)

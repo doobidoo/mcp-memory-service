@@ -513,11 +513,9 @@ class TestHandleRecallMemory:
 
     @pytest.mark.asyncio
     async def test_recall_with_time_expression(self, unique_content):
-        """
-        Test recalling memories with natural language time expression.
+        """Test recalling memories with natural language time expression.
 
-        NOTE: This may fail with ModuleNotFoundError if time_utils has import issues.
-        That's a real bug in the handler's import path, not a test bug.
+        Issue #1998: a missing helper import used to skip this test; it must fail.
         """
         server = MemoryServer()
 
@@ -529,46 +527,38 @@ class TestHandleRecallMemory:
         })
 
         # Recall with time expression (e.g., "today", "last week")
-        try:
-            result = await server.handle_recall_memory({
-                "query": "memory from today",
-                "n_results": 5
-            })
+        result = await server.handle_recall_memory({
+            "query": "memory from today",
+            "n_results": 5
+        })
 
-            # Verify result structure
-            assert isinstance(result, list)
-            assert len(result) == 1
-            assert isinstance(result[0], types.TextContent)
+        # Verify result structure
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], types.TextContent)
 
-            # Should contain results, "no memories found", OR error
-            text = result[0].text.lower()
-            assert "memory" in text or "found" in text or "error" in text or "required" in text
-        except ModuleNotFoundError as e:
-            # Known issue: time_utils import path is incorrect
-            pytest.skip(f"Skipping due to known import issue: {e}")
+        # Should contain results, "no memories found", OR error
+        text = result[0].text.lower()
+        assert "memory" in text or "found" in text or "error" in text or "required" in text
+        assert "no module named" not in text
 
     @pytest.mark.asyncio
     async def test_recall_missing_query(self):
-        """
-        Test recall without query returns error.
+        """Test recall without query returns error.
 
-        NOTE: May skip if time_utils import is broken.
+        Issue #1998: a missing helper import used to skip this test; it must fail.
         """
         server = MemoryServer()
 
-        try:
-            result = await server.handle_recall_memory({
-                "n_results": 5
-                # Note: query is missing, defaults to empty string ""
-            })
+        result = await server.handle_recall_memory({
+            "n_results": 5
+            # Note: query is missing, defaults to empty string ""
+        })
 
-            # Handler checks for empty query and returns error
-            assert isinstance(result, list)
-            text = result[0].text.lower()
-            assert "error" in text and ("query" in text or "required" in text)
-        except ModuleNotFoundError as e:
-            # Known issue: time_utils import path is incorrect
-            pytest.skip(f"Skipping due to known import issue: {e}")
+        # Handler checks for empty query and returns error
+        assert isinstance(result, list)
+        text = result[0].text.lower()
+        assert "error" in text and ("query" in text or "required" in text)
 
 
 class TestHandleRecallByTimeframe:
@@ -860,9 +850,12 @@ class TestHandleGetRawEmbedding:
         assert len(result) == 1
         assert isinstance(result[0], types.TextContent)
 
-        # Should contain embedding info (dimension, vector preview)
-        text = result[0].text
-        assert "embedding" in text.lower() or "dimension" in text.lower() or "vector" in text.lower()
+        # Issue #1998: the old assertion also matched the ModuleNotFoundError text,
+        # so it is now pinned to the success payload.
+        text = result[0].text.lower()
+        assert "no module named" not in text
+        assert "embedding generated successfully" in text
+        assert "dimension:" in text
 
     @pytest.mark.asyncio
     async def test_get_raw_embedding_missing_content(self):
