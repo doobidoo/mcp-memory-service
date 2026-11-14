@@ -41,3 +41,23 @@ def test_catalog_matches_english_key_set(locale: str):
         f"Extra in {locale}.json (absent from en.json): {extra}. "
         "Copy new keys from en.json, and remove keys that en.json dropped."
     )
+
+
+@pytest.mark.parametrize("locale", sorted(p.stem for p in I18N_DIR.glob("*.json")))
+def test_catalog_defines_each_key_once(locale: str):
+    # JSON.parse keeps the last of two equal keys without a word, so a duplicate
+    # silently replaces the translation above it. Five catalogs showed a shortened
+    # chart heading that way: a second `analytics.memoryTypes` overrode the first.
+    duplicates = []
+
+    def record(pairs):
+        seen = set()
+        for key, _ in pairs:
+            if key in seen:
+                duplicates.append(key)
+            seen.add(key)
+        return dict(pairs)
+
+    json.loads((I18N_DIR / f"{locale}.json").read_text(encoding="utf-8"), object_pairs_hook=record)
+
+    assert not duplicates, f"{locale}.json defines these keys more than once: {sorted(duplicates)}"

@@ -47,14 +47,3 @@ def test_german_knowledge_graph_values_are_not_empty():
     german = _catalog("de.json")
     blank = [key for key in KNOWLEDGE_GRAPH_KEYS if not german[key].strip()]
     assert blank == [], f"empty German translations: {blank}"
-
-
-def test_german_catalog_still_keeps_the_duplicate_memory_types_key():
-    """Guard against a reserialize of this file collapsing a pre-existing duplicate.
-
-    `analytics.memoryTypes` is defined twice in `de.json`. That is a separate bug and
-    out of scope here, but rewriting the file through a JSON serializer would silently
-    drop one of them, which is why this is asserted on the raw text.
-    """
-    raw = (I18N_DIR / "de.json").read_text(encoding="utf-8")
-    assert raw.count('"analytics.memoryTypes"') == 2
