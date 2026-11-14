@@ -517,9 +517,10 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
             safe_name = _sanitize_log_value(raw_base_type)
             if not _is_valid_custom_type_name(base_type):
                 logger.warning(
-                    f"Invalid base type name '{safe_name}', skipping. Names may "
-                    f"contain lowercase letters, digits, underscore and hyphen, "
-                    f"and must start with a letter."
+                    "Invalid base type name '%s', skipping. Names may "
+                    "contain lowercase letters, digits, underscore and hyphen, "
+                    "and must start with a letter.",
+                    safe_name,
                 )
                 continue
 
@@ -535,9 +536,11 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
 
             if base_type in TAXONOMY:
                 logger.warning(
-                    f"Custom memory type '{safe_name}' matches the built-in type "
-                    f"'{base_type}'; its subtypes are merged into the built-in type. "
-                    f"Registering it is not needed — validation is case-insensitive."
+                    "Custom memory type '%s' matches the built-in type "
+                    "'%s'; its subtypes are merged into the built-in type. "
+                    "Registering it is not needed — validation is case-insensitive.",
+                    safe_name,
+                    base_type,
                 )
 
             # Register the base type even when no (valid) subtypes were provided
@@ -545,12 +548,15 @@ def _load_custom_types_from_config() -> Dict[str, List[str]]:
             # Issue #842: empty subtype lists were silently dropped.
             if subtypes and not valid_subtypes:
                 logger.warning(
-                    f"All subtypes for custom memory type '{base_type}' were invalid; "
-                    f"registering base type with no subtypes"
+                    "All subtypes for custom memory type '%s' were invalid; "
+                    "registering base type with no subtypes",
+                    base_type,
                 )
             validated_types[base_type] = valid_subtypes
             logger.info(
-                f"Loaded custom memory type '{base_type}' with {len(valid_subtypes)} subtypes"
+                "Loaded custom memory type '%s' with %d subtypes",
+                base_type,
+                len(valid_subtypes),
             )
 
         return validated_types

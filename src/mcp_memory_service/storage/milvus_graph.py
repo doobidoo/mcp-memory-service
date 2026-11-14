@@ -327,7 +327,7 @@ class MilvusGraphStorage:
             return False
 
         if not validate_relationship(relationship_type):
-            logger.error("Invalid relationship type: %s", relationship_type)
+            logger.error("Invalid relationship type: %s", _sanitize_log_value(relationship_type))
             return False
 
         try:
@@ -382,7 +382,7 @@ class MilvusGraphStorage:
             return True
 
         except Exception as exc:
-            logger.error("Failed to store association: %s", exc)
+            logger.error("Failed to store association: %s", _sanitize_log_value(exc))
             return False
 
     # -- BFS traversal -------------------------------------------------------
@@ -421,7 +421,7 @@ class MilvusGraphStorage:
                 ],
             )
         except Exception as exc:
-            logger.error("Edge query failed (%s IN ...): %s", field, exc)
+            logger.error("Edge query failed (%s IN ...): %s", field, _sanitize_log_value(exc))
             return []
 
     async def _query_edges_both(
@@ -461,7 +461,7 @@ class MilvusGraphStorage:
                 ],
             )
         except Exception as exc:
-            logger.error("Edge query (both directions) failed: %s", exc)
+            logger.error("Edge query (both directions) failed: %s", _sanitize_log_value(exc))
             return []
 
     @staticmethod
@@ -616,7 +616,7 @@ class MilvusGraphStorage:
             result.sort(key=lambda x: (x[1], x[0]))
             return result
         except Exception as exc:
-            logger.error("Failed to find connected memories: %s", exc)
+            logger.error("Failed to find connected memories: %s", _sanitize_log_value(exc))
             return []
 
     async def shortest_path(
@@ -653,24 +653,24 @@ class MilvusGraphStorage:
                 return None
 
             # Reconstruct path from parents dict
-            path = [hash2]
+            hops = [hash2]
             current = hash2
             while current != hash1:
                 parent = parents.get(current)
                 if parent is None:
                     logger.debug("Path reconstruction failed")
                     return None
-                path.append(parent)
+                hops.append(parent)
                 current = parent
-            path.reverse()
+            hops.reverse()
 
             logger.debug(
-                "Found path of length %d: %s → %s", len(path), hash1, hash2,
+                "Found path of length %d: %s → %s", len(hops), hash1, hash2,
             )
-            return path
+            return hops
 
         except Exception as exc:
-            logger.error("Failed to find shortest path: %s", exc)
+            logger.error("Failed to find shortest path: %s", _sanitize_log_value(exc))
             return None
 
     async def get_subgraph(
@@ -750,7 +750,7 @@ class MilvusGraphStorage:
             return subgraph
 
         except Exception as exc:
-            logger.error("Failed to extract subgraph: %s", exc)
+            logger.error("Failed to extract subgraph: %s", _sanitize_log_value(exc))
             return {"nodes": [], "edges": []}
 
     async def get_association(
@@ -814,7 +814,7 @@ class MilvusGraphStorage:
             }
 
         except Exception as exc:
-            logger.error("Failed to retrieve association: %s", exc)
+            logger.error("Failed to retrieve association: %s", _sanitize_log_value(exc))
             return None
     async def has_edge(
         self,
@@ -850,7 +850,7 @@ class MilvusGraphStorage:
             )
             return bool(results)
         except Exception as exc:
-            logger.error("Failed to check association: %s", exc)
+            logger.error("Failed to check association: %s", _sanitize_log_value(exc))
             return False
 
 
@@ -884,7 +884,7 @@ class MilvusGraphStorage:
             return True
 
         except Exception as exc:
-            logger.error("Failed to delete association: %s", exc)
+            logger.error("Failed to delete association: %s", _sanitize_log_value(exc))
             return False
 
     async def delete_edges_for_memories(self, memory_hashes: List[str]) -> None:
@@ -958,7 +958,7 @@ class MilvusGraphStorage:
             return len(results) if results else 0
 
         except Exception as exc:
-            logger.error("Failed to count associations: %s", exc)
+            logger.error("Failed to count associations: %s", _sanitize_log_value(exc))
             return 0
 
     async def get_relationship_types(self, memory_hash: str) -> Dict[str, int]:
@@ -990,7 +990,7 @@ class MilvusGraphStorage:
             return counts
 
         except Exception as exc:
-            logger.error("Failed to get relationship types: %s", exc)
+            logger.error("Failed to get relationship types: %s", _sanitize_log_value(exc))
             return {}
 
     # -- Entity links --------------------------------------------------------
