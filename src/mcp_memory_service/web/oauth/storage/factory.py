@@ -22,6 +22,7 @@ without changing application code.
 
 import logging
 import os
+from ....compat import _sanitize_log_value
 from .base import OAuthStorage
 from .memory import MemoryOAuthStorage
 from .sqlite import SQLiteOAuthStorage
@@ -68,9 +69,9 @@ def create_oauth_storage(
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
-            logger.info(f"Created OAuth database directory: {db_dir}")
+            logger.info("Created OAuth database directory: %s", _sanitize_log_value(db_dir))
 
-        logger.info(f"Creating SQLite OAuth storage backend at {db_path}")
+        logger.info("Creating SQLite OAuth storage backend at %s", _sanitize_log_value(db_path))
         return SQLiteOAuthStorage(db_path=db_path)
 
     else:

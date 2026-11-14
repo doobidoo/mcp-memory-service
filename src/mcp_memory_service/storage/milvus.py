@@ -90,6 +90,16 @@ except ImportError:
     SentenceTransformer = None  # type: ignore
 
 from .base import MemoryStorage, UntaggedCountChanged
+from .semantic_dedup import (
+    NEAR_IDENTICAL_DEFAULT,
+    SUPERSEDE_REASON,
+    SemanticMatch,
+    annotate_store_message,
+    chunk_family_hash,
+    apply_semantic_dedup_config,
+    supersede_rollback_result,
+    verdict_for_match,
+)
 from .milvus_expr import escape_expr_value
 from .read_policy import should_raise_read_error
 from .shared import (
@@ -284,17 +294,9 @@ class MilvusMemoryStorage(MemoryStorage):
         # to invoke the client — one lock is both enough and necessary.
         self._write_lock = asyncio.Lock()
 
-        # Semantic deduplication — mirrors sqlite_vec knobs/env vars so
-        # backends behave identically from the service layer's perspective.
-        self.semantic_dedup_enabled = (
-            os.getenv("MCP_SEMANTIC_DEDUP_ENABLED", "true").lower() == "true"
-        )
-        self.semantic_dedup_time_window = int(
-            os.getenv("MCP_SEMANTIC_DEDUP_TIME_WINDOW_HOURS", "24")
-        )
-        self.semantic_dedup_threshold = float(
-            os.getenv("MCP_SEMANTIC_DEDUP_THRESHOLD", "0.85")
-        )
+        # Semantic deduplication — same MCP_SEMANTIC_DEDUP_* knobs as sqlite_vec,
+        # including the supersede mode (#1938).
+        apply_semantic_dedup_config(self)
 
         # For a Lite-style file URI, make sure the parent directory exists.
         # For HTTP(S) URIs we skip this — the path component is not a filesystem path.
@@ -1531,15 +1533,43 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0.0
         return dot / (norm_a * norm_b)
 
+    def _semantic_dedup_filter(self, cutoff: float, store: str) -> Optional[str]:
+        """Recent-memory dedup filter, or ``None`` when the store is refused."""
+        refused, confine = self._store_scope(store)
+        if refused:
+            return None
+        filter_expr = f"created_at >= {cutoff}"
+        if confine is not None:
+            filter_expr += f' and store == "{escape_expr_value(confine)}"'
+        return filter_expr
+
+    def _row_outside_dedup_store(self, row: Dict[str, Any], store: Optional[str]) -> bool:
+        """True when a candidate belongs to a different store than the write."""
+        if not store:
+            return False
+        refused, confine = self._store_scope(store)
+        if refused:
+            return True
+        if confine is None:
+            return False
+        return self._row_store(row) != confine
+
     async def _check_semantic_duplicate(
         self,
         content: str,
         time_window_hours: int,
         similarity_threshold: float,
+        current_only: bool = False,
+        exclude_original_hash: Optional[str] = None,
+        store: str = "default",
     ) -> Tuple[bool, Optional[str]]:
         """Look for a recently stored memory that is semantically similar.
 
-        Returns ``(is_duplicate, existing_hash)``.
+        Returns ``(is_duplicate, existing_hash)``. A ``SemanticMatch`` also
+        carries the cosine and the matched text. ``current_only`` skips rows
+        that are already superseded and keeps the closest remaining hit, so a
+        supersede does not re-point history. The default leaves the first hit
+        at or above the threshold, which is the reject-mode behaviour.
 
         Uses ``query()`` (brute-force scan) instead of ``search()`` (ANN) to
         guarantee visibility of data in growing segments on Milvus Lite.  ANN
@@ -1560,14 +1590,10 @@ class MilvusMemoryStorage(MemoryStorage):
             return False, None
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=f"created_at >= {cutoff}",
-                output_fields=["id", "vector", "created_at"],
-                limit=50,
-                consistency_level="Strong",
-            )
+            filter_expr = self._semantic_dedup_filter(cutoff, store)
+            if filter_expr is None:
+                return SemanticMatch(False, None)
+            rows = await self._dedup_candidate_rows(filter_expr, exhaustive=current_only)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Semantic dedup query failed: %s", _sanitize_log_value(exc))
             return False, None
@@ -1580,18 +1606,352 @@ class MilvusMemoryStorage(MemoryStorage):
         if norm_embedding == 0:
             return False, None
 
+        return self._choose_semantic_hit(
+            rows, embedding, norm_embedding, similarity_threshold, current_only,
+            exclude_original_hash=exclude_original_hash,
+            store=store,
+        )
+
+    _DEDUP_SAMPLE_LIMIT = 50
+
+    async def _dedup_candidate_rows(self, filter_expr: str, exhaustive: bool) -> List[Dict[str, Any]]:
+        """Rows inside the dedup window that may match the new write.
+
+        Reject mode keeps the historical 50-row sample: any hit over the
+        threshold refuses the write. Supersede mode must pick the closest
+        live memory, and the query neither ranks by similarity nor skips
+        deleted or superseded rows, so it reads every row in the window.
+        """
+        fields = self._row_fields(("id", "vector", "created_at", "content", "metadata"))
+        if not exhaustive:
+            return await self._call_client(
+                "query",
+                collection_name=self.collection_name,
+                filter=filter_expr,
+                output_fields=fields,
+                limit=self._DEDUP_SAMPLE_LIMIT,
+                consistency_level="Strong",
+            )
+        return await self._scan_dedup_rows(filter_expr, fields)
+
+    async def _scan_dedup_rows(self, filter_expr: str, fields: List[str]) -> List[Dict[str, Any]]:
+        """Every row matching ``filter_expr`` via ``QueryIterator``."""
+        async with self._write_lock:
+            if self.client is None:
+                raise RuntimeError("MilvusMemoryStorage was not initialized")
+            return await self._scan_with_lite_retry(
+                self._drain_dedup_rows, filter_expr, fields,
+            )
+
+    def _drain_dedup_rows(self, filter_expr: str, fields: List[str]) -> List[Dict[str, Any]]:
+        """Sync drain of the dedup window, deduplicated by ``id``."""
+        assert self.client is not None
+        iterator = self.client.query_iterator(
+            collection_name=self.collection_name,
+            filter=filter_expr,
+            output_fields=list(fields),
+            batch_size=self._QUERY_ITER_BATCH,
+        )
+        rows: List[Dict[str, Any]] = []
+        seen_ids: set = set()
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                for row in batch:
+                    row_id = row.get("id")
+                    if row_id is not None:
+                        if row_id in seen_ids:
+                            continue
+                        seen_ids.add(row_id)
+                    rows.append(row)
+        finally:
+            try:
+                iterator.close()
+            except Exception:  # noqa: BLE001 — teardown must not raise
+                pass
+        return rows
+
+    @staticmethod
+    def _row_cosine(row: Dict[str, Any], embedding: List[float], norm_embedding: float) -> Optional[float]:
+        """Cosine similarity of one query row, or None when either vector is empty."""
+        row_vec = row.get("vector")
+        if not row_vec or norm_embedding == 0:
+            return None
+        norm_row = math.sqrt(sum(x * x for x in row_vec))
+        if norm_row == 0:
+            return None
+        dot = sum(x * y for x, y in zip(embedding, row_vec))
+        return dot / (norm_embedding * norm_row)
+
+    def _supersede_target_excluded(self, row: Dict[str, Any], exclude_original_hash: Optional[str]) -> bool:
+        """True when this row must not be the memory a supersede replaces.
+
+        Already-superseded rows stay history. Chunks that share
+        ``original_hash`` are siblings of the write in progress.
+        """
+        if self._row_is_superseded(row):
+            return True
+        if not exclude_original_hash:
+            return False
+        raw = row.get("metadata", "")
+        metadata = raw if isinstance(raw, dict) else _safe_json_loads(raw or "", "milvus_dedup_sibling")
+        return metadata.get("original_hash") == exclude_original_hash
+
+    def _scored_dedup_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        embedding: List[float],
+        norm_embedding: float,
+        similarity_threshold: float,
+        current_only: bool,
+        exclude_original_hash: Optional[str] = None,
+        store: Optional[str] = None,
+    ):
+        """Rows at or above the dedup threshold.
+
+        Soft-deleted rows are never a match: sqlite-vec already excludes
+        ``deleted_at``, and ``get_by_hash`` hides them here. A deleted hit
+        would reject a new write, or supersede it and then roll the new row
+        back when the link recheck cannot see the tombstone. Superseded rows
+        are skipped only in supersede mode, which replaces the live fact.
+        Chunks of the same split write share ``original_hash`` and are not
+        supersede targets for each other.
+        """
+        scored = []
         for row in rows:
-            row_vec = row.get("vector")
-            if not row_vec:
+            if not self._row_is_live(row):
                 continue
-            norm_row = math.sqrt(sum(x * x for x in row_vec))
-            if norm_row == 0:
+            if self._row_outside_dedup_store(row, store):
                 continue
-            dot = sum(x * y for x, y in zip(embedding, row_vec))
-            similarity = dot / (norm_embedding * norm_row)
-            if similarity >= similarity_threshold:
-                return True, row.get("id")
-        return False, None
+            if current_only and self._supersede_target_excluded(row, exclude_original_hash):
+                continue
+            similarity = self._row_cosine(row, embedding, norm_embedding)
+            if similarity is None or similarity < similarity_threshold:
+                continue
+            scored.append((similarity, row))
+        return scored
+
+    def _choose_semantic_hit(
+        self,
+        rows: List[Dict[str, Any]],
+        embedding: List[float],
+        norm_embedding: float,
+        similarity_threshold: float,
+        current_only: bool,
+        exclude_original_hash: Optional[str] = None,
+        store: Optional[str] = None,
+    ) -> SemanticMatch:
+        """Pick the dedup hit. Reject mode keeps the first row over the threshold."""
+        scored = self._scored_dedup_rows(
+            rows, embedding, norm_embedding, similarity_threshold, current_only,
+            exclude_original_hash=exclude_original_hash,
+            store=store,
+        )
+        if not scored:
+            return SemanticMatch(False, None)
+        if not current_only:
+            similarity, row = scored[0]
+            return SemanticMatch(True, row.get("id"), similarity, row.get("content"))
+        similarity, row = max(scored, key=lambda item: item[0])
+        return SemanticMatch(True, row.get("id"), similarity, row.get("content"))
+
+    async def _semantic_dedup_verdict(self, memory: Memory, store: str = "default"):
+        """Reject, supersede, or proceed for one Milvus ``store()``."""
+        mode = getattr(self, "semantic_dedup_mode", "reject")
+        cutoff = getattr(self, "semantic_dedup_near_identical_threshold", NEAR_IDENTICAL_DEFAULT)
+        exclude_original_hash = chunk_family_hash(memory.metadata, mode)
+        result = await self._check_semantic_duplicate(
+            memory.content,
+            time_window_hours=self.semantic_dedup_time_window,
+            similarity_threshold=self.semantic_dedup_threshold,
+            current_only=(mode == "supersede"),
+            exclude_original_hash=exclude_original_hash,
+            store=store,
+        )
+        is_duplicate, existing_hash = result[0], result[1]
+        matched = getattr(result, "matched_content", None)
+        if is_duplicate and existing_hash and matched is None:
+            existing = await self.get_by_hash(existing_hash, store=store)
+            matched = existing.content if existing is not None else None
+        return verdict_for_match(
+            mode=mode,
+            near_identical_threshold=cutoff,
+            is_duplicate=bool(is_duplicate),
+            existing_hash=existing_hash,
+            similarity=getattr(result, "similarity", None),
+            matched_content=matched,
+            new_content=memory.content,
+        )
+
+    def _versioned_lineage_lock(self) -> asyncio.Lock:
+        """The in-process lock ``update_memory_versioned`` already uses.
+
+        Semantic supersede shares it so a versioned update and a dedup
+        supersede cannot both claim the same current row.
+        """
+        lock = getattr(self, "_versioned_update_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._versioned_update_lock = lock
+        return lock
+
+    async def _link_semantic_supersede(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> bool:
+        """Mark ``old_hash`` superseded by ``new_hash`` if it is still current.
+
+        ``update_memory_metadata`` upserts ``superseded_by`` with no
+        compare-and-swap. Two stores can both match the same row and both
+        insert before either links. The versioned-update lock plus a recheck
+        makes the second link fail closed: it does not overwrite
+        ``superseded_by``, and the caller drops the new row.
+        """
+        async with self._versioned_lineage_lock():
+            return await self._link_semantic_supersede_locked(old_hash, new_hash, store)
+
+    async def _link_semantic_supersede_locked(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> bool:
+        """``_link_semantic_supersede`` body. Caller holds the versioned-update lock.
+
+        A row already superseded by ``new_hash`` counts as linked. Two saves
+        of the same updated text insert the same hash, so the second one
+        finds its own replacement already in place. Reporting that as a
+        failure would make the caller delete the row the old memory now
+        points to.
+        """
+        existing = await self.get_by_hash(old_hash, store=store)
+        if existing is None:
+            logger.debug(
+                "semantic supersede skipped for %s: no longer current",
+                _sanitize_log_value(old_hash[:8]),
+            )
+            return False
+        superseded_by = (existing.metadata or {}).get("superseded_by")
+        if superseded_by == new_hash:
+            logger.debug(
+                "semantic supersede of %s already points at %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(new_hash[:8]),
+            )
+            return True
+        if superseded_by is not None:
+            logger.debug(
+                "semantic supersede skipped for %s: no longer current",
+                _sanitize_log_value(old_hash[:8]),
+            )
+            return False
+        return await self._write_semantic_supersede(old_hash, new_hash, store)
+
+    async def _is_superseded_by(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> Optional[bool]:
+        """Whether ``old_hash`` names ``new_hash`` as its replacement; None if unknown."""
+        try:
+            existing = await self.get_by_hash(old_hash, store=store)
+        except Exception as exc:  # noqa: BLE001 — an unknown link keeps the row
+            logger.warning(
+                "semantic supersede recheck failed for %s: %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return None
+        return (
+            existing is not None
+            and (existing.metadata or {}).get("superseded_by") == new_hash
+        )
+
+    async def _write_semantic_supersede(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ) -> bool:
+        """Upsert the lineage keys. Caller holds the versioned-update lock."""
+        updates = {
+            "metadata": {
+                "superseded_by": new_hash,
+                "evolution_reason": SUPERSEDE_REASON,
+            }
+        }
+        try:
+            linked, link_message = await self.update_memory_metadata(
+                old_hash, updates, preserve_timestamps=True, store=store,
+            )
+        except Exception as exc:  # noqa: BLE001 — caller rolls the new row back
+            logger.error(
+                "semantic supersede link failed for %s: %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return False
+        if not linked:
+            logger.error(
+                "semantic supersede link failed for %s: %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(link_message),
+            )
+        return bool(linked)
+
+    async def _semantic_dedup_gate(
+        self, memory: Memory, store: str, skip_semantic_dedup: bool
+    ):
+        """Return ``(reject_message, supersede_hash)``. Either value may be None."""
+        if not self.semantic_dedup_enabled or skip_semantic_dedup:
+            return None, None
+        verdict = await self._semantic_dedup_verdict(memory, store)
+        if verdict.reject_message is not None:
+            return verdict.reject_message, None
+        return None, verdict.supersede_hash
+
+    async def _commit_semantic_supersede(
+        self, old_hash: Optional[str], new_hash: str, store: str = "default"
+    ):
+        """Link the lineage, or return the ``(False, message)`` store() should use."""
+        if not old_hash:
+            return None
+        async with self._versioned_lineage_lock():
+            return await self._commit_semantic_supersede_locked(old_hash, new_hash, store)
+
+    async def _commit_semantic_supersede_locked(
+        self, old_hash: str, new_hash: str, store: str = "default"
+    ):
+        """``_commit_semantic_supersede`` body. Caller holds the versioned-update lock.
+
+        The row is only deleted when the old memory does not point at it.
+        Another process can link the same hash between the failed link and
+        the delete, so the link is read again first.
+        """
+        linked = await self._link_semantic_supersede_locked(old_hash, new_hash, store)
+        if linked:
+            return None
+        relinked = await self._is_superseded_by(old_hash, new_hash, store)
+        if relinked:
+            return None
+        if relinked is None:
+            return supersede_rollback_result(old_hash, False)
+        removed = await self._cleanup_unlinked_version(new_hash)
+        return supersede_rollback_result(old_hash, removed)
+
+    async def _insert_and_supersede(
+        self, entity: Dict[str, Any], old_hash: str, new_hash: str, store: str
+    ):
+        """Insert a superseding row and link it, one save at a time.
+
+        Two saves of the same updated text in this process would otherwise
+        both pass the exact-hash check and insert the same id twice. Under
+        the lock the second save sees the first row and is an exact duplicate.
+        Returns ``(False, message)`` on failure, else None.
+        """
+        async with self._versioned_lineage_lock():
+            if await self.get_by_hash(new_hash) is not None:
+                return False, "Duplicate content detected (exact match)"
+            await self._call_client(
+                "insert",
+                collection_name=self.collection_name,
+                data=[entity],
+            )
+            logger.info("Stored memory %s", _sanitize_log_value(new_hash))
+            return await self._commit_semantic_supersede_locked(old_hash, new_hash, store)
 
     # -- Store ---------------------------------------------------------------
 
@@ -1614,14 +1974,11 @@ class MilvusMemoryStorage(MemoryStorage):
             if existing is not None:
                 return False, "Duplicate content detected (exact match)"
 
-            if self.semantic_dedup_enabled and not skip_semantic_dedup:
-                is_dup, hit_hash = await self._check_semantic_duplicate(
-                    memory.content,
-                    time_window_hours=self.semantic_dedup_time_window,
-                    similarity_threshold=self.semantic_dedup_threshold,
-                )
-                if is_dup:
-                    return False, f"Duplicate content detected (semantically similar to {hit_hash})"
+            rejection, supersede_hash = await self._semantic_dedup_gate(
+                memory, store, skip_semantic_dedup
+            )
+            if rejection is not None:
+                return False, rejection
 
             # ``update_memory_versioned`` embeds the new content before it
             # reads the old row, so the call does not sit between that read
@@ -1639,13 +1996,19 @@ class MilvusMemoryStorage(MemoryStorage):
 
             entity = self._memory_to_entity(memory, embedding, store)
 
-            await self._call_client(
-                "insert",
-                collection_name=self.collection_name,
-                data=[entity],
-            )
-
-            logger.info("Stored memory %s", _sanitize_log_value(memory.content_hash))
+            if supersede_hash:
+                failed = await self._insert_and_supersede(
+                    entity, supersede_hash, memory.content_hash, store
+                )
+                if failed is not None:
+                    return failed
+            else:
+                await self._call_client(
+                    "insert",
+                    collection_name=self.collection_name,
+                    data=[entity],
+                )
+                logger.info("Stored memory %s", _sanitize_log_value(memory.content_hash))
 
             # --- Conflict detection (post-commit) ---
             try:
@@ -1653,7 +2016,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     memory.content_hash,
                     memory.content,
                     embedding,
-                    _versioned_conflict_exclusion.get(),
+                    supersede_hash or _versioned_conflict_exclusion.get(),
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)
@@ -1664,7 +2027,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 logger.warning("Conflict detection failed (non-fatal): %s", _sanitize_log_value(e))
                 conflict_msg = ""
 
-            return True, f"Memory stored successfully{conflict_msg}"
+            message = f"Memory stored successfully{conflict_msg}"
+            return True, annotate_store_message(message, supersede_hash)
 
         except Exception as exc:  # noqa: BLE001 — contract requires (bool, str) not a raise
             logger.error("Failed to store memory: %s\n%s", _sanitize_log_value(exc), traceback.format_exc())

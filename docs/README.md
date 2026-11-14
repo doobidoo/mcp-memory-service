@@ -108,7 +108,7 @@ MCP Memory Service enables persistent, semantic memory for AI applications throu
 - ✅ **Multi-Client Access**: Share memories across Claude Desktop, VS Code, Kiro CLI, and other MCP clients
 - ✅ **Flexible Storage**: Choose SQLite-vec (local/dev), Cloudflare (cloud/edge), or Hybrid (production)
 - ✅ **NLI Cascade**: Advanced contradiction resolution using cascade reasoning (`MCP_NLI_BACKEND=cascade`)
-- ✅ **Semantic Deduplication**: Automatic vector similarity deduplication (`MCP_SEMANTIC_DEDUP_ENABLED=true`)
+- ✅ **Semantic Deduplication**: Automatic vector similarity deduplication (`MCP_SEMANTIC_DEDUP_ENABLED=true`). `MCP_SEMANTIC_DEDUP_MODE=supersede` stores an updated fact and retires the match; the default `reject` is unchanged.
 - ✅ **Entity Tag Control**: Filter entity tags with include/exclude patterns (`MCP_ENTITY_TAG_INCLUDE` / `MCP_ENTITY_TAG_EXCLUDE`)
 - ✅ **Autonomous Session Harvesting**: Automatic session discovery and harvesting (`MCP_HARVEST_SCHEDULE`)
 - ✅ **Decay & Retention Policies**: Dynamic memory lifecycle management and custom retention (`MCP_DECAY_ENABLED`)

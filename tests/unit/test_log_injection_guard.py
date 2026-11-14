@@ -115,6 +115,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/harvest/auto_capture.py",
     "mcp_memory_service/server_impl.py",
     "mcp_memory_service/utils/system_detection.py",
+    "mcp_memory_service/web/oauth/discovery.py",
+    "mcp_memory_service/web/oauth/storage/factory.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -259,6 +261,11 @@ MODULE_EXTERNAL_NAMES = {
     # are logged. models/ontology.py and the ontology tests use the same name
     # for built-in data, so it is listed for this module only.
     "mcp_memory_service/config/ontology.py": frozenset({"custom_types"}),
+    # `metadata.issuer` in web/oauth/discovery.py comes from OAUTH_ISSUER in the
+    # environment, and `db_dir` in web/oauth/storage/factory.py is derived from
+    # the caller's `db_path`.
+    "mcp_memory_service/web/oauth/discovery.py": frozenset({"issuer"}),
+    "mcp_memory_service/web/oauth/storage/factory.py": frozenset({"db_dir"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -821,3 +828,26 @@ def test_lazy_scan_flags_server_impl_milvus_settings():
         assert _lazy_findings(bare, extra)
         assert not _lazy_findings(bare), "not an EXTERNAL_NAMES entry: the module list carries it"
         assert not _lazy_findings(wrapped, extra)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_oauth_discovery_and_factory_values():
+    """`metadata.issuer` in web/oauth/discovery.py comes from OAUTH_ISSUER in
+    the environment, and `db_dir` in web/oauth/storage/factory.py is derived
+    from the caller's `db_path`. Neither name is in EXTERNAL_NAMES, so each is
+    listed through MODULE_EXTERNAL_NAMES; these samples fail if either entry is
+    dropped.
+    """
+    discovery_extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/web/oauth/discovery.py"]
+    bare_issuer = 'logger.debug("Returning OAuth metadata: issuer=%s", metadata.issuer)\n'
+    wrapped_issuer = 'logger.debug("Returning OAuth metadata: issuer=%s", _sanitize_log_value(metadata.issuer))\n'
+    assert _lazy_findings(bare_issuer, discovery_extra)
+    assert not _lazy_findings(bare_issuer), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_issuer, discovery_extra)
+
+    factory_extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/web/oauth/storage/factory.py"]
+    bare_db_dir = 'logger.info("Created OAuth database directory: %s", db_dir)\n'
+    wrapped_db_dir = 'logger.info("Created OAuth database directory: %s", _sanitize_log_value(db_dir))\n'
+    assert _lazy_findings(bare_db_dir, factory_extra)
+    assert not _lazy_findings(bare_db_dir), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_db_dir, factory_extra)
