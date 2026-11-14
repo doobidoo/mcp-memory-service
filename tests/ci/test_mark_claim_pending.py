@@ -33,6 +33,14 @@ _spec.loader.exec_module(mark)
     # an affirmative "No," before a claim must still read as a claim ("no" is
     # not in the negator set; only "not"/n't/unable/unsure negate):
     "No, I can take this",
+    # the two claims the matcher missed on #1998 and #1997, word for word:
+    "I would like to take this one too, unless the reporter plans to fix it.",
+    "I would like to take this one, unless @someone plans to send the fix.",
+    "I would like to take this",
+    "I'll take this one",
+    "I'd like to work on this issue.",
+    "Can I take this one as well?",
+    "I can take it too",
 ])
 def test_claim_phrases_match(body):
     assert mark.is_claim(body) is True
@@ -63,6 +71,12 @@ def test_claim_phrases_match(body):
     # from "I will not" needs real parsing. A miss only loses the label, so we take
     # the simpler rule and let this rare idiom through as a non-claim.
     "why not, I'll take this",
+    # the wider object must still end the clause:
+    "Can I take this one step at a time?",
+    "I'd like to take this issue seriously before we change the API",
+    "I'll take this too far if I refactor the parser as well",
+    "I would like to take this opportunity to say thanks",
+    "I would not like to take this one",
 ])
 def test_non_claims_do_not_match(body):
     assert mark.is_claim(body) is False

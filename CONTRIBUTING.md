@@ -161,10 +161,11 @@ when the PR is reviewed. The same situation gets the same answer, whoever is inv
 A claim is a commitment to start, not a reservation. If you need more time, say so
 on the issue; an update resets the clock.
 
-#### Automatic claims for prepared good first issues
+#### Automatic claims for prepared issues
 
-An issue carrying **both** `good first issue` and `auto-assign` has already had its
-scope approved by a maintainer. Comment `/claim` on a line of its own to request
+An issue labelled `auto-assign` has already had its scope approved by a maintainer.
+That can be a good first issue, a bug with `help wanted`, or anything else with a
+settled scope. Comment `/claim` on a line of its own to request
 assignment to yourself. Wait for the assignment and the confirmation comment
 before starting. That automatic confirmation counts as maintainer approval for
 the scope described in the issue; it does not approve a broader change or a merge.
@@ -178,8 +179,9 @@ comment to claim an issue. The
 command is ignored inside quotes and code examples; `/claim @someone` cannot
 assign another person. Collaborators can use the same command.
 
-For all other issues, or if you comment in ordinary prose instead of using
-`/claim`, wait for a maintainer to assign you. If you stop working on an issue,
+If you claim such an issue in ordinary prose, a bot replies once and names the
+command; the prose alone does not assign you. For all other issues, wait for a
+maintainer to assign you. If you stop working on an issue,
 leave a comment; a maintainer will handle reassignment.
 
 Maintainers: add `auto-assign` only after the issue has a settled scope and

@@ -2,8 +2,9 @@
 # unassigned claim is visible at once instead of only in the daily digest.
 # scripts/ci/mark_claim_pending.py has the rules (claim phrases, guards).
 #
-# A standalone /claim also assigns and confirms issues with BOTH good first issue
-# and auto-assign. Other claims retain the manual label-only path. The script
+# A standalone /claim also assigns and confirms issues labelled auto-assign, and a
+# claim in prose on such an issue gets one reply naming the command. Other claims
+# retain the manual label-only path. The script
 # reconciles history, removes the pending label and invokes the claim re-check
 # itself: GITHUB_TOKEN assignments do not trigger issues:assigned.
 #
