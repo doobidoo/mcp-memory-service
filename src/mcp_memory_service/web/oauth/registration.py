@@ -21,7 +21,7 @@ Implements RFC 7591 - OAuth 2.0 Dynamic Client Registration Protocol.
 import secrets
 import time
 import logging
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 
@@ -148,6 +148,88 @@ def _refuse_client_credentials_while_open(grant_types) -> None:
     )
 
 
+def _validate_client_metadata(request: ClientRegistrationRequest) -> None:
+    """Validate the redirect URIs, grant types and response types of a registration."""
+    if request.redirect_uris:
+        validate_redirect_uris([str(uri) for uri in request.redirect_uris])
+
+    if request.grant_types:
+        validate_grant_types(request.grant_types)
+
+    if request.response_types:
+        validate_response_types(request.response_types)
+
+    _refuse_client_credentials_while_open(request.grant_types)
+
+
+def _scope_ceiling(requested_scope: Optional[str]) -> Optional[str]:
+    """The requested scope, captured as the client's permanent ceiling.
+
+    An omitted or empty scope leaves the ceiling unbounded (None), unchanged
+    from the pre-ceiling behaviour, so existing clients and callers are
+    unaffected. Open registration cannot declare admin: anyone can register,
+    so the ceiling would be the caller's own wish (GHSA-w8p9-5v6q-h9ch).
+    """
+    tokens = (requested_scope or "").split()
+    if not DCR_REGISTRATION_KEY:
+        tokens = [t for t in tokens if t != "admin"]
+    return " ".join(tokens) or None
+
+
+async def _create_client(request: ClientRegistrationRequest) -> ClientRegistrationResponse:
+    """Validate a registration request, store the client and build the response."""
+    _validate_client_metadata(request)
+
+    # Prepare default values
+    grant_types = request.grant_types or ["authorization_code"]
+    response_types = request.response_types or ["code"]
+    token_endpoint_auth_method = request.token_endpoint_auth_method or "client_secret_basic"
+
+    # Generate client credentials. A public client (RFC 7591: auth method
+    # "none", e.g. the PKCE flow claude.ai uses) must not be issued a secret
+    # at all — handing one out let a caller turn a registration into client
+    # authentication. The empty string is stored rather than None so the model
+    # and the SQLite row stay unchanged; verify_client_secret() already
+    # refuses an empty stored secret, so such a client cannot authenticate
+    # with one.
+    client_id = get_oauth_storage().generate_client_id()
+    is_public_client = token_endpoint_auth_method == "none"
+    client_secret = "" if is_public_client else get_oauth_storage().generate_client_secret()
+
+    allowed_scope = _scope_ceiling(request.scope)
+
+    # Create registered client
+    registered_client = RegisteredClient(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uris=[str(uri) for uri in request.redirect_uris] if request.redirect_uris else [],
+        grant_types=grant_types,
+        response_types=response_types,
+        token_endpoint_auth_method=token_endpoint_auth_method,
+        client_name=request.client_name,
+        created_at=time.time(),
+        allowed_scope=allowed_scope
+    )
+
+    # Store the client
+    await get_oauth_storage().store_client(registered_client)
+
+    # Create response. client_secret is omitted entirely for a public client.
+    response = ClientRegistrationResponse(
+        client_id=client_id,
+        client_secret=client_secret or None,
+        redirect_uris=registered_client.redirect_uris,
+        grant_types=grant_types,
+        response_types=response_types,
+        token_endpoint_auth_method=token_endpoint_auth_method,
+        client_name=request.client_name,
+        scope=allowed_scope
+    )
+
+    logger.info(f"OAuth client registered successfully: client_id={_sanitize_log_value(client_id)}, name={_sanitize_log_value(request.client_name)}, scope={_sanitize_log_value(allowed_scope)}")
+    return response
+
+
 @router.post(
     "/register",
     response_model=ClientRegistrationResponse,
@@ -173,69 +255,7 @@ async def register_client(
     logger.info("OAuth client registration request received")
 
     try:
-        # Validate client metadata
-        if request.redirect_uris:
-            validate_redirect_uris([str(uri) for uri in request.redirect_uris])
-
-        if request.grant_types:
-            validate_grant_types(request.grant_types)
-
-        if request.response_types:
-            validate_response_types(request.response_types)
-
-        _refuse_client_credentials_while_open(request.grant_types)
-
-        # Prepare default values
-        grant_types = request.grant_types or ["authorization_code"]
-        response_types = request.response_types or ["code"]
-        token_endpoint_auth_method = request.token_endpoint_auth_method or "client_secret_basic"
-
-        # Generate client credentials. A public client (RFC 7591: auth method
-        # "none", e.g. the PKCE flow claude.ai uses) must not be issued a secret
-        # at all — handing one out let a caller turn a registration into client
-        # authentication. The empty string is stored rather than None so the model
-        # and the SQLite row stay unchanged; verify_client_secret() already
-        # refuses an empty stored secret, so such a client cannot authenticate
-        # with one.
-        client_id = get_oauth_storage().generate_client_id()
-        is_public_client = token_endpoint_auth_method == "none"
-        client_secret = "" if is_public_client else get_oauth_storage().generate_client_secret()
-
-        # Capture the requested scope as this client's permanent ceiling. An
-        # omitted or empty scope leaves it unbounded (None) — unchanged from the
-        # pre-ceiling behaviour — so existing clients and callers are unaffected.
-        allowed_scope = (request.scope or "").strip() or None
-
-        # Create registered client
-        registered_client = RegisteredClient(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uris=[str(uri) for uri in request.redirect_uris] if request.redirect_uris else [],
-            grant_types=grant_types,
-            response_types=response_types,
-            token_endpoint_auth_method=token_endpoint_auth_method,
-            client_name=request.client_name,
-            created_at=time.time(),
-            allowed_scope=allowed_scope
-        )
-
-        # Store the client
-        await get_oauth_storage().store_client(registered_client)
-
-        # Create response. client_secret is omitted entirely for a public client.
-        response = ClientRegistrationResponse(
-            client_id=client_id,
-            client_secret=client_secret or None,
-            redirect_uris=registered_client.redirect_uris,
-            grant_types=grant_types,
-            response_types=response_types,
-            token_endpoint_auth_method=token_endpoint_auth_method,
-            client_name=request.client_name,
-            scope=allowed_scope
-        )
-
-        logger.info(f"OAuth client registered successfully: client_id={_sanitize_log_value(client_id)}, name={_sanitize_log_value(request.client_name)}, scope={_sanitize_log_value(allowed_scope)}")
-        return response
+        return await _create_client(request)
 
     except ValidationError as e:
         logger.warning(f"OAuth client registration validation error: {_sanitize_log_value(e)}")

@@ -56,6 +56,20 @@ export MCP_OAUTH_ISSUER=https://your-public-url.com
 # No DCR_REGISTRATION_KEY — claude.ai needs open registration
 ```
 
+With registration open, anyone who can reach `/oauth/register` can register a
+client. The page where you enter your API key therefore shows where the access
+will be sent, the name the application gave itself, and the scope it gets.
+Check the destination (`claude.ai` or `claude.com` for the Claude.ai connector)
+before you enter the key, and do not authorize from a link someone sent you.
+
+Openly registered clients receive `read` and `write` at most. The `admin` scope
+is granted only when `MCP_DCR_REGISTRATION_KEY` is set and the client declared
+`admin` in its registration (`"scope": "read write admin"`). A client registered
+without a scope has to register again to get it.
+
+`memory oauth list-clients` shows every registered client and
+`memory oauth delete-client <client_id>` removes one.
+
 ### Docker
 Add to your docker-compose environment:
 ```yaml

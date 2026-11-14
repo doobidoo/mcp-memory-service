@@ -73,7 +73,9 @@ def test_dashboard_assets_and_requests_are_root_relative():
 
 
 def test_authorization_form_posts_relative_to_root_path():
-    page = _build_authorize_page("client_id=test")
+    page = _build_authorize_page(
+        "client_id=test", client_name="test", destination="claude.ai", scope="read"
+    )
 
     assert 'action="authorize?client_id=test"' in page
     assert 'action="/oauth/authorize' not in page
