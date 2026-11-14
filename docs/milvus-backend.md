@@ -109,7 +109,7 @@ Two side collections sit next to the main one: `{collection}_graph` for associat
 - **Knowledge graph and entity links.** Milvus stores associations, entity links, graph analytics, and reasoning traversal in a dedicated `{collection}_graph` collection. There is no server-side recursive CTE, so transitive closure and common-neighbour queries are evaluated in application code over drained edges.
 - **File-based backup and optimization.** Milvus Lite has a local database file and supports normal file-based backup. Self-hosted Milvus and Zilliz Cloud are remote-only: file backup and database optimization return an explicit unsupported error instead of claiming success. Use the deployment's own snapshot or export tooling for those backends.
 - **Content length.** Limited to `65535 - 256 = 65279` characters by the `max_content_length` property. Milvus's VARCHAR hard cap applies; longer content should be chunked by the calling service.
-- **Semantic deduplication** honours the same `MCP_SEMANTIC_DEDUP_*` environment variables as `sqlite_vec`, so behaviour is consistent across backends.
+- **Semantic deduplication** honours the same `MCP_SEMANTIC_DEDUP_*` environment variables as `sqlite_vec`, including `MCP_SEMANTIC_DEDUP_MODE` (`reject` or `supersede`) and `MCP_SEMANTIC_DEDUP_NEAR_IDENTICAL_THRESHOLD`, so behaviour is consistent across backends. Supersede marks the matched memory's metadata `superseded_by` the new hash, which is the lineage this backend already uses for versioned updates.
 - **External embedding APIs** (Ollama, vLLM, TEI) are not supported — the Milvus backend always uses local sentence-transformers. Use `sqlite_vec` if you need an external embedding endpoint.
 
 ## Deployment recipes

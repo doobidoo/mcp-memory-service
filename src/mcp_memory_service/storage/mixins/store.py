@@ -17,6 +17,15 @@ except ImportError:
 from ...compat import _sanitize_log_value
 from ...models.memory import Memory
 from ..base import RecreateRefused
+from ..semantic_dedup import (
+    NEAR_IDENTICAL_DEFAULT,
+    SUPERSEDE_REASON,
+    SemanticMatch,
+    annotate_store_message,
+    chunk_family_hash,
+    deduplicated_result,
+    verdict_for_match,
+)
 from ..shared import _versioned_conflict_exclusion
 
 logger = logging.getLogger(__name__)
@@ -142,28 +151,49 @@ class StoreMixin:
         time_window_hours: int = 24,
         similarity_threshold: float = 0.85,
         store: str = 'default',
+        current_only: bool = False,
+        exclude_original_hash: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
-        """Check for a similar memory in ``store`` within the configured time window."""
+        """Check for a similar memory in ``store`` within the configured time window.
+
+        ``current_only`` ignores memories that already have ``superseded_by`` set,
+        so supersede mode replaces the live fact rather than a historical one.
+        ``exclude_original_hash`` skips other chunks of the same split write:
+        they share that hash, and a later chunk must not supersede an earlier
+        one. The default query is the reject-mode query. sqlite-vec's
+        ``vec_distance_cosine`` is a distance (``1 - cosine``); the returned
+        ``SemanticMatch.similarity`` is the cosine.
+        """
         if not self.conn:
-            return False, None
+            return SemanticMatch(False, None)
 
         cutoff_timestamp = time.time() - (time_window_hours * 3600)
-
         embedding = self._generate_embedding(content)
         embedding_blob = serialize_float32(embedding)
+        current_sql = ""
+        params: List = [embedding_blob, cutoff_timestamp, store]
+        if current_only:
+            current_sql = " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
+            if exclude_original_hash:
+                current_sql += (
+                    " AND (json_extract(m.metadata, '$.original_hash') IS NULL"
+                    " OR json_extract(m.metadata, '$.original_hash') != ?)"
+                )
+                params.append(exclude_original_hash)
 
         def _search_semantic_dup():
-            cursor = self.conn.execute('''
-                SELECT m.content_hash, m.content,
-                       vec_distance_cosine(me.content_embedding, ?) as similarity
-                FROM memories m
-                JOIN memory_embeddings me ON m.rowid = me.rowid
-                WHERE m.created_at > ?
-                  AND m.deleted_at IS NULL
-                  AND m.store = ?
-                ORDER BY similarity IS NULL, similarity ASC
-                LIMIT 1
-            ''', (embedding_blob, cutoff_timestamp, store))
+            cursor = self.conn.execute(
+                "SELECT m.content_hash, m.content, "
+                "vec_distance_cosine(me.content_embedding, ?) as similarity "
+                "FROM memories m "
+                "JOIN memory_embeddings me ON m.rowid = me.rowid "
+                "WHERE m.created_at > ? "
+                "AND m.deleted_at IS NULL "
+                "AND m.store = ?"
+                + current_sql
+                + " ORDER BY similarity IS NULL, similarity ASC LIMIT 1",
+                tuple(params),
+            )
             return cursor.fetchone()
 
         result = await self._execute_with_retry(_search_semantic_dup)
@@ -171,9 +201,154 @@ class StoreMixin:
         # #1791 was fixed) makes vec_distance_cosine() return NULL. Treat that as
         # "no duplicate" instead of comparing None to a float.
         if result and result[2] is not None and result[2] <= (1.0 - similarity_threshold):
-            return True, result[0]
+            distance = float(result[2])
+            return SemanticMatch(True, result[0], 1.0 - distance, result[1])
 
-        return False, None
+        return SemanticMatch(False, None)
+
+    async def _dedup_match_content(self, content_hash: str) -> Optional[str]:
+        """Text of a live memory, for the normalised-identical check.
+
+        The SQL path already returns the text. This is the fallback for a
+        ``_check_semantic_duplicate`` double that only returns the hash.
+        """
+        def _read():
+            if not self.conn:
+                return None
+            row = self.conn.execute(
+                "SELECT content FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+                (content_hash,),
+            ).fetchone()
+            return row[0] if row else None
+
+        try:
+            return await self._execute_with_retry(_read)
+        except Exception as exc:  # noqa: BLE001 — missing text rejects, it does not supersede
+            logger.debug(
+                "semantic dedup could not read %s: %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            return None
+
+    async def _semantic_dedup_verdict(self, memory: Memory, store: str):
+        """Reject, supersede, or proceed for one sqlite-vec ``store()``."""
+        mode = getattr(self, "semantic_dedup_mode", "reject")
+        cutoff = getattr(self, "semantic_dedup_near_identical_threshold", NEAR_IDENTICAL_DEFAULT)
+        exclude_original_hash = chunk_family_hash(memory.metadata, mode)
+        result = await self._check_semantic_duplicate(
+            memory.content,
+            time_window_hours=self.semantic_dedup_time_window,
+            similarity_threshold=self.semantic_dedup_threshold,
+            store=store,
+            current_only=(mode == "supersede"),
+            exclude_original_hash=exclude_original_hash,
+        )
+        is_duplicate, existing_hash = result[0], result[1]
+        matched = getattr(result, "matched_content", None)
+        if is_duplicate and existing_hash and matched is None:
+            matched = await self._dedup_match_content(existing_hash)
+        return verdict_for_match(
+            mode=mode,
+            near_identical_threshold=cutoff,
+            is_duplicate=bool(is_duplicate),
+            existing_hash=existing_hash,
+            similarity=getattr(result, "similarity", None),
+            matched_content=matched,
+            new_content=memory.content,
+        )
+
+    def _write_supersede_lineage(
+        self,
+        old_hash: str,
+        new_hash: str,
+        store: str,
+        new_version: int,
+        old_meta: dict,
+    ) -> None:
+        """Columns and sync event ``update_memory_versioned`` writes for one link."""
+        self.conn.execute(
+            "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+            (old_hash, new_version, new_hash),
+        )
+        cur = self.conn.execute(
+            "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
+            "WHERE content_hash = ? AND deleted_at IS NULL "
+            "AND (superseded_by IS NULL OR superseded_by = '') AND store = ?",
+            (new_hash, time.time(), json.dumps(old_meta), old_hash, store),
+        )
+        if cur.rowcount == 0:
+            raise RuntimeError("old version is no longer current")
+        self._append_supersede_event(old_hash)
+        self._clear_stale_conflict_tags(
+            [new_hash, *self._contradicts_partners(old_hash)]
+        )
+
+    def _link_semantic_supersede_row(self, old_hash: str, new_hash: str, store: str) -> bool:
+        """Link one supersede inside the caller's transaction, or report it cannot."""
+        row = self.conn.execute(
+            "SELECT version, metadata FROM memories "
+            "WHERE content_hash = ? AND deleted_at IS NULL "
+            "AND (superseded_by IS NULL OR superseded_by = '') AND store = ?",
+            (old_hash, store),
+        ).fetchone()
+        if row is None:
+            return False
+        old_version, old_metadata_str = row
+        new_version = (old_version or 1) + 1
+        old_meta = (
+            self._safe_json_loads(old_metadata_str, "semantic_supersede")
+            if old_metadata_str else {}
+        )
+        old_meta["superseded_by"] = new_hash
+        old_meta["evolution_reason"] = SUPERSEDE_REASON
+        sp = f"sem_supersede_{os.urandom(4).hex()}"
+        self.conn.execute(f"SAVEPOINT {sp}")
+        try:
+            self._write_supersede_lineage(old_hash, new_hash, store, new_version, old_meta)
+            self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+            return True
+        except Exception:
+            self.conn.execute(f"ROLLBACK TO SAVEPOINT {sp}")
+            self.conn.execute(f"RELEASE SAVEPOINT {sp}")
+            raise
+
+    def _finish_supersede_in_savepoint(
+        self, savepoint: str, old_hash: Optional[str], new_hash: str, store_name: str
+    ) -> bool:
+        """Link inside the open insert savepoint, or roll that savepoint back.
+
+        The insert, its create event, and the lineage update commit together.
+        A failed link undoes the insert, so the caller is left with no new row,
+        no create event, and no delete event. ``delete()`` is not used: that
+        soft-deletes and records a delete, and the next store with
+        ``recreate=False`` then refuses the retry.
+        """
+        if not old_hash:
+            return True
+        try:
+            linked = self._link_semantic_supersede_row(old_hash, new_hash, store_name)
+        except Exception as exc:  # noqa: BLE001 — the insert savepoint is the rollback
+            logger.error(
+                "semantic supersede link failed for %s: %s",
+                _sanitize_log_value(old_hash[:8]),
+                _sanitize_log_value(exc),
+            )
+            linked = False
+        if linked:
+            return True
+        self.conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+        self.conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return False
+
+    async def _semantic_dedup_gate(self, memory: Memory, store: str, skip_semantic_dedup: bool):
+        """Return ``(reject_message, supersede_hash)``. Either value may be None."""
+        if not self.semantic_dedup_enabled or skip_semantic_dedup:
+            return None, None
+        verdict = await self._semantic_dedup_verdict(memory, store)
+        if verdict.reject_message is not None:
+            return verdict.reject_message, None
+        return None, verdict.supersede_hash
 
     async def store(self, memory: Memory, skip_semantic_dedup: bool = False, store: str = 'default',
                     recreate: Optional[bool] = None) -> Tuple[bool, str]:
@@ -184,6 +359,12 @@ class StoreMixin:
         the write when a delete for this hash is on record in ``sync_events`` — the
         tombstone stays, no create event is appended, and the message is a
         ``RecreateRefused`` naming the delete; ``True`` revives explicitly.
+
+        Semantic dedup (#1938): ``MCP_SEMANTIC_DEDUP_MODE=reject`` (default) still
+        returns a ``SemanticDedupResult`` whose text is the old duplicate sentence.
+        ``supersede`` stores the new row and points the matched row at it, unless
+        the match is near-identical. The success message is then a
+        ``SemanticDedupResult`` with ``outcome="superseded"``.
         """
         try:
             if not self.conn:
@@ -200,15 +381,11 @@ class StoreMixin:
             if existing:
                 return False, self._exact_duplicate_message(existing[0], store)
 
-            if self.semantic_dedup_enabled and not skip_semantic_dedup:
-                is_duplicate, existing_hash = await self._check_semantic_duplicate(
-                    memory.content,
-                    time_window_hours=self.semantic_dedup_time_window,
-                    similarity_threshold=self.semantic_dedup_threshold,
-                    store=store,
-                )
-                if is_duplicate:
-                    return False, f"Duplicate content detected (semantically similar to {existing_hash})"
+            rejection, supersede_hash = await self._semantic_dedup_gate(
+                memory, store, skip_semantic_dedup
+            )
+            if rejection is not None:
+                return False, rejection
 
             try:
                 embedding = self._generate_embedding(memory.content)
@@ -225,6 +402,7 @@ class StoreMixin:
 
             _sp_name = f"store_{os.urandom(4).hex()}"
             _refused: List[Tuple[str, list]] = []
+            _supersede_failed: List[str] = []
             def insert_memory_and_embedding():
                 self.conn.execute(f'SAVEPOINT {_sp_name}')
                 try:
@@ -305,7 +483,13 @@ class StoreMixin:
                         else:
                             payload['recreate_of'] = ""
                         self._append_sync_event(self.conn, 'create', memory.content_hash, payload)
-                    
+
+                    if not self._finish_supersede_in_savepoint(
+                        _sp_name, supersede_hash, memory.content_hash, store
+                    ):
+                        if supersede_hash:
+                            _supersede_failed.append(supersede_hash)
+                        return
                     self.conn.execute(f'RELEASE SAVEPOINT {_sp_name}')
                 except Exception:
                     self.conn.execute(f'ROLLBACK TO SAVEPOINT {_sp_name}')
@@ -317,6 +501,8 @@ class StoreMixin:
                 await self._execute_with_retry(self.conn.commit)
                 if _refused:
                     return False, RecreateRefused(_refused[0][0], _refused[0][1])
+                if _supersede_failed:
+                    return False, deduplicated_result(_supersede_failed[0])
 
             # Conflict detection (P3) — runs after commit, outside the lock
             try:
@@ -337,7 +523,8 @@ class StoreMixin:
                 conflict_msg = ""
 
             logger.info("Successfully stored memory: %s", _sanitize_log_value(memory.content_hash))
-            return True, f"Memory stored successfully{conflict_msg}"
+            stored = f"Memory stored successfully{conflict_msg}"
+            return True, annotate_store_message(stored, supersede_hash)
 
         except sqlite3.IntegrityError as e:
             # A second writer can insert the same globally unique hash after the
