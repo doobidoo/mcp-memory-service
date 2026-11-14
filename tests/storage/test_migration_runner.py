@@ -3,6 +3,7 @@
 Tests the versioned SQL migration runner with registry tracking.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -159,3 +160,24 @@ def test_stamp_baseline_recovers_v16_after_partial_rollback(tmp_path):
     assert sv is not None and int(sv[0]) == 16, (
         f"recovery must restore schema_version to 16, got {sv and sv[0]}"
     )
+
+
+@pytest.mark.unit
+def test_migration_failure_log_sanitises_newlines(tmp_path, caplog):
+    """Migration error logs must sanitise newlines in SQLite exception messages (#1146)."""
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir()
+    (migrations_dir / "001_bad.sql").write_text(
+        'SELECT * FROM "missing\nFORGED admin event";\n'
+    )
+
+    conn = sqlite3.connect(":memory:")
+    runner = MigrationRunner(migrations_dir)
+    with caplog.at_level(logging.ERROR):
+        result = runner.run_pending(conn)
+
+    assert result["error"] is not None
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("Migration 001_bad failed:" in m for m in messages)
+    assert not any("\nFORGED" in m for m in messages)
+

@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 # Pattern: NNN_description.sql (e.g., 008_add_graph_table.sql)
@@ -177,7 +179,7 @@ class MigrationRunner:
                 (str(max_version),),
             )
             conn.commit()
-            logger.info(f"Baseline stamp: registered migrations {stamped} (existing DB detected)")
+            logger.info("Baseline stamp: registered migrations %s (existing DB detected)", stamped)
 
         return stamped
 
@@ -302,11 +304,16 @@ class MigrationRunner:
                     )
                     conn.execute("COMMIT")
                     result["applied"].append({"version": version, "name": name})
-                    logger.info(f"Migration {version:03d}_{name} applied successfully")
+                    logger.info("Migration %03d_%s applied successfully", version, _sanitize_log_value(name))
                 except Exception as e:
                     conn.execute("ROLLBACK")
                     result["error"] = f"Migration {version:03d}_{name} failed: {e}"
-                    logger.error(result["error"])
+                    logger.error(
+                        "Migration %03d_%s failed: %s",
+                        version,
+                        _sanitize_log_value(name),
+                        _sanitize_log_value(e),
+                    )
                     break
 
         except Exception as e:

@@ -24,7 +24,7 @@ if LLAMAPARSE_API_KEY:
 else:
     logger.debug("LlamaParse API key not set - semtools will use basic parsing mode")
 
-logger.info(f"Document chunking: size={DOCUMENT_CHUNK_SIZE}, overlap={DOCUMENT_CHUNK_OVERLAP}")
+logger.info("Document chunking: size=%d, overlap=%d", DOCUMENT_CHUNK_SIZE, DOCUMENT_CHUNK_OVERLAP)
 
 # =============================================================================
 # End Document Processing Configuration

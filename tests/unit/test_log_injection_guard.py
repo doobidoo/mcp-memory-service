@@ -119,6 +119,11 @@ GUARDED_MODULES = [
     "mcp_memory_service/web/oauth/storage/factory.py",
     "mcp_memory_service/storage/milvus_graph.py",
     "mcp_memory_service/models/ontology.py",
+    "mcp_memory_service/config/documents.py",
+    "mcp_memory_service/consolidation/associations.py",
+    "mcp_memory_service/storage/migration_runner.py",
+    "mcp_memory_service/sync/litestream_config.py",
+    "mcp_memory_service/utils/directory_ingestion.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -268,6 +273,11 @@ MODULE_EXTERNAL_NAMES = {
     # the caller's `db_path`.
     "mcp_memory_service/web/oauth/discovery.py": frozenset({"issuer"}),
     "mcp_memory_service/web/oauth/storage/factory.py": frozenset({"db_dir"}),
+    # `name` in storage/migration_runner.py is parsed out of a filename inside
+    # `migrations_dir`, and `config_path` in sync/litestream_config.py may be
+    # passed in by the caller.
+    "mcp_memory_service/storage/migration_runner.py": frozenset({"name"}),
+    "mcp_memory_service/sync/litestream_config.py": frozenset({"config_path"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -299,13 +309,21 @@ def _is_sanitised(node: ast.expr) -> bool:
 
 
 def _is_guarded_logger_call(node: ast.AST) -> bool:
-    """True for `logger.<level>(...)` or `logging.<level>(...)` at one of the levels the gate guards."""
-    return (
+    """True for `logger.<level>(...)`, `logging.<level>(...)`, or `self.logger.<level>(...)`."""
+    if not (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in GUARDED_LEVELS
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id in ("logger", "logging")
+    ):
+        return False
+    target = node.func.value
+    if isinstance(target, ast.Name) and target.id in ("logger", "logging"):
+        return True
+    return (
+        isinstance(target, ast.Attribute)
+        and target.attr == "logger"
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
     )
 
 
@@ -868,3 +886,39 @@ def test_lazy_scan_flags_oauth_discovery_and_factory_values():
     assert _lazy_findings(bare_db_dir, factory_extra)
     assert not _lazy_findings(bare_db_dir), "not an EXTERNAL_NAMES entry: the module list carries it"
     assert not _lazy_findings(wrapped_db_dir, factory_extra)
+
+
+@pytest.mark.unit
+def test_scans_cover_instance_logger_calls():
+    """Classes such as FileIngestionProcessor and CreativeAssociationEngine log
+    through `self.logger.<level>(...)`, which the shell gate already matches.
+    The AST and lazy scans must inspect `self.logger` calls too.
+    """
+    fstring_sample = "self.logger.info(" + 'f"Processing: {file_path.name}")\n'
+    assert _gate_findings(fstring_sample)
+    assert _ast_findings(fstring_sample)
+    assert _lazy_findings('self.logger.info("Processing: %s", file_path.name)\n')
+    assert not _lazy_findings('self.logger.info("Processing: %s", _sanitize_log_value(file_path.name))\n')
+    assert not _lazy_findings('self.logger.info("Discovered %d associations from %d pairs", count, total)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_migration_runner_and_litestream_paths():
+    """`name` in storage/migration_runner.py is parsed from migration filenames
+    on disk, and `config_path` in sync/litestream_config.py comes from the
+    caller. Neither name is in EXTERNAL_NAMES globally, so both are guarded via
+    MODULE_EXTERNAL_NAMES.
+    """
+    mig_extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/storage/migration_runner.py"]
+    bare_mig = 'logger.info("Migration %03d_%s applied successfully", version, name)\n'
+    wrapped_mig = 'logger.info("Migration %03d_%s applied successfully", version, _sanitize_log_value(name))\n'
+    assert _lazy_findings(bare_mig, mig_extra)
+    assert not _lazy_findings(bare_mig), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_mig, mig_extra)
+
+    ls_extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/sync/litestream_config.py"]
+    bare_ls = 'logger.info("Litestream configuration written to %s", config_path)\n'
+    wrapped_ls = 'logger.info("Litestream configuration written to %s", _sanitize_log_value(config_path))\n'
+    assert _lazy_findings(bare_ls, ls_extra)
+    assert not _lazy_findings(bare_ls), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_ls, ls_extra)
