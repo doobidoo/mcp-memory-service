@@ -196,9 +196,7 @@ def test_claim_assigns_confirms_and_cleans_pending(tmp_path, monkeypatch):
         "    /claim",
         "`/claim`",
         "<!--\n/claim\n-->",
-        "/claim @bob",
         "/claiming",
-        "I'd like to take this one.",
     ],
 )
 def test_only_a_standalone_command_assigns(tmp_path, monkeypatch, body):
@@ -209,7 +207,146 @@ def test_only_a_standalone_command_assigns(tmp_path, monkeypatch, body):
 
 
 @pytest.mark.parametrize(
-    "change", ["closed", "locked", "no-opt-in", "no-gfi", "bot", "pr"]
+    "body",
+    [
+        "I'd like to take this one.",
+        "I would like to take this one too, unless the reporter plans to fix it.",
+        "/claim @bob",  # cannot assign someone else; the reply says who /claim assigns
+    ],
+)
+def test_prose_claim_is_not_assigned_but_told_the_command_once(tmp_path, monkeypatch, body):
+    api = GitHub([comment(body=body)])
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert not api.issue["assignees"]
+    assert len(api.replies) == 1
+    assert api.replies[0].startswith("<!-- auto-claim:10:hint -->\n@alice, ")
+    assert "new comment" in api.replies[0]
+    assert "`/claim` on a line of its own" in api.replies[0]
+
+    # Saying it again does not get a second reply: one hint per person and issue.
+    api.comments.append(comment(11, "alice", "Thanks, I'll take this"))
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1]) == 0
+    assert len(api.replies) == 1
+
+
+# The same sentences test_mark_claim_pending.py lists as non-claims, plus the ones the
+# broad matcher behind "did someone else claim first" accepts. None may be answered
+# with an offer to assign.
+@pytest.mark.parametrize(
+    "body",
+    [
+        "I don't think I can take this",
+        "I can't take this right now",
+        "Not sure I can take this on",
+        "I won't be able to work on this",
+        "No, I can't take this",
+        "I don't think I'd like to work on this",
+        "I would not like to take this one",
+        "Can I take this approach instead of the other one?",
+        "Can I take this one step at a time?",
+        "Could you please assign this to me?",
+        "I want to fix this bug with a small patch",
+        "Any update on this?",
+    ],
+)
+def test_refusals_and_questions_get_no_hint(tmp_path, monkeypatch, body):
+    api = GitHub([comment(body=body)])
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert not api.issue["assignees"]
+    assert not api.replies
+
+
+def test_hint_survives_a_replaced_run(tmp_path, monkeypatch):
+    # Actions can replace a pending run. The run for the claim never executes; the one
+    # that survives was started by someone else's discussion comment and has to find
+    # the claim in the history.
+    api = GitHub([
+        comment(10, "alice", "I would like to take this one."),
+        comment(11, "bob", "The stack trace above is from the nightly build."),
+    ])
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert not api.issue["assignees"]
+    assert len(api.replies) == 1
+    assert api.replies[0].startswith("<!-- auto-claim:10:hint -->\n@alice, ")
+
+
+def test_hint_goes_to_the_earliest_claim_of_the_author(tmp_path, monkeypatch):
+    api = GitHub([
+        comment(10, "alice", "I'll take this"),
+        comment(11, "alice", "Actually, I would like to take this one too."),
+    ])
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert [reply.split("\n")[0] for reply in api.replies] == ["<!-- auto-claim:10:hint -->"]
+
+
+def test_command_after_the_hint_assigns(tmp_path, monkeypatch):
+    api = GitHub([comment(body="I would like to take this one too.")])
+    run_cli(tmp_path, monkeypatch, api)
+    api.comments.append(comment(12, "alice", "/claim"))
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1]) == 0
+    assert api.issue["assignees"] == [{"login": "alice"}]
+    assert any(":assigned -->" in reply for reply in api.replies)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["no-opt-in", "assigned", "maintainer", "second-claimant", "withdrew", "discussion",
+     "open-pr", "released-before", "edited-earlier-claim", "edited-this-claim"],
+)
+def test_no_hint_where_the_command_would_not_assign(tmp_path, monkeypatch, case):
+    prose = "I'd like to take this one."
+    api = GitHub([comment(body=prose)])
+    trigger = api.comments[0]
+    if case == "no-opt-in":
+        api.issue["labels"] = [{"name": "good first issue"}]
+    if case == "assigned":
+        api.issue["assignees"] = [{"login": "carol"}]
+    if case == "maintainer":
+        trigger["author_association"] = "OWNER"
+    if case == "second-claimant":
+        api.comments = [comment(9, "bob", "I'll take this"), trigger]
+    if case == "withdrew":
+        api.comments = [comment(9, "alice", "I am no longer working on this."), trigger]
+    if case == "discussion":
+        trigger["body"] = "I think the fix is in parser.py."
+    if case == "open-pr":
+        api.open_pr = True
+    if case == "released-before":
+        api.timeline = [{"event": "unassigned"}]
+    # An edited claim makes a later /claim a case for the maintainer (claim_ambiguity),
+    # so the reply must not promise an assignment.
+    if case == "edited-earlier-claim":
+        earlier = comment(9, "alice", "I'll take this", updated_at="2026-11-01T11:00:00Z")
+        api.comments = [earlier, trigger]
+    if case == "edited-this-claim":
+        trigger["updated_at"] = "2026-11-01T11:00:00Z"
+    before = list(api.issue["assignees"])
+    assert run_cli(tmp_path, monkeypatch, api, trigger=trigger) == 0
+    assert api.issue["assignees"] == before
+    assert not [reply for reply in api.replies if ":hint -->" in reply]
+
+
+def test_prose_claim_is_still_labelled_pending(tmp_path, monkeypatch):
+    api = GitHub([comment(body="I would like to take this one too, unless someone else is on it.")])
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [("auto-assign",), ("bug", "help wanted", "auto-assign"), ("good first issue", "auto-assign")],
+)
+def test_auto_assign_label_alone_opts_an_issue_in(tmp_path, monkeypatch, labels):
+    # #1998 was a bug with `help wanted`: scope settled, but the command did nothing
+    # because the issue was not also a good first issue.
+    api = GitHub(labels=labels)
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert api.issue["assignees"] == [{"login": "alice"}]
+    assert any(":assigned -->" in reply for reply in api.replies)
+
+
+@pytest.mark.parametrize(
+    "change", ["closed", "locked", "no-opt-in", "bot", "pr"]
 )
 def test_ineligible_issue_or_comment_never_assigns(tmp_path, monkeypatch, change):
     api = GitHub()
@@ -219,8 +356,6 @@ def test_ineligible_issue_or_comment_never_assigns(tmp_path, monkeypatch, change
         api.issue["locked"] = True
     if change == "no-opt-in":
         api.issue["labels"] = [{"name": "good first issue"}]
-    if change == "no-gfi":
-        api.issue["labels"] = [{"name": "auto-assign"}]
     if change == "bot":
         api.comments[0]["user"]["type"] = "Bot"
     if change == "pr":

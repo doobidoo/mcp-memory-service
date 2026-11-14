@@ -3,9 +3,11 @@
 
 CONTRIBUTING.md ("Before You Start: Claim the Issue") asks a contributor to
 comment on an issue and wait for a maintainer to confirm before writing code.
-Confirmation is manual except for issues carrying both `good first issue` and
-`auto-assign`: with --auto-assign, a standalone /claim can confirm that prepared
-scope. Earlier claims, edits, withdrawals and existing PRs require manual review.
+Confirmation is manual except for issues carrying `auto-assign`: with
+--auto-assign, a standalone /claim can confirm that prepared scope. The label is
+the maintainer's approval of the scope, on a bug as much as on a good first
+issue. Earlier claims, edits, withdrawals and existing PRs require manual review.
+A claim written in prose on such an issue gets one reply naming the command.
 
 This runs on `issue_comment: created` (.github/workflows/claim-pending.yml) and
 adds the `claim-pending` label when a comment reads as a claim, so an unassigned
@@ -14,7 +16,7 @@ only labels. The automatic path confirms once, removes claim-pending itself and
 invokes the claim check explicitly, because GITHUB_TOKEN emits no assigned run.
 
 A claim is a `/claim` command or one of a few anchored phrases ("I'd like to
-work on this", "I'll take this", "can I take this"). The set is deliberately
+work on this", "I'll take this one", "can I take this"). The set is deliberately
 tight: a miss costs nothing (the maintainer still sees the comment), a false
 positive mislabels an issue, so "can I take this approach?" must not match.
 Only when the issue has no assignee and no open PR that closes it, and the
@@ -47,17 +49,25 @@ EXEMPT_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # just as tight; prefer missing a claim to labelling a question.
 _AP = r"['\u2019]"  # straight or curly apostrophe
 _END = r"(?=[\s]*(?:[.!?,;:)\"']|$))"
+# What is claimed: "this", "it", "this one", "this issue", optionally followed by
+# "too" or "as well" (someone taking a second issue). Two real claims were missed
+# without these: "I would like to take this one too, unless ..." (#1998) and
+# "I would like to take this one, unless ..." (#1997). The clause still has to end
+# right after, so "take this one step at a time" and "take this issue seriously"
+# stay prose.
+_OBJ = r"(?:this(?: one| issue)?|it)(?: too| as well)?"
 _CLAIM_PATTERNS = (
     r"^\s*/claim\b",
-    r"\bi" + _AP + r"d like to work on (?:this|it)" + _END,
-    r"\bi" + _AP + r"d like to take (?:this|it)" + _END,
-    r"\bi" + _AP + r"ll take (?:this|it)" + _END,
-    r"\bi" + _AP + r"ll work on (?:this|it)" + _END,
-    r"\bi can take (?:this|it)" + _END,
-    r"\bcan i take (?:this|it)" + _END,
-    r"\bmay i take (?:this|it)" + _END,
-    r"\bi" + _AP + r"m taking (?:this|it)" + _END,
-    r"\bi would like to work on (?:this|it)" + _END,
+    r"\bi" + _AP + r"d like to work on " + _OBJ + _END,
+    r"\bi" + _AP + r"d like to take " + _OBJ + _END,
+    r"\bi" + _AP + r"ll take " + _OBJ + _END,
+    r"\bi" + _AP + r"ll work on " + _OBJ + _END,
+    r"\bi can take " + _OBJ + _END,
+    r"\bcan i take " + _OBJ + _END,
+    r"\bmay i take " + _OBJ + _END,
+    r"\bi" + _AP + r"m taking " + _OBJ + _END,
+    r"\bi would like to work on " + _OBJ + _END,
+    r"\bi would like to take " + _OBJ + _END,
 )
 # Match per line so a phrase ending one line still "ends" with text on the next.
 _CLAIM_RE = re.compile("|".join(_CLAIM_PATTERNS), re.IGNORECASE | re.MULTILINE)
@@ -218,7 +228,11 @@ def _issue_still_eligible(repo: str, number: int) -> tuple[bool, str]:
     return True, "still eligible"
 
 
-AUTO_LABELS = {"good first issue", "auto-assign"}
+# One label opts an issue in. It used to need `good first issue` as well, which left
+# every other issue with a settled scope (a bug with `help wanted`, say) on the manual
+# path: on #1998 a contributor waited three hours for a go-ahead and someone else
+# opened a pull request in that window.
+AUTO_LABELS = {"auto-assign"}
 LOGIN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9-]{0,38}")
 WITHDRAWAL = re.compile(
     r"\b(?:withdraw\w*|stepping (?:back|away)|no longer|stop(?:ping)? working|"
@@ -264,6 +278,7 @@ def possible_claim(body: str) -> bool:
         r"i (?:want to|would like to|will|can|plan to|intend to|am going to)|"
         r"(?:can|may|could) i) (?:take(?: on)?|work on|handle|pick up|tackle|fix|implement)) "
         r"(?:this(?: (?:one|issue|task|bug|ticket))?|it|the (?:issue|task|bug|ticket|fix)|#\d+)"
+        r"(?: too| as well)?"
         r"(?=\s*(?:[.!?,;:)\"']|$)|\s+(?:if|following|with|using|as|and|by|according|"
         r"once|now|today|tomorrow|on|in|for)\b)"
     )
@@ -486,6 +501,71 @@ def confirm_claim(
         raise RuntimeError("claim check refresh receipt was not confirmed")
 
 
+def _already_hinted(comments: list[dict], login: str) -> bool:
+    """One hint per person and issue, however many times they say it."""
+    marker = re.compile(r"<!-- auto-claim:\d+:hint -->\n@" + re.escape(login) + ",", re.IGNORECASE)
+    return any(
+        (c.get("user") or {}).get("type") == "Bot"
+        and (c.get("user") or {}).get("login") == "github-actions[bot]"
+        and marker.match(c.get("body", ""))
+        for c in comments
+    )
+
+
+def hint_command(
+    api: str,
+    repo: str,
+    issue: dict,
+    comments: list[dict],
+    claims: list[dict],
+) -> None:
+    """Tell a contributor who claimed in prose that one command assigns the issue.
+
+    Prose is not consent to an automatic assignment, and it stays that way. But a
+    newcomer cannot know the command, so a prose claim on a prepared issue gets one
+    reply naming it, once per person.
+
+    The claim is taken from the history, not from the triggering event: Actions can
+    replace a pending run, so the run that survives may have been started by a later
+    discussion comment. Like the assignment, the reply goes to the earliest claim.
+
+    It has to pass is_claim(), the tight matcher that knows negation:
+    possible_claim() is deliberately broad, so "I don't think I can take this"
+    is in `claims` and must not be answered with an offer. Nothing is said either
+    when the command would not lead to an assignment: the issue is taken, someone
+    else claimed first, the author withdrew or edited a claim (both make a later
+    /claim a case for the maintainer), or work on it already exists.
+    Maintainers are not told how their own repository works.
+    """
+    claim = next((c for c in claims if is_claim(prose(c.get("body", "")))), None)
+    if claim is None:
+        return
+    if not auto_eligible(issue) or issue.get("assignees"):
+        return
+    if claim.get("author_association") in EXEMPT_ASSOCIATIONS:
+        return
+    login = claim["user"]["login"].lower()
+    if any(c["user"]["login"].lower() != login for c in claims):
+        return
+    if any(WITHDRAWAL.search(prose(c.get("body", ""))) for c in claims):
+        return
+    if any(c.get("updated_at") != c.get("created_at") for c in claims):
+        return
+    if _already_hinted(comments, claim["user"]["login"]):
+        return
+    if existing_work(repo, issue["number"], api):
+        return
+    reply_once(
+        api,
+        comments,
+        claim,
+        "hint",
+        "this issue is prepared for automatic assignment. Post a new comment with "
+        "`/claim` on a line of its own and it is assigned to you. Editing this "
+        "comment does not work. Please wait for the assignment before starting.",
+    )
+
+
 def automatic_event(event: dict) -> bool:
     """Only new human issue comments on opted-in issues use automatic claims."""
     issue = event.get("issue", {})
@@ -580,6 +660,7 @@ def handle_auto_claim(event: dict, repo: str) -> bool:
         return True
     comments, claims, commands = read_claim_history(api)
     if not commands:
+        hint_command(api, repo, issue, comments, claims)
         event["issue"] = (
             issue  # label-only fallback uses live state, not the event snapshot
         )
@@ -608,7 +689,7 @@ def main() -> int:
     parser.add_argument(
         "--auto-assign",
         action="store_true",
-        help="assign explicit /claim comments on opted-in good first issues",
+        help="assign explicit /claim comments on issues labelled auto-assign",
     )
     args = parser.parse_args()
 
