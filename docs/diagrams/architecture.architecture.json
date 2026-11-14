@@ -402,7 +402,7 @@
       "id": "milvus",
       "type": "database",
       "label": "Milvus",
-      "sublabel": "vector database server",
+      "sublabel": "Lite file or remote server",
       "pos": [
         1210,
         560
@@ -417,6 +417,12 @@
           "line": 184,
           "end_line": 184,
           "label": "MilvusMemoryStorage"
+        },
+        {
+          "path": "src/mcp_memory_service/storage/milvus.py",
+          "line": 238,
+          "end_line": 238,
+          "label": "default uri: Milvus Lite"
         },
         {
           "path": "src/mcp_memory_service/storage/factory.py",
