@@ -702,6 +702,7 @@
   "island.dismiss": "关闭",
   "island.reconnect": "Reconnect",
   "island.source.connection": "Live updates",
+  "island.source.sync": "Cloud sync",
   "sync.deltaSync": "增量同步",
   "sync.checking": "检查中...",
   "sync.pauseTitle": "暂停同步",
