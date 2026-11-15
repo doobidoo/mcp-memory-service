@@ -59,6 +59,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/sync/exporter.py",
     "mcp_memory_service/backup/scheduler.py",
     "mcp_memory_service/web/api/analytics.py",
+    "mcp_memory_service/web/api/health.py",
     "mcp_memory_service/storage/mixins/base.py",
     "mcp_memory_service/storage/mixins/metadata.py",
     "mcp_memory_service/web/oauth/middleware.py",
@@ -126,6 +127,8 @@ GUARDED_MODULES = [
     "mcp_memory_service/utils/directory_ingestion.py",
     "mcp_memory_service/consolidation/quarantine.py",
     "mcp_memory_service/consolidation/relationship_inference.py",
+    "mcp_memory_service/storage/mixins/retrieve.py",
+    "mcp_memory_service/storage/shared.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -687,6 +690,24 @@ def test_lazy_scan_flags_quarantine_hashes():
     assert not _lazy_findings('logger.error("Failed to quarantine memory %s: %s", _sanitize_log_value(content_hash[:8]), _sanitize_log_value(msg))\n')
     assert _lazy_findings('logger.info("NLI background check: pairs_detected=%s", result.get("pairs_detected", 0))\n')
     assert not _lazy_findings('logger.info("NLI background check: pairs_detected=%s", pairs_detected)\n')
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_retrieve_tags_and_shared_decode_error():
+    """What storage/mixins/retrieve.py and storage/shared.py log about a search.
+
+    `tags` is listed: the list itself is wrapped, as storage/mixins/delete.py
+    already does for the same list, and the count of tags given is read into
+    `tags_given` before it is logged, the way #2001 did for the NLI pair count.
+    The decode error `_safe_json_loads` reports is the `metadata` text read
+    back off a row, so `exc` is wrapped there too.
+    """
+    assert _lazy_findings('logger.warning("Too many tags provided for search (%s), limiting to %s", len(tags), _MAX_TAGS_FOR_SEARCH)\n')
+    assert not _lazy_findings('logger.warning("Too many tags provided for search (%s), limiting to %s", tags_given, _MAX_TAGS_FOR_SEARCH)\n')
+    assert _ast_findings('logger.info(f"Found {len(results)} memories with tags: {[_sanitize_log_value(t) for t in tags]}")\n')
+    assert not _lazy_findings('logger.info("Found %d memories with tags: %s", len(results), _sanitize_log_value(tags))\n')
+    assert _lazy_findings('logger.error("JSON decode error in %s: %s", context, exc)\n')
+    assert not _lazy_findings('logger.error("JSON decode error in %s: %s", context, _sanitize_log_value(exc))\n')
 
 
 @pytest.mark.unit
