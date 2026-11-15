@@ -1102,6 +1102,7 @@ class MemoryDashboard {
         console.log('Sync progress:', data);
 
         // The event comes every ten memories; the island shows its percentage.
+        this._syncProgressAt = Date.now();
         this._reportSync({
             state: 'busy',
             text: { key: 'sync.status.syncing', fallback: 'Syncing' },
@@ -1915,8 +1916,9 @@ class MemoryDashboard {
 
     /**
      * Map a GET /sync/status answer to the status island. The poll runs every ten
-     * seconds, so it must not undo what the SSE events reported: a measured percentage
-     * stays while the server still says "syncing", and a confirmation keeps its time.
+     * seconds and after every progress event, so it must not undo what the SSE events
+     * reported: a running sync keeps its percentage, and a confirmation keeps its time.
+     * Only an error gets through.
      */
     _reportSyncStatus(syncStatus) {
         if (!this.statusIsland) return;
@@ -1926,9 +1928,19 @@ class MemoryDashboard {
             return;
         }
         const entry = this._syncIslandEntry(syncStatus);
-        if (current?.state === 'success' && entry.state === 'ready') return;
-        if (current?.state === 'busy' && typeof current.progress === 'number' && entry.state === 'busy') return;
+        if (entry.state !== 'error' && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
         this._reportSync(entry);
+    }
+
+    /**
+     * Whether the island shows a sync the progress events still describe. The poll
+     * cannot tell: /sync/status says "syncing" only for `actively_syncing`, which the
+     * storage never reports, so during a pull it answers "synced" or "pending". A
+     * minute without an event (a dropped stream) hands the row back to the poll.
+     */
+    _syncProgressRunning(current) {
+        return current?.state === 'busy' && typeof current.progress === 'number'
+            && Date.now() - (this._syncProgressAt || 0) < 60000;
     }
 
     /** The island entry for a sync status; the poll carries no percentage. */

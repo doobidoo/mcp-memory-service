@@ -347,18 +347,53 @@ test('a sync error stays on the island until sync reports again', () => {
     assert.equal(model.get('sync').state, 'ready');
 });
 
-test('the ten-second poll does not undo what the sync events reported', () => {
+// What GET /api/sync/status answers while a pull runs (SyncStatusResponse in
+// web/api/sync.py). `status` is "syncing" only for `actively_syncing`, which the
+// storage never reports, so a running pull reads "synced", or "pending" while
+// writes wait in the queue.
+const pollDuringPull = (status) => ({
+    is_hybrid: true, is_running: true, is_paused: false, last_sync_time: 1700000000,
+    operations_pending: status === 'pending' ? 3 : 0, operations_processed: 120, operations_failed: 0,
+    consecutive_failures: status === 'error' ? 1 : 0, sync_interval_seconds: 300,
+    time_since_last_sync_seconds: 12, next_sync_eta_seconds: 288, status,
+    delta_sync_peers: [], delta_sync: {},
+});
+
+test('the poll does not erase a running sync, whatever it answers', () => {
     const { app, model } = syncDashboard();
     app.handleSyncProgress({ synced_count: 30, total_count: 100, progress_percentage: 30 });
-    app._reportSyncStatus(hybrid('syncing'));
-    assert.equal(model.get('sync').progress, 30, 'a measured percentage is not replaced by "unknown"');
+    for (const status of ['synced', 'pending', 'syncing']) {
+        app._reportSyncStatus(pollDuringPull(status));
+        assert.deepEqual([model.get('sync').state, model.get('sync').progress], ['busy', 30], `poll answered ${status}`);
+    }
+    app._reportSyncStatus({ ...pollDuringPull('synced'), is_paused: true });
+    assert.equal(model.get('sync').progress, 30, 'paused');
 
-    app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
-    app._reportSyncStatus(hybrid('synced'));
-    assert.equal(model.get('sync').state, 'success', 'the confirmation keeps its time');
+    app.handleSyncProgress({ synced_count: 60, total_count: 100, progress_percentage: 60 });
+    assert.equal(model.get('sync').progress, 60, 'the next event still moves the bar');
 
-    app._reportSyncStatus(hybrid('error'));
+    app._reportSyncStatus(pollDuringPull('error'));
     assert.equal(model.get('sync').state, 'error', 'but a failure is always shown');
+});
+
+test('the poll keeps the confirmation for its time', () => {
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 90, total_count: 100, progress_percentage: 90 });
+    app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
+    app._reportSyncStatus(pollDuringPull('synced'));
+    assert.equal(model.get('sync').state, 'success');
+    app._reportSyncStatus(pollDuringPull('error'));
+    assert.equal(model.get('sync').state, 'error');
+});
+
+test('a sync whose events stopped a minute ago goes back to the poll', () => {
+    // A dropped stream never delivers sync_completed; the bar must not stay forever.
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 30, total_count: 100, progress_percentage: 30 });
+    app._syncProgressAt -= 61000;
+    app._reportSyncStatus(pollDuringPull('synced'));
+    assert.equal(model.get('sync').state, 'ready');
+    assert.equal(model.get('sync').text.key, 'sync.status.synced');
 });
 
 test('a backend without hybrid sync reports nothing, and a stale sync row goes', () => {
