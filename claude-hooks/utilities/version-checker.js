@@ -8,26 +8,29 @@ const path = require('path');
 const https = require('https');
 
 /**
- * Read version from __init__.py
+ * Read version from _version.py, falling back to __init__.py
  * @param {string} projectRoot - Path to project root directory
  * @returns {Promise<string|null>} Version string or null if not found
  */
 async function readLocalVersion(projectRoot) {
-    try {
-        const initPath = path.join(projectRoot, 'src', 'mcp_memory_service', '__init__.py');
-        const content = await fs.readFile(initPath, 'utf8');
+    // _version.py holds the release version. __init__.py only imports it and keeps a
+    // stale literal for the case where neither _version.py nor package metadata exist.
+    const pkgDir = path.join(projectRoot, 'src', 'mcp_memory_service');
+    for (const file of ['_version.py', '__init__.py']) {
+        try {
+            const content = await fs.readFile(path.join(pkgDir, file), 'utf8');
 
-        // Match __version__ = "X.Y.Z" or __version__ = 'X.Y.Z'
-        const versionMatch = content.match(/__version__\s*=\s*['"]([\d.]+)['"]/);
+            // Match __version__ = "X.Y.Z" or __version__ = 'X.Y.Z'
+            const versionMatch = content.match(/__version__\s*=\s*['"]([\d.]+)['"]/);
 
-        if (versionMatch && versionMatch[1]) {
-            return versionMatch[1];
+            if (versionMatch && versionMatch[1]) {
+                return versionMatch[1];
+            }
+        } catch (error) {
+            // Missing file: try the next one.
         }
-
-        return null;
-    } catch (error) {
-        return null;
     }
+    return null;
 }
 
 /**
