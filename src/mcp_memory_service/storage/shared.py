@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Dict, Iterator, List, Optional
 
+from ..compat import _sanitize_log_value
+
 logger = logging.getLogger(__name__)
 
 _versioned_conflict_exclusion: ContextVar[Optional[str]] = ContextVar(
@@ -140,7 +142,7 @@ def _safe_json_loads(text: str, context: str = "") -> Dict[str, Any]:
     try:
         parsed = json.loads(text)
     except (json.JSONDecodeError, TypeError) as exc:
-        logger.error("JSON decode error in %s: %s", context, exc)
+        logger.error("JSON decode error in %s: %s", context, _sanitize_log_value(exc))
         return {}
     if not isinstance(parsed, dict):
         logger.warning("Non-dict JSON in %s: %s", context, type(parsed).__name__)
