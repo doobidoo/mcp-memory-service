@@ -24,6 +24,19 @@ One run does everything the reported numbers need:
     python scripts/nli/export_band_pairs.py score \
         --pairs pairs.jsonl --fourway-head fourway_head
 
+A store whose registers differ from the generator's (the third real-store
+run in #1460 showed this happens: session-note stores) can adapt the
+pre-trained head on its OWN labeled pairs — labels, model and reruns stay
+on that machine:
+
+    # 3. adapt on the store's own labeled export, low LR, a few epochs
+    python scripts/nli/train_fourway_head.py \
+        --resume-from fourway_head --adapt-pairs pairs.jsonl \
+        --out fourway_head_adapted
+
+The built-in three-set report then doubles as the forgetting check, and
+step 2 with the adapted dir scores the same export with it.
+
 The report prints the shipped rule (bidirectional, via the repo's own
 NLIClassifier + fourway_decide) and the head (single direction, ONNX) on
 three held-out sets, plus frozen post-training probes. torch is needed for
@@ -90,22 +103,64 @@ def _load_harness():
     return harness
 
 
+GOLD2FOUR = {"updates": "changes", "neutral": "unrelated",
+             "entailment": "repeats"}
+
+
+def read_adapt_pairs(path):
+    """Rows for --adapt-pairs, from the store's own labeled export.
+
+    The harness gold scheme (updates/neutral/entailment) maps onto the
+    head's classes; rows already labeled in the four classes pass through;
+    contradiction has no 4-way target — it belongs to review, which no
+    training data exists for anywhere — so those rows are skipped and
+    counted, never silently dropped.
+    """
+    rows, skipped = [], 0
+    for line in open(path, encoding="utf-8"):
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        label = r.get("label")
+        if label in GOLD2FOUR:
+            rows.append((GOLD2FOUR[label], r["older"], r["newer"]))
+        elif label in ("changes", "ends", "repeats", "unrelated"):
+            rows.append((label, r["older"], r["newer"]))
+        else:
+            skipped += 1
+    if not rows:
+        sys.exit(f"--adapt-pairs {path}: no usable rows (labels must be "
+                 f"gold-scheme {sorted(GOLD2FOUR)} or the four classes)")
+    return rows, skipped
+
+
 def train(args, lbl, id2lbl):
     import torch
     from torch.utils.data import DataLoader, Dataset
     from transformers import (AutoModelForSequenceClassification,
                               AutoTokenizer)
 
-    train_rows, val_rows = D.build(seed=args.seed)
-    log(f"train={len(train_rows)} val={len(val_rows)} "
-        f"counts={dict(Counter(r[0] for r in train_rows))}")
+    adapt_meta = None
+    if args.resume_from:
+        train_rows, skipped = read_adapt_pairs(args.adapt_pairs)
+        val_rows = []
+        adapt_meta = {"adapted_from": args.resume_from,
+                      "adapt_pairs": len(train_rows),
+                      "skipped_labels": skipped}
+        log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs}, "
+            f"{skipped} skipped (contradiction -> review has no head class)")
+        tok = AutoTokenizer.from_pretrained(args.resume_from)
+        model = AutoModelForSequenceClassification.from_pretrained(args.resume_from)
+    else:
+        train_rows, val_rows = D.build(seed=args.seed)
+        log(f"train={len(train_rows)} val={len(val_rows)} "
+            f"counts={dict(Counter(r[0] for r in train_rows))}")
+        snap = _base_snapshot()
+        tok = AutoTokenizer.from_pretrained(snap)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            snap, num_labels=4, ignore_mismatched_sizes=True)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
-
-    snap = _base_snapshot()
-    tok = AutoTokenizer.from_pretrained(snap)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        snap, num_labels=4, ignore_mismatched_sizes=True)
     model.config.id2label = {i: id2lbl[i] for i in range(4)}
     model.config.label2id = lbl
 
@@ -126,21 +181,29 @@ def train(args, lbl, id2lbl):
         feats, ys = zip(*batch)
         return tok.pad(list(feats), padding=True, return_tensors="pt"), torch.stack(ys)
 
-    dl = DataLoader(PairDataset(train_rows), batch_size=args.batch,
-                    shuffle=True, collate_fn=collate)
-    val_dl = DataLoader(PairDataset(val_rows), batch_size=32,
-                        shuffle=False, collate_fn=collate)
+    epochs_eff = args.adapt_epochs if adapt_meta else args.epochs
+    lr_eff = args.adapt_lr if adapt_meta else args.lr
+    # small sets need small batches: with the training default of 16 a
+    # 16-pair adaptation is one step per epoch and barely moves the head
+    batch_eff = min(args.batch, 8) if adapt_meta else args.batch
 
-    steps = len(dl) * args.epochs
+    dl = DataLoader(PairDataset(train_rows), batch_size=batch_eff,
+                    shuffle=True, collate_fn=collate)
+    # empty in adapt mode: the store's own pairs are too few to split, the
+    # forgetting check replaces validation
+    val_dl = (DataLoader(PairDataset(val_rows), batch_size=32,
+                         shuffle=False, collate_fn=collate)
+              if val_rows else None)
+    steps = len(dl) * epochs_eff
     warm = max(1, int(steps * 0.1))
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr_eff, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: s / warm if s < warm
         else max(0.0, (steps - s) / max(1, steps - warm)))
     lossf = torch.nn.CrossEntropyLoss()
 
     val_accs = []
-    for ep in range(args.epochs):
+    for ep in range(epochs_eff):
         model.train()
         t0, running = time.perf_counter(), 0.0
         for step, (enc, y) in enumerate(dl):
@@ -154,13 +217,14 @@ def train(args, lbl, id2lbl):
                 log(f"  ep{ep + 1} step {step + 1}/{len(dl)} "
                     f"loss {running / (step + 1):.4f} "
                     f"({time.perf_counter() - t0:.0f}s)")
-        model.eval()
-        correct = 0
-        with torch.no_grad():
-            for enc, y in val_dl:
-                correct += (model(**enc).logits.argmax(-1) == y).sum().item()
-        val_accs.append(round(correct / len(val_dl.dataset), 4))
-        log(f"  ep{ep + 1} val acc {val_accs[-1]:.4f}")
+        if val_rows:
+            model.eval()
+            correct = 0
+            with torch.no_grad():
+                for enc, y in val_dl:
+                    correct += (model(**enc).logits.argmax(-1) == y).sum().item()
+            val_accs.append(round(correct / len(val_dl.dataset), 4))
+            log(f"  ep{ep + 1} val acc {val_accs[-1]:.4f}")
 
     model.eval()
     model.save_pretrained(args.out)
@@ -174,11 +238,15 @@ def train(args, lbl, id2lbl):
     head_cfg["fourway_max_len"] = args.max_len
     with open(cfg_path, "w", encoding="utf-8") as fh:
         json.dump(head_cfg, fh, indent=1)
-    return model, tok, {
+    cfg = {
         "train": len(train_rows), "val": len(val_rows),
-        "label_counts": dict(Counter(r[0] for r in train_rows)),
         "val_acc_per_epoch": val_accs,
     }
+    if adapt_meta:
+        cfg.update(adapt_meta)
+    else:
+        cfg["label_counts"] = dict(Counter(r[0] for r in train_rows))
+    return model, tok, cfg
 
 
 def export_onnx(model, tok, out):
@@ -336,7 +404,26 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-5)
     ap.add_argument("--max-len", type=int, default=128)
     ap.add_argument("--seed", type=int, default=13)
+    ap.add_argument("--adapt-pairs", default=None, metavar="JSONL",
+                    help="adapt a pre-trained head on this store's own labeled export "
+                         "(harness gold scheme or 4-way labels); requires --resume-from, "
+                         "and the pairs never leave this machine")
+    ap.add_argument("--resume-from", default=None, metavar="DIR",
+                    help="pre-trained head to continue from (with --adapt-pairs)")
+    ap.add_argument("--adapt-lr", type=float, default=1e-5,
+                    help="adaptation learning rate (default 1e-5, a third of training)")
+    ap.add_argument("--adapt-epochs", type=int, default=3)
     args = ap.parse_args()
+    # validated before the torch import so the contract is checkable
+    # everywhere, including machines that only run the test suite
+    if (args.adapt_pairs is None) != (args.resume_from is None):
+        sys.exit("--adapt-pairs and --resume-from go together: adapting "
+                 "continues from a pre-trained head, training from scratch "
+                 "uses the generator")
+    if args.resume_from and not os.path.isdir(args.resume_from):
+        sys.exit(f"--resume-from {args.resume_from}: not a directory")
+    if args.adapt_pairs and not os.path.isfile(args.adapt_pairs):
+        sys.exit(f"--adapt-pairs {args.adapt_pairs}: file not found")
     try:
         import torch  # noqa: F401
     except ImportError:
