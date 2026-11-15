@@ -504,11 +504,13 @@ def confirm_claim(
         f"Please follow CONTRIBUTING.md and link your PR with `Fixes #{number}`. "
         "If you stop working on it, leave a comment here so it can be reassigned.",
     )
-    if LABEL in {x["name"] for x in issue["labels"]}:
-        gh("api", "-X", "DELETE", f"{api}/labels/{LABEL}")
     marker = f"<!-- auto-claim:{first['id']}:refreshed -->"
     if marker in reply["body"]:
+        # Confirmed in an earlier run. A claim-pending label present now was set
+        # afterwards, by a request to take the issue over, and is not ours to drop.
         return
+    if LABEL in {x["name"] for x in issue["labels"]}:
+        gh("api", "-X", "DELETE", f"{api}/labels/{LABEL}")
     # GITHUB_TOKEN assignments do NOT trigger issues:assigned. Invoke the
     # existing re-check explicitly, even on a retry after a partial failure.
     subprocess.run(
@@ -738,14 +740,20 @@ def main() -> int:
     with open(args.event, encoding="utf-8") as fh:
         event = json.load(fh)
 
+    # Taken from the event, before handle_auto_claim swaps in the live issue: a
+    # takeover request is a comment written while someone else held the issue.
+    seen_assigned = bool(event.get("issue", {}).get("assignees"))
+
     if args.auto_assign:
         if args.dry_run:
             print(
                 "Automatic assignment skipped [dry-run is offline; live history checks required]"
             )
             return 0
-        if handle_auto_claim(event, args.repo):
+        if handle_auto_claim(event, args.repo) and not seen_assigned:
             return 0
+        # On an issue that was already assigned, the reconciliation above answers
+        # commands only. A prose request to take it over still needs the label.
 
     # --dry-run stays offline: skip the one networked guard (open PR) and note it.
     has_open_pr = (lambda repo, number: False) if args.dry_run else None
@@ -765,7 +773,8 @@ def main() -> int:
     # Guard the write against a maintainer who assigned (and claim-check.yml
     # cleaned up) while this run waited in the queue: the event payload is a
     # snapshot, so re-read the live issue before adding the label back.
-    takeover_by = event["comment"]["user"]["login"] if reason == TAKEOVER else None
+    takeover = reason == TAKEOVER and seen_assigned
+    takeover_by = event["comment"]["user"]["login"] if takeover else None
     fresh, fresh_reason = _issue_still_eligible(args.repo, number, takeover_by)
     if not fresh:
         print(f"Issue #{number}: no label ({fresh_reason})")

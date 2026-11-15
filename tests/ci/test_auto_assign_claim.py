@@ -344,6 +344,41 @@ def test_prose_takeover_on_an_assigned_prepared_issue_is_labelled(tmp_path, monk
     assert not api.replies
 
 
+def test_claim_on_a_free_prepared_issue_is_not_relabelled_after_an_assignment(
+    tmp_path, monkeypatch
+):
+    """The comment saw a free issue; a maintainer assigned someone else while the
+    run was queued. That is an answered claim, not a takeover request."""
+    api = GitHub([comment(body="I'd like to take this one.")])
+
+    def assign_meanwhile(_reads):
+        api.issue["assignees"] = [{"login": "carol"}]
+
+    api.before_read = assign_meanwhile
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert {"name": "claim-pending"} not in api.issue["labels"]
+
+
+def test_prose_takeover_is_labelled_when_the_assignee_used_the_command(tmp_path, monkeypatch):
+    """Most assignments on prepared issues come from /claim, so the history holds a
+    command. The takeover request must be seen there too."""
+    api = GitHub(
+        [
+            comment(9, "carol", "/claim"),
+            comment(10, "alice", "I would like to take this if carol has stepped away."),
+        ],
+        assignees=["carol"],
+    )
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+    # A later comment re-runs the reconciliation; the label must survive it.
+    api.comments.append(comment(11, "dave", "Any update on this?"))
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1]) == 0
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
 def test_prose_claim_is_still_labelled_pending(tmp_path, monkeypatch):
     api = GitHub([comment(body="I would like to take this one too, unless someone else is on it.")])
     assert run_cli(tmp_path, monkeypatch, api) == 0
