@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "整合",
+  "consolidation.completed": "整合已完成（{time_horizon}）",
+  "consolidation.failed": "整合失败（{time_horizon}）",
   "meta.title": "MCP 记忆服务仪表盘",
   "meta.language.code": "zh",
   "meta.language.nativeName": "中文",

@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "Consolidation",
+  "consolidation.completed": "Consolidation completed ({time_horizon})",
+  "consolidation.failed": "Consolidation failed ({time_horizon})",
   "meta.title": "MCP Memory Service - Dashboard",
   "meta.language.code": "en",
   "meta.language.nativeName": "English",

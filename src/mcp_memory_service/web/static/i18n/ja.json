@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "統合",
+  "consolidation.completed": "統合が完了しました（{time_horizon}）",
+  "consolidation.failed": "統合に失敗しました（{time_horizon}）",
   "actions.addMemory": "メモリーを追加",
   "actions.advancedSearch": "高度な検索",
   "actions.browseTags": "タグを閲覧",

@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "समेकन",
+  "consolidation.completed": "समेकन पूरा हुआ ({time_horizon})",
+  "consolidation.failed": "समेकन विफल हुआ ({time_horizon})",
   "meta.title": "MCP मेमोरी सेवा - डैशबोर्ड",
   "meta.language.code": "hi",
   "meta.language.nativeName": "हिन्दी",

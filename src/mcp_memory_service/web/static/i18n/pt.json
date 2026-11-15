@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "Consolidação",
+  "consolidation.completed": "Consolidação concluída ({time_horizon})",
+  "consolidation.failed": "Falha na consolidação ({time_horizon})",
   "meta.title": "MCP Memory Service - Painel",
   "meta.language.code": "pt",
   "meta.language.nativeName": "Português (Brasil)",

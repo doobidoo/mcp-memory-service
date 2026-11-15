@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "Konsolidasi",
+  "consolidation.completed": "Konsolidasi selesai ({time_horizon})",
+  "consolidation.failed": "Konsolidasi gagal ({time_horizon})",
   "meta.title": "MCP Memory Service - Dasbor",
   "meta.language.code": "id",
   "meta.language.nativeName": "Bahasa Indonesia",

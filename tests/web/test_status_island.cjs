@@ -271,3 +271,91 @@ test('a missing script or a throwing constructor leaves the dashboard without an
     app.setupStatusIsland();
     assert.equal(app.statusIsland.options.t('status.connected', 'Connected'), 'Connected');
 });
+
+// Exercise the real SSE listener; only the browser's event transport is replaced.
+function consolidationDashboard(options) {
+    const result = dashboard(options);
+    const listeners = new Map();
+    result.context.EventSource = class {
+        addEventListener(name, listener) { listeners.set(name, listener); }
+    };
+    result.app._scheduleDashboardRefresh = () => {
+        result.refreshes = (result.refreshes || 0) + 1;
+    };
+    result.app._connectSSE('/api/events');
+    result.emit = (data) => listeners.get('consolidation_completed')({ data });
+    return result;
+}
+
+test('consolidation success reports its horizon and disappears without settling', () => {
+    const { emit, reports } = consolidationDashboard();
+    emit(JSON.stringify({ time_horizon: 'daily', success: true }));
+    assert.equal(reports.length, 1);
+    const [id, entry] = reports[0];
+    assert.equal(id, 'consolidation');
+    assert.equal(entry.state, 'success');
+    assert.equal(entry.label.key, 'consolidation.title');
+    assert.equal(entry.text.key, 'consolidation.completed');
+    assert.equal(entry.text.vars.time_horizon, 'daily');
+    assert.equal(entry.settle, undefined);
+    const model = StatusIsland.createModel();
+    const done = model.report(id, entry);
+    assert.equal(model.expire(id, done.seq), true);
+    assert.equal(model.get(id), null);
+});
+
+test('consolidation failure persists through other reports until dismissed or replaced', () => {
+    const result = consolidationDashboard();
+    result.emit(JSON.stringify({ time_horizon: 'weekly', success: false }));
+    const [id, entry] = result.reports[0] || [];
+    assert.equal(id, 'consolidation');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.text.key, 'consolidation.failed');
+    assert.equal(entry.dismissible, true);
+    const model = StatusIsland.createModel();
+    const failed = model.report(id, entry);
+    model.report('connection', ready);
+    assert.equal(model.expire(id, failed.seq), false);
+    assert.equal(model.lead().id, id);
+    assert.equal(model.dismiss(id), true);
+    assert.equal(model.get(id), null);
+    model.report(id, entry);
+    result.emit(JSON.stringify({ time_horizon: 'weekly', success: true }));
+    model.report(...result.reports[1]);
+    assert.equal(model.get(id).state, 'success');
+    assert.equal(result.refreshes, 2);
+});
+
+test('consolidation events refresh even without the island', () => {
+    for (const island of [undefined, null]) {
+        const result = consolidationDashboard({ island });
+        result.app.statusIsland = island;
+        for (const success of [true, false]) {
+            assert.doesNotThrow(() => result.emit(JSON.stringify({ time_horizon: 'daily', success })));
+        }
+        assert.equal(result.refreshes, 2);
+    }
+});
+
+test('malformed consolidation events cannot report a false result or break refreshes', () => {
+    const result = consolidationDashboard();
+    const invalid = ['{', 'null', '{}', '{"success":"false"}', '{"success":true}',
+        '{"success":true,"time_horizon":{}}'];
+    for (const data of invalid) assert.doesNotThrow(() => result.emit(data));
+    assert.equal(result.reports.length, 0);
+    assert.equal(result.refreshes, invalid.length);
+});
+
+test('consolidation report keys and interpolation variables exist in every catalog', () => {
+    const { emit, reports } = consolidationDashboard();
+    for (const success of [true, false]) emit(JSON.stringify({ time_horizon: 'daily', success }));
+    assert.equal(reports.length, 2);
+    for (const file of fs.readdirSync(STATIC + 'i18n').filter(name => name.endsWith('.json'))) {
+        const catalog = JSON.parse(fs.readFileSync(STATIC + 'i18n/' + file, 'utf8'));
+        for (const [, entry] of reports) {
+            assert.ok(catalog[entry.label.key], `${file}: ${entry.label.key}`);
+            assert.ok(catalog[entry.text.key], `${file}: ${entry.text.key}`);
+            assert.ok(catalog[entry.text.key].includes('{time_horizon}'), file);
+        }
+    }
+});

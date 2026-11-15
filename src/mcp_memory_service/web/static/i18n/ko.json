@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "통합",
+  "consolidation.completed": "통합 완료 ({time_horizon})",
+  "consolidation.failed": "통합 실패 ({time_horizon})",
   "actions.addMemory": "메모리 추가",
   "actions.advancedSearch": "고급 검색",
   "actions.browseTags": "태그 탐색",

@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "Consolidation",
+  "consolidation.completed": "Consolidation terminée ({time_horizon})",
+  "consolidation.failed": "Échec de la consolidation ({time_horizon})",
   "actions.addMemory": "Ajouter Mémoire",
   "actions.advancedSearch": "Recherche Avancée",
   "actions.browseTags": "Parcourir Tags",

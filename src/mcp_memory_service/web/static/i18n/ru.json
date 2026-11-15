@@ -1,4 +1,7 @@
 {
+  "consolidation.title": "Консолидация",
+  "consolidation.completed": "Консолидация завершена ({time_horizon})",
+  "consolidation.failed": "Ошибка консолидации ({time_horizon})",
   "meta.title": "MCP Memory Service — Панель управления",
   "meta.language.code": "ru",
   "meta.language.nativeName": "Русский",

@@ -988,8 +988,25 @@ class MemoryDashboard {
             this._scheduleDashboardRefresh();
         });
 
-        this.eventSource.addEventListener('consolidation_completed', () => {
+        this.eventSource.addEventListener('consolidation_completed', (event) => {
             this._scheduleDashboardRefresh();
+            try {
+                const data = JSON.parse(event.data);
+                if (!data || typeof data.success !== 'boolean' ||
+                    typeof data.time_horizon !== 'string' || !data.time_horizon.trim()) return;
+                this.statusIsland?.report('consolidation', {
+                    state: data.success ? 'success' : 'error',
+                    label: { key: 'consolidation.title', fallback: 'Consolidation' },
+                    text: {
+                        key: data.success ? 'consolidation.completed' : 'consolidation.failed',
+                        fallback: data.success ? 'Consolidation completed ({time_horizon})' : 'Consolidation failed ({time_horizon})',
+                        vars: { time_horizon: data.time_horizon },
+                    },
+                    dismissible: !data.success,
+                });
+            } catch (error) {
+                console.error('Error parsing consolidation_completed event:', error);
+            }
         });
 
         this.eventSource.onerror = (error) => {
