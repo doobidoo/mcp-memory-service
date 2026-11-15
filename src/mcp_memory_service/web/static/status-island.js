@@ -212,7 +212,7 @@
                     try { current.run(); } catch (error) { console.warn('status island action', error); }
                 }));
                 if (source.dismissible) {
-                    button(t('modal.close', 'Close'), actions, `${source.id}:dismiss`, () => {
+                    button(t('island.dismiss', 'Close'), actions, `${source.id}:dismiss`, () => {
                         model.dismiss(source.id);
                         render();
                         toggle.focus();
@@ -230,7 +230,7 @@
             const leadText = say(lead.text);
             text.textContent = leadText;
             toggle.title = leadText;
-            hint.textContent = ', ' + t('manage.ontology.column.detail', 'Details');
+            hint.textContent = ', ' + t('island.details', 'Details');
             // Other sources that are not simply "ready" are counted next to the lead.
             const others = list.slice(1).filter((source) => source.state !== 'ready').length;
             more.textContent = others ? '+' + others : '';

@@ -62,9 +62,9 @@ def test_view_writes_text_only_through_textcontent():
 
 
 def test_island_adds_no_catalog_keys_of_its_own():
-    # The parity test wants every key in all eleven catalogs. The island reuses existing ones.
+    # The island's own catalog keys; the parity test wants each in all eleven catalogs.
     keys = set(re.findall(r"\bt\('([a-zA-Z.]+)'", ISLAND_JS))
-    assert keys == {"modal.close", "manage.ontology.column.detail"}
+    assert keys == {"island.dismiss", "island.details"}
 
 
 def test_reduced_motion_stops_the_island_animations():
