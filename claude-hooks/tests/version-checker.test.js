@@ -10,7 +10,7 @@
  * read that literal and reported every install as 10.13.0 (outdated).
  */
 
-const { test } = require('node:test');
+const { test, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -18,8 +18,18 @@ const path = require('node:path');
 
 const { readLocalVersion } = require('../utilities/version-checker');
 
+const roots = [];
+
+// Runs after each test, also when its assertion failed.
+afterEach(() => {
+    for (const root of roots.splice(0)) {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
 function makeProject(files) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'version-checker-'));
+    roots.push(root);
     const pkg = path.join(root, 'src', 'mcp_memory_service');
     fs.mkdirSync(pkg, { recursive: true });
     for (const [name, content] of Object.entries(files)) {
