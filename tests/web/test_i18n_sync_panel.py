@@ -102,7 +102,7 @@ STATE_KEYS = [
 
 # app.js regions this slice touches, as (start anchor, end anchor) pairs.
 BLOCKS = [
-    ("handleSyncCompleted(data)", "// Show completion notification"),
+    ("handleSyncCompleted(data)", "handleSyncDeltaCompleted(data)"),
     ("async checkSyncStatus()", "async checkBackupStatus()"),
     ("async forceSync()", "const result = await this.apiCall('/sync/force', 'POST');"),
     ("updateConnectionStatus(status)", "async apiCall(endpoint"),

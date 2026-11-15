@@ -616,6 +616,7 @@
   "island.dismiss": "Cerrar",
   "island.reconnect": "Reconnect",
   "island.source.connection": "Live updates",
+  "island.source.sync": "Sincronización en la nube",
   "sync.deltaSync": "Sincronización delta",
   "sync.checking": "Comprobando...",
   "sync.pauseTitle": "Pausar sincronización",
