@@ -595,7 +595,7 @@
   "settings.quality.current.label": "Aktueller Anbieter:",
   "settings.quality.loadFailed": "✗ Aktuelle Einstellungen konnten nicht geladen werden: {error}. Tab erneut öffnen, um es noch einmal zu versuchen.",
   "settings.quality.provider.auto": "Automatisch (Alle Verfügbaren)",
-  "settings.quality.provider.gemini": "Gemini API",
+  "settings.quality.provider.openaiCompatible": "OpenAI-kompatible API",
   "settings.quality.provider.groq": "Groq API",
   "settings.quality.provider.help": "Lokales SLM bietet kostenlose, datenschutzwahrende Qualitätsbewertung",
   "settings.quality.provider.label": "KI-Anbieter",

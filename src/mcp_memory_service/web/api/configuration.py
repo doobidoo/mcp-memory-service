@@ -126,7 +126,10 @@ PARAM_DESCRIPTIONS = {
 
     # Quality System
     "MCP_QUALITY_SYSTEM_ENABLED": "Enable AI-powered quality scoring system",
-    "MCP_QUALITY_AI_PROVIDER": "Quality scoring provider: local, groq, gemini, auto, none",
+    "MCP_QUALITY_AI_PROVIDER": "Quality scoring provider: local, openai-compatible, groq, auto, none",
+    "MCP_QUALITY_AI_BASE_URL": "Base URL of the OpenAI-compatible endpoint (Ollama, vLLM, MLX-LM, LiteLLM); required for openai-compatible",
+    "MCP_QUALITY_AI_MODEL": "Model name sent to the OpenAI-compatible endpoint; required for openai-compatible",
+    "MCP_QUALITY_AI_API_KEY": "API key for the OpenAI-compatible endpoint (leave blank if the server needs none)",
     "MCP_QUALITY_LOCAL_MODEL": "Local ONNX model for quality scoring",
     "MCP_QUALITY_LOCAL_DEVICE": "Device for local inference: auto, cpu, cuda, mps, directml",
     "MCP_QUALITY_BATCH_SIZE": "Maximum items per ONNX inference batch (default: 32, higher = faster on GPU)",
@@ -331,7 +334,10 @@ ENV_CATEGORIES = {
         "description": "AI-powered quality scoring and retention",
         "params": [
             ("MCP_QUALITY_SYSTEM_ENABLED", "boolean", None, False),
-            ("MCP_QUALITY_AI_PROVIDER", "choice", ["local", "groq", "gemini", "auto", "none"], False),
+            ("MCP_QUALITY_AI_PROVIDER", "choice", ["local", "openai-compatible", "groq", "auto", "none"], False),
+            ("MCP_QUALITY_AI_BASE_URL", "string", None, False),
+            ("MCP_QUALITY_AI_MODEL", "string", None, False),
+            ("MCP_QUALITY_AI_API_KEY", "string", None, True),
             ("MCP_QUALITY_LOCAL_MODEL", "string", None, False),
             ("MCP_QUALITY_LOCAL_DEVICE", "choice", ["auto", "cpu", "cuda", "mps", "directml"], False),
             ("MCP_QUALITY_BATCH_SIZE", "integer", None, False),
@@ -819,8 +825,8 @@ QUALITY_WRITABLE_KEYS = ("MCP_QUALITY_AI_PROVIDER", "MCP_QUALITY_BOOST_ENABLED")
 
 # Variables a provider needs before QualityConfig.validate() lets the server start.
 QUALITY_PROVIDER_REQUIREMENTS = {
+    "openai-compatible": ("MCP_QUALITY_AI_BASE_URL", "MCP_QUALITY_AI_MODEL"),
     "groq": ("GROQ_API_KEY",),
-    "gemini": ("GEMINI_API_KEY",),
 }
 
 

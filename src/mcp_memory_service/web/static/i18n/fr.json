@@ -595,7 +595,7 @@
   "settings.quality.current.label": "Fournisseur Actuel :",
   "settings.quality.loadFailed": "✗ Impossible de charger les paramètres actuels : {error}. Rouvrez cet onglet pour réessayer.",
   "settings.quality.provider.auto": "Automatique (Tous Disponibles)",
-  "settings.quality.provider.gemini": "API Gemini",
+  "settings.quality.provider.openaiCompatible": "API compatible OpenAI",
   "settings.quality.provider.groq": "API Groq",
   "settings.quality.provider.help": "Le SLM local offre une notation de qualité sans coût et préservant la confidentialité",
   "settings.quality.provider.label": "Fournisseur IA",
