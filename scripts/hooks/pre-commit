@@ -38,6 +38,19 @@ else
     PYTHON_BIN="$(command -v python3 || command -v python)"
 fi
 
+# === Secret scan (optional, runs before the LLM checks can exit early) ===
+if command -v gitleaks &> /dev/null; then
+    if gitleaks git --staged --redact --no-banner --log-level warn "$SCRIPT_DIR"; then
+        echo -e "${GREEN}✓${NC} gitleaks: no secrets in staged changes"
+    else
+        echo -e "${RED}✗ gitleaks found a possible secret in staged changes${NC}"
+        echo "  Remove it, or mark a false positive with a trailing 'gitleaks:allow' comment."
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}⚠️${NC} gitleaks not installed, skipping secret scan"
+fi
+
 # Determine which LLM to use (Groq preferred, Gemini fallback)
 LLM_CMD=""
 LLM_NAME=""
