@@ -4076,7 +4076,7 @@ class MemoryDashboard {
                     text: text('status.disconnected', 'Disconnected'),
                     actions: this.authState.requiresAuth && !this.authState.isAuthenticated ? [] : [{
                         id: 'reconnect',
-                        label: text('analytics.refresh', 'Refresh'),
+                        label: text('island.reconnect', 'Reconnect'),
                         run: () => this.setupSSE(),
                     }],
                 };
@@ -4088,6 +4088,7 @@ class MemoryDashboard {
             default:
                 entry = { state: 'error', text: text('status.unknown', 'Unknown') };
         }
+        entry.label = text('island.source.connection', 'Live updates');
         // A connection failure is not dismissible: it ends with the next report of this source.
         this.statusIsland.report('connection', entry);
     }
