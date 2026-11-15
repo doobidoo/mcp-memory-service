@@ -19,8 +19,14 @@ A claim is a `/claim` command or one of a few anchored phrases ("I'd like to
 work on this", "I'll take this one", "can I take this"). The set is deliberately
 tight: a miss costs nothing (the maintainer still sees the comment), a false
 positive mislabels an issue, so "can I take this approach?" must not match.
-Only when the issue has no assignee and no open PR that closes it, and the
-commenter is not a bot, a maintainer, or commenting on a pull request.
+Only when no open PR closes the issue, and the commenter is not a bot, a
+maintainer, or commenting on a pull request.
+
+An issue assigned to someone else is labelled too when the claim is prose: asking
+to take over from an assignee is the maintainer's decision, so it has to be seen
+(#1668 sat unlabelled until the digest). The assignee's own comment and a bare
+/claim are not. claim-check.yml drops the label on the next assignment; a
+declined takeover leaves it for the maintainer to remove.
 
 Needs the gh CLI with GH_TOKEN set. --dry-run only prints the verdict.
 Standard library only, so it runs on a bare runner with no install step.
@@ -48,7 +54,11 @@ EXEMPT_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 # and must not match. `/claim` is a command: start of line only. Keep new phrases
 # just as tight; prefer missing a claim to labelling a question.
 _AP = r"['\u2019]"  # straight or curly apostrophe
-_END = r"(?=[\s]*(?:[.!?,;:)\"']|$))"
+# A condition may follow instead: "take this if X has stepped away" (#1668) is a
+# claim without a comma. Only these three words, and only as whole words followed
+# by a space, so "this if-branch" and "this iffy path" stay prose. possible_claim()
+# has a longer connector list; it is broad on purpose and must not be copied here.
+_END = r"(?=[\s]*(?:[.!?,;:)\"']|$)|\s+(?:if|unless|once)\s)"
 # What is claimed: "this", "it", "this one", "this issue", optionally followed by
 # "too" or "as well" (someone taking a second issue). Two real claims were missed
 # without these: "I would like to take this one too, unless ..." (#1998) and
@@ -172,6 +182,26 @@ def _has_open_closing_pr(repo: str, number: int) -> bool:
         cursor_args = ["-f", f"cursor={page['endCursor']}"]
 
 
+TAKEOVER = "claim on an assigned issue"
+
+
+def _assignee_block(issue: dict, comment: dict) -> str | None:
+    """Why a claim on an assigned issue gets no label; None when it should get one.
+
+    A prose claim on an issue assigned to someone else is a request to take over
+    and falls through to the label. The assignee restating their own claim is not
+    one, and neither is a bare /claim, which gives no reason to reassign.
+    """
+    assignees = {a.get("login", "").lower() for a in issue.get("assignees") or []}
+    if not assignees:
+        return None
+    if (comment.get("user") or {}).get("login", "").lower() in assignees:
+        return "commenter is already assigned"
+    if is_claim_command(comment.get("body", "")):
+        return "issue already has an assignee"
+    return None
+
+
 def should_label(event: dict, repo: str, has_open_pr=None) -> tuple[bool, str]:
     """Decide whether the comment event warrants the claim-pending label.
 
@@ -199,21 +229,30 @@ def should_label(event: dict, repo: str, has_open_pr=None) -> tuple[bool, str]:
     issue = event.get("issue", {})
     if issue.get("state") == "closed" or issue.get("locked"):
         return False, "issue is closed or locked"
-    if issue.get("assignees"):
-        return False, "issue already has an assignee"
+    blocked = _assignee_block(issue, comment)
+    if blocked:
+        return False, blocked
     if any(label.get("name") == LABEL for label in issue.get("labels", [])):
         return False, "already labelled claim-pending"
 
     if has_open_pr(repo, issue.get("number")):
         return False, "issue already has an open PR"
 
-    return True, "unassigned claim"
+    return True, TAKEOVER if issue.get("assignees") else "unassigned claim"
 
 
-def _issue_still_eligible(repo: str, number: int) -> tuple[bool, str]:
+def _issue_still_eligible(
+    repo: str, number: int, takeover_by: str | None = None
+) -> tuple[bool, str]:
     """Re-read the issue right before writing, to close the race with a manual
     assignment that finished while this comment run sat in the queue (Greptile).
-    Returns (eligible, reason)."""
+    Returns (eligible, reason).
+
+    `takeover_by` is the commenter when the issue already had another assignee as
+    the comment was written. Only then may an assignee remain, and not the
+    commenter: that is the maintainer having answered the request meanwhile. A
+    claim written on a free issue is never relabelled after an assignment.
+    """
     out = gh(
         "api",
         f"repos/{repo}/issues/{number}",
@@ -221,7 +260,8 @@ def _issue_still_eligible(repo: str, number: int) -> tuple[bool, str]:
         "{assignees: [.assignees[].login], labels: [.labels[].name]}",
     )
     state = json.loads(out)
-    if state.get("assignees"):
+    assignees = {login.lower() for login in state.get("assignees", [])}
+    if assignees and (takeover_by is None or takeover_by.lower() in assignees):
         return False, "issue was assigned before the label could be written"
     if LABEL in state.get("labels", []):
         return False, "issue is already labelled claim-pending"
@@ -725,7 +765,8 @@ def main() -> int:
     # Guard the write against a maintainer who assigned (and claim-check.yml
     # cleaned up) while this run waited in the queue: the event payload is a
     # snapshot, so re-read the live issue before adding the label back.
-    fresh, fresh_reason = _issue_still_eligible(args.repo, number)
+    takeover_by = event["comment"]["user"]["login"] if reason == TAKEOVER else None
+    fresh, fresh_reason = _issue_still_eligible(args.repo, number, takeover_by)
     if not fresh:
         print(f"Issue #{number}: no label ({fresh_reason})")
         return 0

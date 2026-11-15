@@ -144,6 +144,13 @@ class GitHub:
         self.issue_reads += 1
         if self.before_read:
             self.before_read(self.issue_reads)
+        if "--jq" in args:  # the freshness read projects logins and label names
+            return json.dumps(
+                {
+                    "assignees": [a["login"] for a in self.issue["assignees"]],
+                    "labels": [x["name"] for x in self.issue["labels"]],
+                }
+            )
         return json.dumps(self.issue)
 
     @property
@@ -211,6 +218,7 @@ def test_only_a_standalone_command_assigns(tmp_path, monkeypatch, body):
     [
         "I'd like to take this one.",
         "I would like to take this one too, unless the reporter plans to fix it.",
+        "I'd like to take this once the island lands",  # a condition is still a claim
         "/claim @bob",  # cannot assign someone else; the reply says who /claim assigns
     ],
 )
@@ -324,6 +332,16 @@ def test_no_hint_where_the_command_would_not_assign(tmp_path, monkeypatch, case)
     assert run_cli(tmp_path, monkeypatch, api, trigger=trigger) == 0
     assert api.issue["assignees"] == before
     assert not [reply for reply in api.replies if ":hint -->" in reply]
+
+
+def test_prose_takeover_on_an_assigned_prepared_issue_is_labelled(tmp_path, monkeypatch):
+    """No hint and no assignment, but the request must not vanish (#1668)."""
+    api = GitHub([comment(body="I would like to take this if carol has stepped away.")],
+                 assignees=["carol"])
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+    assert not api.replies
 
 
 def test_prose_claim_is_still_labelled_pending(tmp_path, monkeypatch):

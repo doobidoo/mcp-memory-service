@@ -1,5 +1,7 @@
 # Labels an issue `claim-pending` the moment a comment claims it, so an
-# unassigned claim is visible at once instead of only in the daily digest.
+# unassigned claim is visible at once instead of only in the daily digest. A
+# prose claim on an issue assigned to someone else (a takeover request) is
+# labelled as well.
 # scripts/ci/mark_claim_pending.py has the rules (claim phrases, guards).
 #
 # A standalone /claim also assigns and confirms issues labelled auto-assign, and a
