@@ -105,6 +105,7 @@ def _load_harness():
 
 GOLD2FOUR = {"updates": "changes", "neutral": "unrelated",
              "entailment": "repeats"}
+FOUR_CLASSES = ("changes", "ends", "repeats", "unrelated")
 
 
 def read_adapt_pairs(path):
@@ -114,24 +115,50 @@ def read_adapt_pairs(path):
     head's classes; rows already labeled in the four classes pass through;
     contradiction has no 4-way target — it belongs to review, which no
     training data exists for anywhere — so those rows are skipped and
-    counted, never silently dropped.
+    counted. Anything else is a bad label, not a contradiction: it stops
+    the run with the row number instead of silently dropping the pair.
     """
-    rows, skipped = [], 0
-    for line in open(path, encoding="utf-8"):
+    rows, skips = [], {"contradiction": 0, "unlabeled": 0}
+    for lineno, line in enumerate(open(path, encoding="utf-8"), 1):
         if not line.strip():
             continue
         r = json.loads(line)
         label = r.get("label")
         if label in GOLD2FOUR:
             rows.append((GOLD2FOUR[label], r["older"], r["newer"]))
-        elif label in ("changes", "ends", "repeats", "unrelated"):
+        elif label in FOUR_CLASSES:
             rows.append((label, r["older"], r["newer"]))
+        elif label == "contradiction":
+            skips["contradiction"] += 1
+        elif label in (None, ""):
+            skips["unlabeled"] += 1
         else:
-            skipped += 1
+            sys.exit(f"--adapt-pairs {path}: line {lineno}: unknown label "
+                     f"{label!r} (gold-scheme {sorted(GOLD2FOUR)}, the four "
+                     f"classes {list(FOUR_CLASSES)}, or contradiction)")
     if not rows:
         sys.exit(f"--adapt-pairs {path}: no usable rows (labels must be "
                  f"gold-scheme {sorted(GOLD2FOUR)} or the four classes)")
-    return rows, skipped
+    return rows, skips
+
+
+def _resolve_max_len(args):
+    """The truncation limit to train and score at.
+
+    An explicit --max-len wins. Adapting without one inherits the limit the
+    base head was trained at — a 256 head silently re-cut to 128 would both
+    train and save the wrong limit. Fresh training defaults to 128.
+    """
+    if args.max_len is not None:
+        return args.max_len
+    if args.resume_from:
+        cfg_path = os.path.join(args.resume_from, "config.json")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, encoding="utf-8") as fh:
+                saved = json.load(fh).get("fourway_max_len")
+            if isinstance(saved, int) and saved > 0:
+                return saved
+    return 128
 
 
 def train(args, lbl, id2lbl):
@@ -140,15 +167,21 @@ def train(args, lbl, id2lbl):
     from transformers import (AutoModelForSequenceClassification,
                               AutoTokenizer)
 
+    # before any model load: the random head init in the scratch branch
+    # draws from the RNG, so seeding after it made same-seed reruns start
+    # from different weights
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
     adapt_meta = None
     if args.resume_from:
-        train_rows, skipped = read_adapt_pairs(args.adapt_pairs)
+        train_rows, skips = read_adapt_pairs(args.adapt_pairs)
         val_rows = []
         adapt_meta = {"adapted_from": args.resume_from,
                       "adapt_pairs": len(train_rows),
-                      "skipped_labels": skipped}
+                      "skipped_labels": skips}
         log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs}, "
-            f"{skipped} skipped (contradiction -> review has no head class)")
+            f"skipped {skips} (contradiction has no head class)")
         tok = AutoTokenizer.from_pretrained(args.resume_from)
         model = AutoModelForSequenceClassification.from_pretrained(args.resume_from)
     else:
@@ -159,8 +192,6 @@ def train(args, lbl, id2lbl):
         tok = AutoTokenizer.from_pretrained(snap)
         model = AutoModelForSequenceClassification.from_pretrained(
             snap, num_labels=4, ignore_mismatched_sizes=True)
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
     model.config.id2label = {i: id2lbl[i] for i in range(4)}
     model.config.label2id = lbl
 
@@ -239,6 +270,9 @@ def train(args, lbl, id2lbl):
     with open(cfg_path, "w", encoding="utf-8") as fh:
         json.dump(head_cfg, fh, indent=1)
     cfg = {
+        # effective values, not the argparse ones: adaptation runs at
+        # adapt-lr/adapt-epochs/batch 8, and the report must say so
+        "epochs": epochs_eff, "batch": batch_eff, "lr": lr_eff,
         "train": len(train_rows), "val": len(val_rows),
         "val_acc_per_epoch": val_accs,
     }
@@ -368,8 +402,9 @@ async def main_async(args):
     log("exported onnx:", fidelity)
 
     out = {
-        "config": {"seed": args.seed, "epochs": args.epochs,
-                   "batch": args.batch, "lr": args.lr,
+        # epochs/batch/lr come from cfg: the effective values, which differ
+        # from the argparse defaults whenever this is an adaptation run
+        "config": {"seed": args.seed,
                    "max_len": args.max_len, **cfg},
         "fidelity": fidelity,
     }
@@ -402,7 +437,10 @@ def main():
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-5)
-    ap.add_argument("--max-len", type=int, default=128)
+    ap.add_argument("--max-len", type=int, default=None,
+                    help="truncation limit for training and scoring "
+                         "(default: the limit the --resume-from head was "
+                         "trained at when adapting; 128 for fresh training)")
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--adapt-pairs", default=None, metavar="JSONL",
                     help="adapt a pre-trained head on this store's own labeled export "
@@ -424,6 +462,7 @@ def main():
         sys.exit(f"--resume-from {args.resume_from}: not a directory")
     if args.adapt_pairs and not os.path.isfile(args.adapt_pairs):
         sys.exit(f"--adapt-pairs {args.adapt_pairs}: file not found")
+    args.max_len = _resolve_max_len(args)
     try:
         import torch  # noqa: F401
     except ImportError:

@@ -103,6 +103,30 @@ class TestScoreHeadFlag:
         assert "model.onnx" in proc.stderr and "tokenizer.json" in proc.stderr
 
 
+def test_score_accepts_fourway_labels(tmp_path):
+    """--adapt-pairs trains on either scheme; scoring must not reject the
+    file it just trained from."""
+    pairs = tmp_path / "p4.jsonl"
+    rows = [
+        {"older": "The cache TTL is 5 minutes.",
+         "newer": "The cache TTL is 5 hours now.", "label": "changes"},
+        {"older": "Tags help organize memories.",
+         "newer": "Tag filters support wildcards.", "label": "unrelated"},
+    ]
+    pairs.write_text("".join(json.dumps(r) + "\n" for r in rows),
+                     encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(HARNESS), "score", "--pairs", str(pairs),
+         "--backend", "heuristic"],
+        capture_output=True, text=True, cwd=str(HARNESS.parents[2]),
+    )
+    assert proc.returncode == 0, proc.stderr[-400:]
+    report = json.loads(proc.stdout)
+    # mapped onto the gold rows they answer to
+    assert report["labels"] == {"contradiction": 0, "updates": 1,
+                                "neutral": 1, "entailment": 0}
+
+
 def test_train_script_help_works_without_torch():
     proc = subprocess.run(
         [sys.executable, str(SCRIPTS / "train_fourway_head.py"), "--help"],
@@ -128,13 +152,47 @@ class TestAdaptPairs:
             {"older": "c1", "newer": "c2", "label": "entailment"},
             {"older": "d1", "newer": "d2", "label": "contradiction"},
             {"older": "e1", "newer": "e2", "label": "changes"},
-            {"older": "f1", "newer": "f2", "label": "unrelated"},
+            {"older": "f1", "newer": "f2"},  # unlabeled, its own bucket
         ]
         f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-        pairs, skipped = mod.read_adapt_pairs(str(f))
+        pairs, skips = mod.read_adapt_pairs(str(f))
         assert [p[0] for p in pairs] == [
-            "changes", "unrelated", "repeats", "changes", "unrelated"]
-        assert skipped == 1  # contradiction -> review; no head class exists
+            "changes", "unrelated", "repeats", "changes"]
+        assert skips == {"contradiction": 1, "unlabeled": 1}
+
+    def test_typo_labels_are_rejected_with_the_row(self, tmp_path):
+        mod = self._train_mod()
+        f = tmp_path / "p.jsonl"
+        rows = [
+            {"older": "a1", "newer": "a2", "label": "updates"},
+            {"older": "b1", "newer": "b2", "label": "update"},  # typo
+        ]
+        f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        with pytest.raises(SystemExit) as e:
+            mod.read_adapt_pairs(str(f))
+        assert "line 2" in str(e.value) and "unknown label" in str(e.value)
+
+    def test_max_len_inherits_from_the_resumed_head(self, tmp_path):
+        mod = self._train_mod()
+        head = tmp_path / "head"
+        head.mkdir()
+        (head / "config.json").write_text(
+            json.dumps({"fourway_max_len": 256}), encoding="utf-8")
+        from types import SimpleNamespace
+        # explicit wins over everything
+        assert mod._resolve_max_len(SimpleNamespace(
+            max_len=64, resume_from=str(head))) == 64
+        # adapting inherits the saved limit
+        assert mod._resolve_max_len(SimpleNamespace(
+            max_len=None, resume_from=str(head))) == 256
+        # fresh training, and heads predating the key, fall back to 128
+        assert mod._resolve_max_len(SimpleNamespace(
+            max_len=None, resume_from=None)) == 128
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        (bare / "config.json").write_text("{}", encoding="utf-8")
+        assert mod._resolve_max_len(SimpleNamespace(
+            max_len=None, resume_from=str(bare))) == 128
 
     def test_usable_rows_required(self, tmp_path):
         mod = self._train_mod()
