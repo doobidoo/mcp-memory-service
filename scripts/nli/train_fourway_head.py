@@ -24,6 +24,19 @@ One run does everything the reported numbers need:
     python scripts/nli/export_band_pairs.py score \
         --pairs pairs.jsonl --fourway-head fourway_head
 
+A store whose registers differ from the generator's (the third real-store
+run in #1460 showed this happens: session-note stores) can adapt the
+pre-trained head on its OWN labeled pairs — labels, model and reruns stay
+on that machine:
+
+    # 3. adapt on the store's own labeled export, low LR, a few epochs
+    python scripts/nli/train_fourway_head.py \
+        --resume-from fourway_head --adapt-pairs pairs.jsonl \
+        --out fourway_head_adapted
+
+The built-in three-set report then doubles as the forgetting check, and
+step 2 with the adapted dir scores the same export with it.
+
 The report prints the shipped rule (bidirectional, via the repo's own
 NLIClassifier + fourway_decide) and the head (single direction, ONNX) on
 three held-out sets, plus frozen post-training probes. torch is needed for
@@ -82,6 +95,14 @@ def _base_snapshot() -> str:
     return str(Path(cached).parent)
 
 
+def _lr_multiplier(s, total, warm):
+    """Linear warmup then decay, nonzero from step zero: a one-step
+    adaptation must still learn — a multiplier of 0 at s=0 saved an
+    unchanged head when the run had exactly one optimizer step."""
+    return ((s + 1) / warm if s < warm
+            else max(0.0, (total - s) / max(1, total - warm)))
+
+
 def _load_harness():
     spec = importlib.util.spec_from_file_location(
         "export_band_pairs", REPO / "scripts" / "nli" / "export_band_pairs.py")
@@ -90,22 +111,95 @@ def _load_harness():
     return harness
 
 
+GOLD2FOUR = {"updates": "changes", "neutral": "unrelated",
+             "entailment": "repeats"}
+FOUR_CLASSES = ("changes", "ends", "repeats", "unrelated")
+
+
+def read_adapt_pairs(path):
+    """Rows for --adapt-pairs, from the store's own labeled export.
+
+    The harness gold scheme (updates/neutral/entailment) maps onto the
+    head's classes; rows already labeled in the four classes pass through;
+    contradiction has no 4-way target — it belongs to review, which no
+    training data exists for anywhere — so those rows are skipped and
+    counted. Anything else is a bad label, not a contradiction: it stops
+    the run with the row number instead of silently dropping the pair.
+    """
+    rows, skips = [], {"contradiction": 0, "unlabeled": 0}
+    for lineno, line in enumerate(open(path, encoding="utf-8"), 1):
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        label = r.get("label")
+        if label in GOLD2FOUR:
+            rows.append((GOLD2FOUR[label], r["older"], r["newer"]))
+        elif label in FOUR_CLASSES:
+            rows.append((label, r["older"], r["newer"]))
+        elif label == "contradiction":
+            skips["contradiction"] += 1
+        elif label in (None, ""):
+            skips["unlabeled"] += 1
+        else:
+            sys.exit(f"--adapt-pairs {path}: line {lineno}: unknown label "
+                     f"{label!r} (gold-scheme {sorted(GOLD2FOUR)}, the four "
+                     f"classes {list(FOUR_CLASSES)}, or contradiction)")
+    if not rows:
+        sys.exit(f"--adapt-pairs {path}: no usable rows (labels must be "
+                 f"gold-scheme {sorted(GOLD2FOUR)} or the four classes)")
+    return rows, skips
+
+
+def _resolve_max_len(args):
+    """The truncation limit to train and score at.
+
+    An explicit --max-len wins. Adapting without one inherits the limit the
+    base head was trained at — a 256 head silently re-cut to 128 would both
+    train and save the wrong limit. Fresh training defaults to 128.
+    """
+    if args.max_len is not None:
+        return args.max_len
+    if args.resume_from:
+        cfg_path = os.path.join(args.resume_from, "config.json")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, encoding="utf-8") as fh:
+                saved = json.load(fh).get("fourway_max_len")
+            if isinstance(saved, int) and saved > 0:
+                return saved
+    return 128
+
+
 def train(args, lbl, id2lbl):
     import torch
     from torch.utils.data import DataLoader, Dataset
     from transformers import (AutoModelForSequenceClassification,
                               AutoTokenizer)
 
-    train_rows, val_rows = D.build(seed=args.seed)
-    log(f"train={len(train_rows)} val={len(val_rows)} "
-        f"counts={dict(Counter(r[0] for r in train_rows))}")
+    # before any model load: the random head init in the scratch branch
+    # draws from the RNG, so seeding after it made same-seed reruns start
+    # from different weights
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    snap = _base_snapshot()
-    tok = AutoTokenizer.from_pretrained(snap)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        snap, num_labels=4, ignore_mismatched_sizes=True)
+    adapt_meta = None
+    if args.resume_from:
+        train_rows, skips = read_adapt_pairs(args.adapt_pairs)
+        val_rows = []
+        adapt_meta = {"adapted_from": args.resume_from,
+                      "adapt_pairs": len(train_rows),
+                      "skipped_labels": skips}
+        log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs}, "
+            f"skipped {skips} (contradiction has no head class)")
+        tok = AutoTokenizer.from_pretrained(args.resume_from)
+        model = AutoModelForSequenceClassification.from_pretrained(args.resume_from)
+    else:
+        train_rows, val_rows = D.build(seed=args.seed)
+        log(f"train={len(train_rows)} val={len(val_rows)} "
+            f"counts={dict(Counter(r[0] for r in train_rows))}")
+        snap = _base_snapshot()
+        tok = AutoTokenizer.from_pretrained(snap)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            snap, num_labels=4, ignore_mismatched_sizes=True)
     model.config.id2label = {i: id2lbl[i] for i in range(4)}
     model.config.label2id = lbl
 
@@ -126,21 +220,28 @@ def train(args, lbl, id2lbl):
         feats, ys = zip(*batch)
         return tok.pad(list(feats), padding=True, return_tensors="pt"), torch.stack(ys)
 
-    dl = DataLoader(PairDataset(train_rows), batch_size=args.batch,
-                    shuffle=True, collate_fn=collate)
-    val_dl = DataLoader(PairDataset(val_rows), batch_size=32,
-                        shuffle=False, collate_fn=collate)
+    epochs_eff = args.adapt_epochs if adapt_meta else args.epochs
+    lr_eff = args.adapt_lr if adapt_meta else args.lr
+    # small sets need small batches: with the training default of 16 a
+    # 16-pair adaptation is one step per epoch and barely moves the head
+    batch_eff = min(args.batch, 8) if adapt_meta else args.batch
 
-    steps = len(dl) * args.epochs
+    dl = DataLoader(PairDataset(train_rows), batch_size=batch_eff,
+                    shuffle=True, collate_fn=collate)
+    # empty in adapt mode: the store's own pairs are too few to split, the
+    # forgetting check replaces validation
+    val_dl = (DataLoader(PairDataset(val_rows), batch_size=32,
+                         shuffle=False, collate_fn=collate)
+              if val_rows else None)
+    steps = len(dl) * epochs_eff
     warm = max(1, int(steps * 0.1))
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr_eff, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: s / warm if s < warm
-        else max(0.0, (steps - s) / max(1, steps - warm)))
+        opt, lambda s: _lr_multiplier(s, steps, warm))
     lossf = torch.nn.CrossEntropyLoss()
 
     val_accs = []
-    for ep in range(args.epochs):
+    for ep in range(epochs_eff):
         model.train()
         t0, running = time.perf_counter(), 0.0
         for step, (enc, y) in enumerate(dl):
@@ -154,13 +255,14 @@ def train(args, lbl, id2lbl):
                 log(f"  ep{ep + 1} step {step + 1}/{len(dl)} "
                     f"loss {running / (step + 1):.4f} "
                     f"({time.perf_counter() - t0:.0f}s)")
-        model.eval()
-        correct = 0
-        with torch.no_grad():
-            for enc, y in val_dl:
-                correct += (model(**enc).logits.argmax(-1) == y).sum().item()
-        val_accs.append(round(correct / len(val_dl.dataset), 4))
-        log(f"  ep{ep + 1} val acc {val_accs[-1]:.4f}")
+        if val_rows:
+            model.eval()
+            correct = 0
+            with torch.no_grad():
+                for enc, y in val_dl:
+                    correct += (model(**enc).logits.argmax(-1) == y).sum().item()
+            val_accs.append(round(correct / len(val_dl.dataset), 4))
+            log(f"  ep{ep + 1} val acc {val_accs[-1]:.4f}")
 
     model.eval()
     model.save_pretrained(args.out)
@@ -174,11 +276,18 @@ def train(args, lbl, id2lbl):
     head_cfg["fourway_max_len"] = args.max_len
     with open(cfg_path, "w", encoding="utf-8") as fh:
         json.dump(head_cfg, fh, indent=1)
-    return model, tok, {
+    cfg = {
+        # effective values, not the argparse ones: adaptation runs at
+        # adapt-lr/adapt-epochs/batch 8, and the report must say so
+        "epochs": epochs_eff, "batch": batch_eff, "lr": lr_eff,
         "train": len(train_rows), "val": len(val_rows),
-        "label_counts": dict(Counter(r[0] for r in train_rows)),
         "val_acc_per_epoch": val_accs,
     }
+    if adapt_meta:
+        cfg.update(adapt_meta)
+    else:
+        cfg["label_counts"] = dict(Counter(r[0] for r in train_rows))
+    return model, tok, cfg
 
 
 def export_onnx(model, tok, out):
@@ -300,8 +409,9 @@ async def main_async(args):
     log("exported onnx:", fidelity)
 
     out = {
-        "config": {"seed": args.seed, "epochs": args.epochs,
-                   "batch": args.batch, "lr": args.lr,
+        # epochs/batch/lr come from cfg: the effective values, which differ
+        # from the argparse defaults whenever this is an adaptation run
+        "config": {"seed": args.seed,
                    "max_len": args.max_len, **cfg},
         "fidelity": fidelity,
     }
@@ -334,9 +444,32 @@ def main():
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--lr", type=float, default=3e-5)
-    ap.add_argument("--max-len", type=int, default=128)
+    ap.add_argument("--max-len", type=int, default=None,
+                    help="truncation limit for training and scoring "
+                         "(default: the limit the --resume-from head was "
+                         "trained at when adapting; 128 for fresh training)")
     ap.add_argument("--seed", type=int, default=13)
+    ap.add_argument("--adapt-pairs", default=None, metavar="JSONL",
+                    help="adapt a pre-trained head on this store's own labeled export "
+                         "(harness gold scheme or 4-way labels); requires --resume-from, "
+                         "and the pairs never leave this machine")
+    ap.add_argument("--resume-from", default=None, metavar="DIR",
+                    help="pre-trained head to continue from (with --adapt-pairs)")
+    ap.add_argument("--adapt-lr", type=float, default=1e-5,
+                    help="adaptation learning rate (default 1e-5, a third of training)")
+    ap.add_argument("--adapt-epochs", type=int, default=3)
     args = ap.parse_args()
+    # validated before the torch import so the contract is checkable
+    # everywhere, including machines that only run the test suite
+    if (args.adapt_pairs is None) != (args.resume_from is None):
+        sys.exit("--adapt-pairs and --resume-from go together: adapting "
+                 "continues from a pre-trained head, training from scratch "
+                 "uses the generator")
+    if args.resume_from and not os.path.isdir(args.resume_from):
+        sys.exit(f"--resume-from {args.resume_from}: not a directory")
+    if args.adapt_pairs and not os.path.isfile(args.adapt_pairs):
+        sys.exit(f"--adapt-pairs {args.adapt_pairs}: file not found")
+    args.max_len = _resolve_max_len(args)
     try:
         import torch  # noqa: F401
     except ImportError:
