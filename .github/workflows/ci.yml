@@ -145,6 +145,33 @@ jobs:
     - name: Check bundled hooks config matches template structure
       run: bash scripts/ci/check_hooks_config_drift.sh
 
+  secret-scan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: Secret Scan (gitleaks, PR commits)
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+    # Third-party actions are not allowed here, so the binary is fetched directly
+    # and checked against its published checksum. Only the PR's own commits are
+    # scanned: older history holds known, already-rotated findings.
+    - name: Install gitleaks
+      env:
+        GITLEAKS_VERSION: 8.30.1
+      run: |
+        base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+        tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        curl -fsSLO "$base/$tarball"
+        curl -fsSL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" | grep " ${tarball}\$" | sha256sum -c -
+        tar -xzf "$tarball" gitleaks
+    - name: Scan PR commits
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: ./gitleaks git --redact --no-banner --log-opts="${BASE_SHA}..${HEAD_SHA}" .
+
   hooks-tests:
     runs-on: ubuntu-latest
     name: JS Tests (claude-hooks/, opencode/, codex/)

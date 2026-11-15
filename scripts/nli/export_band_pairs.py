@@ -108,6 +108,11 @@ async def cmd_export(args):
 
 
 LABELS = ("contradiction", "updates", "neutral", "entailment")
+# the four head classes, mapped onto the gold rows they answer to, so an
+# export labeled either way scores (--adapt-pairs accepts both schemes;
+# scoring used to accept only the gold one)
+FOUR2GOLD = {"changes": "updates", "ends": "updates",
+             "repeats": "entailment", "unrelated": "neutral"}
 
 # ── 4-way judgment (#1460) ───────────────────────────────────────────────────
 #
@@ -270,6 +275,9 @@ async def cmd_score(args):
         for line in open(args.pairs, encoding="utf-8")
         if line.strip()
     ]
+    for r in rows:
+        if r.get("label") in FOUR2GOLD:
+            r["label"] = FOUR2GOLD[r["label"]]
     # Unlabeled rows no longer abort the run: a machine pass over an
     # unlabeled export is how the review lists get built (verdict counts for
     # everything, gate tables for the labeled subset).
