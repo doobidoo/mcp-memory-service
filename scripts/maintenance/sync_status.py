@@ -12,9 +12,11 @@ from datetime import datetime
 from typing import Set, Dict, Tuple
 
 # Configuration
-CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "be0e35a26715043ef8df90253268c33f")
-CLOUDFLARE_D1_DATABASE_ID = os.environ.get("CLOUDFLARE_D1_DATABASE_ID", "f745e9b4-ba8e-4d47-b38f-12af91060d5a")
-CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "Y9qwW1rYkwiE63iWYASxnzfTQlIn-mtwCihRTwZa")
+# No defaults: credentials come from the environment only, never from source.
+REQUIRED_ENV = ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_D1_DATABASE_ID", "CLOUDFLARE_API_TOKEN")
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_D1_DATABASE_ID = os.environ.get("CLOUDFLARE_D1_DATABASE_ID", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 
 # Default local DB path
 if sys.platform == "win32":
@@ -98,6 +100,10 @@ def get_d1_hashes(has_deleted_at: bool = False) -> Tuple[Set[str], Set[str]]:
 
 
 def main():
+    missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
+    if missing:
+        sys.exit(f"Missing environment variable(s): {', '.join(missing)}")
+
     print("=" * 70)
     print("MCP Memory Service - Sync Status Report")
     print(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
