@@ -144,6 +144,15 @@ class GitHub:
         self.issue_reads += 1
         if self.before_read:
             self.before_read(self.issue_reads)
+        if "--jq" in args:  # the freshness read projects logins and label names
+            return json.dumps(
+                {
+                    "assignees": [a["login"] for a in self.issue["assignees"]],
+                    "labels": [x["name"] for x in self.issue["labels"]],
+                    "state": self.issue["state"],
+                    "locked": self.issue["locked"],
+                }
+            )
         return json.dumps(self.issue)
 
     @property
@@ -211,6 +220,7 @@ def test_only_a_standalone_command_assigns(tmp_path, monkeypatch, body):
     [
         "I'd like to take this one.",
         "I would like to take this one too, unless the reporter plans to fix it.",
+        "I'd like to take this once the island lands",  # a condition is still a claim
         "/claim @bob",  # cannot assign someone else; the reply says who /claim assigns
     ],
 )
@@ -324,6 +334,76 @@ def test_no_hint_where_the_command_would_not_assign(tmp_path, monkeypatch, case)
     assert run_cli(tmp_path, monkeypatch, api, trigger=trigger) == 0
     assert api.issue["assignees"] == before
     assert not [reply for reply in api.replies if ":hint -->" in reply]
+
+
+def test_prose_takeover_on_an_assigned_prepared_issue_is_labelled(tmp_path, monkeypatch):
+    """No hint and no assignment, but the request must not vanish (#1668)."""
+    api = GitHub([comment(body="I would like to take this if carol has stepped away.")],
+                 assignees=["carol"])
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+    assert not api.replies
+
+
+@pytest.mark.parametrize("change", [{"state": "closed"}, {"locked": True}])
+def test_takeover_on_a_prepared_issue_closed_or_locked_meanwhile_is_not_labelled(
+    tmp_path, monkeypatch, change
+):
+    """The comment saw an open, assigned issue; it was closed or locked while the
+    run was queued. The event snapshot must not carry the label past that."""
+    api = GitHub([comment(body="I would like to take this if carol has stepped away.")],
+                 assignees=["carol"])
+    api.before_read = lambda _reads: api.issue.update(change)
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert {"name": "claim-pending"} not in api.issue["labels"]
+
+
+def test_takeover_prose_with_a_command_on_an_assigned_prepared_issue_is_labelled(
+    tmp_path, monkeypatch
+):
+    api = GitHub(
+        [comment(body="I would like to take this if carol has stepped away.\n/claim")],
+        assignees=["carol"],
+    )
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
+def test_claim_on_a_free_prepared_issue_is_not_relabelled_after_an_assignment(
+    tmp_path, monkeypatch
+):
+    """The comment saw a free issue; a maintainer assigned someone else while the
+    run was queued. That is an answered claim, not a takeover request."""
+    api = GitHub([comment(body="I'd like to take this one.")])
+
+    def assign_meanwhile(_reads):
+        api.issue["assignees"] = [{"login": "carol"}]
+
+    api.before_read = assign_meanwhile
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert {"name": "claim-pending"} not in api.issue["labels"]
+
+
+def test_prose_takeover_is_labelled_when_the_assignee_used_the_command(tmp_path, monkeypatch):
+    """Most assignments on prepared issues come from /claim, so the history holds a
+    command. The takeover request must be seen there too."""
+    api = GitHub(
+        [
+            comment(9, "carol", "/claim"),
+            comment(10, "alice", "I would like to take this if carol has stepped away."),
+        ],
+        assignees=["carol"],
+    )
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[1]) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+    # A later comment re-runs the reconciliation; the label must survive it.
+    api.comments.append(comment(11, "dave", "Any update on this?"))
+    assert run_cli(tmp_path, monkeypatch, api, trigger=api.comments[-1]) == 0
+    assert {"name": "claim-pending"} in api.issue["labels"]
 
 
 def test_prose_claim_is_still_labelled_pending(tmp_path, monkeypatch):
