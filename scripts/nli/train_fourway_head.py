@@ -95,6 +95,14 @@ def _base_snapshot() -> str:
     return str(Path(cached).parent)
 
 
+def _lr_multiplier(s, total, warm):
+    """Linear warmup then decay, nonzero from step zero: a one-step
+    adaptation must still learn — a multiplier of 0 at s=0 saved an
+    unchanged head when the run had exactly one optimizer step."""
+    return ((s + 1) / warm if s < warm
+            else max(0.0, (total - s) / max(1, total - warm)))
+
+
 def _load_harness():
     spec = importlib.util.spec_from_file_location(
         "export_band_pairs", REPO / "scripts" / "nli" / "export_band_pairs.py")
@@ -229,8 +237,7 @@ def train(args, lbl, id2lbl):
     warm = max(1, int(steps * 0.1))
     opt = torch.optim.AdamW(model.parameters(), lr=lr_eff, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: s / warm if s < warm
-        else max(0.0, (steps - s) / max(1, steps - warm)))
+        opt, lambda s: _lr_multiplier(s, steps, warm))
     lossf = torch.nn.CrossEntropyLoss()
 
     val_accs = []

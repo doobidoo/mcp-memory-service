@@ -172,6 +172,19 @@ class TestAdaptPairs:
             mod.read_adapt_pairs(str(f))
         assert "line 2" in str(e.value) and "unknown label" in str(e.value)
 
+    def test_lr_multiplier_is_never_zero_inside_a_run(self):
+        """A one-step adaptation must still learn: step 0 used to carry a
+        zero multiplier and saved an unchanged head."""
+        mod = self._train_mod()
+        # the one-step run itself: total=1, warm=1
+        assert mod._lr_multiplier(0, 1, 1) == 1.0
+        # warmup starts nonzero and ramps; decay never hits 0 early
+        assert mod._lr_multiplier(0, 100, 10) == 0.1
+        assert mod._lr_multiplier(9, 100, 10) == 1.0
+        assert mod._lr_multiplier(99, 100, 10) > 0
+        for s in range(100):
+            assert mod._lr_multiplier(s, 100, 10) > 0
+
     def test_max_len_inherits_from_the_resumed_head(self, tmp_path):
         mod = self._train_mod()
         head = tmp_path / "head"
