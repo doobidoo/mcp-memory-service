@@ -149,6 +149,8 @@ class GitHub:
                 {
                     "assignees": [a["login"] for a in self.issue["assignees"]],
                     "labels": [x["name"] for x in self.issue["labels"]],
+                    "state": self.issue["state"],
+                    "locked": self.issue["locked"],
                 }
             )
         return json.dumps(self.issue)
@@ -342,6 +344,31 @@ def test_prose_takeover_on_an_assigned_prepared_issue_is_labelled(tmp_path, monk
     assert api.issue["assignees"] == [{"login": "carol"}]
     assert {"name": "claim-pending"} in api.issue["labels"]
     assert not api.replies
+
+
+@pytest.mark.parametrize("change", [{"state": "closed"}, {"locked": True}])
+def test_takeover_on_a_prepared_issue_closed_or_locked_meanwhile_is_not_labelled(
+    tmp_path, monkeypatch, change
+):
+    """The comment saw an open, assigned issue; it was closed or locked while the
+    run was queued. The event snapshot must not carry the label past that."""
+    api = GitHub([comment(body="I would like to take this if carol has stepped away.")],
+                 assignees=["carol"])
+    api.before_read = lambda _reads: api.issue.update(change)
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert {"name": "claim-pending"} not in api.issue["labels"]
+
+
+def test_takeover_prose_with_a_command_on_an_assigned_prepared_issue_is_labelled(
+    tmp_path, monkeypatch
+):
+    api = GitHub(
+        [comment(body="I would like to take this if carol has stepped away.\n/claim")],
+        assignees=["carol"],
+    )
+    assert run_cli(tmp_path, monkeypatch, api) == 0
+    assert api.issue["assignees"] == [{"login": "carol"}]
+    assert {"name": "claim-pending"} in api.issue["labels"]
 
 
 def test_claim_on_a_free_prepared_issue_is_not_relabelled_after_an_assignment(

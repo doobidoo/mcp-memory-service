@@ -197,7 +197,10 @@ def _assignee_block(issue: dict, comment: dict) -> str | None:
         return None
     if (comment.get("user") or {}).get("login", "").lower() in assignees:
         return "commenter is already assigned"
-    if is_claim_command(comment.get("body", "")):
+    # Bare means the command is all the claim there is. Prose asking to take over
+    # stays a request with /claim written under it.
+    lines = prose(comment.get("body", "")).splitlines()
+    if not is_claim("\n".join(x for x in lines if x.strip() != "/claim")):
         return "issue already has an assignee"
     return None
 
@@ -257,9 +260,13 @@ def _issue_still_eligible(
         "api",
         f"repos/{repo}/issues/{number}",
         "--jq",
-        "{assignees: [.assignees[].login], labels: [.labels[].name]}",
+        "{assignees: [.assignees[].login], labels: [.labels[].name], state, locked}",
     )
     state = json.loads(out)
+    # The event snapshot said open. A maintainer may have closed or locked the
+    # issue since, and the automatic path stops there without updating the event.
+    if state.get("state", "open") != "open" or state.get("locked"):
+        return False, "issue was closed or locked before the label could be written"
     assignees = {login.lower() for login in state.get("assignees", [])}
     if assignees and (takeover_by is None or takeover_by.lower() in assignees):
         return False, "issue was assigned before the label could be written"

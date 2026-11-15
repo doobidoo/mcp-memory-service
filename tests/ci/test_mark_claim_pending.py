@@ -154,6 +154,28 @@ def test_bare_command_on_an_assigned_issue_is_not_labelled(no_open_pr):
     assert reason == "issue already has an assignee"
 
 
+def test_takeover_prose_with_a_command_line_is_labelled(no_open_pr):
+    """The command under a takeover request does not turn it into a bare command."""
+    label, reason = mark.should_label(
+        event(
+            body="I would like to take this if dev has stepped away.\n/claim",
+            assignees=["dev"],
+        ),
+        "owner/repo",
+    )
+    assert label is True
+    assert reason == mark.TAKEOVER
+
+
+def test_main_skips_a_takeover_claim_on_an_issue_closed_meanwhile(tmp_path, monkeypatch):
+    """Closed or locked while the run was queued: the snapshot still says open."""
+    stub = _gh_stub({
+        "graphql": _pr_graphql([]),
+        "api-GET": '{"assignees": ["dev"], "labels": [], "state": "closed", "locked": false}',
+    })
+    assert _run_main(tmp_path, monkeypatch, stub, event(number=7, assignees=["dev"])) == []
+
+
 def test_already_labelled_is_not_relabelled(no_open_pr):
     label, reason = mark.should_label(event(labels=["claim-pending"]), "owner/repo")
     assert label is False
