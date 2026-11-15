@@ -96,8 +96,9 @@ class RetrieveMixin:
                 return []
 
             if tags:
-                if len(tags) > _MAX_TAGS_FOR_SEARCH:
-                    logger.warning("Too many tags provided for search (%s), limiting to %s", len(tags), _MAX_TAGS_FOR_SEARCH)
+                tags_given = len(tags)
+                if tags_given > _MAX_TAGS_FOR_SEARCH:
+                    logger.warning("Too many tags provided for search (%s), limiting to %s", tags_given, _MAX_TAGS_FOR_SEARCH)
                     tags = tags[:_MAX_TAGS_FOR_SEARCH]
                 k_value = min(embedding_count, _MAX_TAG_SEARCH_CANDIDATES)
             elif start_time is not None or end_time is not None:
@@ -121,7 +122,8 @@ class RetrieveMixin:
                     tag_clauses = []
                     for tag in tags:
                         if not isinstance(tag, str):
-                            logger.warning("Skipping non-string tag in search: %s", type(tag).__name__)
+                            tag_type = type(tag).__name__
+                            logger.warning("Skipping non-string tag in search: %s", tag_type)
                             continue
                         stripped = tag.strip()
                         tag_clauses.append(
@@ -271,7 +273,7 @@ class RetrieveMixin:
                 logger.debug("min_confidence=%s filtered %s stale memories", _sanitize_log_value(min_confidence), before - len(results))
 
             # DEBUG: the query is the user's prompt text, and this runs on every recall
-            logger.debug(f"Retrieved {len(results)} memories for query: {_sanitize_log_value(query)}")
+            logger.debug("Retrieved %d memories for query: %s", len(results), _sanitize_log_value(query))
             return results
 
         except Exception as e:
@@ -343,7 +345,7 @@ class RetrieveMixin:
                     logger.warning("Failed to parse memory result: %s", _sanitize_log_value(parse_error))
                     continue
 
-            logger.info(f"Found {len(results)} memories with tags: {[_sanitize_log_value(t) for t in tags]}")
+            logger.info("Found %d memories with tags: %s", len(results), _sanitize_log_value(tags))
             return results
 
         except Exception as e:
