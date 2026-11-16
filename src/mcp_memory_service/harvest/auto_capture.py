@@ -76,6 +76,32 @@ class AutoCaptureService:
             if c.confidence >= self.min_confidence and c.memory_type in self.types
         ]
 
+    async def _store_candidate(
+        self,
+        candidate,
+        parent_hash: Optional[str],
+        conversation_id: Optional[str],
+        store: Optional[str],
+    ) -> Dict[str, Any]:
+        """Store one candidate as its own memory, in ``store`` when one is named."""
+        tags = ["auto-capture"] + candidate.tags
+        if parent_hash:
+            tags.append(f"source:{parent_hash[:12]}")
+        # An unnamed store is left to store_memory()'s default.
+        store_kw: Dict[str, Any] = {"store": store} if store is not None else {}
+        return await self.memory_service.store_memory(
+            content=candidate.content,
+            tags=tags,
+            memory_type=candidate.memory_type,
+            metadata={
+                "confidence": candidate.confidence,
+                "source": "auto_capture",
+                "extracted_from": parent_hash,
+            },
+            conversation_id=conversation_id,
+            **store_kw,
+        )
+
     async def capture(
         self,
         text: str,
@@ -86,6 +112,7 @@ class AutoCaptureService:
         dry_run: bool = True,
         link_parent: bool = True,
         harvest_config: Optional[HarvestConfig] = None,
+        store: Optional[str] = None,
     ) -> AutoCaptureResult:
         """Extract candidates and optionally store them with graph links."""
         candidates = self.extract_from_text(text, role=role)
@@ -106,7 +133,9 @@ class AutoCaptureService:
 
         for candidate in candidates:
             try:
-                evolved, child_hash = await self._harvester._try_evolve(candidate, config)
+                evolved, child_hash = await self._harvester._try_evolve(
+                    candidate, config, store=store
+                )
                 if evolved:
                     result.evolved += 1
                     result.stored += 1
@@ -119,21 +148,7 @@ class AutoCaptureService:
                         )
                     continue
 
-                tags = ["auto-capture"] + candidate.tags
-                if parent_hash:
-                    tags.append(f"source:{parent_hash[:12]}")
-
-                resp = await self.memory_service.store_memory(
-                    content=candidate.content,
-                    tags=tags,
-                    memory_type=candidate.memory_type,
-                    metadata={
-                        "confidence": candidate.confidence,
-                        "source": "auto_capture",
-                        "extracted_from": parent_hash,
-                    },
-                    conversation_id=conversation_id,
-                )
+                resp = await self._store_candidate(candidate, parent_hash, conversation_id, store)
 
                 if not (isinstance(resp, dict) and resp.get("success")):
                     if isinstance(resp, dict) and resp.get("refused_recreate"):

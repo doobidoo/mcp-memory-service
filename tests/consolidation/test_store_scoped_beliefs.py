@@ -210,3 +210,90 @@ async def test_include_beliefs_no_longer_needs_the_global_grant(storage):
         "memory_search", {"query": "x", "store": "a", "include_beliefs": True}
     )
     assert target == "a"
+
+
+# --- NLI contradiction check on store (GHSA-989p-hfjf-q97q) -----------------
+#
+# detect_contradictions_nli() searched without a store, so a memory written to
+# store "a" was compared with the default store's memories and linked to them
+# with a "contradicts" edge, and the caller was told how many it had hit.
+
+_NEW = "The service runs on Postgres 16."
+_OLD = "The service runs on Postgres 12."
+
+
+class _Graph:
+    """Entity graph stand-in: the real one is not partitioned by store."""
+
+    def __init__(self, hashes):
+        self.hashes = hashes
+        self.edges = []
+
+    async def find_memories_by_entity(self, entity):
+        return list(self.hashes)
+
+    async def store_association(self, source_hash, target_hash, **kwargs):
+        self.edges.append((source_hash, target_hash))
+
+
+async def _nli_setup(storage, monkeypatch, other_store):
+    """An older statement in ``other_store``, similar enough to reach the classifier."""
+    monkeypatch.setenv("MCP_NLI_ENABLED", "true")
+    dim = storage.embedding_dimension
+    # Cosine 0.2 scores 0.6, inside the 0.4-0.75 band the classifier is asked about.
+    vectors = {_NEW: [1.0, 0.0], _OLD: [0.2, 0.98]}
+    monkeypatch.setattr(
+        storage, "_generate_embedding",
+        lambda text: vectors.get(text, [0.0, 1.0]) + [0.0] * (dim - 2),
+    )
+    old = Memory(
+        content=_OLD, content_hash=generate_content_hash(_OLD), tags=["t"],
+        metadata={"entities": ["Postgres"]},
+    )
+    ok, msg = await storage.store(old, skip_semantic_dedup=True, store=other_store)
+    assert ok, msg
+    graph = _Graph([old.content_hash])
+
+    async def get_graph():
+        return graph
+
+    monkeypatch.setattr("mcp_memory_service.server.handlers.graph.get_graph_storage", get_graph)
+    return graph
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("other_store, edges", [("a", 1), ("default", 0)])
+async def test_nli_on_store_stays_in_the_store_through_the_handler(
+    storage, monkeypatch, other_store, edges
+):
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    monkeypatch.setenv("MCP_NLI_ON_STORE", "true")
+    monkeypatch.delenv("MCP_NLI_ON_STORE_ASYNC", raising=False)
+    graph = await _nli_setup(storage, monkeypatch, other_store)
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier", return_value=_Contradicts()):
+        out = await handle_store_memory(_Server(storage), {
+            "content": _NEW, "tags": ["t"], "store": "a",
+            "metadata": {"entities": ["Postgres"]},
+        })
+
+    assert len(graph.edges) == edges
+    assert ("Contradiction detected" in out[0].text) == bool(edges)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("other_store, edges", [("a", 1), ("default", 0)])
+async def test_nli_background_check_stays_in_the_store(storage, monkeypatch, other_store, edges):
+    graph = await _nli_setup(storage, monkeypatch, other_store)
+    new = Memory(
+        content=_NEW, content_hash=generate_content_hash(_NEW), tags=["t"],
+        metadata={"entities": ["Postgres"]},
+    )
+    ok, msg = await storage.store(new, skip_semantic_dedup=True, store="a")
+    assert ok, msg
+
+    with patch("mcp_memory_service.reasoning.nli.NLIClassifier", return_value=_Contradicts()):
+        await quarantine_mod._run_on_store_checks(storage, _NEW, new.content_hash, "a")
+
+    assert len(graph.edges) == edges

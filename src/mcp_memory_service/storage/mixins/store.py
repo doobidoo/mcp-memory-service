@@ -512,6 +512,7 @@ class StoreMixin:
                     memory.content,
                     embedding,
                     _versioned_conflict_exclusion.get(),
+                    store,
                 )
                 if conflict_infos:
                     await self._record_conflicts(memory.content_hash, conflict_infos)

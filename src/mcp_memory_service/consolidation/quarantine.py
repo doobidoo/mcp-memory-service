@@ -357,8 +357,9 @@ async def _run_on_store_checks(
         try:
             from ..reasoning.nli import detect_contradictions_nli
 
+            nli_store_kw = {"store": store} if store is not None else {}
             result = await detect_contradictions_nli(
-                storage, memory_hash=content_hash, dry_run=False
+                storage, memory_hash=content_hash, dry_run=False, **nli_store_kw
             )
             pairs_detected = result.get("pairs_detected", 0)
             logger.info(
