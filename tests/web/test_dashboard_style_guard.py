@@ -106,3 +106,16 @@ def test_weights_stay_at_or_below_600():
         if not sel.startswith("@font-face") and re.search(r"font-weight:\s*(700|800|900|bold)\b", body)
     ]
     assert offenders == []
+
+
+def test_tablet_navigation_wraps_for_translated_labels():
+    tablet = re.search(
+        r"@media\s*\(min-width:\s*769px\)\s*and\s*\(max-width:\s*1024px\)\s*\{(.*?)\n\}",
+        CSS,
+        flags=re.S,
+    )
+    assert tablet is not None
+    nav = re.search(r"\.nav-container\s*\{([^}]*)\}", tablet.group(1))
+    assert nav is not None
+    assert re.search(r"flex-wrap:\s*wrap\s*;", nav.group(1))
+    assert re.search(r"\.btn-text\s*\{[^}]*display:\s*none\s*;", tablet.group(1))

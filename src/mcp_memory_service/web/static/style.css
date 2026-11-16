@@ -1912,6 +1912,14 @@ body.dark-mode .form-group label {
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
+    .nav-container {
+        flex-wrap: wrap;
+    }
+
+    .btn-text {
+        display: none;
+    }
+
     .dashboard-grid {
         grid-template-columns: 1fr 300px;
     }
