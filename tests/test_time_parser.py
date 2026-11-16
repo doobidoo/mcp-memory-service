@@ -556,6 +556,16 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).date() == date(2026, 1, 1)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2026, 3, 31)  # noqa: DTZ006
 
+    def test_cross_year_reanchor_keeps_explicit_month_years(self, monkeypatch):
+        """Only a bare month name moves to the previous year (#2030 review)."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        # An explicit start year is not rewritten to the end's year, so this
+        # inverted window still falls back to the single-expression parse.
+        start_ts, _ = parse_time_expression("from January 2026 to March 2024")
+        assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
+        start_ts, _ = parse_time_expression("between january 2026 and march 2024")
+        assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
+
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
         # Test extraction with semantic content

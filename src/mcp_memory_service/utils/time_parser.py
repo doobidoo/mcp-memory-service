@@ -91,6 +91,7 @@ _RANGE_DAYPART_ENDPOINT = re.compile(
 _RANGE_ENDPOINT = "|".join(
     f"(?:{PATTERNS[name].pattern})" for name in _RANGE_ENDPOINT_PATTERNS
 )
+_BARE_MONTH = re.compile(PATTERNS["month_name"].pattern)
 _RANGE_MONTH_YEAR = re.compile(rf"{PATTERNS['month_name'].pattern}\s+(\d{{4}})")
 PATTERNS["from_to"] = re.compile(
     rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
@@ -269,12 +270,15 @@ def parse_time_expression(
             )
             # A cross-year month window ("between november and january")
             # starts the year before its end, like the yearless M/D case;
-            # left inverted it matches nothing.
+            # left inverted it matches nothing. Only a bare month name moves:
+            # a start with an explicit year keeps the year the user gave.
             if start_ts is not None and end_ts is not None and start_ts > end_ts:
-                prev_year = datetime.fromtimestamp(end_ts).year - 1
-                reanchored_ts, _ = parse_time_expression(start_expr, base_year=prev_year)
-                if reanchored_ts is not None and reanchored_ts <= end_ts:
-                    start_ts = reanchored_ts
+                bare_month = _BARE_MONTH.fullmatch(start_expr.strip().lower())
+                if bare_month:
+                    prev_year = datetime.fromtimestamp(end_ts).year - 1
+                    reanchored_ts, _ = get_month_range(bare_month.group(1), prev_year)
+                    if reanchored_ts <= end_ts:
+                        start_ts = reanchored_ts
             return start_ts, end_ts
 
         # Documented recall example. Ends that are not times fall through
@@ -436,7 +440,7 @@ def parse_time_expression(
         month_match = PATTERNS["month_name"].search(query)
         if month_match:
             month_name = month_match.group(1)
-            return get_month_range(month_name, base_year)
+            return get_month_range(month_name)
         
         # Named periods (holidays, etc.)
         named_period_match = PATTERNS["named_period"].search(query)
