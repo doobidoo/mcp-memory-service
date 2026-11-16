@@ -1016,7 +1016,7 @@ class DreamInspiredConsolidator:
                         "Failed to store association memory for %s <-> %s: %s",
                         source_hashes[0][:8],
                         source_hashes[1][:8],
-                        reason,
+                        _sanitize_log_value(reason),
                     )
 
             except Exception as e:
@@ -1101,7 +1101,7 @@ class DreamInspiredConsolidator:
                             relationship_type = inferred_rel
                             self.logger.debug(
                                 "Inferred relationship '%s' (confidence: %.2f) for %s <-> %s",
-                                inferred_rel, confidence, source_hash[:8], target_hash[:8],
+                                _sanitize_log_value(inferred_rel), confidence, source_hash[:8], target_hash[:8],
                             )
                     except Exception as e:
                         self.logger.warning(
