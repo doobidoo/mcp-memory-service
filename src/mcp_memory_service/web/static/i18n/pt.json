@@ -731,7 +731,7 @@
   "settings.quality.provider.label": "Provedor de IA",
   "settings.quality.provider.local": "SLM local (modo privacidade)",
   "settings.quality.provider.groq": "API Groq",
-  "settings.quality.provider.gemini": "API Gemini",
+  "settings.quality.provider.openaiCompatible": "API compatível com OpenAI",
   "settings.quality.provider.auto": "Automático (todos os disponíveis)",
   "settings.quality.provider.none": "Somente implícito (sem IA)",
   "settings.quality.provider.help": "O SLM local oferece pontuação de qualidade sem custo e com preservação de privacidade",

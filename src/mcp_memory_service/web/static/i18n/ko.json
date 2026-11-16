@@ -595,7 +595,7 @@
   "settings.quality.current.label": "현재 제공자:",
   "settings.quality.loadFailed": "✗ 현재 설정을 불러오지 못했습니다: {error}. 이 탭을 다시 열어 재시도하세요.",
   "settings.quality.provider.auto": "자동 (사용 가능한 모두)",
-  "settings.quality.provider.gemini": "Gemini API",
+  "settings.quality.provider.openaiCompatible": "OpenAI 호환 API",
   "settings.quality.provider.groq": "Groq API",
   "settings.quality.provider.help": "로컬 SLM은 비용 없이 프라이버시를 보호하는 품질 점수 산정을 제공합니다",
   "settings.quality.provider.label": "AI 제공자",
