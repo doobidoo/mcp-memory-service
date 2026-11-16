@@ -222,6 +222,78 @@ def _dedup_outcome_note(result: dict) -> str:
     return _one_dedup_note(result)
 
 
+async def _nli_note_after_store(server, result: dict, store: str) -> str:
+    """Run the inline NLI contradiction check for the memory just stored.
+
+    The check compares within ``store``, the partition the memory was written
+    to (GHSA-989p-hfjf-q97q). Returns the line to append to the response.
+    """
+    try:
+        from ...reasoning.nli import detect_contradictions_nli
+        mem_hash = result["memory"].get("content_hash")
+        if mem_hash:
+            nli_result = await detect_contradictions_nli(
+                server.storage, memory_hash=mem_hash, dry_run=False, store=store
+            )
+            if nli_result.get("pairs_detected", 0) > 0:
+                return f"\n⚠️ Contradiction detected: {nli_result['pairs_detected']} conflict(s) registered."
+    except Exception as e:
+        logger.debug("NLI on-store check failed: %s", _sanitize_log_value(e))
+    return ""
+
+
+async def _auto_capture_note(server, arguments: dict, content, result: dict, conversation_id) -> str:
+    """RFC #1008 §3: optional inline auto-capture from the stored content.
+
+    Returns the line to append to the response, empty when nothing ran.
+    """
+    from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+    from ...harvest.auto_capture import (
+        AutoCaptureService,
+        parent_hash_from_store_result,
+    )
+
+    auto_extract = arguments.get("auto_extract")
+    if auto_extract is None:
+        auto_extract = MCP_AUTO_EXTRACT_DEFAULT
+
+    # Recursion guard: skip auto-extract for memories produced by auto-capture itself
+    metadata_arg = arguments.get("metadata") or {}
+    if isinstance(metadata_arg, dict) and metadata_arg.get("source") == "auto_capture":
+        auto_extract = False
+
+    if not (auto_extract and content):
+        return ""
+    try:
+        min_conf = arguments.get("min_extract_confidence")
+        if min_conf is None:
+            min_conf = MCP_AUTO_EXTRACT_MIN_CONFIDENCE
+        capture_service = AutoCaptureService(
+            memory_service=server.memory_service,
+            min_confidence=min_conf,
+            types=arguments.get("extract_types"),
+        )
+        capture = await capture_service.capture(
+            content,
+            role=arguments.get("role") or "assistant",
+            parent_hash=parent_hash_from_store_result(result),
+            conversation_id=conversation_id,
+            dry_run=False,
+            # The store the caller named, not the handler's "default" fallback:
+            # capture() leaves an unnamed store to the storage defaults, and a
+            # named one is enforced (GHSA-989p-hfjf-q97q).
+            store=arguments.get("store"),
+        )
+        if capture.candidates:
+            return (
+                f"\nAuto-capture: {capture.stored} stored, {capture.evolved} evolved "
+                f"from {len(capture.candidates)} candidate(s)."
+            )
+    except Exception as cap_err:
+        logger.warning("auto-capture failed: %s", _sanitize_log_value(cap_err))
+    return ""
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -378,15 +450,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
                 logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))
 
         if nli_on_store and result.get("success") and "memory" in result:
-            try:
-                from ...reasoning.nli import detect_contradictions_nli
-                mem_hash = result["memory"].get("content_hash")
-                if mem_hash:
-                    nli_result = await detect_contradictions_nli(server.storage, memory_hash=mem_hash, dry_run=False)
-                    if nli_result.get("pairs_detected", 0) > 0:
-                        message += f"\n⚠️ Contradiction detected: {nli_result['pairs_detected']} conflict(s) registered."
-            except Exception as e:
-                logger.debug("NLI on-store check failed: %s", _sanitize_log_value(e))
+            message += await _nli_note_after_store(server, result, store)
 
         # §6: Check against active beliefs (if belief service available)
         if nli_on_store and result.get("success") and "memory" in result:
@@ -405,48 +469,7 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
             except Exception as e:
                 logger.debug("Belief quarantine check failed: %s", _sanitize_log_value(e))
 
-        # RFC #1008 §3: optional inline auto-capture from stored content
-        from ...config import MCP_AUTO_EXTRACT_DEFAULT, MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-        from ...harvest.auto_capture import (
-            AutoCaptureService,
-            parent_hash_from_store_result,
-        )
-
-        auto_extract = arguments.get("auto_extract")
-        if auto_extract is None:
-            auto_extract = MCP_AUTO_EXTRACT_DEFAULT
-
-        # Recursion guard: skip auto-extract for memories produced by auto-capture itself
-        metadata_arg = arguments.get("metadata") or {}
-        if isinstance(metadata_arg, dict) and metadata_arg.get("source") == "auto_capture":
-            auto_extract = False
-
-        if auto_extract and content:
-            try:
-                parent_hash = parent_hash_from_store_result(result)
-
-                min_conf = arguments.get("min_extract_confidence")
-                if min_conf is None:
-                    min_conf = MCP_AUTO_EXTRACT_MIN_CONFIDENCE
-                capture_service = AutoCaptureService(
-                    memory_service=server.memory_service,
-                    min_confidence=min_conf,
-                    types=arguments.get("extract_types"),
-                )
-                capture = await capture_service.capture(
-                    content,
-                    role=arguments.get("role") or "assistant",
-                    parent_hash=parent_hash,
-                    conversation_id=conversation_id,
-                    dry_run=False,
-                )
-                if capture.candidates:
-                    message += (
-                        f"\nAuto-capture: {capture.stored} stored, {capture.evolved} evolved "
-                        f"from {len(capture.candidates)} candidate(s)."
-                    )
-            except Exception as cap_err:
-                logger.warning("auto-capture failed: %s", cap_err)
+        message += await _auto_capture_note(server, arguments, content, result, conversation_id)
 
         return [types.TextContent(type="text", text=message)]
 

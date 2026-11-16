@@ -21,7 +21,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .nli_patterns import load_nli_patterns
 from ..config.locale import get_active_locales
@@ -439,8 +439,22 @@ async def _classify_band(
     return contradictions
 
 
+async def _entity_candidates(graph, entities, memory_hash: str) -> set:
+    """Hashes of the other memories that share an entity with ``memory_hash``."""
+    candidate_hashes = set()
+    for entity in entities:
+        try:
+            hashes = await graph.find_memories_by_entity(entity)
+            if hashes:
+                candidate_hashes.update(hashes)
+        except Exception:
+            continue
+    candidate_hashes.discard(memory_hash)
+    return candidate_hashes
+
+
 async def detect_contradictions_nli(
-    storage, memory_hash: str = None, dry_run: bool = True
+    storage, memory_hash: str = None, dry_run: bool = True, store: Optional[str] = None
 ) -> dict:
     """
     NLI-enhanced contradiction detection — 4-stage pipeline.
@@ -466,8 +480,13 @@ async def detect_contradictions_nli(
     if memory_hash is None:
         return result
 
+    # Compare only inside the store the memory was written to. Omitted, the
+    # search below falls back to "default" and a memory in another store gets
+    # compared with, and linked to, the default store's memories.
+    store_kw: Dict[str, Any] = {} if store in (None, "all") else {"store": store}
+
     # Get the source memory
-    mem_a = await storage.get_by_hash(memory_hash)
+    mem_a = await storage.get_by_hash(memory_hash, **store_kw)
     if mem_a is None:
         return result
 
@@ -486,22 +505,13 @@ async def detect_contradictions_nli(
         return result
 
     # Stage 1: Entity overlap gate
-    candidate_hashes = set()
-    for entity in entities_a:
-        try:
-            hashes = await graph.find_memories_by_entity(entity)
-            if hashes:
-                candidate_hashes.update(hashes)
-        except Exception:
-            continue
-    candidate_hashes.discard(memory_hash)
-
+    candidate_hashes = await _entity_candidates(graph, entities_a, memory_hash)
     if not candidate_hashes:
         return result
 
     # Stage 2: Embedding pre-filter — get candidates in similarity band
     try:
-        search_result = await storage.search_memories(query=mem_a.content, limit=20)
+        search_result = await storage.search_memories(query=mem_a.content, limit=20, **store_kw)
     except Exception:
         search_result = {}
 

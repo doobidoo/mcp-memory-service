@@ -367,3 +367,59 @@ def test_rest_global_grant_unchanged_on_a_backend_that_cannot_confine(
     client = make_client("read")
     response = client.get(f"/api/memories/{other_store_hash}", params={"store": "projectB"})
     assert response.status_code == 200
+
+
+def _live_rows(storage, store):
+    return storage.conn.execute(
+        "SELECT content_hash, superseded_by FROM memories "
+        "WHERE store = ? AND deleted_at IS NULL", (store,)
+    ).fetchall()
+
+
+async def _seed(storage, text, store):
+    memory = Memory(
+        content=text, content_hash=generate_content_hash(text),
+        memory_type="decision", tags=["baseline"],
+    )
+    ok, msg = await storage.store(memory, store=store)
+    assert ok, msg
+    return memory.content_hash
+
+
+@pytest.fixture
+async def near_duplicates(storage, monkeypatch):
+    """One memory each in "default" and "projectB"; every text embeds identically."""
+    unit_vec = [1.0] + [0.0] * (storage.embedding_dimension - 1)
+    monkeypatch.setattr(storage, "_generate_embedding", lambda _text: list(unit_vec))
+    return {
+        "default": await _seed(
+            storage, "I decided to use WAL mode because readers were blocking writers.", "default"
+        ),
+        "projectB": await _seed(
+            storage, "I decided to use Redis Pub/Sub for event dispatch in projectB.", "projectB"
+        ),
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_write_grant_memory_store_auto_extract_confined_to_granted_store(
+    make_client, storage, near_duplicates,
+):
+    """GHSA-989p-hfjf-q97q (RISCON Labs): with auto_extract=true a write:projectA
+    grant replaced a similar memory in "default" and inserted candidates there."""
+    response = _call(make_client("read:projectA write:projectA"), "memory_store", {
+        "content": (
+            "Session notes.\n"
+            "I decided to use WAL mode for concurrent SQLite because readers were blocking writers."
+        ),
+        "store": "projectA",
+        "auto_extract": True,
+        "min_extract_confidence": 0.5,
+    })
+
+    result = response.json()["result"]
+    assert "Auto-capture:" in result["content"][0]["text"]
+    assert _live_rows(storage, "default") == [(near_duplicates["default"], None)]
+    assert _live_rows(storage, "projectB") == [(near_duplicates["projectB"], None)]
+    assert len(_live_rows(storage, "projectA")) >= 2
