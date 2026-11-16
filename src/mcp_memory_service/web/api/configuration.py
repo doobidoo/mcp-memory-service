@@ -802,7 +802,8 @@ async def save_credentials(
         raise HTTPException(status_code=500, detail=f"Failed to write .env: {e}")
 
     logger.warning(
-        f"AUDIT: Cloudflare credentials updated by {user.client_id} (auth: {user.auth_method})"
+        "AUDIT: Cloudflare credentials updated by %s (auth: %s)",
+        _sanitize_log_value(user.client_id), _sanitize_log_value(user.auth_method)
     )
 
     from .server import _restart_server_delayed
@@ -908,7 +909,8 @@ async def save_quality_settings(
 
     logger.warning(
         "AUDIT: Quality settings (%s) updated by %s (auth: %s)",
-        _sanitize_log_value(", ".join(values)), user.client_id, user.auth_method
+        _sanitize_log_value(", ".join(values)),
+        _sanitize_log_value(user.client_id), _sanitize_log_value(user.auth_method)
     )
 
     from .server import _restart_server_delayed

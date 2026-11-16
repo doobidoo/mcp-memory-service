@@ -1903,9 +1903,12 @@ class MemoryDashboard {
         const pollStatus = async () => {
             try {
                 const statusResponse = await this.apiCall(`/documents/status/${uploadId}`);
+                this._reportUpload(uploadId, statusResponse);
                 this.updateUploadProgress(uploadId, statusResponse);
 
-                if (statusResponse.progress >= 100 || statusResponse.status === 'completed' || statusResponse.status === 'failed') {
+                // Only an end state stops the poll: a batch reaches 100% before it is
+                // marked completed, and the island has to see that answer.
+                if (statusResponse.status === 'completed' || statusResponse.status === 'failed') {
                     // Upload completed, refresh history
                     this.loadUploadHistory();
                 } else {
@@ -1913,7 +1916,8 @@ class MemoryDashboard {
                     setTimeout(pollStatus, 2000); // Poll every 2 seconds
                 }
             } catch (error) {
-                // If polling fails, try again with longer interval
+                // If polling fails, try again with longer interval. The island keeps
+                // the last answer: one failed poll is not a failed import.
                 setTimeout(pollStatus, 5000);
             }
         };
@@ -1938,6 +1942,52 @@ class MemoryDashboard {
                 this.loadUploadHistory(); // For now, just refresh the entire history
             }
         });
+    }
+
+    /**
+     * Report one document import to the status island as its own row, named after
+     * the file, so it stays visible from every tab and parallel imports do not merge.
+     */
+    _reportUpload(uploadId, upload) {
+        if (!this.statusIsland || !upload) return;
+        // A file name is not translated, so the label has no catalog key.
+        const label = { fallback: upload.filename || String(uploadId) };
+        const reason = Array.isArray(upload.errors) && upload.errors.length ? String(upload.errors[0]) : '';
+        let entry;
+        switch (upload.status) {
+            case 'queued':
+                entry = { state: 'busy', progress: 'unknown', text: { key: 'island.upload.queued', fallback: 'Waiting to start' } };
+                break;
+            case 'processing':
+                entry = { state: 'busy', progress: upload.progress, text: { key: 'island.upload.processing', fallback: 'Importing' } };
+                break;
+            case 'completed':
+                if (reason) {
+                    // A batch is "completed" once any chunk was stored, even when other
+                    // chunks or files failed. That must stay until the reader closes it.
+                    entry = {
+                        state: 'error',
+                        dismissible: true,
+                        text: { key: 'island.upload.partial', fallback: 'Imported with errors: {error}', vars: { error: reason } },
+                    };
+                    break;
+                }
+                // No settle: the row leaves by itself after its confirmation.
+                entry = { state: 'success', text: { key: 'island.upload.completed', fallback: 'Imported' } };
+                break;
+            case 'failed': {
+                entry = {
+                    state: 'error',
+                    dismissible: true,
+                    // The server's own message; without one, a catalog text.
+                    text: reason ? { fallback: reason } : { key: 'island.upload.failed', fallback: 'Import failed' },
+                };
+                break;
+            }
+            default:
+                return;
+        }
+        this.statusIsland.report(`upload-${uploadId}`, { ...entry, label });
     }
 
     /** Report hybrid sync to the status island as one source, named in its panel. */
@@ -2387,35 +2437,86 @@ class MemoryDashboard {
     /**
      * Create a backup manually
      */
+    /** Report one backup run to the status island as the "Backup" source. */
+    _reportBackup(entry) {
+        this.statusIsland?.report('backup', { ...entry, label: { key: 'island.source.backup', fallback: 'Backup' } });
+    }
+
     async createBackup() {
         const backupButton = document.getElementById('backupNowButton');
         if (backupButton) backupButton.disabled = true;
 
+        // The run reports to the header's status island, which the Settings modal
+        // covers (modal-overlay sits above the header): close the modal first so
+        // progress, the result and the retry action stay visible.
+        const settingsModal = document.getElementById('settingsModal');
+        if (settingsModal && settingsModal.classList.contains('active')) {
+            // Closing the modal would discard unsaved preference edits, since
+            // openSettingsModal repopulates from this.settings: stash the values
+            // that differ from the saved preferences and restore them the next
+            // time Settings opens. Untouched fields are not stashed, so a newer
+            // choice saved in the meantime (e.g. the header theme toggle) is not
+            // silently overwritten on the next save.
+            const preferenceKeys = { themeSelect: 'theme', viewDensity: 'viewDensity', previewLines: 'previewLines' };
+            const draft = {};
+            Object.entries(preferenceKeys).forEach(([id, key]) => {
+                const field = document.getElementById(id);
+                if (field && field.value !== String(this.settings[key])) draft[id] = field.value;
+            });
+            this._settingsDraft = Object.keys(draft).length > 0 ? draft : null;
+            this.closeModal(settingsModal);
+        }
+
+        // The request answers only when the backup is written; until then the island
+        // shows the run as busy without a percentage (the server sends no progress).
+        this._reportBackup({
+            state: 'busy',
+            text: { key: 'toast.backupCreating', fallback: 'Creating backup...' },
+            progress: 'unknown',
+        });
+
+        const retry = {
+            id: 'retry',
+            label: { key: 'island.action.retry', fallback: 'Retry' },
+            run: () => this.createBackup(),
+        };
+
         try {
-            this.showToast(this.t('toast.backupCreating', 'Creating backup...'), 'info');
             const result = await this.apiCall('/backup/now', 'POST');
 
             if (result.success) {
                 const sizeMB = (result.size_bytes / 1024 / 1024).toFixed(2);
-                this.showToast(
-                    this.t('toast.backupCreated', 'Backup created: {name} ({size} MB)', {
-                        name: result.filename,
-                        size: sizeMB
-                    }),
-                    'success'
-                );
+                this._reportBackup({
+                    state: 'success',
+                    text: {
+                        key: 'toast.backupCreated',
+                        fallback: 'Backup created: {name} ({size} MB)',
+                        vars: { name: result.filename, size: sizeMB },
+                    },
+                });
             } else {
-                this.showToast(
-                    this.t('toast.backupFailedWithReason', 'Backup failed: {reason}', { reason: result.error }),
-                    'error'
-                );
+                this._reportBackup({
+                    state: 'error',
+                    text: {
+                        key: 'toast.backupFailedWithReason',
+                        fallback: 'Backup failed: {reason}',
+                        vars: { reason: result.error },
+                    },
+                    dismissible: true,
+                    actions: [retry],
+                });
             }
 
             await this.checkBackupStatus();
 
         } catch (error) {
             console.error('Error creating backup:', error);
-            this.showToast(this.t('toast.backupFailed', 'Failed to create backup'), 'error');
+            this._reportBackup({
+                state: 'error',
+                text: { key: 'toast.backupFailed', fallback: 'Failed to create backup' },
+                dismissible: true,
+                actions: [retry],
+            });
         } finally {
             if (backupButton) backupButton.disabled = false;
         }
@@ -5022,23 +5123,43 @@ class MemoryDashboard {
      * Open settings modal
      */
     async openSettingsModal() {
-        const modal = document.getElementById('settingsModal');
+        // Ignore overlapping opens while the first one is loading.
+        if (this._settingsOpening) return;
+        this._settingsOpening = true;
+        try {
+            const modal = document.getElementById('settingsModal');
 
-        // Populate form with current settings
-        document.getElementById('themeSelect').value = this.settings.theme;
-        document.getElementById('viewDensity').value = this.settings.viewDensity;
-        document.getElementById('previewLines').value = this.settings.previewLines;
+            // Populate form with current settings
+            document.getElementById('themeSelect').value = this.settings.theme;
+            document.getElementById('viewDensity').value = this.settings.viewDensity;
+            document.getElementById('previewLines').value = this.settings.previewLines;
 
-        // Reset system info to loading state
-        this.resetSystemInfoLoadingState();
+            // A backup started from Settings closes the modal; unsaved edits stashed
+            // at that point are restored here instead of being lost. The stash is
+            // cleared only once the modal is visible: a second open during the
+            // loading wait below repopulates the form and would otherwise find no
+            // stash to re-apply.
+            if (this._settingsDraft) {
+                Object.entries(this._settingsDraft).forEach(([id, value]) => {
+                    const field = document.getElementById(id);
+                    if (field) field.value = value;
+                });
+            }
 
-        // Load system information and backup status
-        await Promise.all([
-            this.loadSystemInfo(),
-            this.checkBackupStatus()
-        ]);
+            // Reset system info to loading state
+            this.resetSystemInfoLoadingState();
 
-        this.openModal(modal);
+            // Load system information and backup status
+            await Promise.all([
+                this.loadSystemInfo(),
+                this.checkBackupStatus()
+            ]);
+
+            this.openModal(modal);
+            this._settingsDraft = null;
+        } finally {
+            this._settingsOpening = false;
+        }
     }
 
     /**

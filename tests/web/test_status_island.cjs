@@ -428,6 +428,176 @@ test('the catalog keys the sync source uses exist in en.json, and #syncStatus is
     assert.ok(!fs.readFileSync(STATIC + 'app.js', 'utf8').includes("getElementById('syncStatus')"));
 });
 
+// ---- What the dashboard reports for document imports (#2004) ----
+
+// A dashboard on a real island model whose upload poll runs by hand: `apiCall` answers
+// from a list, and `next()` runs the timer the poll set last.
+function uploadDashboard() {
+    const { app, context } = dashboard();
+    const model = StatusIsland.createModel();
+    app.statusIsland = {
+        report: (id, entry) => model.report(id, entry),
+        clear: (id) => model.clear(id),
+        get: (id) => model.get(id),
+    };
+    const timers = [];
+    context.setTimeout = (run, delay) => { timers.push([run, delay]); return timers.length; };
+    const answers = {};
+    app.apiCall = async (endpoint) => {
+        const next = answers[endpoint].shift();
+        if (next instanceof Error) throw next;
+        return next;
+    };
+    app.historyLoads = 0;
+    app.loadUploadHistory = () => { app.historyLoads += 1; };
+    const next = async () => {
+        const [run, delay] = timers.shift();
+        await run();
+        return delay;
+    };
+    const answer = (uploadId, ...list) => { answers[`/documents/status/${uploadId}`] = list; };
+    return { app, model, timers, next, answer };
+}
+
+// What GET /api/documents/status/{upload_id} answers (UploadStatus in web/api/documents.py).
+const upload = (status, extra = {}) => ({
+    upload_id: 'u1', filename: 'notes.pdf', status, chunks_processed: 0, chunks_stored: 0,
+    total_chunks: 0, progress: 0, errors: [], created_at: '2026-11-16T10:00:00', ...extra,
+});
+
+test('an import shows on the island under its file name, with a rising percentage', async () => {
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('u1',
+        upload('queued'),
+        upload('processing', { progress: 25, chunks_processed: 3 }),
+        upload('processing', { progress: 75, chunks_processed: 9 }),
+        upload('completed', { progress: 100, chunks_processed: 12, chunks_stored: 12 }));
+    app.monitorUploadProgress('u1');
+
+    await next();
+    let entry = model.get('upload-u1');
+    assert.deepEqual([entry.state, entry.progress, entry.text.key], ['busy', 'unknown', 'island.upload.queued']);
+    assert.equal(JSON.stringify(entry.label), JSON.stringify({ fallback: 'notes.pdf' }), 'a file name has no catalog key');
+
+    await next();
+    assert.deepEqual([model.get('upload-u1').state, model.get('upload-u1').progress], ['busy', 25]);
+    assert.equal(model.get('upload-u1').text.key, 'island.upload.processing');
+    await next();
+    assert.equal(model.get('upload-u1').progress, 75);
+    assert.equal(model.lead().id, 'upload-u1');
+
+    await next();
+    entry = model.get('upload-u1');
+    assert.equal(entry.state, 'success');
+    assert.equal(entry.text.key, 'island.upload.completed');
+    assert.equal(entry.settle, null, 'no settle: the row leaves by itself');
+    assert.ok(model.expire('upload-u1', entry.seq));
+    assert.equal(model.get('upload-u1'), null);
+    assert.equal(timers.length, 0, 'the poll stops after the end state');
+    assert.equal(app.historyLoads, 1);
+});
+
+test('a batch at 100% that is not completed yet keeps being polled', async () => {
+    // process_batch_upload sets progress to 100 after the last file, then the status.
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('b1', upload('processing', { progress: 100 }), upload('completed', { progress: 100 }));
+    app.monitorUploadProgress('b1');
+    await next();
+    assert.equal(model.get('upload-b1').progress, 100);
+    assert.equal(timers.length, 1);
+    await next();
+    assert.equal(model.get('upload-b1').state, 'success');
+});
+
+test('a failed import stays on the island with its first error until it is closed', async () => {
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('u2', upload('processing', { progress: 50 }),
+        upload('failed', { errors: ['notes.pdf: No loader available', 'Processing error'] }));
+    app.monitorUploadProgress('u2');
+    await next();
+    await next();
+    const entry = model.get('upload-u2');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.dismissible, true);
+    assert.equal(entry.text.fallback, 'notes.pdf: No loader available');
+    assert.equal(entry.label.fallback, 'notes.pdf');
+    assert.equal(timers.length, 0);
+    assert.equal(model.expire('upload-u2', entry.seq), false, 'an error does not leave by itself');
+    assert.equal(model.dismiss('upload-u2'), true);
+    assert.equal(model.get('upload-u2'), null);
+});
+
+test('a completed import with errors stays on the island as a closable warning', async () => {
+    // process_batch_upload() answers "completed" once any chunk was stored, even when
+    // other files or chunks failed; that must not look like a clean import.
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('p1', upload('completed', {
+        progress: 100, chunks_processed: 12, chunks_stored: 9,
+        errors: ['broken.docx: No loader available', 'Chunk 4: processing error'],
+    }));
+    app.monitorUploadProgress('p1');
+    await next();
+    const entry = model.get('upload-p1');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.dismissible, true);
+    assert.equal(entry.text.key, 'island.upload.partial');
+    assert.equal(entry.text.vars.error, 'broken.docx: No loader available');
+    assert.equal(entry.label.fallback, 'notes.pdf');
+    assert.equal(model.expire('upload-p1', entry.seq), false, 'it does not leave by itself');
+    assert.equal(timers.length, 0, 'the poll still stops at the end state');
+    assert.equal(model.dismiss('upload-p1'), true);
+    assert.equal(model.get('upload-p1'), null);
+});
+
+test('a failed import without an error message uses the catalog text', () => {
+    const { app, model } = uploadDashboard();
+    app._reportUpload('u3', upload('failed', { errors: [] }));
+    assert.equal(model.get('upload-u3').text.key, 'island.upload.failed');
+});
+
+test('two imports at once are two rows', async () => {
+    const { app, model, next, answer } = uploadDashboard();
+    answer('a', upload('processing', { filename: 'a.md', progress: 10 }));
+    answer('b', upload('processing', { filename: 'b.txt', progress: 60 }));
+    app.monitorUploadProgress('a');
+    app.monitorUploadProgress('b');
+    await next();
+    await next();
+    const rows = model.list().map((source) => [source.id, source.label.fallback, source.progress]);
+    assert.deepEqual(rows.sort(), [['upload-a', 'a.md', 10], ['upload-b', 'b.txt', 60]]);
+});
+
+test('a failed poll keeps the last state and reports no error', async () => {
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('u4', upload('processing', { progress: 40 }), new Error('network'), upload('processing', { progress: 80 }));
+    app.monitorUploadProgress('u4');
+    await next();
+    await next();
+    assert.deepEqual([model.get('upload-u4').state, model.get('upload-u4').progress], ['busy', 40]);
+    assert.equal(timers[0][1], 5000, 'it tries again, later');
+    await next();
+    assert.equal(model.get('upload-u4').progress, 80);
+});
+
+test('import reporting works without the island', () => {
+    const { app } = dashboard({ island: null });
+    assert.doesNotThrow(() => app._reportUpload('u5', upload('failed', { errors: ['x'] })));
+});
+
+test('the catalog keys document imports use exist in en.json', () => {
+    const catalog = JSON.parse(fs.readFileSync(STATIC + 'i18n/en.json', 'utf8'));
+    const { app, model } = uploadDashboard();
+    const keys = [];
+    for (const status of ['queued', 'processing', 'completed', 'failed']) {
+        app._reportUpload(status, upload(status));
+        keys.push(model.get(`upload-${status}`).text.key);
+    }
+    app._reportUpload('partial', upload('completed', { errors: ['x'] }));
+    keys.push(model.get('upload-partial').text.key);
+    assert.deepEqual(keys, ['island.upload.queued', 'island.upload.processing', 'island.upload.completed', 'island.upload.failed', 'island.upload.partial']);
+    assert.deepEqual(keys.filter((key) => !catalog[key]), []);
+});
+
 // ---- What the dashboard reports for a finished consolidation (#2006) ----
 
 // A dashboard whose stream is a stub, so the scheduler's event goes through the real

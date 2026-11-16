@@ -134,6 +134,12 @@ GUARDED_MODULES = [
     "mcp_memory_service/consolidation/health.py",
     "mcp_memory_service/consolidation/insights.py",
     "mcp_memory_service/consolidation/scheduler.py",
+    "mcp_memory_service/quality/onnx_ranker.py",
+    "mcp_memory_service/server/handlers/graph.py",
+    "mcp_memory_service/server/handlers/quality.py",
+    "mcp_memory_service/storage/sync/bootstrap.py",
+    "mcp_memory_service/web/api/configuration.py",
+    "mcp_memory_service/web/api/documents.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -1018,4 +1024,53 @@ def test_lazy_scan_flags_consolidation_memory_values():
 
     # An f-string in a consolidation logger call is caught by the AST scan.
     fstring_sample = 'self.logger.info(f"Completed {time_horizon} consolidation in {duration:.2f}s")\n'
+    assert _ast_findings(fstring_sample)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_handler_and_web_api_values():
+    """Outside values in the last six modules brought under the guard must stay wrapped.
+
+    server/handlers/quality.py logs the error message it builds from the
+    tool's `action` argument and the exception; web/api/documents.py logs the
+    path of an uploaded file; web/api/configuration.py logs the client_id the
+    OAuth token carries in its AUDIT lines; storage/sync/bootstrap.py logs the
+    install summary that carries the peer's watermark. The graph handler's
+    path length is a count, read into its own name so `path` is not logged
+    bare. Dropping a wrapper or reverting to an f-string in any of them would
+    break the parametrized module scans; this sentinel fails at the sample
+    level so the regression is caught before the module-level scan runs.
+    """
+    # error_msg is listed in EXTERNAL_NAMES; the traceback text is not.
+    bare_msg = 'logger.error("%s\\n%s", error_msg, traceback.format_exc())\n'
+    wrapped_msg = 'logger.error("%s\\n%s", _sanitize_log_value(error_msg), traceback.format_exc())\n'
+    assert _lazy_findings(bare_msg)
+    assert not _lazy_findings(wrapped_msg)
+
+    # file_path (an upload's temp file) is listed in EXTERNAL_NAMES.
+    bare_path = 'logger.debug("Could not delete temp file %s", file_path)\n'
+    wrapped_path = 'logger.debug("Could not delete temp file %s", _sanitize_log_value(file_path))\n'
+    assert _lazy_findings(bare_path)
+    assert not _lazy_findings(wrapped_path)
+
+    # client_id comes from the OAuth token; it is listed in EXTERNAL_NAMES.
+    bare_user = 'logger.warning("AUDIT: Cloudflare credentials updated by %s (auth: %s)", user.client_id, user.auth_method)\n'
+    wrapped_user = 'logger.warning("AUDIT: Cloudflare credentials updated by %s (auth: %s)", _sanitize_log_value(user.client_id), _sanitize_log_value(user.auth_method))\n'
+    assert _lazy_findings(bare_user)
+    assert not _lazy_findings(wrapped_user)
+
+    # result (the bootstrap summary, which carries the peer's watermark) is listed.
+    bare_result = 'logger.info("Bootstrap from peer %s complete: %s", _sanitize_log_value(peer_id), result)\n'
+    wrapped_result = 'logger.info("Bootstrap from peer %s complete: %s", _sanitize_log_value(peer_id), _sanitize_log_value(result))\n'
+    assert _lazy_findings(bare_result)
+    assert not _lazy_findings(wrapped_result)
+
+    # len(path) mentions `path`; the count read into its own name does not.
+    bare_len = 'logger.info("Found path of length %s between memories", len(path))\n'
+    named_len = 'logger.info("Found path of length %s between memories", path_length)\n'
+    assert _lazy_findings(bare_len)
+    assert not _lazy_findings(named_len)
+
+    # An f-string in one of these modules' logger calls is caught by the AST scan.
+    fstring_sample = 'logger.info(f"Extracted subgraph: {len(subgraph[\'nodes\'])} nodes")\n'
     assert _ast_findings(fstring_sample)
