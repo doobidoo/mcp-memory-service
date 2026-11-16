@@ -595,7 +595,7 @@
   "settings.quality.current.label": "現在のプロバイダー:",
   "settings.quality.loadFailed": "✗ 現在の設定を読み込めませんでした: {error}。このタブを開き直して再試行してください。",
   "settings.quality.provider.auto": "自動 (利用可能なすべて)",
-  "settings.quality.provider.gemini": "Gemini API",
+  "settings.quality.provider.openaiCompatible": "OpenAI互換API",
   "settings.quality.provider.groq": "Groq API",
   "settings.quality.provider.help": "ローカルSLMはゼロコストでプライバシーを保護した品質スコアリングを提供",
   "settings.quality.provider.label": "AIプロバイダー",

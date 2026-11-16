@@ -733,7 +733,7 @@
   "settings.quality.provider.label": "Поставщик ИИ",
   "settings.quality.provider.local": "Локальная SLM (режим конфиденциальности)",
   "settings.quality.provider.groq": "API Groq",
-  "settings.quality.provider.gemini": "API Gemini",
+  "settings.quality.provider.openaiCompatible": "API, совместимый с OpenAI",
   "settings.quality.provider.auto": "Автоматически (все доступные)",
   "settings.quality.provider.none": "Только косвенная оценка (без ИИ)",
   "settings.quality.provider.help": "Локальная SLM обеспечивает оценку качества без затрат и с сохранением конфиденциальности.",

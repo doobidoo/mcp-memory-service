@@ -59,7 +59,7 @@ TIME_OF_DAY = {
 # characters, which prevents ReDoS on adversarial inputs.
 PATTERNS = {
     # Use \d{1,4} instead of \d+ to bound digit repetition and avoid polynomial backtracking
-    "relative_days": re.compile(r'(?:(\d{1,4})\s+days?\s+ago)|(?:yesterday)|(?:today)'),
+    "relative_days": re.compile(r'(?:(\d{1,4})\s+days?\s+ago)|(?:day\s+before\s+yesterday)|(?:yesterday)|(?:today)'),
     "relative_weeks": re.compile(r'(\d{1,4})\s+weeks?\s+ago'),
     "relative_months": re.compile(r'(\d{1,4})\s+months?\s+ago'),
     "relative_years": re.compile(r'(\d{1,4})\s+years?\s+ago'),
@@ -86,11 +86,12 @@ _RANGE_ENDPOINT_PATTERNS = (
 _RANGE_DAYPART_ENDPOINT = re.compile(
     rf"(?:{PATTERNS['relative_days'].pattern})\s+(?:in\s+the\s+)?"
     rf"(?:{PATTERNS['time_of_day'].pattern})|"
-    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
+    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:day\s+before\s+yesterday|yesterday|today)"
 )
 _RANGE_ENDPOINT = "|".join(
     f"(?:{PATTERNS[name].pattern})" for name in _RANGE_ENDPOINT_PATTERNS
 )
+_BARE_MONTH = re.compile(PATTERNS["month_name"].pattern)
 _RANGE_MONTH_YEAR = re.compile(rf"{PATTERNS['month_name'].pattern}\s+(\d{{4}})")
 PATTERNS["from_to"] = re.compile(
     rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
@@ -267,6 +268,22 @@ def parse_time_expression(
             start_ts, end_ts = _anchor_yearless_range(
                 start_expr, end_expr, start_ts, end_ts
             )
+            # A cross-year month window ("between november and january")
+            # starts the year before its end, like the yearless M/D case;
+            # left inverted it matches nothing. Only a bare month name moves:
+            # a start with an explicit year keeps the year the user gave.
+            if start_ts is not None and end_ts is not None and start_ts > end_ts:
+                bare_month = _BARE_MONTH.fullmatch(start_expr.strip().lower())
+                if bare_month:
+                    # Same year as the end first ("between january and march"
+                    # in February, when March is last year's), then the year
+                    # before it ("between november and january").
+                    end_year = datetime.fromtimestamp(end_ts).year
+                    for year in (end_year, end_year - 1):
+                        reanchored_ts, _ = get_month_range(bare_month.group(1), year)
+                        if reanchored_ts <= end_ts:
+                            start_ts = reanchored_ts
+                            break
             return start_ts, end_ts
 
         # Documented recall example. Ends that are not times fall through
@@ -334,7 +351,10 @@ def parse_time_expression(
         # Relative days: "X days ago", "yesterday", "today"
         days_ago_match = PATTERNS["relative_days"].search(query)
         if days_ago_match:
-            if "yesterday" in query:
+            # "day before yesterday" contains "yesterday"; check it first.
+            if re.search(r"\bday\s+before\s+yesterday\b", query):
+                days = 2
+            elif "yesterday" in query:
                 days = 1
             elif "today" in query:
                 days = 0
@@ -821,8 +841,8 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
     daypart = "morning|afternoon|evening|night|noon|midnight"
     time_expressions = [
         rf'\b\d+\s+days?\s+ago(?:\s+(?:{daypart}))?\b',
-        rf'\b(?:{daypart})\s+(?:yesterday|today)\b',
-        rf'\b(?:yesterday|today)(?:\s+(?:{daypart}))?\b',
+        rf'\b(?:{daypart})\s+(?:day\s+before\s+yesterday|yesterday|today)\b',
+        rf'\b(?:day\s+before\s+yesterday|yesterday|today)(?:\s+(?:{daypart}))?\b',
         r'\b\d+\s+weeks?\s+ago\b',
         r'\b\d+\s+months?\s+ago\b',
         r'\b\d+\s+years?\s+ago\b',

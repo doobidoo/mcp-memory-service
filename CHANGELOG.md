@@ -17,6 +17,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [12.11.0] - 2026-11-16
+
+### Security
+
+- **A per-store write grant could write to and supersede memories in another store through `memory_store` (GHSA-989p-hfjf-q97q, reported by [RISCON Labs](https://www.risconlabs.com), @RISCON-Labs).**
+  With `auto_extract=true`, `handle_store_memory` stored the memory in the granted store but ran auto-capture without it. `AutoCaptureService.capture()`, `SessionHarvester._try_evolve()` and `MemoryService.evolve_memory()` took no `store`, so the extracted candidates were compared with the `default` store, replaced a similar memory there, or were inserted there. A client holding only `write:projectA` could overwrite `default`. The NLI contradiction check on store (`MCP_NLI_ON_STORE`, inline and background) had the same gap: it compared a memory with the `default` store whatever store it was written to, linked the two with a `contradicts` edge and reported the hit count to the caller. It also missed contradictions inside a named store for the same reason. Conflict detection on store, which runs on every write without any flag, compared the new memory with every store as well and tagged a near-identical memory in another store `conflict:unresolved`, with `contradicts` edges between the two; it is confined to the store of the write now. `store` is now passed down all of these paths, and `evolve_memory()` refuses a hash from another store by itself. Setting `MCP_AUTO_EXTRACT_DEFAULT=false` was never a mitigation: an explicit `auto_extract` argument wins. Affected: 12.4.0 to 12.10.0, on backends that confine by store (sqlite-vec, hybrid). On Cloudflare and Milvus a per-store grant never authorized these calls; there, auto-capture for a named store now stores candidates in that store without evolving existing ones.
+
+### Added
+
+- **The dashboard offers the `openai-compatible` quality provider (#1668, KshitijKasodkar).**
+  The Quality tab and the environment listing offered `local, groq, gemini, auto, none`, so
+  the provider behind Ollama, vLLM, MLX-LM, LiteLLM and `fm serve` could not be picked, and
+  `MCP_QUALITY_AI_BASE_URL`, `MCP_QUALITY_AI_MODEL` and `MCP_QUALITY_AI_API_KEY` were not
+  listed. They are now, with the API key masked like `MCP_MILVUS_TOKEN`. Gemini is no longer
+  offered while `_score_with_gemini` raises `NotImplementedError`. Saving `openai-compatible`
+  from the Quality tab is refused until the base URL and model are set, the same way `groq`
+  needs `GROQ_API_KEY`, so the restart cannot come back to a server that fails validation.
+
+### Fixed
+
+- **Hybrid sync progress was shown nowhere on the dashboard (#2002, InlitX).**
+  `handleSyncProgress()` and `handleSyncCompleted()` wrote the `sync_progress` and
+  `sync_completed` events into a `#syncStatus` element that `index.html` no longer has,
+  a manual sync raised one toast per progress event, and every finished sync raised one
+  more. Hybrid sync now reports to the status island as its own "Cloud sync" source: a
+  rising percentage while it runs, a confirmation that steps back to "Synced" when it
+  ends, and a failure that stays until the next sync status. The ten-second
+  `GET /api/sync/status` poll maps `synced`, `syncing`, `pending`, `error` and paused to
+  the island without overwriting a measured percentage or a confirmation, and a backend
+  without hybrid sync reports nothing.
+- **The session-start hook reported every install as 10.13.0 (outdated) (#2019).**
+  `readLocalVersion()` in `claude-hooks/utilities/version-checker.js` took the first
+  `__version__` literal in `__init__.py`, which is only the fallback for a missing
+  `_version.py`. It now reads `_version.py` first and keeps `__init__.py` as the
+  fallback.
+- **The dashboard status island labeled its reconnect action "Refresh" (#2010,#2022 Shivraj-G).**
+  The island was built without catalog keys of its own, so it borrowed `analytics.refresh`,
+  `manage.ontology.column.detail` and `modal.close`. The reconnect action therefore read
+  "Refresh" instead of "Reconnect", and the connection row in the panel had no name. The
+  island now has its own keys (`island.reconnect`, `island.details`, `island.dismiss`,
+  `island.source.connection`) in all eleven catalogs, and the connection row is named
+  "Live updates".
+- **`scripts/maintenance/sync_status.py` no longer carries Cloudflare credentials.** It fell back to a hardcoded API token, account ID and D1 database ID when the environment did not set them, so the token sat in the public repository since January. The fallbacks are gone and the script exits with a clear message naming the missing variables. CI now runs gitleaks over each pull request's own commits, and the pre-commit hook scans staged changes when gitleaks is installed.
+- **`time_expr="day before yesterday"` now selects the day before yesterday.** `parse_time_expression` matched the word "yesterday" inside the phrase and returned yesterday's window, so `memory_search`, the HTTP time search and recall silently returned the wrong day. `extract_time_expression` also left "day before" in the search text. Both now treat the whole phrase as two days ago, with or without a daypart.
+
+### Internal
+
+- **A request to take over an assigned issue went unnoticed, and so did a claim with a condition attached (#2020).**
+  On #1668 a contributor wrote "I would like to take this if ..." on an issue whose
+  assignee had been silent for a week. `Claim Pending` logged "comment is not a claim":
+  the phrase had to end its clause, and an assigned issue was never labelled anyway. A
+  claim followed by `if`, `unless` or `once` now counts, and a prose claim on an issue
+  assigned to someone else gets `claim-pending`. The assignee's own comment and a bare
+  `/claim` do not. A declined takeover leaves the label for manual removal.
+- **`storage/mixins/retrieve.py` and `storage/shared.py` join `GUARDED_MODULES` (#2026, part of #1146, massimiliano1991).**
+  In `retrieve.py` the two f-string logger calls (result count with the sanitised
+  query, result count with the tag list) are lazy `%d`/`%s` calls, the tag list goes
+  through `_sanitize_log_value` as `storage/mixins/delete.py` already does, and the
+  tag count and a rejected tag's type name are read into their own names before they
+  are logged. In `shared.py` the `exc` of `_safe_json_loads` is wrapped: the text it
+  parses is the `metadata` column read back off a row. A sample test pins the three forms.
+- **`consolidation/consolidator.py`, `decay.py`, `health.py`, `insights.py`, and `scheduler.py` join `GUARDED_MODULES` (#1146).**
+  All f-string logger calls are converted to lazy `%`-style; memory hashes (`content_hash`), exception values (`e`, `exc`, `errors`, `msg`) and config paths (`db_path`) are wrapped with `_sanitize_log_value`; ternary message selects are split into plain `if`/`else` branches; `insights.py` gains the `_sanitize_log_value` import. A sentinel test pins the wrapper requirement for content hashes, exception values, and f-string logger calls across the five modules.
+- **`web/api/health.py` sanitizes its logged exception (#1146).**
+  When the embedding integrity check behind `/api/health/detailed` fails, the
+  exception is now passed through `_sanitize_log_value`, like the same message
+  in `utils/health_check.py`, so a newline in it cannot forge a log line. The
+  module is added to `GUARDED_MODULES`.
+
 ## [12.10.0] - 2026-11-14
 
 ### Security

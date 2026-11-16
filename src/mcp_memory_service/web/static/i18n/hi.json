@@ -733,7 +733,7 @@
   "settings.quality.provider.label": "AI प्रदाता",
   "settings.quality.provider.local": "स्थानीय SLM (गोपनीयता मोड)",
   "settings.quality.provider.groq": "Groq API",
-  "settings.quality.provider.gemini": "Gemini API",
+  "settings.quality.provider.openaiCompatible": "OpenAI-संगत API",
   "settings.quality.provider.auto": "स्वचालित (सभी उपलब्ध)",
   "settings.quality.provider.none": "केवल अंतर्निहित स्कोरिंग (AI के बिना)",
   "settings.quality.provider.help": "स्थानीय SLM बिना किसी लागत के गोपनीयता-सुरक्षित गुणवत्ता स्कोरिंग प्रदान करता है",

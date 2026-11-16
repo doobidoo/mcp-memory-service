@@ -587,7 +587,7 @@ class ConsolidationHealthMonitor:
                                 checks['embedding_integrity'] = 'unverifiable'
                                 status = HealthStatus.DEGRADED
                         except Exception as e:
-                            logger.warning("Embedding integrity check failed: %s", e)
+                            logger.warning("Embedding integrity check failed: %s", _sanitize_log_value(e))
                             checks['embedding_integrity'] = f'error: {type(e).__name__}'
                             status = HealthStatus.DEGRADED
                     if missing is None and 'embedding_integrity' not in checks:

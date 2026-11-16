@@ -52,7 +52,8 @@ async def _require_similarity(memory_service):
         pytest.skip("embedding backend does not rate the reworded text as similar (hash fallback?)")
 
 
-async def _capture(service, text, link):
+async def _capture(service, text, link, store=None):
+    store_kw = {"store": store} if store is not None else {}
     with patch(
         "mcp_memory_service.harvest.auto_capture._get_graph_instance_async",
         AsyncMock(return_value=None),
@@ -65,6 +66,7 @@ async def _capture(service, text, link):
             parent_hash="parent0001758",
             dry_run=False,
             harvest_config=CONFIG,
+            **store_kw,
         )
 
 
@@ -136,3 +138,131 @@ async def test_hashless_evolution_is_not_stored_twice(memory_service):
     assert second.evolved == len(second.candidates) >= 1
     store_spy.assert_not_awaited()
     link.assert_not_awaited()  # no child hash to link
+
+
+# --- store confinement (GHSA-989p-hfjf-q97q) ---------------------------------
+#
+# capture() took no store: a candidate extracted from a memory in another store
+# was compared with "default", replaced a similar memory there or was inserted
+# there. Tests by RISCON Labs, split up.
+
+async def _seed_default(memory_service, monkeypatch):
+    """One memory in "default" that every candidate is a near-duplicate of."""
+    storage = memory_service.storage
+    unit_vec = [1.0] + [0.0] * (storage.embedding_dimension - 1)
+    monkeypatch.setattr(storage, "_generate_embedding", lambda _text: list(unit_vec))
+    baseline = await memory_service.store_memory(
+        content=TEXT, tags=["baseline"], memory_type="decision", store="default"
+    )
+    assert baseline["success"]
+    return baseline["memory"]["content_hash"]
+
+
+def _default_rows(storage):
+    return storage.conn.execute(
+        "SELECT content_hash, superseded_by FROM memories "
+        "WHERE store = 'default' AND deleted_at IS NULL"
+    ).fetchall()
+
+
+@pytest.mark.asyncio
+async def test_capture_into_a_store_leaves_default_untouched(memory_service, monkeypatch):
+    default_hash = await _seed_default(memory_service, monkeypatch)
+    storage = memory_service.storage
+    service = AutoCaptureService(memory_service=memory_service, min_confidence=0.6)
+
+    captured = await _capture(service, TEXT_REWORDED, AsyncMock(), store="project_a")
+
+    assert captured.stored >= 1 and captured.evolved == 0
+    assert _default_rows(storage) == [(default_hash, None)]
+    for child_hash in captured.stored_hashes:
+        assert await storage.get_by_hash(child_hash, store="project_a") is not None
+        assert await storage.get_by_hash(child_hash, store="default") is None
+
+
+@pytest.mark.asyncio
+async def test_capture_evolves_inside_its_own_store(memory_service, monkeypatch):
+    default_hash = await _seed_default(memory_service, monkeypatch)
+    service = AutoCaptureService(memory_service=memory_service, min_confidence=0.6)
+    await _capture(service, TEXT_REWORDED, AsyncMock(), store="project_a")
+
+    again = await _capture(
+        service,
+        "I decided to use WAL mode for concurrent SQLite because multiple readers "
+        "kept blocking writers.",
+        AsyncMock(),
+        store="project_a",
+    )
+
+    assert again.evolved >= 1
+    assert _default_rows(memory_service.storage) == [(default_hash, None)]
+
+
+@pytest.mark.asyncio
+async def test_evolve_memory_refuses_a_store_where_get_by_hash_is_unscoped(
+    memory_service, monkeypatch
+):
+    """Where get_by_hash ignores ``store``, confinement cannot be shown: refuse."""
+    default_hash = await _seed_default(memory_service, monkeypatch)
+    monkeypatch.setattr(memory_service.storage, "get_by_hash_is_store_scoped", False)
+
+    ok, _msg, child = await memory_service.evolve_memory(
+        default_hash, "Attempted cross-store evolution", store="project_a"
+    )
+
+    assert not ok and child is None
+    assert _default_rows(memory_service.storage) == [(default_hash, None)]
+
+
+@pytest.mark.asyncio
+async def test_evolve_memory_refuses_a_hash_from_another_store(memory_service):
+    """The service refuses on its own, whatever its caller checked before."""
+    stored = await memory_service.store_memory(
+        content=TEXT, tags=["baseline"], memory_type="decision", store="default"
+    )
+    default_hash = stored["memory"]["content_hash"]
+
+    ok, _msg, child = await memory_service.evolve_memory(
+        default_hash, "Rewritten from another store", store="project_a"
+    )
+
+    assert not ok and child is None
+    assert _default_rows(memory_service.storage) == [(default_hash, None)]
+
+
+class _Server:
+    def __init__(self, memory_service):
+        self.memory_service = memory_service
+        self.storage = memory_service.storage
+
+    async def _ensure_storage_initialized(self):
+        return self.storage
+
+
+@pytest.mark.asyncio
+async def test_unnamed_store_still_evolves_where_get_by_hash_is_unscoped(
+    memory_service, monkeypatch
+):
+    """handle_store_memory falls back to store "default". Forwarding that fallback
+    would switch evolution off for every caller on a backend whose get_by_hash
+    ignores ``store`` (Cloudflare, Milvus), named store or not."""
+    from mcp_memory_service.server.handlers.memory import handle_store_memory
+
+    storage = memory_service.storage
+    dim = storage.embedding_dimension
+    note = "Session notes.\n" + TEXT_REWORDED
+    monkeypatch.setattr(
+        storage, "_generate_embedding",
+        lambda text: ([0.0, 1.0] if text == note else [1.0, 0.0]) + [0.0] * (dim - 2),
+    )
+    monkeypatch.setattr(storage, "get_by_hash_is_store_scoped", False)
+    baseline = await memory_service.store_memory(
+        content=TEXT, tags=["baseline"], memory_type="decision"
+    )
+    assert baseline["success"]
+
+    out = await handle_store_memory(_Server(memory_service), {
+        "content": note, "auto_extract": True, "min_extract_confidence": 0.5,
+    })
+
+    assert "1 evolved" in out[0].text

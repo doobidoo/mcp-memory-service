@@ -5550,7 +5550,7 @@ class MemoryDashboard {
             const providerValue = (provider?.value || 'local').toLowerCase();
             const option = Array.from(providerSelect?.options || []).find(opt => opt.value === providerValue);
             if (providerSelect) {
-                // A provider the dropdown does not offer (e.g. openai-compatible) is left as it is on save
+                // A provider the dropdown does not offer (e.g. gemini set in .env) is left as it is on save
                 providerSelect.disabled = !option;
                 providerSelect.value = providerValue;
             }

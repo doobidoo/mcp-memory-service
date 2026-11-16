@@ -512,12 +512,13 @@ async def handle_find_shortest_path(
 
         # Format results
         if path is not None:
+            path_length = len(path)
             result = {
                 "success": True,
                 "path": path,
-                "length": len(path)
+                "length": path_length
             }
-            logger.info("Found path of length %s between memories", len(path))
+            logger.info("Found path of length %s between memories", path_length)
         else:
             result = {
                 "success": True,
@@ -623,18 +624,17 @@ async def handle_get_memory_subgraph(
         subgraph = await graph.get_subgraph(memory_hash, radius=radius)
 
         # Format results
+        node_count = len(subgraph["nodes"])
+        edge_count = len(subgraph["edges"])
         result = {
             "success": True,
             "nodes": subgraph["nodes"],
             "edges": subgraph["edges"],
-            "node_count": len(subgraph["nodes"]),
-            "edge_count": len(subgraph["edges"])
+            "node_count": node_count,
+            "edge_count": edge_count
         }
 
-        logger.info(
-            f"Extracted subgraph: {len(subgraph['nodes'])} nodes, "
-            f"{len(subgraph['edges'])} edges"
-        )
+        logger.info("Extracted subgraph: %d nodes, %d edges", node_count, edge_count)
 
         return [types.TextContent(
             type="text",
