@@ -1872,9 +1872,12 @@ class MemoryDashboard {
         const pollStatus = async () => {
             try {
                 const statusResponse = await this.apiCall(`/documents/status/${uploadId}`);
+                this._reportUpload(uploadId, statusResponse);
                 this.updateUploadProgress(uploadId, statusResponse);
 
-                if (statusResponse.progress >= 100 || statusResponse.status === 'completed' || statusResponse.status === 'failed') {
+                // Only an end state stops the poll: a batch reaches 100% before it is
+                // marked completed, and the island has to see that answer.
+                if (statusResponse.status === 'completed' || statusResponse.status === 'failed') {
                     // Upload completed, refresh history
                     this.loadUploadHistory();
                 } else {
@@ -1882,7 +1885,8 @@ class MemoryDashboard {
                     setTimeout(pollStatus, 2000); // Poll every 2 seconds
                 }
             } catch (error) {
-                // If polling fails, try again with longer interval
+                // If polling fails, try again with longer interval. The island keeps
+                // the last answer: one failed poll is not a failed import.
                 setTimeout(pollStatus, 5000);
             }
         };
@@ -1907,6 +1911,52 @@ class MemoryDashboard {
                 this.loadUploadHistory(); // For now, just refresh the entire history
             }
         });
+    }
+
+    /**
+     * Report one document import to the status island as its own row, named after
+     * the file, so it stays visible from every tab and parallel imports do not merge.
+     */
+    _reportUpload(uploadId, upload) {
+        if (!this.statusIsland || !upload) return;
+        // A file name is not translated, so the label has no catalog key.
+        const label = { fallback: upload.filename || String(uploadId) };
+        const reason = Array.isArray(upload.errors) && upload.errors.length ? String(upload.errors[0]) : '';
+        let entry;
+        switch (upload.status) {
+            case 'queued':
+                entry = { state: 'busy', progress: 'unknown', text: { key: 'island.upload.queued', fallback: 'Waiting to start' } };
+                break;
+            case 'processing':
+                entry = { state: 'busy', progress: upload.progress, text: { key: 'island.upload.processing', fallback: 'Importing' } };
+                break;
+            case 'completed':
+                if (reason) {
+                    // A batch is "completed" once any chunk was stored, even when other
+                    // chunks or files failed. That must stay until the reader closes it.
+                    entry = {
+                        state: 'error',
+                        dismissible: true,
+                        text: { key: 'island.upload.partial', fallback: 'Imported with errors: {error}', vars: { error: reason } },
+                    };
+                    break;
+                }
+                // No settle: the row leaves by itself after its confirmation.
+                entry = { state: 'success', text: { key: 'island.upload.completed', fallback: 'Imported' } };
+                break;
+            case 'failed': {
+                entry = {
+                    state: 'error',
+                    dismissible: true,
+                    // The server's own message; without one, a catalog text.
+                    text: reason ? { fallback: reason } : { key: 'island.upload.failed', fallback: 'Import failed' },
+                };
+                break;
+            }
+            default:
+                return;
+        }
+        this.statusIsland.report(`upload-${uploadId}`, { ...entry, label });
     }
 
     /** Report hybrid sync to the status island as one source, named in its panel. */
