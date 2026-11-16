@@ -151,9 +151,11 @@ class ExponentialDecayCalculator(ConsolidationBase):
                 if boosted_quality > quality_score:
                     association_boost_applied = True
                     self.logger.debug(
-                        f"Association quality boost: {memory.content_hash[:12]} "
-                        f"quality {quality_score:.3f} → {boosted_quality:.3f} "
-                        f"({connection_count} connections)"
+                        "Association quality boost: %s quality %.3f → %.3f (%d connections)",
+                        _sanitize_log_value(memory.content_hash[:12]),
+                        quality_score,
+                        boosted_quality,
+                        connection_count,
                     )
                     quality_score = boosted_quality
 
@@ -307,9 +309,11 @@ class ExponentialDecayCalculator(ConsolidationBase):
             original_quality = score.metadata.get('original_quality_score')
             if boosted_quality and original_quality is not None and boosted_quality > original_quality:
                 self.logger.debug(
-                    f"Association retention boost for {memory.content_hash[:12]}: "
-                    f"computed {original_quality:.3f} → {boosted_quality:.3f} "
-                    f"(relevance only; quality_score/search score unchanged)"
+                    "Association retention boost for %s: computed %.3f → %.3f "
+                    "(relevance only; quality_score/search score unchanged)",
+                    _sanitize_log_value(memory.content_hash[:12]),
+                    original_quality,
+                    boosted_quality,
                 )
 
         # NOTE: Do NOT call memory.touch() here — relevance scoring is a read path.

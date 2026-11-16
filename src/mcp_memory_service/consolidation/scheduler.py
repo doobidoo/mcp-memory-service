@@ -776,7 +776,7 @@ class ConsolidationScheduler:
             # Never re-raise: a failing harvest must not tear down the scheduler
             # or the consolidation jobs sharing it.
             self.execution_stats['failed_jobs'] += 1
-            self.logger.error("Scheduled session harvest failed: %s", e)
+            self.logger.error("Scheduled session harvest failed: %s", _sanitize_log_value(e))
 
     async def _read_harvest_tracker(self, memory_service) -> set:
         """Read the set of already-harvested session ids from the tracker memory."""
@@ -804,7 +804,7 @@ class ConsolidationScheduler:
                 metadata={"count": len(all_ids)},
             )
         except Exception as e:
-            self.logger.warning("Failed to update harvest tracker: %s", e)
+            self.logger.warning("Failed to update harvest tracker: %s", _sanitize_log_value(e))
 
     def _create_trigger(self, horizon: str, schedule_spec: str):
         """Create APScheduler trigger from schedule specification."""
@@ -961,12 +961,16 @@ class ConsolidationScheduler:
             # Log success
             duration = (job_record['end_time'] - job_record['start_time']).total_seconds()
             self.logger.info(
-                f"Completed {time_horizon} consolidation successfully in {duration:.2f}s: "
-                f"{report.memories_processed} memories processed, "
-                f"{report.associations_discovered} associations, "
-                f"{report.clusters_created} clusters, "
-                f"{report.memories_compressed} compressed, "
-                f"{report.memories_archived} archived"
+                "Completed %s consolidation successfully in %.2fs: "
+                "%d memories processed, %d associations, "
+                "%d clusters, %d compressed, %d archived",
+                _sanitize_log_value(time_horizon),
+                duration,
+                report.memories_processed,
+                report.associations_discovered,
+                report.clusters_created,
+                report.memories_compressed,
+                report.memories_archived,
             )
             
         except Exception as e:

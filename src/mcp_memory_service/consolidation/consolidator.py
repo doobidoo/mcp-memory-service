@@ -312,14 +312,16 @@ class DreamInspiredConsolidator:
                 db_path = self.storage.primary.db_path
                 self.graph_storage = GraphStorage(db_path)
                 self.logger.info(
-                    f"Initialized GraphStorage with hybrid backend: {db_path}"
+                    "Initialized GraphStorage with hybrid backend: %s",
+                    _sanitize_log_value(db_path),
                 )
             elif hasattr(self.storage, "db_path"):
                 # SQLite-vec backend
                 db_path = self.storage.db_path
                 self.graph_storage = GraphStorage(db_path)
                 self.logger.info(
-                    f"Initialized GraphStorage with SQLite backend: {db_path}"
+                    "Initialized GraphStorage with SQLite backend: %s",
+                    _sanitize_log_value(db_path),
                 )
             elif hasattr(self.storage, "uri") and hasattr(self.storage, "collection_name"):
                 # Milvus backend — use MilvusGraphStorage with async init
@@ -332,8 +334,10 @@ class DreamInspiredConsolidator:
                     )
                     await self.graph_storage.initialize()
                     self.logger.info(
-                        f"Initialized MilvusGraphStorage for consolidation "
-                        f"(uri={self.storage.uri}, collection={self.graph_storage.collection_name})"
+                        "Initialized MilvusGraphStorage for consolidation "
+                        "(uri=%s, collection=%s)",
+                        self.storage.uri,
+                        self.graph_storage.collection_name,
                     )
                 except ImportError:
                     self.logger.warning(
@@ -763,8 +767,9 @@ class DreamInspiredConsolidator:
             [r for r in forgetting_results if r.action_taken in ["archived", "deleted"]]
         )
         self.logger.info(
-            f"✓ Forgetting completed in {time.time() - performance_start:.1f}s, "
-            f"processed {len(forgetting_results)} candidates"
+            "✓ Forgetting completed in %.1fs, processed %d candidates",
+            time.time() - performance_start,
+            len(forgetting_results),
         )
 
         # Retained rows must sort behind candidates not processed yet.
@@ -790,8 +795,9 @@ class DreamInspiredConsolidator:
         batch_size = self.config.batch_size
         if len(memories) > batch_size:
             self.logger.info(
-                f"Processing {batch_size} oldest memories "
-                f"(out of {len(memories)} in the window)"
+                "Processing %d oldest memories (out of %d in the window)",
+                batch_size,
+                len(memories),
             )
             memories = memories[:batch_size]
         return memories
@@ -952,8 +958,9 @@ class DreamInspiredConsolidator:
         if not associations:
             return
 
+        assoc_count = len(associations)
         self.logger.info(
-            f"Storing {len(associations)} associations using mode: {GRAPH_STORAGE_MODE}"
+            "Storing %d associations using mode: %s", assoc_count, GRAPH_STORAGE_MODE
         )
 
         # Store in memories table if enabled (and not suppressed by config)
@@ -1006,7 +1013,10 @@ class DreamInspiredConsolidator:
                 else:
                     failed_count += 1
                     self.logger.warning(
-                        f"Failed to store association memory for {source_hashes[0][:8]} <-> {source_hashes[1][:8]}: {reason}"
+                        "Failed to store association memory for %s <-> %s: %s",
+                        source_hashes[0][:8],
+                        source_hashes[1][:8],
+                        reason,
                     )
 
             except Exception as e:
@@ -1018,14 +1028,17 @@ class DreamInspiredConsolidator:
                 except (AttributeError, IndexError):
                     hash_info = ""
                 self.logger.warning(
-                    f"Error storing association {hash_info}as memory: {e}"
+                    "Error storing association %sas memory: %s",
+                    hash_info,
+                    _sanitize_log_value(e),
                 )
 
-        self.logger.info(
-            f"Stored {stored_count} associations as memories ({failed_count} failed)"
-            if failed_count > 0
-            else f"Stored {stored_count} associations as memories"
-        )
+        if failed_count > 0:
+            self.logger.info(
+                "Stored %d associations as memories (%d failed)", stored_count, failed_count
+            )
+        else:
+            self.logger.info("Stored %d associations as memories", stored_count)
 
     async def _store_associations_in_graph_table(self, associations) -> None:
         """Store associations in graph table using GraphStorage."""
@@ -1048,7 +1061,7 @@ class DreamInspiredConsolidator:
                 source_hashes = association.source_memory_hashes
                 if len(source_hashes) < 2:
                     self.logger.warning(
-                        f"Invalid association: less than 2 source hashes"
+                        "Invalid association: less than 2 source hashes"
                     )
                     failed_count += 1
                     continue
@@ -1087,12 +1100,13 @@ class DreamInspiredConsolidator:
                         if inferred_rel != "related":
                             relationship_type = inferred_rel
                             self.logger.debug(
-                                f"Inferred relationship '{inferred_rel}' (confidence: {confidence:.2f}) "
-                                f"for {source_hash[:8]} <-> {target_hash[:8]}"
+                                "Inferred relationship '%s' (confidence: %.2f) for %s <-> %s",
+                                inferred_rel, confidence, source_hash[:8], target_hash[:8],
                             )
                     except Exception as e:
                         self.logger.warning(
-                            f"Failed to infer relationship type for {source_hash[:8]} <-> {target_hash[:8]}: {e}"
+                            "Failed to infer relationship type for %s <-> %s: %s",
+                            source_hash[:8], target_hash[:8], _sanitize_log_value(e),
                         )
 
                 relationship_type, needs_review = apply_review_band(
@@ -1140,11 +1154,12 @@ class DreamInspiredConsolidator:
 
         await self._auto_supersede(supersede_pairs)
 
-        self.logger.info(
-            f"Stored {stored_count} associations in graph table ({failed_count} failed)"
-            if failed_count > 0
-            else f"Stored {stored_count} associations in graph table"
-        )
+        if failed_count > 0:
+            self.logger.info(
+                "Stored %d associations in graph table (%d failed)", stored_count, failed_count
+            )
+        else:
+            self.logger.info("Stored %d associations in graph table", stored_count)
 
     async def _auto_supersede(self, supersede_pairs) -> None:
         """Batch-mark older memories from eligible top-band contradictions.
@@ -1185,9 +1200,10 @@ class DreamInspiredConsolidator:
 
         for (success, msg), result in zip(results, compression_results):
             if not success:
+                cluster_id = result.cluster_id
                 logger.warning(
-                    f"Failed to store compressed memory for cluster "
-                    f"{result.cluster_id}: {msg}"
+                    "Failed to store compressed memory for cluster %s: %s",
+                    cluster_id, _sanitize_log_value(msg),
                 )
 
     async def _apply_forgetting_results(self, forgetting_results) -> None:
@@ -1200,8 +1216,9 @@ class DreamInspiredConsolidator:
                 await self.storage.delete_memory(result.memory_hash)
                 success, _ = await self.storage.store(result.compressed_version)
                 if not success:
+                    mem_hash = result.memory_hash
                     logger.warning(
-                        f"Failed to store compressed version for {result.memory_hash}"
+                        "Failed to store compressed version for %s", mem_hash
                     )
             # 'archived' memories are handled by the forgetting engine
 
@@ -1249,8 +1266,9 @@ class DreamInspiredConsolidator:
         """Mark memories with last_consolidated_at timestamp for incremental mode using batch updates."""
         consolidation_time = datetime.now().timestamp()
 
+        mem_count = len(memories)
         self.logger.info(
-            f"Marking {len(memories)} memories with consolidation timestamp (batch mode)"
+            "Marking %d memories with consolidation timestamp (batch mode)", mem_count
         )
 
         # Update all memories in-place
@@ -1264,13 +1282,14 @@ class DreamInspiredConsolidator:
             results = await self.storage.update_memories_batch(memories, preserve_timestamps=True)
             success_count = sum(results)
             self.logger.info(
-                f"Consolidation timestamps updated: {success_count}/{len(memories)} memories"
+                "Consolidation timestamps updated: %d/%d memories",
+                success_count, mem_count,
             )
 
-            if success_count < len(memories):
-                failed_count = len(memories) - success_count
+            if success_count < mem_count:
+                failed_count = mem_count - success_count
                 self.logger.warning(
-                    f"{failed_count} memories failed to update during timestamp marking"
+                    "%d memories failed to update during timestamp marking", failed_count
                 )
 
         except Exception as e:
@@ -1285,11 +1304,13 @@ class DreamInspiredConsolidator:
                         success_count += 1
                 except Exception as mem_error:
                     self.logger.warning(
-                        f"Failed to update consolidation timestamp for {memory.content_hash}: {mem_error}"
+                        "Failed to update consolidation timestamp for %s: %s",
+                        _sanitize_log_value(memory.content_hash),
+                        _sanitize_log_value(mem_error),
                     )
 
             self.logger.info(
-                f"Fallback completed: {success_count}/{len(memories)} memories updated"
+                "Fallback completed: %d/%d memories updated", success_count, mem_count
             )
 
     def _update_consolidation_stats(self, report: ConsolidationReport) -> None:
@@ -1343,14 +1364,22 @@ class DreamInspiredConsolidator:
         # Log summary
         if errors:
             self.logger.error(
-                f"Consolidation {report.time_horizon} completed with errors: {errors}"
+                "Consolidation %s completed with errors: %s",
+                report.time_horizon,
+                _sanitize_log_value(errors),
             )
         else:
             self.logger.info(
-                f"Consolidation {report.time_horizon} completed successfully: "
-                f"{report.memories_processed} memories, {report.associations_discovered} associations, "
-                f"{report.clusters_created} clusters, {report.memories_compressed} compressed, "
-                f"{report.memories_archived} archived in {duration:.2f}s"
+                "Consolidation %s completed successfully: "
+                "%d memories, %d associations, %d clusters, "
+                "%d compressed, %d archived in %.2fs",
+                report.time_horizon,
+                report.memories_processed,
+                report.associations_discovered,
+                report.clusters_created,
+                report.memories_compressed,
+                report.memories_archived,
+                duration,
             )
 
         return report
