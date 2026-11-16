@@ -14,10 +14,15 @@ context in 5ms — without cloud lock-in or API costs.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![PyPI version](https://img.shields.io/pypi/v/mcp-memory-service?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/mcp-memory-service/)
 [![Python](https://img.shields.io/pypi/pyversions/mcp-memory-service?logo=python&logoColor=white)](https://pypi.org/project/mcp-memory-service/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/mcp-memory-service?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/mcp-memory-service)
+[![Docker Pulls](https://img.shields.io/docker/pulls/doobidoo/mcp-memory-service?logo=docker&logoColor=white)](https://hub.docker.com/r/doobidoo/mcp-memory-service)
+[![CI](https://img.shields.io/github/actions/workflow/status/doobidoo/mcp-memory-service/ci.yml?branch=main&logo=github&label=CI)](https://github.com/doobidoo/mcp-memory-service/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/doobidoo/mcp-memory-service?logo=github&label=stars)](https://github.com/doobidoo/mcp-memory-service)
+[![Contributors](https://img.shields.io/github/contributors/doobidoo/mcp-memory-service)](https://github.com/doobidoo/mcp-memory-service/graphs/contributors)
 [![Remote MCP](https://img.shields.io/badge/MCP-Remote%20Support-blue?logo=anthropic)](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/remote-mcp-setup.md)
 [![OAuth 2.0](https://img.shields.io/badge/Auth-OAuth%202.0%20%2B%20DCR-green)](https://github.com/doobidoo/mcp-memory-service/blob/main/docs/oauth-setup.md)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/doobidoo/mcp-memory-service)
+[![Ask DeepWiki](https://img.shields.io/badge/DeepWiki-Ask-0969da)](https://deepwiki.com/doobidoo/mcp-memory-service)
+[![Glama score](https://glama.ai/mcp/servers/doobidoo/mcp-memory-service/badges/score.svg)](https://glama.ai/mcp/servers/doobidoo/mcp-memory-service)
 
 Getting started: [English](https://mcpmemory.services/) · [Deutsch](https://mcpmemory.services/de/) · [Español](https://mcpmemory.services/es/) · [日本語](https://mcpmemory.services/ja/) · [简体中文](https://mcpmemory.services/zh-cn/) · [繁體中文](https://mcpmemory.services/zh-tw/) · [Français](https://mcpmemory.services/fr/) · [Português (Brasil)](https://mcpmemory.services/pt-br/) · [한국어](https://mcpmemory.services/ko/)
 
