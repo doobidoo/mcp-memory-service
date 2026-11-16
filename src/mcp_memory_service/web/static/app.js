@@ -988,8 +988,13 @@ class MemoryDashboard {
             this._scheduleDashboardRefresh();
         });
 
-        this.eventSource.addEventListener('consolidation_completed', () => {
-            this._scheduleDashboardRefresh();
+        this.eventSource.addEventListener('consolidation_completed', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                this.handleConsolidationCompleted(data);
+            } catch (error) {
+                console.error('Error parsing consolidation_completed event:', error);
+            }
         });
 
         this.eventSource.onerror = (error) => {
@@ -1140,6 +1145,32 @@ class MemoryDashboard {
     /** Refresh dashboard and peer status once for a burst of cycle events. */
     handleSyncDeltaCompleted(data) {
         console.log('Delta-sync completed:', data);
+        this._scheduleDashboardRefresh();
+    }
+
+    /**
+     * Handle a finished scheduled consolidation. The server does not announce the
+     * start, so the island only reports the end: a confirmation that goes after a
+     * few seconds, or a failure that stays until the reader closes it or the next
+     * run reports.
+     */
+    handleConsolidationCompleted(data) {
+        const vars = { horizon: data.time_horizon };
+        const label = { key: 'island.source.consolidation', fallback: 'Consolidation' };
+        if (data.success) {
+            this.statusIsland?.report('consolidation', {
+                state: 'success',
+                label,
+                text: { key: 'island.consolidation.completed', fallback: 'Finished ({horizon})', vars },
+            });
+        } else {
+            this.statusIsland?.report('consolidation', {
+                state: 'error',
+                label,
+                text: { key: 'island.consolidation.failed', fallback: 'Failed ({horizon})', vars },
+                dismissible: true,
+            });
+        }
         this._scheduleDashboardRefresh();
     }
 

@@ -597,3 +597,86 @@ test('the catalog keys document imports use exist in en.json', () => {
     assert.deepEqual(keys, ['island.upload.queued', 'island.upload.processing', 'island.upload.completed', 'island.upload.failed', 'island.upload.partial']);
     assert.deepEqual(keys.filter((key) => !catalog[key]), []);
 });
+
+// ---- What the dashboard reports for a finished consolidation (#2006) ----
+
+// A dashboard whose stream is a stub, so the scheduler's event goes through the real
+// consolidation_completed listener in _connectSSE() and lands in a real island model.
+function consolidationDashboard() {
+    const { app, context } = dashboard();
+    const model = StatusIsland.createModel();
+    app.statusIsland = { report: (id, entry) => model.report(id, entry) };
+    app.refreshes = 0;
+    app._scheduleDashboardRefresh = () => { app.refreshes += 1; };
+    context.EventSource = class {
+        constructor() { this.listeners = {}; }
+        addEventListener(type, listener) { this.listeners[type] = listener; }
+    };
+    app._connectSSE('http://localhost:8000/api/events');
+    // What scheduler.py broadcasts when a run ends, as web/sse.py puts it on the wire.
+    const finish = (time_horizon, success) => app.eventSource.listeners.consolidation_completed({
+        data: JSON.stringify({ timestamp: '2026-11-16T03:00:00Z', time_horizon, success }),
+    });
+    return { app, model, finish };
+}
+
+test('a finished consolidation is confirmed on the island with its horizon, then goes', () => {
+    const { app, model, finish } = consolidationDashboard();
+    finish('weekly', true);
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'success');
+    assert.equal(entry.text.key, 'island.consolidation.completed');
+    assert.equal(entry.text.vars.horizon, 'weekly');
+    assert.equal(entry.label.key, 'island.source.consolidation');
+    assert.equal(entry.settle, null);
+    assert.ok(model.expire('consolidation', entry.seq));
+    assert.equal(model.get('consolidation'), null, 'nothing is left behind once the confirmation goes');
+    assert.equal(app.refreshes, 1, 'the numbers are still refreshed');
+});
+
+test('a failed consolidation stays on the island until the reader closes it', () => {
+    const { app, model, finish } = consolidationDashboard();
+    finish('monthly', false);
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.text.key, 'island.consolidation.failed');
+    assert.equal(entry.text.vars.horizon, 'monthly');
+    assert.equal(model.lead().id, 'consolidation');
+    assert.equal(model.expire('consolidation', entry.seq), false, 'a failure does not step back by itself');
+    assert.ok(model.dismiss('consolidation'));
+    assert.equal(model.get('consolidation'), null);
+    assert.equal(app.refreshes, 1, 'a failed run can still have changed the counts');
+});
+
+test('the next run replaces a failure that was not closed', () => {
+    const { model, finish } = consolidationDashboard();
+    finish('daily', false);
+    finish('daily', true);
+    assert.equal(model.get('consolidation').state, 'success');
+});
+
+test('a consolidation report works without the island', () => {
+    const { app } = dashboard({ island: null });
+    app._scheduleDashboardRefresh = () => {};
+    assert.doesNotThrow(() => {
+        app.handleConsolidationCompleted({ time_horizon: 'daily', success: true });
+        app.handleConsolidationCompleted({ time_horizon: 'daily', success: false });
+    });
+});
+
+test('the catalog keys a consolidation uses exist in every catalog', () => {
+    const { model, finish } = consolidationDashboard();
+    const keys = new Set();
+    for (const success of [true, false]) {
+        finish('daily', success);
+        const entry = model.get('consolidation');
+        keys.add(entry.label.key).add(entry.text.key);
+    }
+    for (const file of fs.readdirSync(STATIC + 'i18n').filter((name) => name.endsWith('.json'))) {
+        const catalog = JSON.parse(fs.readFileSync(STATIC + 'i18n/' + file, 'utf8'));
+        assert.deepEqual([...keys].filter((key) => !catalog[key]), [], file);
+        for (const key of [...keys].filter((key) => key !== 'island.source.consolidation')) {
+            assert.ok(catalog[key].includes('{horizon}'), `${file}: ${key} names the horizon`);
+        }
+    }
+});
