@@ -612,6 +612,41 @@ class TestTimeParser:
         assert lately_cleaned == "the auth service failed"
         assert lately_start is not None
 
+    def test_day_before_yesterday_is_two_days_ago(self, monkeypatch):
+        """Issue #2029: "day before yesterday" was parsed as yesterday."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        start_ts, end_ts = parse_time_expression("day before yesterday")
+        assert datetime.fromtimestamp(start_ts) == datetime(2026, 11, 13)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts) == datetime(  # noqa: DTZ006
+            2026, 11, 13, 23, 59, 59, 999999
+        )
+
+        start_ts, end_ts = parse_time_expression("day before yesterday morning")
+        assert datetime.fromtimestamp(start_ts) == datetime(2026, 11, 13, 5)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 11, 13)  # noqa: DTZ006
+
+        # Plain "yesterday" is unchanged.
+        start_ts, _ = parse_time_expression("yesterday")
+        assert datetime.fromtimestamp(start_ts).date() == date(2026, 11, 14)  # noqa: DTZ006
+
+    def test_extract_day_before_yesterday(self, monkeypatch):
+        """Issue #2029: extraction kept "day before" in the search text."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        cleaned, (start_ts, end_ts) = extract_time_expression(
+            "notes from the day before yesterday about auth"
+        )
+        assert "day" not in cleaned
+        assert "before" not in cleaned
+        assert "yesterday" not in cleaned
+        assert "auth" in cleaned
+        assert (start_ts, end_ts) == parse_time_expression("day before yesterday")
+
+        cleaned, (start_ts, end_ts) = extract_time_expression(
+            "notes day before yesterday evening"
+        )
+        assert cleaned == "notes"
+        assert (start_ts, end_ts) == parse_time_expression("day before yesterday evening")
+
     def test_edge_cases(self):
         """Test edge cases and error handling"""
         # Test empty string
