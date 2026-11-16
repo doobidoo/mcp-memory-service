@@ -538,6 +538,45 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).date() == date(2026, 10, 1)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2026, 12, 31)  # noqa: DTZ006
     
+    def test_between_month_names_across_new_year(self, monkeypatch):
+        """Issue #2030: a cross-year month range came back inverted and matched nothing."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        for query, first, last in (
+            ("between november and january", date(2025, 11, 1), date(2026, 1, 31)),
+            ("between october and march", date(2025, 10, 1), date(2026, 3, 31)),
+            ("between december and february", date(2025, 12, 1), date(2026, 2, 28)),
+        ):
+            start_ts, end_ts = parse_time_expression(query)
+            assert start_ts <= end_ts, query
+            assert datetime.fromtimestamp(start_ts).date() == first, query  # noqa: DTZ006
+            assert datetime.fromtimestamp(end_ts).date() == last, query  # noqa: DTZ006
+
+        # Same-year ranges keep their year.
+        start_ts, end_ts = parse_time_expression("between january and march")
+        assert datetime.fromtimestamp(start_ts).date() == date(2026, 1, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 3, 31)  # noqa: DTZ006
+
+    def test_between_month_names_before_the_end_month(self, monkeypatch):
+        """Before the end month occurs, both months stay in last year (#2030 review)."""
+        _freeze_clock(monkeypatch, date(2026, 2, 15))
+        start_ts, end_ts = parse_time_expression("between january and march")
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 1, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2025, 3, 31)  # noqa: DTZ006
+
+        start_ts, end_ts = parse_time_expression("between november and january")
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 11, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 1, 31)  # noqa: DTZ006
+
+    def test_cross_year_reanchor_keeps_explicit_month_years(self, monkeypatch):
+        """Only a bare month name moves to the previous year (#2030 review)."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        # An explicit start year is not rewritten to the end's year, so this
+        # inverted window still falls back to the single-expression parse.
+        start_ts, _ = parse_time_expression("from January 2026 to March 2024")
+        assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
+        start_ts, _ = parse_time_expression("between january 2026 and march 2024")
+        assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
+
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
         # Test extraction with semantic content
