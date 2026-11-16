@@ -171,7 +171,6 @@ class StoreMixin:
         embedding = self._generate_embedding(content)
         embedding_blob = serialize_float32(embedding)
         current_sql = ""
-        params: List = [embedding_blob, cutoff_timestamp, store]
         if current_only:
             current_sql = " AND (m.superseded_by IS NULL OR m.superseded_by = '')"
             if exclude_original_hash:
@@ -179,27 +178,46 @@ class StoreMixin:
                     " AND (json_extract(m.metadata, '$.original_hash') IS NULL"
                     " OR json_extract(m.metadata, '$.original_hash') != ?)"
                 )
-                params.append(exclude_original_hash)
 
         def _search_semantic_dup():
-            cursor = self.conn.execute(
-                "SELECT m.content_hash, m.content, "
-                "vec_distance_cosine(me.content_embedding, ?) as similarity "
-                "FROM memories m "
-                "JOIN memory_embeddings me ON m.rowid = me.rowid "
+            # The KNN pushdown retrieval already uses (MATCH + k + rowid IN):
+            # the rowid filter is part of the KNN scan, so k bounds the
+            # candidate set, not the whole table. Windows past the 4096 k cap
+            # stay exact for this top-1 read — the nearest filtered row is
+            # always within the nearest 4096 of the filtered set (#2032).
+            candidates = (
+                "SELECT m.id FROM memories m "
                 "WHERE m.created_at > ? "
                 "AND m.deleted_at IS NULL "
-                "AND m.store = ?"
-                + current_sql
-                + " ORDER BY similarity IS NULL, similarity ASC LIMIT 1",
-                tuple(params),
+                "AND m.store = ?" + current_sql
+            )
+            candidate_params = [cutoff_timestamp, store]
+            if current_only and exclude_original_hash:
+                candidate_params.append(exclude_original_hash)
+            count = self.conn.execute(
+                f"SELECT COUNT(*) FROM ({candidates})", tuple(candidate_params)
+            ).fetchone()[0]
+            if count == 0:
+                return None
+            cursor = self.conn.execute(
+                "SELECT m.content_hash, m.content, e.distance "
+                "FROM memories m "
+                "INNER JOIN ("
+                "  SELECT rowid, distance FROM memory_embeddings "
+                "  WHERE content_embedding MATCH ? AND k = ? AND store = ? "
+                f"  AND rowid IN ({candidates})"
+                ") e ON m.id = e.rowid "
+                # NULL (zero-vector) distances rank last, the same order the
+                # scan's ``similarity IS NULL`` used to enforce
+                "ORDER BY (e.distance IS NULL), e.distance LIMIT 1",
+                [embedding_blob, min(count, 4096), store, *candidate_params],
             )
             return cursor.fetchone()
 
         result = await self._execute_with_retry(_search_semantic_dup)
         # A zero-length embedding (for example from empty content stored before
-        # #1791 was fixed) makes vec_distance_cosine() return NULL. Treat that as
-        # "no duplicate" instead of comparing None to a float.
+        # #1791 was fixed) makes the cosine distance come back NULL. Treat that
+        # as "no duplicate" instead of comparing None to a float.
         if result and result[2] is not None and result[2] <= (1.0 - similarity_threshold):
             distance = float(result[2])
             return SemanticMatch(True, result[0], 1.0 - distance, result[1])
