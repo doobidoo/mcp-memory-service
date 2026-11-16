@@ -15,6 +15,7 @@ from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
+from ..compat import _sanitize_log_value
 from ..models.memory import Memory
 
 
@@ -309,7 +310,7 @@ async def _store_ack_sentinel(card: InsightCard, ack_hash: str, storage) -> None
         await storage.store(sentinel)
     except Exception as exc:
         # Sentinel is best-effort: if storage fails, the card may regenerate after deletion.
-        logger.warning("Failed to store insight ack sentinel for %r: %s", card.title, exc)
+        logger.warning("Failed to store insight ack sentinel for %r: %s", card.title, _sanitize_log_value(exc))
 
 
 def _insight_hash(card: InsightCard) -> str:
