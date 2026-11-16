@@ -423,3 +423,38 @@ async def test_write_grant_memory_store_auto_extract_confined_to_granted_store(
     assert _live_rows(storage, "default") == [(near_duplicates["default"], None)]
     assert _live_rows(storage, "projectB") == [(near_duplicates["projectB"], None)]
     assert len(_live_rows(storage, "projectA")) >= 2
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_write_grant_conflict_detection_stays_in_the_granted_store(
+    make_client, storage, monkeypatch,
+):
+    """Conflict detection on store compared the new memory with every store. A
+    write:projectA grant tagged a near-identical memory in "default" as
+    conflict:unresolved and linked the two with contradicts edges."""
+    unit_vec = [1.0] + [0.0] * (storage.embedding_dimension - 1)
+    monkeypatch.setattr(storage, "_generate_embedding", lambda _text: list(unit_vec))
+    in_default = await _seed(storage, "The cache is flushed every night at two.", "default")
+    in_a = await _seed(storage, "The cache gets flushed nightly by the cron job.", "projectA")
+
+    response = _call(make_client("read:projectA write:projectA"), "memory_store", {
+        "content": "Nobody ever flushes the cache, it only grows.", "store": "projectA",
+    })
+
+    assert not response.json()["result"].get("isError")
+
+    def tags_of(content_hash):
+        return storage.conn.execute(
+            "SELECT tags FROM memories WHERE content_hash = ?", (content_hash,)
+        ).fetchone()[0]
+
+    # Inside the store the conflict is still found; a query that finds nothing
+    # anywhere would pass the two assertions below as well.
+    assert "conflict:unresolved" in tags_of(in_a)
+    assert "conflict:unresolved" not in tags_of(in_default)
+    edges = storage.conn.execute(
+        "SELECT COUNT(*) FROM memory_graph WHERE source_hash = ? OR target_hash = ?",
+        (in_default, in_default),
+    ).fetchone()[0]
+    assert edges == 0

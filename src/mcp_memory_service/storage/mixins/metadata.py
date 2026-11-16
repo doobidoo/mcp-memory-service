@@ -642,9 +642,16 @@ class MetadataMixin:
         return round((confidence if confidence is not None else 1.0) * decay, 4)
 
     def _detect_conflicts(
-        self, new_hash: str, new_content: str, embedding, exclude_hash: Optional[str] = None
+        self, new_hash: str, new_content: str, embedding, exclude_hash: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> list:
-        """Detect conflicting active memories for a newly stored memory."""
+        """Detect conflicting active memories for a newly stored memory.
+
+        With ``store`` set (other than ``"all"``) only memories of that store are
+        compared: _record_conflicts() tags the other memory and links the pair,
+        which a caller confined to one store must not do to another
+        (GHSA-989p-hfjf-q97q).
+        """
         from difflib import SequenceMatcher
 
         SIMILARITY_THRESHOLD = 0.95
@@ -653,21 +660,26 @@ class MetadataMixin:
         if not self.conn or embedding is None:
             return []
 
+        # Qualified: memory_embeddings has a store column as well.
+        confined = store not in (None, "all")
+        store_sql = " AND m.store = ?" if confined else ""
+        store_params = (store,) if confined else ()
         try:
             cursor = self.conn.execute(
-                """SELECT m.content_hash, m.content,
+                f"""SELECT m.content_hash, m.content,
                           vec_distance_cosine(me.content_embedding, ?) as distance
                    FROM memories m
                    JOIN memory_embeddings me ON m.rowid = me.rowid
                    WHERE m.deleted_at IS NULL
                      AND (m.superseded_by IS NULL OR m.superseded_by = '')
-                     AND m.content_hash NOT IN (?, ?)
+                     AND m.content_hash NOT IN (?, ?){store_sql}
                    ORDER BY distance ASC
                    LIMIT 5""",
                 (
                     serialize_float32(embedding),
                     new_hash,
                     exclude_hash if exclude_hash is not None else new_hash,
+                    *store_params,
                 ),
             )
             candidates = cursor.fetchall()
@@ -697,7 +709,7 @@ class MetadataMixin:
 
     async def _record_conflicts(self, new_hash: str, conflicts: list) -> None:
         """Tag conflicting memories and create graph edges."""
-        import json as _json
+        import json as _json  # inline import
 
         def _record_all_conflicts():
             for c in conflicts:
