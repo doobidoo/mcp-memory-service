@@ -271,3 +271,159 @@ test('a missing script or a throwing constructor leaves the dashboard without an
     app.setupStatusIsland();
     assert.equal(app.statusIsland.options.t('status.connected', 'Connected'), 'Connected');
 });
+
+// ---- What the dashboard reports for hybrid sync (#2002) ----
+
+// A dashboard wired to a real island model, so the poll sees what the events reported.
+function syncDashboard() {
+    const { app } = dashboard();
+    const model = StatusIsland.createModel();
+    app.statusIsland = {
+        report: (id, entry) => model.report(id, entry),
+        clear: (id) => model.clear(id),
+        get: (id) => model.get(id),
+    };
+    app.toasts = [];
+    app.showToast = (message, type) => app.toasts.push([message, type]);
+    app._scheduleDashboardRefresh = () => {};
+    app.checkSyncStatus = async () => {};
+    return { app, model };
+}
+
+const hybrid = (status, extra = {}) => ({ is_hybrid: true, is_running: true, is_paused: false, status, ...extra });
+
+test('sync progress shows its percentage on the island, without a toast per event', () => {
+    const { app, model } = syncDashboard();
+    for (const progress_percentage of [10, 40]) {
+        app.handleSyncProgress({ sync_type: 'manual', synced_count: 10, total_count: 100, progress_percentage });
+    }
+    const entry = model.get('sync');
+    assert.equal(entry.state, 'busy');
+    assert.equal(entry.progress, 40);
+    assert.equal(entry.text.key, 'sync.status.syncing');
+    assert.equal(entry.label.key, 'island.source.sync');
+    assert.deepEqual(app.toasts, []);
+});
+
+test('a finished sync confirms on the island and steps back to "Synced"', () => {
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 90, total_count: 100, progress_percentage: 90 });
+    app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
+    const entry = model.get('sync');
+    assert.equal(entry.state, 'success');
+    assert.deepEqual([entry.settle.state, entry.settle.text.key], ['ready', 'sync.status.synced']);
+    assert.ok(model.expire('sync', entry.seq));
+    assert.equal(model.get('sync').state, 'ready');
+    assert.equal(model.get('sync').label.key, 'island.source.sync', 'the settled row keeps its name');
+    assert.deepEqual(app.toasts, [], 'the island is the confirmation; no toast says it again');
+});
+
+test('every polled sync status maps to an island state and a sync.status key', () => {
+    const { app, model } = syncDashboard();
+    const cases = [
+        [hybrid('synced'), 'ready', 'sync.status.synced'],
+        [hybrid('syncing'), 'busy', 'sync.status.syncing'],
+        [hybrid('pending'), 'ready', 'sync.status.pending'],
+        [hybrid('error'), 'error', 'sync.status.error'],
+        [hybrid('synced', { is_paused: true }), 'ready', 'sync.status.paused'],
+        [hybrid('syncing', { is_running: false }), 'ready', 'sync.status.paused'],
+    ];
+    for (const [status, state, key] of cases) {
+        model.clear('sync');
+        app._reportSyncStatus(status);
+        assert.deepEqual([model.get('sync').state, model.get('sync').text.key], [state, key], JSON.stringify(status));
+    }
+    model.clear('sync');
+    app._reportSyncStatus(hybrid('syncing'));
+    assert.equal(model.get('sync').progress, 'unknown', 'the poll has no percentage');
+});
+
+test('a sync error stays on the island until sync reports again', () => {
+    const { app, model } = syncDashboard();
+    app._reportSyncStatus(hybrid('error'));
+    assert.equal(model.dismiss('sync'), false, 'not something the reader clicks away');
+    assert.equal(model.lead().id, 'sync');
+    app._reportSyncStatus(hybrid('synced'));
+    assert.equal(model.get('sync').state, 'ready');
+});
+
+// What GET /api/sync/status answers while a pull runs (SyncStatusResponse in
+// web/api/sync.py). `status` is "syncing" only for `actively_syncing`, which the
+// storage never reports, so a running pull reads "synced", or "pending" while
+// writes wait in the queue.
+const pollDuringPull = (status) => ({
+    is_hybrid: true, is_running: true, is_paused: false, last_sync_time: 1700000000,
+    operations_pending: status === 'pending' ? 3 : 0, operations_processed: 120, operations_failed: 0,
+    consecutive_failures: status === 'error' ? 1 : 0, sync_interval_seconds: 300,
+    time_since_last_sync_seconds: 12, next_sync_eta_seconds: 288, status,
+    delta_sync_peers: [], delta_sync: {},
+});
+
+test('the poll does not erase a running sync, whatever it answers', () => {
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 30, total_count: 100, progress_percentage: 30 });
+    for (const status of ['synced', 'pending', 'syncing']) {
+        app._reportSyncStatus(pollDuringPull(status));
+        assert.deepEqual([model.get('sync').state, model.get('sync').progress], ['busy', 30], `poll answered ${status}`);
+    }
+    app._reportSyncStatus({ ...pollDuringPull('synced'), is_paused: true });
+    assert.equal(model.get('sync').progress, 30, 'paused');
+
+    app.handleSyncProgress({ synced_count: 60, total_count: 100, progress_percentage: 60 });
+    assert.equal(model.get('sync').progress, 60, 'the next event still moves the bar');
+
+    app._reportSyncStatus(pollDuringPull('error'));
+    assert.equal(model.get('sync').state, 'error', 'but a failure is always shown');
+});
+
+test('the poll keeps the confirmation for its time', () => {
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 90, total_count: 100, progress_percentage: 90 });
+    app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
+    app._reportSyncStatus(pollDuringPull('synced'));
+    assert.equal(model.get('sync').state, 'success');
+    app._reportSyncStatus(pollDuringPull('error'));
+    assert.equal(model.get('sync').state, 'error');
+});
+
+test('a sync whose events stopped a minute ago goes back to the poll', () => {
+    // A dropped stream never delivers sync_completed; the bar must not stay forever.
+    const { app, model } = syncDashboard();
+    app.handleSyncProgress({ synced_count: 30, total_count: 100, progress_percentage: 30 });
+    app._syncProgressAt -= 61000;
+    app._reportSyncStatus(pollDuringPull('synced'));
+    assert.equal(model.get('sync').state, 'ready');
+    assert.equal(model.get('sync').text.key, 'sync.status.synced');
+});
+
+test('a backend without hybrid sync reports nothing, and a stale sync row goes', () => {
+    const { app, model } = syncDashboard();
+    app._reportSyncStatus({ is_hybrid: false, status: 'synced' });
+    assert.equal(model.get('sync'), null);
+    app._reportSyncStatus(hybrid('pending'));
+    app._reportSyncStatus({ is_hybrid: false });
+    assert.equal(model.get('sync'), null);
+});
+
+test('sync reporting works without the island', () => {
+    const { app } = dashboard({ island: null });
+    app.showToast = () => {};
+    app._scheduleDashboardRefresh = () => {};
+    app.checkSyncStatus = async () => {};
+    assert.doesNotThrow(() => {
+        app.handleSyncProgress({ progress_percentage: 10 });
+        app.handleSyncCompleted({ synced_count: 1 });
+        app._reportSyncStatus(hybrid('error'));
+    });
+});
+
+test('the catalog keys the sync source uses exist in en.json, and #syncStatus is gone', () => {
+    const catalog = JSON.parse(fs.readFileSync(STATIC + 'i18n/en.json', 'utf8'));
+    const { app, model } = syncDashboard();
+    const keys = new Set();
+    const collect = () => { const entry = model.get('sync'); keys.add(entry.label.key).add(entry.text.key); };
+    for (const status of ['synced', 'syncing', 'pending', 'error']) { model.clear('sync'); app._reportSyncStatus(hybrid(status)); collect(); }
+    model.clear('sync'); app._reportSyncStatus(hybrid('synced', { is_paused: true })); collect();
+    assert.deepEqual([...keys].filter((key) => !catalog[key]), []);
+    assert.ok(!fs.readFileSync(STATIC + 'app.js', 'utf8').includes("getElementById('syncStatus')"));
+});

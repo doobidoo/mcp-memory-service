@@ -1101,13 +1101,13 @@ class MemoryDashboard {
     handleSyncProgress(data) {
         console.log('Sync progress:', data);
 
-        // Update sync status display if visible
-        const syncStatus = document.getElementById('syncStatus');
-        if (syncStatus) {
-            const progressText = `Syncing: ${data.synced_count}/${data.total_count} (${data.progress_percentage}%)`;
-            syncStatus.textContent = progressText;
-            syncStatus.className = 'sync-status syncing';
-        }
+        // The event comes every ten memories; the island shows its percentage.
+        this._syncProgressAt = Date.now();
+        this._reportSync({
+            state: 'busy',
+            text: { key: 'sync.status.syncing', fallback: 'Syncing' },
+            progress: data.progress_percentage,
+        });
 
         // Update memory count in real-time if on dashboard
         if (this.currentView === 'dashboard') {
@@ -1117,17 +1117,6 @@ class MemoryDashboard {
                 this._scheduleDashboardRefresh();
             }
         }
-
-        // Show toast notification for manual sync
-        if (data.sync_type === 'manual') {
-            this.showToast(
-                data.message || this.t('toast.syncing', 'Syncing: {synced}/{total}', {
-                    synced: data.synced_count,
-                    total: data.total_count
-                }),
-                'info'
-            );
-        }
     }
 
     /**
@@ -1136,12 +1125,8 @@ class MemoryDashboard {
     handleSyncCompleted(data) {
         console.log('Sync completed:', data);
 
-        // Update sync status display
-        const syncStatus = document.getElementById('syncStatus');
-        if (syncStatus) {
-            syncStatus.textContent = this.t('sync.status.synced', 'Synced');
-            syncStatus.className = 'sync-status synced';
-        }
+        const synced = { key: 'sync.status.synced', fallback: 'Synced' };
+        this._reportSync({ state: 'success', text: synced, settle: { state: 'ready', text: synced } });
 
         // Refresh dashboard data to show updated counts
         if (this.currentView === 'dashboard') {
@@ -1150,10 +1135,6 @@ class MemoryDashboard {
 
         // Also refresh sync status for hybrid mode
         this.checkSyncStatus().catch(err => console.error('Error checking sync status:', err));
-
-        // Show completion notification
-        const message = data.message || `Sync completed: ${data.synced_count} memories synced`;
-        this.showToast(message, 'success');
     }
 
     /** Refresh dashboard and peer status once for a burst of cycle events. */
@@ -1928,6 +1909,57 @@ class MemoryDashboard {
         });
     }
 
+    /** Report hybrid sync to the status island as one source, named in its panel. */
+    _reportSync(entry) {
+        this.statusIsland?.report('sync', { ...entry, label: { key: 'island.source.sync', fallback: 'Cloud sync' } });
+    }
+
+    /**
+     * Map a GET /sync/status answer to the status island. The poll runs every ten
+     * seconds and after every progress event, so it must not undo what the SSE events
+     * reported: a running sync keeps its percentage, and a confirmation keeps its time.
+     * Only an error gets through.
+     */
+    _reportSyncStatus(syncStatus) {
+        if (!this.statusIsland) return;
+        const current = this.statusIsland.get?.('sync') || null;
+        if (!syncStatus.is_hybrid) {
+            if (current) this.statusIsland.clear('sync');
+            return;
+        }
+        const entry = this._syncIslandEntry(syncStatus);
+        if (entry.state !== 'error' && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
+        this._reportSync(entry);
+    }
+
+    /**
+     * Whether the island shows a sync the progress events still describe. The poll
+     * cannot tell: /sync/status says "syncing" only for `actively_syncing`, which the
+     * storage never reports, so during a pull it answers "synced" or "pending". A
+     * minute without an event (a dropped stream) hands the row back to the poll.
+     */
+    _syncProgressRunning(current) {
+        return current?.state === 'busy' && typeof current.progress === 'number'
+            && Date.now() - (this._syncProgressAt || 0) < 60000;
+    }
+
+    /** The island entry for a sync status; the poll carries no percentage. */
+    _syncIslandEntry(syncStatus) {
+        if (syncStatus.is_paused || !syncStatus.is_running) {
+            return { state: 'ready', text: { key: 'sync.status.paused', fallback: 'Paused' } };
+        }
+        switch (syncStatus.status) {
+            case 'syncing':
+                return { state: 'busy', progress: 'unknown', text: { key: 'sync.status.syncing', fallback: 'Syncing' } };
+            case 'pending':
+                return { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' } };
+            case 'error':
+                return { state: 'error', text: { key: 'sync.status.error', fallback: 'Error' } };
+            default:
+                return { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } };
+        }
+    }
+
     /**
      * Check hybrid backend sync status
      */
@@ -1940,6 +1972,7 @@ class MemoryDashboard {
         try {
             const syncStatus = await this.apiCall('/sync/status');
             this.updateDeltaSyncStatus(syncStatus.delta_sync);
+            this._reportSyncStatus(syncStatus);
 
             // Get compact sync control element
             const syncControl = document.getElementById('syncControl');

@@ -634,6 +634,7 @@
   "island.details": "Details",
   "island.dismiss": "Close",
   "island.source.connection": "Live updates",
+  "island.source.sync": "Cloud sync",
   "sync.deltaSync": "Delta sync",
   "sync.checking": "Checking...",
   "sync.pauseTitle": "Pause sync",

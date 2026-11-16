@@ -616,6 +616,7 @@
   "island.dismiss": "닫기",
   "island.reconnect": "Reconnect",
   "island.source.connection": "Live updates",
+  "island.source.sync": "Cloud sync",
   "sync.deltaSync": "델타 동기화",
   "sync.checking": "확인 중...",
   "sync.pauseTitle": "동기화 일시 중지",
