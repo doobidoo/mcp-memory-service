@@ -173,6 +173,66 @@ async def test_empty_window_returns_no_match(storage):
     assert got[0] is False
 
 
+async def test_window_past_the_k_cap_matches_the_scan(storage):
+    """>4096 live candidates: the k cap engages and the answer must not change.
+
+    The discriminator matters more than the size: 5,000 STALE rows sit closer
+    to the probe than the target live row. If sqlite-vec filtered after
+    taking the top-k, those stale rows would fill every k slot and the read
+    would come back empty; the rowid filter running inside the KNN scan is
+    what makes the cap exact for this top-1 read. The scan oracle over the
+    same rows agrees.
+    """
+    import random
+
+    dim = storage.embedding_dimension
+    rng = random.Random(2032)
+    conn = storage.conn
+    now = time.time()
+
+    def _cos_row(cos_value):
+        s = math.sqrt(max(0.0, 1.0 - cos_value * cos_value))
+        return [cos_value, s] + [0.0] * (dim - 2)
+
+    def _bulk_insert(rows, prefix):
+        mem_sql = ("INSERT INTO memories(content_hash, content, created_at, "
+                   "deleted_at, store) VALUES (?,?,?,?,?)")
+        emb_sql = ("INSERT INTO memory_embeddings(rowid, content_embedding, "
+                   "store) VALUES (?,?,?)")
+        rowids = []
+        for i, (vec, created_at, store_name) in enumerate(rows):
+            cur = conn.execute(mem_sql, (f"{prefix}-{i}", f"{prefix} note {i}",
+                                         created_at, None, store_name))
+            rowids.append(cur.lastrowid)
+            conn.execute(emb_sql, (cur.lastrowid,
+                                   serialize_float32(vec), store_name))
+        return rowids
+
+    filler = [([rng.gauss(0, 1) for _ in range(dim)], now - 3600, "default")
+              for _ in range(4200)]
+    # closer to the probe than anything live, but outside the window
+    stale_near = [(_cos_row(0.99), now - 48 * 3600, "default")
+                  for _ in range(5000)]
+    _bulk_insert(filler + stale_near, "bulk")
+
+    live = conn.execute(
+        "SELECT COUNT(*) FROM memories WHERE created_at > ? AND deleted_at "
+        "IS NULL AND store = 'default'", (now - 86400,)).fetchone()[0]
+    assert live > 4096  # the cap is what this run exercises
+
+    # the fixture's own twin (cos 1.0) is the expected match; the 5,000
+    # stale rows at 0.99 sit between it and everything else
+    got = await storage._check_semantic_duplicate("PROBE sentinel")
+    row = _old_scan_row(storage, "PROBE sentinel", "default", False, None)
+    matched, hash_, similarity, content = _old_answer(row, 0.85)
+    assert matched is True and hash_ is not None
+    assert got[0] is True
+    assert got[1] == hash_
+    assert got.matched_content == content == "twin of the probe"
+    assert abs(got.similarity - similarity) < 1e-6
+    assert abs(got.similarity - 1.0) < 1e-6
+
+
 async def test_read_goes_through_the_knn_pushdown(storage):
     """The contract of #2032: no per-row vec_distance_cosine over the window."""
 
