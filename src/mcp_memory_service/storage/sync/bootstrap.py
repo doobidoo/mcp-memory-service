@@ -264,5 +264,5 @@ async def bootstrap_from_peer(local_storage: MemoryStorage, peer, peer_id: str) 
     logger.info("Bootstrapping from peer %s", _sanitize_log_value(peer_id))
     events, watermark = await peer.get_baseline()
     result = install_baseline(local_storage, events, peer_id=peer_id, watermark=watermark)
-    logger.info("Bootstrap from peer %s complete: %s", _sanitize_log_value(peer_id), result)
+    logger.info("Bootstrap from peer %s complete: %s", _sanitize_log_value(peer_id), _sanitize_log_value(result))
     return result
