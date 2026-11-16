@@ -621,6 +621,7 @@
   "island.upload.processing": "Importando",
   "island.upload.completed": "Importado",
   "island.upload.failed": "Error al importar",
+  "island.upload.partial": "Importado con errores: {error}",
   "sync.deltaSync": "Sincronización delta",
   "sync.checking": "Comprobando...",
   "sync.pauseTitle": "Pausar sincronización",

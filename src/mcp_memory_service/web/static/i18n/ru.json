@@ -639,6 +639,7 @@
   "island.upload.processing": "Импорт",
   "island.upload.completed": "Импортировано",
   "island.upload.failed": "Ошибка импорта",
+  "island.upload.partial": "Импортировано с ошибками: {error}",
   "sync.deltaSync": "Инкрементальная синхронизация",
   "sync.checking": "Проверка...",
   "sync.pauseTitle": "Приостановить синхронизацию",

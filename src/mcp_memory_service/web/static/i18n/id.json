@@ -639,6 +639,7 @@
   "island.upload.processing": "Mengimpor",
   "island.upload.completed": "Diimpor",
   "island.upload.failed": "Impor gagal",
+  "island.upload.partial": "Diimpor dengan kesalahan: {error}",
   "sync.deltaSync": "Sinkronisasi delta",
   "sync.checking": "Memeriksa...",
   "sync.pauseTitle": "Jeda sinkronisasi",

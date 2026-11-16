@@ -527,6 +527,28 @@ test('a failed import stays on the island with its first error until it is close
     assert.equal(model.get('upload-u2'), null);
 });
 
+test('a completed import with errors stays on the island as a closable warning', async () => {
+    // process_batch_upload() answers "completed" once any chunk was stored, even when
+    // other files or chunks failed; that must not look like a clean import.
+    const { app, model, timers, next, answer } = uploadDashboard();
+    answer('p1', upload('completed', {
+        progress: 100, chunks_processed: 12, chunks_stored: 9,
+        errors: ['broken.docx: No loader available', 'Chunk 4: processing error'],
+    }));
+    app.monitorUploadProgress('p1');
+    await next();
+    const entry = model.get('upload-p1');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.dismissible, true);
+    assert.equal(entry.text.key, 'island.upload.partial');
+    assert.equal(entry.text.vars.error, 'broken.docx: No loader available');
+    assert.equal(entry.label.fallback, 'notes.pdf');
+    assert.equal(model.expire('upload-p1', entry.seq), false, 'it does not leave by itself');
+    assert.equal(timers.length, 0, 'the poll still stops at the end state');
+    assert.equal(model.dismiss('upload-p1'), true);
+    assert.equal(model.get('upload-p1'), null);
+});
+
 test('a failed import without an error message uses the catalog text', () => {
     const { app, model } = uploadDashboard();
     app._reportUpload('u3', upload('failed', { errors: [] }));
@@ -570,6 +592,8 @@ test('the catalog keys document imports use exist in en.json', () => {
         app._reportUpload(status, upload(status));
         keys.push(model.get(`upload-${status}`).text.key);
     }
-    assert.deepEqual(keys, ['island.upload.queued', 'island.upload.processing', 'island.upload.completed', 'island.upload.failed']);
+    app._reportUpload('partial', upload('completed', { errors: ['x'] }));
+    keys.push(model.get('upload-partial').text.key);
+    assert.deepEqual(keys, ['island.upload.queued', 'island.upload.processing', 'island.upload.completed', 'island.upload.failed', 'island.upload.partial']);
     assert.deepEqual(keys.filter((key) => !catalog[key]), []);
 });

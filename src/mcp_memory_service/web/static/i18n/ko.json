@@ -621,6 +621,7 @@
   "island.upload.processing": "가져오는 중",
   "island.upload.completed": "가져오기 완료",
   "island.upload.failed": "가져오기 실패",
+  "island.upload.partial": "오류와 함께 가져옴: {error}",
   "sync.deltaSync": "델타 동기화",
   "sync.checking": "확인 중...",
   "sync.pauseTitle": "동기화 일시 중지",

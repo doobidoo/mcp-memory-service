@@ -1921,6 +1921,7 @@ class MemoryDashboard {
         if (!this.statusIsland || !upload) return;
         // A file name is not translated, so the label has no catalog key.
         const label = { fallback: upload.filename || String(uploadId) };
+        const reason = Array.isArray(upload.errors) && upload.errors.length ? String(upload.errors[0]) : '';
         let entry;
         switch (upload.status) {
             case 'queued':
@@ -1930,11 +1931,20 @@ class MemoryDashboard {
                 entry = { state: 'busy', progress: upload.progress, text: { key: 'island.upload.processing', fallback: 'Importing' } };
                 break;
             case 'completed':
+                if (reason) {
+                    // A batch is "completed" once any chunk was stored, even when other
+                    // chunks or files failed. That must stay until the reader closes it.
+                    entry = {
+                        state: 'error',
+                        dismissible: true,
+                        text: { key: 'island.upload.partial', fallback: 'Imported with errors: {error}', vars: { error: reason } },
+                    };
+                    break;
+                }
                 // No settle: the row leaves by itself after its confirmation.
                 entry = { state: 'success', text: { key: 'island.upload.completed', fallback: 'Imported' } };
                 break;
             case 'failed': {
-                const reason = Array.isArray(upload.errors) && upload.errors.length ? String(upload.errors[0]) : '';
                 entry = {
                     state: 'error',
                     dismissible: true,

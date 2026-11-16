@@ -621,6 +621,7 @@
   "island.upload.processing": "インポート中",
   "island.upload.completed": "インポート完了",
   "island.upload.failed": "インポートに失敗しました",
+  "island.upload.partial": "一部エラーありでインポート: {error}",
   "sync.deltaSync": "差分同期",
   "sync.checking": "確認中...",
   "sync.pauseTitle": "同期を一時停止",
