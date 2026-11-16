@@ -120,7 +120,7 @@ async def handle_memory_quality(server, arguments: dict) -> List[types.TextConte
 
     except Exception as e:
         error_msg = f"Error in memory_quality action '{_sanitize_log_value(action)}': {str(e)}"
-        logger.error("%s\n%s", error_msg, traceback.format_exc())
+        logger.error("%s\n%s", _sanitize_log_value(error_msg), traceback.format_exc())
         return [types.TextContent(type="text", text=error_msg)]
 
 

@@ -486,7 +486,7 @@ async def process_single_file_upload(
         try:
             os.unlink(file_path)
         except Exception:
-            logger.debug("Could not delete temp file %s", file_path)
+            logger.debug("Could not delete temp file %s", _sanitize_log_value(file_path))
 
 
 async def process_batch_upload(

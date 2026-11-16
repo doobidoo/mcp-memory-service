@@ -522,8 +522,8 @@ class ONNXRankerModel:
         is_gpu = self._model.get_providers()[0] in ('CUDAExecutionProvider', 'TensorrtExecutionProvider')
         if is_gpu and len(pairs) < self.MIN_GPU_BATCH_SIZE:
             logger.debug(
-                f"Batch size {len(pairs)} < GPU threshold {self.MIN_GPU_BATCH_SIZE}, "
-                f"using sequential GPU calls"
+                "Batch size %d < GPU threshold %d, using sequential GPU calls",
+                len(pairs), self.MIN_GPU_BATCH_SIZE
             )
             return [self.score_quality(q, c) for q, c in pairs]
 
@@ -537,7 +537,8 @@ class ONNXRankerModel:
                 all_scores.extend(chunk_scores)
             except Exception as e:
                 logger.warning(
-                    f"Batch chunk failed ({len(chunk)} items), falling back to sequential: {e}"
+                    "Batch chunk failed (%d items), falling back to sequential: %s",
+                    len(chunk), _sanitize_log_value(e)
                 )
                 for query, content in chunk:
                     all_scores.append(self.score_quality(query, content))
