@@ -59,7 +59,7 @@ TIME_OF_DAY = {
 # characters, which prevents ReDoS on adversarial inputs.
 PATTERNS = {
     # Use \d{1,4} instead of \d+ to bound digit repetition and avoid polynomial backtracking
-    "relative_days": re.compile(r'(?:(\d{1,4})\s+days?\s+ago)|(?:yesterday)|(?:today)'),
+    "relative_days": re.compile(r'(?:(\d{1,4})\s+days?\s+ago)|(?:day\s+before\s+yesterday)|(?:yesterday)|(?:today)'),
     "relative_weeks": re.compile(r'(\d{1,4})\s+weeks?\s+ago'),
     "relative_months": re.compile(r'(\d{1,4})\s+months?\s+ago'),
     "relative_years": re.compile(r'(\d{1,4})\s+years?\s+ago'),
@@ -86,7 +86,7 @@ _RANGE_ENDPOINT_PATTERNS = (
 _RANGE_DAYPART_ENDPOINT = re.compile(
     rf"(?:{PATTERNS['relative_days'].pattern})\s+(?:in\s+the\s+)?"
     rf"(?:{PATTERNS['time_of_day'].pattern})|"
-    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:yesterday|today)"
+    rf"(?:{PATTERNS['time_of_day'].pattern})\s+(?:day\s+before\s+yesterday|yesterday|today)"
 )
 _RANGE_ENDPOINT = "|".join(
     f"(?:{PATTERNS[name].pattern})" for name in _RANGE_ENDPOINT_PATTERNS
@@ -334,7 +334,10 @@ def parse_time_expression(
         # Relative days: "X days ago", "yesterday", "today"
         days_ago_match = PATTERNS["relative_days"].search(query)
         if days_ago_match:
-            if "yesterday" in query:
+            # "day before yesterday" contains "yesterday"; check it first.
+            if re.search(r"\bday\s+before\s+yesterday\b", query):
+                days = 2
+            elif "yesterday" in query:
                 days = 1
             elif "today" in query:
                 days = 0
@@ -821,8 +824,8 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
     daypart = "morning|afternoon|evening|night|noon|midnight"
     time_expressions = [
         rf'\b\d+\s+days?\s+ago(?:\s+(?:{daypart}))?\b',
-        rf'\b(?:{daypart})\s+(?:yesterday|today)\b',
-        rf'\b(?:yesterday|today)(?:\s+(?:{daypart}))?\b',
+        rf'\b(?:{daypart})\s+(?:day\s+before\s+yesterday|yesterday|today)\b',
+        rf'\b(?:day\s+before\s+yesterday|yesterday|today)(?:\s+(?:{daypart}))?\b',
         r'\b\d+\s+weeks?\s+ago\b',
         r'\b\d+\s+months?\s+ago\b',
         r'\b\d+\s+years?\s+ago\b',
