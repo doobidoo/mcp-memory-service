@@ -267,6 +267,14 @@ def parse_time_expression(
             start_ts, end_ts = _anchor_yearless_range(
                 start_expr, end_expr, start_ts, end_ts
             )
+            # A cross-year month window ("between november and january")
+            # starts the year before its end, like the yearless M/D case;
+            # left inverted it matches nothing.
+            if start_ts is not None and end_ts is not None and start_ts > end_ts:
+                prev_year = datetime.fromtimestamp(end_ts).year - 1
+                reanchored_ts, _ = parse_time_expression(start_expr, base_year=prev_year)
+                if reanchored_ts is not None and reanchored_ts <= end_ts:
+                    start_ts = reanchored_ts
             return start_ts, end_ts
 
         # Documented recall example. Ends that are not times fall through
@@ -425,7 +433,7 @@ def parse_time_expression(
         month_match = PATTERNS["month_name"].search(query)
         if month_match:
             month_name = month_match.group(1)
-            return get_month_range(month_name)
+            return get_month_range(month_name, base_year)
         
         # Named periods (holidays, etc.)
         named_period_match = PATTERNS["named_period"].search(query)

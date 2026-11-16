@@ -538,6 +538,24 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).date() == date(2026, 10, 1)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2026, 12, 31)  # noqa: DTZ006
     
+    def test_between_month_names_across_new_year(self, monkeypatch):
+        """Issue #2030: a cross-year month range came back inverted and matched nothing."""
+        _freeze_clock(monkeypatch, date(2026, 11, 15))
+        for query, first, last in (
+            ("between november and january", date(2025, 11, 1), date(2026, 1, 31)),
+            ("between october and march", date(2025, 10, 1), date(2026, 3, 31)),
+            ("between december and february", date(2025, 12, 1), date(2026, 2, 28)),
+        ):
+            start_ts, end_ts = parse_time_expression(query)
+            assert start_ts <= end_ts, query
+            assert datetime.fromtimestamp(start_ts).date() == first, query  # noqa: DTZ006
+            assert datetime.fromtimestamp(end_ts).date() == last, query  # noqa: DTZ006
+
+        # Same-year ranges keep their year.
+        start_ts, end_ts = parse_time_expression("between january and march")
+        assert datetime.fromtimestamp(start_ts).date() == date(2026, 1, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 3, 31)  # noqa: DTZ006
+
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
         # Test extraction with semantic content
