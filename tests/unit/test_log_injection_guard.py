@@ -129,6 +129,11 @@ GUARDED_MODULES = [
     "mcp_memory_service/consolidation/relationship_inference.py",
     "mcp_memory_service/storage/mixins/retrieve.py",
     "mcp_memory_service/storage/shared.py",
+    "mcp_memory_service/consolidation/consolidator.py",
+    "mcp_memory_service/consolidation/decay.py",
+    "mcp_memory_service/consolidation/health.py",
+    "mcp_memory_service/consolidation/insights.py",
+    "mcp_memory_service/consolidation/scheduler.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -283,6 +288,10 @@ MODULE_EXTERNAL_NAMES = {
     # passed in by the caller.
     "mcp_memory_service/storage/migration_runner.py": frozenset({"name"}),
     "mcp_memory_service/sync/litestream_config.py": frozenset({"config_path"}),
+    # `reason` in consolidation/consolidator.py comes from store()'s return value
+    # (raw exception text from the storage layer). `inferred_rel` is the string
+    # label returned by the relationship-inference model, which may be arbitrary.
+    "mcp_memory_service/consolidation/consolidator.py": frozenset({"reason", "inferred_rel"}),
 }
 
 # Fields of an outside object that cannot carry injectable text. An HTTP status
@@ -960,3 +969,53 @@ def test_lazy_scan_flags_migration_runner_and_litestream_paths():
     assert _lazy_findings(bare_ls, ls_extra)
     assert not _lazy_findings(bare_ls), "not an EXTERNAL_NAMES entry: the module list carries it"
     assert not _lazy_findings(wrapped_ls, ls_extra)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_consolidation_memory_values():
+    """content_hash, exc and errors must be wrapped in consolidation/ logger calls.
+
+    These modules log hashes (content_hash) and exceptions (e, exc, errors)
+    that come from memories or from the storage layer.  Dropping a wrapper or
+    reverting to an f-string in any of them would break the three parametrized
+    module scans; this sentinel fails at the sample level so the regression is
+    caught even before the module-level scan runs.
+    """
+    # content_hash is listed in EXTERNAL_NAMES; a bare %s arg is flagged.
+    bare_hash = 'logger.warning("Failed to update timestamp for %s", memory.content_hash)\n'
+    wrapped_hash = 'logger.warning("Failed to update timestamp for %s", _sanitize_log_value(memory.content_hash))\n'
+    assert _lazy_findings(bare_hash)
+    assert not _lazy_findings(wrapped_hash)
+
+    # exc is listed in EXTERNAL_NAMES.
+    bare_exc = 'logger.warning("Failed to store insight ack sentinel for %r: %s", card.title, exc)\n'
+    wrapped_exc = 'logger.warning("Failed to store insight ack sentinel for %r: %s", card.title, _sanitize_log_value(exc))\n'
+    assert _lazy_findings(bare_exc)
+    assert not _lazy_findings(wrapped_exc)
+
+    # errors (a list from a consolidation report) is listed in EXTERNAL_NAMES.
+    bare_errors = 'self.logger.error("Consolidation %s completed with errors: %s", horizon, errors)\n'
+    wrapped_errors = 'self.logger.error("Consolidation %s completed with errors: %s", horizon, _sanitize_log_value(errors))\n'
+    assert _lazy_findings(bare_errors)
+    assert not _lazy_findings(wrapped_errors)
+
+    # `reason` in consolidator.py comes from store()'s return value (raw exception
+    # text); it is not in EXTERNAL_NAMES globally, so the module extra carries it.
+    con_extra = MODULE_EXTERNAL_NAMES["mcp_memory_service/consolidation/consolidator.py"]
+    bare_reason = 'self.logger.warning("Failed to store association memory for %s <-> %s: %s", a, b, reason)\n'
+    wrapped_reason = 'self.logger.warning("Failed to store association memory for %s <-> %s: %s", a, b, _sanitize_log_value(reason))\n'
+    assert _lazy_findings(bare_reason, con_extra)
+    assert not _lazy_findings(bare_reason), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_reason, con_extra)
+
+    # `inferred_rel` is the string returned by the relationship-inference model;
+    # it may be arbitrary text, so it too is guarded via the module extra.
+    bare_inferred = 'self.logger.debug("Inferred relationship \'%s\' (confidence: %.2f) for %s <-> %s", inferred_rel, confidence, a, b)\n'
+    wrapped_inferred = 'self.logger.debug("Inferred relationship \'%s\' (confidence: %.2f) for %s <-> %s", _sanitize_log_value(inferred_rel), confidence, a, b)\n'
+    assert _lazy_findings(bare_inferred, con_extra)
+    assert not _lazy_findings(bare_inferred), "not an EXTERNAL_NAMES entry: the module list carries it"
+    assert not _lazy_findings(wrapped_inferred, con_extra)
+
+    # An f-string in a consolidation logger call is caught by the AST scan.
+    fstring_sample = 'self.logger.info(f"Completed {time_horizon} consolidation in {duration:.2f}s")\n'
+    assert _ast_findings(fstring_sample)
