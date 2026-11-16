@@ -556,6 +556,17 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).date() == date(2026, 1, 1)  # noqa: DTZ006
         assert datetime.fromtimestamp(end_ts).date() == date(2026, 3, 31)  # noqa: DTZ006
 
+    def test_between_month_names_before_the_end_month(self, monkeypatch):
+        """Before the end month occurs, both months stay in last year (#2030 review)."""
+        _freeze_clock(monkeypatch, date(2026, 2, 15))
+        start_ts, end_ts = parse_time_expression("between january and march")
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 1, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2025, 3, 31)  # noqa: DTZ006
+
+        start_ts, end_ts = parse_time_expression("between november and january")
+        assert datetime.fromtimestamp(start_ts).date() == date(2025, 11, 1)  # noqa: DTZ006
+        assert datetime.fromtimestamp(end_ts).date() == date(2026, 1, 31)  # noqa: DTZ006
+
     def test_cross_year_reanchor_keeps_explicit_month_years(self, monkeypatch):
         """Only a bare month name moves to the previous year (#2030 review)."""
         _freeze_clock(monkeypatch, date(2026, 11, 15))

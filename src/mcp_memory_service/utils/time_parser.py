@@ -275,10 +275,15 @@ def parse_time_expression(
             if start_ts is not None and end_ts is not None and start_ts > end_ts:
                 bare_month = _BARE_MONTH.fullmatch(start_expr.strip().lower())
                 if bare_month:
-                    prev_year = datetime.fromtimestamp(end_ts).year - 1
-                    reanchored_ts, _ = get_month_range(bare_month.group(1), prev_year)
-                    if reanchored_ts <= end_ts:
-                        start_ts = reanchored_ts
+                    # Same year as the end first ("between january and march"
+                    # in February, when March is last year's), then the year
+                    # before it ("between november and january").
+                    end_year = datetime.fromtimestamp(end_ts).year
+                    for year in (end_year, end_year - 1):
+                        reanchored_ts, _ = get_month_range(bare_month.group(1), year)
+                        if reanchored_ts <= end_ts:
+                            start_ts = reanchored_ts
+                            break
             return start_ts, end_ts
 
         # Documented recall example. Ends that are not times fall through
