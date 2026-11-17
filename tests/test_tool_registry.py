@@ -25,11 +25,11 @@ EXPECTED_TOOLS = [
     "mistake_note_search",
     "mistake_note_update",
     "mistake_note_delete",
-    "get_quarantined_memories",
-    "unquarantine_memory",
-    "commit_session_legacy",
-    "get_bootstrap_profile",
-    "get_onboarding_guide",
+    "memory_quarantine_list",
+    "memory_quarantine_release",
+    "memory_commit_session",
+    "memory_bootstrap_profile",
+    "memory_onboarding_guide",
     "memory_distill",
     "memory_explore",
     "memory_detail",
@@ -153,7 +153,61 @@ class TestRoutingTable:
             handler = resolve_handler(name)
             assert callable(handler), f"Handler for {name} not callable"
         # __self__ sentinel entries should resolve to tuple
-        for name in ["memory_harvest", "commit_session_legacy", "get_bootstrap_profile"]:
+        for name in ["memory_harvest", "memory_commit_session", "memory_bootstrap_profile"]:
             handler = resolve_handler(name)
             assert isinstance(handler, tuple) and handler[0] == "__self__", \
                 f"Handler for {name} should be __self__ sentinel"
+
+
+# Names retired by the memory_* prefix rename. There is no alias layer, so a name
+# coming back here means two tools answer for one job.
+RETIRED_TOOL_NAMES = [
+    "commit_session_legacy",
+    "get_bootstrap_profile",
+    "get_onboarding_guide",
+    "get_quarantined_memories",
+    "unquarantine_memory",
+]
+
+# Tools an agent can confuse, and the sibling each description must point to.
+SIBLING_POINTERS = {
+    "memory_store": ["memory_store_session", "memory_ingest", "memory_commit_session"],
+    "memory_store_session": ["memory_commit_session"],
+    "memory_ingest": ["memory_store", "memory_harvest"],
+    "memory_harvest": ["memory_commit_session", "memory_ingest"],
+    "memory_commit_session": ["memory_store_session", "memory_harvest"],
+    "memory_distill": ["memory_store"],
+    "memory_search": ["memory_list", "memory_explore", "memory_graph"],
+    "memory_graph": ["memory_search", "memory_explore"],
+    "memory_detail": ["memory_explore", "memory_search"],
+}
+
+
+class TestToolNaming:
+    """The naming pattern and the cross-references between overlapping tools."""
+
+    def test_retired_names_are_gone(self):
+        from mcp_memory_service.tools.registry import TOOL_REGISTRY
+        from mcp_memory_service.tools.routing import ROUTING_TABLE
+        names = {t.name for t in TOOL_REGISTRY}
+        for old in RETIRED_TOOL_NAMES:
+            assert old not in names, f"{old} is back in TOOL_REGISTRY"
+            assert old not in ROUTING_TABLE, f"{old} is back in ROUTING_TABLE"
+
+    def test_every_tool_follows_the_prefix_pattern(self):
+        from mcp_memory_service.tools.registry import TOOL_REGISTRY
+        for tool in TOOL_REGISTRY:
+            assert tool.name.startswith(("memory_", "mistake_note_")), tool.name
+
+    def test_descriptions_do_not_name_a_tool_that_does_not_exist(self):
+        from mcp_memory_service.tools.registry import TOOL_REGISTRY
+        for tool in TOOL_REGISTRY:
+            for old in RETIRED_TOOL_NAMES:
+                assert old not in tool.description, f"{tool.name} still mentions {old}"
+
+    @pytest.mark.parametrize("name,siblings", sorted(SIBLING_POINTERS.items()))
+    def test_overlapping_tools_point_to_their_siblings(self, name, siblings):
+        from mcp_memory_service.tools.registry import TOOL_REGISTRY
+        description = next(t.description for t in TOOL_REGISTRY if t.name == name)
+        for sibling in siblings:
+            assert sibling in description, f"{name} does not say when to use {sibling}"

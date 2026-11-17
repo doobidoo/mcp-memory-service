@@ -256,7 +256,7 @@ Full list, plus clients without OAuth such as Home Assistant:
 - 💭 **Beliefs and contradiction handling** — Derive confidence-scored beliefs from
   observations. Heuristic contradiction detection can mark older memories as superseded,
   hiding them from default retrieval while retaining them for explicit lookup.
-- 🤖 **Agent bootstrap profiles** — `get_bootstrap_profile` assembles behavioral context
+- 🤖 **Agent bootstrap profiles** — `memory_bootstrap_profile` assembles behavioral context
   for a new agent within a token budget, with optional task-aware retrieval.
   Requires `MCP_BOOTSTRAP_ENABLED=true`; profiles are not isolated by project.
 - 🧬 **Knowledge graph and entities** — Explore typed causal relationships in the interactive
