@@ -154,9 +154,15 @@ when the PR is reviewed. The same situation gets the same answer, whoever is inv
 | The issue is assigned to someone else, or someone else claimed it earlier | The unclaimed PR is closed |
 | The issue is free: no assignee, no earlier claim, no other open PR | The PR author is assigned, gets a pointer to this section, and the PR is reviewed normally |
 | The issue is free and several unclaimed PRs exist | The earliest PR that passes review gets the issue; the others are closed |
+| The author was warned on an earlier unclaimed PR that the next one would be closed | The unclaimed PR is closed without review, whatever the state of the issue. The author may claim the issue and open a new PR |
 | A claim is 3 days old with no PR, no draft and no update on the issue | A maintainer asks once on the issue |
 | No answer 2 days after that question | The claim expires, the assignment is removed, and the issue is free again |
 | A PR changes `src/` without an issue | Small and clearly scoped: `skip-issue`. Otherwise it waits until an issue is opened and agreed |
+
+A warning is given in writing on the PR, links to this section, and comes on the
+second unclaimed PR at the earliest; the first one only gets the pointer. GitHub lets
+a maintainer assign only people who have commented on the issue, so "the PR author is
+assigned" can wait for a comment from you on the issue.
 
 A claim is a commitment to start, not a reservation. If you need more time, say so
 on the issue; an update resets the clock.

@@ -20,7 +20,7 @@ function dashboard(apiCall) {
     vm.runInContext(fs.readFileSync('src/mcp_memory_service/web/static/app.js', 'utf8') + '\nthis.Dashboard = MemoryDashboard;', context);
     context.Dashboard.prototype.init = () => {};
     const app = new context.Dashboard();
-    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get() { return null; }, clear() {} };
+    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get(id) { return this.reports.findLast(([source]) => source === id)?.[1] || null; }, clear() {} };
     app.statusIsland = island;
     app.showToast = (...args) => { throw new Error('a backup toast fired: ' + JSON.stringify(args)); };
     app.apiCall = apiCall;
@@ -103,7 +103,7 @@ test('a backup started from Settings closes the modal so the island stays visibl
     vm.runInContext(fs.readFileSync('src/mcp_memory_service/web/static/app.js', 'utf8') + '\nthis.Dashboard = MemoryDashboard;', context);
     context.Dashboard.prototype.init = () => {};
     const app = new context.Dashboard();
-    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get() { return null; }, clear() {} };
+    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get(id) { return this.reports.findLast(([source]) => source === id)?.[1] || null; }, clear() {} };
     app.statusIsland = island;
     app.apiCall = async () => ({ success: true, filename: 'b.db.gz', size_bytes: 1024 });
     app.checkBackupStatus = async () => {};
@@ -140,7 +140,7 @@ function settingsDashboard(fields, modalActive, apiCall) {
     vm.runInContext(fs.readFileSync('src/mcp_memory_service/web/static/app.js', 'utf8') + '\nthis.Dashboard = MemoryDashboard;', context);
     context.Dashboard.prototype.init = () => {};
     const app = new context.Dashboard();
-    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get() { return null; }, clear() {} };
+    const island = { reports: [], report(id, entry) { this.reports.push([id, entry]); }, get(id) { return this.reports.findLast(([source]) => source === id)?.[1] || null; }, clear() {} };
     app.statusIsland = island;
     app.apiCall = apiCall;
     app.checkBackupStatus = async () => {};
