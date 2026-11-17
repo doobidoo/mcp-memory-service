@@ -247,3 +247,63 @@ test('a successful backup retry removes the missing-island fallback too', async 
     await app.createBackup();
     assert.equal(removed, 1);
 });
+
+for (const succeeds of [true, false]) {
+    test(`batch retry clears only selected-file failures (success=${succeeds})`, async () => {
+        const { app, model } = dashboard();
+        const selected = { name: 'retry.pdf', size: 21, lastModified: 7 };
+        const other = { name: 'later.pdf', size: 22, lastModified: 8 };
+        const id = (file) => `upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`;
+        app.selectedFiles = [selected, other];
+        app.processingMode = 'individual';
+        app.uploadSingleDocument = async () => { throw new Error('first attempt failed'); };
+        await app.handleDocumentUpload();
+        assert.equal(model.get(id(selected)).state, 'error');
+        assert.equal(model.get(id(other)).state, 'error');
+        app.selectedFiles = [selected, { name: 'new.pdf', size: 2, lastModified: 9 }];
+        app.processingMode = 'batch';
+        app.uploadBatchDocuments = async () => {
+            assert.equal(model.get(id(selected)), null);
+            assert.equal(model.get(id(other)).state, 'error');
+            if (!succeeds) throw new Error('batch unavailable');
+        };
+        await app.handleDocumentUpload();
+        assert.equal(model.get(id(selected)), null);
+        assert.equal(model.get(id(other)).state, 'error');
+        assert.equal(model.get('upload-batch')?.state, succeeds ? undefined : 'error');
+    });
+}
+
+for (const choice of ['accept', 'decline', 'retry-fails']) {
+    test(`dirty-tree update ${choice} keeps progress visible or shows its final error`, async () => {
+        const { app, model, elements, context } = dashboard();
+        const classes = new Set(['active']);
+        elements.set('settingsModal', { classList: { contains: (c) => classes.has(c) } });
+        elements.set('themeSelect', { value: 'dark' });
+        elements.set('serverActionStatus', { style: {} });
+        app.closeModal = () => classes.delete('active');
+        let confirmations = 0, requests = 0, overlay = false;
+        context.confirm = () => ++confirmations === 1 || choice !== 'decline';
+        app.showRestartOverlay = () => { overlay = true; };
+        app.apiCall = async (path, method, payload) => {
+            assert.equal(classes.has('active'), true, 'update progress is hidden');
+            assert.equal(elements.get('serverActionStatus').style.display, 'flex');
+            assert.equal(payload.force, requests++ > 0);
+            if (requests === 1) throw Object.assign(new Error('local changes'), { status: 409 });
+            if (choice === 'retry-fails') throw new Error('retry unavailable');
+            return {};
+        };
+        await app.updateAndRestart();
+        assert.equal(requests, choice === 'decline' ? 1 : 2);
+        if (choice === 'accept') {
+            assert.equal(overlay, true);
+            assert.equal(model.get('server-update'), null);
+            assert.equal(classes.has('active'), true);
+        } else {
+            assert.equal(overlay, false);
+            assert.equal(model.get('server-update').state, 'error');
+            assert.equal(classes.has('active'), false);
+            assert.equal(app._settingsDraft.themeSelect, 'dark');
+        }
+    });
+}
