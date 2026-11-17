@@ -3401,7 +3401,10 @@ class MemoryDashboard {
         const isCurrent = () => this.getMemoryIdFromUrl() === id;
 
         try {
-            const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}`);
+            // Honor a non-default store carried in the page URL (e.g. ?store=work&memory=<hash>)
+            const store = new URL(window.location.href).searchParams.get('store');
+            const query = store ? `?store=${encodeURIComponent(store)}` : '';
+            const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}${query}`);
             if (!isCurrent()) return;
             this.showMemoryDetails(memory);
         } catch (error) {
