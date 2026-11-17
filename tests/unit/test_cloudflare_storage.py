@@ -433,7 +433,8 @@ class TestCloudflareStorage:
             sql_payload = mock_request.call_args_list[0].kwargs["json"]
             sql_text = sql_payload["sql"].upper()
             assert "JOIN MEMORY_TAGS" in sql_text and "GROUP BY M.ID" in sql_text
-            assert sql_payload["params"] == ["status:initialized", 10]
+            # store defaults to "default" and is bound first (#1915).
+            assert sql_payload["params"] == ["default", "status:initialized", 10]
 
     @pytest.mark.asyncio
     async def test_count_all_memories_with_tag_filter(self, cloudflare_storage):
@@ -451,7 +452,7 @@ class TestCloudflareStorage:
             sql_payload = mock_request.call_args.kwargs["json"]
             sql_text = sql_payload["sql"].upper()
             assert "COUNT(*) AS COUNT FROM" in sql_text and "GROUP BY M.ID" in sql_text
-            assert sql_payload["params"] == ["alpha", "beta"]
+            assert sql_payload["params"] == ["default", "alpha", "beta"]
 
     @pytest.mark.asyncio
     async def test_delete_memory(self, cloudflare_storage):
@@ -1006,3 +1007,35 @@ async def test_failed_tombstone_cleanup_stops_d1_insert(cloudflare_storage, samp
                 None, sample_memory.content,
             )
         assert request.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cutoff", [None, 1700000000.0])
+async def test_fetch_d1_timestamps_excludes_tombstones(cloudflare_storage, cutoff):
+    """Analytics must not count soft-deleted rows (issue #2059)."""
+    response = Mock()
+    response.json.return_value = {"success": True, "result": [{"results": []}]}
+    with patch.object(cloudflare_storage, "_retry_request", return_value=response) as request:
+        await cloudflare_storage._fetch_d1_timestamps(cutoff_timestamp=cutoff)
+    sql = request.call_args.kwargs["json"]["sql"]
+    assert "deleted_at IS NULL" in sql, f"tombstones leak into timestamps query: {sql}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"start_timestamp": 1700000000.0, "end_timestamp": 1700000100.0},
+    ],
+)
+async def test_recall_time_only_sql_excludes_tombstones(cloudflare_storage, kwargs):
+    """A by-time recall without a semantic query must not return deleted rows (issue #2059)."""
+    response = Mock()
+    response.json.return_value = {"success": True, "result": [{"results": []}]}
+    with patch.object(cloudflare_storage, "_retry_request", return_value=response) as request:
+        await cloudflare_storage.recall(**kwargs)
+    sqls = [call.kwargs["json"]["sql"] for call in request.call_args_list]
+    d1_sql = [sql for sql in sqls if "FROM memories" in sql]
+    assert d1_sql, f"no D1 query sent: {sqls}"
+    assert all("deleted_at IS NULL" in sql for sql in d1_sql), f"tombstones leak into recall: {d1_sql}"
