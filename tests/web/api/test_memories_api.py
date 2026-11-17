@@ -681,6 +681,57 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
 
 
 @pytest.mark.integration
+def test_update_memory_content_falls_back_without_versioned_update_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """Backends without versioned updates still replace near-duplicate content."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = "reject"
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    _install_cosine_embeddings(initialized_storage, [(old, None), (new, cosine)])
+
+    stored = test_app.post(
+        "/api/memories",
+        json={
+            "content": old,
+            "tags": ["original"],
+            "memory_type": "decision",
+            "metadata": {"source": "dashboard"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    old_hash = stored.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": new})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == new
+    assert body["memory"]["tags"] == ["original"]
+    assert body["memory"]["memory_type"] == "decision"
+    assert body["memory"]["metadata"]["source"] == "dashboard"
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    assert test_app.get(f"/api/memories/{body['content_hash']}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [new]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+
+
+@pytest.mark.integration
 def test_update_memory_content_supports_an_unscoped_backend(
     test_app, initialized_storage, monkeypatch
 ):

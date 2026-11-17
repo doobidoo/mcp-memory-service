@@ -30,8 +30,9 @@ from ...storage.base import MemoryStorage
 from ...storage.mixins.base import deserialize_embedding
 from ...storage.resonance_db import ResonanceDB
 from ...models.memory import Memory
-from ...models.ontology import get_all_types
+from ...models.ontology import coerce_memory_type, get_all_types
 from ...services.memory_service import MemoryService
+from ...utils.hashing import generate_content_hash
 from ...compat import _sanitize_log_value
 from ...config import INCLUDE_HOSTNAME
 # OAuth config no longer needed - auth is always enabled
@@ -540,8 +541,8 @@ async def update_memory(
     """Update a memory in place, or store changed content as its next version.
 
     Tags, type, and metadata updates preserve the content and creation timestamp.
-    Changed content goes through the service's versioned-update path, which keeps
-    lineage and does not run semantic deduplication against the original memory.
+    Changed content uses versioned updates when supported. Other backends store a
+    replacement and delete the original without semantic deduplication.
     """
     if store == "all":
         raise HTTPException(
@@ -556,19 +557,62 @@ async def update_memory(
             raise HTTPException(status_code=404, detail=f"Memory with hash {content_hash} not found")
 
         if request.content is not None and request.content != existing_memory.content:
-            version_store = (
-                resolve_store(store)
-                if getattr(storage, "get_by_hash_is_store_scoped", False)
-                else None
-            )
-            success, message, new_hash = await memory_service.evolve_memory(
-                content_hash,
-                request.content,
-                tags=request.tags,
-                memory_type=request.memory_type,
-                metadata=request.metadata,
-                store=version_store,
-            )
+            if hasattr(storage, "update_memory_versioned"):
+                version_store = (
+                    resolve_store(store)
+                    if getattr(storage, "get_by_hash_is_store_scoped", False)
+                    else None
+                )
+                success, message, new_hash = await memory_service.evolve_memory(
+                    content_hash,
+                    request.content,
+                    tags=request.tags,
+                    memory_type=request.memory_type,
+                    metadata=request.metadata,
+                    store=version_store,
+                )
+            else:
+                inherited_metadata = dict(existing_memory.metadata or {})
+                inherited_metadata.pop("superseded_by", None)
+                inherited_metadata.pop("evolution_reason", None)
+                final_metadata = dict(request.metadata) if request.metadata else inherited_metadata
+                for key in ("tags", "type"):
+                    final_metadata.pop(key, None)
+                replacement = Memory(
+                    content=request.content,
+                    content_hash=generate_content_hash(request.content),
+                    tags=(
+                        request.tags
+                        if request.tags is not None
+                        else [tag for tag in existing_memory.tags if tag != "conflict:unresolved"]
+                    ),
+                    memory_type=(
+                        coerce_memory_type(request.memory_type)
+                        if request.memory_type is not None
+                        else existing_memory.memory_type
+                    ),
+                    metadata=final_metadata,
+                )
+                success, message = await storage.store(
+                    replacement,
+                    skip_semantic_dedup=True,
+                    store=resolve_store(store),
+                )
+                new_hash = replacement.content_hash if success else None
+                if success:
+                    delete_success, delete_message = await storage.delete(
+                        content_hash, store=resolve_store(store)
+                    )
+                    if not delete_success:
+                        return MemoryUpdateResponse(
+                            success=False,
+                            message=(
+                                f"Stored replacement {new_hash}, but failed to delete "
+                                f"original memory: {delete_message}"
+                            ),
+                            content_hash=content_hash,
+                        )
+                    await memory_service._run_post_store_steps(replacement)
             if success and new_hash:
                 updated_memory = await storage.get_by_hash(
                     new_hash, store=resolve_store(store)
