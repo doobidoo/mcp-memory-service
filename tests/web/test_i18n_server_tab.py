@@ -66,6 +66,7 @@ SERVER_STRINGS = {
 HTML_KEYS = {"title", "pid", "platform", "updateAvailable", "notChecked", "checkUpdates",
              "updateRestart", "restart", "processing", "restarting", "waiting"}
 SERVER_METHODS = ["checkForUpdates", "updateAndRestart", "restartServer", "showRestartOverlay", "pollServerHealth"]
+OPERATION_METHODS = ["_clearOperationError", "_reportOperationError", "_reportOperation", "_revealOperationStatus"]
 TOKEN_RE = re.compile(r"\{[A-Za-z0-9_]+\}")
 
 
@@ -173,7 +174,7 @@ def test_server_methods_show_no_untranslated_literals():
 
 def test_app_js_fallbacks_match_the_english_catalog():
     js = APP_JS.read_text(encoding="utf-8")
-    calls = re.findall(r"'(modal\.settings\.server\.\w+)', '((?:[^'\\]|\\.)*)'", js)
+    calls = re.findall(r"'(modal\.settings\.server\.\w+)', (?:fallback: )?'((?:[^'\\]|\\.)*)'", js)
     fallbacks = {key: text.replace("\\n", "\n").replace("\\'", "'") for key, text in calls}
     assert set(fallbacks) == {PREFIX + k for k in SERVER_STRINGS.keys() - HTML_KEYS}
     assert {k: v for k, v in fallbacks.items() if SERVER_STRINGS[k[len(PREFIX):]] != v} == {}
@@ -377,7 +378,7 @@ def run():
     if not node:
         pytest.skip("node is not installed")
     js = APP_JS.read_text(encoding="utf-8")
-    names = ["t", "replacePlaceholders", "setTranslatedText", "applyTranslations", *SERVER_METHODS]
+    names = ["t", "replacePlaceholders", "setTranslatedText", "applyTranslations", *SERVER_METHODS, *OPERATION_METHODS]
     methods = ",\n".join(m for m in (_method(js, n) for n in names) if m)
     markup = {i: _markup_of(i) for i in ("settingsUpdateAvailable", "serverActionText", "restartStatus")}
     script = (
