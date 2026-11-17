@@ -1,9 +1,10 @@
 // Run with: node --test tests/web/test_dashboard_delta_sync_island.cjs
 // The scheduled delta-sync cycles report to the status island as their own source
 // (#2003). The server announces a cycle only when it ends, so the source is `ready`
-// or `error` and never `busy`: there is no start event and no percentage. A peer
-// counts as failed by the rule the delta-sync panel already uses, so the panel and
-// the island cannot disagree about the same peer.
+// or `error` and never `busy`: there is no start event and no percentage. `error`
+// follows `peer.health`, the verdict the server already computed, so a retried
+// ontology exchange (`incomplete`) stays off the red state and a cycle that is still
+// running reads as `Syncing` rather than `Pending`.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -33,7 +34,7 @@ function dashboard(apiCall) {
     return { app, island };
 }
 
-const peersReady = [{ peer_id: 'hub-a', status: 'healthy', last_cycle_at: '2026-11-17T06:00:00Z' }];
+const peersReady = [{ peer_id: 'hub-a', status: 'healthy', health: 'synced', last_cycle_at: '2026-11-17T06:00:00Z' }];
 
 function delta(overrides = {}) {
     return { configured: true, enabled: true, status: 'enabled', peers: peersReady, ...overrides };
@@ -51,7 +52,7 @@ test('every peer succeeded: the island shows a ready delta-sync source', async (
 });
 
 test('a failing peer makes the source an error that names it', async () => {
-    const peers = [{ ...peersReady[0], status: 'error', last_error: 'connection refused' }];
+    const peers = [{ ...peersReady[0], health: 'error', status: 'error', last_error: 'connection refused' }];
     const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, status: 'error' }) }));
     await app.checkSyncStatus();
     const [, entry] = island.reports.at(-1);
@@ -61,20 +62,61 @@ test('a failing peer makes the source an error that names it', async () => {
     assert.equal(JSON.stringify(entry.text.vars), JSON.stringify({ peer: 'hub-a' }));
 });
 
-test('the panel\'s failure rule is reused: last_error alone is a failure', async () => {
-    const peers = [{ ...peersReady[0], status: 'healthy', last_error: 'timeout' }];
+test('the server verdict decides: health error is a failure even without last_error', async () => {
+    const peers = [{ ...peersReady[0], health: 'error', status: 'healthy' }];
     const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers }) }));
     await app.checkSyncStatus();
     assert.equal(island.reports.at(-1)[1].state, 'error');
 });
 
-test('incompatible and unavailable peers count as failures too', async () => {
+test('a failed ontology exchange alone is not a red failure (#2003)', async () => {
+    // consolidation/scheduler.py: memories synced, the ontology backlog is retried next
+    // cycle; the server reports health "incomplete", not "error".
+    const peers = [{
+        ...peersReady[0],
+        health: 'incomplete',
+        status: 'healthy',
+        last_error: 'Ontology sync with this peer is incomplete; it is retried next cycle.',
+    }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, status: 'incomplete' }) }));
+    await app.checkSyncStatus();
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'ready', 'incomplete must not turn the island red');
+    assert.equal(entry.text.key, 'sync.status.incomplete');
+    assert.equal(entry.dismissible, undefined);
+});
+
+test('incompatible and unavailable peers come back as health error too', async () => {
+    // The server maps those statuses onto health "error" in get_delta_sync_status().
     for (const status of ['incompatible', 'unavailable']) {
-        const peers = [{ ...peersReady[0], status }];
+        const peers = [{ ...peersReady[0], status, health: 'error', last_cycle_at: null }];
         const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers }) }));
         await app.checkSyncStatus();
         assert.equal(island.reports.at(-1)[1].state, 'error', `${status} must be a failure`);
     }
+});
+
+test('a cycle still running shows Syncing, not Pending', async () => {
+    // last_cycle_at is reset while a cycle runs, so the first-cycle "Pending" text
+    // would describe a cycle that is running right now as never started.
+    const peers = [{ ...peersReady[0], health: 'syncing', last_cycle_at: null }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, status: 'syncing' }) }));
+    await app.checkSyncStatus();
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'ready');
+    assert.equal(entry.text.key, 'sync.status.syncing');
+});
+
+test('a failure leads over a cycle that is running elsewhere', async () => {
+    const peers = [
+        { ...peersReady[0], peer_id: 'hub-a', health: 'error', status: 'error' },
+        { ...peersReady[0], peer_id: 'hub-b', health: 'syncing', last_cycle_at: null },
+    ];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, status: 'syncing' }) }));
+    await app.checkSyncStatus();
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'error');
+    assert.equal(JSON.stringify(entry.text.vars), JSON.stringify({ peer: 'hub-a' }));
 });
 
 test('a peer waiting for its first cycle is pending, not synced', async () => {

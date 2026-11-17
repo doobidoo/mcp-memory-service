@@ -2056,10 +2056,17 @@ class MemoryDashboard {
      * Report the scheduled delta-sync cycles to the status island as their own
      * source, named after the panel they belong to.
      *
-     * The server announces a cycle only once it has ended, so this source has no
-     * busy state and no percentage: there is nothing to base either on (#2003).
-     * A peer counts as failed by the same rule the delta-sync panel uses, so the
-     * panel and the island cannot disagree about the same peer.
+     * The island shows one state per source, while the delta-sync panel prints a
+     * peer's error line next to the server's own verdict. So the island keys its
+     * `error` on `peer.health`, the verdict the server already computed
+     * (`_overall_sync_status` in consolidation/scheduler.py): `incomplete` means the
+     * memories synced and only the ontology backlog is retried next cycle, so it is
+     * not a failure a reader has to act on (#2003).
+     *
+     * There is no progress and no percentage: the server announces a cycle only once
+     * it has ended. A cycle that is still running is shown as "Syncing" rather than
+     * as the "Pending" a peer without a first cycle gets, because `last_cycle_at` is
+     * reset while a cycle runs and "Pending" would misdescribe it.
      */
     _reportDeltaSyncStatus(delta) {
         if (!this.statusIsland) return;
@@ -2069,24 +2076,7 @@ class MemoryDashboard {
             this.statusIsland.clear('delta-sync');
             return;
         }
-        const failed = peers.find((peer) => this._deltaPeerFailed(peer));
-        let entry;
-        if (failed) {
-            entry = {
-                state: 'error',
-                dismissible: true,
-                text: {
-                    key: 'sync.deltaSync.failed',
-                    fallback: 'Delta sync failed with {peer}',
-                    vars: { peer: failed.peer_id },
-                },
-            };
-        } else {
-            // A peer that has not finished a cycle yet is not "synced".
-            entry = peers.every((peer) => peer.last_cycle_at)
-                ? { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } }
-                : { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' } };
-        }
+        const entry = this._deltaSyncIslandEntry(peers);
         const current = this.statusIsland.get?.('delta-sync') || null;
         // The poll runs every ten seconds and must not replace the confirmation the
         // completed-cycle event reported a moment earlier.
@@ -2097,9 +2087,31 @@ class MemoryDashboard {
         });
     }
 
-    /** Whether the delta-sync panel would call this peer failed (#2003). */
-    _deltaPeerFailed(peer) {
-        return Boolean(peer?.last_error) || ['error', 'incompatible', 'unavailable'].includes(peer?.status);
+    /** The island entry for the delta-sync peers, in order of what a reader needs first. */
+    _deltaSyncIslandEntry(peers) {
+        const failed = peers.find((peer) => peer.health === 'error');
+        if (failed) {
+            return {
+                state: 'error',
+                dismissible: true,
+                text: {
+                    key: 'sync.deltaSync.failed',
+                    fallback: 'Delta sync failed with {peer}',
+                    vars: { peer: failed.peer_id },
+                },
+            };
+        }
+        if (peers.some((peer) => peer.health === 'syncing')) {
+            return { state: 'ready', text: { key: 'sync.status.syncing', fallback: 'Syncing' } };
+        }
+        if (peers.some((peer) => peer.health === 'incomplete')) {
+            return { state: 'ready', text: { key: 'sync.status.incomplete', fallback: 'Incomplete' } };
+        }
+        // A peer that has not finished a cycle yet is not "synced".
+        if (peers.every((peer) => peer.last_cycle_at)) {
+            return { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } };
+        }
+        return { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' } };
     }
 
     /**
