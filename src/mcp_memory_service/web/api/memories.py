@@ -556,18 +556,53 @@ async def update_memory(
             raise HTTPException(status_code=404, detail=f"Memory with hash {content_hash} not found")
 
         if request.content is not None and request.content != existing_memory.content:
+            version_store = (
+                resolve_store(store)
+                if getattr(storage, "get_by_hash_is_store_scoped", False)
+                else None
+            )
             success, message, new_hash = await memory_service.evolve_memory(
                 content_hash,
                 request.content,
                 tags=request.tags,
                 memory_type=request.memory_type,
                 metadata=request.metadata,
-                store=resolve_store(store),
+                store=version_store,
             )
             if success and new_hash:
                 updated_memory = await storage.get_by_hash(
                     new_hash, store=resolve_store(store)
                 )
+                # Versioning replaces the current row. Notify listeners of both
+                # sides so other dashboards remove the old hash and load the new one.
+                try:
+                    old_event = create_memory_deleted_event(
+                        content_hash, True, store=store
+                    )
+                    await sse_manager.broadcast_event(old_event)
+                    new_event = create_memory_stored_event(
+                        {
+                            "content_hash": new_hash,
+                            "content": request.content,
+                            "tags": (
+                                request.tags
+                                if request.tags is not None
+                                else existing_memory.tags
+                            ),
+                            "memory_type": (
+                                request.memory_type
+                                if request.memory_type is not None
+                                else existing_memory.memory_type
+                            ),
+                        },
+                        store=store,
+                    )
+                    await sse_manager.broadcast_event(new_event)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to broadcast memory update events: %s",
+                        _sanitize_log_value(e),
+                    )
                 return MemoryUpdateResponse(
                     success=True,
                     message=message,

@@ -3276,6 +3276,9 @@ class MemoryDashboard {
                 }
 
                 response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
+                if (!response.success) {
+                    throw new Error(response.message || 'Failed to update memory');
+                }
                 successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
             } else {
                 // Create new memory

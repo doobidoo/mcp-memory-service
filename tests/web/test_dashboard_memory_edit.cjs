@@ -17,17 +17,18 @@ function dashboard(fields, editingMemory) {
     );
     const app = Object.create(context.Dashboard.prototype);
     const calls = [];
+    const events = [];
     app.editingMemory = editingMemory;
     app.currentView = '';
     app.apiCall = async (path, method, payload) => {
         calls.push({ path, method, payload });
         return { success: true, content_hash: 'updated-hash' };
     };
-    app.t = (_key, fallback) => fallback;
-    app.showToast = () => {};
-    app.closeModal = () => {};
-    app.resetAddMemoryModal = () => {};
-    return { app, calls };
+    app.t = (_key, fallback, vars) => fallback.replace('{reason}', vars?.reason ?? '');
+    app.showToast = (message, kind) => events.push({ message, kind });
+    app.closeModal = () => events.push({ kind: 'close' });
+    app.resetAddMemoryModal = () => events.push({ kind: 'reset' });
+    return { app, calls, events };
 }
 
 function fields(content, tags = 'memory, test', type = 'note') {
@@ -68,6 +69,18 @@ test('tag-only edits ignore outer whitespace and do not create a new version', a
     assert.equal(calls[0].path, '/memories/original-hash');
     assert.equal('content' in calls[0].payload, false);
     assert.equal(JSON.stringify(calls[0].payload.tags), JSON.stringify(['memory', 'edited']));
+});
+
+test('a rejected update keeps the editor open and shows the error', async () => {
+    const original = { content: 'Original memory', content_hash: 'original-hash' };
+    const { app, events } = dashboard(fields('Edited memory'), original);
+    app.apiCall = async () => ({ success: false, message: 'Memory already exists' });
+
+    await app.handleSaveMemory();
+
+    assert.equal(app.editingMemory, original);
+    assert.equal(events.some(event => event.kind === 'close' || event.kind === 'reset'), false);
+    assert(events.some(event => event.kind === 'error' && event.message.includes('Memory already exists')));
 });
 
 test('new memories still use the create endpoint', async () => {

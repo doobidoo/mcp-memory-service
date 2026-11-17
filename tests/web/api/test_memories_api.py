@@ -25,6 +25,7 @@ import pytest
 import pytest_asyncio
 import tempfile
 import os
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from tests.unit.dedup_fixtures import XERJ_UPDATE_PAIRS
@@ -639,7 +640,7 @@ def test_store_memory_reports_semantic_dedup_outcome(
 
 @pytest.mark.integration
 def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
-    test_app, initialized_storage
+    test_app, initialized_storage, monkeypatch
 ):
     """An edit must not be rejected as a semantic duplicate of its original."""
     old, new, cosine = XERJ_UPDATE_PAIRS[0]
@@ -652,6 +653,10 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
     first = test_app.post("/api/memories", json={"content": old, "tags": ["original"]})
     assert first.status_code == 200, first.text
     old_hash = first.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
 
     response = test_app.put(
         f"/api/memories/{old_hash}",
@@ -666,6 +671,29 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
     assert body["memory"]["tags"] == ["edited"]
     listed = test_app.get("/api/memories").json()["memories"]
     assert [memory["content"] for memory in listed] == [new]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+    assert all(event.store == "default" for event in events)
+
+
+@pytest.mark.integration
+def test_update_memory_content_supports_an_unscoped_backend(
+    test_app, initialized_storage, monkeypatch
+):
+    """Backends without store partitions must not receive a forced default scope."""
+    monkeypatch.setattr(initialized_storage, "get_by_hash_is_store_scoped", False)
+    stored = test_app.post("/api/memories", json={"content": "Original content"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}", json={"content": "Edited content"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["memory"]["content"] == "Edited content"
 
 
 @pytest.mark.integration
