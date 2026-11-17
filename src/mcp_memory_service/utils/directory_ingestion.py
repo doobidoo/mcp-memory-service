@@ -150,10 +150,6 @@ class FileIngestionProcessor:
                 self.files_failed += 1
                 return
 
-            # Configure loader
-            loader.chunk_size = self.chunk_size
-            loader.chunk_overlap = self.chunk_overlap
-
             file_chunks_processed = 0
             file_chunks_stored = 0
 

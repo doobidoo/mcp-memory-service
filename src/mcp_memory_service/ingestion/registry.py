@@ -19,7 +19,7 @@ Document loader registry for automatic format detection and loader selection.
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Dict, Type, List, Optional, Any
+from typing import Dict, Type, List, Optional
 
 from .base import DocumentLoader
 
@@ -59,30 +59,10 @@ def register_loader(loader_class: Type[DocumentLoader], extensions: List[str]) -
         logger.debug("Registered %s for .%s files", _sanitize_log_value(loader_class.__name__), _sanitize_log_value(ext))
 
 
-def _instantiate_loader(
-    loader_class: Type[DocumentLoader],
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200,
-    **kwargs: Any,
-) -> DocumentLoader:
-    """Instantiate a loader class passing chunk_size and chunk_overlap with fallback."""
-    try:
-        return loader_class(chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
-    except TypeError:
-        try:
-            return loader_class(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        except TypeError:
-            loader = loader_class()
-            loader.chunk_size = chunk_size
-            loader.chunk_overlap = chunk_overlap
-            return loader
-
-
 def get_loader_for_file(
     file_path: Path,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
-    **kwargs: Any,
 ) -> Optional[DocumentLoader]:
     """
     Get appropriate document loader for a file.
@@ -91,7 +71,6 @@ def get_loader_for_file(
         file_path: Path to the file
         chunk_size: Target size for text chunks in characters
         chunk_overlap: Number of characters to overlap between chunks
-        **kwargs: Additional arguments forwarded to the loader constructor
         
     Returns:
         DocumentLoader instance that can handle the file, or None if unsupported
@@ -114,20 +93,20 @@ def get_loader_for_file(
     extension = file_path.suffix.lower().lstrip('.')
     if extension in _LOADER_REGISTRY:
         loader_class = _LOADER_REGISTRY[extension]
-        loader = _instantiate_loader(loader_class, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+        loader = loader_class(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         if loader.can_handle(file_path):
             return loader
 
     # Try by MIME type detection
     mime_type, _ = mimetypes.guess_type(str(file_path))
     if mime_type:
-        loader = _get_loader_by_mime_type(mime_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+        loader = _get_loader_by_mime_type(mime_type, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         if loader and loader.can_handle(file_path):
             return loader
 
     # Try all registered loaders as fallback
     for loader_class in _LOADER_REGISTRY.values():
-        loader = _instantiate_loader(loader_class, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+        loader = loader_class(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         if loader.can_handle(file_path):
             logger.debug("Found fallback loader %s for %s", loader_class.__name__, _sanitize_log_value(file_path))
             return loader
@@ -140,7 +119,6 @@ def _get_loader_by_mime_type(
     mime_type: str,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
-    **kwargs: Any,
 ) -> Optional[DocumentLoader]:
     """
     Get loader based on MIME type.
@@ -149,7 +127,6 @@ def _get_loader_by_mime_type(
         mime_type: MIME type string
         chunk_size: Target size for text chunks in characters
         chunk_overlap: Number of characters to overlap between chunks
-        **kwargs: Additional arguments forwarded to the loader constructor
         
     Returns:
         DocumentLoader instance or None
@@ -165,7 +142,7 @@ def _get_loader_by_mime_type(
     extension = mime_to_extension.get(mime_type)
     if extension and extension in _LOADER_REGISTRY:
         loader_class = _LOADER_REGISTRY[extension]
-        return _instantiate_loader(loader_class, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+        return loader_class(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     
     return None
 

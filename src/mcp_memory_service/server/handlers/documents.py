@@ -102,10 +102,6 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                 text=f"Error: Unsupported file format: {file_path.suffix}. Supported formats: {supported_exts}"
             )]
 
-        # Configure loader
-        loader.chunk_size = chunk_size
-        loader.chunk_overlap = chunk_overlap
-
         chunks_processed = 0
         chunks_stored = 0
         errors = []

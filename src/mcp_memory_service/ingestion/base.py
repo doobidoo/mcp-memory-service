@@ -96,33 +96,9 @@ class DocumentLoader(ABC):
             chunk_size: Target size for text chunks in characters
             chunk_overlap: Number of characters to overlap between chunks
         """
-        self._chunk_size = chunk_size
-        self._chunk_overlap = chunk_overlap
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
         self.supported_extensions: List[str] = []
-
-    @property
-    def chunk_size(self) -> int:
-        """Target size for text chunks in characters."""
-        return self._chunk_size
-
-    @chunk_size.setter
-    def chunk_size(self, value: int) -> None:
-        self._chunk_size = value
-        chunker = getattr(self, "chunker", None)
-        if chunker is not None and hasattr(chunker, "strategy") and chunker.strategy is not None:
-            chunker.strategy.chunk_size = value
-
-    @property
-    def chunk_overlap(self) -> int:
-        """Number of characters to overlap between chunks."""
-        return self._chunk_overlap
-
-    @chunk_overlap.setter
-    def chunk_overlap(self, value: int) -> None:
-        self._chunk_overlap = value
-        chunker = getattr(self, "chunker", None)
-        if chunker is not None and hasattr(chunker, "strategy") and chunker.strategy is not None:
-            chunker.strategy.chunk_overlap = value
     
     @abstractmethod
     def can_handle(self, file_path: Path) -> bool:

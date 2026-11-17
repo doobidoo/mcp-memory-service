@@ -80,7 +80,7 @@ class TestFileIngestionProcessorParams:
 
         mock_loader.extract_chunks = _extract
 
-        with patch("mcp_memory_service.ingestion.get_loader_for_file", return_value=mock_loader), \
+        with patch("mcp_memory_service.ingestion.get_loader_for_file", return_value=mock_loader) as mock_get_loader, \
              patch("mcp_memory_service.utils.document_processing._process_and_store_chunk", new_callable=AsyncMock) as mock_store:
             mock_store.return_value = (True, None)
 
@@ -91,29 +91,16 @@ class TestFileIngestionProcessorParams:
                 directory_name="test_dir",
             )
 
-            assert mock_loader.chunk_size == 600
-            assert mock_loader.chunk_overlap == 75
+            mock_get_loader.assert_called_once_with(
+                Path("sample.md"),
+                chunk_size=600,
+                chunk_overlap=75,
+            )
 
             mock_store.assert_called_once()
             _, kwargs = mock_store.call_args
             assert kwargs.get("memory_type") == "reference"
             assert kwargs.get("store") == "notes"
-
-    def test_loader_property_updates_chunker_strategy(self):
-        """Verify DocumentLoader chunk_size and chunk_overlap setters update chunker.strategy."""
-        from mcp_memory_service.ingestion.text_loader import TextLoader
-        loader = TextLoader(chunk_size=1000, chunk_overlap=200)
-        assert loader.chunk_size == 1000
-        assert loader.chunk_overlap == 200
-        assert loader.chunker.strategy.chunk_size == 1000
-        assert loader.chunker.strategy.chunk_overlap == 200
-
-        loader.chunk_size = 450
-        loader.chunk_overlap = 85
-        assert loader.chunk_size == 450
-        assert loader.chunk_overlap == 85
-        assert loader.chunker.strategy.chunk_size == 450
-        assert loader.chunker.strategy.chunk_overlap == 85
 
     def test_get_loader_for_file_constructs_with_custom_overlap(self, tmp_path):
         """Verify get_loader_for_file passes chunk_size and chunk_overlap to loader constructor."""
