@@ -257,12 +257,12 @@ def test_tool_annotations_readonlyhint():
     """Verify readOnlyHint is correct for quarantine tools by checking registry source."""
     from mcp_memory_service.tools.registry import TOOL_REGISTRY
 
-    # get_quarantined_memories should have readOnlyHint=True
-    get_tool = next(t for t in TOOL_REGISTRY if t.name == "get_quarantined_memories")
+    # memory_quarantine_list should have readOnlyHint=True
+    get_tool = next(t for t in TOOL_REGISTRY if t.name == "memory_quarantine_list")
     assert get_tool.annotations.get("readOnlyHint") is True
 
-    # unquarantine_memory should have readOnlyHint=False
-    unq_tool = next(t for t in TOOL_REGISTRY if t.name == "unquarantine_memory")
+    # memory_quarantine_release should have readOnlyHint=False
+    unq_tool = next(t for t in TOOL_REGISTRY if t.name == "memory_quarantine_release")
     assert unq_tool.annotations.get("readOnlyHint") is False
 
 

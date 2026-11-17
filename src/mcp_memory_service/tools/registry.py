@@ -947,7 +947,7 @@ Examples:
                 "auto_commit": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Bridge harvested candidates to commit_session_legacy (feeds bootstrap profile)",
+                    "description": "Bridge harvested candidates to memory_commit_session (feeds bootstrap profile)",
                 },
                 "agent_id": {
                     "type": "string",
@@ -1233,7 +1233,7 @@ Examples:
         annotations={"destructiveHint": True},
     ),
     ToolDef(
-        name="get_quarantined_memories",
+        name="memory_quarantine_list",
         description="""List memories that have been quarantined due to contradicting active beliefs. Use to review flagged memories.""",
         input_schema={
             "type": "object",
@@ -1248,7 +1248,7 @@ Examples:
         annotations={"readOnlyHint": True},
     ),
     ToolDef(
-        name="unquarantine_memory",
+        name="memory_quarantine_release",
         description="""Release a memory from quarantine. Use when a quarantined memory is valid (e.g., the contradicted belief was wrong).""",
         input_schema={
             "type": "object",
@@ -1263,7 +1263,7 @@ Examples:
         annotations={"readOnlyHint": False},
     ),
     ToolDef(
-        name="commit_session_legacy",
+        name="memory_commit_session",
         description="""Record end-of-session learnings from an ephemeral agent. Stores decisions, errors, corrections as structured observations.""",
         input_schema={
             "type": "object",
@@ -1307,7 +1307,7 @@ Examples:
         annotations={"destructiveHint": False},
     ),
     ToolDef(
-        name="get_bootstrap_profile",
+        name="memory_bootstrap_profile",
         description="""Generate a behavioral bootstrap profile for an ephemeral agent.
 Requires write scope because it resets session counters when a fresh start is due.
 For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
@@ -1343,7 +1343,7 @@ For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
         annotations={"readOnlyHint": False},
     ),
     ToolDef(
-        name="get_onboarding_guide",
+        name="memory_onboarding_guide",
         description="""Get integration guide for a specific client type. """,
         input_schema={
             "type": "object",

@@ -25,11 +25,11 @@ EXPECTED_TOOLS = [
     "mistake_note_search",
     "mistake_note_update",
     "mistake_note_delete",
-    "get_quarantined_memories",
-    "unquarantine_memory",
-    "commit_session_legacy",
-    "get_bootstrap_profile",
-    "get_onboarding_guide",
+    "memory_quarantine_list",
+    "memory_quarantine_release",
+    "memory_commit_session",
+    "memory_bootstrap_profile",
+    "memory_onboarding_guide",
     "memory_distill",
     "memory_explore",
     "memory_detail",
@@ -153,7 +153,7 @@ class TestRoutingTable:
             handler = resolve_handler(name)
             assert callable(handler), f"Handler for {name} not callable"
         # __self__ sentinel entries should resolve to tuple
-        for name in ["memory_harvest", "commit_session_legacy", "get_bootstrap_profile"]:
+        for name in ["memory_harvest", "memory_commit_session", "memory_bootstrap_profile"]:
             handler = resolve_handler(name)
             assert isinstance(handler, tuple) and handler[0] == "__self__", \
                 f"Handler for {name} should be __self__ sentinel"

@@ -22,7 +22,7 @@ class TestBootstrapConsumesDistill:
 
 
 class TestPostCommitTrigger:
-    """Fase A: commit_session_legacy dispara learning em background."""
+    """Fase A: memory_commit_session dispara learning em background."""
 
     def test_post_commit_learning_method_exists(self):
         """server_impl deve ter _post_commit_learning."""
