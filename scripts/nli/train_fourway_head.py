@@ -95,6 +95,43 @@ def _base_snapshot() -> str:
     return str(Path(cached).parent)
 
 
+def _balance_weights(labels):
+    """Inverse-frequency class weights, mean 1 (sklearn 'balanced' shape).
+
+    The fourth real-store run showed what happens without them: 23 updates
+    among 177 pairs, and unweighted adaptation takes the majority class as
+    the cheap loss minimum — wrong retirements fell 57 to 6, but the head
+    stopped finding updates (8 to 5 of 23).
+    """
+    counts = Counter(labels)
+    total = len(labels)
+    present = [c for c in FOUR_CLASSES if counts.get(c)]
+    if len(present) <= 1:
+        return {c: 1.0 for c in present}  # nothing to balance against
+    raw = {c: total / (len(present) * counts.get(c, 1)) for c in present}
+    mean = sum(raw.values()) / len(raw)  # normalize: loss scale stays
+    return {c: w / mean for c, w in raw.items()}  # comparable unweighted
+
+
+def _oversample(rows, seed):
+    """Duplicate minority rows up to the largest class count, seeded.
+
+    The alternative to weighting: same loss shape, more gradient steps on
+    the rare class instead of bigger ones.
+    """
+    rng = random.Random(seed)
+    counts = Counter(r[0] for r in rows)
+    top = max(counts.values())
+    out = list(rows)
+    for label, n in counts.items():
+        need = top - n
+        if need > 0:
+            pool = [r for r in rows if r[0] == label]
+            out.extend(rng.choices(pool, k=need))
+    rng.shuffle(out)
+    return out
+
+
 def _lr_multiplier(s, total, warm):
     """Linear warmup then decay, nonzero from step zero: a one-step
     adaptation must still learn — a multiplier of 0 at s=0 saved an
@@ -182,14 +219,28 @@ def train(args, lbl, id2lbl):
     torch.manual_seed(args.seed)
 
     adapt_meta = None
+    class_weights = None
     if args.resume_from:
         train_rows, skips = read_adapt_pairs(args.adapt_pairs)
         val_rows = []
         adapt_meta = {"adapted_from": args.resume_from,
-                      "adapt_pairs": len(train_rows),
                       "skipped_labels": skips}
-        log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs}, "
-            f"skipped {skips} (contradiction has no head class)")
+        if args.adapt_balance == "weight":
+            class_weights = _balance_weights([r[0] for r in train_rows])
+            adapt_meta["balance"] = "weight"
+            adapt_meta["class_weights"] = {c: round(w, 3)
+                                           for c, w in class_weights.items()}
+        elif args.adapt_balance == "oversample":
+            before = len(train_rows)
+            train_rows = _oversample(train_rows, args.seed)
+            adapt_meta["balance"] = "oversample"
+            adapt_meta["oversampled_to"] = dict(Counter(r[0] for r in train_rows))
+        else:
+            adapt_meta["balance"] = "none"
+        adapt_meta["adapt_pairs"] = len(train_rows)
+        log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs} "
+            f"(balance={args.adapt_balance}), skipped {skips} "
+            f"(contradiction has no head class)")
         tok = AutoTokenizer.from_pretrained(args.resume_from)
         model = AutoModelForSequenceClassification.from_pretrained(args.resume_from)
     else:
@@ -238,7 +289,12 @@ def train(args, lbl, id2lbl):
     opt = torch.optim.AdamW(model.parameters(), lr=lr_eff, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: _lr_multiplier(s, steps, warm))
-    lossf = torch.nn.CrossEntropyLoss()
+    if class_weights:
+        w = torch.tensor([class_weights.get(id2lbl[i], 1.0)
+                          for i in range(len(lbl))], dtype=torch.float32)
+        lossf = torch.nn.CrossEntropyLoss(weight=w)
+    else:
+        lossf = torch.nn.CrossEntropyLoss()
 
     val_accs = []
     for ep in range(epochs_eff):
@@ -458,6 +514,13 @@ def main():
     ap.add_argument("--adapt-lr", type=float, default=1e-5,
                     help="adaptation learning rate (default 1e-5, a third of training)")
     ap.add_argument("--adapt-epochs", type=int, default=3)
+    ap.add_argument("--adapt-balance", default="weight",
+                    choices=("none", "weight", "oversample"),
+                    help="class balancing for adaptation (default weight: inverse-"
+                         "frequency loss weights — the fourth real-store run showed "
+                         "unbalanced adaptation collapses to the majority class and "
+                         "stops finding updates; oversample duplicates rare rows "
+                         "instead; none reproduces that collapse)")
     args = ap.parse_args()
     # validated before the torch import so the contract is checkable
     # everywhere, including machines that only run the test suite
