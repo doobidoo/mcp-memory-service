@@ -22,7 +22,7 @@ class TestBootstrapConsumesDistill:
 
 
 class TestPostCommitTrigger:
-    """Fase A: commit_session_legacy dispara learning em background."""
+    """Fase A: memory_commit_session dispara learning em background."""
 
     def test_post_commit_learning_method_exists(self):
         """server_impl deve ter _post_commit_learning."""
@@ -67,7 +67,7 @@ class TestScheduledDistill:
 
     def test_scheduled_distill_method_exists(self):
         """server_impl deve ter _scheduled_distill_check."""
-        import subprocess
+        import subprocess  # inline import: used by this test only
         result = subprocess.run(
             ["grep", "-c", "_scheduled_distill_check",
              "src/mcp_memory_service/server_impl.py"],
@@ -77,7 +77,7 @@ class TestScheduledDistill:
 
     def test_distill_job_registered_in_scheduler(self):
         """Scheduler deve ter job 'distill_check' registrado."""
-        import subprocess
+        import subprocess  # inline import: used by this test only
         result = subprocess.run(
             ["grep", "-c", "distill_check",
              "src/mcp_memory_service/server_impl.py"],
@@ -87,7 +87,7 @@ class TestScheduledDistill:
 
     def test_scheduled_distill_has_try_except(self):
         """_scheduled_distill_check deve ter try/except (não crashar scheduler)."""
-        import subprocess
+        import subprocess  # inline import: used by this test only
         result = subprocess.run(
             ["bash", "-c",
              "sed -n '/_scheduled_distill_check/,/^    async def \\|^    def /p' src/mcp_memory_service/server_impl.py | grep -c 'except'"],

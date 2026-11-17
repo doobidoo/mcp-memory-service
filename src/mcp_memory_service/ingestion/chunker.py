@@ -220,6 +220,11 @@ class TextChunker:
             if len(chunk) >= self.strategy.min_chunk_size:
                 chunks.append(chunk)
             
+            # This chunk reached the end of the text. Stepping back by the
+            # overlap would emit a trailing chunk already contained in this one.
+            if end >= len(text):
+                break
+            
             # Move start position with overlap
             start = max(start + 1, end - self.strategy.chunk_overlap)
         

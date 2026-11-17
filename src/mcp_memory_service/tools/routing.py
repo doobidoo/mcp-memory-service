@@ -41,11 +41,11 @@ _PRIMARY: dict[str, tuple[str, str]] = {
     "mistake_note_search": _handler("mistake_notes", "handle_mistake_note_search"),
     "mistake_note_update": _handler("mistake_notes", "handle_mistake_note_update"),
     "mistake_note_delete": _handler("mistake_notes", "handle_mistake_note_delete"),
-    "get_quarantined_memories": ("__self__", "handle_get_quarantined_memories"),
-    "unquarantine_memory": ("__self__", "handle_unquarantine_memory"),
-    "commit_session_legacy": ("__self__", "handle_commit_session_legacy"),
-    "get_bootstrap_profile": ("__self__", "handle_get_bootstrap_profile"),
-    "get_onboarding_guide": ("__self__", "handle_get_onboarding_guide"),
+    "memory_quarantine_list": ("__self__", "handle_get_quarantined_memories"),
+    "memory_quarantine_release": ("__self__", "handle_unquarantine_memory"),
+    "memory_commit_session": ("__self__", "handle_commit_session_legacy"),
+    "memory_bootstrap_profile": ("__self__", "handle_get_bootstrap_profile"),
+    "memory_onboarding_guide": ("__self__", "handle_get_onboarding_guide"),
     "memory_distill": ("__self__", "handle_memory_distill"),
 }
 
@@ -92,7 +92,7 @@ def resolve_handler(name: str) -> Callable | tuple | None:
         _cache[name] = entry
         return entry
 
-    import importlib
+    import importlib  # inline import: only needed when a handler is first resolved
     mod = importlib.import_module(module_path)
     handler = getattr(mod, func_name, None)
     if handler is not None:
