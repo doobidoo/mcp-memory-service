@@ -209,6 +209,15 @@ h3 { font-size: var(--text-xl); }
     box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
 }
 
+/* Browsers pick a placeholder color of their own, which is a dark gray that the
+   dark theme's input background swallows. --neutral-500 is the muted text color
+   of each theme, so one rule covers both. opacity: 1 undoes Firefox, which dims
+   placeholders to 0.54 by default. */
+.search-input::placeholder {
+    color: var(--neutral-500);
+    opacity: 1;
+}
+
 .search-btn {
     position: absolute;
     right: var(--space-2);
