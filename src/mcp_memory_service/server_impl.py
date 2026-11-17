@@ -159,10 +159,10 @@ def _get_onboarding_guide(client_type: str = "generic") -> str:
 
     _SERVER_DOES = """\
 ### What the server does automatically:
-- **Post-commit learning**: after `commit_session_legacy`, the server runs
+- **Post-commit learning**: after `memory_commit_session`, the server runs
   harvest + distill in background (~8s). No action needed from you.
 - **Scheduled distill**: every 6h, undistilled memories are batch-processed via LLM.
-- **Bootstrap refresh**: `get_bootstrap_profile` always returns the latest profile.
+- **Bootstrap refresh**: `memory_bootstrap_profile` always returns the latest profile.
 - **Frustration tracking**: errors weigh 3× more than successes. High-frustration
   patterns are promoted to AVOID rules in your bootstrap profile.
 - **Threshold trigger**: if >20 new observations accumulate without distill, it runs
@@ -177,7 +177,7 @@ def _get_onboarding_guide(client_type: str = "generic") -> str:
    → recall what was done recently (cross-session continuity)
 2. `mistake_note_search(query="<likely task context>")`
    → check known pitfalls before starting work
-3. `get_bootstrap_profile(agent_ids=["kiro"])` — behavioral rules (avoidances,
+3. `memory_bootstrap_profile(agent_ids=["kiro"])` — behavioral rules (avoidances,
    conventions, beliefs). Best cached to disk 1x/day rather than fetched every session.
 
 ### Before significant tasks (>15min):
@@ -197,7 +197,7 @@ def _get_onboarding_guide(client_type: str = "generic") -> str:
 
 {_DURING_SESSION}
 ### On session end:
-- `commit_session_legacy` with decisions, errors, corrections (triggers
+- `memory_commit_session` with decisions, errors, corrections (triggers
   server-side harvest automatically). OR:
 - `memory_harvest(sessions=1, dry_run=false)` as fallback if commit is unavailable.
 - Rate memories consulted during the session (aim ≥3 ratings).
@@ -214,11 +214,11 @@ def _get_onboarding_guide(client_type: str = "generic") -> str:
         "claude-code": f"""## Integration Guide: mcp-memory-service → Claude Code
 
 ### On session start (REQUIRED):
-1. `get_bootstrap_profile(agent_ids=["claude-code"])` — incorporate returned rules.
+1. `memory_bootstrap_profile(agent_ids=["claude-code"])` — incorporate returned rules.
 2. `mistake_note_search(query="<task context>")` — check known pitfalls.
 
 ### On session end (REQUIRED):
-1. `commit_session_legacy` with session summary, decisions, errors, corrections.
+1. `memory_commit_session` with session summary, decisions, errors, corrections.
    Server runs learning pipeline automatically after this call.
 2. Rate memories used during the session.
 
@@ -231,11 +231,11 @@ def _get_onboarding_guide(client_type: str = "generic") -> str:
         guide = f"""## Integration Guide: mcp-memory-service
 
 ### On session start (REQUIRED):
-1. `get_bootstrap_profile(agent_ids=["your_agent_id"])` — follow returned rules.
+1. `memory_bootstrap_profile(agent_ids=["your_agent_id"])` — follow returned rules.
 2. `mistake_note_search(query="<task context>")` — check known pitfalls.
 
 ### On session end (REQUIRED):
-1. `commit_session_legacy` with: session_id, agent_id, task_summary, outcome,
+1. `memory_commit_session` with: session_id, agent_id, task_summary, outcome,
    decisions, errors, user_corrections. Triggers server-side learning.
 2. Rate memories consulted (≥3 ratings per session).
 
@@ -2151,7 +2151,7 @@ class MemoryServer:
             ]
         }
 
-        # §9: auto_commit — bridge harvest candidates to commit_session_legacy
+        # §9: auto_commit — bridge harvest candidates to memory_commit_session
         auto_commit = arguments.get("auto_commit", False)
         # Single shared precedence (RFC #1100 + spec-agent-id-streamable R2):
         # explicit arg > request header > MCP_AGENT_ID env > metadata, with the
@@ -2166,7 +2166,7 @@ class MemoryServer:
             for r in results:
                 if not r.candidates:
                     continue
-                # Map candidates to commit_session_legacy fields
+                # Map candidates to memory_commit_session fields
                 decisions = [
                     {"decision": c.content[:500], "reason": "harvested"}
                     for c in r.candidates if c.memory_type == "decision"
@@ -2521,7 +2521,7 @@ class MemoryServer:
             }))]
 
         except Exception as e:
-            logger.error("Error in commit_session_legacy: %s", _sanitize_log_value(e))
+            logger.error("Error in memory_commit_session: %s", _sanitize_log_value(e))
             return [types.TextContent(type="text", text=json.dumps({"status": "error", "message": str(e)}))]
 
     async def _post_commit_learning(self, session_id: str, agent_id: str):
@@ -2864,7 +2864,7 @@ class MemoryServer:
             return [types.TextContent(type="text", text=profile)]
 
         except Exception as e:
-            logger.error("Error in get_bootstrap_profile: %s", _sanitize_log_value(e))
+            logger.error("Error in memory_bootstrap_profile: %s", _sanitize_log_value(e))
             return [types.TextContent(type="text", text="=== BEHAVIORAL PROFILE (v1) ===\n\nNo data available yet.\n=== END PROFILE ===")]
 
     # ============================================================
