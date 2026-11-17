@@ -199,9 +199,10 @@ def _tag_match_params(tag: str) -> List[str]:
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
-    # Hash-addressed operations (#1878) and the read paths (#1915) honor
-    # ``store``, but get_by_hash_is_store_scoped stays False until the hybrid
-    # sync queue carries ``store`` to Cloudflare too (#1915 points 2 and 3).
+    # Hash-addressed operations (#1878), the read paths and the hybrid sync
+    # queue (#1915) honor ``store``, so per-store credentials can be granted the
+    # store-confined tools here as on sqlite-vec.
+    get_by_hash_is_store_scoped = True
 
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
@@ -736,6 +737,9 @@ class CloudflareStorage(MemoryStorage):
         )
         r2_key = None
         try:
+            refusal = await self._live_duplicate_refusal(memory, store, restore_id)
+            if refusal:
+                return False, refusal
             content_size, r2_key, stored_content = await self._stage_memory_artifacts(
                 memory, vector_id, restore_id
             )
@@ -778,6 +782,58 @@ class CloudflareStorage(MemoryStorage):
             # the server may have committed the row before the response was lost.
             logger.error("Failed to store memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return False, f"Storage failed: {str(e)}"
+
+    @staticmethod
+    def _exact_duplicate_message(existing_store: str, requested_store: str) -> str:
+        """Describe an exact-hash conflict the way sqlite-vec does."""
+        message = "Duplicate content detected (exact match)"
+        if existing_store != requested_store:
+            return f"{message}; already exists in store {existing_store!r}"
+        return message
+
+    async def _live_duplicate_refusal(
+        self, memory: Memory, store: str, restore_id: Optional[str]
+    ) -> Optional[str]:
+        """Refuse an exact duplicate before staging anything.
+
+        The vector id and R2 key of a normal store are the content hash, so
+        staging first would overwrite the live memory's vector metadata, in
+        whichever store it lives, before D1 rejected the row. A restore stages
+        under its own keys and is checked against the tombstone instead.
+        """
+        if restore_id is not None:
+            return None
+        existing = await self._existing_row_of(memory.content_hash)
+        if existing is None:
+            return None
+        existing_store, deleted = existing
+        if not deleted:
+            return self._exact_duplicate_message(existing_store, store)
+        if existing_store != store:
+            # Re-storing would purge that store's tombstone and move the hash
+            # into this one, so a caller confined to ``store`` cannot do it.
+            return f"Content was deleted from store {existing_store!r} and cannot be stored in another store"
+        return None
+
+    async def _existing_row_of(self, content_hash: str) -> Optional[Tuple[str, bool]]:
+        """Return ``(store, is_tombstone)`` of the D1 row for ``content_hash``, if any.
+
+        ``content_hash`` is unique across stores in D1, as in sqlite-vec.
+        """
+        response = await self._retry_request(
+            "POST", f"{self.d1_url}/query",
+            json={
+                "sql": "SELECT store, deleted_at FROM memories WHERE content_hash = ? LIMIT 1",
+                "params": [content_hash],
+            },
+        )
+        result = response.json()
+        if not result.get("success"):
+            raise ValueError(f"Failed to check for an existing memory in D1: {result}")
+        rows = result.get("result", [{}])[0].get("results") or []
+        if not rows:
+            return None
+        return rows[0].get("store") or "default", rows[0].get("deleted_at") is not None
 
     async def _cleanup_staged_restore_artifacts(
         self, vector_id: Optional[str], r2_key: Optional[str]
