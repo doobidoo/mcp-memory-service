@@ -1720,6 +1720,11 @@ class MemoryDashboard {
         const chunkOverlap = this.chunkOverlapInput?.value || 200;
         const memoryType = this.memoryTypeInput?.value || 'document';
 
+        this._clearOperationError('upload-batch');
+        // An explicit retry can switch modes; clear only the selected files.
+        for (const file of this.selectedFiles) {
+            this._clearOperationError(`upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`);
+        }
         try {
             this.setLoading(true);
 
@@ -1727,6 +1732,7 @@ class MemoryDashboard {
                 // Individual file processing (single file or individual mode for multiple files)
                 for (let i = 0; i < this.selectedFiles.length; i++) {
                     const file = this.selectedFiles[i];
+                    const source = `upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`;
                     try {
                         await this.uploadSingleDocument(file, {
                             tags,
@@ -1741,13 +1747,11 @@ class MemoryDashboard {
                         }
                     } catch (error) {
                         console.error(`Failed to upload ${file.name}:`, error);
-                        this.showToast(
-                            this.t('toast.uploadFileFail', 'Failed to upload {name}: {message}', {
-                                name: file.name,
-                                message: error.message
-                            }),
-                            'error'
-                        );
+                        this._reportOperationError(source, {
+                            key: 'toast.uploadFileFail',
+                            fallback: 'Failed to upload {name}: {message}',
+                            vars: { name: file.name, message: error.message },
+                        }, { fallback: file.name });
                         // Continue with remaining files
                     }
                 }
@@ -1787,7 +1791,9 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Upload error:', error);
-            this.showToast(this.t('toast.uploadFailed', 'Upload failed: {message}', { message: error.message }), 'error');
+            this._reportOperationError('upload-batch', {
+                key: 'toast.uploadFailed', fallback: 'Upload failed: {message}', vars: { message: error.message },
+            }, { key: 'nav.documents', fallback: 'Documents' });
         } finally {
             this.setLoading(false);
         }
@@ -2439,33 +2445,18 @@ class MemoryDashboard {
      */
     /** Report one backup run to the status island as the "Backup" source. */
     _reportBackup(entry) {
-        this.statusIsland?.report('backup', { ...entry, label: { key: 'island.source.backup', fallback: 'Backup' } });
+        this._reportOperation('backup', { ...entry, label: { key: 'island.source.backup', fallback: 'Backup' } });
     }
 
     async createBackup() {
+        this._clearOperationError('backup');
         const backupButton = document.getElementById('backupNowButton');
         if (backupButton) backupButton.disabled = true;
 
         // The run reports to the header's status island, which the Settings modal
         // covers (modal-overlay sits above the header): close the modal first so
         // progress, the result and the retry action stay visible.
-        const settingsModal = document.getElementById('settingsModal');
-        if (settingsModal && settingsModal.classList.contains('active')) {
-            // Closing the modal would discard unsaved preference edits, since
-            // openSettingsModal repopulates from this.settings: stash the values
-            // that differ from the saved preferences and restore them the next
-            // time Settings opens. Untouched fields are not stashed, so a newer
-            // choice saved in the meantime (e.g. the header theme toggle) is not
-            // silently overwritten on the next save.
-            const preferenceKeys = { themeSelect: 'theme', viewDensity: 'viewDensity', previewLines: 'previewLines' };
-            const draft = {};
-            Object.entries(preferenceKeys).forEach(([id, key]) => {
-                const field = document.getElementById(id);
-                if (field && field.value !== String(this.settings[key])) draft[id] = field.value;
-            });
-            this._settingsDraft = Object.keys(draft).length > 0 ? draft : null;
-            this.closeModal(settingsModal);
-        }
+        this._revealOperationStatus();
 
         // The request answers only when the backup is written; until then the island
         // shows the run as busy without a percentage (the server sends no progress).
@@ -2637,6 +2628,7 @@ class MemoryDashboard {
      */
     async forceSync() {
         const syncButton = document.getElementById('forceSyncButton');
+        this._clearOperationError('sync-request');
         const originalText = syncButton.innerHTML;
 
         try {
@@ -2684,17 +2676,19 @@ class MemoryDashboard {
                     await this.apiCall('/sync/pause', 'POST');
                 }
             } else {
-                this.showToast(
-                    this.t('toast.syncFailedWithReason', 'Sync failed: {reason}', { reason: result.message }),
-                    'error'
+                this._reportOperationError(
+                    'sync-request',
+                    { key: 'toast.syncFailedWithReason', fallback: 'Sync failed: {reason}', vars: { reason: result.message } },
+                    { key: 'island.source.sync', fallback: 'Cloud sync' }
                 );
             }
 
         } catch (error) {
             console.error('Error forcing sync:', error);
-            this.showToast(
-                this.t('toast.syncForceFailed', 'Failed to force sync: {reason}', { reason: error.message }),
-                'error'
+            this._reportOperationError(
+                'sync-request',
+                { key: 'toast.syncForceFailed', fallback: 'Failed to force sync: {reason}', vars: { reason: error.message } },
+                { key: 'island.source.sync', fallback: 'Cloud sync' }
             );
         } finally {
             // Clear flag to allow periodic polling to resume
@@ -3537,6 +3531,7 @@ class MemoryDashboard {
      * Handle data export
      */
     async handleExportData() {
+        this._clearOperationError('export');
         try {
         this.showToast(this.t('toast.exportPreparing', 'Preparing export...'), 'info');
 
@@ -3595,7 +3590,11 @@ class MemoryDashboard {
             );
         } catch (error) {
             console.error('Export error:', error);
-            this.showToast(this.t('toast.exportFailed', 'Failed to export data'), 'error');
+            this._reportOperationError(
+                'export',
+                { key: 'toast.exportFailed', fallback: 'Failed to export data' },
+                { key: 'actions.exportData', fallback: 'Export Data' }
+            );
         }
     }
 
@@ -4522,6 +4521,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('server-update');
         const actionStatus = document.getElementById('serverActionStatus');
         const actionText = document.getElementById('serverActionText');
 
@@ -4545,14 +4545,24 @@ class MemoryDashboard {
             // substring-matching the message — error wording can change
             // between releases and gets translated, status codes don't.
             if (error.status === 409) {
-                this.showToast(this.t('modal.settings.server.updateBlocked', 'Update blocked: {error}', { error: msg }), 'error');
+                // Keep Settings visible while the force retry reports progress.
+                // Only close it to reveal a persistent final/declined error.
                 if (confirm(this.t('modal.settings.server.confirmForcePull', 'The server has uncommitted local changes that will block the pull.\n\n{error}\n\nForce-pull anyway? (Local changes may be overwritten.)', { error: msg }))) {
                     return this.updateAndRestart(true);
                 }
+                this._reportOperationError(
+                    'server-update',
+                    { key: 'modal.settings.server.updateBlocked', fallback: 'Update blocked: {error}', vars: { error: msg } },
+                    { key: 'modal.settings.tabs.server', fallback: 'Server' }
+                );
                 return;
             }
 
-            this.showToast(this.t('modal.settings.server.updateFailed', 'Update failed: {error}', { error: msg }), 'error');
+            this._reportOperationError(
+                'server-update',
+                { key: 'modal.settings.server.updateFailed', fallback: 'Update failed: {error}', vars: { error: msg } },
+                { key: 'modal.settings.tabs.server', fallback: 'Server' }
+            );
         }
     }
 
@@ -4565,6 +4575,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('server-restart');
         try {
             const data = await this.apiCall('/server/restart', 'POST', { confirm: true });
             this.showRestartOverlay(data.pre_restart_pid, data.pre_restart_version);
@@ -4573,7 +4584,11 @@ class MemoryDashboard {
             if (error.message && error.message.includes('fetch')) {
                 this.showRestartOverlay(null, null);
             } else {
-                this.showToast(this.t('modal.settings.server.restartFailed', 'Restart failed: {error}', { error: error.message }), 'error');
+                this._reportOperationError(
+                    'server-restart',
+                    { key: 'modal.settings.server.restartFailed', fallback: 'Restart failed: {error}', vars: { error: error.message } },
+                    { key: 'modal.settings.tabs.server', fallback: 'Server' }
+                );
             }
         }
     }
@@ -4808,6 +4823,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError(`document-remove-${uploadId}`);
         try {
             this.setLoading(true);
             console.log('Making DELETE request to:', `/documents/remove/${uploadId}`);
@@ -4833,12 +4849,20 @@ class MemoryDashboard {
                 }
             } else {
                 console.error('Removal failed with response:', response);
-                this.showToast(this.t('toast.removeDocumentFailed', 'Failed to remove document'), 'error');
+                this._reportOperationError(
+                    `document-remove-${uploadId}`,
+                    { key: 'toast.removeDocumentFailed', fallback: 'Failed to remove document' },
+                    { fallback: filename }
+                );
             }
         } catch (error) {
             console.error('Error removing document:', error);
             console.error('Error stack:', error.stack);
-            this.showToast(this.t('toast.errorRemovingDocument', 'Error removing document'), 'error');
+            this._reportOperationError(
+                `document-remove-${uploadId}`,
+                { key: 'toast.errorRemovingDocument', fallback: 'Error removing document' },
+                { fallback: filename }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -4917,6 +4941,65 @@ class MemoryDashboard {
         }
     }
 
+    /** Reveal the header without discarding an unsaved Settings draft. */
+    _revealOperationStatus() {
+        const settingsModal = document.getElementById('settingsModal');
+        if (settingsModal && settingsModal.classList.contains('active')) {
+            // Closing the modal would discard unsaved preference edits, since
+            // openSettingsModal repopulates from this.settings: stash the values
+            // that differ from the saved preferences and restore them the next
+            // time Settings opens. Untouched fields are not stashed, so a newer
+            // choice saved in the meantime (e.g. the header theme toggle) is not
+            // silently overwritten on the next save.
+            const preferenceKeys = { themeSelect: 'theme', viewDensity: 'viewDensity', previewLines: 'previewLines' };
+            const draft = {};
+            Object.entries(preferenceKeys).forEach(([id, key]) => {
+                const field = document.getElementById(id);
+                if (field && field.value !== String(this.settings[key])) draft[id] = field.value;
+            });
+            this._settingsDraft = Object.keys(draft).length > 0 ? draft : null;
+            this.closeModal(settingsModal);
+        }
+    }
+
+    /** Clear a previous failure only when that operation is explicitly retried. */
+    _clearOperationError(source) {
+        this._operationErrorToasts?.get(source)?.remove();
+        this._operationErrorToasts?.delete(source);
+        try {
+            this.statusIsland?.clear(source);
+        } catch (error) {
+            console.warn('Could not clear operation status:', error);
+        }
+    }
+
+    /** Keep a long operation's failure until dismissal or another attempt. */
+    _reportOperationError(source, text, label) {
+        this._revealOperationStatus();
+        this._reportOperation(source, { state: 'error', text, label, dismissible: true });
+    }
+
+    /** Preserve error feedback even if the optional island could not initialize. */
+    _reportOperation(source, entry) {
+        try {
+            if (this.statusIsland) {
+                this.statusIsland.report(source, entry);
+                // The view guards its own exceptions. A missing model entry means
+                // reporting failed silently, so retain the fallback as well.
+                if (!this.statusIsland.get || this.statusIsland.get(source)) return;
+            }
+        } catch (error) {
+            console.warn('Could not report operation status:', error);
+        }
+        if (entry.state === 'error') {
+            const text = entry.text;
+            this._operationErrorToasts ??= new Map();
+            this._operationErrorToasts.get(source)?.remove();
+            const toast = this.showToast(text.key ? this.t(text.key, text.fallback, text.vars) : text.fallback, 'error', 0);
+            if (toast) this._operationErrorToasts.set(source, toast);
+        }
+    }
+
     /**
      * Toast notification system
      */
@@ -4928,15 +5011,18 @@ class MemoryDashboard {
 
         container.appendChild(toast);
 
-        // Auto-remove after duration
-        setTimeout(() => {
-            toast.remove();
-        }, duration);
+        // A duration of zero keeps long-operation fallback errors until clicked.
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.remove();
+            }, duration);
+        }
 
         // Click to remove
         toast.addEventListener('click', () => {
             toast.remove();
         });
+        return toast;
     }
 
     /**
@@ -6085,6 +6171,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('bulk-delete-tag');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
@@ -6097,11 +6184,19 @@ class MemoryDashboard {
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'bulk-delete-tag',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
+                );
             }
         } catch (error) {
             console.error('Bulk delete failed:', error);
-            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
+            this._reportOperationError(
+                'bulk-delete-tag',
+                { key: 'toast.bulkDeleteFailed', fallback: 'Bulk delete operation failed' },
+                { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6115,6 +6210,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('cleanup-duplicates');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
@@ -6124,11 +6220,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'cleanup-duplicates',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
+                );
             }
         } catch (error) {
             console.error('Cleanup duplicates failed:', error);
-            this.showToast(this.t('toast.cleanupFailed', 'Cleanup operation failed'), 'error');
+            this._reportOperationError(
+                'cleanup-duplicates',
+                { key: 'toast.cleanupFailed', fallback: 'Cleanup operation failed' },
+                { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6150,6 +6254,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('bulk-delete-date');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
@@ -6161,11 +6266,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'bulk-delete-date',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
+                );
             }
         } catch (error) {
             console.error('Bulk delete by date failed:', error);
-            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
+            this._reportOperationError(
+                'bulk-delete-date',
+                { key: 'toast.bulkDeleteFailed', fallback: 'Bulk delete operation failed' },
+                { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6188,6 +6301,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('delete-untagged');
         this.setLoading(true);
         try {
             const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
@@ -6197,11 +6311,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
+                this._reportOperationError(
+                    'delete-untagged',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
+                );
             }
         } catch (error) {
             console.error('Delete untagged failed:', error);
-            this.showToast(this.t('toast.deleteUntaggedFailed', 'Delete untagged operation failed'), 'error');
+            this._reportOperationError(
+                'delete-untagged',
+                { key: 'toast.deleteUntaggedFailed', fallback: 'Delete untagged operation failed' },
+                { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
+            );
         } finally {
             this.setLoading(false);
         }
