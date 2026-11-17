@@ -346,6 +346,23 @@ curl https://your-domain.com/.well-known/oauth-authorization-server
 curl https://your-domain.com/api/health
 ```
 
+### Inspect in the Browser
+
+To see the tool list and run single calls without wiring up a client first, point a
+hosted inspector at your endpoint. [Glama's MCP Inspector](https://glama.ai/mcp/inspector)
+needs no install and no Glama account: add a server with your `https://your-domain.com/mcp`
+URL, pick OAuth (it handles Dynamic Client Registration) or a bearer token, and connect.
+
+Two things to know before you do:
+
+- By default the inspector reaches your server through Glama's proxy, so your token and
+  every request and response pass through a third party. Use it against a test instance,
+  or a token you can revoke afterwards.
+- Tool calls are real. `memory_store`, `memory_delete` and the other tools marked
+  `destructiveHint` above change your data.
+
+If you allowlist IPs, the proxy's requests are blocked like any other unlisted client.
+
 ### Checklist
 
 - [ ] Server starts in Streamable HTTP mode (check logs for port 8765)
