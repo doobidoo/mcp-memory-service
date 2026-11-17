@@ -203,6 +203,8 @@ async def handle_ingest_directory(server, arguments: dict) -> List[types.TextCon
         recursive = arguments.get("recursive", True)
         file_extensions = arguments.get("file_extensions", ["pdf", "txt", "md", "json"])
         chunk_size = arguments.get("chunk_size", 1000)
+        chunk_overlap = arguments.get("chunk_overlap", 200)
+        memory_type = arguments.get("memory_type", "document")
         max_files = arguments.get("max_files", 100)
 
         # Validate directory
@@ -234,7 +236,9 @@ async def handle_ingest_directory(server, arguments: dict) -> List[types.TextCon
         processor = FileIngestionProcessor(
             storage=storage,
             chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
             base_tags=tags,
+            memory_type=memory_type,
             store=arguments.get("store", "default"),
         )
 
