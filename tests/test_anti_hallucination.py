@@ -271,8 +271,8 @@ async def test_quarantine_threshold_from_env():
     """CONTRADICTION_THRESHOLD reads from env."""
     with patch.dict(os.environ, {"MCP_QUARANTINE_CONTRADICTION_THRESHOLD": "5"}):
         # Re-import to pick up env
-        import importlib
-        import mcp_memory_service.consolidation.quarantine as q_mod
+        import importlib  # inline import: reload under a patched environment
+        import mcp_memory_service.consolidation.quarantine as q_mod  # inline import: reloaded below
         importlib.reload(q_mod)
         assert q_mod.CONTRADICTION_THRESHOLD == 5
 

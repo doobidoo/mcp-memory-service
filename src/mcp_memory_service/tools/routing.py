@@ -92,7 +92,7 @@ def resolve_handler(name: str) -> Callable | tuple | None:
         _cache[name] = entry
         return entry
 
-    import importlib
+    import importlib  # inline import: only needed when a handler is first resolved
     mod = importlib.import_module(module_path)
     handler = getattr(mod, func_name, None)
     if handler is not None:
