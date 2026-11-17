@@ -56,7 +56,7 @@ def test_bootstrap_tool_requires_write_scope(bootstrap_storage, monkeypatch, sco
         before = _snapshot(db_path)
         response = client.post("/mcp", json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": "get_bootstrap_profile", "arguments": {
+            "params": {"name": "memory_bootstrap_profile", "arguments": {
                 "agent_ids": ["claude-code"],
             }},
         })
