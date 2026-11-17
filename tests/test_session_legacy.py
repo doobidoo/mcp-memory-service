@@ -1,7 +1,7 @@
 """
 Tests for P3: Session Legacy (RFC Self-Service Memory Intelligence).
 
-The commit_session_legacy tool records end-of-session learnings
+The memory_commit_session tool records end-of-session learnings
 from ephemeral agents as structured observations.
 """
 
@@ -12,13 +12,13 @@ from mcp_memory_service.server import MemoryServer
 
 
 class TestSessionLegacy:
-    """P3: commit_session_legacy tool."""
+    """P3: memory_commit_session tool."""
 
     @pytest.mark.asyncio
     async def test_commit_session_legacy_basic(self):
         """Basic session legacy with minimal required fields."""
         server = MemoryServer()
-        result = await server.handle_call_tool("commit_session_legacy", {
+        result = await server.handle_call_tool("memory_commit_session", {
             "session_id": "sess-test-001",
             "agent_id": "kiro",
             "task_summary": "Refactored auth module to use JWT",
@@ -34,7 +34,7 @@ class TestSessionLegacy:
     async def test_commit_session_legacy_with_errors(self):
         """Session legacy with errors creates/updates mistake notes."""
         server = MemoryServer()
-        result = await server.handle_call_tool("commit_session_legacy", {
+        result = await server.handle_call_tool("memory_commit_session", {
             "session_id": "sess-test-002",
             "agent_id": "kiro",
             "task_summary": "Deploy to production",
@@ -57,7 +57,7 @@ class TestSessionLegacy:
     async def test_commit_session_legacy_with_user_corrections(self):
         """User corrections are stored as high-priority observations."""
         server = MemoryServer()
-        result = await server.handle_call_tool("commit_session_legacy", {
+        result = await server.handle_call_tool("memory_commit_session", {
             "session_id": "sess-test-003",
             "agent_id": "kiro",
             "task_summary": "Password hashing implementation",
@@ -74,7 +74,7 @@ class TestSessionLegacy:
     async def test_commit_session_legacy_with_decisions(self):
         """Decisions are stored as observation type=decision."""
         server = MemoryServer()
-        result = await server.handle_call_tool("commit_session_legacy", {
+        result = await server.handle_call_tool("memory_commit_session", {
             "session_id": "sess-test-004",
             "agent_id": "kiro",
             "task_summary": "Setup project tooling",
@@ -91,7 +91,7 @@ class TestSessionLegacy:
     async def test_commit_session_legacy_missing_required_fields(self):
         """Missing required fields should return error."""
         server = MemoryServer()
-        result = await server.handle_call_tool("commit_session_legacy", {
+        result = await server.handle_call_tool("memory_commit_session", {
             "task_summary": "Something",
             # Missing session_id, agent_id, outcome
         })
@@ -104,4 +104,4 @@ class TestSessionLegacy:
         server = MemoryServer()
         tools = await server.handle_list_tools()
         tool_names = [t.name for t in tools]
-        assert "commit_session_legacy" in tool_names
+        assert "memory_commit_session" in tool_names

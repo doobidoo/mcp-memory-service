@@ -176,7 +176,7 @@ def test_app_js_references_the_listed_keys_with_fallbacks():
     for key, fallback in expected.items():
         # this.t() or setCountedText(); the fallback stays next to the key.
         assert re.search(
-            rf"'{re.escape(key)}',\s*'{re.escape(fallback)}'",
+            rf"'{re.escape(key)}',\s*(?:fallback:\s*)?'{re.escape(fallback)}'",
             js,
         ), key
     for key in (

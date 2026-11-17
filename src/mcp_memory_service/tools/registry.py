@@ -30,7 +30,11 @@ class ToolDef:
 TOOL_REGISTRY: list[ToolDef] = [
     ToolDef(
         name="memory_store",
-        description="""Store new information with optional tags.
+        description="""Store one new memory (a fact, decision, note) with optional tags.
+
+Use this for a single piece of information you already have as text. For a whole
+multi-turn conversation use memory_store_session, for files on disk memory_ingest,
+and for the structured summary at the end of a session memory_commit_session.
 
                     Accepts two tag formats in metadata:
                     - Array: ["tag1", "tag2"]
@@ -123,6 +127,9 @@ TOOL_REGISTRY: list[ToolDef] = [
         name="memory_store_session",
         description="""Store a full conversation session as a single memory unit.
 
+This keeps the raw turns. To record what was learned in a session (decisions,
+errors, corrections) use memory_commit_session instead.
+
 Use this instead of memory_store when you want to preserve the full context
 of a multi-turn conversation. All turns are stored together, making session-level
 retrieval more reliable than storing individual turns separately.
@@ -189,6 +196,10 @@ Example:
     ToolDef(
         name="memory_search",
         description="""Search memories with flexible modes and filters. Primary tool for finding stored information.
+
+Start here for any question about stored content. Use memory_list to browse or page
+without a query, memory_explore for an entity-level overview of a topic, and
+memory_graph to follow associations from a memory you already have the hash of.
 
 USE THIS WHEN:
 - User asks "what do you remember about X", "recall", "find memories"
@@ -780,6 +791,9 @@ Examples:
         name="memory_ingest",
         description="""Ingest documents or directories into memory database.
 
+Reads files from disk and stores them as chunks. For text you already hold in the
+conversation use memory_store; for Claude Code session transcripts use memory_harvest.
+
 USE THIS WHEN:
 - User wants to import a document (PDF, TXT, MD, JSON)
 - Need to batch import a directory of documents
@@ -865,6 +879,10 @@ Examples:
         name="memory_harvest",
         description="""Extract learnings from Claude Code session transcripts.
 
+The server reads the transcript files itself and picks the candidates. If you can
+summarise the session yourself, call memory_commit_session instead; use this as the
+fallback, or to mine past sessions. For other documents use memory_ingest.
+
 USE THIS WHEN:
 - End of session — auto-capture decisions, bugs, conventions, learnings
 - User asks to "harvest" or "extract learnings" from sessions
@@ -947,7 +965,7 @@ Examples:
                 "auto_commit": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Bridge harvested candidates to commit_session_legacy (feeds bootstrap profile)",
+                    "description": "Bridge harvested candidates to memory_commit_session (feeds bootstrap profile)",
                 },
                 "agent_id": {
                     "type": "string",
@@ -1024,6 +1042,10 @@ Examples:
     ToolDef(
         name="memory_graph",
         description="""Memory association graph operations - explore connections between memories.
+
+Works on relationships, starting from a memory hash or an entity name. To find
+memories by content use memory_search; for a topic overview built from entities use
+memory_explore, then memory_detail for one entity.
 
 ACTIONS:
 - connected: Find memories connected via associations (BFS traversal)
@@ -1233,7 +1255,7 @@ Examples:
         annotations={"destructiveHint": True},
     ),
     ToolDef(
-        name="get_quarantined_memories",
+        name="memory_quarantine_list",
         description="""List memories that have been quarantined due to contradicting active beliefs. Use to review flagged memories.""",
         input_schema={
             "type": "object",
@@ -1248,7 +1270,7 @@ Examples:
         annotations={"readOnlyHint": True},
     ),
     ToolDef(
-        name="unquarantine_memory",
+        name="memory_quarantine_release",
         description="""Release a memory from quarantine. Use when a quarantined memory is valid (e.g., the contradicted belief was wrong).""",
         input_schema={
             "type": "object",
@@ -1263,8 +1285,13 @@ Examples:
         annotations={"readOnlyHint": False},
     ),
     ToolDef(
-        name="commit_session_legacy",
-        description="""Record end-of-session learnings from an ephemeral agent. Stores decisions, errors, corrections as structured observations.""",
+        name="memory_commit_session",
+        description="""Record end-of-session learnings from an ephemeral agent. Stores decisions, errors, corrections as structured observations.
+
+Call this once when a session ends, with your own summary of it. The server then runs
+its learning pipeline in the background, and memory_bootstrap_profile serves the result
+to later sessions. Use memory_store_session to keep the raw conversation turns, and
+memory_harvest when the server should extract learnings from transcript files itself.""",
         input_schema={
             "type": "object",
             "properties": {
@@ -1307,7 +1334,7 @@ Examples:
         annotations={"destructiveHint": False},
     ),
     ToolDef(
-        name="get_bootstrap_profile",
+        name="memory_bootstrap_profile",
         description="""Generate a behavioral bootstrap profile for an ephemeral agent.
 Requires write scope because it resets session counters when a fresh start is due.
 For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
@@ -1343,7 +1370,7 @@ For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
         annotations={"readOnlyHint": False},
     ),
     ToolDef(
-        name="get_onboarding_guide",
+        name="memory_onboarding_guide",
         description="""Get integration guide for a specific client type. """,
         input_schema={
             "type": "object",
@@ -1359,7 +1386,11 @@ For a read-only profile, read memory://agent/{agent_id}/bootstrap instead.""",
     ),
     ToolDef(
         name="memory_distill",
-        description="""Extract insights from existing memories via LLM rewriter (batch mode). """,
+        description="""Extract insights from existing memories via LLM rewriter (batch mode).
+
+Maintenance tool: it rewrites memories that are already stored and takes no new
+content from you. The server also runs it on a schedule. To add information use
+memory_store or memory_commit_session. dry_run defaults to true.""",
         input_schema={
             "type": "object",
             "properties": {
@@ -1461,6 +1492,9 @@ Examples:
     ToolDef(
         name="memory_detail",
         description="""Get the full ranked detail for a single entity.
+
+Takes an entity_id from memory_explore. For one memory by its content hash use
+memory_search with content_hash.
 
 USE THIS WHEN:
 - User drills into one entity from a knowledge map ("tell me more about X")

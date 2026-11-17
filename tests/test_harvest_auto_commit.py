@@ -1,4 +1,4 @@
-"""Tests for harvest → commit_session_legacy bridge (auto_commit flag)."""
+"""Tests for harvest → memory_commit_session bridge (auto_commit flag)."""
 import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -27,7 +27,7 @@ def mock_session_file(tmp_path):
 
 
 class TestHarvestAutoCommit:
-    """Test that auto_commit flag triggers commit_session_legacy after harvest."""
+    """Test that auto_commit flag triggers memory_commit_session after harvest."""
 
     @pytest.mark.asyncio
     async def test_harvest_accepts_auto_commit_param(self, server):
@@ -46,7 +46,7 @@ class TestHarvestAutoCommit:
 
     @pytest.mark.asyncio
     async def test_auto_commit_false_does_not_call_commit(self, server, mock_session_file):
-        """When auto_commit=False, commit_session_legacy should NOT be called."""
+        """When auto_commit=False, memory_commit_session should NOT be called."""
         with patch.object(server, '_ensure_storage_initialized', new_callable=AsyncMock), \
              patch.object(server, 'handle_commit_session_legacy', new_callable=AsyncMock) as mock_commit:
             await server.handle_memory_harvest({
@@ -59,7 +59,7 @@ class TestHarvestAutoCommit:
 
     @pytest.mark.asyncio
     async def test_auto_commit_true_calls_commit_per_session(self, server, mock_session_file):
-        """When auto_commit=True and dry_run=False, commit_session_legacy is called for each session."""
+        """When auto_commit=True and dry_run=False, memory_commit_session is called for each session."""
         with patch.object(server, '_ensure_storage_initialized', new_callable=AsyncMock), \
              patch.object(server, 'handle_commit_session_legacy', new_callable=AsyncMock) as mock_commit:
             mock_commit.return_value = [MagicMock(text='{"status":"recorded","observations_created":1}')]
