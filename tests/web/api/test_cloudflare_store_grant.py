@@ -172,7 +172,7 @@ async def test_tombstone_of_another_store_is_not_taken_over(cloudflare_storage, 
     ok, msg = await cloudflare_storage.store(memory, store="a")
 
     assert not ok
-    assert "deleted from store 'b'" in msg
+    assert msg == "Duplicate content detected (exact match); already exists in store 'b'"
     cloudflare.vector_upserts.assert_not_called()
     row = cloudflare.row(content_hash)
     assert row["store"] == "b" and row["deleted_at"] is not None

@@ -807,13 +807,12 @@ class CloudflareStorage(MemoryStorage):
         if existing is None:
             return None
         existing_store, deleted = existing
-        if not deleted:
-            return self._exact_duplicate_message(existing_store, store)
-        if existing_store != store:
-            # Re-storing would purge that store's tombstone and move the hash
-            # into this one, so a caller confined to ``store`` cannot do it.
-            return f"Content was deleted from store {existing_store!r} and cannot be stored in another store"
-        return None
+        if deleted and existing_store == store:
+            return None  # re-storing content deleted from this store
+        # A tombstone in another store is refused too: re-storing would purge
+        # it and move the hash into this store. Same message as a live
+        # duplicate, so the caller does not learn whether it was deleted.
+        return self._exact_duplicate_message(existing_store, store)
 
     async def _existing_row_of(self, content_hash: str) -> Optional[Tuple[str, bool]]:
         """Return ``(store, is_tombstone)`` of the D1 row for ``content_hash``, if any.
