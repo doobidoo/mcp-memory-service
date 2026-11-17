@@ -15,7 +15,8 @@
 """Main dream-inspired consolidation orchestrator."""
 
 import inspect
-from typing import List, Dict, Any, Optional, Protocol, Sequence, Tuple
+import uuid
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import asyncio
@@ -49,6 +50,16 @@ from ..compat import _sanitize_log_value
 from ..utils.time_parser import memory_statement_time
 
 logger = logging.getLogger(__name__)
+
+# Lifecycle events a run announces through the consolidator's notifier (#2011).
+# Every announced start is followed by exactly one CONSOLIDATION_COMPLETED with
+# the same run_id; CONSOLIDATION_PHASE is sent when a phase that runs starts.
+CONSOLIDATION_STARTED = "consolidation_started"
+CONSOLIDATION_PHASE = "consolidation_phase"
+CONSOLIDATION_COMPLETED = "consolidation_completed"
+
+# Receives (event_type, data). The consolidator awaits it and swallows its errors.
+ConsolidationNotifier = Callable[[str, Dict[str, Any]], Awaitable[None]]
 
 
 def _said_at(memory: Memory) -> float:
@@ -252,11 +263,19 @@ class DreamInspiredConsolidator:
         "forgetting": ["monthly", "quarterly", "yearly"],
     }
 
-    def __init__(self, storage: StorageProtocol, config: ConsolidationConfig):
+    def __init__(
+        self,
+        storage: StorageProtocol,
+        config: ConsolidationConfig,
+        notifier: Optional[ConsolidationNotifier] = None,
+    ):
         self.storage = storage
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.plugin_registry = None  # Set externally to fire on_consolidate hook
+        # Lifecycle events (#2011). None is a no-op; the web application wires
+        # it to SSE, so this module does not depend on web.sse.
+        self.notifier: Optional[ConsolidationNotifier] = notifier
 
         # Initialize component engines
         self.decay_calculator = ExponentialDecayCalculator(config)
@@ -411,6 +430,11 @@ class DreamInspiredConsolidator:
         )
 
         is_incremental = time_horizon == "incremental"
+        # Set once the start is announced; the finally block then owes exactly
+        # one completion. A run rejected by the incremental guard announces
+        # neither, so it cannot end the run that holds the slot (#2011).
+        run_id: Optional[str] = None
+        succeeded = False
 
         try:
             self.logger.info(
@@ -423,13 +447,21 @@ class DreamInspiredConsolidator:
                 self.logger.info("Incremental consolidation already in flight, skipping")
                 return self._finalize_report(report, ["Skipped: concurrent run in flight"])
 
+            run_id = uuid.uuid4().hex
+            await self._notify(
+                CONSOLIDATION_STARTED,
+                {"run_id": run_id, "time_horizon": time_horizon},
+            )
+
             await self._ensure_graph_storage()
 
             # Use context manager for sync pause/resume
             async with SyncPauseContext(self.storage, self.logger):
-                return await self._run_consolidation_pass(
-                    report, time_horizon, is_incremental, **kwargs
+                report = await self._run_consolidation_pass(
+                    report, time_horizon, is_incremental, run_id=run_id, **kwargs
                 )
+            succeeded = not report.errors
+            return report
 
         except ConsolidationError as e:
             # Re-raise configuration and validation errors
@@ -451,9 +483,39 @@ class DreamInspiredConsolidator:
         finally:
             if is_incremental and self.run_tracker:
                 self.run_tracker.release("incremental")
+            if run_id is not None:
+                # Also reached on cancellation (a timeout around this call),
+                # where succeeded is still False.
+                await self._notify(
+                    CONSOLIDATION_COMPLETED,
+                    {"run_id": run_id, "time_horizon": time_horizon, "success": succeeded},
+                )
+
+    async def _notify(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Hand one lifecycle event to the notifier; its failure never fails the run."""
+        if self.notifier is None:
+            return
+        try:
+            await self.notifier(event_type, data)
+        except Exception as exc:
+            self.logger.debug(
+                "Consolidation notifier failed on %s: %s",
+                event_type, _sanitize_log_value(exc),
+            )
+
+    async def _announce_phase(
+        self, run_id: Optional[str], time_horizon: str, phase: str
+    ) -> None:
+        """Announce that *phase* starts. Nothing outside a run started by consolidate()."""
+        if run_id is None:
+            return
+        await self._notify(
+            CONSOLIDATION_PHASE,
+            {"run_id": run_id, "time_horizon": time_horizon, "phase": phase},
+        )
 
     async def _run_relevance_phase(
-        self, memories: List[Memory], time_horizon: str
+        self, memories: List[Memory], time_horizon: str, run_id: Optional[str] = None
     ) -> List[RelevanceScore]:
         """Phase 1/6: score memories by relevance and persist the scores.
 
@@ -463,6 +525,7 @@ class DreamInspiredConsolidator:
         if not self.config.decay_enabled:
             self.logger.info("Decay disabled, skipping Phase 1/6 (relevance scoring)")
             return []
+        await self._announce_phase(run_id, time_horizon, "relevance")
         self.logger.info(
             "📊 Phase 1/6: Calculating relevance scores for %s memories...",
             len(memories),
@@ -478,9 +541,10 @@ class DreamInspiredConsolidator:
         return relevance_scores
 
     async def _run_clustering_phase(
-        self, memories: List[Memory], time_horizon: str
+        self, memories: List[Memory], time_horizon: str, run_id: Optional[str] = None
     ) -> List:
         """Phase 2/6: cluster memories by semantic similarity."""
+        await self._announce_phase(run_id, time_horizon, "clustering")
         self.logger.info("🔗 Phase 2/6: Clustering memories by semantic similarity...")
         performance_start = time.time()
         clusters = await self.clustering_engine.process(memories)
@@ -492,9 +556,10 @@ class DreamInspiredConsolidator:
         return clusters
 
     async def _run_associations_phase(
-        self, memories: List[Memory], time_horizon: str
+        self, memories: List[Memory], time_horizon: str, run_id: Optional[str] = None
     ) -> List:
         """Phase 3/6: discover and store creative associations."""
+        await self._announce_phase(run_id, time_horizon, "associations")
         self.logger.info("🧠 Phase 3/6: Discovering creative associations...")
         performance_start = time.time()
         existing_associations = await self._get_existing_associations()
@@ -510,9 +575,14 @@ class DreamInspiredConsolidator:
         return associations
 
     async def _run_compression_phase(
-        self, clusters: List, memories: List[Memory]
+        self,
+        clusters: List,
+        memories: List[Memory],
+        time_horizon: str,
+        run_id: Optional[str] = None,
     ) -> List:
         """Phase 4/6: compress clusters and store compressed results."""
+        await self._announce_phase(run_id, time_horizon, "compression")
         self.logger.info("🗜️ Phase 4/6: Compressing memory clusters...")
         performance_start = time.time()
         compression_results = await self.compression_engine.process(
@@ -531,6 +601,7 @@ class DreamInspiredConsolidator:
         report: ConsolidationReport,
         time_horizon: str,
         is_incremental: bool,
+        run_id: Optional[str] = None,
         **kwargs,
     ) -> ConsolidationReport:
         """Run one full pipeline pass inside the sync-pause context."""
@@ -550,10 +621,10 @@ class DreamInspiredConsolidator:
         self.logger.info("✓ Found %s memories to process", len(memories))
 
         # 2-6. Run the conditional consolidation phases
-        await self._run_phase_schedule(memories, time_horizon, report)
+        await self._run_phase_schedule(memories, time_horizon, report, run_id=run_id)
 
         return await self._finalize_consolidation(
-            report, memories, is_incremental
+            report, memories, is_incremental, run_id=run_id
         )
 
     async def _acquire_incremental_slot(self, time_horizon: str) -> bool:
@@ -584,22 +655,29 @@ class DreamInspiredConsolidator:
         memories: List[Memory],
         time_horizon: str,
         report: ConsolidationReport,
+        run_id: Optional[str] = None,
     ) -> None:
-        """Run the conditional consolidation phases (1-6) and update *report*."""
-        await self._run_relevance_phase(memories, time_horizon)
+        """Run the conditional consolidation phases (1-6) and update *report*.
+
+        Each phase announces its own start, so a phase that is disabled or
+        skipped (compression without clusters) sends nothing.
+        """
+        await self._run_relevance_phase(memories, time_horizon, run_id=run_id)
 
         clusters: list = []
         if self.config.clustering_enabled and check_horizon_requirements(
             time_horizon, "clustering", self.ENABLED_PHASES
         ):
-            clusters = await self._run_clustering_phase(memories, time_horizon)
+            clusters = await self._run_clustering_phase(
+                memories, time_horizon, run_id=run_id
+            )
             report.clusters_created = len(clusters)
 
         if self.config.associations_enabled and check_horizon_requirements(
             time_horizon, "associations", self.ENABLED_PHASES
         ):
             associations = await self._run_associations_phase(
-                memories, time_horizon
+                memories, time_horizon, run_id=run_id
             )
             report.associations_discovered = len(associations)
 
@@ -611,7 +689,7 @@ class DreamInspiredConsolidator:
             )
         ):
             compression_results = await self._run_compression_phase(
-                clusters, memories
+                clusters, memories, time_horizon, run_id=run_id
             )
             report.memories_compressed = len(compression_results)
 
@@ -620,15 +698,17 @@ class DreamInspiredConsolidator:
         if self.config.forgetting_enabled and check_horizon_requirements(
             time_horizon, "forgetting", self.ENABLED_PHASES
         ):
-            await self._run_forgetting_phase(time_horizon, report)
+            await self._run_forgetting_phase(time_horizon, report, run_id=run_id)
 
     async def _finalize_consolidation(
         self,
         report: ConsolidationReport,
         memories: List[Memory],
         is_incremental: bool,
+        run_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Post-phase bookkeeping: prune, stats, timestamps, events, report."""
+        await self._announce_phase(run_id, report.time_horizon, "finalizing")
         orphaned = await self._prune_orphaned_graph_edges()
         if orphaned > 0:
             self.logger.info("🧹 Pruned %s orphaned graph edges", orphaned)
@@ -734,13 +814,14 @@ class DreamInspiredConsolidator:
         return candidates
 
     async def _run_forgetting_phase(
-        self, time_horizon: str, report: ConsolidationReport
+        self, time_horizon: str, report: ConsolidationReport, run_id: Optional[str] = None
     ) -> list:
         """Run the controlled-forgetting phase and update *report* in place.
 
         Extracted from :meth:`consolidate` to keep that method's cyclomatic
         complexity under the pre-commit gate.
         """
+        await self._announce_phase(run_id, time_horizon, "forgetting")
         self.logger.info("🗂️ Phase 5/6: Applying controlled forgetting...")
         performance_start = time.time()
         forgetting_candidates = await self._get_forgetting_candidates(time_horizon)

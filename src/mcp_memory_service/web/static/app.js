@@ -9,6 +9,17 @@ class MemoryDashboard {
     // Delay between individual file uploads to avoid overwhelming the server (ms)
     static INDIVIDUAL_UPLOAD_DELAY = 500;
 
+    // What the island says while a consolidation phase runs (#2011). The keys are the
+    // phase names consolidate() announces; any other name shows as plain "Running".
+    static CONSOLIDATION_PHASE_TEXT = {
+        relevance: 'Scoring relevance ({horizon})',
+        clustering: 'Clustering ({horizon})',
+        associations: 'Finding associations ({horizon})',
+        compression: 'Compressing clusters ({horizon})',
+        forgetting: 'Applying forgetting ({horizon})',
+        finalizing: 'Finalizing ({horizon})',
+    };
+
     // Static configuration for settings modal system information
     static SYSTEM_INFO_CONFIG = {
         settingsVersion: {
@@ -988,6 +999,23 @@ class MemoryDashboard {
             this._scheduleDashboardRefresh();
         });
 
+        // #2011: consolidate() announces a run's start and each phase it runs.
+        this.eventSource.addEventListener('consolidation_started', (event) => {
+            try {
+                this.handleConsolidationStarted(JSON.parse(event.data));
+            } catch (error) {
+                console.error('Error parsing consolidation_started event:', error);
+            }
+        });
+
+        this.eventSource.addEventListener('consolidation_phase', (event) => {
+            try {
+                this.handleConsolidationPhase(JSON.parse(event.data));
+            } catch (error) {
+                console.error('Error parsing consolidation_phase event:', error);
+            }
+        });
+
         this.eventSource.addEventListener('consolidation_completed', (event) => {
             try {
                 const data = JSON.parse(event.data);
@@ -1149,14 +1177,96 @@ class MemoryDashboard {
     }
 
     /**
-     * Handle a finished scheduled consolidation. The server does not announce the
-     * start, so the island only reports the end: a confirmation that goes after a
-     * few seconds, or a failure that stays until the reader closes it or the next
-     * run reports.
+     * Runs the server announced and has not ended yet, by run_id, oldest first (#2011).
+     * Runs can overlap (a scheduled one and one started by hand), so the island shows
+     * the newest, and the end of one run cannot clear another that is still going.
+     */
+    _consolidationRuns() {
+        this._activeConsolidations ??= new Map();
+        return this._activeConsolidations;
+    }
+
+    /** A run started: the island shows it as busy, without a percentage. */
+    handleConsolidationStarted(data) {
+        if (!data?.run_id) return;
+        const runs = this._consolidationRuns();
+        runs.delete(data.run_id);
+        runs.set(data.run_id, { horizon: data.time_horizon, phase: null });
+        this._reportConsolidationRunning();
+    }
+
+    /** A phase started. A dashboard opened mid-run learns of the run here. */
+    handleConsolidationPhase(data) {
+        if (!data?.run_id) return;
+        const runs = this._consolidationRuns();
+        const run = runs.get(data.run_id);
+        if (run) run.phase = data.phase;
+        else runs.set(data.run_id, { horizon: data.time_horizon, phase: data.phase });
+        this._reportConsolidationRunning();
+    }
+
+    /** The island entry for the newest run still going, or null when none is. */
+    _consolidationBusyEntry() {
+        const run = [...this._consolidationRuns().values()].pop();
+        if (!run) return null;
+        const vars = { horizon: run.horizon };
+        const phaseText = Object.hasOwn(MemoryDashboard.CONSOLIDATION_PHASE_TEXT, run.phase)
+            ? MemoryDashboard.CONSOLIDATION_PHASE_TEXT[run.phase]
+            : null;
+        return {
+            state: 'busy',
+            label: { key: 'island.source.consolidation', fallback: 'Consolidation' },
+            text: phaseText
+                ? { key: `island.consolidation.phase.${run.phase}`, fallback: phaseText, vars }
+                : { key: 'island.consolidation.running', fallback: 'Running ({horizon})', vars },
+            // Phases differ too much in cost for a percentage to be true.
+            progress: 'unknown',
+        };
+    }
+
+    /**
+     * Show the running run. A failure the reader has not closed stays in front, and
+     * closing it reveals the run that is still going.
+     */
+    _reportConsolidationRunning() {
+        const running = this._consolidationBusyEntry();
+        if (!running || !this.statusIsland) return;
+        const shown = this.statusIsland.get?.('consolidation');
+        if (shown?.state === 'error') {
+            this.statusIsland.report('consolidation', {
+                state: 'error', label: shown.label, text: shown.text, dismissible: shown.dismissible, settle: running,
+            });
+            return;
+        }
+        this.statusIsland.report('consolidation', running);
+    }
+
+    /**
+     * Handle the end of a run: a confirmation that goes after a few seconds, or a
+     * failure that stays until the reader closes it or the next run ends. While
+     * another run is still going, its busy state stays: a success only refreshes the
+     * numbers, and a failure is shown in front of it.
      */
     handleConsolidationCompleted(data) {
         const vars = { horizon: data.time_horizon };
         const label = { key: 'island.source.consolidation', fallback: 'Consolidation' };
+        if (data.run_id) this._consolidationRuns().delete(data.run_id);
+        const running = this._consolidationBusyEntry();
+        if (running) {
+            if (data.success) {
+                this._reportConsolidationRunning();
+            } else {
+                this.statusIsland?.report('consolidation', {
+                    state: 'error',
+                    label,
+                    text: { key: 'island.consolidation.failed', fallback: 'Failed ({horizon})', vars },
+                    dismissible: true,
+                    settle: running,
+                });
+            }
+            this._scheduleDashboardRefresh();
+            return;
+        }
         if (data.success) {
             this.statusIsland?.report('consolidation', {
                 state: 'success',
