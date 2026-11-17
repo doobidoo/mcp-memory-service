@@ -606,6 +606,38 @@ def test_collaborator_can_claim(tmp_path, monkeypatch):
     assert api.issue["assignees"] == [{"login": "alice"}]
 
 
+def test_maintainer_prose_is_not_claim_history(tmp_path, monkeypatch):
+    # #2068: a maintainer settling scope in prose that reads like a claim or a
+    # withdrawal must not send a free issue's /claim to manual confirmation.
+    api = GitHub(
+        [
+            comment(
+                10,
+                "doobidoo",
+                "The content exists in another store and no longer names it",
+                author_association="OWNER",
+            ),
+            comment(11, "alice", "/claim"),
+        ]
+    )
+    run_cli(tmp_path, monkeypatch, api)
+    assert api.issue["assignees"] == [{"login": "alice"}]
+    assert not any("maintainer" in r for r in api.replies)
+
+
+def test_own_withdrawal_still_blocks_the_command(tmp_path, monkeypatch):
+    # The same phrase from the claiming contributor stays a withdrawal (#2068).
+    api = GitHub(
+        [
+            comment(10, "alice", "I am no longer working on this"),
+            comment(11, "alice", "/claim"),
+        ]
+    )
+    run_cli(tmp_path, monkeypatch, api)
+    assert not api.issue["assignees"]
+    assert {"name": "claim-pending"} in api.issue["labels"]
+
+
 def test_retry_after_failed_confirmation_does_not_assign_twice(tmp_path, monkeypatch):
     api = GitHub()
     api.fail_comment = True
