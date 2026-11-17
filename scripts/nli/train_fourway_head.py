@@ -132,6 +132,26 @@ def _oversample(rows, seed):
     return out
 
 
+def _weighted_ce(class_weights, id2lbl):
+    """Per-sample weighted cross entropy, plain mean over the batch.
+
+    NOT CrossEntropyLoss's default weighted mean: with reduction="mean"
+    PyTorch divides by the sum of the batch's target weights, so a batch
+    containing a single class cancels its weights entirely — at --batch 1
+    every batch is single-class and `weight` quietly becomes `none`.
+    """
+    import torch
+
+    w = torch.tensor([class_weights.get(id2lbl[i], 1.0)
+                      for i in range(len(id2lbl))], dtype=torch.float32)
+    ce_none = torch.nn.CrossEntropyLoss(weight=w, reduction="none")
+
+    def loss(logits, y):
+        return ce_none(logits, y).sum() / y.size(0)
+
+    return loss
+
+
 def _lr_multiplier(s, total, warm):
     """Linear warmup then decay, nonzero from step zero: a one-step
     adaptation must still learn — a multiplier of 0 at s=0 saved an
@@ -223,7 +243,10 @@ def train(args, lbl, id2lbl):
     if args.resume_from:
         train_rows, skips = read_adapt_pairs(args.adapt_pairs)
         val_rows = []
+        # adapt_pairs counts what the file held, before any balancing —
+        # comparing modes against inflated counts would mislead
         adapt_meta = {"adapted_from": args.resume_from,
+                      "adapt_pairs": len(train_rows),
                       "skipped_labels": skips}
         if args.adapt_balance == "weight":
             class_weights = _balance_weights([r[0] for r in train_rows])
@@ -231,15 +254,16 @@ def train(args, lbl, id2lbl):
             adapt_meta["class_weights"] = {c: round(w, 3)
                                            for c, w in class_weights.items()}
         elif args.adapt_balance == "oversample":
-            before = len(train_rows)
             train_rows = _oversample(train_rows, args.seed)
             adapt_meta["balance"] = "oversample"
             adapt_meta["oversampled_to"] = dict(Counter(r[0] for r in train_rows))
+            adapt_meta["train_rows"] = len(train_rows)
         else:
             adapt_meta["balance"] = "none"
-        adapt_meta["adapt_pairs"] = len(train_rows)
-        log(f"adapt: {len(train_rows)} pairs from {args.adapt_pairs} "
-            f"(balance={args.adapt_balance}), skipped {skips} "
+        extra = (f", {len(train_rows)} rows after oversampling"
+                 if args.adapt_balance == "oversample" else "")
+        log(f"adapt: {adapt_meta['adapt_pairs']} pairs from {args.adapt_pairs} "
+            f"(balance={args.adapt_balance}{extra}), skipped {skips} "
             f"(contradiction has no head class)")
         tok = AutoTokenizer.from_pretrained(args.resume_from)
         model = AutoModelForSequenceClassification.from_pretrained(args.resume_from)
@@ -290,9 +314,7 @@ def train(args, lbl, id2lbl):
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: _lr_multiplier(s, steps, warm))
     if class_weights:
-        w = torch.tensor([class_weights.get(id2lbl[i], 1.0)
-                          for i in range(len(lbl))], dtype=torch.float32)
-        lossf = torch.nn.CrossEntropyLoss(weight=w)
+        lossf = _weighted_ce(class_weights, id2lbl)
     else:
         lossf = torch.nn.CrossEntropyLoss()
 

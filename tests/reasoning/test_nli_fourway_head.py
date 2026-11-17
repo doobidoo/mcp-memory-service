@@ -201,6 +201,25 @@ class TestAdaptPairs:
         # only duplicates of rows that were already there, nothing new
         assert all(r in rows for r in a)
 
+    def test_weighted_ce_survives_single_class_batches(self):
+        """The reason _weighted_ce exists: the default weighted mean divides
+        by the batch's weight sum, so a single-class batch cancels its
+        weights — at batch 1, `weight` would quietly equal `none`."""
+        torch = pytest.importorskip("torch")
+        mod = self._train_mod()
+        id2 = {0: "changes", 1: "ends", 2: "repeats", 3: "unrelated"}
+        lossf = mod._weighted_ce({"changes": 3.0, "unrelated": 1.0}, id2)
+        # a single-class batch of rare-class targets, model confidently wrong
+        logits = torch.tensor([[0.0, 0.0, 0.0, 4.0]] * 2)
+        y = torch.tensor([0, 0])
+        unweighted = torch.nn.CrossEntropyLoss()(logits, y).item()
+        got = lossf(logits, y).item()
+        assert abs(got - 3.0 * unweighted) < 1e-5  # not canceled to 1.0x
+        # majority-class batch: weight 1.0, identical to unweighted
+        y2 = torch.tensor([3, 3])
+        unweighted2 = torch.nn.CrossEntropyLoss()(logits, y2).item()
+        assert abs(lossf(logits, y2).item() - unweighted2) < 1e-5
+
     def test_adapt_balance_choices_enforced(self, tmp_path):
         pairs = tmp_path / "p.jsonl"
         pairs.write_text(json.dumps({"older": "a", "newer": "b",
