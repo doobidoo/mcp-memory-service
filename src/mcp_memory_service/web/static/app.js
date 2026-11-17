@@ -3395,13 +3395,24 @@ class MemoryDashboard {
     async openMemoryFromUrl() {
         const id = this.getMemoryIdFromUrl();
         if (!id) return;
+
+        // The address can change while the request is in flight (Back/Forward):
+        // only act on the result if it still matches the current URL.
+        const isCurrent = () => this.getMemoryIdFromUrl() === id;
+
         try {
             const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}`);
+            if (!isCurrent()) return;
             this.showMemoryDetails(memory);
         } catch (error) {
+            if (!isCurrent()) return; // a stale failure must not touch a newer URL
+
+            // Keep the URL on auth failures so the link survives sign-in
+            if (error.status === 401) return;
+
             if (error.status === 404) {
                 this.showToast(this.t('toast.memoryNotFound', 'This memory could not be found. It may have been deleted or edited.'), 'warning');
-            } else if (error.status !== 401) { // apiCall already routes 401 to the sign-in flow
+            } else {
                 this.showToast(this.t('toast.memoryLoadFailed', 'Failed to load memory'), 'error');
             }
             // Drop the dead param so the address matches what's on screen
@@ -4390,7 +4401,9 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error(this.t('error.authRequired', 'Authentication required'));
+            const authError = new Error(this.t('error.authRequired', 'Authentication required'));
+            authError.status = 401;
+            throw authError;
         }
 
         if (!response.ok) {
