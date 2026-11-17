@@ -681,6 +681,69 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("versioned", [True, False])
+def test_update_memory_content_restores_earlier_text(
+    test_app, initialized_storage, monkeypatch, versioned
+):
+    """Both update paths allow A→B→A and emit replacement events each time."""
+    if not versioned:
+        from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+        monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    original = "Dashboard historical original text"
+    edited = "Dashboard historical edited text"
+    stored = test_app.post("/api/memories", json={"content": original})
+    original_hash = stored.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    changed = test_app.put(
+        f"/api/memories/{original_hash}", json={"content": edited}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["success"] is True
+    edited_hash = changed.json()["content_hash"]
+
+    restored = test_app.put(
+        f"/api/memories/{edited_hash}",
+        json={
+            "content": original,
+            "tags": ["restored"],
+            "memory_type": "decision",
+            "metadata": {"source": "restore-test"},
+        },
+    )
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["success"] is True
+    assert restored.json()["content_hash"] == original_hash
+    assert restored.json()["memory"]["content"] == original
+    assert restored.json()["memory"]["tags"] == ["restored"]
+    assert restored.json()["memory"]["memory_type"] == "decision"
+    assert restored.json()["memory"]["metadata"]["source"] == "restore-test"
+    previous_status = 200 if versioned else 404
+    assert test_app.get(f"/api/memories/{edited_hash}").status_code == previous_status
+    assert test_app.get(f"/api/memories/{original_hash}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [original]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == [
+        "memory_deleted",
+        "memory_stored",
+        "memory_deleted",
+        "memory_stored",
+    ]
+    assert [event.data["content_hash"] for event in events] == [
+        original_hash,
+        edited_hash,
+        edited_hash,
+        original_hash,
+    ]
+
+
+@pytest.mark.integration
 def test_update_memory_content_falls_back_without_versioned_update_support(
     test_app, initialized_storage, monkeypatch
 ):

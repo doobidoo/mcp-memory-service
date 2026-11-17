@@ -208,3 +208,38 @@ async def test_failed_resolve_conflict_keeps_neither_supersede_nor_event(peers, 
         (x,),
     ).fetchone()[0]
     assert count == 0
+
+
+
+@pytest.mark.asyncio
+async def test_restore_after_initial_sync_reaches_peer(peers, monkeypatch):
+    """A historical version restored on one node becomes current on its peer too."""
+    a, b = peers
+    monkeypatch.setenv("MCP_AGENT_ID", "alpha")
+    original = "Synchronized restore original content"
+    edited = "Synchronized restore edited content"
+    h1 = await _store(a, original)
+    _sync(a, b)
+
+    _, _, h2 = await a.update_memory_versioned(h1, edited)
+    _sync(a, b)
+    assert _supersede_state(b, h1)[0] == h2
+    assert _supersede_state(b, h2)[0] is None
+
+    ok, message, restored = await a.update_memory_versioned(h2, original)
+    assert ok, message
+    assert restored == h1
+    restore_event = a.conn.execute(
+        "SELECT payload FROM sync_events WHERE content_hash = ? AND op = 'update_metadata' "
+        "ORDER BY seq DESC LIMIT 1",
+        (h1,),
+    ).fetchone()
+    assert json.loads(restore_event[0])["updates"]["superseded_by"] == ""
+
+    monkeypatch.setenv("MCP_AGENT_ID", "beta")
+    _sync(a, b)
+
+    assert _supersede_state(b, h1) == _supersede_state(a, h1)
+    assert _supersede_state(b, h2) == _supersede_state(a, h2)
+    assert _supersede_state(b, h1)[0] is None
+    assert _supersede_state(b, h2)[0] == h1

@@ -923,6 +923,337 @@ class MetadataMixin:
 
         return enriched
 
+    def _append_restore_event(self, memory: Memory) -> None:
+        """Log a historical version becoming current for delta-sync peers."""
+        if not hasattr(self, "_append_sync_event"):
+            return
+        row = self.conn.execute(
+            "SELECT updated_at FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+            (memory.content_hash,),
+        ).fetchone()
+        if row is None:
+            return
+        payload = {
+            "content_hash": memory.content_hash,
+            "updates": {
+                "tags": memory.tags,
+                "memory_type": memory.memory_type,
+                "metadata": memory.metadata,
+                "superseded_by": "",
+            },
+            "superseded_at": None,
+            "updated_at": row[0],
+        }
+        self._append_sync_event(
+            self.conn, "update_metadata", memory.content_hash, payload
+        )
+
+    def _is_version_family_member(self, content_hash: str, new_hash: str) -> bool:
+        """Return whether two hashes belong to the same bidirectional version chain."""
+        row = self.conn.execute(
+            """
+            WITH RECURSIVE version_family(content_hash) AS (
+                SELECT ?
+                UNION
+                SELECT m.parent_id FROM memories m
+                JOIN version_family f ON m.content_hash = f.content_hash
+                WHERE m.parent_id IS NOT NULL AND m.deleted_at IS NULL
+                UNION
+                SELECT m.content_hash FROM memories m
+                JOIN version_family f ON m.parent_id = f.content_hash
+                WHERE m.deleted_at IS NULL
+            )
+            SELECT 1 FROM version_family WHERE content_hash = ? LIMIT 1
+            """,
+            (content_hash, new_hash),
+        ).fetchone()
+        return row is not None
+
+    def _supersede_for_restore(
+        self,
+        content_hash: str,
+        new_hash: str,
+        reason: Optional[str],
+        now: float,
+        store_sql: str,
+        store_params: Tuple[str, ...],
+    ) -> str:
+        """Mark the current row superseded and return its store partition."""
+        current = self.conn.execute(
+            "SELECT metadata, store FROM memories WHERE content_hash = ? "
+            "AND deleted_at IS NULL AND superseded_by IS NULL" + store_sql,
+            (content_hash, *store_params),
+        ).fetchone()
+        if current is None:
+            raise RuntimeError(
+                f"old version {content_hash[:8]} is no longer current (concurrent update)"
+            )
+
+        old_metadata = self._safe_json_loads(
+            current[0], "restore_previous_version"
+        ) if current[0] else {}
+        old_metadata["superseded_by"] = new_hash
+        if reason:
+            old_metadata["evolution_reason"] = reason
+        superseded = self.conn.execute(
+            "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
+            "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
+            + store_sql,
+            (
+                new_hash,
+                now,
+                json.dumps(old_metadata),
+                content_hash,
+                *store_params,
+            ),
+        )
+        if superseded.rowcount != 1:
+            raise RuntimeError(
+                f"old version {content_hash[:8]} is no longer current (concurrent update)"
+            )
+        return current[1] or "default"
+
+    def _reactivate_version(
+        self,
+        new_hash: str,
+        new_memory: Memory,
+        current_store: str,
+        now: float,
+        store_sql: str,
+        store_params: Tuple[str, ...],
+    ) -> None:
+        """Make a historical row current without changing its lineage columns."""
+        restored = self.conn.execute(
+            "UPDATE memories SET tags = ?, memory_type = ?, metadata = ?, "
+            "updated_at = ?, updated_at_iso = ?, store = ?, "
+            "superseded_by = NULL, superseded_at = NULL "
+            "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
+            (
+                ",".join(new_memory.tags),
+                new_memory.memory_type,
+                json.dumps(new_memory.metadata),
+                now,
+                datetime.utcfromtimestamp(now).isoformat() + "Z",
+                current_store,
+                new_hash,
+                *store_params,
+            ),
+        )
+        if restored.rowcount != 1:
+            raise RuntimeError(
+                f"historical version {new_hash[:8]} is no longer available"
+            )
+
+    def _restore_previous_version_transaction(
+        self,
+        content_hash: str,
+        new_hash: str,
+        new_memory: Memory,
+        reason: Optional[str],
+        store: Optional[str],
+    ) -> Optional[Tuple[bool, str, Optional[str]]]:
+        """Restore atomically when the target belongs to this version family."""
+        if not self._is_version_family_member(content_hash, new_hash):
+            return None
+
+        store_sql, store_params = _store_clause(store)
+        try:
+            now = time.time()
+            current_store = self._supersede_for_restore(
+                content_hash, new_hash, reason, now, store_sql, store_params
+            )
+            self._reactivate_version(
+                new_hash, new_memory, current_store, now, store_sql, store_params
+            )
+            self._append_supersede_event(content_hash)
+            self._append_restore_event(new_memory)
+            self._clear_stale_conflict_tags(
+                [new_hash, *self._contradicts_partners(content_hash)]
+            )
+            self.conn.commit()
+            return True, "Memory restored successfully", new_hash
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    async def _restore_previous_version(
+        self,
+        content_hash: str,
+        new_hash: str,
+        new_memory: Memory,
+        reason: Optional[str],
+        store: Optional[str],
+    ) -> Optional[Tuple[bool, str, Optional[str]]]:
+        """Reactivate a row from the same version family without inserting a duplicate."""
+        result = await self._execute_with_retry(
+            lambda: self._restore_previous_version_transaction(
+                content_hash, new_hash, new_memory, reason, store
+            )
+        )
+        if result is not None:
+            logger.info(
+                "Memory restored: %s → %s",
+                _sanitize_log_value(content_hash[:8]),
+                _sanitize_log_value(new_hash[:8]),
+            )
+        return result
+
+    async def _read_versioned_row(self, content_hash: str, store: Optional[str]):
+        """Read the current row and its inherited fields in the requested store."""
+        store_sql, store_params = _store_clause(store)
+
+        def _read():
+            return self.conn.execute(
+                "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories "
+                "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
+                (content_hash, *store_params),
+            ).fetchone()
+
+        return await self._execute_with_retry(_read)
+
+    def _build_versioned_memory(
+        self,
+        row,
+        new_content: str,
+        new_tags: Optional[List[str]],
+        new_memory_type: Optional[str],
+    ) -> Memory:
+        """Build a new version with inherited tags, type, and custom metadata."""
+        _, old_tags, old_type, _, old_metadata, _ = row
+        resolved_tags = new_tags if new_tags is not None else (
+            [tag for tag in old_tags.split(",") if tag and tag.strip() != CONFLICT_TAG]
+            if old_tags else []
+        )
+        resolved_type = (
+            coerce_memory_type(new_memory_type)
+            if new_memory_type is not None
+            else old_type
+        )
+        inherited_metadata = (
+            self._safe_json_loads(old_metadata, "update_memory_versioned")
+            if old_metadata else {}
+        )
+        inherited_metadata.pop("superseded_by", None)
+        inherited_metadata.pop("evolution_reason", None)
+        return Memory(
+            content=new_content,
+            content_hash=generate_content_hash(new_content),
+            tags=resolved_tags,
+            memory_type=resolved_type,
+            metadata=inherited_metadata,
+        )
+
+    async def _link_new_version(
+        self,
+        old_hash: str,
+        new_hash: str,
+        new_version: int,
+        reason: Optional[str],
+        store: Optional[str],
+    ) -> None:
+        """Link parent and child and supersede the old row in one transaction."""
+        store_sql, store_params = _store_clause(store)
+
+        def _link():
+            try:
+                self.conn.execute(
+                    "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
+                    (old_hash, new_version, new_hash),
+                )
+                row = self.conn.execute(
+                    "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
+                    + store_sql,
+                    (old_hash, *store_params),
+                ).fetchone()
+                old_metadata = self._safe_json_loads(
+                    row[0], "update_memory_versioned"
+                ) if row and row[0] else {}
+                old_metadata["superseded_by"] = new_hash
+                if reason:
+                    old_metadata["evolution_reason"] = reason
+                superseded = self.conn.execute(
+                    "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
+                    "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
+                    + store_sql,
+                    (
+                        new_hash,
+                        time.time(),
+                        json.dumps(old_metadata),
+                        old_hash,
+                        *store_params,
+                    ),
+                )
+                if superseded.rowcount == 0:
+                    raise RuntimeError(
+                        f"old version {old_hash[:8]} is no longer current (concurrent update)"
+                    )
+                self._append_supersede_event(old_hash)
+                self._clear_stale_conflict_tags(
+                    [new_hash, *self._contradicts_partners(old_hash)]
+                )
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+
+        await self._execute_with_retry(_link)
+
+    @staticmethod
+    def _versioned_success_message(store_message: str) -> str:
+        """Preserve storage normalization notes in the versioned-update response."""
+        message = "Memory versioned successfully"
+        store_note = store_message.removeprefix("Memory stored successfully").strip()
+        if store_note:
+            return f"{message} {store_note}"
+        if not store_message.startswith("Memory stored successfully"):
+            return f"{message} ({store_message})"
+        return message
+
+    async def _store_new_version(
+        self,
+        old_hash: str,
+        old_version: Optional[int],
+        old_store: Optional[str],
+        new_memory: Memory,
+        reason: Optional[str],
+        store: Optional[str],
+    ) -> Tuple[bool, str, Optional[str]]:
+        """Store and link a genuinely new version, cleaning up if linking fails."""
+        new_hash = new_memory.content_hash
+        with _exclude_versioned_parent(old_hash):
+            store_ok, store_message = await self.store(
+                new_memory, skip_semantic_dedup=True, store=old_store or "default"
+            )
+        if not store_ok:
+            return False, f"Failed to store new version: {store_message}", None
+
+        new_version = (old_version or 1) + 1
+        try:
+            await self._link_new_version(
+                old_hash, new_hash, new_version, reason, store
+            )
+        except Exception as link_error:
+            try:
+                await self.delete(new_hash)
+            except Exception:
+                logger.error(
+                    "Failed to clean up orphan version %s after link failure",
+                    _sanitize_log_value(new_hash[:8]),
+                )
+            logger.error(
+                "update_memory_versioned link failed: %s",
+                _sanitize_log_value(str(link_error)),
+            )
+            return False, f"Failed to link version: {link_error}", None
+
+        logger.info(
+            "Memory evolved: %s → %s (v%d)",
+            _sanitize_log_value(old_hash[:8]),
+            _sanitize_log_value(new_hash[:8]),
+            new_version,
+        )
+        return True, self._versioned_success_message(store_message), new_hash
+
     async def update_memory_versioned(
         self,
         content_hash: str,
@@ -932,153 +1263,28 @@ class MetadataMixin:
         reason: Optional[str] = None,
         store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
-        """Non-destructive versioned update using existing store/update infrastructure.
-
-        With ``store`` set (other than ``"all"``), a memory in another store
-        is reported as not found and no new version is written (#1875).
-        """
+        """Restore a historical version or store a linked new version."""
         try:
             if not self.conn:
                 return False, "Database not initialized", None
 
-            store_sql, store_params = _store_clause(store)
-
-            def _check_exists():
-                cursor = self.conn.execute(
-                    "SELECT content_hash, tags, memory_type, version, metadata, store FROM memories "
-                    "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
-                    (content_hash, *store_params),
-                )
-                return cursor.fetchone()
-
-            row = await self._execute_with_retry(_check_exists)
+            row = await self._read_versioned_row(content_hash, store)
             if not row:
                 return False, f"Memory {content_hash} not found", None
 
-            old_hash, old_tags_str, old_type, old_version, old_metadata_str, old_store = row
-            # The conflict marker is not inherited (#1840): store() below re-runs
-            # detection for the new version and tags it again only if it still
-            # contradicts a current memory.
-            resolved_tags = new_tags if new_tags is not None else (
-                [t for t in old_tags_str.split(",") if t and t.strip() != CONFLICT_TAG]
-                if old_tags_str else []
+            old_hash, _, _, old_version, _, old_store = row
+            new_memory = self._build_versioned_memory(
+                row, new_content, new_tags, new_memory_type
             )
-            # A caller-supplied type is a new write and gets coerced; an
-            # inherited one is kept as stored, even if this node lacks it.
-            resolved_type = coerce_memory_type(new_memory_type) if new_memory_type is not None else old_type
-
-            # The new version inherits the old row's custom metadata, so keys a
-            # client stored (source, agent fields, ...) survive a versioned
-            # update. Lineage keys stay on the old row only (#1408).
-            inherited_metadata = (
-                self._safe_json_loads(old_metadata_str, "update_memory_versioned")
-                if old_metadata_str
-                else {}
+            restore_result = await self._restore_previous_version(
+                old_hash, new_memory.content_hash, new_memory, reason, store
             )
-            inherited_metadata.pop("superseded_by", None)
-            inherited_metadata.pop("evolution_reason", None)
+            if restore_result is not None:
+                return restore_result
 
-            new_hash = generate_content_hash(new_content)
-            new_memory = Memory(
-                content=new_content,
-                content_hash=new_hash,
-                tags=resolved_tags,
-                memory_type=resolved_type,
-                metadata=inherited_metadata,
+            return await self._store_new_version(
+                old_hash, old_version, old_store, new_memory, reason, store
             )
-            # The new version lives in the old one's store partition, or it drops
-            # out of that store's searches once the old row is superseded.
-            with _exclude_versioned_parent(old_hash):
-                store_ok, store_msg = await self.store(
-                    new_memory, skip_semantic_dedup=True, store=old_store or "default"
-                )
-            if not store_ok:
-                return False, f"Failed to store new version: {store_msg}", None
-
-            # Link the lineage via the migration-011 COLUMNS (not only metadata JSON),
-            # so default retrieval (superseded_by IS NULL), get_memory_history
-            # (parent_id/version) and mark_superseded_batch see a consistent chain (#1318).
-            #
-            # Atomicity: the new-row link and the old-row supersede run in a single
-            # transaction. If it fails, we roll back AND remove the just-stored new
-            # row (store() already committed it separately), so a failed versioning
-            # never leaves an orphaned, unlinked new version behind.
-            new_version = (old_version or 1) + 1
-
-            def _link_and_supersede():
-                try:
-                    # new row: parent + version
-                    self.conn.execute(
-                        "UPDATE memories SET parent_id = ?, version = ? WHERE content_hash = ?",
-                        (old_hash, new_version, new_hash),
-                    )
-                    # old row: superseded_by column (drops it from default search) +
-                    # metadata trace, in the same transaction. Conditional on the old
-                    # row still being current (superseded_by IS NULL) so concurrent
-                    # versioned updates of the same memory don't fork history silently.
-                    mcur = self.conn.execute(
-                        "SELECT metadata FROM memories WHERE content_hash = ? AND deleted_at IS NULL"
-                        + store_sql,
-                        (old_hash, *store_params),
-                    )
-                    mrow = mcur.fetchone()
-                    old_meta = self._safe_json_loads(mrow[0], "update_memory_versioned") if mrow and mrow[0] else {}
-                    old_meta["superseded_by"] = new_hash
-                    if reason:
-                        old_meta["evolution_reason"] = reason
-                    cur = self.conn.execute(
-                        # Issue #1724: superseded_at in the same UPDATE. For
-                        # update_memory_versioned this is exact: the new row is
-                        # written in the same call, so now == its created_at.
-                        "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
-                        "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
-                        + store_sql,
-                        (new_hash, time.time(), json.dumps(old_meta), old_hash, *store_params),
-                    )
-                    if cur.rowcount == 0:
-                        # Another versioned update already superseded this row, it
-                        # vanished, or sync moved it to another store while store()
-                        # ran (#1875). Abort rather than fork the chain or reach
-                        # across stores; the caller removes the new row.
-                        raise RuntimeError(
-                            f"old version {old_hash[:8]} is no longer current (concurrent update)"
-                        )
-                    # Issue #1773: the new version's create is already logged; log the
-                    # supersede of the old row too, in this same transaction.
-                    self._append_supersede_event(old_hash)
-                    # Issue #1840: the old version no longer keeps its conflicts alive,
-                    # and tags passed explicitly may echo a marker the new version has
-                    # no partner for.
-                    self._clear_stale_conflict_tags(
-                        [new_hash, *self._contradicts_partners(old_hash)]
-                    )
-                    self.conn.commit()
-                except Exception:
-                    self.conn.rollback()
-                    raise
-
-            try:
-                await self._execute_with_retry(_link_and_supersede)
-            except Exception as link_err:
-                # Compensate the already-committed store(): drop the orphan new row.
-                try:
-                    await self.delete(new_hash)
-                except Exception:
-                    logger.error("Failed to clean up orphan version %s after link failure",
-                                 _sanitize_log_value(new_hash[:8]))
-                logger.error("update_memory_versioned link failed: %s", _sanitize_log_value(str(link_err)))
-                return False, f"Failed to link version: {link_err}", None
-
-            logger.info("Memory evolved: %s → %s (v%d)",
-                        _sanitize_log_value(old_hash[:8]), _sanitize_log_value(new_hash[:8]), new_version)
-            versioned_message = "Memory versioned successfully"
-            store_note = store_msg.removeprefix("Memory stored successfully").strip()
-            if store_note:
-                versioned_message += f" {store_note}"
-            elif not store_msg.startswith("Memory stored successfully"):
-                versioned_message += f" ({store_msg})"
-            return True, versioned_message, new_hash
-
         except Exception as e:
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(str(e)))
             return False, str(e), None

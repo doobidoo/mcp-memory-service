@@ -172,3 +172,100 @@ async def test_second_update_of_already_superseded_old_is_refused(storage):
     assert ok2 is False, "updating an already-superseded row must be refused, not forked"
     # ...and the original forward link is untouched (still points to h2, not overwritten).
     assert _columns(storage, old)["superseded_by"] == h2
+
+
+
+@pytest.mark.asyncio
+async def test_restore_historical_content_preserves_lineage_and_allows_repeated_edits(storage):
+    """A→B→A→B restores existing rows instead of rejecting their hashes."""
+    original = "Restore cycle original content."
+    edited = "Restore cycle edited content."
+    h1 = await _store(storage, original)
+    ok2, _, h2 = await storage.update_memory_versioned(h1, edited)
+    ok3, _, restored_h1 = await storage.update_memory_versioned(h2, original)
+    ok4, _, restored_h2 = await storage.update_memory_versioned(h1, edited)
+
+    assert ok2 and ok3 and ok4
+    assert restored_h1 == h1
+    assert restored_h2 == h2
+    assert storage.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 2
+    assert _columns(storage, h1) == {
+        "superseded_by": h2,
+        "parent_id": None,
+        "version": 1,
+    }
+    assert _columns(storage, h2) == {
+        "superseded_by": None,
+        "parent_id": h1,
+        "version": 2,
+    }
+    history = await storage.get_memory_history(h1)
+    assert [row["content_hash"] for row in history] == [h1, h2]
+    assert [row["active"] for row in history] == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_restore_middle_version_keeps_three_version_lineage(storage):
+    """Restoring B from C keeps A→B→C intact and makes only B current."""
+    contents = ["Three-version A.", "Three-version B.", "Three-version C."]
+    h1 = await _store(storage, contents[0])
+    _, _, h2 = await storage.update_memory_versioned(h1, contents[1])
+    _, _, h3 = await storage.update_memory_versioned(h2, contents[2])
+
+    ok, message, restored = await storage.update_memory_versioned(h3, contents[1])
+
+    assert ok, message
+    assert restored == h2
+    assert _columns(storage, h1)["superseded_by"] == h2
+    assert _columns(storage, h2)["superseded_by"] is None
+    assert _columns(storage, h3) == {
+        "superseded_by": h2,
+        "parent_id": h2,
+        "version": 3,
+    }
+    history = await storage.get_memory_history(h1)
+    assert [row["content_hash"] for row in history] == [h1, h2, h3]
+    assert [row["active"] for row in history] == [False, True, False]
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_rejects_hash_from_unrelated_memory(storage):
+    """Exact dedup still applies when the matching row is outside this history."""
+    current = await _store(storage, "Current memory with unrelated duplicate guard.")
+    other = await _store(storage, "Independent memory with unrelated duplicate guard.")
+
+    ok, message, restored = await storage.update_memory_versioned(
+        current, "Independent memory with unrelated duplicate guard."
+    )
+
+    assert not ok
+    assert restored is None
+    assert "Duplicate content" in message
+    assert _columns(storage, current)["superseded_by"] is None
+    assert _columns(storage, other)["superseded_by"] is None
+
+
+
+@pytest.mark.asyncio
+async def test_failed_restore_rolls_back_supersession_and_events(storage, monkeypatch):
+    """A failed historical reactivation leaves the current row and event log unchanged."""
+    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
+    original = "Atomic restore original content."
+    edited = "Atomic restore edited content."
+    h1 = await _store(storage, original)
+    _, _, h2 = await storage.update_memory_versioned(h1, edited)
+    event_count = storage.conn.execute("SELECT COUNT(*) FROM sync_events").fetchone()[0]
+    storage.conn.execute(
+        f"CREATE TRIGGER fail_historical_restore BEFORE UPDATE OF tags ON memories "
+        f"WHEN OLD.content_hash = '{h1}' BEGIN SELECT RAISE(ABORT, 'restore failed'); END"
+    )
+    storage.conn.commit()
+
+    ok, message, restored = await storage.update_memory_versioned(h2, original)
+
+    assert not ok
+    assert restored is None
+    assert "restore failed" in message
+    assert _columns(storage, h1)["superseded_by"] == h2
+    assert _columns(storage, h2)["superseded_by"] is None
+    assert storage.conn.execute("SELECT COUNT(*) FROM sync_events").fetchone()[0] == event_count
