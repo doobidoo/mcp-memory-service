@@ -172,6 +172,68 @@ class TestAdaptPairs:
             mod.read_adapt_pairs(str(f))
         assert "line 2" in str(e.value) and "unknown label" in str(e.value)
 
+    def test_balance_weights_inverse_frequency_mean_one(self):
+        mod = self._train_mod()
+        # 3:1 imbalance -> the rare class carries 1.5, the common 0.5
+        labels = ["changes"] * 3 + ["unrelated"] * 9
+        w = mod._balance_weights(labels)
+        assert w == {"changes": 1.5, "unrelated": 0.5}
+        # the shape that collapsed in the fourth real-store run
+        labels = ["changes"] * 23 + ["unrelated"] * 151
+        w = mod._balance_weights(labels)
+        assert round(sum(w.values()) / len(w), 3) == 1.0
+        assert w["changes"] > 6 * w["unrelated"]
+        # single-class sets stay unweighted
+        assert mod._balance_weights(["unrelated"] * 10) == {
+            "unrelated": 1.0}
+
+    def test_oversample_balances_deterministically(self):
+        mod = self._train_mod()
+        rows = ([("changes", f"o{i}", f"n{i}") for i in range(3)]
+                + [("unrelated", f"o{i}x", f"n{i}x") for i in range(9)])
+        a = mod._oversample(rows, seed=13)
+        b = mod._oversample(rows, seed=13)
+        assert a == b  # seeded: same fold, same duplication
+        counts = {}
+        for g, *_ in a:
+            counts[g] = counts.get(g, 0) + 1
+        assert counts == {"changes": 9, "unrelated": 9}
+        # only duplicates of rows that were already there, nothing new
+        assert all(r in rows for r in a)
+
+    def test_weighted_ce_survives_single_class_batches(self):
+        """The reason _weighted_ce exists: the default weighted mean divides
+        by the batch's weight sum, so a single-class batch cancels its
+        weights — at batch 1, `weight` would quietly equal `none`."""
+        torch = pytest.importorskip("torch")
+        mod = self._train_mod()
+        id2 = {0: "changes", 1: "ends", 2: "repeats", 3: "unrelated"}
+        lossf = mod._weighted_ce({"changes": 3.0, "unrelated": 1.0}, id2)
+        # a single-class batch of rare-class targets, model confidently wrong
+        logits = torch.tensor([[0.0, 0.0, 0.0, 4.0]] * 2)
+        y = torch.tensor([0, 0])
+        unweighted = torch.nn.CrossEntropyLoss()(logits, y).item()
+        got = lossf(logits, y).item()
+        assert abs(got - 3.0 * unweighted) < 1e-5  # not canceled to 1.0x
+        # majority-class batch: weight 1.0, identical to unweighted
+        y2 = torch.tensor([3, 3])
+        unweighted2 = torch.nn.CrossEntropyLoss()(logits, y2).item()
+        assert abs(lossf(logits, y2).item() - unweighted2) < 1e-5
+
+    def test_adapt_balance_choices_enforced(self, tmp_path):
+        pairs = tmp_path / "p.jsonl"
+        pairs.write_text(json.dumps({"older": "a", "newer": "b",
+                                     "label": "neutral"}) + "\n",
+                         encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "train_fourway_head.py"),
+             "--adapt-pairs", str(pairs), "--resume-from", str(tmp_path),
+             "--adapt-balance", "magic"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode != 0
+        assert "invalid choice" in proc.stderr
+
     def test_lr_multiplier_is_never_zero_inside_a_run(self):
         """A one-step adaptation must still learn: step 0 used to carry a
         zero multiplier and saved an unchanged head."""
