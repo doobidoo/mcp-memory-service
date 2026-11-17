@@ -140,7 +140,11 @@ class FileIngestionProcessor:
             )
 
             # Get appropriate document loader
-            loader = get_loader_for_file(file_path)
+            loader = get_loader_for_file(
+                file_path,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+            )
             if loader is None:
                 self.all_errors.append(f"{file_path.name}: Unsupported format")
                 self.files_failed += 1

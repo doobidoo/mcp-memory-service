@@ -93,7 +93,7 @@ async def handle_ingest_document(server, arguments: dict) -> List[types.TextCont
                 text=f"Error: File not found: {file_path}"
             )]
 
-        loader = get_loader_for_file(file_path)
+        loader = get_loader_for_file(file_path, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         if loader is None:
             from ...ingestion import SUPPORTED_FORMATS
             supported_exts = ", ".join(f".{ext}" for ext in SUPPORTED_FORMATS.keys())
