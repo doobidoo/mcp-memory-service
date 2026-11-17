@@ -1,7 +1,7 @@
 """
 Tests for P5: Bootstrap Profile (RFC Self-Service Memory Intelligence).
 
-The get_bootstrap_profile tool generates a confidence-weighted behavioral
+The memory_bootstrap_profile tool generates a confidence-weighted behavioral
 profile for ephemeral agents to load at spawn.
 """
 
@@ -18,7 +18,7 @@ def enable_bootstrap(monkeypatch):
 
 
 class TestBootstrapProfile:
-    """P5: get_bootstrap_profile tool."""
+    """P5: memory_bootstrap_profile tool."""
 
     @pytest.mark.asyncio
     async def test_get_bootstrap_profile_tool_registered(self):
@@ -26,13 +26,13 @@ class TestBootstrapProfile:
         server = MemoryServer()
         tools = await server.handle_list_tools()
         tool_names = [t.name for t in tools]
-        assert "get_bootstrap_profile" in tool_names
+        assert "memory_bootstrap_profile" in tool_names
 
     @pytest.mark.asyncio
     async def test_get_bootstrap_profile_basic(self):
         """Basic call returns a profile string."""
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
         assert isinstance(result, list)
@@ -55,7 +55,7 @@ class TestBootstrapProfile:
                 "correct_action": "Always run tests before push",
             })
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
         text = result[0].text
@@ -79,7 +79,7 @@ class TestBootstrapProfile:
             }
         })
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
         text = result[0].text
@@ -89,7 +89,7 @@ class TestBootstrapProfile:
     async def test_bootstrap_profile_respects_token_budget(self):
         """Profile should not exceed max_tokens."""
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "max_tokens": 100,  # Very small budget
         })
@@ -124,7 +124,7 @@ class TestBootstrapProfile:
             }
         })
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro", "spock"],
         })
         text = result[0].text
@@ -135,7 +135,7 @@ class TestBootstrapProfile:
     async def test_bootstrap_profile_with_project_filter(self):
         """Profile can be scoped to a specific project."""
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "project_id": "mir",
         })
@@ -147,7 +147,7 @@ class TestBootstrapProfile:
     async def test_bootstrap_profile_has_version_and_metadata(self):
         """Profile response should include version info."""
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
         text = result[0].text
@@ -159,7 +159,7 @@ class TestBootstrapProfile:
         """When MCP_BOOTSTRAP_ENABLED is not set, profile returns disabled message."""
         monkeypatch.delenv("MCP_BOOTSTRAP_ENABLED", raising=False)
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
         text = result[0].text

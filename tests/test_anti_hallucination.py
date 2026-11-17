@@ -257,12 +257,12 @@ def test_tool_annotations_readonlyhint():
     """Verify readOnlyHint is correct for quarantine tools by checking registry source."""
     from mcp_memory_service.tools.registry import TOOL_REGISTRY
 
-    # get_quarantined_memories should have readOnlyHint=True
-    get_tool = next(t for t in TOOL_REGISTRY if t.name == "get_quarantined_memories")
+    # memory_quarantine_list should have readOnlyHint=True
+    get_tool = next(t for t in TOOL_REGISTRY if t.name == "memory_quarantine_list")
     assert get_tool.annotations.get("readOnlyHint") is True
 
-    # unquarantine_memory should have readOnlyHint=False
-    unq_tool = next(t for t in TOOL_REGISTRY if t.name == "unquarantine_memory")
+    # memory_quarantine_release should have readOnlyHint=False
+    unq_tool = next(t for t in TOOL_REGISTRY if t.name == "memory_quarantine_release")
     assert unq_tool.annotations.get("readOnlyHint") is False
 
 
@@ -271,8 +271,8 @@ async def test_quarantine_threshold_from_env():
     """CONTRADICTION_THRESHOLD reads from env."""
     with patch.dict(os.environ, {"MCP_QUARANTINE_CONTRADICTION_THRESHOLD": "5"}):
         # Re-import to pick up env
-        import importlib
-        import mcp_memory_service.consolidation.quarantine as q_mod
+        import importlib  # inline import: reload under a patched environment
+        import mcp_memory_service.consolidation.quarantine as q_mod  # inline import: reloaded below
         importlib.reload(q_mod)
         assert q_mod.CONTRADICTION_THRESHOLD == 5
 

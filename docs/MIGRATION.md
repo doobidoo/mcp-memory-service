@@ -201,6 +201,30 @@ warnings.filterwarnings('error', category=DeprecationWarning)
 4. **Better Discovery**: Clearer naming with `memory_*` prefix
 5. **MCP Compliance**: Follows best practice of 5-15 tools per server
 
+## Tool renames to the `memory_*` prefix (after v12.11.0)
+
+Five tools that did not follow the `memory_*` naming pattern were renamed. There is
+no alias layer since v11, so the old names stop working with the release that ships
+this change. A call to an old name returns an unknown-tool error.
+
+| Old Tool | New Tool | Notes |
+|----------|----------|-------|
+| `commit_session_legacy` | `memory_commit_session` | Arguments unchanged |
+| `get_bootstrap_profile` | `memory_bootstrap_profile` | Arguments unchanged |
+| `get_onboarding_guide` | `memory_onboarding_guide` | Arguments unchanged |
+| `get_quarantined_memories` | `memory_quarantine_list` | Arguments unchanged |
+| `unquarantine_memory` | `memory_quarantine_release` | Arguments unchanged |
+
+What to update on your side:
+
+- Prompts, agent instructions and steering files that name one of the old tools.
+- Tool allowlists and permission rules, for example `mcp__memory__get_bootstrap_profile`
+  in a Claude Code `settings.json`.
+- Scripts that call the tools over the HTTP `/mcp` endpoint.
+
+Stored data is not affected. Memories written by `commit_session_legacy` keep their
+content and tags and are read by `memory_bootstrap_profile` as before.
+
 ## Support
 
 - **Documentation**: See README.md and CLAUDE.md

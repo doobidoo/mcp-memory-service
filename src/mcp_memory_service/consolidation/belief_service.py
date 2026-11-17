@@ -54,7 +54,7 @@ _NOISE_PREFIXES = (
     "[TREND]",    # auto trend statistic — investigação 31/out
     "# Session Summary",
     "## Session Summary",
-    "Session: ",  # commit_session_legacy entries (#121 follow-up)
+    "Session: ",  # memory_commit_session entries (#121 follow-up)
 )
 
 _NOISE_PATTERNS = [
