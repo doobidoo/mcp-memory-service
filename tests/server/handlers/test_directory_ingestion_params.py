@@ -174,6 +174,54 @@ class TestFileIngestionProcessorParams:
         overlap_snippet = chunk0_content[-50:].strip()
         assert any(word in chunk1_content for word in overlap_snippet.split() if len(word) > 4)
 
+    def test_text_chunker_zero_overlap_returns_empty_string(self):
+        """Verify _get_overlap_text returns empty string when chunk_overlap is 0."""
+        from mcp_memory_service.ingestion.chunker import TextChunker, ChunkingStrategy
+        strategy = ChunkingStrategy(chunk_size=300, chunk_overlap=0)
+        chunker = TextChunker(strategy)
+        text = "This is a paragraph with several sentences. Another sentence follows. Final sentence here."
+        assert chunker._get_overlap_text(text) == ""
+
+    @pytest.mark.asyncio
+    async def test_process_file_with_zero_overlap_has_no_repeated_paragraphs(self, tmp_path):
+        """Verify chunk_overlap=0 produces distinct chunks without prepending earlier paragraphs."""
+        mock_storage = AsyncMock()
+        processor = FileIngestionProcessor(
+            storage=mock_storage,
+            chunk_size=300,
+            base_tags=["base"],
+            chunk_overlap=0,
+            memory_type="reference",
+            store="notes",
+        )
+
+        p0 = "Alpha Section: " + "First distinct paragraph details. " * 5
+        p1 = "Beta Section: " + "Second distinct paragraph details. " * 5
+        p2 = "Gamma Section: " + "Third distinct paragraph details. " * 5
+        sample_file = tmp_path / "distinct.txt"
+        sample_file.write_text(f"{p0}\n\n{p1}\n\n{p2}", encoding="utf-8")
+
+        stored_chunks = []
+
+        async def _capture_store(chunk, *args, **kwargs):
+            stored_chunks.append(chunk.content)
+            return (True, None)
+
+        with patch("mcp_memory_service.utils.document_processing._process_and_store_chunk", side_effect=_capture_store):
+            await processor.process_file(
+                file_path=sample_file,
+                file_index=1,
+                total_files=1,
+                directory_name="test_dir",
+            )
+
+        assert len(stored_chunks) >= 2
+        # Verify chunk 1 does not repeat any content from paragraph 0 (Alpha)
+        assert "Alpha Section" in stored_chunks[0]
+        assert "Alpha Section" not in stored_chunks[1]
+        if len(stored_chunks) > 2:
+            assert "Beta Section" not in stored_chunks[2]
+
 
 class TestHandleIngestDirectoryParams:
     """Test parameter parsing in handle_ingest_directory."""

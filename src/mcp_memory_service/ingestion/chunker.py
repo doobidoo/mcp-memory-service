@@ -240,6 +240,9 @@ class TextChunker:
         Returns:
             Overlap text to include in next chunk
         """
+        if self.strategy.chunk_overlap <= 0:
+            return ""
+
         if len(text) <= self.strategy.chunk_overlap:
             return text + " "
         
