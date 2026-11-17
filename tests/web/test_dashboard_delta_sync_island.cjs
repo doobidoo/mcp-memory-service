@@ -57,7 +57,8 @@ test('a failing peer makes the source an error that names it', async () => {
     await app.checkSyncStatus();
     const [, entry] = island.reports.at(-1);
     assert.equal(entry.state, 'error');
-    assert.equal(entry.dismissible, true);
+    // No dismiss: the next poll would report the same error again (#2003).
+    assert.equal(entry.dismissible, undefined);
     assert.equal(entry.text.key, 'sync.deltaSync.failed');
     assert.equal(JSON.stringify(entry.text.vars), JSON.stringify({ peer: 'hub-a' }));
 });
@@ -105,6 +106,57 @@ test('a cycle still running shows Syncing, not Pending', async () => {
     const [, entry] = island.reports.at(-1);
     assert.equal(entry.state, 'ready');
     assert.equal(entry.text.key, 'sync.status.syncing');
+});
+
+test('one peer finishing does not cover another peer\'s error', async () => {
+    const peers = [
+        { ...peersReady[0], peer_id: 'hub-a', health: 'synced' },
+        { ...peersReady[0], peer_id: 'hub-b', health: 'error', status: 'error', last_error: 'connection refused' },
+    ];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers }) }));
+    await app.checkSyncStatus();
+    const reportsBefore = island.reports.length;
+    app._scheduleDashboardRefresh = () => {};
+    app.handleSyncDeltaCompleted({ peer_id: 'hub-a', success: true });
+    assert.equal(island.reports.length, reportsBefore, 'the failing peer\'s error must stand');
+});
+
+test('a confirmation settles to the peers\' combined state, not a blanket Synced', async () => {
+    const peers = [{ ...peersReady[0], health: 'incomplete', last_error: 'ontology backlog' }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers }) }));
+    await app.checkSyncStatus();
+    island.reports.length = 0;
+    app._scheduleDashboardRefresh = () => {};
+    app.handleSyncDeltaCompleted({ peer_id: 'hub-a', success: true });
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'success');
+    assert.equal(entry.settle.text.key, 'sync.status.incomplete');
+});
+
+test('the poll can correct a confirmation with the peers\' own state', async () => {
+    const peers = [{ ...peersReady[0], health: 'incomplete', last_error: 'ontology backlog' }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers }) }));
+    island.get = (id) => (id === 'delta-sync' ? { state: 'success' } : null);
+    await app.checkSyncStatus();
+    const [id, entry] = island.reports.at(-1);
+    assert.equal(id, 'delta-sync');
+    assert.equal(entry.text.key, 'sync.status.incomplete');
+});
+
+test('a configured but disabled schedule reports Disabled, not Pending', async () => {
+    const peers = [{ peer_id: 'hub-a', status: 'pending', health: 'pending' }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, enabled: false, status: 'disabled' }) }));
+    await app.checkSyncStatus();
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'ready');
+    assert.equal(entry.text.key, 'sync.status.disabled');
+});
+
+test('a peer error stays visible while the schedule is disabled', async () => {
+    const peers = [{ peer_id: 'hub-a', status: 'error', health: 'error', last_error: 'refused' }];
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta({ peers, enabled: false, status: 'disabled' }) }));
+    await app.checkSyncStatus();
+    assert.equal(island.reports.at(-1)[1].state, 'error');
 });
 
 test('a failure leads over a cycle that is running elsewhere', async () => {
