@@ -74,10 +74,19 @@ class MemoryCreateRequest(BaseModel):
 
 
 class MemoryUpdateRequest(BaseModel):
-    """Request model for updating memory metadata (tags, type, metadata only)."""
+    """Request model for updating memory content, tags, type, and metadata."""
+    content: Optional[str] = Field(None, description="Updated memory content, stored as a new version")
     tags: Optional[List[str]] = Field(None, description="Updated tags to categorize the memory")
     memory_type: Optional[str] = Field(None, description="Updated memory type (e.g., 'note', 'reminder', 'fact')")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Updated metadata for the memory")
+
+    @field_validator("content")
+    @classmethod
+    def _content_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
+        """Reject blank content instead of creating a zero-vector version."""
+        if value is not None and not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
 
 
 class MemoryResponse(BaseModel):
@@ -525,13 +534,14 @@ async def update_memory(
     request: MemoryUpdateRequest,
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_store_write)
 ):
-    """
-    Update memory metadata (tags, type, metadata) without changing content or timestamps.
+    """Update a memory in place, or store changed content as its next version.
 
-    This endpoint allows updating only the metadata aspects of a memory while preserving
-    the original content and creation timestamp. Only provided fields will be updated.
+    Tags, type, and metadata updates preserve the content and creation timestamp.
+    Changed content goes through the service's versioned-update path, which keeps
+    lineage and does not run semantic deduplication against the original memory.
     """
     if store == "all":
         raise HTTPException(
@@ -544,6 +554,31 @@ async def update_memory(
         existing_memory = await storage.get_by_hash(content_hash, store=resolve_store(store))
         if not existing_memory:
             raise HTTPException(status_code=404, detail=f"Memory with hash {content_hash} not found")
+
+        if request.content is not None and request.content != existing_memory.content:
+            success, message, new_hash = await memory_service.evolve_memory(
+                content_hash,
+                request.content,
+                tags=request.tags,
+                memory_type=request.memory_type,
+                metadata=request.metadata,
+                store=resolve_store(store),
+            )
+            if success and new_hash:
+                updated_memory = await storage.get_by_hash(
+                    new_hash, store=resolve_store(store)
+                )
+                return MemoryUpdateResponse(
+                    success=True,
+                    message=message,
+                    content_hash=new_hash,
+                    memory=memory_to_response(updated_memory) if updated_memory else None,
+                )
+            return MemoryUpdateResponse(
+                success=False,
+                message=message,
+                content_hash=content_hash,
+            )
 
         # Build the updates dictionary with only provided fields
         updates = {}

@@ -3264,53 +3264,19 @@ class MemoryDashboard {
             let successMessage;
 
             if (this.editingMemory) {
-                // Smart update: check if only metadata changed vs content changes
                 const originalContentHash = this.editingMemory.content_hash;
-                const contentChanged = this.editingMemory.content !== payload.content;
-
-
-                if (!contentChanged) {
-                    // Only metadata (tags, type, metadata) changed - use PUT endpoint
-                    const updatePayload = {
-                        tags: payload.tags,
-                        memory_type: payload.memory_type,
-                        metadata: payload.metadata
-                    };
-
-                    response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
-                    successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
-                } else {
-                    // Content changed - use create-delete approach (but with proper error handling)
-
-                    try {
-                        // Step 1: Create updated memory first
-                        response = await this.apiCall('/memories', 'POST', payload);
-
-                        // CRITICAL: Only proceed with deletion if creation actually succeeded
-                        if (response.success) {
-                            successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
-
-                            try {
-                                // Step 2: Delete original memory (only after successful creation)
-                                const deleteResponse = await this.apiCall(`/memories/${originalContentHash}`, 'DELETE');
-                            } catch (deleteError) {
-                                console.error('Failed to delete original memory after creating new version:', deleteError);
-                                this.showToast(
-                                    this.t('toast.duplicateMemoryWarning', 'Memory updated, but original version still exists. You may need to manually delete the duplicate.'),
-                                    'warning'
-                                );
-                            }
-                        } else {
-                            // Creation failed - do NOT delete original memory
-                            console.error('Creation failed:', response.message);
-                            throw new Error(`Failed to create updated memory: ${response.message}`);
-                        }
-                    } catch (createError) {
-                        // CREATE failed - original memory intact, no cleanup needed
-                        console.error('Failed to create updated memory:', createError);
-                        throw new Error(`Failed to update memory: ${createError.message}`);
-                    }
+                const updatePayload = {
+                    tags: payload.tags,
+                    memory_type: payload.memory_type,
+                    metadata: payload.metadata
+                };
+                // The form trims content, so outer whitespace alone is not an edit.
+                if (this.editingMemory.content.trim() !== payload.content) {
+                    updatePayload.content = payload.content;
                 }
+
+                response = await this.apiCall(`/memories/${originalContentHash}`, 'PUT', updatePayload);
+                successMessage = this.t('toast.memoryUpdatedSuccess', 'Memory updated successfully');
             } else {
                 // Create new memory
                 response = await this.apiCall('/memories', 'POST', payload);

@@ -638,6 +638,50 @@ def test_store_memory_reports_semantic_dedup_outcome(
 
 
 @pytest.mark.integration
+def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
+    test_app, initialized_storage
+):
+    """An edit must not be rejected as a semantic duplicate of its original."""
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = "reject"
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    _install_cosine_embeddings(initialized_storage, [(old, None), (new, cosine)])
+
+    first = test_app.post("/api/memories", json={"content": old, "tags": ["original"]})
+    assert first.status_code == 200, first.text
+    old_hash = first.json()["content_hash"]
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}",
+        json={"content": new, "tags": ["edited"], "memory_type": "observation"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == new
+    assert body["memory"]["tags"] == ["edited"]
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [new]
+
+
+@pytest.mark.integration
+def test_update_memory_rejects_blank_content(test_app):
+    stored = test_app.post("/api/memories", json={"content": "Keep this memory"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": " \n\t "})
+
+    assert response.status_code == 422, response.text
+    current = test_app.get(f"/api/memories/{old_hash}")
+    assert current.status_code == 200
+    assert current.json()["content"] == "Keep this memory"
+
+
+@pytest.mark.integration
 def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_storage, monkeypatch):
     """A split REST write names the memory a chunk superseded."""
     from mcp_memory_service.utils.content_splitter import split_content
