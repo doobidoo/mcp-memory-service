@@ -17,6 +17,7 @@ hidden") promise the column behaviour, so these assert the promise.
 import os
 import shutil
 import tempfile
+import time
 
 import pytest
 import pytest_asyncio
@@ -176,56 +177,46 @@ async def test_second_update_of_already_superseded_old_is_refused(storage):
 
 
 @pytest.mark.asyncio
-async def test_restore_historical_content_preserves_lineage_and_allows_repeated_edits(storage):
-    """A→B→A→B restores existing rows instead of rejecting their hashes."""
+async def test_repeated_content_creates_linked_versions_with_monotonic_numbers(storage):
+    """A→B→A→B keeps four distinct rows and a monotonic history."""
     original = "Restore cycle original content."
     edited = "Restore cycle edited content."
     h1 = await _store(storage, original)
     ok2, _, h2 = await storage.update_memory_versioned(h1, edited)
-    ok3, _, restored_h1 = await storage.update_memory_versioned(h2, original)
-    ok4, _, restored_h2 = await storage.update_memory_versioned(h1, edited)
+    ok3, _, repeated_h1 = await storage.update_memory_versioned(h2, original)
+    ok4, _, repeated_h2 = await storage.update_memory_versioned(repeated_h1, edited)
 
     assert ok2 and ok3 and ok4
-    assert restored_h1 == h1
-    assert restored_h2 == h2
-    assert storage.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 2
-    assert _columns(storage, h1) == {
-        "superseded_by": h2,
-        "parent_id": None,
-        "version": 1,
-    }
-    assert _columns(storage, h2) == {
-        "superseded_by": None,
-        "parent_id": h1,
-        "version": 2,
-    }
+    hashes = [h1, h2, repeated_h1, repeated_h2]
+    assert len(set(hashes)) == 4
+    assert storage.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 4
     history = await storage.get_memory_history(h1)
-    assert [row["content_hash"] for row in history] == [h1, h2]
-    assert [row["active"] for row in history] == [False, True]
+    assert [row["content_hash"] for row in history] == hashes
+    assert [row["version"] for row in history] == [1, 2, 3, 4]
+    assert [row["active"] for row in history] == [False, False, False, True]
+    for previous, current in zip(history, history[1:]):
+        assert current["parent_id"] == previous["content_hash"]
+        assert previous["superseded_by"] == current["content_hash"]
 
 
 @pytest.mark.asyncio
-async def test_restore_middle_version_keeps_three_version_lineage(storage):
-    """Restoring B from C keeps A→B→C intact and makes only B current."""
+async def test_repeated_middle_content_appends_to_three_version_lineage(storage):
+    """Repeating B from C appends v4 instead of reactivating B as v2."""
     contents = ["Three-version A.", "Three-version B.", "Three-version C."]
     h1 = await _store(storage, contents[0])
     _, _, h2 = await storage.update_memory_versioned(h1, contents[1])
     _, _, h3 = await storage.update_memory_versioned(h2, contents[2])
 
-    ok, message, restored = await storage.update_memory_versioned(h3, contents[1])
+    ok, message, repeated = await storage.update_memory_versioned(h3, contents[1])
 
     assert ok, message
-    assert restored == h2
-    assert _columns(storage, h1)["superseded_by"] == h2
-    assert _columns(storage, h2)["superseded_by"] is None
-    assert _columns(storage, h3) == {
-        "superseded_by": h2,
-        "parent_id": h2,
-        "version": 3,
-    }
+    assert repeated not in {h1, h2, h3}
     history = await storage.get_memory_history(h1)
-    assert [row["content_hash"] for row in history] == [h1, h2, h3]
-    assert [row["active"] for row in history] == [False, True, False]
+    assert [row["content_hash"] for row in history] == [h1, h2, h3, repeated]
+    assert [row["version"] for row in history] == [1, 2, 3, 4]
+    assert [row["active"] for row in history] == [False, False, False, True]
+    assert history[-1]["parent_id"] == h3
+    assert history[-2]["superseded_by"] == repeated
 
 
 @pytest.mark.asyncio
@@ -247,25 +238,75 @@ async def test_versioned_update_rejects_hash_from_unrelated_memory(storage):
 
 
 @pytest.mark.asyncio
-async def test_failed_restore_rolls_back_supersession_and_events(storage, monkeypatch):
-    """A failed historical reactivation leaves the current row and event log unchanged."""
-    monkeypatch.setenv("MCP_SYNC_EVENTLOG", "true")
-    original = "Atomic restore original content."
-    edited = "Atomic restore edited content."
+async def test_same_hash_capitalization_change_is_saved_as_a_new_version(storage):
+    """Normalized-hash collisions must not report success without saving the text."""
+    original = "hello"
+    h1 = await _store(storage, original)
+
+    ok, message, h2 = await storage.update_memory_versioned(h1, "Hello")
+
+    assert ok, message
+    assert h2 != h1
+    assert (await storage.get_by_hash(h2)).content == "Hello"
+    assert (await storage.get_by_hash(h1)).content == "hello"
+    assert _columns(storage, h1)["superseded_by"] == h2
+    assert _columns(storage, h2) == {
+        "superseded_by": None,
+        "parent_id": h1,
+        "version": 2,
+    }
+
+
+
+@pytest.mark.asyncio
+async def test_repeated_content_preserves_point_in_time_visibility(storage):
+    """A repeated version must not appear before it was actually created."""
+    original = "Point-in-time original content."
+    edited = "Point-in-time edited content."
     h1 = await _store(storage, original)
     _, _, h2 = await storage.update_memory_versioned(h1, edited)
-    event_count = storage.conn.execute("SELECT COUNT(*) FROM sync_events").fetchone()[0]
-    storage.conn.execute(
-        f"CREATE TRIGGER fail_historical_restore BEFORE UPDATE OF tags ON memories "
-        f"WHEN OLD.content_hash = '{h1}' BEGIN SELECT RAISE(ABORT, 'restore failed'); END"
-    )
-    storage.conn.commit()
+    before_repeat = time.time()
+    time.sleep(0.01)
 
-    ok, message, restored = await storage.update_memory_versioned(h2, original)
+    ok, message, repeated = await storage.update_memory_versioned(h2, original)
 
-    assert not ok
-    assert restored is None
-    assert "restore failed" in message
-    assert _columns(storage, h1)["superseded_by"] == h2
-    assert _columns(storage, h2)["superseded_by"] is None
-    assert storage.conn.execute("SELECT COUNT(*) FROM sync_events").fetchone()[0] == event_count
+    assert ok, message
+    historical = await storage.retrieve("Point-in-time", n_results=10, as_of=before_repeat)
+    assert {result.memory.content_hash for result in historical} == {h2}
+    current = await storage.retrieve("Point-in-time", n_results=10)
+    assert {result.memory.content_hash for result in current} == {repeated}
+    superseded_at = storage.conn.execute(
+        "SELECT superseded_at FROM memories WHERE content_hash = ?", (h1,)
+    ).fetchone()[0]
+    assert superseded_at is not None
+
+
+@pytest.mark.asyncio
+async def test_repeated_content_runs_conflict_checks_excluding_replaced_version(
+    storage, monkeypatch
+):
+    """The normal store conflict path runs for repeated content."""
+    original = "Conflict check original content."
+    edited = "Conflict check edited content."
+    independent = "Conflict check independent content."
+    h1 = await _store(storage, original)
+    _, _, h2 = await storage.update_memory_versioned(h1, edited)
+    independent_hash = await _store(storage, independent)
+    calls = []
+
+    def conflicts(new_hash, new_content, embedding, exclude_hash=None, store=None):
+        calls.append((new_hash, exclude_hash))
+        return [{
+            "existing_hash": independent_hash,
+            "existing_content": independent,
+            "similarity": 0.99,
+            "divergence": 0.5,
+        }]
+
+    monkeypatch.setattr(storage, "_detect_conflicts", conflicts)
+    ok, message, repeated = await storage.update_memory_versioned(h2, original)
+
+    assert ok, message
+    assert calls == [(repeated, h2)]
+    assert "conflict:unresolved" in (await storage.get_by_hash(repeated)).tags
+    assert "conflict:unresolved" in (await storage.get_by_hash(independent_hash)).tags

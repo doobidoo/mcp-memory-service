@@ -718,14 +718,18 @@ def test_update_memory_content_restores_earlier_text(
 
     assert restored.status_code == 200, restored.text
     assert restored.json()["success"] is True
-    assert restored.json()["content_hash"] == original_hash
+    restored_hash = restored.json()["content_hash"]
+    if versioned:
+        assert restored_hash != original_hash
+    else:
+        assert restored_hash == original_hash
     assert restored.json()["memory"]["content"] == original
     assert restored.json()["memory"]["tags"] == ["restored"]
     assert restored.json()["memory"]["memory_type"] == "decision"
     assert restored.json()["memory"]["metadata"]["source"] == "restore-test"
     previous_status = 200 if versioned else 404
     assert test_app.get(f"/api/memories/{edited_hash}").status_code == previous_status
-    assert test_app.get(f"/api/memories/{original_hash}").status_code == 200
+    assert test_app.get(f"/api/memories/{restored_hash}").status_code == 200
     listed = test_app.get("/api/memories").json()["memories"]
     assert [memory["content"] for memory in listed] == [original]
     events = [call.args[0] for call in broadcast.await_args_list]
@@ -739,8 +743,35 @@ def test_update_memory_content_restores_earlier_text(
         original_hash,
         edited_hash,
         edited_hash,
-        original_hash,
+        restored_hash,
     ]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("versioned", [True, False])
+def test_update_memory_content_saves_same_hash_text_changes(
+    test_app, initialized_storage, monkeypatch, versioned
+):
+    """Capitalization changes are saved on versioned and fallback backends."""
+    if not versioned:
+        from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+        monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "hello"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": "Hello"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == "Hello"
+    previous_status = 200 if versioned else 404
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == previous_status
+    assert test_app.get(f"/api/memories/{body['content_hash']}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == ["Hello"]
 
 
 @pytest.mark.integration

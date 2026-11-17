@@ -212,8 +212,8 @@ async def test_failed_resolve_conflict_keeps_neither_supersede_nor_event(peers, 
 
 
 @pytest.mark.asyncio
-async def test_restore_after_initial_sync_reaches_peer(peers, monkeypatch):
-    """A historical version restored on one node becomes current on its peer too."""
+async def test_repeated_content_after_initial_sync_reaches_peer(peers, monkeypatch):
+    """A repeated text version created on one node becomes current on its peer too."""
     a, b = peers
     monkeypatch.setenv("MCP_AGENT_ID", "alpha")
     original = "Synchronized restore original content"
@@ -226,20 +226,21 @@ async def test_restore_after_initial_sync_reaches_peer(peers, monkeypatch):
     assert _supersede_state(b, h1)[0] == h2
     assert _supersede_state(b, h2)[0] is None
 
-    ok, message, restored = await a.update_memory_versioned(h2, original)
+    ok, message, repeated = await a.update_memory_versioned(h2, original)
     assert ok, message
-    assert restored == h1
+    assert repeated not in {h1, h2}
     restore_event = a.conn.execute(
         "SELECT payload FROM sync_events WHERE content_hash = ? AND op = 'update_metadata' "
         "ORDER BY seq DESC LIMIT 1",
-        (h1,),
+        (h2,),
     ).fetchone()
-    assert json.loads(restore_event[0])["updates"]["superseded_by"] == ""
+    assert json.loads(restore_event[0])["updates"]["superseded_by"] == repeated
 
     monkeypatch.setenv("MCP_AGENT_ID", "beta")
     _sync(a, b)
 
-    assert _supersede_state(b, h1) == _supersede_state(a, h1)
-    assert _supersede_state(b, h2) == _supersede_state(a, h2)
-    assert _supersede_state(b, h1)[0] is None
-    assert _supersede_state(b, h2)[0] == h1
+    for content_hash in (h1, h2, repeated):
+        assert _supersede_state(b, content_hash) == _supersede_state(a, content_hash)
+    assert _supersede_state(b, h1)[0] == h2
+    assert _supersede_state(b, h2)[0] == repeated
+    assert _supersede_state(b, repeated)[0] is None

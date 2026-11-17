@@ -923,34 +923,9 @@ class MetadataMixin:
 
         return enriched
 
-    def _append_restore_event(self, memory: Memory) -> None:
-        """Log a historical version becoming current for delta-sync peers."""
-        if not hasattr(self, "_append_sync_event"):
-            return
-        row = self.conn.execute(
-            "SELECT updated_at FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
-            (memory.content_hash,),
-        ).fetchone()
-        if row is None:
-            return
-        payload = {
-            "content_hash": memory.content_hash,
-            "updates": {
-                "tags": memory.tags,
-                "memory_type": memory.memory_type,
-                "metadata": memory.metadata,
-                "superseded_by": "",
-            },
-            "superseded_at": None,
-            "updated_at": row[0],
-        }
-        self._append_sync_event(
-            self.conn, "update_metadata", memory.content_hash, payload
-        )
-
-    def _is_version_family_member(self, content_hash: str, new_hash: str) -> bool:
-        """Return whether two hashes belong to the same bidirectional version chain."""
-        row = self.conn.execute(
+    def _version_family_members(self, content_hash: str) -> List[Tuple[str, Optional[int]]]:
+        """Return every hash and version in the current row's bidirectional chain."""
+        return self.conn.execute(
             """
             WITH RECURSIVE version_family(content_hash) AS (
                 SELECT ?
@@ -963,140 +938,24 @@ class MetadataMixin:
                 JOIN version_family f ON m.parent_id = f.content_hash
                 WHERE m.deleted_at IS NULL
             )
-            SELECT 1 FROM version_family WHERE content_hash = ? LIMIT 1
+            SELECT content_hash, version FROM memories
+            WHERE content_hash IN (SELECT content_hash FROM version_family)
             """,
-            (content_hash, new_hash),
-        ).fetchone()
-        return row is not None
+            (content_hash,),
+        ).fetchall()
 
-    def _supersede_for_restore(
-        self,
-        content_hash: str,
-        new_hash: str,
-        reason: Optional[str],
-        now: float,
-        store_sql: str,
-        store_params: Tuple[str, ...],
-    ) -> str:
-        """Mark the current row superseded and return its store partition."""
-        current = self.conn.execute(
-            "SELECT metadata, store FROM memories WHERE content_hash = ? "
-            "AND deleted_at IS NULL AND superseded_by IS NULL" + store_sql,
-            (content_hash, *store_params),
-        ).fetchone()
-        if current is None:
-            raise RuntimeError(
-                f"old version {content_hash[:8]} is no longer current (concurrent update)"
+    def _prepare_versioned_update(
+        self, old_hash: str, old_version: Optional[int], new_memory: Memory
+    ) -> int:
+        """Choose the next family version and avoid hashes already in that family."""
+        members = self._version_family_members(old_hash)
+        versions = [version or 1 for _, version in members]
+        new_version = max([old_version or 1, *versions]) + 1
+        if new_memory.content_hash in {content_hash for content_hash, _ in members}:
+            new_memory.content_hash = generate_content_hash(
+                f"{new_memory.content}\0{old_hash}\0{new_version}"
             )
-
-        old_metadata = self._safe_json_loads(
-            current[0], "restore_previous_version"
-        ) if current[0] else {}
-        old_metadata["superseded_by"] = new_hash
-        if reason:
-            old_metadata["evolution_reason"] = reason
-        superseded = self.conn.execute(
-            "UPDATE memories SET superseded_by = ?, superseded_at = ?, metadata = ? "
-            "WHERE content_hash = ? AND deleted_at IS NULL AND superseded_by IS NULL"
-            + store_sql,
-            (
-                new_hash,
-                now,
-                json.dumps(old_metadata),
-                content_hash,
-                *store_params,
-            ),
-        )
-        if superseded.rowcount != 1:
-            raise RuntimeError(
-                f"old version {content_hash[:8]} is no longer current (concurrent update)"
-            )
-        return current[1] or "default"
-
-    def _reactivate_version(
-        self,
-        new_hash: str,
-        new_memory: Memory,
-        current_store: str,
-        now: float,
-        store_sql: str,
-        store_params: Tuple[str, ...],
-    ) -> None:
-        """Make a historical row current without changing its lineage columns."""
-        restored = self.conn.execute(
-            "UPDATE memories SET tags = ?, memory_type = ?, metadata = ?, "
-            "updated_at = ?, updated_at_iso = ?, store = ?, "
-            "superseded_by = NULL, superseded_at = NULL "
-            "WHERE content_hash = ? AND deleted_at IS NULL" + store_sql,
-            (
-                ",".join(new_memory.tags),
-                new_memory.memory_type,
-                json.dumps(new_memory.metadata),
-                now,
-                datetime.utcfromtimestamp(now).isoformat() + "Z",
-                current_store,
-                new_hash,
-                *store_params,
-            ),
-        )
-        if restored.rowcount != 1:
-            raise RuntimeError(
-                f"historical version {new_hash[:8]} is no longer available"
-            )
-
-    def _restore_previous_version_transaction(
-        self,
-        content_hash: str,
-        new_hash: str,
-        new_memory: Memory,
-        reason: Optional[str],
-        store: Optional[str],
-    ) -> Optional[Tuple[bool, str, Optional[str]]]:
-        """Restore atomically when the target belongs to this version family."""
-        if not self._is_version_family_member(content_hash, new_hash):
-            return None
-
-        store_sql, store_params = _store_clause(store)
-        try:
-            now = time.time()
-            current_store = self._supersede_for_restore(
-                content_hash, new_hash, reason, now, store_sql, store_params
-            )
-            self._reactivate_version(
-                new_hash, new_memory, current_store, now, store_sql, store_params
-            )
-            self._append_supersede_event(content_hash)
-            self._append_restore_event(new_memory)
-            self._clear_stale_conflict_tags(
-                [new_hash, *self._contradicts_partners(content_hash)]
-            )
-            self.conn.commit()
-            return True, "Memory restored successfully", new_hash
-        except Exception:
-            self.conn.rollback()
-            raise
-
-    async def _restore_previous_version(
-        self,
-        content_hash: str,
-        new_hash: str,
-        new_memory: Memory,
-        reason: Optional[str],
-        store: Optional[str],
-    ) -> Optional[Tuple[bool, str, Optional[str]]]:
-        """Reactivate a row from the same version family without inserting a duplicate."""
-        result = await self._execute_with_retry(
-            lambda: self._restore_previous_version_transaction(
-                content_hash, new_hash, new_memory, reason, store
-            )
-        )
-        if result is not None:
-            logger.info(
-                "Memory restored: %s → %s",
-                _sanitize_log_value(content_hash[:8]),
-                _sanitize_log_value(new_hash[:8]),
-            )
-        return result
+        return new_version
 
     async def _read_versioned_row(self, content_hash: str, store: Optional[str]):
         """Read the current row and its inherited fields in the requested store."""
@@ -1212,7 +1071,7 @@ class MetadataMixin:
     async def _store_new_version(
         self,
         old_hash: str,
-        old_version: Optional[int],
+        new_version: int,
         old_store: Optional[str],
         new_memory: Memory,
         reason: Optional[str],
@@ -1227,7 +1086,6 @@ class MetadataMixin:
         if not store_ok:
             return False, f"Failed to store new version: {store_message}", None
 
-        new_version = (old_version or 1) + 1
         try:
             await self._link_new_version(
                 old_hash, new_hash, new_version, reason, store
@@ -1263,7 +1121,7 @@ class MetadataMixin:
         reason: Optional[str] = None,
         store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
-        """Restore a historical version or store a linked new version."""
+        """Store a linked new version, including repeated or same-hash text."""
         try:
             if not self.conn:
                 return False, "Database not initialized", None
@@ -1276,14 +1134,13 @@ class MetadataMixin:
             new_memory = self._build_versioned_memory(
                 row, new_content, new_tags, new_memory_type
             )
-            restore_result = await self._restore_previous_version(
-                old_hash, new_memory.content_hash, new_memory, reason, store
+            new_version = await self._execute_with_retry(
+                lambda: self._prepare_versioned_update(
+                    old_hash, old_version, new_memory
+                )
             )
-            if restore_result is not None:
-                return restore_result
-
             return await self._store_new_version(
-                old_hash, old_version, old_store, new_memory, reason, store
+                old_hash, new_version, old_store, new_memory, reason, store
             )
         except Exception as e:
             logger.error("update_memory_versioned error: %s", _sanitize_log_value(str(e)))

@@ -539,9 +539,14 @@ def _build_memory_replacement(
     final_metadata = dict(request.metadata) if request.metadata else inherited_metadata
     for key in ("tags", "type"):
         final_metadata.pop(key, None)
+    content_hash = generate_content_hash(request.content)
+    if content_hash == existing_memory.content_hash:
+        content_hash = generate_content_hash(
+            f"{request.content}\0{existing_memory.content_hash}"
+        )
     return Memory(
         content=request.content,
-        content_hash=generate_content_hash(request.content),
+        content_hash=content_hash,
         tags=(
             request.tags
             if request.tags is not None
