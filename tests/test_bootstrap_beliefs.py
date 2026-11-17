@@ -60,7 +60,7 @@ class TestBootstrapBeliefs:
             new_callable=AsyncMock,
             return_value=mock_beliefs,
         ):
-            result = await server.handle_call_tool("get_bootstrap_profile", {
+            result = await server.handle_call_tool("memory_bootstrap_profile", {
                 "agent_ids": ["kiro"],
             })
 
@@ -74,7 +74,7 @@ class TestBootstrapBeliefs:
         server = MemoryServer()
 
         # No mocking needed — fresh server has empty beliefs table
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
 
@@ -109,7 +109,7 @@ class TestBootstrapBeliefs:
             new_callable=AsyncMock,
             return_value=mock_beliefs,
         ):
-            result = await server.handle_call_tool("get_bootstrap_profile", {
+            result = await server.handle_call_tool("memory_bootstrap_profile", {
                 "agent_ids": ["kiro"],
             })
 
@@ -131,7 +131,7 @@ class TestBootstrapBeliefs:
             new_callable=AsyncMock,
             side_effect=Exception("beliefs table not found"),
         ):
-            result = await server.handle_call_tool("get_bootstrap_profile", {
+            result = await server.handle_call_tool("memory_bootstrap_profile", {
                 "agent_ids": ["kiro"],
             })
 
@@ -158,7 +158,7 @@ class TestBootstrapTaskAware:
             }
         })
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "task_summary": "Implement rate limiting for the API gateway",
         })
@@ -175,7 +175,7 @@ class TestBootstrapTaskAware:
         """task_summary provided but no results — profile still works."""
         server = MemoryServer()
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "task_summary": "Something completely unrelated to anything stored",
         })
@@ -189,7 +189,7 @@ class TestBootstrapTaskAware:
         """Without task_summary, no task context section should appear."""
         server = MemoryServer()
 
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
         })
 
@@ -218,13 +218,13 @@ class TestBootstrapBudgetTokens:
             })
 
         # With default max_tokens (2048), profile might be long
-        result_default = await server.handle_call_tool("get_bootstrap_profile", {
+        result_default = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "max_tokens": 2048,
         })
 
         # With budget_tokens=100 (400 chars), profile should be truncated
-        result_budget = await server.handle_call_tool("get_bootstrap_profile", {
+        result_budget = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "budget_tokens": 100,
         })
@@ -252,7 +252,7 @@ class TestBootstrapBudgetTokens:
             })
 
         # Call with only max_tokens (budget_tokens defaults to max_tokens)
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "max_tokens": 500,
         })
@@ -265,7 +265,7 @@ class TestBootstrapBudgetTokens:
     async def test_budget_tokens_null_uses_max_tokens(self):
         """Explicit null budget_tokens should not crash — falls back to max_tokens."""
         server = MemoryServer()
-        result = await server.handle_call_tool("get_bootstrap_profile", {
+        result = await server.handle_call_tool("memory_bootstrap_profile", {
             "agent_ids": ["kiro"],
             "budget_tokens": None,
         })
