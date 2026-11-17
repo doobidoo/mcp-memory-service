@@ -72,6 +72,16 @@ async def test_upload_document_cleans_up_temp_file_on_error(monkeypatch):
     good_file = _make_upload_file("doc.txt", b"hello world")
     bg_tasks = MagicMock()
 
+    created_temp_files = []
+    real_named_temp = documents.tempfile.NamedTemporaryFile
+
+    def tracking_temp_file(*args, **kwargs):
+        tf = real_named_temp(*args, **kwargs)
+        created_temp_files.append(tf.name)
+        return tf
+
+    monkeypatch.setattr(documents.tempfile, "NamedTemporaryFile", tracking_temp_file)
+
     def boom(*args, **kwargs):
         raise RuntimeError("queue failed")
 
@@ -86,6 +96,8 @@ async def test_upload_document_cleans_up_temp_file_on_error(monkeypatch):
         )
 
     assert exc_info.value.status_code == 500
+    assert len(created_temp_files) == 1
+    assert not os.path.exists(created_temp_files[0]), f"Temp file {created_temp_files[0]} was leaked on disk!"
 
 
 @pytest.mark.asyncio

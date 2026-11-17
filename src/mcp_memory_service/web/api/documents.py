@@ -146,6 +146,18 @@ class UploadStatus(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
 
+
+def _cleanup_temp_files(*paths: Optional[str]) -> None:
+    """Best-effort removal of temporary files during upload error handling."""
+    for path in paths:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                # File already deleted or unreachable; ignore cleanup errors
+                pass
+
+
 @router.post("/upload", response_model=Dict[str, Any])
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -237,18 +249,12 @@ async def upload_document(
         }
 
     except HTTPException:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
+        # File creation currently happens after validation, but guard against
+        # leaks if validation or file creation order changes in the future.
+        _cleanup_temp_files(temp_path)
         raise
     except Exception:
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
+        _cleanup_temp_files(temp_path)
         logger.exception("Upload error")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -340,18 +346,10 @@ async def batch_upload_documents(
         }
 
     except HTTPException:
-        for _, temp_path, _ in temp_paths:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
+        _cleanup_temp_files(*(p for _, p, _ in temp_paths))
         raise
     except Exception:
-        for _, temp_path, _ in temp_paths:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
+        _cleanup_temp_files(*(p for _, p, _ in temp_paths))
         logger.exception("Batch upload error")
         raise HTTPException(status_code=500, detail="Internal server error")
 
