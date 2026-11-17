@@ -660,7 +660,7 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
 
     response = test_app.put(
         f"/api/memories/{old_hash}",
-        json={"content": new, "tags": ["edited"], "memory_type": "observation"},
+        json={"content": new, "tags": ["edited"], "memory_type": "not-a-real-type"},
     )
 
     assert response.status_code == 200, response.text
@@ -669,12 +669,14 @@ def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
     assert body["content_hash"] != old_hash
     assert body["memory"]["content"] == new
     assert body["memory"]["tags"] == ["edited"]
+    assert body["memory"]["memory_type"] == "observation"
     listed = test_app.get("/api/memories").json()["memories"]
     assert [memory["content"] for memory in listed] == [new]
     events = [call.args[0] for call in broadcast.await_args_list]
     assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
     assert events[0].data["content_hash"] == old_hash
     assert events[1].data["content_hash"] == body["content_hash"]
+    assert events[1].data["memory_type"] == "observation"
     assert all(event.store == "default" for event in events)
 
 

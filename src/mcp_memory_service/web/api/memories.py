@@ -575,34 +575,28 @@ async def update_memory(
                 )
                 # Versioning replaces the current row. Notify listeners of both
                 # sides so other dashboards remove the old hash and load the new one.
-                try:
-                    old_event = create_memory_deleted_event(
-                        content_hash, True, store=store
-                    )
-                    await sse_manager.broadcast_event(old_event)
-                    new_event = create_memory_stored_event(
-                        {
-                            "content_hash": new_hash,
-                            "content": request.content,
-                            "tags": (
-                                request.tags
-                                if request.tags is not None
-                                else existing_memory.tags
-                            ),
-                            "memory_type": (
-                                request.memory_type
-                                if request.memory_type is not None
-                                else existing_memory.memory_type
-                            ),
-                        },
-                        store=store,
-                    )
-                    await sse_manager.broadcast_event(new_event)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to broadcast memory update events: %s",
-                        _sanitize_log_value(e),
-                    )
+                # Use the stored version because storage can normalize its fields.
+                if updated_memory is not None:
+                    try:
+                        old_event = create_memory_deleted_event(
+                            content_hash, True, store=store
+                        )
+                        await sse_manager.broadcast_event(old_event)
+                        new_event = create_memory_stored_event(
+                            {
+                                "content_hash": updated_memory.content_hash,
+                                "content": updated_memory.content,
+                                "tags": updated_memory.tags,
+                                "memory_type": updated_memory.memory_type,
+                            },
+                            store=store,
+                        )
+                        await sse_manager.broadcast_event(new_event)
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to broadcast memory update events: %s",
+                            _sanitize_log_value(e),
+                        )
                 return MemoryUpdateResponse(
                     success=True,
                     message=message,
