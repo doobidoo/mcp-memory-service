@@ -146,6 +146,7 @@ class MemoryDashboard {
         this.applyTheme();
         this.watchSystemColorScheme();
         this.setupEventListeners();
+        this.setupMemoryDeepLinks();
         this.setupStatusIsland();
         this.setupAuthListeners();
 
@@ -172,6 +173,7 @@ class MemoryDashboard {
         await this.loadVersion();
         await this.loadMemoryTypes();
         await this.loadDashboardData();
+        await this.openMemoryFromUrl();
 
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
@@ -3354,6 +3356,76 @@ class MemoryDashboard {
     }
 
     /**
+     * Build a shareable deep link for a memory (?memory=<content_hash>).
+     * Starts from the current URL so the origin, path and any other
+     * params (e.g. a non-default store) are preserved.
+     */
+    getMemoryUrl(contentHash) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('memory', contentHash);
+        // Drop the hash: the app doesn't use it for routing, and a stale
+        // anchor could scroll or confuse the recipient's page.
+        url.hash = '';
+        return url.toString();
+    }
+
+    getMemoryIdFromUrl() {
+        return new URL(window.location.href).searchParams.get('memory');
+    }
+
+    /**
+     * Remove ?memory= from the address after the details modal closes.
+     */
+    clearMemoryUrl() {
+        if (!this.getMemoryIdFromUrl()) return;
+        if (history.state && history.state.memory) {
+            // We pushed this entry in showMemoryDetails: return to the preceding state
+            history.back();
+        } else {
+            // Opened from a pasted link: no earlier in-app entry, so just strip the param
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Open the memory named by ?memory= (deep link, refresh, Back/Forward).
+     */
+    async openMemoryFromUrl() {
+        const id = this.getMemoryIdFromUrl();
+        if (!id) return;
+        try {
+            const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}`);
+            this.showMemoryDetails(memory);
+        } catch (error) {
+            if (error.status === 404) {
+                this.showToast(this.t('toast.memoryNotFound', 'This memory could not be found. It may have been deleted or edited.'), 'warning');
+            } else if (error.status !== 401) { // apiCall already routes 401 to the sign-in flow
+                this.showToast(this.t('toast.memoryLoadFailed', 'Failed to load memory'), 'error');
+            }
+            // Drop the dead param so the address matches what's on screen
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Back/Forward support for memory deep links.
+     */
+    setupMemoryDeepLinks() {
+        window.addEventListener('popstate', () => {
+            if (!this.authState.initComplete) return;
+            const modal = document.getElementById('memoryModal');
+            if (this.getMemoryIdFromUrl()) {
+                this.openMemoryFromUrl();
+            } else if (modal && modal.classList.contains('active')) {
+                this.closeModal(modal, { updateUrl: false });
+            }
+        });
+    }
+    /**
      * Show memory details in modal
      */
     showMemoryDetails(memory) {
@@ -3368,10 +3440,17 @@ class MemoryDashboard {
         document.getElementById('editMemoryBtn').onclick = () => this.editMemory(memory);
         document.getElementById('deleteMemoryBtn').onclick = () => this.deleteMemory(memory);
         document.getElementById('shareMemoryBtn').onclick = () => this.shareMemory(memory);
+        const copyBtn = document.getElementById('copyMemoryContentBtn');
+        if (copyBtn) copyBtn.onclick = () => this.copyMemoryContent(memory);
 
         this.openModal(modal);
-    }
 
+        // Make the open memory addressable (skip if the URL already points at it)
+        const id = memory.content_hash;
+        if (this.getMemoryIdFromUrl() !== id) {
+            history.pushState({ memory: id }, '', this.getMemoryUrl(id));
+        }
+    }
     /**
      * Render memory details HTML
      */
@@ -3526,28 +3605,38 @@ class MemoryDashboard {
      * Share memory
      */
     shareMemory(memory) {
-        // Create shareable data
-        const shareData = {
+        const link = this.getMemoryUrl(memory.content_hash);
+
+        if (navigator.share) {
+            navigator.share({
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
+                url: link
+            }).catch(err => {
+                if (err.name === 'AbortError') return; // user dismissed the share sheet
+                this.copyMemoryLink(link);
+            });
+        } else {
+            this.copyMemoryLink(link);
+        }
+    }
+
+    copyMemoryLink(link) {
+        navigator.clipboard.writeText(link).then(() => {
+            this.showToast(this.t('toast.linkCopied', 'Memory link copied to clipboard'), 'success');
+        }).catch(err => {
+            console.error('Could not copy link: ', err);
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
+        });
+    }
+
+    copyMemoryContent(memory) {
+        this.fallbackShare({
             content: memory.content,
             tags: memory.tags || [],
             type: memory.memory_type || 'note',
             created: new Date(memory.created_at * 1000).toISOString(),
             id: memory.content_hash
-        };
-
-        // Try to use Web Share API if available
-        if (navigator.share) {
-            navigator.share({
-                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
-                text: memory.content,
-                url: window.location.href
-            }).catch(err => {
-                // Share API failed, fall back to clipboard
-                this.fallbackShare(shareData);
-            });
-        } else {
-            this.fallbackShare(shareData);
-        }
+        });
     }
 
     /**
@@ -4416,6 +4505,7 @@ class MemoryDashboard {
             // Load dashboard data
             await this.loadVersion();
             await this.loadDashboardData();
+            await this.openMemoryFromUrl();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
             this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
@@ -4726,9 +4816,15 @@ class MemoryDashboard {
         }
     }
 
-    closeModal(modal) {
+    closeModal(modal, { updateUrl = true } = {}) {
+        const wasActive = modal.classList.contains('active');
         modal.classList.remove('active');
         document.body.style.overflow = '';
+
+        // Closing the details modal also restores the address (only once per open)
+        if (wasActive && updateUrl && modal.id === 'memoryModal') {
+            this.clearMemoryUrl();
+        }
     }
 
     /**
