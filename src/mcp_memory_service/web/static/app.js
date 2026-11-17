@@ -1145,6 +1145,17 @@ class MemoryDashboard {
     /** Refresh dashboard and peer status once for a burst of cycle events. */
     handleSyncDeltaCompleted(data) {
         console.log('Delta-sync completed:', data);
+        // A finished cycle is a confirmation that steps back to "ready" on its own;
+        // a failed one reaches the island through the next /sync/status poll, which
+        // applies the same rule the panel uses (#2003).
+        if (data?.success) {
+            this.statusIsland?.report('delta-sync', {
+                state: 'success',
+                label: { key: 'sync.deltaSync', fallback: 'Delta sync' },
+                text: { key: 'island.deltaSync.completed', fallback: 'Delta sync finished' },
+                settle: { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } },
+            });
+        }
         this._scheduleDashboardRefresh();
     }
 
@@ -2042,6 +2053,56 @@ class MemoryDashboard {
     }
 
     /**
+     * Report the scheduled delta-sync cycles to the status island as their own
+     * source, named after the panel they belong to.
+     *
+     * The server announces a cycle only once it has ended, so this source has no
+     * busy state and no percentage: there is nothing to base either on (#2003).
+     * A peer counts as failed by the same rule the delta-sync panel uses, so the
+     * panel and the island cannot disagree about the same peer.
+     */
+    _reportDeltaSyncStatus(delta) {
+        if (!this.statusIsland) return;
+        const peers = delta?.peers || [];
+        if (!delta?.configured || !peers.length) {
+            // No peers configured means nothing to report; a source that is gone is cleared.
+            this.statusIsland.clear('delta-sync');
+            return;
+        }
+        const failed = peers.find((peer) => this._deltaPeerFailed(peer));
+        let entry;
+        if (failed) {
+            entry = {
+                state: 'error',
+                dismissible: true,
+                text: {
+                    key: 'sync.deltaSync.failed',
+                    fallback: 'Delta sync failed with {peer}',
+                    vars: { peer: failed.peer_id },
+                },
+            };
+        } else {
+            // A peer that has not finished a cycle yet is not "synced".
+            entry = peers.every((peer) => peer.last_cycle_at)
+                ? { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } }
+                : { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' } };
+        }
+        const current = this.statusIsland.get?.('delta-sync') || null;
+        // The poll runs every ten seconds and must not replace the confirmation the
+        // completed-cycle event reported a moment earlier.
+        if (entry.state === 'ready' && current?.state === 'success') return;
+        this.statusIsland.report('delta-sync', {
+            ...entry,
+            label: { key: 'sync.deltaSync', fallback: 'Delta sync' },
+        });
+    }
+
+    /** Whether the delta-sync panel would call this peer failed (#2003). */
+    _deltaPeerFailed(peer) {
+        return Boolean(peer?.last_error) || ['error', 'incompatible', 'unavailable'].includes(peer?.status);
+    }
+
+    /**
      * Check hybrid backend sync status
      */
     async checkSyncStatus() {
@@ -2053,6 +2114,7 @@ class MemoryDashboard {
         try {
             const syncStatus = await this.apiCall('/sync/status');
             this.updateDeltaSyncStatus(syncStatus.delta_sync);
+            this._reportDeltaSyncStatus(syncStatus.delta_sync);
             this._reportSyncStatus(syncStatus);
 
             // Get compact sync control element
