@@ -1671,7 +1671,7 @@ class MemoryDashboard {
         const hasFiles = this.selectedFiles && this.selectedFiles.length > 0;
 
         if (uploadBtn) {
-            uploadBtn.disabled = !hasFiles;
+            uploadBtn.disabled = !hasFiles || this._uploading;
             uploadBtn.textContent = hasFiles ?
                 `Upload & Ingest ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}` :
                 'Upload & Ingest';

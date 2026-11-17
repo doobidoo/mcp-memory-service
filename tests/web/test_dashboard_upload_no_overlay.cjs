@@ -36,6 +36,8 @@ test('an upload shows no overlay, disables the button and reports busy to the is
     const first = app.handleDocumentUpload();
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(button.disabled, true);
+    app.updateUploadButton(); // e.g. a chunk slider change mid-upload
+    assert.equal(button.disabled, true);
     assert.equal(island.reports[0][0], 'upload-batch');
     assert.equal(island.reports[0][1].state, 'busy');
     await app.handleDocumentUpload(); // second trigger while running
