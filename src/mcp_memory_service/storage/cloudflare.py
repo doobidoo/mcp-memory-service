@@ -2357,10 +2357,10 @@ class CloudflareStorage(MemoryStorage):
         """
         store_sql, store_params = _store_clause(store)
         if cutoff_timestamp is not None:
-            sql = f"SELECT created_at FROM memories WHERE created_at >= ?{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL AND created_at >= ?{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": [cutoff_timestamp, *store_params]}
         else:
-            sql = f"SELECT created_at FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": store_params}
 
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)

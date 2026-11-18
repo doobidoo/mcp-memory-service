@@ -1009,3 +1009,15 @@ async def test_failed_tombstone_cleanup_stops_d1_insert(cloudflare_storage, samp
                 None, sample_memory.content,
             )
         assert request.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cutoff", [None, 1700000000.0])
+async def test_fetch_d1_timestamps_excludes_tombstones(cloudflare_storage, cutoff):
+    """Analytics must not count soft-deleted rows (issue #2059)."""
+    response = Mock()
+    response.json.return_value = {"success": True, "result": [{"results": []}]}
+    with patch.object(cloudflare_storage, "_retry_request", return_value=response) as request:
+        await cloudflare_storage._fetch_d1_timestamps(cutoff_timestamp=cutoff)
+    sql = request.call_args.kwargs["json"]["sql"]
+    assert "deleted_at IS NULL" in sql, f"tombstones leak into timestamps query: {sql}"
