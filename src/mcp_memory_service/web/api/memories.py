@@ -496,7 +496,14 @@ async def delete_memory(
         if not existing:
             raise HTTPException(status_code=404, detail="Memory not found")
 
-        success, message = await storage.delete(content_hash)
+        # Confine the delete itself, not only the lookup before it. Backends
+        # that cannot confine do not accept a named ``store`` yet.
+        scope = (
+            {"store": resolve_store(store)}
+            if getattr(storage, "get_by_hash_is_store_scoped", False)
+            else {}
+        )
+        success, message = await storage.delete(content_hash, **scope)
         
         # Broadcast SSE event for memory deletion
         try:

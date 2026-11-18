@@ -429,3 +429,22 @@ async def test_count_excludes_soft_deleted_memories(cloudflare_storage, d1, two_
         await cloudflare_storage.get_all_memories(store="b")
     )
     assert await cloudflare_storage.count_all_memories(store="all") == 1
+
+
+@pytest.mark.asyncio
+async def test_time_only_recall_skips_soft_deleted_memories(cloudflare_storage, d1, two_stores):
+    d1.db.execute("UPDATE memories SET deleted_at = 1.0 WHERE store = 'b'")
+    d1.db.commit()
+
+    assert _hashes(await cloudflare_storage.recall(None, store="b")) == set()
+    assert _hashes(await cloudflare_storage.recall(None, start_timestamp=0, store="b")) == set()
+    assert _hashes(await cloudflare_storage.recall(None, store="a")) == {two_stores["a"]}
+
+
+@pytest.mark.asyncio
+async def test_time_range_accepts_exclude_pending_as_base_search_passes_it(cloudflare_storage, two_stores):
+    # base.py's time-only search calls get_memories_by_time_range(..., exclude_pending=True, store=...)
+    a = two_stores["a"]
+    window = (0.0, 4102444800.0)
+
+    assert _hashes(await cloudflare_storage.get_memories_by_time_range(*window, exclude_pending=True, store="a")) == {a}
