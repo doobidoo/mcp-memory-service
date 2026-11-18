@@ -1,4 +1,4 @@
-"""Regression test: commit_session_legacy must keep the session's author.
+"""Regression test: memory_commit_session must keep the session's author.
 
 Bug: handle_commit_session_legacy passed the author ONLY via
 ``metadata={'agent_id': ...}`` on internal store_memory calls. Since

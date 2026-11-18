@@ -136,3 +136,102 @@ def test_default_model_name_never_validated(monkeypatch):
     m = _make_without_io(monkeypatch, "all-MiniLM-L6-v2")
     assert m._is_default_model is True
 
+
+def test_resolve_max_length_xlm_roberta_and_bert(tmp_path):
+    """_resolve_max_length accounts for RoBERTa/XLM-R padding offset (#2073)."""
+    import json
+    from mcp_memory_service.embeddings.onnx_embeddings import ONNXEmbeddingModel
+
+    # 1. No config files -> 512 fallback
+    assert ONNXEmbeddingModel._resolve_max_length(tmp_path) == 512
+
+    # 2. XLM-RoBERTa (e.g. intfloat/multilingual-e5-small): 514 - (1 + 1) == 512
+    #    even when tokenizer_config.json uses HF's VERY_LARGE_INTEGER sentinel.
+    (tmp_path / "config.json").write_text(json.dumps({
+        "model_type": "xlm-roberta",
+        "max_position_embeddings": 514,
+        "pad_token_id": 1,
+    }))
+    (tmp_path / "tokenizer_config.json").write_text(json.dumps({
+        "model_max_length": 1000000000000000019884624838656,
+    }))
+    assert ONNXEmbeddingModel._resolve_max_length(tmp_path) == 512
+
+    # 3. Long-context XLM-RoBERTa (e.g. bge-m3): 8194 - 2 == 8192
+    (tmp_path / "config.json").write_text(json.dumps({
+        "model_type": "xlm-roberta",
+        "max_position_embeddings": 8194,
+        "pad_token_id": 1,
+    }))
+    assert ONNXEmbeddingModel._resolve_max_length(tmp_path) == 8192
+
+    # 4. BERT model with tighter tokenizer_config model_max_length=256
+    (tmp_path / "config.json").write_text(json.dumps({
+        "model_type": "bert",
+        "max_position_embeddings": 512,
+        "pad_token_id": 0,
+    }))
+    (tmp_path / "tokenizer_config.json").write_text(json.dumps({
+        "model_max_length": 256,
+    }))
+    assert ONNXEmbeddingModel._resolve_max_length(tmp_path) == 256
+
+
+def test_init_model_enables_truncation_when_tokenizer_truncation_is_null(monkeypatch, tmp_path):
+    """Hub tokenizers without built-in truncation get truncated to model limit (#2073)."""
+    import json
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+    from mcp_memory_service.embeddings import onnx_embeddings as mod
+
+    vocab = {"[UNK]": 0, "[PAD]": 1, "hello": 2, "world": 3}
+    tok = Tokenizer(WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok.pre_tokenizer = Whitespace()
+    assert tok.truncation is None
+
+    model_dir = tmp_path / "multilingual-e5-small"
+    model_dir.mkdir()
+    (model_dir / "model.onnx").write_bytes(b"stub-onnx")
+    tok.save(str(model_dir / "tokenizer.json"))
+    (model_dir / "config.json").write_text(json.dumps({
+        "model_type": "xlm-roberta",
+        "max_position_embeddings": 514,
+        "pad_token_id": 1,
+    }))
+
+    class _StubIO:
+        def __init__(self, name, shape=None):
+            self.name = name
+            self.shape = shape or [1, 384]
+
+    class _StubSession:
+        def __init__(self, path, providers=None):
+            self.path = path
+
+        def get_outputs(self):
+            return [_StubIO("last_hidden_state", [1, 512, 384])]
+
+        def get_inputs(self):
+            return [_StubIO("input_ids"), _StubIO("attention_mask")]
+
+    monkeypatch.setattr(mod.ort, "InferenceSession", _StubSession)
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_download_model_if_needed", lambda self: None)
+
+    orig_init = mod.ONNXEmbeddingModel._init_model
+
+    def _patched_init(self):
+        self._model_dir = model_dir
+        orig_init(self)
+
+    monkeypatch.setattr(mod.ONNXEmbeddingModel, "_init_model", _patched_init)
+
+    instance = mod.ONNXEmbeddingModel(model_name="multilingual-e5-small")
+    assert instance._tokenizer.truncation is not None
+    assert instance._tokenizer.truncation["max_length"] == 512
+
+    long_text = " ".join(["hello"] * 700)
+    encoded = instance._tokenizer.encode(long_text)
+    assert len(encoded.ids) == 512
+
+

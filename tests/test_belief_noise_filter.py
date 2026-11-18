@@ -171,7 +171,7 @@ class TestSessionLegacyNoiseFilter:
     """Regression tests for session-legacy noise filter (#121 follow-up)."""
 
     def test_noise_filter_session_legacy_uuid(self):
-        """commit_session_legacy entries (Session: UUID) should be noise."""
+        """memory_commit_session entries (Session: UUID) should be noise."""
         content = "Session: a1b2c3d4-e5f6-7890-abcd-ef1234567890 | Agent: kiro | Duration: 45min"
         assert _is_noise(content) is True
 

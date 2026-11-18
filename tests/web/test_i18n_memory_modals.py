@@ -232,6 +232,9 @@ els.memoryModal = {};
 els.activeFiltersList.addEventListener = () => {};
 globalThis.document = { getElementById: id => els[id] || null };
 globalThis.setTimeout = () => {};
+const pushed = [];
+globalThis.window = { location: { href: 'http://localhost:8000/' } };
+globalThis.history = { pushState: (state, _title, url) => pushed.push([state, url]) };
 class App {
 __METHODS__
   openModal() {} closeModal() {}
@@ -264,6 +267,7 @@ out.badge = app.renderQualityBadge({ quality_score: 0.8, quality_provider: 'groq
 els.tagFilter.value = 'work'; els.dateFilter.value = 'week'; els.typeFilter.value = 'idea';
 app.updateActiveFilters();
 out.filters = els.activeFiltersList.innerHTML;
+out.pushed = pushed;
 console.log(JSON.stringify(out));
 """
 
@@ -274,7 +278,7 @@ def german_run():
         pytest.skip("node is not installed")
     js = APP_JS.read_text(encoding="utf-8")
     names = ("t", "replacePlaceholders", "setTranslatedText", "escapeHtml", "renderMemoryDetails",
-             "renderMetadata", "showMemoryDetails", "editMemory", "resetAddMemoryModal",
+             "renderMetadata", "showMemoryDetails", "getMemoryUrl", "getMemoryIdFromUrl", "editMemory", "resetAddMemoryModal",
              "renderSearchResults", "renderTagsCloud", "renderTagsSidebar", "renderMemoriesInContainer",
              "renderTopQualityMemories", "renderQualityBadge", "updateActiveFilters")
     methods = "".join(_method(js, name) for name in names)
@@ -298,6 +302,9 @@ def test_detail_modal_renders_in_the_selected_language(german_run):
     assert de["modal.memoryDetails.noMetadata"] in out["noMetadata"]
     assert out["detailTitle"] == [de["modal.memoryDetails.title"], "modal.memoryDetails.title"]
 
+def test_opening_a_memory_updates_the_address(german_run):
+    out, _ = german_run
+    assert out["pushed"] == [[{"memory": "abc123", "pushed": True}, "http://localhost:8000/?memory=abc123"]]
 
 def test_edit_and_add_titles_carry_their_key(german_run):
     # Before, editing left data-i18n="modal.addMemory.save" on "Update Memory", so a

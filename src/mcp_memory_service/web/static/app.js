@@ -9,6 +9,17 @@ class MemoryDashboard {
     // Delay between individual file uploads to avoid overwhelming the server (ms)
     static INDIVIDUAL_UPLOAD_DELAY = 500;
 
+    // What the island says while a consolidation phase runs (#2011). The keys are the
+    // phase names consolidate() announces; any other name shows as plain "Running".
+    static CONSOLIDATION_PHASE_TEXT = {
+        relevance: 'Scoring relevance ({horizon})',
+        clustering: 'Clustering ({horizon})',
+        associations: 'Finding associations ({horizon})',
+        compression: 'Compressing clusters ({horizon})',
+        forgetting: 'Applying forgetting ({horizon})',
+        finalizing: 'Finalizing ({horizon})',
+    };
+
     // Static configuration for settings modal system information
     static SYSTEM_INFO_CONFIG = {
         settingsVersion: {
@@ -146,6 +157,7 @@ class MemoryDashboard {
         this.applyTheme();
         this.watchSystemColorScheme();
         this.setupEventListeners();
+        this.setupMemoryDeepLinks();
         this.setupStatusIsland();
         this.setupAuthListeners();
 
@@ -172,6 +184,7 @@ class MemoryDashboard {
         await this.loadVersion();
         await this.loadMemoryTypes();
         await this.loadDashboardData();
+        await this.openMemoryFromUrl();
 
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
@@ -929,11 +942,19 @@ class MemoryDashboard {
      */
     _connectSSE(sseUrl) {
         this.eventSource = new EventSource(sseUrl.toString());
+        let opened = false;
 
         this.eventSource.onopen = () => {
             // Reset backoff on successful connection
             this._sseReconnectAttempts = 0;
             this.updateConnectionStatus('connected');
+            // #2011: a new EventSource carries no Last-Event-ID, so the end of a run
+            // that finished while no stream was open is never replayed to it. The
+            // browser's own retry of this same source does carry it and keeps the runs.
+            if (!opened) {
+                opened = true;
+                this._forgetConsolidationRuns();
+            }
             this._scheduleDashboardRefresh();
         };
 
@@ -986,6 +1007,23 @@ class MemoryDashboard {
 
         this.eventSource.addEventListener('memory_deleted', () => {
             this._scheduleDashboardRefresh();
+        });
+
+        // #2011: consolidate() announces a run's start and each phase it runs.
+        this.eventSource.addEventListener('consolidation_started', (event) => {
+            try {
+                this.handleConsolidationStarted(JSON.parse(event.data));
+            } catch (error) {
+                console.error('Error parsing consolidation_started event:', error);
+            }
+        });
+
+        this.eventSource.addEventListener('consolidation_phase', (event) => {
+            try {
+                this.handleConsolidationPhase(JSON.parse(event.data));
+            } catch (error) {
+                console.error('Error parsing consolidation_phase event:', error);
+            }
         });
 
         this.eventSource.addEventListener('consolidation_completed', (event) => {
@@ -1149,14 +1187,116 @@ class MemoryDashboard {
     }
 
     /**
-     * Handle a finished scheduled consolidation. The server does not announce the
-     * start, so the island only reports the end: a confirmation that goes after a
-     * few seconds, or a failure that stays until the reader closes it or the next
-     * run reports.
+     * Runs the server announced and has not ended yet, by run_id, oldest first (#2011).
+     * Runs can overlap (a scheduled one and one started by hand), so the island shows
+     * the newest, and the end of one run cannot clear another that is still going.
+     */
+    _consolidationRuns() {
+        this._activeConsolidations ??= new Map();
+        return this._activeConsolidations;
+    }
+
+    /**
+     * A fresh stream cannot tell which tracked runs are still going (#2011): forget
+     * them, so a run that ended unseen does not stay busy. A run that is still going
+     * comes back with its next phase or its completion.
+     */
+    _forgetConsolidationRuns() {
+        const runs = this._consolidationRuns();
+        if (runs.size === 0) return;
+        runs.clear();
+        const shown = this.statusIsland?.get?.('consolidation');
+        if (shown?.state === 'busy') {
+            this.statusIsland.clear?.('consolidation');
+        } else if (shown?.state === 'error' && shown.settle) {
+            // Closing the failure must not reveal a run that may have ended.
+            this.statusIsland.report('consolidation', {
+                state: 'error', label: shown.label, text: shown.text, dismissible: shown.dismissible,
+            });
+        }
+    }
+
+    /** A run started: the island shows it as busy, without a percentage. */
+    handleConsolidationStarted(data) {
+        if (!data?.run_id) return;
+        const runs = this._consolidationRuns();
+        runs.delete(data.run_id);
+        runs.set(data.run_id, { horizon: data.time_horizon, phase: null });
+        this._reportConsolidationRunning();
+    }
+
+    /** A phase started. A dashboard opened mid-run learns of the run here. */
+    handleConsolidationPhase(data) {
+        if (!data?.run_id) return;
+        const runs = this._consolidationRuns();
+        const run = runs.get(data.run_id);
+        if (run) run.phase = data.phase;
+        else runs.set(data.run_id, { horizon: data.time_horizon, phase: data.phase });
+        this._reportConsolidationRunning();
+    }
+
+    /** The island entry for the newest run still going, or null when none is. */
+    _consolidationBusyEntry() {
+        const run = [...this._consolidationRuns().values()].pop();
+        if (!run) return null;
+        const vars = { horizon: run.horizon };
+        const phaseText = Object.hasOwn(MemoryDashboard.CONSOLIDATION_PHASE_TEXT, run.phase)
+            ? MemoryDashboard.CONSOLIDATION_PHASE_TEXT[run.phase]
+            : null;
+        return {
+            state: 'busy',
+            label: { key: 'island.source.consolidation', fallback: 'Consolidation' },
+            text: phaseText
+                ? { key: `island.consolidation.phase.${run.phase}`, fallback: phaseText, vars }
+                : { key: 'island.consolidation.running', fallback: 'Running ({horizon})', vars },
+            // Phases differ too much in cost for a percentage to be true.
+            progress: 'unknown',
+        };
+    }
+
+    /**
+     * Show the running run. A failure the reader has not closed stays in front, and
+     * closing it reveals the run that is still going.
+     */
+    _reportConsolidationRunning() {
+        const running = this._consolidationBusyEntry();
+        if (!running || !this.statusIsland) return;
+        const shown = this.statusIsland.get?.('consolidation');
+        if (shown?.state === 'error') {
+            this.statusIsland.report('consolidation', {
+                state: 'error', label: shown.label, text: shown.text, dismissible: shown.dismissible, settle: running,
+            });
+            return;
+        }
+        this.statusIsland.report('consolidation', running);
+    }
+
+    /**
+     * Handle the end of a run: a confirmation that goes after a few seconds, or a
+     * failure that stays until the reader closes it or the next run ends. While
+     * another run is still going, its busy state stays: a success only refreshes the
+     * numbers, and a failure is shown in front of it.
      */
     handleConsolidationCompleted(data) {
         const vars = { horizon: data.time_horizon };
         const label = { key: 'island.source.consolidation', fallback: 'Consolidation' };
+        if (data.run_id) this._consolidationRuns().delete(data.run_id);
+        const running = this._consolidationBusyEntry();
+        if (running) {
+            if (data.success) {
+                this._reportConsolidationRunning();
+            } else {
+                this.statusIsland?.report('consolidation', {
+                    state: 'error',
+                    label,
+                    text: { key: 'island.consolidation.failed', fallback: 'Failed ({horizon})', vars },
+                    dismissible: true,
+                    settle: running,
+                });
+            }
+            this._scheduleDashboardRefresh();
+            return;
+        }
         if (data.success) {
             this.statusIsland?.report('consolidation', {
                 state: 'success',
@@ -1671,7 +1811,7 @@ class MemoryDashboard {
         const hasFiles = this.selectedFiles && this.selectedFiles.length > 0;
 
         if (uploadBtn) {
-            uploadBtn.disabled = !hasFiles;
+            uploadBtn.disabled = !hasFiles || this._uploading;
             uploadBtn.textContent = hasFiles ?
                 `Upload & Ingest ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}` :
                 'Upload & Ingest';
@@ -1714,19 +1854,35 @@ class MemoryDashboard {
             this.showToast(this.t('toast.noFiles', 'No files selected'), 'error');
             return;
         }
+        // The upload button is disabled while the request runs; this also covers a second trigger.
+        if (this._uploading) return;
 
         const tags = document.getElementById('docTags')?.value || '';
         const chunkSize = this.chunkSizeInput?.value || 1000;
         const chunkOverlap = this.chunkOverlapInput?.value || 200;
         const memoryType = this.memoryTypeInput?.value || 'document';
 
+        this._clearOperationError('upload-batch');
+        // An explicit retry can switch modes; clear only the selected files.
+        for (const file of this.selectedFiles) {
+            this._clearOperationError(`upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`);
+        }
+        this._uploading = true;
+        const uploadBtn = document.getElementById('uploadBtn');
+        if (uploadBtn) uploadBtn.disabled = true;
+        // No page overlay: the island shows the transfer, then each import by its own row.
+        this.statusIsland?.report('upload-batch', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'nav.documents', fallback: 'Documents' },
+            text: { key: 'island.upload.processing', fallback: 'Importing' },
+        });
         try {
-            this.setLoading(true);
-
             if (this.selectedFiles.length === 1 || this.processingMode === 'individual') {
                 // Individual file processing (single file or individual mode for multiple files)
                 for (let i = 0; i < this.selectedFiles.length; i++) {
                     const file = this.selectedFiles[i];
+                    const source = `upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`;
                     try {
                         await this.uploadSingleDocument(file, {
                             tags,
@@ -1741,13 +1897,11 @@ class MemoryDashboard {
                         }
                     } catch (error) {
                         console.error(`Failed to upload ${file.name}:`, error);
-                        this.showToast(
-                            this.t('toast.uploadFileFail', 'Failed to upload {name}: {message}', {
-                                name: file.name,
-                                message: error.message
-                            }),
-                            'error'
-                        );
+                        this._reportOperationError(source, {
+                            key: 'toast.uploadFileFail',
+                            fallback: 'Failed to upload {name}: {message}',
+                            vars: { name: file.name, message: error.message },
+                        }, { fallback: file.name });
                         // Continue with remaining files
                     }
                 }
@@ -1761,9 +1915,10 @@ class MemoryDashboard {
                 });
             }
 
+            this.statusIsland?.clear('upload-batch');
+
             // Clear selection and reload history
             this.selectedFiles = [];
-            this.updateUploadButton();
             await this.loadUploadHistory();
 
             // Reset drop zone
@@ -1787,9 +1942,12 @@ class MemoryDashboard {
 
         } catch (error) {
             console.error('Upload error:', error);
-            this.showToast(this.t('toast.uploadFailed', 'Upload failed: {message}', { message: error.message }), 'error');
+            this._reportOperationError('upload-batch', {
+                key: 'toast.uploadFailed', fallback: 'Upload failed: {message}', vars: { message: error.message },
+            }, { key: 'nav.documents', fallback: 'Documents' });
         } finally {
-            this.setLoading(false);
+            this._uploading = false;
+            this.updateUploadButton();
         }
     }
 
@@ -2439,33 +2597,18 @@ class MemoryDashboard {
      */
     /** Report one backup run to the status island as the "Backup" source. */
     _reportBackup(entry) {
-        this.statusIsland?.report('backup', { ...entry, label: { key: 'island.source.backup', fallback: 'Backup' } });
+        this._reportOperation('backup', { ...entry, label: { key: 'island.source.backup', fallback: 'Backup' } });
     }
 
     async createBackup() {
+        this._clearOperationError('backup');
         const backupButton = document.getElementById('backupNowButton');
         if (backupButton) backupButton.disabled = true;
 
         // The run reports to the header's status island, which the Settings modal
         // covers (modal-overlay sits above the header): close the modal first so
         // progress, the result and the retry action stay visible.
-        const settingsModal = document.getElementById('settingsModal');
-        if (settingsModal && settingsModal.classList.contains('active')) {
-            // Closing the modal would discard unsaved preference edits, since
-            // openSettingsModal repopulates from this.settings: stash the values
-            // that differ from the saved preferences and restore them the next
-            // time Settings opens. Untouched fields are not stashed, so a newer
-            // choice saved in the meantime (e.g. the header theme toggle) is not
-            // silently overwritten on the next save.
-            const preferenceKeys = { themeSelect: 'theme', viewDensity: 'viewDensity', previewLines: 'previewLines' };
-            const draft = {};
-            Object.entries(preferenceKeys).forEach(([id, key]) => {
-                const field = document.getElementById(id);
-                if (field && field.value !== String(this.settings[key])) draft[id] = field.value;
-            });
-            this._settingsDraft = Object.keys(draft).length > 0 ? draft : null;
-            this.closeModal(settingsModal);
-        }
+        this._revealOperationStatus();
 
         // The request answers only when the backup is written; until then the island
         // shows the run as busy without a percentage (the server sends no progress).
@@ -2637,6 +2780,7 @@ class MemoryDashboard {
      */
     async forceSync() {
         const syncButton = document.getElementById('forceSyncButton');
+        this._clearOperationError('sync-request');
         const originalText = syncButton.innerHTML;
 
         try {
@@ -2684,17 +2828,19 @@ class MemoryDashboard {
                     await this.apiCall('/sync/pause', 'POST');
                 }
             } else {
-                this.showToast(
-                    this.t('toast.syncFailedWithReason', 'Sync failed: {reason}', { reason: result.message }),
-                    'error'
+                this._reportOperationError(
+                    'sync-request',
+                    { key: 'toast.syncFailedWithReason', fallback: 'Sync failed: {reason}', vars: { reason: result.message } },
+                    { key: 'island.source.sync', fallback: 'Cloud sync' }
                 );
             }
 
         } catch (error) {
             console.error('Error forcing sync:', error);
-            this.showToast(
-                this.t('toast.syncForceFailed', 'Failed to force sync: {reason}', { reason: error.message }),
-                'error'
+            this._reportOperationError(
+                'sync-request',
+                { key: 'toast.syncForceFailed', fallback: 'Failed to force sync: {reason}', vars: { reason: error.message } },
+                { key: 'island.source.sync', fallback: 'Cloud sync' }
             );
         } finally {
             // Clear flag to allow periodic polling to resume
@@ -3354,6 +3500,97 @@ class MemoryDashboard {
     }
 
     /**
+     * Build a shareable deep link for a memory (?memory=<content_hash>).
+     * Starts from the current URL so the origin, path and other params are kept.
+     * `store` is carried only when the memory was loaded from that store: the
+     * page's own ?store= says nothing about where a list-opened memory lives.
+     */
+    getMemoryUrl(contentHash, store = null) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('memory', contentHash);
+        if (store) {
+            url.searchParams.set('store', store);
+        } else {
+            url.searchParams.delete('store');
+        }
+        // Drop the hash: the app doesn't use it for routing, and a stale
+        // anchor could scroll or confuse the recipient's page.
+        url.hash = '';
+        return url.toString();
+    }
+
+    getMemoryIdFromUrl() {
+        return new URL(window.location.href).searchParams.get('memory');
+    }
+
+    /**
+     * Remove ?memory= from the address after the details modal closes.
+     */
+    clearMemoryUrl() {
+        if (!this.getMemoryIdFromUrl()) return;
+        if (history.state && history.state.pushed) {
+            // We pushed this entry in showMemoryDetails: return to the preceding state
+            history.back();
+        } else {
+            // Opened from a pasted link: no earlier in-app entry, so just strip the param
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Open the memory named by ?memory= (deep link, refresh, Back/Forward).
+     */
+    async openMemoryFromUrl() {
+        const id = this.getMemoryIdFromUrl();
+        if (!id) return;
+
+        // The address can change while the request is in flight (Back/Forward):
+        // only act on the result if it still matches the current URL.
+        const isCurrent = () => this.getMemoryIdFromUrl() === id;
+
+        try {
+            // Honor a non-default store carried in the page URL (e.g. ?store=work&memory=<hash>)
+            const store = new URL(window.location.href).searchParams.get('store');
+            const query = store ? `?store=${encodeURIComponent(store)}` : '';
+            const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}${query}`);
+            if (!isCurrent()) return;
+            this._pendingMemoryStore = store; // tell showMemoryDetails which store this came from
+            this.showMemoryDetails(memory);
+        } catch (error) {
+            if (!isCurrent()) return; // a stale failure must not touch a newer URL
+
+            // Keep the URL on auth failures so the link survives sign-in
+            if (error.status === 401) return;
+
+            if (error.status === 404) {
+                this.showToast(this.t('toast.memoryNotFound', 'This memory could not be found. It may have been deleted or edited.'), 'warning');
+            } else {
+                this.showToast(this.t('toast.memoryLoadFailed', 'Failed to load memory'), 'error');
+            }
+            // Drop the dead param so the address matches what's on screen
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Back/Forward support for memory deep links.
+     */
+    setupMemoryDeepLinks() {
+        window.addEventListener('popstate', () => {
+            if (!this.authState.initComplete) return;
+            const modal = document.getElementById('memoryModal');
+            if (this.getMemoryIdFromUrl()) {
+                this.openMemoryFromUrl();
+            } else if (modal && modal.classList.contains('active')) {
+                this.closeModal(modal, { updateUrl: false });
+            }
+        });
+    }
+    /**
      * Show memory details in modal
      */
     showMemoryDetails(memory) {
@@ -3368,10 +3605,28 @@ class MemoryDashboard {
         document.getElementById('editMemoryBtn').onclick = () => this.editMemory(memory);
         document.getElementById('deleteMemoryBtn').onclick = () => this.deleteMemory(memory);
         document.getElementById('shareMemoryBtn').onclick = () => this.shareMemory(memory);
+        const copyBtn = document.getElementById('copyMemoryContentBtn');
+        if (copyBtn) copyBtn.onclick = () => this.copyMemoryContent(memory);
 
         this.openModal(modal);
-    }
+        // Store this memory came from: only set by openMemoryFromUrl, otherwise the default store
+        this.openMemoryStore = this._pendingMemoryStore || null;
+        this._pendingMemoryStore = null;
 
+        // Make the open memory addressable (skip if the URL already points at it)
+        const id = memory.content_hash;
+        const current = this.getMemoryIdFromUrl();
+        if (current !== id) {
+            const url = this.getMemoryUrl(id, this.openMemoryStore);
+            if (current) {
+                // Another memory is already in the address: swap it in place, so history
+                // never holds two memory entries in a row (closing would reopen the first).
+                history.replaceState({ memory: id, pushed: !!(history.state && history.state.pushed) }, '', url);
+            } else {
+                history.pushState({ memory: id, pushed: true }, '', url);
+            }
+        }
+    }
     /**
      * Render memory details HTML
      */
@@ -3526,28 +3781,38 @@ class MemoryDashboard {
      * Share memory
      */
     shareMemory(memory) {
-        // Create shareable data
-        const shareData = {
+        const link = this.getMemoryUrl(memory.content_hash, this.openMemoryStore);
+
+        if (navigator.share) {
+            navigator.share({
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
+                url: link
+            }).catch(err => {
+                if (err.name === 'AbortError') return; // user dismissed the share sheet
+                this.copyMemoryLink(link);
+            });
+        } else {
+            this.copyMemoryLink(link);
+        }
+    }
+
+    copyMemoryLink(link) {
+        navigator.clipboard.writeText(link).then(() => {
+            this.showToast(this.t('toast.linkCopied', 'Memory link copied to clipboard'), 'success');
+        }).catch(err => {
+            console.error('Could not copy link: ', err);
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
+        });
+    }
+
+    copyMemoryContent(memory) {
+        this.fallbackShare({
             content: memory.content,
             tags: memory.tags || [],
             type: memory.memory_type || 'note',
             created: new Date(memory.created_at * 1000).toISOString(),
             id: memory.content_hash
-        };
-
-        // Try to use Web Share API if available
-        if (navigator.share) {
-            navigator.share({
-                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
-                text: memory.content,
-                url: window.location.href
-            }).catch(err => {
-                // Share API failed, fall back to clipboard
-                this.fallbackShare(shareData);
-            });
-        } else {
-            this.fallbackShare(shareData);
-        }
+        });
     }
 
     /**
@@ -3568,6 +3833,7 @@ class MemoryDashboard {
      * Handle data export
      */
     async handleExportData() {
+        this._clearOperationError('export');
         try {
         this.showToast(this.t('toast.exportPreparing', 'Preparing export...'), 'info');
 
@@ -3626,7 +3892,11 @@ class MemoryDashboard {
             );
         } catch (error) {
             console.error('Export error:', error);
-            this.showToast(this.t('toast.exportFailed', 'Failed to export data'), 'error');
+            this._reportOperationError(
+                'export',
+                { key: 'toast.exportFailed', fallback: 'Failed to export data' },
+                { key: 'actions.exportData', fallback: 'Export Data' }
+            );
         }
     }
 
@@ -4301,7 +4571,9 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error(this.t('error.authRequired', 'Authentication required'));
+            const authError = new Error(this.t('error.authRequired', 'Authentication required'));
+            authError.status = 401;
+            throw authError;
         }
 
         if (!response.ok) {
@@ -4416,6 +4688,7 @@ class MemoryDashboard {
             // Load dashboard data
             await this.loadVersion();
             await this.loadDashboardData();
+            await this.openMemoryFromUrl();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
             this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
@@ -4553,6 +4826,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('server-update');
         const actionStatus = document.getElementById('serverActionStatus');
         const actionText = document.getElementById('serverActionText');
 
@@ -4576,14 +4850,24 @@ class MemoryDashboard {
             // substring-matching the message — error wording can change
             // between releases and gets translated, status codes don't.
             if (error.status === 409) {
-                this.showToast(this.t('modal.settings.server.updateBlocked', 'Update blocked: {error}', { error: msg }), 'error');
+                // Keep Settings visible while the force retry reports progress.
+                // Only close it to reveal a persistent final/declined error.
                 if (confirm(this.t('modal.settings.server.confirmForcePull', 'The server has uncommitted local changes that will block the pull.\n\n{error}\n\nForce-pull anyway? (Local changes may be overwritten.)', { error: msg }))) {
                     return this.updateAndRestart(true);
                 }
+                this._reportOperationError(
+                    'server-update',
+                    { key: 'modal.settings.server.updateBlocked', fallback: 'Update blocked: {error}', vars: { error: msg } },
+                    { key: 'modal.settings.tabs.server', fallback: 'Server' }
+                );
                 return;
             }
 
-            this.showToast(this.t('modal.settings.server.updateFailed', 'Update failed: {error}', { error: msg }), 'error');
+            this._reportOperationError(
+                'server-update',
+                { key: 'modal.settings.server.updateFailed', fallback: 'Update failed: {error}', vars: { error: msg } },
+                { key: 'modal.settings.tabs.server', fallback: 'Server' }
+            );
         }
     }
 
@@ -4596,6 +4880,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('server-restart');
         try {
             const data = await this.apiCall('/server/restart', 'POST', { confirm: true });
             this.showRestartOverlay(data.pre_restart_pid, data.pre_restart_version);
@@ -4604,7 +4889,11 @@ class MemoryDashboard {
             if (error.message && error.message.includes('fetch')) {
                 this.showRestartOverlay(null, null);
             } else {
-                this.showToast(this.t('modal.settings.server.restartFailed', 'Restart failed: {error}', { error: error.message }), 'error');
+                this._reportOperationError(
+                    'server-restart',
+                    { key: 'modal.settings.server.restartFailed', fallback: 'Restart failed: {error}', vars: { error: error.message } },
+                    { key: 'modal.settings.tabs.server', fallback: 'Server' }
+                );
             }
         }
     }
@@ -4726,9 +5015,15 @@ class MemoryDashboard {
         }
     }
 
-    closeModal(modal) {
+    closeModal(modal, { updateUrl = true } = {}) {
+        const wasActive = modal.classList.contains('active');
         modal.classList.remove('active');
         document.body.style.overflow = '';
+
+        // Closing the details modal also restores the address (only once per open)
+        if (wasActive && updateUrl && modal.id === 'memoryModal') {
+            this.clearMemoryUrl();
+        }
     }
 
     /**
@@ -4839,6 +5134,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError(`document-remove-${uploadId}`);
         try {
             this.setLoading(true);
             console.log('Making DELETE request to:', `/documents/remove/${uploadId}`);
@@ -4864,12 +5160,20 @@ class MemoryDashboard {
                 }
             } else {
                 console.error('Removal failed with response:', response);
-                this.showToast(this.t('toast.removeDocumentFailed', 'Failed to remove document'), 'error');
+                this._reportOperationError(
+                    `document-remove-${uploadId}`,
+                    { key: 'toast.removeDocumentFailed', fallback: 'Failed to remove document' },
+                    { fallback: filename }
+                );
             }
         } catch (error) {
             console.error('Error removing document:', error);
             console.error('Error stack:', error.stack);
-            this.showToast(this.t('toast.errorRemovingDocument', 'Error removing document'), 'error');
+            this._reportOperationError(
+                `document-remove-${uploadId}`,
+                { key: 'toast.errorRemovingDocument', fallback: 'Error removing document' },
+                { fallback: filename }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -4948,6 +5252,65 @@ class MemoryDashboard {
         }
     }
 
+    /** Reveal the header without discarding an unsaved Settings draft. */
+    _revealOperationStatus() {
+        const settingsModal = document.getElementById('settingsModal');
+        if (settingsModal && settingsModal.classList.contains('active')) {
+            // Closing the modal would discard unsaved preference edits, since
+            // openSettingsModal repopulates from this.settings: stash the values
+            // that differ from the saved preferences and restore them the next
+            // time Settings opens. Untouched fields are not stashed, so a newer
+            // choice saved in the meantime (e.g. the header theme toggle) is not
+            // silently overwritten on the next save.
+            const preferenceKeys = { themeSelect: 'theme', viewDensity: 'viewDensity', previewLines: 'previewLines' };
+            const draft = {};
+            Object.entries(preferenceKeys).forEach(([id, key]) => {
+                const field = document.getElementById(id);
+                if (field && field.value !== String(this.settings[key])) draft[id] = field.value;
+            });
+            this._settingsDraft = Object.keys(draft).length > 0 ? draft : null;
+            this.closeModal(settingsModal);
+        }
+    }
+
+    /** Clear a previous failure only when that operation is explicitly retried. */
+    _clearOperationError(source) {
+        this._operationErrorToasts?.get(source)?.remove();
+        this._operationErrorToasts?.delete(source);
+        try {
+            this.statusIsland?.clear(source);
+        } catch (error) {
+            console.warn('Could not clear operation status:', error);
+        }
+    }
+
+    /** Keep a long operation's failure until dismissal or another attempt. */
+    _reportOperationError(source, text, label) {
+        this._revealOperationStatus();
+        this._reportOperation(source, { state: 'error', text, label, dismissible: true });
+    }
+
+    /** Preserve error feedback even if the optional island could not initialize. */
+    _reportOperation(source, entry) {
+        try {
+            if (this.statusIsland) {
+                this.statusIsland.report(source, entry);
+                // The view guards its own exceptions. A missing model entry means
+                // reporting failed silently, so retain the fallback as well.
+                if (!this.statusIsland.get || this.statusIsland.get(source)) return;
+            }
+        } catch (error) {
+            console.warn('Could not report operation status:', error);
+        }
+        if (entry.state === 'error') {
+            const text = entry.text;
+            this._operationErrorToasts ??= new Map();
+            this._operationErrorToasts.get(source)?.remove();
+            const toast = this.showToast(text.key ? this.t(text.key, text.fallback, text.vars) : text.fallback, 'error', 0);
+            if (toast) this._operationErrorToasts.set(source, toast);
+        }
+    }
+
     /**
      * Toast notification system
      */
@@ -4959,15 +5322,18 @@ class MemoryDashboard {
 
         container.appendChild(toast);
 
-        // Auto-remove after duration
-        setTimeout(() => {
-            toast.remove();
-        }, duration);
+        // A duration of zero keeps long-operation fallback errors until clicked.
+        if (duration > 0) {
+            setTimeout(() => {
+                toast.remove();
+            }, duration);
+        }
 
         // Click to remove
         toast.addEventListener('click', () => {
             toast.remove();
         });
+        return toast;
     }
 
     /**
@@ -6116,6 +6482,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('bulk-delete-tag');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
@@ -6128,11 +6495,19 @@ class MemoryDashboard {
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'bulk-delete-tag',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
+                );
             }
         } catch (error) {
             console.error('Bulk delete failed:', error);
-            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
+            this._reportOperationError(
+                'bulk-delete-tag',
+                { key: 'toast.bulkDeleteFailed', fallback: 'Bulk delete operation failed' },
+                { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6146,6 +6521,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('cleanup-duplicates');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
@@ -6155,11 +6531,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'cleanup-duplicates',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
+                );
             }
         } catch (error) {
             console.error('Cleanup duplicates failed:', error);
-            this.showToast(this.t('toast.cleanupFailed', 'Cleanup operation failed'), 'error');
+            this._reportOperationError(
+                'cleanup-duplicates',
+                { key: 'toast.cleanupFailed', fallback: 'Cleanup operation failed' },
+                { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6181,6 +6565,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('bulk-delete-date');
         this.setLoading(true);
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
@@ -6192,11 +6577,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || 'Operation failed', 'error');
+                this._reportOperationError(
+                    'bulk-delete-date',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
+                );
             }
         } catch (error) {
             console.error('Bulk delete by date failed:', error);
-            this.showToast(this.t('toast.bulkDeleteFailed', 'Bulk delete operation failed'), 'error');
+            this._reportOperationError(
+                'bulk-delete-date',
+                { key: 'toast.bulkDeleteFailed', fallback: 'Bulk delete operation failed' },
+                { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
+            );
         } finally {
             this.setLoading(false);
         }
@@ -6219,6 +6612,7 @@ class MemoryDashboard {
             return;
         }
 
+        this._clearOperationError('delete-untagged');
         this.setLoading(true);
         try {
             const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
@@ -6228,11 +6622,19 @@ class MemoryDashboard {
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
-                this.showToast(result.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
+                this._reportOperationError(
+                    'delete-untagged',
+                    (result.message ? { fallback: result.message } : { key: 'toast.operationFailed', fallback: 'Operation failed' }),
+                    { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
+                );
             }
         } catch (error) {
             console.error('Delete untagged failed:', error);
-            this.showToast(this.t('toast.deleteUntaggedFailed', 'Delete untagged operation failed'), 'error');
+            this._reportOperationError(
+                'delete-untagged',
+                { key: 'toast.deleteUntaggedFailed', fallback: 'Delete untagged operation failed' },
+                { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
+            );
         } finally {
             this.setLoading(false);
         }
