@@ -2,6 +2,8 @@
 
 import datetime as dt
 import importlib.util
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -35,7 +37,7 @@ def comment(body, login="github-actions[bot]", association="NONE", hours=1):
 
 
 def marker(*keys):
-    return f'<!-- pr-notice:v1 ["{'","'.join(keys)}"] -->' if keys else "<!-- pr-notice:v1 [] -->"
+    return f"<!-- pr-notice:v1 {json.dumps(list(keys))} -->"
 
 
 # --- decision -----------------------------------------------------------------
@@ -255,4 +257,7 @@ def test_merge_train_runs_notice_step_without_blocking():
     assert queue < step
     tail = text[queue:]
     assert "continue-on-error: true" in tail and "!cancelled()" in tail
-    assert "pull-requests: write" in text and "GH_TOKEN: ${{ github.token }}" in tail
+    assert "GH_TOKEN: ${{ github.token }}" in tail
+    # Job-level block; the app-token step's permission-pull-requests must not satisfy this.
+    assert re.search(r"^ {6}pull-requests: write", text, re.M)
+    assert re.search(r"^ {6}checks: read", text, re.M)
