@@ -573,7 +573,7 @@ async def _store_unversioned_replacement(
     content_hash: str,
     store: str,
     replacement: Memory,
-) -> Tuple[bool, str, Optional[str]]:
+) -> Tuple[bool, str, Optional[str], bool]:
     """Store a replacement and remove its original on unversioned backends."""
     max_length = getattr(storage, "max_content_length", None)
     if ENABLE_AUTO_SPLIT and max_length and len(replacement.content) > max_length:
@@ -587,7 +587,7 @@ async def _store_unversioned_replacement(
         store=resolve_store(store),
     )
     if not success:
-        return False, message, None
+        return False, message, None, False
 
     delete_success, delete_message = await storage.delete(
         content_hash, store=resolve_store(store)
@@ -596,10 +596,10 @@ async def _store_unversioned_replacement(
         return False, (
             f"Stored replacement {replacement.content_hash}, but failed to delete "
             f"original memory: {delete_message}"
-        ), None
+        ), None, False
 
     await memory_service._run_post_store_steps(replacement)
-    return True, message, replacement.content_hash
+    return True, message, replacement.content_hash, False
 
 
 async def _store_unversioned_split_replacement(
@@ -609,8 +609,13 @@ async def _store_unversioned_split_replacement(
     store: str,
     replacement: Memory,
     max_length: int,
-) -> Tuple[bool, str, Optional[str]]:
+) -> Tuple[bool, str, Optional[str], bool]:
     """Split an oversized replacement the same way store_memory() does."""
+    lookup_store = (
+        resolve_store(store)
+        if getattr(storage, "get_by_hash_is_store_scoped", False)
+        else None
+    )
     chunks = split_content(
         replacement.content,
         max_length=max_length,
@@ -618,8 +623,14 @@ async def _store_unversioned_split_replacement(
         overlap=CONTENT_SPLIT_OVERLAP,
     )
     stored_chunks = []
+    original_reused = False
     for index, chunk in enumerate(chunks):
         chunk_hash = generate_content_hash(chunk)
+        existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+        if existing is not None:
+            original_reused = original_reused or chunk_hash == content_hash
+            stored_chunks.append(existing)
+            continue
         chunk_memory = Memory(
             content=chunk,
             content_hash=chunk_hash,
@@ -636,25 +647,27 @@ async def _store_unversioned_split_replacement(
             store=resolve_store(store),
         )
         if not success:
-            return False, message, None
+            return False, message, None, False
         stored_chunks.append(chunk_memory)
 
-    delete_success, delete_message = await storage.delete(
-        content_hash, store=resolve_store(store)
-    )
-    if not delete_success:
-        return False, (
-            f"Stored replacement chunks, but failed to delete "
-            f"original memory: {delete_message}"
-        ), None
+    if not original_reused:
+        delete_success, delete_message = await storage.delete(
+            content_hash, store=resolve_store(store)
+        )
+        if not delete_success:
+            return False, (
+                f"Stored replacement chunks, but failed to delete "
+                f"original memory: {delete_message}"
+            ), None, False
 
     for chunk_memory in stored_chunks:
         await memory_service._run_post_store_steps(chunk_memory)
-    return True, f"Stored as {len(stored_chunks)} chunks", stored_chunks[0].content_hash
+    return True, f"Stored as {len(stored_chunks)} chunks", stored_chunks[0].content_hash, original_reused
 
 
 async def _broadcast_memory_update(
-    storage: MemoryStorage, content_hash: str, new_hash: str, store: str
+    storage: MemoryStorage, content_hash: str, new_hash: str, store: str,
+    original_deleted: bool = True,
 ) -> Optional[Memory]:
     """Read the stored replacement and notify other dashboard clients."""
     updated_memory = await storage.get_by_hash(new_hash, store=resolve_store(store))
@@ -662,8 +675,9 @@ async def _broadcast_memory_update(
         return None
 
     try:
-        old_event = create_memory_deleted_event(content_hash, True, store=store)
-        await sse_manager.broadcast_event(old_event)
+        if original_deleted:
+            old_event = create_memory_deleted_event(content_hash, True, store=store)
+            await sse_manager.broadcast_event(old_event)
         new_event = create_memory_stored_event(
             {
                 "content_hash": updated_memory.content_hash,
@@ -691,6 +705,7 @@ async def _update_memory_content(
     store: str,
 ) -> MemoryUpdateResponse:
     """Update content through versioning or the unversioned replacement path."""
+    original_deleted = True
     if hasattr(storage, "update_memory_versioned"):
         version_store = (
             resolve_store(store)
@@ -707,13 +722,16 @@ async def _update_memory_content(
         )
     else:
         replacement = _build_memory_replacement(existing_memory, request)
-        success, message, new_hash = await _store_unversioned_replacement(
+        success, message, new_hash, original_kept = await _store_unversioned_replacement(
             storage, memory_service, content_hash, store, replacement
         )
+        original_deleted = not original_kept
+        if success and not new_hash:
+            new_hash = content_hash
 
     if success and new_hash:
         updated_memory = await _broadcast_memory_update(
-            storage, content_hash, new_hash, store
+            storage, content_hash, new_hash, store, original_deleted=original_deleted
         )
         return MemoryUpdateResponse(
             success=True,
