@@ -940,11 +940,19 @@ class MemoryDashboard {
      */
     _connectSSE(sseUrl) {
         this.eventSource = new EventSource(sseUrl.toString());
+        let opened = false;
 
         this.eventSource.onopen = () => {
             // Reset backoff on successful connection
             this._sseReconnectAttempts = 0;
             this.updateConnectionStatus('connected');
+            // #2011: a new EventSource carries no Last-Event-ID, so the end of a run
+            // that finished while no stream was open is never replayed to it. The
+            // browser's own retry of this same source does carry it and keeps the runs.
+            if (!opened) {
+                opened = true;
+                this._forgetConsolidationRuns();
+            }
             this._scheduleDashboardRefresh();
         };
 
@@ -1184,6 +1192,26 @@ class MemoryDashboard {
     _consolidationRuns() {
         this._activeConsolidations ??= new Map();
         return this._activeConsolidations;
+    }
+
+    /**
+     * A fresh stream cannot tell which tracked runs are still going (#2011): forget
+     * them, so a run that ended unseen does not stay busy. A run that is still going
+     * comes back with its next phase or its completion.
+     */
+    _forgetConsolidationRuns() {
+        const runs = this._consolidationRuns();
+        if (runs.size === 0) return;
+        runs.clear();
+        const shown = this.statusIsland?.get?.('consolidation');
+        if (shown?.state === 'busy') {
+            this.statusIsland.clear?.('consolidation');
+        } else if (shown?.state === 'error' && shown.settle) {
+            // Closing the failure must not reveal a run that may have ended.
+            this.statusIsland.report('consolidation', {
+                state: 'error', label: shown.label, text: shown.text, dismissible: shown.dismissible,
+            });
+        }
     }
 
     /** A run started: the island shows it as busy, without a percentage. */

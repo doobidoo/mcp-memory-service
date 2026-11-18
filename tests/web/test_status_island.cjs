@@ -605,7 +605,11 @@ test('the catalog keys document imports use exist in en.json', () => {
 function consolidationDashboard() {
     const { app, context } = dashboard();
     const model = StatusIsland.createModel();
-    app.statusIsland = { report: (id, entry) => model.report(id, entry), get: (id) => model.get(id) };
+    app.statusIsland = {
+        report: (id, entry) => model.report(id, entry),
+        get: (id) => model.get(id),
+        clear: (id) => model.clear(id),
+    };
     app.refreshes = 0;
     app._scheduleDashboardRefresh = () => { app.refreshes += 1; };
     context.EventSource = class {
@@ -620,7 +624,12 @@ function consolidationDashboard() {
     const finish = (time_horizon, success, run_id) => send('consolidation_completed', { run_id, time_horizon, success });
     const start = (run_id, time_horizon) => send('consolidation_started', { run_id, time_horizon });
     const phase = (run_id, time_horizon, name) => send('consolidation_phase', { run_id, time_horizon, phase: name });
-    return { app, model, finish, start, phase };
+    // Reconnect: setupSSE() opens a new EventSource, without Last-Event-ID.
+    const reconnect = () => {
+        app._connectSSE('http://localhost:8000/api/events');
+        app.eventSource.onopen();
+    };
+    return { app, model, finish, start, phase, reconnect };
 }
 
 test('a finished consolidation is confirmed on the island with its horizon, then goes', () => {
@@ -774,6 +783,54 @@ test('a dashboard opened mid-run learns of the run from its next phase', () => {
     assert.equal(model.get('consolidation').text.vars.horizon, 'quarterly');
     finish('quarterly', true, 'r7');
     assert.equal(model.get('consolidation').state, 'success');
+});
+
+test('a run that ended while the stream was down does not stay busy after a reconnect', () => {
+    const { app, model, start, phase, finish, reconnect } = consolidationDashboard();
+    start('r1', 'weekly');
+    phase('r1', 'weekly', 'clustering');
+    // The stream drops here; r1's completion is sent while no stream is open.
+    reconnect();
+    assert.equal(app._consolidationRuns().size, 0);
+    assert.equal(model.get('consolidation'), null, 'the stale busy entry is gone');
+    start('r2', 'daily');
+    finish('daily', true, 'r2');
+    assert.equal(model.get('consolidation').state, 'success', 'a later run ends in its confirmation');
+    assert.equal(model.get('consolidation').text.vars.horizon, 'daily');
+});
+
+test('a run still going after a reconnect comes back with its next phase', () => {
+    const { model, start, phase, finish, reconnect } = consolidationDashboard();
+    start('r1', 'monthly');
+    reconnect();
+    phase('r1', 'monthly', 'forgetting');
+    assert.equal(model.get('consolidation').state, 'busy');
+    assert.equal(model.get('consolidation').text.key, 'island.consolidation.phase.forgetting');
+    finish('monthly', true, 'r1');
+    assert.equal(model.get('consolidation').state, 'success');
+});
+
+test('a failure in front of a run no longer reveals that run after a reconnect', () => {
+    const { model, start, finish, reconnect } = consolidationDashboard();
+    start('new', 'weekly');
+    start('old', 'daily');
+    finish('daily', false, 'old');
+    assert.ok(model.get('consolidation').settle);
+    reconnect();
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'error', 'the failure the reader has not closed stays');
+    assert.equal(entry.settle, null);
+    assert.ok(model.dismiss('consolidation'));
+    assert.equal(model.get('consolidation'), null);
+});
+
+test("the browser's own retry of the same stream keeps the run", () => {
+    const { app, model, start } = consolidationDashboard();
+    app.eventSource.onopen();
+    start('r1', 'weekly');
+    app.eventSource.onopen();
+    assert.equal(app._consolidationRuns().size, 1);
+    assert.equal(model.get('consolidation').state, 'busy');
 });
 
 test('a phase name the dashboard does not know shows as running', () => {
