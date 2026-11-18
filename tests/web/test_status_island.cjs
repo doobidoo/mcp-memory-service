@@ -605,7 +605,11 @@ test('the catalog keys document imports use exist in en.json', () => {
 function consolidationDashboard() {
     const { app, context } = dashboard();
     const model = StatusIsland.createModel();
-    app.statusIsland = { report: (id, entry) => model.report(id, entry) };
+    app.statusIsland = {
+        report: (id, entry) => model.report(id, entry),
+        get: (id) => model.get(id),
+        clear: (id) => model.clear(id),
+    };
     app.refreshes = 0;
     app._scheduleDashboardRefresh = () => { app.refreshes += 1; };
     context.EventSource = class {
@@ -613,11 +617,19 @@ function consolidationDashboard() {
         addEventListener(type, listener) { this.listeners[type] = listener; }
     };
     app._connectSSE('http://localhost:8000/api/events');
-    // What scheduler.py broadcasts when a run ends, as web/sse.py puts it on the wire.
-    const finish = (time_horizon, success) => app.eventSource.listeners.consolidation_completed({
-        data: JSON.stringify({ timestamp: '2026-11-16T03:00:00Z', time_horizon, success }),
+    // What consolidate() broadcasts (#2011), as web/sse.py puts it on the wire.
+    const send = (type, data) => app.eventSource.listeners[type]({
+        data: JSON.stringify({ timestamp: '2026-11-16T03:00:00Z', ...data }),
     });
-    return { app, model, finish };
+    const finish = (time_horizon, success, run_id) => send('consolidation_completed', { run_id, time_horizon, success });
+    const start = (run_id, time_horizon) => send('consolidation_started', { run_id, time_horizon });
+    const phase = (run_id, time_horizon, name) => send('consolidation_phase', { run_id, time_horizon, phase: name });
+    // Reconnect: setupSSE() opens a new EventSource, without Last-Event-ID.
+    const reconnect = () => {
+        app._connectSSE('http://localhost:8000/api/events');
+        app.eventSource.onopen();
+    };
+    return { app, model, finish, start, phase, reconnect };
 }
 
 test('a finished consolidation is confirmed on the island with its horizon, then goes', () => {
@@ -665,13 +677,21 @@ test('a consolidation report works without the island', () => {
 });
 
 test('the catalog keys a consolidation uses exist in every catalog', () => {
-    const { model, finish } = consolidationDashboard();
+    const { model, finish, start, phase } = consolidationDashboard();
     const keys = new Set();
     for (const success of [true, false]) {
         finish('daily', success);
         const entry = model.get('consolidation');
         keys.add(entry.label.key).add(entry.text.key);
     }
+    model.clear('consolidation');
+    start('k', 'daily');
+    keys.add(model.get('consolidation').text.key);
+    for (const name of ['relevance', 'clustering', 'associations', 'compression', 'forgetting', 'finalizing']) {
+        phase('k', 'daily', name);
+        keys.add(model.get('consolidation').text.key);
+    }
+    assert.equal(keys.size, 10, 'label, the two ends, running and six phases');
     for (const file of fs.readdirSync(STATIC + 'i18n').filter((name) => name.endsWith('.json'))) {
         const catalog = JSON.parse(fs.readFileSync(STATIC + 'i18n/' + file, 'utf8'));
         assert.deepEqual([...keys].filter((key) => !catalog[key]), [], file);
@@ -679,4 +699,153 @@ test('the catalog keys a consolidation uses exist in every catalog', () => {
             assert.ok(catalog[key].includes('{horizon}'), `${file}: ${key} names the horizon`);
         }
     }
+});
+
+// ---- A run while it is going (#2011) ----
+
+test('a started run is busy without a percentage, then names each phase', () => {
+    const { model, start, phase } = consolidationDashboard();
+    start('r1', 'weekly');
+    let entry = model.get('consolidation');
+    assert.equal(entry.state, 'busy');
+    assert.equal(entry.progress, 'unknown');
+    assert.equal(entry.text.key, 'island.consolidation.running');
+    assert.equal(entry.text.vars.horizon, 'weekly');
+    phase('r1', 'weekly', 'clustering');
+    entry = model.get('consolidation');
+    assert.equal(entry.state, 'busy');
+    assert.equal(entry.progress, 'unknown', 'a phase is not a percentage');
+    assert.equal(entry.text.key, 'island.consolidation.phase.clustering');
+    assert.equal(entry.text.vars.horizon, 'weekly');
+});
+
+test('a run stays busy through finalization, then turns into a confirmation', () => {
+    const { app, model, start, phase, finish } = consolidationDashboard();
+    start('r1', 'weekly');
+    phase('r1', 'weekly', 'finalizing');
+    assert.equal(model.get('consolidation').state, 'busy');
+    assert.equal(model.get('consolidation').text.key, 'island.consolidation.phase.finalizing');
+    finish('weekly', true, 'r1');
+    assert.equal(model.get('consolidation').state, 'success');
+    assert.equal(model.get('consolidation').text.key, 'island.consolidation.completed');
+    assert.equal(app._consolidationRuns().size, 0);
+});
+
+test('a run that fails goes from busy to a failure that stays', () => {
+    const { model, start, phase, finish } = consolidationDashboard();
+    start('r1', 'monthly');
+    phase('r1', 'monthly', 'forgetting');
+    finish('monthly', false, 'r1');
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'error');
+    assert.equal(entry.text.key, 'island.consolidation.failed');
+    assert.equal(entry.dismissible, true);
+    assert.equal(entry.settle, null, 'nothing is running behind it');
+});
+
+test('the end of an older run does not clear a newer run that is still going', () => {
+    const { app, model, start, phase, finish } = consolidationDashboard();
+    start('old', 'daily');
+    start('new', 'weekly');
+    phase('new', 'weekly', 'associations');
+    phase('old', 'daily', 'finalizing');
+    assert.equal(model.get('consolidation').text.vars.horizon, 'weekly', 'the newest run is shown');
+    finish('daily', true, 'old');
+    let entry = model.get('consolidation');
+    assert.equal(entry.state, 'busy');
+    assert.equal(entry.text.key, 'island.consolidation.phase.associations');
+    assert.equal(app.refreshes, 1, 'the numbers of the finished run are still refreshed');
+    finish('weekly', true, 'new');
+    entry = model.get('consolidation');
+    assert.equal(entry.state, 'success');
+    assert.equal(entry.text.vars.horizon, 'weekly');
+});
+
+test('an older run that fails is shown in front of the newer one, and closing it reveals the run', () => {
+    const { model, start, phase, finish } = consolidationDashboard();
+    start('old', 'daily');
+    start('new', 'weekly');
+    finish('daily', false, 'old');
+    assert.equal(model.get('consolidation').state, 'error');
+    phase('new', 'weekly', 'compression');
+    assert.equal(model.get('consolidation').state, 'error', 'a phase does not hide a failure the reader has not closed');
+    assert.ok(model.dismiss('consolidation'));
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'busy');
+    assert.equal(entry.text.key, 'island.consolidation.phase.compression');
+    assert.equal(entry.text.vars.horizon, 'weekly');
+});
+
+test('a dashboard opened mid-run learns of the run from its next phase', () => {
+    const { model, phase, finish } = consolidationDashboard();
+    phase('r7', 'quarterly', 'compression');
+    assert.equal(model.get('consolidation').state, 'busy');
+    assert.equal(model.get('consolidation').text.vars.horizon, 'quarterly');
+    finish('quarterly', true, 'r7');
+    assert.equal(model.get('consolidation').state, 'success');
+});
+
+test('a run that ended while the stream was down does not stay busy after a reconnect', () => {
+    const { app, model, start, phase, finish, reconnect } = consolidationDashboard();
+    start('r1', 'weekly');
+    phase('r1', 'weekly', 'clustering');
+    // The stream drops here; r1's completion is sent while no stream is open.
+    reconnect();
+    assert.equal(app._consolidationRuns().size, 0);
+    assert.equal(model.get('consolidation'), null, 'the stale busy entry is gone');
+    start('r2', 'daily');
+    finish('daily', true, 'r2');
+    assert.equal(model.get('consolidation').state, 'success', 'a later run ends in its confirmation');
+    assert.equal(model.get('consolidation').text.vars.horizon, 'daily');
+});
+
+test('a run still going after a reconnect comes back with its next phase', () => {
+    const { model, start, phase, finish, reconnect } = consolidationDashboard();
+    start('r1', 'monthly');
+    reconnect();
+    phase('r1', 'monthly', 'forgetting');
+    assert.equal(model.get('consolidation').state, 'busy');
+    assert.equal(model.get('consolidation').text.key, 'island.consolidation.phase.forgetting');
+    finish('monthly', true, 'r1');
+    assert.equal(model.get('consolidation').state, 'success');
+});
+
+test('a failure in front of a run no longer reveals that run after a reconnect', () => {
+    const { model, start, finish, reconnect } = consolidationDashboard();
+    start('new', 'weekly');
+    start('old', 'daily');
+    finish('daily', false, 'old');
+    assert.ok(model.get('consolidation').settle);
+    reconnect();
+    const entry = model.get('consolidation');
+    assert.equal(entry.state, 'error', 'the failure the reader has not closed stays');
+    assert.equal(entry.settle, null);
+    assert.ok(model.dismiss('consolidation'));
+    assert.equal(model.get('consolidation'), null);
+});
+
+test("the browser's own retry of the same stream keeps the run", () => {
+    const { app, model, start } = consolidationDashboard();
+    app.eventSource.onopen();
+    start('r1', 'weekly');
+    app.eventSource.onopen();
+    assert.equal(app._consolidationRuns().size, 1);
+    assert.equal(model.get('consolidation').state, 'busy');
+});
+
+test('a phase name the dashboard does not know shows as running', () => {
+    const { model, start, phase } = consolidationDashboard();
+    start('r1', 'daily');
+    phase('r1', 'daily', 'toString');
+    assert.equal(model.get('consolidation').text.key, 'island.consolidation.running');
+});
+
+test('a run reported without the island does not throw', () => {
+    const { app } = dashboard({ island: null });
+    app._scheduleDashboardRefresh = () => {};
+    assert.doesNotThrow(() => {
+        app.handleConsolidationStarted({ run_id: 'r1', time_horizon: 'daily' });
+        app.handleConsolidationPhase({ run_id: 'r1', time_horizon: 'daily', phase: 'clustering' });
+        app.handleConsolidationCompleted({ run_id: 'r1', time_horizon: 'daily', success: true });
+    });
 });

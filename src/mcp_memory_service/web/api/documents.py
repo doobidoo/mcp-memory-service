@@ -146,6 +146,18 @@ class UploadStatus(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
 
+
+def _cleanup_temp_files(*paths: Optional[str]) -> None:
+    """Best-effort removal of temporary files during upload error handling."""
+    for path in paths:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                # File already deleted or unreachable; ignore cleanup errors
+                pass
+
+
 @router.post("/upload", response_model=Dict[str, Any])
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -172,6 +184,7 @@ async def upload_document(
     Uses FastAPI BackgroundTasks for proper async processing.
     """
     logger.info("Document upload endpoint called")
+    temp_path = None
     try:
         # Read file content
         file_content = await file.read()
@@ -235,7 +248,13 @@ async def upload_document(
             "message": f"Document {file.filename} queued for processing"
         }
 
+    except HTTPException:
+        # File creation currently happens after validation, but guard against
+        # leaks if validation or file creation order changes in the future.
+        _cleanup_temp_files(temp_path)
+        raise
     except Exception:
+        _cleanup_temp_files(temp_path)
         logger.exception("Upload error")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -262,6 +281,7 @@ async def batch_upload_documents(
     Returns:
         Batch upload session information
     """
+    temp_paths = []
     try:
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
@@ -271,7 +291,6 @@ async def batch_upload_documents(
 
         # Create batch upload session
         batch_id = str(uuid.uuid4())
-        temp_paths = []
 
         # Validate and save all files
         for file in files:
@@ -292,9 +311,9 @@ async def batch_upload_documents(
                 suffix=safe_ext
             )
             temp_path = temp_file.name
+            temp_paths.append((file.filename, temp_path, len(content)))
             with temp_file:
                 temp_file.write(content)
-            temp_paths.append((file.filename, temp_path, len(content)))
 
         # Calculate total file size for the batch
         total_file_size = sum(file_size for _, _, file_size in temp_paths)
@@ -326,7 +345,11 @@ async def batch_upload_documents(
             "message": f"Batch of {len(files)} documents queued for processing"
         }
 
+    except HTTPException:
+        _cleanup_temp_files(*(p for _, p, _ in temp_paths))
+        raise
     except Exception:
+        _cleanup_temp_files(*(p for _, p, _ in temp_paths))
         logger.exception("Batch upload error")
         raise HTTPException(status_code=500, detail="Internal server error")
 

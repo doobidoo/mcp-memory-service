@@ -995,17 +995,9 @@ class ConsolidationScheduler:
             
             self.logger.error("Failed %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             raise
-        finally:
-            # Consolidation can change counts even if a later step fails.
-            try:
-                from ..web.sse import SSEEvent, sse_manager
-
-                await sse_manager.broadcast_event(SSEEvent(
-                    event_type="consolidation_completed",
-                    data={"time_horizon": time_horizon, "success": job_record["status"] == "success"},
-                ))
-            except Exception as exc:
-                self.logger.debug("Unable to notify dashboard of consolidation: %s", _sanitize_log_value(exc))
+        # The dashboard learns of the run from consolidate() itself, which announces
+        # its start and its end for every caller (#2011); the belief work and the job
+        # history above are not part of that lifecycle.
 
     def _add_job_to_history(self, job_record: Dict[str, Any]):
         """Add job record to history with size limit."""

@@ -95,36 +95,44 @@ def _base_snapshot() -> str:
     return str(Path(cached).parent)
 
 
-def _balance_weights(labels):
-    """Inverse-frequency class weights, mean 1 (sklearn 'balanced' shape).
+def _balance_weights(labels, min_class=3):
+    """Inverse-frequency class weights over the classes worth balancing.
 
-    The fourth real-store run showed what happens without them: 23 updates
-    among 177 pairs, and unweighted adaptation takes the majority class as
-    the cheap loss minimum — wrong retirements fell 57 to 6, but the head
-    stopped finding updates (8 to 5 of 23).
+    Classes with fewer than ``min_class`` examples sit the balancing out at
+    weight 1.0: the fifth real-store run had two entailment rows, and
+    inverse frequency handed that two-example class the largest weight in
+    the loss (2.6–2.8 against 0.19–0.33) — a stray label shouldn't steer
+    training. Weights over the balanced classes average 1.
     """
     counts = Counter(labels)
-    total = len(labels)
     present = [c for c in FOUR_CLASSES if counts.get(c)]
-    if len(present) <= 1:
+    eligible = [c for c in present if counts[c] >= min_class]
+    if len(eligible) <= 1:
         return {c: 1.0 for c in present}  # nothing to balance against
-    raw = {c: total / (len(present) * counts.get(c, 1)) for c in present}
+    total = sum(counts[c] for c in eligible)
+    raw = {c: total / (len(eligible) * counts[c]) for c in eligible}
     mean = sum(raw.values()) / len(raw)  # normalize: loss scale stays
-    return {c: w / mean for c, w in raw.items()}  # comparable unweighted
+    out = {c: 1.0 for c in present}
+    out.update({c: raw[c] / mean for c in eligible})
+    return out
 
 
-def _oversample(rows, seed):
-    """Duplicate minority rows up to the largest class count, seeded.
+def _oversample(rows, seed, min_class=3):
+    """Duplicate minority rows up to the largest eligible class, seeded.
 
-    The alternative to weighting: same loss shape, more gradient steps on
-    the rare class instead of bigger ones.
+    Classes under ``min_class`` are left at their own count, for the same
+    reason as in _balance_weights: copying one pair to a hundred rows
+    teaches the label of two examples, not the class.
     """
     rng = random.Random(seed)
     counts = Counter(r[0] for r in rows)
-    top = max(counts.values())
+    eligible = [c for c, n in counts.items() if n >= min_class]
+    if len(eligible) <= 1:
+        return list(rows)
+    top = max(counts[c] for c in eligible)
     out = list(rows)
-    for label, n in counts.items():
-        need = top - n
+    for label in eligible:
+        need = top - counts[label]
         if need > 0:
             pool = [r for r in rows if r[0] == label]
             out.extend(rng.choices(pool, k=need))
@@ -248,18 +256,26 @@ def train(args, lbl, id2lbl):
         adapt_meta = {"adapted_from": args.resume_from,
                       "adapt_pairs": len(train_rows),
                       "skipped_labels": skips}
+        source_counts = Counter(r[0] for r in train_rows)
         if args.adapt_balance == "weight":
-            class_weights = _balance_weights([r[0] for r in train_rows])
+            class_weights = _balance_weights([r[0] for r in train_rows],
+                                             min_class=args.adapt_min_class)
             adapt_meta["balance"] = "weight"
             adapt_meta["class_weights"] = {c: round(w, 3)
                                            for c, w in class_weights.items()}
         elif args.adapt_balance == "oversample":
-            train_rows = _oversample(train_rows, args.seed)
+            train_rows = _oversample(train_rows, args.seed,
+                                     min_class=args.adapt_min_class)
             adapt_meta["balance"] = "oversample"
             adapt_meta["oversampled_to"] = dict(Counter(r[0] for r in train_rows))
             adapt_meta["train_rows"] = len(train_rows)
         else:
             adapt_meta["balance"] = "none"
+        if args.adapt_balance != "none":
+            excluded = sorted(c for c, n in source_counts.items()
+                              if n < args.adapt_min_class)
+            if excluded:
+                adapt_meta["excluded_from_balancing"] = excluded
         extra = (f", {len(train_rows)} rows after oversampling"
                  if args.adapt_balance == "oversample" else "")
         log(f"adapt: {adapt_meta['adapt_pairs']} pairs from {args.adapt_pairs} "
@@ -536,13 +552,19 @@ def main():
     ap.add_argument("--adapt-lr", type=float, default=1e-5,
                     help="adaptation learning rate (default 1e-5, a third of training)")
     ap.add_argument("--adapt-epochs", type=int, default=3)
-    ap.add_argument("--adapt-balance", default="weight",
+    ap.add_argument("--adapt-balance", default="oversample",
                     choices=("none", "weight", "oversample"),
-                    help="class balancing for adaptation (default weight: inverse-"
-                         "frequency loss weights — the fourth real-store run showed "
-                         "unbalanced adaptation collapses to the majority class and "
-                         "stops finding updates; oversample duplicates rare rows "
-                         "instead; none reproduces that collapse)")
+                    help="class balancing for adaptation (default oversample: "
+                         "duplicate rare rows up to the largest class — the fifth "
+                         "real-store run had it as the only mode beating the base "
+                         "head on both axes; weight uses inverse-frequency loss "
+                         "weights; none reproduces the majority-class collapse the "
+                         "fourth run measured)")
+    ap.add_argument("--adapt-min-class", type=int, default=3, metavar="N",
+                    help="classes with fewer than N examples sit the balancing out "
+                         "(weight 1.0, no duplication): the fifth run's two "
+                         "entailment rows got the largest weight in the loss, and a "
+                         "stray label shouldn't steer training")
     args = ap.parse_args()
     # validated before the torch import so the contract is checkable
     # everywhere, including machines that only run the test suite
