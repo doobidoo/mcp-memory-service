@@ -6,6 +6,12 @@
 # GITHUB_TOKEN starts no workflows, so CI would never run on the updated branch.
 # Setup: repository variable MERGE_TRAIN_CLIENT_ID (the App's client ID) and
 # secret MERGE_TRAIN_PRIVATE_KEY. Until the variable exists the job is skipped.
+#
+# The second step tells PR authors what blocks their PR (open review threads, a
+# conflict with main, a red changelog or tests-prove-fix check). It rides on this
+# job so that it adds no runs of its own, and because scheduled workflows are
+# throttled here: push to main is the trigger that fires reliably. It posts with
+# GITHUB_TOKEN, as github-actions[bot]. Logic: scripts/maintenance/github_pr_notice.py.
 name: Merge Train
 
 on:
@@ -27,6 +33,10 @@ jobs:
     if: vars.MERGE_TRAIN_CLIENT_ID != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write   # PR notices, posted as github-actions[bot]
+      checks: read           # check runs on the PR head
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -46,3 +56,12 @@ jobs:
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
       run: python3 scripts/ci/merge_train.py
+
+    - name: Tell authors what blocks their PR
+      # Runs even when the queue step failed, and never fails the job.
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      timeout-minutes: 2
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 scripts/maintenance/github_pr_notice.py --post >> "$GITHUB_STEP_SUMMARY"
