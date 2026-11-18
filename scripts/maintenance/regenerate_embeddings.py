@@ -113,9 +113,12 @@ async def _regenerate_all(actual_storage, memories):
             # a vec0 virtual table with `store` as a partition key (#1521): vec0 does not
             # support SQLite's `INSERT OR REPLACE` conflict resolution and raises
             # `UNIQUE constraint failed on memory_embeddings primary key` when a rowid
-            # already exists (#2073), so delete-then-insert inside a savepoint matching
-            # SqliteVecMemoryStorage.store().
+            # already exists (#2073). Open an outer batch transaction so `RELEASE SAVEPOINT`
+            # does not auto-commit each row individually, while keeping a per-row savepoint
+            # so a failed insert restores the deleted vector cleanly.
             rowid = result[0]
+            if not getattr(actual_storage.conn, 'in_transaction', False):
+                actual_storage.conn.execute('BEGIN')
             actual_storage.conn.execute('SAVEPOINT regen_emb')
             try:
                 actual_storage.conn.execute(

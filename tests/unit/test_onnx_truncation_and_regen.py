@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import json
 import sqlite3
+import struct
 import sys
 import types
 from pathlib import Path
@@ -22,6 +23,30 @@ def _import_onnx_embeddings_with_stubs(monkeypatch):
     if mod_name in sys.modules:
         return importlib.reload(sys.modules[mod_name])
     return importlib.import_module(mod_name)
+
+
+def _load_regenerate_module(monkeypatch):
+    """Import scripts/maintenance/regenerate_embeddings.py with lightweight storage/config stubs."""
+    try:
+        import sqlite_vec  # noqa: F401
+    except ImportError:
+        fake_sqlite_vec = types.ModuleType("sqlite_vec")
+        fake_sqlite_vec.serialize_float32 = lambda vec: struct.pack(f"{len(vec)}f", *vec)
+        monkeypatch.setitem(sys.modules, "sqlite_vec", fake_sqlite_vec)
+
+    fake_factory = types.ModuleType("mcp_memory_service.storage.factory")
+    fake_factory.create_storage_instance = None
+    monkeypatch.setitem(sys.modules, "mcp_memory_service.storage.factory", fake_factory)
+
+    fake_cfg = types.ModuleType("mcp_memory_service.config")
+    fake_cfg.SQLITE_VEC_PATH = ":memory:"
+    monkeypatch.setitem(sys.modules, "mcp_memory_service.config", fake_cfg)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.syspath_prepend(str(repo_root / "scripts" / "maintenance"))
+    if "regenerate_embeddings" in sys.modules:
+        return importlib.reload(sys.modules["regenerate_embeddings"])
+    return importlib.import_module("regenerate_embeddings")
 
 
 def test_resolve_max_length_handles_offset_and_sentinel(monkeypatch, tmp_path: Path):
@@ -133,42 +158,45 @@ def test_init_model_enables_truncation_only_when_null(monkeypatch, tmp_path: Pat
     assert m2._tokenizer.truncation == {"max_length": 256}
 
 
-def test_regenerate_all_replaces_existing_rows_without_insert_or_replace(monkeypatch):
-    """vec0 rejects INSERT OR REPLACE on existing rowids; delete+insert must succeed (#2073)."""
-    fake_sqlite_vec = types.ModuleType("sqlite_vec")
-    fake_sqlite_vec.serialize_float32 = lambda vec: json.dumps(vec).encode("utf-8")
-    monkeypatch.setitem(sys.modules, "sqlite_vec", fake_sqlite_vec)
-
-    fake_factory = types.ModuleType("mcp_memory_service.storage.factory")
-    fake_factory.create_storage_instance = None
-    monkeypatch.setitem(sys.modules, "mcp_memory_service.storage.factory", fake_factory)
-
-    fake_cfg = types.ModuleType("mcp_memory_service.config")
-    fake_cfg.SQLITE_VEC_PATH = ":memory:"
-    monkeypatch.setitem(sys.modules, "mcp_memory_service.config", fake_cfg)
-
-    repo_root = Path(__file__).resolve().parents[2]
-    monkeypatch.syspath_prepend(str(repo_root / "scripts" / "maintenance"))
-    regen = importlib.import_module("regenerate_embeddings")
+def test_regenerate_all_batches_commits_and_rolls_back_failed_insert(monkeypatch):
+    """Verify 10-row batch transactions and savepoint rollback when INSERT fails after DELETE (#2073)."""
+    regen = _load_regenerate_module(monkeypatch)
 
     raw_conn = sqlite3.connect(":memory:")
     raw_conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content_hash TEXT)")
     raw_conn.execute(
-        "CREATE TABLE memory_embeddings (rowid INTEGER PRIMARY KEY, content_embedding BLOB, store TEXT)"
+        """
+        CREATE TABLE memory_embeddings (
+            rowid INTEGER PRIMARY KEY,
+            content_embedding BLOB NOT NULL CHECK(length(content_embedding) = 8),
+            store TEXT NOT NULL
+        )
+        """
     )
-    raw_conn.execute("INSERT INTO memories (id, content_hash) VALUES (1, 'hash_one')")
-    raw_conn.execute(
-        "INSERT INTO memory_embeddings (rowid, content_embedding, store) VALUES (1, X'00', 'default')"
-    )
+    memories = []
+    orig_blob = struct.pack("2f", 0.1, 0.9)
+    for idx in range(1, 13):
+        h = f"hash_{idx:02d}"
+        raw_conn.execute("INSERT INTO memories (id, content_hash) VALUES (?, ?)", (idx, h))
+        raw_conn.execute(
+            "INSERT INTO memory_embeddings (rowid, content_embedding, store) VALUES (?, ?, ?)",
+            (idx, orig_blob, "orig_store"),
+        )
+        memories.append({"content_hash": h, "content": f"text {idx}", "store": "updated_store"})
     raw_conn.commit()
 
-    class _Vec0StrictConn:
-        """Forbids INSERT OR REPLACE just like sqlite-vec vec0 virtual tables."""
+    class _TrackingVec0LikeConn:
+        """Rejects INSERT OR REPLACE (matching vec0) and counts explicit batch commits."""
 
-        def __init__(self, inner):
+        def __init__(self, inner: sqlite3.Connection):
             self._inner = inner
+            self.commit_calls = 0
 
-        def execute(self, sql, params=()):
+        @property
+        def in_transaction(self) -> bool:
+            return self._inner.in_transaction
+
+        def execute(self, sql: str, params=()):
             if "INSERT OR REPLACE" in sql.upper():
                 raise sqlite3.IntegrityError(
                     "UNIQUE constraint failed on memory_embeddings primary key"
@@ -176,24 +204,100 @@ def test_regenerate_all_replaces_existing_rows_without_insert_or_replace(monkeyp
             return self._inner.execute(sql, params)
 
         def commit(self):
+            self.commit_calls += 1
             return self._inner.commit()
 
     class _StubStorage:
         def __init__(self, conn):
             self.conn = conn
 
-        def _generate_embedding(self, _text):
+        def _generate_embedding(self, text: str):
+            # Force row 2 insertion to fail CHECK(length == 8) AFTER DELETE succeeded!
+            if text == "text 2":
+                return [0.1, 0.2, 0.3]
             return [0.25, 0.75]
 
-    storage = _StubStorage(_Vec0StrictConn(raw_conn))
+    tracked = _TrackingVec0LikeConn(raw_conn)
+    ok, errs = asyncio.run(regen._regenerate_all(_StubStorage(tracked), memories))
+    assert (ok, errs) == (11, 1)
+    # 11 successful rows -> batch commit fired once at i=10, and row 12 remains in open
+    # outer transaction until regenerate_embeddings() performs its final commit.
+    assert tracked.commit_calls == 1
+    assert raw_conn.in_transaction is True
+    raw_conn.commit()
+
+    # Row 2 failed during INSERT -> rolled back to savepoint so old vector and store survived!
+    row2 = raw_conn.execute(
+        "SELECT content_embedding, store FROM memory_embeddings WHERE rowid = 2"
+    ).fetchone()
+    assert row2 == (orig_blob, "orig_store")
+
+    # Subsequent rows in the same batch (e.g. row 3 and row 12) succeeded cleanly!
+    new_blob = struct.pack("2f", 0.25, 0.75)
+    for ok_id in (1, 3, 10, 12):
+        row_ok = raw_conn.execute(
+            "SELECT content_embedding, store FROM memory_embeddings WHERE rowid = ?",
+            (ok_id,),
+        ).fetchone()
+        assert row_ok == (new_blob, "updated_store")
+
+
+def test_regenerate_all_real_vec0_savepoint_rollback_when_available(monkeypatch):
+    """Exercise actual sqlite-vec vec0 virtual table rollback when sqlite_vec is installed."""
+    try:
+        import sqlite_vec
+    except ImportError:
+        return
+
+    regen = _load_regenerate_module(monkeypatch)
+    conn = sqlite3.connect(":memory:")
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+
+    conn.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content_hash TEXT)")
+    conn.execute(
+        """
+        CREATE VIRTUAL TABLE memory_embeddings USING vec0(
+            content_embedding FLOAT[2] distance_metric=cosine,
+            store TEXT partition key
+        )
+        """
+    )
+    old_vec = sqlite_vec.serialize_float32([1.0, 0.0])
+    conn.execute("INSERT INTO memories (id, content_hash) VALUES (1, 'h1'), (2, 'h2')")
+    conn.execute(
+        "INSERT INTO memory_embeddings (rowid, content_embedding, store) VALUES (1, ?, 'keep_me'), (2, ?, 'old_s')",
+        (old_vec, old_vec),
+    )
+    conn.commit()
+
+    class _Vec0Storage:
+        def __init__(self, c):
+            self.conn = c
+
+        def _generate_embedding(self, text: str):
+            # 3-float vector fails vec0 FLOAT[2] dimension check on INSERT after DELETE!
+            return [0.2, 0.3, 0.4] if text == "fail_insert" else [0.0, 1.0]
+
     ok, errs = asyncio.run(
         regen._regenerate_all(
-            storage,
-            [{"content_hash": "hash_one", "content": "updated text", "store": "work"}],
+            _Vec0Storage(conn),
+            [
+                {"content_hash": "h1", "content": "fail_insert", "store": "mutated"},
+                {"content_hash": "h2", "content": "ok_insert", "store": "new_s"},
+            ],
         )
     )
-    assert (ok, errs) == (1, 0)
-    row = raw_conn.execute(
+    conn.commit()
+    assert (ok, errs) == (1, 1)
+
+    r1 = conn.execute(
         "SELECT content_embedding, store FROM memory_embeddings WHERE rowid = 1"
     ).fetchone()
-    assert row == (b"[0.25, 0.75]", "work")
+    assert r1 == (old_vec, "keep_me")
+
+    r2 = conn.execute(
+        "SELECT content_embedding, store FROM memory_embeddings WHERE rowid = 2"
+    ).fetchone()
+    assert r2 == (sqlite_vec.serialize_float32([0.0, 1.0]), "new_s")

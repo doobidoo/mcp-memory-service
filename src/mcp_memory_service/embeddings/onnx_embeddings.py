@@ -278,43 +278,61 @@ class ONNXEmbeddingModel:
     _MAX_REASONABLE_SEQ_LEN = 1_000_000
     _DEFAULT_MAX_SEQ_LEN = 512
 
+    @staticmethod
+    def _read_json_dict(path: Path) -> Optional[dict]:
+        """Read a JSON object from disk, returning None if absent or malformed."""
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug(
+                "Could not parse %s: %s",
+                _sanitize_log_value(path),
+                _sanitize_log_value(exc),
+            )
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _bounded_seq_len(cls, value: object) -> Optional[int]:
+        """Return value when it is a positive integer within reasonable sequence bounds."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        if 0 < value <= cls._MAX_REASONABLE_SEQ_LEN:
+            return value
+        return None
+
+    @classmethod
+    def _usable_config_max_length(cls, cfg: dict) -> Optional[int]:
+        """Extract usable sequence length from config.json, subtracting RoBERTa/MPNet pad offset."""
+        max_pos = cls._bounded_seq_len(cfg.get("max_position_embeddings"))
+        if max_pos is None:
+            return None
+        model_type = str(cfg.get("model_type") or "").lower()
+        if model_type not in cls._OFFSET_POSITION_MODEL_TYPES:
+            return max_pos
+        pad_id = cfg.get("pad_token_id", 1)
+        if not isinstance(pad_id, bool) and isinstance(pad_id, int) and 0 <= pad_id < max_pos - 1:
+            return max_pos - (pad_id + 1)
+        return max_pos
+
     @classmethod
     def _resolve_max_length(cls, model_dir: Path) -> int:
         """Derive safe tokenizer truncation length from config.json / tokenizer_config.json."""
         candidates: List[int] = []
 
-        config_path = model_dir / "config.json"
-        if config_path.exists():
-            try:
-                cfg = json.loads(config_path.read_text(encoding="utf-8"))
-                max_pos = cfg.get("max_position_embeddings")
-                if isinstance(max_pos, int) and not isinstance(max_pos, bool) and 0 < max_pos <= cls._MAX_REASONABLE_SEQ_LEN:
-                    model_type = str(cfg.get("model_type") or "").lower()
-                    if model_type in cls._OFFSET_POSITION_MODEL_TYPES:
-                        pad_id = cfg.get("pad_token_id", 1)
-                        if isinstance(pad_id, int) and not isinstance(pad_id, bool) and pad_id >= 0 and max_pos > pad_id + 1:
-                            max_pos = max_pos - (pad_id + 1)
-                    candidates.append(max_pos)
-            except Exception as exc:
-                logger.debug(
-                    "Could not parse config.json in %s: %s",
-                    _sanitize_log_value(model_dir),
-                    _sanitize_log_value(exc),
-                )
+        cfg = cls._read_json_dict(model_dir / "config.json")
+        if cfg is not None:
+            cfg_max = cls._usable_config_max_length(cfg)
+            if cfg_max is not None:
+                candidates.append(cfg_max)
 
-        tok_cfg_path = model_dir / "tokenizer_config.json"
-        if tok_cfg_path.exists():
-            try:
-                tok_cfg = json.loads(tok_cfg_path.read_text(encoding="utf-8"))
-                tok_max = tok_cfg.get("model_max_length")
-                if isinstance(tok_max, int) and not isinstance(tok_max, bool) and 0 < tok_max <= cls._MAX_REASONABLE_SEQ_LEN:
-                    candidates.append(tok_max)
-            except Exception as exc:
-                logger.debug(
-                    "Could not parse tokenizer_config.json in %s: %s",
-                    _sanitize_log_value(model_dir),
-                    _sanitize_log_value(exc),
-                )
+        tok_cfg = cls._read_json_dict(model_dir / "tokenizer_config.json")
+        if tok_cfg is not None:
+            tok_max = cls._bounded_seq_len(tok_cfg.get("model_max_length"))
+            if tok_max is not None:
+                candidates.append(tok_max)
 
         return min(candidates) if candidates else cls._DEFAULT_MAX_SEQ_LEN
 
