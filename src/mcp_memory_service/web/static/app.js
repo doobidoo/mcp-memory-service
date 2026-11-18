@@ -3372,7 +3372,7 @@ class MemoryDashboard {
      */
     clearMemoryUrl() {
         if (!this.getMemoryIdFromUrl()) return;
-        if (history.state && history.state.memory) {
+        if (history.state && history.state.pushed) {
             // We pushed this entry in showMemoryDetails: return to the preceding state
             history.back();
         } else {
@@ -3455,8 +3455,16 @@ class MemoryDashboard {
 
         // Make the open memory addressable (skip if the URL already points at it)
         const id = memory.content_hash;
-        if (this.getMemoryIdFromUrl() !== id) {
-            history.pushState({ memory: id }, '', this.getMemoryUrl(id));
+        const current = this.getMemoryIdFromUrl();
+        if (current !== id) {
+            const url = this.getMemoryUrl(id);
+            if (current) {
+                // Another memory is already in the address: swap it in place, so history
+                // never holds two memory entries in a row (closing would reopen the first).
+                history.replaceState({ memory: id, pushed: !!(history.state && history.state.pushed) }, '', url);
+            } else {
+                history.pushState({ memory: id, pushed: true }, '', url);
+            }
         }
     }
     /**

@@ -304,7 +304,7 @@ def test_detail_modal_renders_in_the_selected_language(german_run):
 
 def test_opening_a_memory_updates_the_address(german_run):
     out, _ = german_run
-    assert out["pushed"] == [[{"memory": "abc123"}, "http://localhost:8000/?memory=abc123"]]
+    assert out["pushed"] == [[{"memory": "abc123", "pushed": True}, "http://localhost:8000/?memory=abc123"]]
 
 def test_edit_and_add_titles_carry_their_key(german_run):
     # Before, editing left data-i18n="modal.addMemory.save" on "Update Memory", so a
