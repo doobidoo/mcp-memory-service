@@ -157,6 +157,7 @@ class MemoryDashboard {
         this.applyTheme();
         this.watchSystemColorScheme();
         this.setupEventListeners();
+        this.setupMemoryDeepLinks();
         this.setupStatusIsland();
         this.setupAuthListeners();
 
@@ -183,6 +184,7 @@ class MemoryDashboard {
         await this.loadVersion();
         await this.loadMemoryTypes();
         await this.loadDashboardData();
+        await this.openMemoryFromUrl();
 
         // Initialize sync status monitoring for hybrid mode
         await this.checkSyncStatus();
@@ -3498,6 +3500,97 @@ class MemoryDashboard {
     }
 
     /**
+     * Build a shareable deep link for a memory (?memory=<content_hash>).
+     * Starts from the current URL so the origin, path and other params are kept.
+     * `store` is carried only when the memory was loaded from that store: the
+     * page's own ?store= says nothing about where a list-opened memory lives.
+     */
+    getMemoryUrl(contentHash, store = null) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('memory', contentHash);
+        if (store) {
+            url.searchParams.set('store', store);
+        } else {
+            url.searchParams.delete('store');
+        }
+        // Drop the hash: the app doesn't use it for routing, and a stale
+        // anchor could scroll or confuse the recipient's page.
+        url.hash = '';
+        return url.toString();
+    }
+
+    getMemoryIdFromUrl() {
+        return new URL(window.location.href).searchParams.get('memory');
+    }
+
+    /**
+     * Remove ?memory= from the address after the details modal closes.
+     */
+    clearMemoryUrl() {
+        if (!this.getMemoryIdFromUrl()) return;
+        if (history.state && history.state.pushed) {
+            // We pushed this entry in showMemoryDetails: return to the preceding state
+            history.back();
+        } else {
+            // Opened from a pasted link: no earlier in-app entry, so just strip the param
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Open the memory named by ?memory= (deep link, refresh, Back/Forward).
+     */
+    async openMemoryFromUrl() {
+        const id = this.getMemoryIdFromUrl();
+        if (!id) return;
+
+        // The address can change while the request is in flight (Back/Forward):
+        // only act on the result if it still matches the current URL.
+        const isCurrent = () => this.getMemoryIdFromUrl() === id;
+
+        try {
+            // Honor a non-default store carried in the page URL (e.g. ?store=work&memory=<hash>)
+            const store = new URL(window.location.href).searchParams.get('store');
+            const query = store ? `?store=${encodeURIComponent(store)}` : '';
+            const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}${query}`);
+            if (!isCurrent()) return;
+            this._pendingMemoryStore = store; // tell showMemoryDetails which store this came from
+            this.showMemoryDetails(memory);
+        } catch (error) {
+            if (!isCurrent()) return; // a stale failure must not touch a newer URL
+
+            // Keep the URL on auth failures so the link survives sign-in
+            if (error.status === 401) return;
+
+            if (error.status === 404) {
+                this.showToast(this.t('toast.memoryNotFound', 'This memory could not be found. It may have been deleted or edited.'), 'warning');
+            } else {
+                this.showToast(this.t('toast.memoryLoadFailed', 'Failed to load memory'), 'error');
+            }
+            // Drop the dead param so the address matches what's on screen
+            const url = new URL(window.location.href);
+            url.searchParams.delete('memory');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    /**
+     * Back/Forward support for memory deep links.
+     */
+    setupMemoryDeepLinks() {
+        window.addEventListener('popstate', () => {
+            if (!this.authState.initComplete) return;
+            const modal = document.getElementById('memoryModal');
+            if (this.getMemoryIdFromUrl()) {
+                this.openMemoryFromUrl();
+            } else if (modal && modal.classList.contains('active')) {
+                this.closeModal(modal, { updateUrl: false });
+            }
+        });
+    }
+    /**
      * Show memory details in modal
      */
     showMemoryDetails(memory) {
@@ -3512,10 +3605,28 @@ class MemoryDashboard {
         document.getElementById('editMemoryBtn').onclick = () => this.editMemory(memory);
         document.getElementById('deleteMemoryBtn').onclick = () => this.deleteMemory(memory);
         document.getElementById('shareMemoryBtn').onclick = () => this.shareMemory(memory);
+        const copyBtn = document.getElementById('copyMemoryContentBtn');
+        if (copyBtn) copyBtn.onclick = () => this.copyMemoryContent(memory);
 
         this.openModal(modal);
-    }
+        // Store this memory came from: only set by openMemoryFromUrl, otherwise the default store
+        this.openMemoryStore = this._pendingMemoryStore || null;
+        this._pendingMemoryStore = null;
 
+        // Make the open memory addressable (skip if the URL already points at it)
+        const id = memory.content_hash;
+        const current = this.getMemoryIdFromUrl();
+        if (current !== id) {
+            const url = this.getMemoryUrl(id, this.openMemoryStore);
+            if (current) {
+                // Another memory is already in the address: swap it in place, so history
+                // never holds two memory entries in a row (closing would reopen the first).
+                history.replaceState({ memory: id, pushed: !!(history.state && history.state.pushed) }, '', url);
+            } else {
+                history.pushState({ memory: id, pushed: true }, '', url);
+            }
+        }
+    }
     /**
      * Render memory details HTML
      */
@@ -3670,28 +3781,38 @@ class MemoryDashboard {
      * Share memory
      */
     shareMemory(memory) {
-        // Create shareable data
-        const shareData = {
+        const link = this.getMemoryUrl(memory.content_hash, this.openMemoryStore);
+
+        if (navigator.share) {
+            navigator.share({
+                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
+                url: link
+            }).catch(err => {
+                if (err.name === 'AbortError') return; // user dismissed the share sheet
+                this.copyMemoryLink(link);
+            });
+        } else {
+            this.copyMemoryLink(link);
+        }
+    }
+
+    copyMemoryLink(link) {
+        navigator.clipboard.writeText(link).then(() => {
+            this.showToast(this.t('toast.linkCopied', 'Memory link copied to clipboard'), 'success');
+        }).catch(err => {
+            console.error('Could not copy link: ', err);
+            this.showToast(this.t('toast.copyFailed', 'Failed to copy to clipboard'), 'error');
+        });
+    }
+
+    copyMemoryContent(memory) {
+        this.fallbackShare({
             content: memory.content,
             tags: memory.tags || [],
             type: memory.memory_type || 'note',
             created: new Date(memory.created_at * 1000).toISOString(),
             id: memory.content_hash
-        };
-
-        // Try to use Web Share API if available
-        if (navigator.share) {
-            navigator.share({
-                title: this.t('modal.memoryDetails.shareTitle', 'Memory from MCP Memory Service'),
-                text: memory.content,
-                url: window.location.href
-            }).catch(err => {
-                // Share API failed, fall back to clipboard
-                this.fallbackShare(shareData);
-            });
-        } else {
-            this.fallbackShare(shareData);
-        }
+        });
     }
 
     /**
@@ -4450,7 +4571,9 @@ class MemoryDashboard {
         // Handle 401 responses
         if (response.status === 401) {
             this.handleAuthFailure();
-            throw new Error(this.t('error.authRequired', 'Authentication required'));
+            const authError = new Error(this.t('error.authRequired', 'Authentication required'));
+            authError.status = 401;
+            throw authError;
         }
 
         if (!response.ok) {
@@ -4565,6 +4688,7 @@ class MemoryDashboard {
             // Load dashboard data
             await this.loadVersion();
             await this.loadDashboardData();
+            await this.openMemoryFromUrl();
             this.checkSyncStatus();
             this.startSyncStatusMonitoring();
             this.showToast(this.t('toast.authSuccess', 'Authentication successful'), 'success');
@@ -4891,9 +5015,15 @@ class MemoryDashboard {
         }
     }
 
-    closeModal(modal) {
+    closeModal(modal, { updateUrl = true } = {}) {
+        const wasActive = modal.classList.contains('active');
         modal.classList.remove('active');
         document.body.style.overflow = '';
+
+        // Closing the details modal also restores the address (only once per open)
+        if (wasActive && updateUrl && modal.id === 'memoryModal') {
+            this.clearMemoryUrl();
+        }
     }
 
     /**
