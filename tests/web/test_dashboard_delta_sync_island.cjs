@@ -209,7 +209,34 @@ test('a failed cycle reports no confirmation: the poll owns the error', () => {
 
 test('the ten-second poll does not replace a fresh confirmation', async () => {
     const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: delta() }));
-    island.get = (id) => (id === 'delta-sync' ? { state: 'success' } : null);
+    island.get = (id) => (id === 'delta-sync'
+        ? { state: 'success', text: { key: 'island.deltaSync.completed', fallback: 'Delta sync finished' } }
+        : null);
     await app.checkSyncStatus();
-    assert.equal(island.reports.length, 0);
+    const [, entry] = island.reports.at(-1);
+    assert.equal(entry.state, 'success', 'the confirmation stays on screen');
+    assert.equal(entry.text.key, 'island.deltaSync.completed');
+});
+
+test('a confirmation settles to what the latest poll sees, not the cycle it was reported during', async () => {
+    // The first poll catches a cycle still running, so the confirmation reported when it
+    // finishes carries a "Syncing" settle. The next poll sees "Synced" and must update
+    // that settle instead of leaving the island to step back to "Syncing".
+    const running = [{ ...peersReady[0], health: 'syncing', last_cycle_at: null }];
+    let payload = delta({ peers: running, status: 'syncing' });
+    const { app, island } = dashboard(async () => ({ is_hybrid: false, delta_sync: payload }));
+    await app.checkSyncStatus();
+    island.get = (id) => (id === 'delta-sync' ? island.reports.at(-1)[1] : null);
+    app._scheduleDashboardRefresh = () => {};
+    app.handleSyncDeltaCompleted({ peer_id: 'hub-a', success: true });
+    const confirmation = island.reports.at(-1)[1];
+    assert.equal(confirmation.state, 'success');
+    assert.equal(confirmation.settle.text.key, 'sync.status.syncing');
+
+    payload = delta({ peers: peersReady });
+    await app.checkSyncStatus();
+    const updated = island.reports.at(-1)[1];
+    assert.equal(updated.state, 'success', 'the confirmation is still on screen');
+    assert.equal(updated.text.key, 'island.deltaSync.completed');
+    assert.equal(updated.settle.text.key, 'sync.status.synced');
 });

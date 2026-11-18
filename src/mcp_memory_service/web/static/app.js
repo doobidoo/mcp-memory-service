@@ -2116,7 +2116,19 @@ class MemoryDashboard {
         // completed-cycle event reported a moment earlier. Only the plain "Synced"
         // entry is held back: "Incomplete", "Syncing" and "Pending" have to be able to
         // correct a confirmation that a single peer's completion produced (#2003).
-        if (entry.state === 'ready' && entry.text.key === 'sync.status.synced' && current?.state === 'success') return;
+        if (entry.state === 'ready' && entry.text.key === 'sync.status.synced' && current?.state === 'success') {
+            // Keep the confirmation on screen, but refresh what it will step back to: the
+            // settle was computed from the peers of the poll that reported it, which may
+            // have caught a cycle still running. Re-reporting the same text updates the
+            // settle without restarting the five-second timer (#2003).
+            this.statusIsland.report('delta-sync', {
+                state: 'success',
+                label: current.label || { key: 'sync.deltaSync', fallback: 'Delta sync' },
+                text: current.text,
+                settle: this._deltaSyncSettle(peers),
+            });
+            return;
+        }
         this.statusIsland.report('delta-sync', {
             ...entry,
             label: { key: 'sync.deltaSync', fallback: 'Delta sync' },
