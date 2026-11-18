@@ -2513,12 +2513,12 @@ class CloudflareStorage(MemoryStorage):
 
             # Build D1 query for time-based retrieval
             if time_where:
-                sql = f"SELECT * FROM memories WHERE {time_where}{store_sql} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE deleted_at IS NULL AND {time_where}{store_sql} ORDER BY created_at DESC LIMIT ?"
                 params.extend(store_params)
                 params.append(n_results)
             else:
                 # No time filters, get most recent
-                sql = f"SELECT * FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE deleted_at IS NULL{store_sql} ORDER BY created_at DESC LIMIT ?"
                 params = [*store_params, n_results]
 
             payload = {"sql": sql, "params": params}
@@ -2881,6 +2881,7 @@ class CloudflareStorage(MemoryStorage):
         end_time: float,
         include_embeddings: bool = False,
         store: Optional[str] = None,
+        exclude_pending: bool = False,  # interface parity with get_all_memories; D1 has no pending rows
     ) -> List[Memory]:
         """
         Get memories within a specific time range (v8.31.0+).
