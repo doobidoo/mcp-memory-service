@@ -127,3 +127,14 @@ def test_quick_search_placeholder_is_theme_aware():
     assert bodies, "the quick-search placeholder needs an explicit color rule"
     assert re.search(r"color:\s*var\(--neutral-500\)", bodies[0])
     assert re.search(r"opacity:\s*1\b", bodies[0])
+
+
+def test_focused_quick_search_keeps_the_theme_surface():
+    """The focus background must follow the theme; a literal white breaks dark mode."""
+    bodies = [
+        body
+        for selector, body in _rules()
+        if selector.strip() == "body.dark-mode .search-input:focus"
+    ]
+    assert bodies, "the focused quick-search field needs a dark theme background"
+    assert re.search(r"background:\s*var\(--neutral-100\)", bodies[0])

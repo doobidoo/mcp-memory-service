@@ -209,6 +209,13 @@ h3 { font-size: var(--text-xl); }
     box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
 }
 
+/* The focused field stays on the surface of the active theme. A hardcoded white
+   put the dark theme's light text and placeholder on a white field: the focused
+   placeholder measured 2.51:1 there, against 6.9:1 on --neutral-100. */
+body.dark-mode .search-input:focus {
+    background: var(--neutral-100);
+}
+
 /* Browsers pick a placeholder color of their own, which is a dark gray that the
    dark theme's input background swallows. --neutral-500 is the muted text color
    of each theme, so one rule covers both. opacity: 1 undoes Firefox, which dims
