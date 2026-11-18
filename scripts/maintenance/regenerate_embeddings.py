@@ -110,12 +110,30 @@ async def _regenerate_all(actual_storage, memories):
                 continue
 
             # Insert embedding into the memory's own store partition. memory_embeddings is
-            # a vec0 table with `store` as a partition key (#1521); writing without it lands
-            # the vector in the wrong partition, invisible to store-scoped KNN search.
-            actual_storage.conn.execute(
-                'INSERT OR REPLACE INTO memory_embeddings(rowid, content_embedding, store) VALUES (?, ?, ?)',
-                (result[0], serialize_float32(embedding), mem['store'])
-            )
+            # a vec0 virtual table with `store` as a partition key (#1521): vec0 does not
+            # support SQLite's `INSERT OR REPLACE` conflict resolution and raises
+            # `UNIQUE constraint failed on memory_embeddings primary key` when a rowid
+            # already exists (#2073). Open an outer batch transaction so `RELEASE SAVEPOINT`
+            # does not auto-commit each row individually, while keeping a per-row savepoint
+            # so a failed insert restores the deleted vector cleanly.
+            rowid = result[0]
+            if not getattr(actual_storage.conn, 'in_transaction', False):
+                actual_storage.conn.execute('BEGIN')
+            actual_storage.conn.execute('SAVEPOINT regen_emb')
+            try:
+                actual_storage.conn.execute(
+                    'DELETE FROM memory_embeddings WHERE rowid = ?',
+                    (rowid,),
+                )
+                actual_storage.conn.execute(
+                    'INSERT INTO memory_embeddings(rowid, content_embedding, store) VALUES (?, ?, ?)',
+                    (rowid, serialize_float32(embedding), mem['store']),
+                )
+                actual_storage.conn.execute('RELEASE SAVEPOINT regen_emb')
+            except Exception:
+                actual_storage.conn.execute('ROLLBACK TO SAVEPOINT regen_emb')
+                actual_storage.conn.execute('RELEASE SAVEPOINT regen_emb')
+                raise
 
             success_count += 1
 
