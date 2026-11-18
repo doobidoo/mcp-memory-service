@@ -6,7 +6,7 @@ Covers the backend half of the issue proposal:
   (event type ``sync_delta_completed`` with pulled/pushed counts).
 - The scheduler broadcasts that event over SSE at the end of each scheduled
   cycle — success and failure alike.
-- Consolidation completion notifies the dashboard as well.
+- Consolidation start and end reach the dashboard from consolidate() itself (#2011).
 """
 
 from pathlib import Path
@@ -158,14 +158,17 @@ async def test_partial_pull_counts_survive_push_failure(monkeypatch, capture_sse
 
 
 @pytest.mark.asyncio
-async def test_consolidation_notifies_dashboard(capture_sse):
+async def test_consolidation_lifecycle_is_left_to_consolidate(capture_sse):
+    """#2011: consolidate() announces start and end; the scheduler adds no second end.
+
+    The lifecycle itself is covered in tests/consolidation/test_lifecycle_events.py.
+    """
     from unittest.mock import AsyncMock
 
     sched = _make_scheduler()
     sched.consolidator.consolidate = AsyncMock(return_value=MagicMock())
     await sched._run_consolidation_job('daily')
-    assert capture_sse.events[0].event_type == 'consolidation_completed'
-    assert capture_sse.events[0].data == {'time_horizon': 'daily', 'success': True}
+    assert capture_sse.events == []
 
 
 @pytest.mark.asyncio
