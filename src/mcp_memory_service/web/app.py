@@ -71,7 +71,7 @@ from .api.conflicts import router as conflicts_router
 from .api.ontology import router as ontology_router
 from .api.harvest import router as harvest_router
 from .api.sync_events import router as sync_events_router
-from .sse import sse_manager
+from .sse import broadcast_consolidation_event, sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -199,8 +199,11 @@ async def lifespan(app: FastAPI):
                 # Create consolidation config
                 config = ConsolidationConfig(**CONSOLIDATION_CONFIG)
 
-                # Initialize consolidator with storage
-                consolidator = DreamInspiredConsolidator(storage, config)
+                # Initialize consolidator with storage; its lifecycle events
+                # (start, phase, end) reach the dashboard over SSE (#2011).
+                consolidator = DreamInspiredConsolidator(
+                    storage, config, notifier=broadcast_consolidation_event
+                )
                 logger.info("Dream-inspired consolidator initialized")
 
                 # Set global consolidator for API access
