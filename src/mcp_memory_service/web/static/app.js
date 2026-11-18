@@ -3363,12 +3363,18 @@ class MemoryDashboard {
 
     /**
      * Build a shareable deep link for a memory (?memory=<content_hash>).
-     * Starts from the current URL so the origin, path and any other
-     * params (e.g. a non-default store) are preserved.
+     * Starts from the current URL so the origin, path and other params are kept.
+     * `store` is carried only when the memory was loaded from that store: the
+     * page's own ?store= says nothing about where a list-opened memory lives.
      */
-    getMemoryUrl(contentHash) {
+    getMemoryUrl(contentHash, store = null) {
         const url = new URL(window.location.href);
         url.searchParams.set('memory', contentHash);
+        if (store) {
+            url.searchParams.set('store', store);
+        } else {
+            url.searchParams.delete('store');
+        }
         // Drop the hash: the app doesn't use it for routing, and a stale
         // anchor could scroll or confuse the recipient's page.
         url.hash = '';
@@ -3412,6 +3418,7 @@ class MemoryDashboard {
             const query = store ? `?store=${encodeURIComponent(store)}` : '';
             const memory = await this.apiCall(`/memories/${encodeURIComponent(id)}${query}`);
             if (!isCurrent()) return;
+            this._pendingMemoryStore = store; // tell showMemoryDetails which store this came from
             this.showMemoryDetails(memory);
         } catch (error) {
             if (!isCurrent()) return; // a stale failure must not touch a newer URL
@@ -3464,12 +3471,15 @@ class MemoryDashboard {
         if (copyBtn) copyBtn.onclick = () => this.copyMemoryContent(memory);
 
         this.openModal(modal);
+        // Store this memory came from: only set by openMemoryFromUrl, otherwise the default store
+        this.openMemoryStore = this._pendingMemoryStore || null;
+        this._pendingMemoryStore = null;
 
         // Make the open memory addressable (skip if the URL already points at it)
         const id = memory.content_hash;
         const current = this.getMemoryIdFromUrl();
         if (current !== id) {
-            const url = this.getMemoryUrl(id);
+            const url = this.getMemoryUrl(id, this.openMemoryStore);
             if (current) {
                 // Another memory is already in the address: swap it in place, so history
                 // never holds two memory entries in a row (closing would reopen the first).
@@ -3633,7 +3643,7 @@ class MemoryDashboard {
      * Share memory
      */
     shareMemory(memory) {
-        const link = this.getMemoryUrl(memory.content_hash);
+        const link = this.getMemoryUrl(memory.content_hash, this.openMemoryStore);
 
         if (navigator.share) {
             navigator.share({
