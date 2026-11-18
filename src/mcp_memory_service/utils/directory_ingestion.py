@@ -82,7 +82,15 @@ class DirectoryFileDiscovery:
 class FileIngestionProcessor:
     """Process individual files for directory ingestion."""
 
-    def __init__(self, storage: Any, chunk_size: int, base_tags: List[str], store: str = "default"):
+    def __init__(
+        self,
+        storage: Any,
+        chunk_size: int,
+        base_tags: List[str],
+        chunk_overlap: int = 200,
+        memory_type: str = "document",
+        store: str = "default",
+    ):
         """
         Initialize file ingestion processor.
 
@@ -90,11 +98,15 @@ class FileIngestionProcessor:
             storage: Storage backend instance
             chunk_size: Size of text chunks for processing
             base_tags: Base tags to apply to all memories
+            chunk_overlap: Characters to overlap between chunks
+            memory_type: Type label for created memories
             store: Target store partition
         """
         self.storage = storage
         self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
         self.base_tags = base_tags
+        self.memory_type = memory_type
         self.store = store
         self.logger = logging.getLogger(__name__)
 
@@ -128,14 +140,15 @@ class FileIngestionProcessor:
             )
 
             # Get appropriate document loader
-            loader = get_loader_for_file(file_path)
+            loader = get_loader_for_file(
+                file_path,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+            )
             if loader is None:
                 self.all_errors.append(f"{file_path.name}: Unsupported format")
                 self.files_failed += 1
                 return
-
-            # Configure loader
-            loader.chunk_size = self.chunk_size
 
             file_chunks_processed = 0
             file_chunks_stored = 0
@@ -155,6 +168,7 @@ class FileIngestionProcessor:
                         "source_dir": directory_name,
                         "file_type": file_path.suffix.lstrip('.')
                     },
+                    memory_type=self.memory_type,
                     store=self.store,
                 )
 

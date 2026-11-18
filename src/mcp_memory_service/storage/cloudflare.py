@@ -210,9 +210,10 @@ def _tag_match_params(tag: str) -> List[str]:
 class CloudflareStorage(MemoryStorage):
     """Cloudflare-based storage backend using Vectorize, D1, and R2."""
 
-    # Hash-addressed operations (#1878) and the read paths (#1915) honor
-    # ``store``, but get_by_hash_is_store_scoped stays False until the hybrid
-    # sync queue carries ``store`` to Cloudflare too (#1915 points 2 and 3).
+    # Hash-addressed operations (#1878), the read paths and the hybrid sync
+    # queue (#1915) honor ``store``, so per-store credentials can be granted the
+    # store-confined tools here as on sqlite-vec.
+    get_by_hash_is_store_scoped = True
 
     # Content length limit from configuration
     _MAX_CONTENT_LENGTH = CLOUDFLARE_MAX_CONTENT_LENGTH
@@ -747,6 +748,9 @@ class CloudflareStorage(MemoryStorage):
         )
         r2_key = None
         try:
+            refusal = await self._live_duplicate_refusal(memory, store, restore_id)
+            if refusal:
+                return False, refusal
             content_size, r2_key, stored_content = await self._stage_memory_artifacts(
                 memory, vector_id, restore_id
             )
@@ -789,6 +793,57 @@ class CloudflareStorage(MemoryStorage):
             # the server may have committed the row before the response was lost.
             logger.error("Failed to store memory %s: %s", _sanitize_log_value(memory.content_hash), _sanitize_log_value(e))
             return False, f"Storage failed: {str(e)}"
+
+    @staticmethod
+    def _exact_duplicate_message(existing_store: str, requested_store: str) -> str:
+        """Describe an exact-hash conflict the way sqlite-vec does."""
+        message = "Duplicate content detected (exact match)"
+        if existing_store != requested_store:
+            return f"{message}; already exists in store {existing_store!r}"
+        return message
+
+    async def _live_duplicate_refusal(
+        self, memory: Memory, store: str, restore_id: Optional[str]
+    ) -> Optional[str]:
+        """Refuse an exact duplicate before staging anything.
+
+        The vector id and R2 key of a normal store are the content hash, so
+        staging first would overwrite the live memory's vector metadata, in
+        whichever store it lives, before D1 rejected the row. A restore stages
+        under its own keys and is checked against the tombstone instead.
+        """
+        if restore_id is not None:
+            return None
+        existing = await self._existing_row_of(memory.content_hash)
+        if existing is None:
+            return None
+        existing_store, deleted = existing
+        if deleted and existing_store == store:
+            return None  # re-storing content deleted from this store
+        # A tombstone in another store is refused too: re-storing would purge
+        # it and move the hash into this store. Same message as a live
+        # duplicate, so the caller does not learn whether it was deleted.
+        return self._exact_duplicate_message(existing_store, store)
+
+    async def _existing_row_of(self, content_hash: str) -> Optional[Tuple[str, bool]]:
+        """Return ``(store, is_tombstone)`` of the D1 row for ``content_hash``, if any.
+
+        ``content_hash`` is unique across stores in D1, as in sqlite-vec.
+        """
+        response = await self._retry_request(
+            "POST", f"{self.d1_url}/query",
+            json={
+                "sql": "SELECT store, deleted_at FROM memories WHERE content_hash = ? LIMIT 1",
+                "params": [content_hash],
+            },
+        )
+        result = response.json()
+        if not result.get("success"):
+            raise ValueError(f"Failed to check for an existing memory in D1: {result}")
+        rows = result.get("result", [{}])[0].get("results") or []
+        if not rows:
+            return None
+        return rows[0].get("store") or "default", rows[0].get("deleted_at") is not None
 
     async def _cleanup_staged_restore_artifacts(
         self, vector_id: Optional[str], r2_key: Optional[str]
@@ -2480,12 +2535,12 @@ class CloudflareStorage(MemoryStorage):
 
             # Build D1 query for time-based retrieval
             if time_where:
-                sql = f"SELECT * FROM memories WHERE {time_where}{store_sql} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE deleted_at IS NULL AND {time_where}{store_sql} ORDER BY created_at DESC LIMIT ?"
                 params.extend(store_params)
                 params.append(n_results)
             else:
                 # No time filters, get most recent
-                sql = f"SELECT * FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC LIMIT ?"
+                sql = f"SELECT * FROM memories WHERE deleted_at IS NULL{store_sql} ORDER BY created_at DESC LIMIT ?"
                 params = [*store_params, n_results]
 
             payload = {"sql": sql, "params": params}
@@ -2848,6 +2903,7 @@ class CloudflareStorage(MemoryStorage):
         end_time: float,
         include_embeddings: bool = False,
         store: Optional[str] = None,
+        exclude_pending: bool = False,  # interface parity with get_all_memories; D1 has no pending rows
     ) -> List[Memory]:
         """
         Get memories within a specific time range (v8.31.0+).
