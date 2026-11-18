@@ -687,7 +687,21 @@ def read_claim_history(api: str) -> tuple[list[dict], list[dict], list[dict]]:
     comments = sorted(
         api_pages(f"{api}/comments"), key=lambda c: (c["created_at"], c["id"])
     )
-    claims = [c for c in comments if human(c) and possible_claim(c.get("body", ""))]
+    # Maintainers settle scope in prose that can read like a claim or a
+    # withdrawal (#2068); their comments join the history only as explicit
+    # /claim commands, which collaborators may also use (CONTRIBUTING.md).
+    claims = [
+        c
+        for c in comments
+        if human(c)
+        and (
+            is_claim_command(c.get("body", ""))
+            or (
+                c.get("author_association") not in EXEMPT_ASSOCIATIONS
+                and possible_claim(c.get("body", ""))
+            )
+        )
+    ]
     commands = [c for c in claims if is_claim_command(c.get("body", ""))]
     return comments, claims, commands
 

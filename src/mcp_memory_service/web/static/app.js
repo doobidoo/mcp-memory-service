@@ -1671,7 +1671,7 @@ class MemoryDashboard {
         const hasFiles = this.selectedFiles && this.selectedFiles.length > 0;
 
         if (uploadBtn) {
-            uploadBtn.disabled = !hasFiles;
+            uploadBtn.disabled = !hasFiles || this._uploading;
             uploadBtn.textContent = hasFiles ?
                 `Upload & Ingest ${this.selectedFiles.length} file${this.selectedFiles.length > 1 ? 's' : ''}` :
                 'Upload & Ingest';
@@ -1714,6 +1714,8 @@ class MemoryDashboard {
             this.showToast(this.t('toast.noFiles', 'No files selected'), 'error');
             return;
         }
+        // The upload button is disabled while the request runs; this also covers a second trigger.
+        if (this._uploading) return;
 
         const tags = document.getElementById('docTags')?.value || '';
         const chunkSize = this.chunkSizeInput?.value || 1000;
@@ -1725,9 +1727,17 @@ class MemoryDashboard {
         for (const file of this.selectedFiles) {
             this._clearOperationError(`upload-request-${JSON.stringify([file.name, file.size, file.lastModified])}`);
         }
+        this._uploading = true;
+        const uploadBtn = document.getElementById('uploadBtn');
+        if (uploadBtn) uploadBtn.disabled = true;
+        // No page overlay: the island shows the transfer, then each import by its own row.
+        this.statusIsland?.report('upload-batch', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'nav.documents', fallback: 'Documents' },
+            text: { key: 'island.upload.processing', fallback: 'Importing' },
+        });
         try {
-            this.setLoading(true);
-
             if (this.selectedFiles.length === 1 || this.processingMode === 'individual') {
                 // Individual file processing (single file or individual mode for multiple files)
                 for (let i = 0; i < this.selectedFiles.length; i++) {
@@ -1765,9 +1775,10 @@ class MemoryDashboard {
                 });
             }
 
+            this.statusIsland?.clear('upload-batch');
+
             // Clear selection and reload history
             this.selectedFiles = [];
-            this.updateUploadButton();
             await this.loadUploadHistory();
 
             // Reset drop zone
@@ -1795,7 +1806,8 @@ class MemoryDashboard {
                 key: 'toast.uploadFailed', fallback: 'Upload failed: {message}', vars: { message: error.message },
             }, { key: 'nav.documents', fallback: 'Documents' });
         } finally {
-            this.setLoading(false);
+            this._uploading = false;
+            this.updateUploadButton();
         }
     }
 
