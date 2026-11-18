@@ -940,6 +940,7 @@ class MetadataMixin:
             )
             SELECT content_hash, version FROM memories
             WHERE content_hash IN (SELECT content_hash FROM version_family)
+            AND deleted_at IS NULL
             """,
             (content_hash,),
         ).fetchall()

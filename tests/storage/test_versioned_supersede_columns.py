@@ -310,3 +310,26 @@ async def test_repeated_content_runs_conflict_checks_excluding_replaced_version(
     assert calls == [(repeated, h2)]
     assert "conflict:unresolved" in (await storage.get_by_hash(repeated)).tags
     assert "conflict:unresolved" in (await storage.get_by_hash(independent_hash)).tags
+
+
+@pytest.mark.asyncio
+async def test_deleted_family_member_does_not_affect_hash_selection(storage):
+    """A deleted ancestor must not re-enter the family in the final query."""
+    contents = ["Deleted family A.", "Deleted family B.", "Deleted family C."]
+    h1 = await _store(storage, contents[0])
+    _, _, h2 = await storage.update_memory_versioned(h1, contents[1])
+    _, _, h3 = await storage.update_memory_versioned(h2, contents[2])
+    storage.conn.execute(
+        "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
+        (time.time(), h2),
+    )
+    storage.conn.commit()
+
+    assert storage._version_family_members(h3) == [(h3, 3)]
+    repeated = Memory(
+        content=contents[1],
+        content_hash=generate_content_hash(contents[1]),
+        tags=["__test__"],
+    )
+    assert storage._prepare_versioned_update(h3, 3, repeated) == 4
+    assert repeated.content_hash == generate_content_hash(contents[1])
