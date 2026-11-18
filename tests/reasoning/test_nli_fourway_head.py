@@ -220,6 +220,26 @@ class TestAdaptPairs:
         unweighted2 = torch.nn.CrossEntropyLoss()(logits, y2).item()
         assert abs(lossf(logits, y2).item() - unweighted2) < 1e-5
 
+    def test_stray_label_classes_sit_the_balancing_out(self):
+        """The fifth real-store run: two entailment rows made repeats the
+        top-weighted class and oversampling copied one pair to a hundred
+        rows. Classes under --adapt-min-class must not steer training."""
+        mod = self._train_mod()
+        labels = (["changes"] * 23 + ["unrelated"] * 151 + ["repeats"] * 2)
+        w = mod._balance_weights(labels, min_class=3)
+        assert w["repeats"] == 1.0  # sits out entirely
+        assert round((w["changes"] + w["unrelated"]) / 2, 3) == 1.0
+        assert w["changes"] > 6 * w["unrelated"]  # the run's shape, intact
+        rows = ([("changes", f"o{i}", f"n{i}") for i in range(23)]
+                + [("unrelated", f"u{i}", f"m{i}") for i in range(151)]
+                + [("repeats", "r1", "s1"), ("repeats", "r2", "s2")])
+        out = mod._oversample(rows, seed=13, min_class=3)
+        counts = {}
+        for g, *_ in out:
+            counts[g] = counts.get(g, 0) + 1
+        assert counts["repeats"] == 2  # never duplicated
+        assert counts["changes"] == counts["unrelated"] == 151
+
     def test_adapt_balance_choices_enforced(self, tmp_path):
         pairs = tmp_path / "p.jsonl"
         pairs.write_text(json.dumps({"older": "a", "newer": "b",
