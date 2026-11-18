@@ -844,6 +844,54 @@ def test_update_memory_content_supports_an_unscoped_backend(
 
 
 @pytest.mark.integration
+def test_update_memory_content_splits_oversized_text_without_versioned_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """Oversized fallback edits are split the way store_memory() splits."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    long_text = " ".join(f"word{index}" for index in range(30))
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) > 1
+    assert all(len(memory["content"]) <= 80 for memory in listed)
+    joined = " ".join(memory["content"] for memory in sorted(
+        listed, key=lambda memory: memory["metadata"]["chunk_index"]
+    ))
+    for word in ("word0", "word29"):
+        assert word in joined
+    for memory in listed:
+        chunk_metadata = memory["metadata"]
+        assert chunk_metadata["total_chunks"] == len(listed)
+        assert chunk_metadata["original_hash"]
+        assert chunk_metadata["chunk_index"] < len(listed)
+
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+
+
+@pytest.mark.integration
 def test_update_memory_rejects_blank_content(test_app):
     stored = test_app.post("/api/memories", json={"content": "Keep this memory"})
     old_hash = stored.json()["content_hash"]

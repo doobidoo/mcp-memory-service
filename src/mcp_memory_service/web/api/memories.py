@@ -31,10 +31,16 @@ from ...storage.mixins.base import deserialize_embedding
 from ...storage.resonance_db import ResonanceDB
 from ...models.memory import Memory
 from ...models.ontology import coerce_memory_type, get_all_types
-from ...services.memory_service import MemoryService
+from ...services.memory_service import MemoryService, _chunk_metadata
 from ...utils.hashing import generate_content_hash
+from ...utils.content_splitter import split_content
 from ...compat import _sanitize_log_value
-from ...config import INCLUDE_HOSTNAME
+from ...config import (
+    INCLUDE_HOSTNAME,
+    ENABLE_AUTO_SPLIT,
+    CONTENT_PRESERVE_BOUNDARIES,
+    CONTENT_SPLIT_OVERLAP,
+)
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
 from .store_scope import resolve_store
@@ -569,6 +575,12 @@ async def _store_unversioned_replacement(
     replacement: Memory,
 ) -> Tuple[bool, str, Optional[str]]:
     """Store a replacement and remove its original on unversioned backends."""
+    max_length = getattr(storage, "max_content_length", None)
+    if ENABLE_AUTO_SPLIT and max_length and len(replacement.content) > max_length:
+        return await _store_unversioned_split_replacement(
+            storage, memory_service, content_hash, store, replacement, max_length
+        )
+
     success, message = await storage.store(
         replacement,
         skip_semantic_dedup=True,
@@ -588,6 +600,57 @@ async def _store_unversioned_replacement(
 
     await memory_service._run_post_store_steps(replacement)
     return True, message, replacement.content_hash
+
+
+async def _store_unversioned_split_replacement(
+    storage: MemoryStorage,
+    memory_service: MemoryService,
+    content_hash: str,
+    store: str,
+    replacement: Memory,
+    max_length: int,
+) -> Tuple[bool, str, Optional[str]]:
+    """Split an oversized replacement the same way store_memory() does."""
+    chunks = split_content(
+        replacement.content,
+        max_length=max_length,
+        preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
+        overlap=CONTENT_SPLIT_OVERLAP,
+    )
+    stored_chunks = []
+    for index, chunk in enumerate(chunks):
+        chunk_hash = generate_content_hash(chunk)
+        chunk_memory = Memory(
+            content=chunk,
+            content_hash=chunk_hash,
+            tags=replacement.tags,
+            memory_type=replacement.memory_type,
+            metadata=_chunk_metadata(
+                replacement.metadata, index, len(chunks),
+                replacement.content_hash, chunk_hash,
+            ),
+        )
+        success, message = await storage.store(
+            chunk_memory,
+            skip_semantic_dedup=True,
+            store=resolve_store(store),
+        )
+        if not success:
+            return False, message, None
+        stored_chunks.append(chunk_memory)
+
+    delete_success, delete_message = await storage.delete(
+        content_hash, store=resolve_store(store)
+    )
+    if not delete_success:
+        return False, (
+            f"Stored replacement chunks, but failed to delete "
+            f"original memory: {delete_message}"
+        ), None
+
+    for chunk_memory in stored_chunks:
+        await memory_service._run_post_store_steps(chunk_memory)
+    return True, f"Stored as {len(stored_chunks)} chunks", stored_chunks[0].content_hash
 
 
 async def _broadcast_memory_update(
