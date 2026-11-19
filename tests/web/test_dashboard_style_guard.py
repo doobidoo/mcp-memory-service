@@ -138,3 +138,14 @@ def test_focused_quick_search_keeps_the_theme_surface():
     ]
     assert bodies, "the focused quick-search field needs a dark theme background"
     assert re.search(r"background:\s*var\(--neutral-100\)", bodies[0])
+
+
+def test_dark_quick_search_keeps_typed_text_readable():
+    """Typed text must follow the dark theme; the UA keeps fieldtext black at 1.21:1."""
+    bodies = [
+        body
+        for selector, body in _rules()
+        if selector.strip() == "body.dark-mode .search-input"
+    ]
+    assert bodies, "typed text in the dark quick-search needs a theme color"
+    assert re.search(r"color:\s*var\(--neutral-600\)", bodies[0])
