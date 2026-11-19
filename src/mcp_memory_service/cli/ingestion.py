@@ -202,7 +202,12 @@ def ingest_directory(directory_path: Path, tags: tuple, recursive: bool, extensi
             
             # Determine file extensions to process
             if extensions:
-                file_extensions = [ext.lstrip('.') for ext in extensions]
+                file_extensions = [
+                    ext.strip().lstrip('.')
+                    for value in extensions
+                    for ext in value.split(',')
+                    if ext.strip()
+                ]
             else:
                 file_extensions = list(SUPPORTED_FORMATS.keys())
             
