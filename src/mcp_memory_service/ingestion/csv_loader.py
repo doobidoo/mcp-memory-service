@@ -258,23 +258,29 @@ class CSVLoader(DocumentLoader):
         """
         delimiters = [',', ';', '\t', '|', ':']
 
-        # Sample first few lines
-        lines = content.split('\n')[:5]
-        if len(lines) < 2:
+        # Sample the first few non-empty lines, ignoring trailing newlines and blank rows.
+        lines = [line.strip() for line in content.splitlines() if line.strip()][:5]
+        if not lines:
             return ','  # Default fallback
 
-        # Count occurrences of each delimiter in each line
+        # A single non-empty line can still contain a detectable delimiter.
+        if len(lines) == 1:
+            line = lines[0]
+            counts = {delimiter: line.count(delimiter) for delimiter in delimiters
+                      if line.count(delimiter) > 0}
+            if counts:
+                return max(counts, key=counts.get)
+            return ','
+
+        # Count occurrences of each delimiter in each line.
         delimiter_counts = {}
         for delimiter in delimiters:
-            counts = []
-            for line in lines:
-                count = line.count(delimiter)
-                counts.append(count)
-            # Use the delimiter that appears consistently across lines
+            counts = [line.count(delimiter) for line in lines]
+            # Use the delimiter that appears consistently across sampled lines.
             if len(set(counts)) == 1 and counts[0] > 0:
                 delimiter_counts[delimiter] = counts[0]
 
-        # Return delimiter with highest consistent count
+        # Return the delimiter with the highest consistent count.
         if delimiter_counts:
             return max(delimiter_counts, key=delimiter_counts.get)
 
