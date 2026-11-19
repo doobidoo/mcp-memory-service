@@ -118,9 +118,12 @@ def test_search_similar_with_multiple_memories(test_app):
 
     data = response.json()
     assert data["search_type"] == "similar"
-    # Ensure the target memory itself is filtered out of results
+    assert len(data["results"]) == 2
+    # Ensure the target memory itself is filtered out and the remaining memories are returned
     result_hashes = [r["memory"]["content_hash"] for r in data["results"]]
     assert hash1 not in result_hashes
+    assert hash2 in result_hashes
+    assert hash3 in result_hashes
 
 
 @pytest.mark.integration
