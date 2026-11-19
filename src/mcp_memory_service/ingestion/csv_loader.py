@@ -249,15 +249,26 @@ class CSVLoader(DocumentLoader):
 
     def _count_delimiters(self, line: str) -> dict[str, int]:
         """Count candidate delimiters outside quoted CSV fields."""
-        counts = {}
-    
-        for delimiter in [',', ';', '\t', '|', ':']:
-            try:
-                row = next(csv.reader([line], delimiter=delimiter))
-                counts[delimiter] = len(row) - 1
-            except csv.Error:
-                counts[delimiter] = 0
-    
+        delimiters = [',', ';', '\t', '|', ':']
+        counts = {delimiter: 0 for delimiter in delimiters}
+
+        in_quotes = False
+        i = 0
+
+        while i < len(line):
+            char = line[i]
+
+            if char == '"':
+                if in_quotes and i + 1 < len(line) and line[i + 1] == '"':
+                    i += 2
+                    continue
+                in_quotes = not in_quotes
+
+            elif not in_quotes and char in counts:
+                counts[char] += 1
+
+            i += 1
+
         return counts
         
     def _detect_delimiter(self, content: str) -> str:
