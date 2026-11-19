@@ -343,6 +343,36 @@ class TestTimeParser:
             for punct in (".", ",", "?", "!", ";", ":"):
                 assert parse_time_expression(query + punct) == expected, query + punct
 
+    def test_between_that_is_not_a_date_keeps_a_later_expression(self):
+            """`between Alice and Bob yesterday` is not a date range."""
+            yesterday_start, yesterday_end = parse_time_expression("yesterday")
+            for query in (
+                "between Alice and Bob yesterday",
+                "between sales and marketing yesterday",
+            ):
+                start_ts, end_ts = parse_time_expression(query)
+                assert (start_ts, end_ts) == (yesterday_start, yesterday_end), query
+
+    def test_between_edge_endpoints(self, monkeypatch):
+        """Month-name years are kept, `now` is today, and punctuation is accepted."""
+        start_ts, end_ts = parse_time_expression("between January 2024 and March 2024")
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+        now_start, now_end = parse_time_expression("between 2024-01-01 and now")
+        _, today_end = parse_time_expression("today")
+        assert datetime.fromtimestamp(now_start) == datetime(2024, 1, 1, 0, 0, 0)
+        assert now_end == today_end
+        # Sentence punctuation after the end must not shorten the endpoint
+        for query in (
+            "between January 2024 and March 2024",
+            "between 2024-01-01 and 2024-03-31",
+            "between yesterday to today in the morning",
+        ):
+            expected = parse_time_expression(query)
+            for punct in (".", ",", "?", "!", ";", ":"):
+                assert parse_time_expression(query + punct) == expected, query + punct
+
     def test_quarters(self):
         """Test quarter expressions"""
         start_ts, end_ts = parse_time_expression("first quarter of 2024")

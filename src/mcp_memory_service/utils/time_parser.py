@@ -68,7 +68,7 @@ PATTERNS = {
     "this_period": re.compile(r'this\s+(day|week|month|year|summer|spring|winter|fall|autumn)'),
     "month_name": re.compile(r'(january|february|march|april|may|june|july|august|september|october|november|december)'),
     # Use \S[^&]*? instead of .+? to prevent backtracking on whitespace-only strings
-    "date_range": re.compile(r'between\s+(\S[^&]{0,50}?)\s+and\s+(\S[^&]{0,50}?)(?=\s|$)'),
+    # "date_range": re.compile(r'between\s+(\S[^&]{0,50}?)\s+and\s+(\S[^&]{0,50}?)(?=\s|$)'),
     "time_of_day": re.compile(r'(morning|afternoon|evening|night|noon|midnight)'),
     "recent": re.compile(r'recent|lately|recently'),
     "specific_date": re.compile(r'(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?'),
@@ -93,6 +93,11 @@ _RANGE_ENDPOINT = "|".join(
 )
 _BARE_MONTH = re.compile(PATTERNS["month_name"].pattern)
 _RANGE_MONTH_YEAR = re.compile(rf"{PATTERNS['month_name'].pattern}\s+(\d{{4}})")
+PATTERNS["date_range"] = re.compile(
+    rf"between\s+(\S[^&]{{0,50}}?)\s+and\s+"
+    rf"({_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)"
+    rf"(?=[\s.,;:!?]|$)"
+)
 PATTERNS["from_to"] = re.compile(
     rf"from\s+(\S[^&]{{0,50}}?)\s+to\s+"
     rf"({_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)"
@@ -259,32 +264,34 @@ def parse_time_expression(
         # First check for date ranges like "between X and Y"
         date_range_match = PATTERNS["date_range"].search(query)
         if date_range_match:
-            start_expr = date_range_match.group(1)
-            end_expr = date_range_match.group(2)
-            start_ts, _ = parse_time_expression(start_expr)
-            _, end_ts = parse_time_expression(end_expr)
-            # Both sides roll back independently; keep the result inside
-            # one annual window (see _anchor_yearless_range).
-            start_ts, end_ts = _anchor_yearless_range(
-                start_expr, end_expr, start_ts, end_ts
-            )
-            # A cross-year month window ("between november and january")
-            # starts the year before its end, like the yearless M/D case;
-            # left inverted it matches nothing. Only a bare month name moves:
-            # a start with an explicit year keeps the year the user gave.
-            if start_ts is not None and end_ts is not None and start_ts > end_ts:
-                bare_month = _BARE_MONTH.fullmatch(start_expr.strip().lower())
-                if bare_month:
-                    # Same year as the end first ("between january and march"
-                    # in February, when March is last year's), then the year
-                    # before it ("between november and january").
-                    end_year = datetime.fromtimestamp(end_ts).year
-                    for year in (end_year, end_year - 1):
-                        reanchored_ts, _ = get_month_range(bare_month.group(1), year)
-                        if reanchored_ts <= end_ts:
-                            start_ts = reanchored_ts
-                            break
-            return start_ts, end_ts
+            start_expr = date_range_match.group(1).rstrip(".,;:!?")
+            end_expr = date_range_match.group(2).rstrip(".,;:!?")
+            start_ts, _ = _parse_range_side(start_expr)
+            _, end_ts = _parse_range_side(end_expr)
+            if start_ts is not None and end_ts is not None:
+                # Both sides roll back independently; keep the result inside
+                # one annual window (see _anchor_yearless_range).
+                start_ts, end_ts = _anchor_yearless_range(
+                    start_expr, end_expr, start_ts, end_ts
+                )
+                # A cross-year month window ("between november and january")
+                # starts the year before its end, like the yearless M/D case;
+                # left inverted it matches nothing. Only a bare month name moves:
+                # a start with an explicit year keeps the year the user gave.
+                if start_ts > end_ts:
+                    bare_month = _BARE_MONTH.fullmatch(start_expr.strip().lower())
+                    if bare_month:
+                        # Same year as the end first ("between january and march"
+                        # in February, when March is last year's), then the year
+                        # before it ("between november and january").
+                        end_year = datetime.fromtimestamp(end_ts).year
+                        for year in (end_year, end_year - 1):
+                            reanchored_ts, _ = get_month_range(bare_month.group(1), year)
+                            if reanchored_ts <= end_ts:
+                                start_ts = reanchored_ts
+                                break
+                if start_ts <= end_ts:
+                    return start_ts, end_ts
 
         # Documented recall example. Ends that are not times fall through
         # ("from Alice to Bob yesterday" is still yesterday).
