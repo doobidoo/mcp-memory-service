@@ -208,7 +208,10 @@ and passes. Removing an
 assignment also refreshes the check against the current assignees.
 
 A pull request that changes `src/` without linking any issue is labelled
-`no-issue` the same way. Link the issue, or open one. A maintainer can mark a small
+`no-issue` the same way. Link the issue, or open one. Linking means a reference
+in the pull request description: `Fixes #N` when the PR closes the issue,
+`Refs #N` when it covers only part of it. An issue number in the title alone
+does not link anything. A maintainer can mark a small
 or otherwise approved contribution `skip-issue`: this bypasses both checks and
 clears stale `unclaimed` and `no-issue` labels. Removing the exception restores
 the normal checks. Owners, members, collaborators and bots remain exempt. The
