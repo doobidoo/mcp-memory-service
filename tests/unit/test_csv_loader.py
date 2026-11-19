@@ -369,6 +369,11 @@ class TestCSVDelimiterDetection:
         loader = CSVLoader()
         content = '123,"12:30:00"\n'
         assert loader._detect_delimiter(content) == ','
+
+    def test_detect_delimiter_with_quote_inside_unquoted_field(self):
+        loader = CSVLoader()
+        content = '12" widget;25\n'
+        assert loader._detect_delimiter(content) == ';'
     
     def test_detect_delimiter_with_trailing_newline_and_crlf(self):
         """Test delimiter detection with trailing newlines, CRLF, and blank rows."""
