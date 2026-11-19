@@ -167,7 +167,7 @@ async def test_semantic_dedup_only_rejects_matches_in_target_store(storage):
 
 
 @pytest.mark.asyncio
-async def test_exact_duplicate_names_the_store_that_already_has_the_hash(storage):
+async def test_exact_duplicate_does_not_name_the_store_that_already_has_the_hash(storage):
     content = "identical content must remain globally unique"
     memory = _memory(content)
 
@@ -177,15 +177,17 @@ async def test_exact_duplicate_names_the_store_that_already_has_the_hash(storage
     ok, message = await storage.store(_memory(content), store="default")
     assert not ok
     assert "exact match" in message
-    assert "knowledge" in message
+    assert "another store" in message
+    assert "knowledge" not in message
 
     batch_results = await storage.store_batch([_memory(content)], store="default")
     assert not batch_results[0][0]
-    assert "knowledge" in batch_results[0][1]
+    assert "another store" in batch_results[0][1]
+    assert "knowledge" not in batch_results[0][1]
 
 
 @pytest.mark.asyncio
-async def test_store_race_names_winning_store_without_partial_writes(storage):
+async def test_store_race_does_not_name_winning_store_without_partial_writes(storage):
     memory = _memory("content inserted by a competing writer")
     racing_connection = _race_connection(storage, memory, "winner")
     storage.conn = racing_connection
@@ -197,12 +199,13 @@ async def test_store_race_names_winning_store_without_partial_writes(storage):
     assert racing_connection.injected
     assert racing_connection.integrity_error_seen
     assert not ok
-    assert "winner" in message
+    assert "another store" in message
+    assert "winner" not in message
     _assert_only_winning_record(storage.conn, memory, "winner")
 
 
 @pytest.mark.asyncio
-async def test_store_batch_race_names_winning_store_without_partial_writes(storage):
+async def test_store_batch_race_does_not_name_winning_store_without_partial_writes(storage):
     memory = _memory("batch content inserted by a competing writer")
     racing_connection = _race_connection(storage, memory, "winner")
     storage.conn = racing_connection
@@ -212,5 +215,6 @@ async def test_store_batch_race_names_winning_store_without_partial_writes(stora
     assert racing_connection.injected
     assert racing_connection.integrity_error_seen
     assert not results[0][0]
-    assert "winner" in results[0][1]
+    assert "another store" in results[0][1]
+    assert "winner" not in results[0][1]
     _assert_only_winning_record(storage.conn, memory, "winner")

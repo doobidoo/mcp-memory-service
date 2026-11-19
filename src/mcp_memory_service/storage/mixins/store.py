@@ -41,10 +41,16 @@ class StoreMixin:
     def _exact_duplicate_message(
         existing_store: str | None, requested_store: str
     ) -> str:
-        """Describe a global exact-hash conflict and name its other store."""
+        """Describe a global exact-hash conflict without naming the other store.
+
+        ``content_hash`` is unique across stores, so a conflict with another store
+        is refused. The message says only that the content exists in another store:
+        store names are often tenant or project names, and a store-scoped
+        credential must not learn them.
+        """
         message = "Duplicate content detected (exact match)"
         if existing_store is not None and existing_store != requested_store:
-            return f"{message}; already exists in store {existing_store!r}"
+            return f"{message}; already exists in another store"
         return message
 
     def _purge_tombstone(self, content_hash: str) -> None:
