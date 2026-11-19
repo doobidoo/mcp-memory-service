@@ -155,12 +155,15 @@ when the PR is reviewed. The same situation gets the same answer, whoever is inv
 | The issue is free: no assignee, no earlier claim, no other open PR | The PR author is assigned, gets a pointer to this section, and the PR is reviewed normally |
 | The issue is free and several unclaimed PRs exist | The earliest PR that passes review gets the issue; the others are closed |
 | The author was warned on an earlier unclaimed PR that the next one would be closed | The unclaimed PR is closed without review, whatever the state of the issue. The author may claim the issue and open a new PR |
+| The author had a PR closed under the row above and opens another unclaimed PR | The PR is closed and the account is blocked from the repository |
 | A claim is 3 days old with no PR, no draft and no update on the issue | A maintainer asks once on the issue |
 | No answer 2 days after that question | The claim expires, the assignment is removed, and the issue is free again |
 | A PR changes `src/` without an issue | Small and clearly scoped: `skip-issue`. Otherwise it waits until an issue is opened and agreed |
 
 A warning is given in writing on the PR, links to this section, and comes on the
-second unclaimed PR at the earliest; the first one only gets the pointer. GitHub lets
+second unclaimed PR at the earliest; the first one only gets the pointer. A block
+therefore comes on the fourth unclaimed PR at the earliest, after a pointer, a warning
+and a close that names this table. GitHub lets
 a maintainer assign only people who have commented on the issue, so "the PR author is
 assigned" can wait for a comment from you on the issue.
 
@@ -500,6 +503,10 @@ When adding features or making significant changes:
   silently), and stop once all threads are resolved and the checks are green. A 5/5
   confidence score is not required. Commits still follow the conventional format
   above; do not stage with `git add -A`.
+- When a PR has review threads waiting on you, conflicts with `main`, or a red
+  changelog or tests-prove-fix check, a bot says so on the PR, usually within a couple
+  of hours. It writes again only when something new is open, and then lists
+  everything that still is.
 - Address review feedback promptly. When a review thread has waited 48 hours on
   you, a bot posts one reminder on the PR. If your threads are still unanswered three
   days after that reminder, the PR is labelled `maintainer-takeover`, and a

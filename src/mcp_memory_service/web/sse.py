@@ -584,3 +584,12 @@ def create_sync_completed_event(
             "message": f"Sync completed: {synced_count} memories synced in {time_taken_seconds:.1f}s"
         }
     )
+
+
+async def broadcast_consolidation_event(event_type: str, data: Dict[str, Any]) -> None:
+    """Notifier the web application gives the consolidator (#2011).
+
+    Sends a consolidation lifecycle event (started, phase, completed) to every
+    dashboard. ``store=None``: a run is system-wide, like ``sync_progress``.
+    """
+    await sse_manager.broadcast_event(SSEEvent(event_type=event_type, data=dict(data)))

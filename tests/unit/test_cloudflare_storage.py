@@ -163,8 +163,10 @@ class TestCloudflareStorage:
             # Mock Vectorize storage (bypasses HTTP client) - must be AsyncMock for async method
             with patch.object(cloudflare_storage, '_store_vectorize_vector', new_callable=AsyncMock):
                 with patch.object(cloudflare_storage, '_retry_request') as mock_request:
-                    # Need 6 responses: tombstone purge + memory insert + 2 calls per tag
+                    # Need 7 responses: duplicate check + tombstone purge + memory insert
+                    # + 2 calls per tag
                     mock_request.side_effect = [
+                        mock_d1_response,  # Check for a live row with this hash
                         mock_d1_response,  # Purge matching tombstone
                         mock_d1_response,  # Insert memory
                         mock_d1_response,  # Insert tag "test"
@@ -179,7 +181,7 @@ class TestCloudflareStorage:
                     assert "successfully" in message.lower()
 
                     # Verify all D1 calls were made
-                    assert mock_request.call_count == 6
+                    assert mock_request.call_count == 7
     
     @pytest.mark.asyncio
     async def test_store_memory_large_content(self, cloudflare_storage):

@@ -5,6 +5,7 @@ Based on ONNXMiniLM_L6_V2 implementation.
 """
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -262,6 +263,79 @@ class ONNXEmbeddingModel:
                 return cand
         return None
 
+    # Model families whose position embedding table reserves indices
+    # 0..pad_token_id (e.g. XLM-RoBERTa / RoBERTa / MPNet have
+    # max_position_embeddings=514 and pad_token_id=1 -> 512 usable tokens).
+    _OFFSET_POSITION_MODEL_TYPES = frozenset({
+        "xlm-roberta",
+        "roberta",
+        "camembert",
+        "mpnet",
+        "bart",
+        "mbart",
+        "longformer",
+    })
+    _MAX_REASONABLE_SEQ_LEN = 1_000_000
+    _DEFAULT_MAX_SEQ_LEN = 512
+
+    @staticmethod
+    def _read_json_dict(path: Path) -> Optional[dict]:
+        """Read a JSON object from disk, returning None if absent or malformed."""
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug(
+                "Could not parse %s: %s",
+                _sanitize_log_value(path),
+                _sanitize_log_value(exc),
+            )
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _bounded_seq_len(cls, value: object) -> Optional[int]:
+        """Return value when it is a positive integer within reasonable sequence bounds."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        if 0 < value <= cls._MAX_REASONABLE_SEQ_LEN:
+            return value
+        return None
+
+    @classmethod
+    def _usable_config_max_length(cls, cfg: dict) -> Optional[int]:
+        """Extract usable sequence length from config.json, subtracting RoBERTa/MPNet pad offset."""
+        max_pos = cls._bounded_seq_len(cfg.get("max_position_embeddings"))
+        if max_pos is None:
+            return None
+        model_type = str(cfg.get("model_type") or "").lower()
+        if model_type not in cls._OFFSET_POSITION_MODEL_TYPES:
+            return max_pos
+        pad_id = cfg.get("pad_token_id", 1)
+        if not isinstance(pad_id, bool) and isinstance(pad_id, int) and 0 <= pad_id < max_pos - 1:
+            return max_pos - (pad_id + 1)
+        return max_pos
+
+    @classmethod
+    def _resolve_max_length(cls, model_dir: Path) -> int:
+        """Derive safe tokenizer truncation length from config.json / tokenizer_config.json."""
+        candidates: List[int] = []
+
+        cfg = cls._read_json_dict(model_dir / "config.json")
+        if cfg is not None:
+            cfg_max = cls._usable_config_max_length(cfg)
+            if cfg_max is not None:
+                candidates.append(cfg_max)
+
+        tok_cfg = cls._read_json_dict(model_dir / "tokenizer_config.json")
+        if tok_cfg is not None:
+            tok_max = cls._bounded_seq_len(tok_cfg.get("model_max_length"))
+            if tok_max is not None:
+                candidates.append(tok_max)
+
+        return min(candidates) if candidates else cls._DEFAULT_MAX_SEQ_LEN
+
     def _init_model(self):
         """Initialize ONNX model and tokenizer."""
         model_path = self._resolve_model_path()
@@ -286,8 +360,19 @@ class ONNXEmbeddingModel:
             providers=self._preferred_providers
         )
         
-        # Initialize tokenizer
+        # Initialize tokenizer. Many Hugging Face Hub repos (e.g.
+        # intfloat/multilingual-e5-small) ship tokenizer.json with
+        # "truncation": null, causing inputs longer than max_position_embeddings
+        # to fail inside ONNX Runtime's position-embedding broadcast (#2073).
         self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        if self._tokenizer.truncation is None:
+            max_len = self._resolve_max_length(tokenizer_path.parent)
+            self._tokenizer.enable_truncation(max_length=max_len)
+            logger.info(
+                "Enabled ONNX tokenizer truncation at max_length=%s for '%s'",
+                _sanitize_log_value(max_len),
+                _sanitize_log_value(self.model_name),
+            )
         
         # Get model info
         self.embedding_dimension = self._model.get_outputs()[0].shape[-1]
