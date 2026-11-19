@@ -52,6 +52,17 @@ class _D1TombstoneRestoreIncomplete(RuntimeError):
     """A D1 restore batch failed before its active-row guard could pass."""
 
 
+def _store_shares_vector_index(store: Optional[str]) -> bool:
+    """True when ``store`` names a store that other stores' vectors surround.
+
+    Vectorize holds every store's vectors in one index with no store filter, so
+    a query for a named store competes with all of them for its topK slots
+    (#2061). ``None``/``"all"`` are unscoped and the legacy ``"default"`` store
+    is the single-store case, so those keep the n_results-sized query.
+    """
+    return store not in (None, "all", "default")
+
+
 def _recall_ceiling_info(
     *,
     n_results: int,
@@ -785,10 +796,14 @@ class CloudflareStorage(MemoryStorage):
 
     @staticmethod
     def _exact_duplicate_message(existing_store: str, requested_store: str) -> str:
-        """Describe an exact-hash conflict the way sqlite-vec does."""
+        """Describe an exact-hash conflict the way sqlite-vec does.
+
+        The message does not name the other store, so a store-scoped credential
+        cannot learn store names.
+        """
         message = "Duplicate content detected (exact match)"
         if existing_store != requested_store:
-            return f"{message}; already exists in store {existing_store!r}"
+            return f"{message}; already exists in another store"
         return message
 
     async def _live_duplicate_refusal(
@@ -1152,7 +1167,11 @@ class CloudflareStorage(MemoryStorage):
             # the topK ceiling clamps what Vectorize will hand back, so
             # both numbers are kept to report the truncation below (#1236).
             candidates_wanted = n_results * 3 if tags else n_results
-            top_k = min(candidates_wanted, _VECTORIZE_MAX_TOPK)
+            store_overfetch = _store_shares_vector_index(store)
+            # A named store shares the index with every other store, and the
+            # confinement happens on the D1 load below, so ask for the whole
+            # page: the nearest neighbours may all belong to a bigger store (#2061).
+            top_k = _VECTORIZE_MAX_TOPK if store_overfetch else min(candidates_wanted, _VECTORIZE_MAX_TOPK)
             search_payload = {
                 "vector": query_embedding,
                 "topK": top_k,
@@ -1173,6 +1192,12 @@ class CloudflareStorage(MemoryStorage):
             candidates_not_loaded = 0
             dropped_by_tag_filter = 0
             for match in matches:
+                # Matches are ranked, so once n_results survive nothing below
+                # can displace them. Only the untagged path may stop here: the
+                # tagged path reports how many it truncated (#1236).
+                if store_overfetch and not tags and len(results) >= n_results:
+                    break
+
                 memory = await self._load_memory_from_match(match, store=store)
                 if not memory:
                     candidates_not_loaded += 1
@@ -1215,10 +1240,11 @@ class CloudflareStorage(MemoryStorage):
                 logger.warning(
                     "Vectorize recall may be incomplete: the query page came back full at the "
                     "%s-neighbour ceiling (wanted %s, requested %s, returned %s; %s dropped by the "
-                    "tag filter, %s results returned). A memory matching the query beyond the "
+                    "tag filter, %s not loaded for this store, %s results returned). A memory matching the query beyond the "
                     "ceiling is unreachable from this call.",
                     _VECTORIZE_MAX_TOPK, _sanitize_log_value(candidates_wanted),
-                    _sanitize_log_value(top_k), len(matches), dropped_by_tag_filter, len(results),
+                    _sanitize_log_value(top_k), len(matches), dropped_by_tag_filter,
+                    candidates_not_loaded, len(results),
                 )
 
             # Persist updated metadata for accessed memories
@@ -2357,10 +2383,10 @@ class CloudflareStorage(MemoryStorage):
         """
         store_sql, store_params = _store_clause(store)
         if cutoff_timestamp is not None:
-            sql = f"SELECT created_at FROM memories WHERE created_at >= ?{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL AND created_at >= ?{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": [cutoff_timestamp, *store_params]}
         else:
-            sql = f"SELECT created_at FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": store_params}
 
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)

@@ -208,7 +208,10 @@ and passes. Removing an
 assignment also refreshes the check against the current assignees.
 
 A pull request that changes `src/` without linking any issue is labelled
-`no-issue` the same way. Link the issue, or open one. A maintainer can mark a small
+`no-issue` the same way. Link the issue, or open one. Linking means a reference
+in the pull request description: `Fixes #N` when the PR closes the issue,
+`Refs #N` when it covers only part of it. An issue number in the title alone
+does not link anything. A maintainer can mark a small
 or otherwise approved contribution `skip-issue`: this bypasses both checks and
 clears stale `unclaimed` and `no-issue` labels. Removing the exception restores
 the normal checks. Owners, members, collaborators and bots remain exempt. The
@@ -503,6 +506,10 @@ When adding features or making significant changes:
   silently), and stop once all threads are resolved and the checks are green. A 5/5
   confidence score is not required. Commits still follow the conventional format
   above; do not stage with `git add -A`.
+- When a PR has review threads waiting on you, conflicts with `main`, or a red
+  changelog or tests-prove-fix check, a bot says so on the PR, usually within a couple
+  of hours. It writes again only when something new is open, and then lists
+  everything that still is.
 - Address review feedback promptly. When a review thread has waited 48 hours on
   you, a bot posts one reminder on the PR. If your threads are still unanswered three
   days after that reminder, the PR is labelled `maintainer-takeover`, and a

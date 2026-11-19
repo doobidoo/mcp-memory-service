@@ -781,59 +781,58 @@ class MemoryStorage(ABC):
             # Deletion must never skip pending rows (they would silently survive and reappear
             # in search after embedding repair). Pending exclusion belongs on SEARCH paths only.
             if not use_optimized:
-                all_memories = await self.get_all_memories(store=store)
+                    from ..utils.time_parser import parse_boundary
 
-                for memory in all_memories:
-                    # Tag filter
-                    if tags:
-                        if tag_match == "any":
-                            # Match ANY tag
-                            if not any(tag in memory.tags for tag in tags):
-                                continue
-                        else:  # tag_match == "all"
-                            # Match ALL tags
-                            if not all(tag in memory.tags for tag in tags):
-                                continue
-
-                    # Time filters
-                    if before or after:
-                        # Parse memory creation time
+                    start_time = None
+                    end_time = None
+                    if after:
                         try:
-                            memory_date = datetime.fromisoformat(memory.created_at_iso.replace('Z', '+00:00')).date()
-                        except Exception:
-                            # Skip memories with invalid timestamps
+                            start_time = parse_boundary(after)
+                        except ValueError as e:
+                            return {
+                                "success": False,
+                                "deleted_count": 0,
+                                "deleted_hashes": [],
+                                "dry_run": dry_run,
+                                "error": f"Invalid after date format: {after}. Use YYYY-MM-DD",
+                            }
+                    if before:
+                        try:
+                            end_time = parse_boundary(before)
+                        except ValueError as e:
+                            return {
+                                "success": False,
+                                "deleted_count": 0,
+                                "deleted_hashes": [],
+                                "dry_run": dry_run,
+                                "error": f"Invalid before date format: {before}. Use YYYY-MM-DD",
+                            }
+
+                    all_memories = await self.get_all_memories(store=store)
+
+                    for memory in all_memories:
+                        # Tag filter
+                        if tags:
+                            if tag_match == "any":
+                                # Match ANY tag
+                                if not any(tag in memory.tags for tag in tags):
+                                    continue
+                            else:  # tag_match == "all"
+                                # Match ALL tags
+                                if not all(tag in memory.tags for tag in tags):
+                                    continue
+
+                        # Time filters
+                        created_at = memory.created_at
+                        if created_at is None:
+                            continue
+                        if start_time is not None and created_at <= start_time:
+                            continue
+                        if end_time is not None and created_at >= end_time:
                             continue
 
-                        if before:
-                            try:
-                                before_date = datetime.fromisoformat(before).date()
-                                if memory_date >= before_date:
-                                    continue
-                            except ValueError:
-                                return {
-                                    "success": False,
-                                    "deleted_count": 0,
-                                    "deleted_hashes": [],
-                                    "dry_run": dry_run,
-                                    "error": f"Invalid before date format: {before}. Use YYYY-MM-DD"
-                                }
-
-                        if after:
-                            try:
-                                after_date = datetime.fromisoformat(after).date()
-                                if memory_date <= after_date:
-                                    continue
-                            except ValueError:
-                                return {
-                                    "success": False,
-                                    "deleted_count": 0,
-                                    "deleted_hashes": [],
-                                    "dry_run": dry_run,
-                                    "error": f"Invalid after date format: {after}. Use YYYY-MM-DD"
-                                }
-
-                    # Memory passed all filters
-                    filtered_memories.append(memory)
+                        # Memory passed all filters
+                        filtered_memories.append(memory)
 
             # Dry run: return what would be deleted
             if dry_run:
