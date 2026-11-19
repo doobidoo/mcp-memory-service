@@ -1782,7 +1782,7 @@ class MemoryDashboard {
                 if (button.classList.contains('btn-view-memory')) {
                     this.viewDocumentMemory(uploadId);
                 } else if (button.classList.contains('btn-remove')) {
-                    this.removeDocument(uploadId, filename);
+                    this.removeDocument(uploadId, filename, button);
                 }
             });
         }
@@ -4075,7 +4075,7 @@ class MemoryDashboard {
                 if (removeBtn) {
                     removeBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        await this.removeDocument(group.upload_id, group.source_file);
+                        await this.removeDocument(group.upload_id, group.source_file, removeBtn);
                         // removeDocument() already handles view refresh
                     });
                 }
@@ -5236,7 +5236,7 @@ class MemoryDashboard {
     /**
      * Remove document and its memories
      */
-    async removeDocument(uploadId, filename) {
+    async removeDocument(uploadId, filename, button = null) {
         console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
 
         if (!confirm(this.t('documents.removeConfirm', 'Remove "{filename}" and all its memory chunks?\n\nThis action cannot be undone.', { filename }))) {
@@ -5245,8 +5245,15 @@ class MemoryDashboard {
         }
 
         this._clearOperationError(`document-remove-${uploadId}`);
+        // No page overlay: the island shows the removal, the button shows it is running.
+        if (button) button.disabled = true;
+        this._reportOperation(`document-remove-${uploadId}`, {
+            state: 'busy',
+            progress: 'unknown',
+            label: { fallback: filename },
+            text: { key: 'island.document.removing', fallback: 'Removing document' },
+        });
         try {
-            this.setLoading(true);
             console.log('Making DELETE request to:', `/documents/remove/${uploadId}`);
 
             const response = await this.apiCall(`/documents/remove/${uploadId}`, 'DELETE');
@@ -5261,6 +5268,7 @@ class MemoryDashboard {
                     }),
                     'success'
                 );
+                this.statusIsland?.clear(`document-remove-${uploadId}`);
                 // Refresh the current view (Dashboard or Documents tab)
                 console.log('Refreshing view:', this.currentView);
                 if (this.currentView === 'dashboard') {
@@ -5285,7 +5293,7 @@ class MemoryDashboard {
                 { fallback: filename }
             );
         } finally {
-            this.setLoading(false);
+            if (button) button.disabled = false;
         }
     }
 
@@ -6593,7 +6601,15 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('bulk-delete-tag');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const deleteBtn = document.getElementById('deleteByTagBtn');
+        if (deleteBtn) deleteBtn.disabled = true;
+        this._reportOperation('bulk-delete-tag', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     tag: tag,
@@ -6602,6 +6618,7 @@ class MemoryDashboard {
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('bulk-delete-tag');
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
@@ -6619,7 +6636,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
             );
         } finally {
-            this.setLoading(false);
+            if (deleteBtn) deleteBtn.disabled = false;
         }
     }
 
@@ -6632,12 +6649,21 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('cleanup-duplicates');
-        this.setLoading(true);
+        // No page overlay: the island shows the cleanup, the button shows it is running.
+        const cleanupBtn = document.getElementById('cleanupDuplicatesBtn');
+        if (cleanupBtn) cleanupBtn.disabled = true;
+        this._reportOperation('cleanup-duplicates', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('cleanup-duplicates');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6655,7 +6681,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
             );
         } finally {
-            this.setLoading(false);
+            if (cleanupBtn) cleanupBtn.disabled = false;
         }
     }
 
@@ -6676,7 +6702,15 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('bulk-delete-date');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const deleteDateBtn = document.getElementById('deleteByDateBtn');
+        if (deleteDateBtn) deleteDateBtn.disabled = true;
+        this._reportOperation('bulk-delete-date', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     before_date: date
@@ -6684,6 +6718,7 @@ class MemoryDashboard {
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('bulk-delete-date');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6701,7 +6736,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
             );
         } finally {
-            this.setLoading(false);
+            if (deleteDateBtn) deleteDateBtn.disabled = false;
         }
     }
 
@@ -6723,12 +6758,21 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('delete-untagged');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const untaggedBtn = document.getElementById('deleteUntaggedBtn');
+        if (untaggedBtn) untaggedBtn.disabled = true;
+        this._reportOperation('delete-untagged', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('delete-untagged');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6746,7 +6790,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
             );
         } finally {
-            this.setLoading(false);
+            if (untaggedBtn) untaggedBtn.disabled = false;
         }
     }
 
