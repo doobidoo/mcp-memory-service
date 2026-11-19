@@ -503,6 +503,10 @@ When adding features or making significant changes:
   silently), and stop once all threads are resolved and the checks are green. A 5/5
   confidence score is not required. Commits still follow the conventional format
   above; do not stage with `git add -A`.
+- When a PR has review threads waiting on you, conflicts with `main`, or a red
+  changelog or tests-prove-fix check, a bot says so on the PR, usually within a couple
+  of hours. It writes again only when something new is open, and then lists
+  everything that still is.
 - Address review feedback promptly. When a review thread has waited 48 hours on
   you, a bot posts one reminder on the PR. If your threads are still unanswered three
   days after that reminder, the PR is labelled `maintainer-takeover`, and a
