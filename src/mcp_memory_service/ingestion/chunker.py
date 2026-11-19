@@ -55,7 +55,7 @@ class TextChunker:
         self.strategy = strategy or ChunkingStrategy()
         
         # Sentence boundary patterns
-        self.sentence_endings = re.compile(r'[.!?]+\s+')
+        self.sentence_endings = re.compile(r'(?<=[.!?])\s+')
         self.paragraph_separator = re.compile(r'\n\s*\n')
         
         # Common section headers (for structured documents)
