@@ -286,6 +286,20 @@ Jane,30"""
             assert first_chunk.metadata['loader_type'] == 'CSVLoader'
 
 
+    @pytest.mark.asyncio
+    async def test_extract_chunks_auto_detects_semicolon_with_newline(self):
+        """End-to-end chunk extraction detects delimiters with trailing newlines."""
+        loader = CSVLoader()
+        csv_content = "name;age;city\nJohn;25;New York\nJane;30;San Francisco\n"
+        chunks = await extract_chunks_from_temp_file(loader, "semicolon.csv", csv_content)
+
+        assert len(chunks) > 0
+        assert chunks[0].metadata['delimiter'] == ';'
+        assert chunks[0].metadata['headers'] == ['name', 'age', 'city']
+        assert "name: John" in chunks[0].content
+        assert "age: 25" in chunks[0].content
+
+
 class TestCSVLoaderRegistry:
     """Test CSV loader registration."""
 
@@ -336,6 +350,23 @@ class TestCSVDelimiterDetection:
         content = "name|age|city\nJohn|25|New York\nJane|30|San Francisco"
         delimiter = loader._detect_delimiter(content)
         assert delimiter == '|'
+
+
+    def test_detect_delimiter_with_trailing_newline_and_crlf(self):
+        """Test delimiter detection with trailing newlines, CRLF, and blank rows."""
+        loader = CSVLoader()
+
+        content_semi = "name;age;city\nJohn;25;New York\nJane;30;San Francisco\n"
+        assert loader._detect_delimiter(content_semi) == ';'
+
+        content_tab = "name\tage\tcity\r\nJohn\t25\tNew York\r\nJane\t30\tSan Francisco\r\n"
+        assert loader._detect_delimiter(content_tab) == '\t'
+
+        content_pipe = "name|age|city\n\nJohn|25|New York\n\nJane|30|San Francisco\n"
+        assert loader._detect_delimiter(content_pipe) == '|'
+
+        content_single = "name;age;city\n"
+        assert loader._detect_delimiter(content_single) == ';'
 
 
 if __name__ == '__main__':
