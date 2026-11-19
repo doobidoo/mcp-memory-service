@@ -540,6 +540,28 @@ class TestCloudflareStorage:
         assert stats["total_memories"] == 8265
         assert stats["tombstone_count"] == 602
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cutoff", [None, 1700000000.0])
+    async def test_fetch_d1_timestamps_filters_tombstones(self, cloudflare_storage, cutoff):
+        """The timestamp query behind the analytics endpoints must skip soft-deleted
+        rows, with and without a cutoff, or deleted memories are counted (#2059)."""
+        captured = {}
+
+        async def capture(method, url, **kwargs):
+            captured["payload"] = kwargs.get("json", {})
+            resp = Mock()
+            resp.json.return_value = {"success": True, "result": [{"results": [{"created_at": 1700000001.0}]}]}
+            return resp
+
+        with patch.object(cloudflare_storage, '_retry_request', side_effect=capture):
+            timestamps = await cloudflare_storage._fetch_d1_timestamps(cutoff)
+
+        sql = captured["payload"]["sql"]
+        assert "deleted_at IS NULL" in sql, "_fetch_d1_timestamps SQL must filter tombstones (see issue #2059)"
+        assert ("created_at >= ?" in sql) == (cutoff is not None)
+        assert captured["payload"]["params"] == ([] if cutoff is None else [cutoff])
+        assert timestamps == [1700000001.0]
+
 
     @pytest.mark.asyncio
     async def test_cleanup_duplicates(self, cloudflare_storage):
