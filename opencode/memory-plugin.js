@@ -1,3 +1,4 @@
+import { execFile, spawn } from "node:child_process"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import http from "node:http"
@@ -69,6 +70,16 @@ const DEFAULT_CONFIG = {
     searchTags: [],
     includeProjectTag: false,
     allowSelfSignedCerts: false,
+    // Off by default: the service normally outlives the editor (systemd unit,
+    // launchd agent, Startup entry). Enabling this hands its lifetime to the
+    // plugin, which is only wanted when OpenCode is the sole consumer.
+    autoStart: {
+      enabled: false,
+      command: ["memory", "server", "--http"],
+      env: {},
+      startTimeoutMs: 5000,
+      stopOnExit: true,
+    },
     projectQueries: [
       "{project} architecture decisions",
       "{project} recent work",
@@ -157,6 +168,11 @@ function environmentOverrides() {
     overrides.memoryService.allowSelfSignedCerts = allowSelfSignedCerts === "true" || allowSelfSignedCerts === "1"
   }
 
+  const autoStartEnabled = parseBoolean(process.env.OPENCODE_MEMORY_AUTOSTART)
+  if (autoStartEnabled !== undefined) {
+    overrides.memoryService.autoStart = { enabled: autoStartEnabled }
+  }
+
   const inboxEnabled = parseBoolean(process.env.OPENCODE_MEMORY_INBOX_ENABLED)
   if (inboxEnabled !== undefined) {
     overrides.inbox.enabled = inboxEnabled
@@ -197,6 +213,10 @@ function mergeConfig(base, overrides = {}) {
     memoryService: {
       ...base.memoryService,
       ...(overrides.memoryService || {}),
+      autoStart: {
+        ...base.memoryService.autoStart,
+        ...(overrides.memoryService?.autoStart || {}),
+      },
     },
     output: {
       ...base.output,
@@ -1054,6 +1074,102 @@ async function getHealth(config) {
   }
 }
 
+// The service is normally a daemon of its own (systemd unit, launchd agent,
+// Startup entry). autoStart lets the plugin own it instead: start it when
+// OpenCode starts, stop it when the host disposes the plugin. It is opt-in
+// because it changes who owns the process, and it never starts a second
+// instance: a reachable endpoint is used as-is.
+let autoStartedService = null
+
+async function ensureMemoryService(config, deps = {}) {
+  const autoStart = config.memoryService.autoStart
+  if (!autoStart?.enabled) return null
+
+  const health = deps.getHealth || getHealth
+  const spawnProcess = deps.spawn || spawn
+  const pause = deps.sleep || sleep
+  const log = deps.log || (async () => {})
+  const platform = deps.platform || process.platform
+
+  try {
+    await health(config)
+    return null
+  } catch (_) {
+    // Nothing is listening: start it below.
+  }
+
+  const [command, ...args] = autoStart.command || []
+  if (!command) {
+    await log("autoStart.command is empty; memory service not started")
+    return null
+  }
+
+  let child
+  try {
+    child = spawnProcess(command, args, {
+      stdio: "ignore",
+      windowsHide: true,
+      // POSIX: own process group, so stopMemoryService reaches the server
+      // process the launcher forks. Windows uses `taskkill /T` instead.
+      detached: platform !== "win32",
+      env: { ...process.env, ...(autoStart.env || {}) },
+    })
+  } catch (error) {
+    await log(`Memory service auto-start failed: ${error.message}`)
+    return null
+  }
+
+  autoStartedService = { child, stopOnExit: autoStart.stopOnExit !== false }
+  // shortcut: two editors starting at the same instant can both spawn a server;
+  // there is no cross-process lock, but the loser fails to bind the port and exits.
+  child.on?.("error", (error) => {
+    autoStartedService = null
+    void log(`Memory service auto-start failed: ${error.message}`)
+  })
+  // The editor must not wait for the service when it exits.
+  child.unref?.()
+
+  const timeoutMs = Number(autoStart.startTimeoutMs) || 0
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await pause(250)
+    try {
+      await health(config)
+      return child
+    } catch (_) {
+      // Still warming up.
+    }
+  }
+
+  await log(`Memory service did not answer within ${timeoutMs} ms; continuing without it`)
+  return null
+}
+
+function stopMemoryService(deps = {}) {
+  const service = autoStartedService
+  autoStartedService = null
+  if (!service || service.stopOnExit === false) return
+
+  const child = service.child
+  if (!child?.pid || child.exitCode !== null) return
+
+  const exec = deps.execFile || execFile
+  const platform = deps.platform || process.platform
+  const killProcess = deps.kill || process.kill
+
+  if (platform === "win32") {
+    // `memory` is a launcher; /T takes the python server down with it.
+    exec("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {})
+    return
+  }
+
+  try {
+    killProcess(-child.pid, "SIGTERM")
+  } catch (_) {
+    try { child.kill("SIGTERM") } catch (_) {}
+  }
+}
+
 function tagsForProject(projectName, config) {
   const tags = [...config.memoryService.searchTags]
   if (config.memoryService.includeProjectTag) {
@@ -1144,6 +1260,8 @@ const createPlugin = async ({ directory, client }) => {
     if (!config.output.verbose) return
     try { await client?.app?.log?.({ service: "opencode-memory", level: "warn", message }) } catch (_) {}
   }
+
+  await ensureMemoryService(config, { log: logWarn })
 
   const refreshSession = (sessionID, sessionDirectory) => {
     const existingState = sessionState.get(sessionID)
@@ -1718,7 +1836,10 @@ const v2Setup = async (ctx) => {
     })
   })
 
-  return () => controller.abort()
+  return () => {
+    controller.abort()
+    stopMemoryService()
+  }
 }
 
 export default { id: "opencode-memory", setup: v2Setup, server: createPlugin }
@@ -1731,11 +1852,13 @@ export const _internal = {
   applySelfSignedCertsOption,
   claimStaleInboxLock,
   createInboxChecker,
+  ensureMemoryService,
   environmentOverrides,
   formatInboxBlock,
   inboxOverlapMs,
   inboxStateKey,
   searchInboxMemories,
+  stopMemoryService,
   writeInboxMarker,
   sessionIdentity,
   translateEvent,

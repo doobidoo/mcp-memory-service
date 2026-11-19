@@ -8,6 +8,13 @@
     "searchTags": [],
     "includeProjectTag": false,
     "allowSelfSignedCerts": false,
+    "autoStart": {
+      "enabled": false,
+      "command": ["memory", "server", "--http"],
+      "env": {},
+      "startTimeoutMs": 5000,
+      "stopOnExit": true
+    },
     "projectQueries": [
       "{project} architecture decisions",
       "{project} recent work",

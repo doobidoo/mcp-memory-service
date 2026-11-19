@@ -64,6 +64,9 @@ curl --fail http://127.0.0.1:8000/api/health
 The response must contain `"status": "healthy"`. For an authenticated endpoint,
 include `-H "X-API-Key: $OPENCODE_MEMORY_API_KEY"` when testing protected API routes.
 
+To have the plugin start and stop the service itself instead, enable
+`memoryService.autoStart` (see [Auto-starting the service](#auto-starting-the-service)).
+
 `http://127.0.0.1:8000` is only the default fallback. The plugin can target any reachable HTTP deployment of `mcp-memory-service`.
 
 ## Install
@@ -122,6 +125,7 @@ Then it applies environment overrides:
 - `OPENCODE_MEMORY_TIMEOUT_MS`
 - `OPENCODE_MEMORY_LOAD_TIMEOUT_MS`
 - `OPENCODE_MEMORY_ALLOW_SELF_SIGNED_CERTS` — set to `true` or `1` to disable TLS certificate verification (self-signed certs only, off by default)
+- `OPENCODE_MEMORY_AUTOSTART` — set to `true` or `1` to let the plugin start the service (command and env still come from the configuration file)
 - `OPENCODE_MEMORY_INBOX_ENABLED` — set to `true` or `1` to enable the inter-agent inbox
 - `OPENCODE_MEMORY_INBOX_TAGS` — comma-separated sentinel tags (default: `msg:cluster`)
 - `OPENCODE_MEMORY_INBOX_MAX_ITEMS` — messages shown per check, clamped to `1`–`100` (default: `10`)
@@ -151,6 +155,13 @@ Example:
     "maxMemoriesPerSession": 8,
     "searchTags": ["decision"],
     "includeProjectTag": false,
+    "autoStart": {
+      "enabled": false,
+      "command": ["memory", "server", "--http"],
+      "env": {},
+      "startTimeoutMs": 5000,
+      "stopOnExit": true
+    },
     "projectQueries": [
       "{project} architecture decisions",
       "{project} recent work",
@@ -176,6 +187,40 @@ export OPENCODE_MEMORY_API_KEY="your-api-key"
 
 Set these in the environment that launches OpenCode, not just in an MCP server's
 environment block. With these client values configured, restart OpenCode.
+
+### Auto-starting the service
+
+By default the plugin is a client only: it needs a running service and never
+starts one. With `memoryService.autoStart` enabled, the plugin starts the
+configured command when OpenCode starts and stops it when the host disposes the
+plugin. A reachable endpoint is used as-is, so a service already started by
+systemd, launchd, a Windows Startup entry, or an earlier instance is never
+duplicated.
+
+```json
+{
+  "memoryService": {
+    "autoStart": {
+      "enabled": true,
+      "command": ["memory", "server", "--http"],
+      "env": { "MCP_ALLOW_ANONYMOUS_ACCESS": "true" },
+      "startTimeoutMs": 5000,
+      "stopOnExit": true
+    }
+  }
+}
+```
+
+- `command` is an argv array, not a shell string; `memory` must resolve on
+  `PATH` (use an absolute path when it does not).
+- `env` is merged over the environment that launched OpenCode, which is where
+  server-side values such as `MCP_ALLOW_ANONYMOUS_ACCESS` or `MCP_API_KEY` go.
+- `startTimeoutMs` bounds how long loading waits for the first `healthy`
+  answer. On timeout the plugin continues without memories rather than failing
+  the session.
+- `stopOnExit` is honored only when the host disposes the plugin: OpenCode V2
+  does, V1 has no unload hook and the service then outlives the editor. A
+  service that was already running before the plugin loaded is never stopped.
 
 ## How It Works
 
