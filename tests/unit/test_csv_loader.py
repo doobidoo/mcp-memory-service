@@ -1,4 +1,4 @@
-test#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Unit tests for CSV document loader.
 """
@@ -352,29 +352,23 @@ class TestCSVDelimiterDetection:
         assert delimiter == '|'
 
     def test_detect_delimiter_with_empty_tab_fields(self):
-    loader = CSVLoader()
-
-    content = "\tname\tage\t\n\tJohn\t25\t\n\tJane\t30\t\n"
-
-    assert loader._detect_delimiter(content) == '\t'
+        loader = CSVLoader()
+        content = "\tname\tage\t\n\tJohn\t25\t\n\tJane\t30\t\n"
+        assert loader._detect_delimiter(content) == '\t'
 
     def test_detect_delimiter_with_unicode_separator_in_field(self):
-    loader = CSVLoader()
-
-    content = (
-        "name;description;age\n"
-        "John;First line\u2028Second line;25\n"
-        "Jane;Another entry;30\n"
-    )
-
-    assert loader._detect_delimiter(content) == ';'
+        loader = CSVLoader()
+        content = (
+            "name;description;age\n"
+            "John;First line\u2028Second line;25\n"
+            "Jane;Another entry;30\n"
+        )
+        assert loader._detect_delimiter(content) == ';'
 
     def test_detect_delimiter_ignores_colons_in_quoted_fields(self):
-    loader = CSVLoader()
-
-    content = '123,"12:30:00"\n'
-
-    assert loader._detect_delimiter(content) == ','
+        loader = CSVLoader()
+        content = '123,"12:30:00"\n'
+        assert loader._detect_delimiter(content) == ','
     
     def test_detect_delimiter_with_trailing_newline_and_crlf(self):
         """Test delimiter detection with trailing newlines, CRLF, and blank rows."""
