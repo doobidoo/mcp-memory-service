@@ -158,7 +158,7 @@ def _anchor_yearless_range(
     start_match = _YEARLESS_MD.match(start_expr.strip().lower())
     end_match = _YEARLESS_MD.match(end_expr.strip().lower())
     if start_match is None or end_match is None:
-        if start_ts > end_ts:
+        if start_ts > end_ts and not _RANGE_MONTH_YEAR.fullmatch(start_expr.strip().lower()):
             end_year = datetime.fromtimestamp(end_ts).year
             reanchored_ts, _ = parse_time_expression(start_expr, base_year=end_year)
             if reanchored_ts is not None and reanchored_ts <= end_ts:
@@ -856,7 +856,7 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
         r'\blast\s+(day|week|month|year|summer|spring|winter|fall|autumn)\b',
         r'\bthis\s+(day|week|month|year|summer|spring|winter|fall|autumn)\b',
         r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\b',
-        r'\bbetween\s+.+?\s+and\s+.+?(?:\s|$)',
+        rf'\bbetween\s+\S[^&]{{0,50}}?\s+and\s+(?:{_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)\b',
         r'\bin\s+the\s+(morning|afternoon|evening|night|noon|midnight)\b',
         r'\b(?:recently|lately|recent)\b',
         r'\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b',
@@ -864,7 +864,7 @@ def extract_time_expression(query: str) -> Tuple[str, Tuple[Optional[float], Opt
         r'\b(spring|summer|winter|fall|autumn|christmas|new\s*year|valentine|halloween|thanksgiving|spring\s*break|summer\s*break|winter\s*break)\b',
         r'\b(first|second)\s+half\s+of\s+\d{4}\b',
         r'\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+quarter(?:\s+of\s+\d{4})?\b',
-        r'\bfrom\s+.+\s+to\s+.+\b'
+        rf'\bfrom\s+\S[^&]{{0,50}}?\s+to\s+(?:{_RANGE_DAYPART_ENDPOINT.pattern}|{_RANGE_MONTH_YEAR.pattern}|{_RANGE_ENDPOINT}|now)\b'
     ]
     
     # Combine all patterns

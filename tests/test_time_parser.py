@@ -344,14 +344,14 @@ class TestTimeParser:
                 assert parse_time_expression(query + punct) == expected, query + punct
 
     def test_between_that_is_not_a_date_keeps_a_later_expression(self):
-            """`between Alice and Bob yesterday` is not a date range."""
-            yesterday_start, yesterday_end = parse_time_expression("yesterday")
-            for query in (
-                "between Alice and Bob yesterday",
-                "between sales and marketing yesterday",
-            ):
-                start_ts, end_ts = parse_time_expression(query)
-                assert (start_ts, end_ts) == (yesterday_start, yesterday_end), query
+        """`between Alice and Bob yesterday` is not a date range."""
+        yesterday_start, yesterday_end = parse_time_expression("yesterday")
+        for query in (
+            "between Alice and Bob yesterday",
+            "between sales and marketing yesterday",
+        ):
+            start_ts, end_ts = parse_time_expression(query)
+            assert (start_ts, end_ts) == (yesterday_start, yesterday_end), query
 
     def test_between_edge_endpoints(self, monkeypatch):
         """Month-name years are kept, `now` is today, and punctuation is accepted."""
@@ -359,15 +359,26 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
         end_dt = datetime.fromtimestamp(end_ts)
         assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
         now_start, now_end = parse_time_expression("between 2024-01-01 and now")
         _, today_end = parse_time_expression("today")
         assert datetime.fromtimestamp(now_start) == datetime(2024, 1, 1, 0, 0, 0)
         assert now_end == today_end
+
+        for query, end_expr in (
+            ("between yesterday and today in the morning", "today in the morning"),
+            ("between yesterday and today morning", "today morning"),
+        ):
+            range_start, range_end = parse_time_expression(query)
+            expected_start, _ = parse_time_expression("yesterday")
+            _, expected_end = parse_time_expression(end_expr)
+            assert (range_start, range_end) == (expected_start, expected_end)
+
         # Sentence punctuation after the end must not shorten the endpoint
         for query in (
             "between January 2024 and March 2024",
             "between 2024-01-01 and 2024-03-31",
-            "between yesterday to today in the morning",
+            "between yesterday and today in the morning",
         ):
             expected = parse_time_expression(query)
             for punct in (".", ",", "?", "!", ";", ":"):
@@ -606,6 +617,32 @@ class TestTimeParser:
         assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
         start_ts, _ = parse_time_expression("between january 2026 and march 2024")
         assert datetime.fromtimestamp(start_ts).year == 2026  # noqa: DTZ006
+
+        # Both years ahead of the current year: must not discard the start's
+        # future year and mistakenly accept an inverted range.
+        for q in (
+            "between January 2028 and March 2027",
+            "from January 2028 to March 2027",
+        ):
+            _, end_ts = parse_time_expression(q)
+            # Falls back to single-expression parse (January), not March 2027
+            assert datetime.fromtimestamp(end_ts).month == 1  # noqa: DTZ006
+
+    def test_extract_between_month_years(self):
+        """Extraction keeps complete month-year endpoints and removes them cleanly (#2086)."""
+        cleaned, (start_ts, end_ts) = extract_time_expression(
+            "find meetings between January 2024 and March 2024 about budget"
+        )
+        assert cleaned == "find meetings about budget"
+        assert datetime.fromtimestamp(start_ts) == datetime(2024, 1, 1, 0, 0, 0)
+        end_dt = datetime.fromtimestamp(end_ts)
+        assert (end_dt.year, end_dt.month, end_dt.day) == (2024, 3, 31)
+
+        from_cleaned, (from_start, from_end) = extract_time_expression(
+            "find meetings from January 2024 to March 2024 about budget"
+        )
+        assert from_cleaned == "find meetings about budget"
+        assert (from_start, from_end) == (start_ts, end_ts)
 
     def test_extract_time_expression(self):
         """Test extracting time expressions from queries"""
