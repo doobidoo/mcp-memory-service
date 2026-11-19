@@ -785,10 +785,14 @@ class CloudflareStorage(MemoryStorage):
 
     @staticmethod
     def _exact_duplicate_message(existing_store: str, requested_store: str) -> str:
-        """Describe an exact-hash conflict the way sqlite-vec does."""
+        """Describe an exact-hash conflict the way sqlite-vec does.
+
+        The message does not name the other store, so a store-scoped credential
+        cannot learn store names.
+        """
         message = "Duplicate content detected (exact match)"
         if existing_store != requested_store:
-            return f"{message}; already exists in store {existing_store!r}"
+            return f"{message}; already exists in another store"
         return message
 
     async def _live_duplicate_refusal(
