@@ -1329,7 +1329,7 @@ class TestSqliteVecTimeBasedDeletion:
             # Verify only the memory after the cutoff survived
             remaining = await storage.search_by_tag(["fallback-time-test"])
             assert len(remaining) == 1
-            assert remaining[0].memory.content == content_after
+            assert remaining[0].content == content_after
 
     @pytest.mark.asyncio
     async def test_get_by_exact_content_found(self, storage):
