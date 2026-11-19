@@ -400,3 +400,68 @@ async def test_load_memory_from_match_sql_excludes_soft_deleted_rows():
     assert memory is None
     sql = storage._retry_request.call_args.kwargs["json"]["sql"]
     assert "deleted_at IS NULL" in sql
+
+
+async def test_retrieve_named_store_asks_vectorize_for_the_whole_page():
+    # #2061: Vectorize holds every store's vectors, so a small store's own
+    # neighbours sit behind a big store's. topK = n_results would hand back
+    # only the big store's vectors, each dropped by the confined D1 load.
+    storage = _storage_with_matches([], [])
+
+    await storage.retrieve("query", n_results=5, store="small")
+
+    assert storage._retry_request.call_args.kwargs["json"]["topK"] == _VECTORIZE_MAX_TOPK
+
+
+async def test_retrieve_unscoped_and_default_store_keep_the_n_results_query():
+    # No other store competes for the page here, so the extra D1 loads buy nothing.
+    for store in ("default", "all", None):
+        storage = _storage_with_matches([], [])
+
+        await storage.retrieve("query", n_results=5, store=store)
+
+        assert storage._retry_request.call_args.kwargs["json"]["topK"] == 5
+
+
+async def test_retrieve_named_store_finds_its_memories_behind_another_stores():
+    # 30 nearer vectors belong to the big store (load -> None), then the small
+    # store's two. The small store must still return both.
+    matches = [{"id": f"big{i}", "score": 0.9 - i * 0.001} for i in range(30)]
+    matches += [{"id": f"small{i}", "score": 0.5 - i * 0.001} for i in range(2)]
+    memories = [None] * 30 + [
+        Memory(content=f"small{i}", content_hash=f"small{i}") for i in range(2)
+    ]
+    storage = _storage_with_matches(matches, memories)
+
+    results = await storage.retrieve("query", n_results=5, store="small")
+
+    assert [r.memory.content for r in results] == ["small0", "small1"]
+    info = results[0].debug_info["retrieval"]
+    assert info["candidates_not_loaded"] == 30
+    assert info["recall_may_be_incomplete"] is False
+
+
+async def test_retrieve_named_store_stops_loading_once_n_results_survive():
+    matches = [{"id": f"m{i}", "score": 0.9 - i * 0.001} for i in range(100)]
+    memories = [Memory(content=f"m{i}", content_hash=f"m{i}") for i in range(100)]
+    storage = _storage_with_matches(matches, memories)
+
+    results = await storage.retrieve("query", n_results=5, store="small")
+
+    assert [r.memory.content for r in results] == [f"m{i}" for i in range(5)]
+    assert storage._load_memory_from_match.await_count == 5
+    assert results[0].debug_info["retrieval"]["recall_may_be_incomplete"] is False
+
+
+async def test_retrieve_named_store_starved_at_the_ceiling_is_reported(caplog):
+    # Even the whole page can be all another store's: the empty result must be
+    # distinguishable from "nothing stored", in the log and in the counters.
+    matches = [{"id": f"big{i}", "score": 0.9} for i in range(100)]
+    storage = _storage_with_matches(matches, [None] * 100)
+
+    with caplog.at_level("WARNING", logger="mcp_memory_service.storage.cloudflare"):
+        results = await storage.retrieve("query", n_results=5, store="small")
+
+    assert results == []
+    warning = next(rec for rec in caplog.records if "recall may be incomplete" in rec.getMessage())
+    assert "100 not loaded for this store" in warning.getMessage()
