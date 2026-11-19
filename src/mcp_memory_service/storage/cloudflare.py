@@ -796,10 +796,14 @@ class CloudflareStorage(MemoryStorage):
 
     @staticmethod
     def _exact_duplicate_message(existing_store: str, requested_store: str) -> str:
-        """Describe an exact-hash conflict the way sqlite-vec does."""
+        """Describe an exact-hash conflict the way sqlite-vec does.
+
+        The message does not name the other store, so a store-scoped credential
+        cannot learn store names.
+        """
         message = "Duplicate content detected (exact match)"
         if existing_store != requested_store:
-            return f"{message}; already exists in store {existing_store!r}"
+            return f"{message}; already exists in another store"
         return message
 
     async def _live_duplicate_refusal(
@@ -2379,10 +2383,10 @@ class CloudflareStorage(MemoryStorage):
         """
         store_sql, store_params = _store_clause(store)
         if cutoff_timestamp is not None:
-            sql = f"SELECT created_at FROM memories WHERE created_at >= ?{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL AND created_at >= ?{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": [cutoff_timestamp, *store_params]}
         else:
-            sql = f"SELECT created_at FROM memories WHERE 1 = 1{store_sql} ORDER BY created_at DESC"
+            sql = f"SELECT created_at FROM memories WHERE deleted_at IS NULL{store_sql} ORDER BY created_at DESC"
             payload = {"sql": sql, "params": store_params}
 
         response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
