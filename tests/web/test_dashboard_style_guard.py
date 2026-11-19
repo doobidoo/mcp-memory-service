@@ -119,3 +119,33 @@ def test_tablet_navigation_wraps_for_translated_labels():
     assert nav is not None
     assert re.search(r"flex-wrap:\s*wrap\s*;", nav.group(1))
     assert re.search(r"\.btn-text\s*\{[^}]*display:\s*none\s*;", tablet.group(1))
+
+
+def test_quick_search_placeholder_is_theme_aware():
+    """The placeholder must name a theme color; the browser default is dark on both themes."""
+    bodies = [body for selector, body in _rules() if selector.strip() == ".search-input::placeholder"]
+    assert bodies, "the quick-search placeholder needs an explicit color rule"
+    assert re.search(r"color:\s*var\(--neutral-500\)", bodies[0])
+    assert re.search(r"opacity:\s*1\b", bodies[0])
+
+
+def test_focused_quick_search_keeps_the_theme_surface():
+    """The focus background must follow the theme; a literal white breaks dark mode."""
+    bodies = [
+        body
+        for selector, body in _rules()
+        if selector.strip() == "body.dark-mode .search-input:focus"
+    ]
+    assert bodies, "the focused quick-search field needs a dark theme background"
+    assert re.search(r"background:\s*var\(--neutral-100\)", bodies[0])
+
+
+def test_dark_quick_search_keeps_typed_text_readable():
+    """Typed text must follow the dark theme; the UA keeps fieldtext black at 1.21:1."""
+    bodies = [
+        body
+        for selector, body in _rules()
+        if selector.strip() == "body.dark-mode .search-input"
+    ]
+    assert bodies, "typed text in the dark quick-search needs a theme color"
+    assert re.search(r"color:\s*var\(--neutral-600\)", bodies[0])
