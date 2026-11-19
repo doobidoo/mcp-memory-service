@@ -1297,6 +1297,25 @@ class TestSqliteVecTimeBasedDeletion:
         assert len(await storage.search_by_tag(["delete-memories-utc-test"])) == 0
 
     # get_by_exact_content tests
+    @pytest.mark.asyncio
+    async def test_delete_memories_fallback_preserves_timestamp_boundary(self, storage):
+        """delete_memories with tags and before=ISO-time must honor the time component."""
+        content = "Created at 10am UTC"
+        ts = datetime(2026, 11, 19, 10, 0, 0, tzinfo=timezone.utc).timestamp()
+        await storage.store(Memory(
+            content=content,
+            content_hash=generate_content_hash(content),
+            tags=["fallback-time-test"],
+            created_at=ts,
+        ))
+        # Cutoff is 12pm UTC on the same day (2 hours after creation)
+        result = await storage.delete_memories(
+            tags=["fallback-time-test"],
+            before="2026-11-19T12:00:00Z"
+        )
+        assert result["success"] is True
+        assert result["deleted_count"] == 1
+        assert len(await storage.search_by_tag(["fallback-time-test"])) == 0
 
     @pytest.mark.asyncio
     async def test_get_by_exact_content_found(self, storage):
