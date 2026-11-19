@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 import asyncio
 import io
+import re
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
@@ -246,6 +247,19 @@ class CSVLoader(DocumentLoader):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _read_sync)
 
+    def _count_delimiters(self, line: str) -> dict[str, int]:
+        """Count candidate delimiters outside quoted CSV fields."""
+        counts = {}
+    
+        for delimiter in [',', ';', '\t', '|', ':']:
+            try:
+                row = next(csv.reader([line], delimiter=delimiter))
+                counts[delimiter] = len(row) - 1
+            except csv.Error:
+                counts[delimiter] = 0
+    
+        return counts
+        
     def _detect_delimiter(self, content: str) -> str:
         """
         Auto-detect CSV delimiter by analyzing sample content.
@@ -259,16 +273,14 @@ class CSVLoader(DocumentLoader):
         delimiters = [',', ';', '\t', '|', ':']
 
         # Sample the first few non-empty lines, ignoring trailing newlines and blank rows.
-        lines = [line.strip() for line in content.splitlines() if line.strip()][:5]
+        lines = [line for line in re.split(r'\r\n|\r|\n', content) if line.strip()][:5]
         if not lines:
             return ','  # Default fallback
 
         # A single non-empty line can still contain a detectable delimiter.
         if len(lines) == 1:
-            line = lines[0]
-            counts = {delimiter: line.count(delimiter) for delimiter in delimiters
-                      if line.count(delimiter) > 0}
-            if counts:
+            counts = self._count_delimiters(lines[0])
+            if any(counts.values()):
                 return max(counts, key=counts.get)
             return ','
 
