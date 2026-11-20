@@ -1,0 +1,10 @@
+[Unit]
+Description=Check daily for a new MCP Memory Service release
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
