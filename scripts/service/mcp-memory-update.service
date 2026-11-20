@@ -1,0 +1,14 @@
+[Unit]
+Description=Update MCP Memory Service to the latest release tag
+Documentation=https://github.com/doobidoo/mcp-memory-service/blob/main/docs/deployment/systemd-service.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust the path to your checkout. Installed as a system unit, add User=<owner of
+# the checkout> and set MCP_UPDATE_RESTART_CMD to a command that user may run, e.g.
+#   Environment="MCP_UPDATE_RESTART_CMD=sudo -n systemctl restart mcp-memory-http.service"
+WorkingDirectory=%h/repositories/mcp-memory-service
+ExecStart=%h/repositories/mcp-memory-service/scripts/service/update_to_latest_release.sh
+SyslogIdentifier=mcp-memory-update

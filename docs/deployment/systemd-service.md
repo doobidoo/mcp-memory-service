@@ -170,6 +170,59 @@ WantedBy=default.target
    - Relative paths in code work correctly
    - Database paths should be absolute or relative to working directory
 
+## Following releases automatically
+
+A server that is a git checkout with an editable install can follow release tags on
+its own. `scripts/service/update_to_latest_release.sh` fetches tags and, if a newer
+`vX.Y.Z` exists, backs up `sqlite_vec.db` and `oauth.db` with SQLite's online backup,
+checks the tag out, reinstalls, restarts the service and waits for `/api/health`. If
+the install or the health probe fails it checks the previous revision out again,
+restarts and exits 1. It never moves to a branch head or a pre-release, and it leaves
+a checkout alone that is already ahead of the newest release.
+
+```bash
+# What would happen, without changing anything
+scripts/service/update_to_latest_release.sh --dry-run
+
+# Run daily (user service)
+cp scripts/service/mcp-memory-update.service scripts/service/mcp-memory-update.timer \
+    ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now mcp-memory-update.timer
+```
+
+Adjust the checkout path in the unit first. For a system service, install both files
+to `/etc/systemd/system/`, add `User=<owner of the checkout>` and set
+`MCP_UPDATE_RESTART_CMD` to a restart command that user is allowed to run, for example
+`sudo -n systemctl restart mcp-memory-http.service`. The other settings
+(`MCP_UPDATE_HEALTH_CMD`, `MCP_UPDATE_HEALTH_WAIT`, `MCP_UPDATE_KEEP_BACKUPS`) are
+described at the top of the script.
+
+The database is not restored on rollback. If the newer release already migrated it
+and the previous one does not run on that schema, restore the backup by hand: the
+backups stay in `<data dir>/backups/` as `*-pre-update-<timestamp>.db`, the newest
+five of them. The script says in its last line whether the previous revision came
+back healthy.
+
+To have a client trigger the hub when the client itself updates, set
+`MCP_HUB_UPDATE_SSH_HOST=<ssh host of the hub>` for `scripts/update_and_restart.sh`.
+After its own update it starts `mcp-memory-update.service` on the hub over SSH. The
+client only starts the unit; the hub still decides what to install.
+
+The default remote command is for a hub that runs the unit as a system service:
+`sudo -n systemctl start --no-block mcp-memory-update.service`. For the user service
+installed above, also set
+
+```bash
+MCP_HUB_UPDATE_REMOTE_CMD='systemctl --user start --no-block mcp-memory-update.service'
+```
+
+Only one update runs per checkout at a time; a second start while one is in progress
+exits with "another update is running". The lock is an `flock` on
+`.git/mcp-memory-update.lock`, so it is gone the moment the process ends, a kill or a
+power loss included. Where `flock` does not exist (macOS) the script uses a lock
+directory instead and, after a killed run, tells you which one to remove.
+
 ## Troubleshooting
 
 ### Service Won't Start
