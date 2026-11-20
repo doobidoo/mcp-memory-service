@@ -47,8 +47,38 @@ from fastapi.testclient import TestClient
 # each path segment via getattr on the parent package, and the `web` submodule
 # isn't always set as an attribute on `mcp_memory_service` at that point.
 # Holding a direct module reference dodges that resolution path entirely.
+from mcp_memory_service.backup import scheduler as scheduler_module
 from mcp_memory_service.web.api import server as server_module
 from mcp_memory_service.web.oauth.middleware import AuthenticationResult
+
+
+class FakeBackupService:
+    """Stands in for BackupService; records each backup in `events`."""
+
+    def __init__(self, events=None, db_path='/data/sqlite_vec.db', result=None, error=None):
+        self.events = events if events is not None else []
+        self.db_path = db_path
+        self.result = result or {'success': True, 'filename': 'memory_backup_20261120_120000.db'}
+        self.error = error
+
+    async def create_backup(self, description=None):
+        self.events.append(('backup', description))
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def _use_backup_service(monkeypatch, service):
+    # server.py imports get_backup_service from the scheduler at call time,
+    # the way web/api/backup.py does, so patch it at the source.
+    monkeypatch.setattr(scheduler_module, 'get_backup_service', lambda: service)
+    return service
+
+
+@pytest.fixture(autouse=True)
+def fake_backup(monkeypatch):
+    """Every update in this module backs up into a fake, never the real database."""
+    return _use_backup_service(monkeypatch, FakeBackupService())
 
 
 @pytest.fixture
@@ -350,3 +380,100 @@ def test_pipless_env_with_uv_installs_through_uv(monkeypatch):
     assert mock_run.call_args.args[0] == [
         'C:/bin/uv.exe', 'pip', 'install', '--python', sys.executable, '-e', '.',
     ]
+
+
+# --- #2100: pull the configured ref, back up before pulling ---
+
+def _clean_tree():
+    return patch.object(server_module, '_check_working_tree_clean', return_value=(True, []))
+
+
+def _git_recording(events):
+    def run_git(args, timeout=server_module.GIT_TIMEOUT_SECONDS):
+        events.append(('git', args))
+        return 'Updating abc..def', True
+    return patch.object(server_module, '_run_git_command', side_effect=run_git)
+
+
+def _pip_ok():
+    return patch.object(server_module, '_run_pip_command', return_value=('Successfully installed', True))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('env, expected', [
+    ({'MCP_UPDATE_GIT_REMOTE': 'upstream', 'MCP_UPDATE_GIT_BRANCH': 'stable'}, ['pull', 'upstream', 'stable']),
+    ({}, ['pull', 'origin', 'main']),
+])
+def test_update_pulls_the_configured_remote_and_branch(test_app, monkeypatch, env, expected):
+    """The update pulls the ref /version/check compares against, not a hardcoded origin/main."""
+    monkeypatch.delenv('MCP_UPDATE_GIT_REMOTE', raising=False)
+    monkeypatch.delenv('MCP_UPDATE_GIT_BRANCH', raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    events = []
+    with _clean_tree(), _git_recording(events), _pip_ok():
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 200
+    assert [args for kind, args in events if kind == 'git'] == [expected]
+
+
+@pytest.mark.integration
+def test_update_backs_up_before_pulling(test_app, monkeypatch):
+    """The backup is taken first, and its filename comes back in the response."""
+    events = []
+    _use_backup_service(monkeypatch, FakeBackupService(events))
+    with _clean_tree(), _git_recording(events), _pip_ok():
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 200
+    assert [kind for kind, _ in events] == ['backup', 'git']
+    body = response.json()
+    assert body['backup_filename'] == 'memory_backup_20261120_120000.db'
+    assert 'memory_backup_20261120_120000.db' in body['message']
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('service', [
+    FakeBackupService(result={'success': False, 'error': 'disk full'}),
+    FakeBackupService(error=OSError('disk full')),
+], ids=['backup-reports-failure', 'backup-raises'])
+def test_update_backup_failure_returns_500_and_never_pulls(test_app, monkeypatch, service):
+    """A failed backup stops the update before git pull, and says the checkout is unchanged."""
+    events = []
+    service.events = events
+    _use_backup_service(monkeypatch, service)
+    with _clean_tree(), _git_recording(events), _pip_ok() as mock_pip:
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 500
+    detail = response.json()['detail']
+    assert 'backup' in detail and 'disk full' in detail
+    assert 'NOT changed' in detail
+    assert [kind for kind, _ in events] == ['backup']
+    mock_pip.assert_not_called()
+
+
+@pytest.mark.integration
+def test_update_without_a_local_database_still_updates(test_app, monkeypatch):
+    """A backend with no local database file (Cloudflare) has nothing to back up and still updates."""
+    events = []
+    _use_backup_service(monkeypatch, FakeBackupService(events, db_path=None))
+    with _clean_tree(), _git_recording(events), _pip_ok():
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 200
+    assert [kind for kind, _ in events] == ['git']
+    body = response.json()
+    assert body['backup_filename'] is None
+    assert 'no local database file' in body['message']
+
+
+@pytest.mark.integration
+def test_refused_update_leaves_no_backup(test_app, fake_backup):
+    """The early checks run before the backup, so a refused request backs nothing up."""
+    with patch.object(server_module, '_check_working_tree_clean', return_value=(False, ['M  src/foo.py'])):
+        response = test_app.post('/api/server/update', json={'confirm': True})
+
+    assert response.status_code == 409
+    assert fake_backup.events == []
