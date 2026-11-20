@@ -209,7 +209,7 @@ class CSVLoader(DocumentLoader):
             # Auto-detect delimiter if not specified
             detected_delimiter = delimiter
             if detected_delimiter is None:
-                detected_delimiter = self._detect_delimiter(content)
+                detected_delimiter = self._detect_delimiter(content, quotechar)
 
             # Parse CSV
             csv_reader = csv.reader(
@@ -247,7 +247,7 @@ class CSVLoader(DocumentLoader):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _read_sync)
 
-    def _count_delimiters(self, line: str) -> dict[str, int]:
+    def _count_delimiters(self, line: str, quotechar: str = '"') -> dict[str, int]:
         """Count candidate delimiters outside quoted CSV fields."""
         delimiters = [',', ';', '\t', '|', ':']
         counts = {}
@@ -262,8 +262,8 @@ class CSVLoader(DocumentLoader):
                 char = line[i]
 
                 if in_quotes:
-                    if char == '"':
-                        if i + 1 < len(line) and line[i + 1] == '"':
+                    if char == quotechar:
+                        if i + 1 < len(line) and line[i + 1] == quotechar:
                             i += 2
                             continue
                         in_quotes = False
@@ -272,7 +272,7 @@ class CSVLoader(DocumentLoader):
                     count += 1
                     at_field_start = True
 
-                elif char == '"' and at_field_start:
+                elif char == quotechar and at_field_start:
                     in_quotes = True
                     at_field_start = False
 
@@ -285,7 +285,7 @@ class CSVLoader(DocumentLoader):
 
         return counts
 
-    def _detect_delimiter(self, content: str) -> str:
+    def _detect_delimiter(self, content: str, quotechar: str = '"') -> str:
         """
         Auto-detect CSV delimiter by analyzing sample content.
 
@@ -304,7 +304,7 @@ class CSVLoader(DocumentLoader):
 
         # A single non-empty line can still contain a detectable delimiter.
         if len(lines) == 1:
-            counts = self._count_delimiters(lines[0])
+            counts = self._count_delimiters(lines[0], quotechar)
             if any(counts.values()):
                 return max(counts, key=counts.get)
             return ','

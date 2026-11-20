@@ -370,6 +370,11 @@ class TestCSVDelimiterDetection:
         content = '123,"12:30:00"\n'
         assert loader._detect_delimiter(content) == ','
 
+    def test_detect_delimiter_with_custom_quotechar(self):
+        loader = CSVLoader()
+        content = "123,'12:30:00'"
+        assert loader._detect_delimiter(content, quotechar="'") == ','
+
     def test_detect_delimiter_with_quote_inside_unquoted_field(self):
         loader = CSVLoader()
         content = '12" widget;25\n'
