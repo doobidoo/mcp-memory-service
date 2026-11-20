@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 import asyncio
 import io
+import re
 
 from .base import DocumentLoader, DocumentChunk
 from .chunker import TextChunker, ChunkingStrategy
@@ -208,7 +209,7 @@ class CSVLoader(DocumentLoader):
             # Auto-detect delimiter if not specified
             detected_delimiter = delimiter
             if detected_delimiter is None:
-                detected_delimiter = self._detect_delimiter(content)
+                detected_delimiter = self._detect_delimiter(content, quotechar)
 
             # Parse CSV
             csv_reader = csv.reader(
@@ -246,7 +247,51 @@ class CSVLoader(DocumentLoader):
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _read_sync)
 
-    def _detect_delimiter(self, content: str) -> str:
+    def _count_delimiters(self, line: str, quotechar: str = '"') -> dict[str, int]:
+        """Count candidate delimiters outside quoted CSV fields."""
+        delimiters = [',', ';', '\t', '|', ':']
+        counts = {}
+
+        for delimiter in delimiters:
+            count = 0
+            in_quotes = False
+            at_field_start = True
+            i = 0
+
+            while i < len(line):
+                char = line[i]
+
+                if in_quotes:
+                    if char == quotechar:
+                        if i + 1 < len(line) and line[i + 1] == quotechar:
+                            i += 2
+                            continue
+                        in_quotes = False
+
+                elif char == delimiter:
+                    count += 1
+                    at_field_start = True
+
+                elif char in delimiters:
+                    # Any candidate delimiter can begin the next field.
+                    # This matters when counting a different delimiter than
+                    # the one immediately preceding a quoted field.
+                    at_field_start = True
+
+                elif char == quotechar and at_field_start:
+                    in_quotes = True
+                    at_field_start = False
+
+                else:
+                    at_field_start = False
+
+                i += 1
+
+            counts[delimiter] = count
+
+        return counts
+
+    def _detect_delimiter(self, content: str, quotechar: str = '"') -> str:
         """
         Auto-detect CSV delimiter by analyzing sample content.
 
@@ -258,23 +303,30 @@ class CSVLoader(DocumentLoader):
         """
         delimiters = [',', ';', '\t', '|', ':']
 
-        # Sample first few lines
-        lines = content.split('\n')[:5]
-        if len(lines) < 2:
+        # Sample the first few non-empty lines, ignoring trailing newlines and blank rows.
+        lines = [line for line in re.split(r'\r\n|\r|\n', content) if line.strip()][:5]
+        if not lines:
             return ','  # Default fallback
 
-        # Count occurrences of each delimiter in each line
+        # A single non-empty line can still contain a detectable delimiter.
+        if len(lines) == 1:
+            counts = self._count_delimiters(lines[0], quotechar)
+            if any(counts.values()):
+                return max(counts, key=counts.get)
+            return ','
+
+        # Count occurrences of each delimiter in each line.
         delimiter_counts = {}
         for delimiter in delimiters:
-            counts = []
-            for line in lines:
-                count = line.count(delimiter)
-                counts.append(count)
-            # Use the delimiter that appears consistently across lines
+            counts = [
+                self._count_delimiters(line, quotechar)[delimiter]
+                for line in lines
+            ]
+            # Use the delimiter that appears consistently across sampled lines.
             if len(set(counts)) == 1 and counts[0] > 0:
                 delimiter_counts[delimiter] = counts[0]
 
-        # Return delimiter with highest consistent count
+        # Return the delimiter with the highest consistent count.
         if delimiter_counts:
             return max(delimiter_counts, key=delimiter_counts.get)
 
