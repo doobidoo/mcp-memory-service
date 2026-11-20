@@ -142,12 +142,17 @@ grep -q "https://127.0.0.1:8123/api/health" "$WORK/curl-args" 2>/dev/null \
 new_checkout v1.0.0
 lock="$WORK/deploy/.git/mcp-memory-update.lock"
 if command -v flock >/dev/null 2>&1; then
-    flock "$lock" sleep 30 &
+    # The holder says it is ready from inside the locked command: flock creates the
+    # file before it takes the lock, so the file's existence proves nothing.
+    rm -f "$WORK/held"
+    flock "$lock" sh -c 'touch "$1"; exec sleep 30' _ "$WORK/held" &
     holder=$!
-    until [ -e "$lock" ]; do sleep 0.1; done
+    until [ -e "$WORK/held" ]; do sleep 0.1; done
     run; check "a held lock blocks a second run" 1 $? v1.0.0
-    kill "$holder" 2>/dev/null
+    # flock's child holds the descriptor too: end it first, while it can still be
+    # found through its parent.
     pkill -P "$holder" 2>/dev/null
+    kill "$holder" 2>/dev/null
     wait "$holder" 2>/dev/null
 
     # The holder is dead and its lock file is still there, as after a kill -9 or a
