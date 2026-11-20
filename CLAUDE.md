@@ -202,6 +202,10 @@ Claude Desktop wiring: see README.
 
 ## Development Guidelines
 
+Where the rules below are silent, PEP 20 (`python -c "import this"`) breaks the
+tie; the lines this project already applies as rules are listed in
+[CONTRIBUTING.md](CONTRIBUTING.md#design-principles-the-zen-of-python).
+
 ### Quality gates
 
 Three layers: pre-commit (under 5s, Groq/Gemini complexity plus security, blocks on
