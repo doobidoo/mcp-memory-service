@@ -321,6 +321,25 @@ Open a PR from your fork to the main repository with:
 - Write descriptive variable and function names
 - Add docstrings to all public functions/classes (Google style)
 
+### Design Principles: The Zen of Python
+
+The style guide says how code should look. Where it is silent,
+[PEP 20](https://peps.python.org/pep-0020/) breaks the tie
+(`python -c "import this"`). It is not an extra gate: CI does not check it,
+reviewers cite it. Several rules in this project are one of its lines applied:
+
+- **Errors should never pass silently.** `memory.metadata.get('tags', [])`
+  returns `[]` instead of failing, and that reached production three times.
+  Read `Memory` fields by attribute (`memory.tags`). See also
+  [Error Handling](#error-handling).
+- **Explicit is better than implicit.** Type hints on every function signature,
+  and specific exception types.
+- **Simple is better than complex. Flat is better than nested.** The complexity
+  budget is 8 per function, and `scripts/pr/pre_pr_check.sh` blocks on the
+  functions a change touches.
+- **In the face of ambiguity, refuse the temptation to guess.** Download and
+  inspect a real sample before writing a parser for external data.
+
 ### Code Organization
 
 ```python
