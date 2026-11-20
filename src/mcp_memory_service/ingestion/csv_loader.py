@@ -272,6 +272,12 @@ class CSVLoader(DocumentLoader):
                     count += 1
                     at_field_start = True
 
+                elif char in delimiters:
+                    # Any candidate delimiter can begin the next field.
+                    # This matters when counting a different delimiter than
+                    # the one immediately preceding a quoted field.
+                    at_field_start = True
+
                 elif char == quotechar and at_field_start:
                     in_quotes = True
                     at_field_start = False
@@ -312,7 +318,10 @@ class CSVLoader(DocumentLoader):
         # Count occurrences of each delimiter in each line.
         delimiter_counts = {}
         for delimiter in delimiters:
-            counts = [line.count(delimiter) for line in lines]
+            counts = [
+                self._count_delimiters(line, quotechar)[delimiter]
+                for line in lines
+            ]
             # Use the delimiter that appears consistently across sampled lines.
             if len(set(counts)) == 1 and counts[0] > 0:
                 delimiter_counts[delimiter] = counts[0]
