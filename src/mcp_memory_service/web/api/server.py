@@ -109,6 +109,7 @@ class UpdateResponse(BaseModel):
     restart_scheduled: bool
     pre_restart_pid: Optional[int] = Field(None, description="PID of the process scheduling the restart; clients compare to verify a real restart occurred")
     pre_restart_version: Optional[str] = Field(None, description="Version of the running process before restart")
+    backup_filename: Optional[str] = Field(None, description="Database backup taken before the pull; None when the storage backend has no local database file")
 
 
 # Helper functions
@@ -176,6 +177,52 @@ def _check_working_tree_clean() -> Tuple[bool, List[str]]:
 def _run_git_command(args: List[str], timeout: int = GIT_TIMEOUT_SECONDS) -> Tuple[str, bool]:
     """Run a git command and return output."""
     return _run_command(['git'] + args, timeout, "Git")
+
+
+def _update_git_source() -> Tuple[str, str]:
+    """
+    Return ``(remote, branch)`` that both the update check and the update use.
+
+    Configurable so installs whose remote is named differently (codeberg,
+    upstream, ...) or that track a non-main branch are checked against, and
+    updated from, the same ref. Defaults preserve the historical origin/main.
+    """
+    return (
+        os.getenv('MCP_UPDATE_GIT_REMOTE', 'origin'),
+        os.getenv('MCP_UPDATE_GIT_BRANCH', 'main'),
+    )
+
+
+async def _backup_before_update() -> Tuple[Optional[str], str]:
+    """
+    Back up the database before the update changes the checkout.
+
+    A new release can migrate the database on the restart that follows, so the
+    backup is the way back. Returns ``(backup_filename, note)``; the filename is
+    None when the storage backend has no local database file to back up. Any
+    other failure raises HTTP 500 before git pull runs.
+    """
+    from ...backup.scheduler import get_backup_service
+
+    try:
+        backup_service = get_backup_service()
+        if backup_service.db_path is None:
+            return None, "No database backup was made: this storage backend has no local database file."
+        result = await backup_service.create_backup(description="Automatic backup before server update")
+    except Exception as e:
+        result = {'success': False, 'error': f"{type(e).__name__}: {e}"}
+
+    if not result.get('success'):
+        error = result.get('error', 'Unknown error')
+        logger.error("AUDIT: Server update aborted — database backup failed: %s", _sanitize_log_value(error))
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Database backup before the update failed: {error}. "
+                "The checkout was NOT changed (git pull was not run)."
+            ),
+        )
+    return result['filename'], f"Database backed up to {result['filename']}."
 
 
 def _find_uv() -> Optional[str]:
@@ -311,12 +358,7 @@ async def check_for_updates(
     Returns number of commits behind and list of commit messages.
     Requires admin access.
     """
-    # The remote name and branch are configurable so installs whose remote is
-    # named differently (codeberg, upstream, ...) or tracks a non-main branch can
-    # still check for updates without editing the source. Defaults preserve the
-    # historical origin/main behavior.
-    remote = os.getenv('MCP_UPDATE_GIT_REMOTE', 'origin')
-    branch = os.getenv('MCP_UPDATE_GIT_BRANCH', 'main')
+    remote, branch = _update_git_source()
     upstream_ref = f'{remote}/{branch}'
 
     # Try to fetch latest changes
@@ -422,7 +464,9 @@ async def update_server(
     """
     Update server from git and restart.
 
-    Performs git pull, pip install, and schedules restart.
+    Backs up the database, pulls MCP_UPDATE_GIT_REMOTE/MCP_UPDATE_GIT_BRANCH
+    (default origin/main, the ref /version/check compares against), runs pip
+    install, and schedules restart.
     Returns 202 Accepted with output from each step.
     Requires admin access and explicit confirmation.
     """
@@ -477,8 +521,13 @@ async def update_server(
             ),
         )
 
-    # Step 1: Git pull
-    git_output, git_success = _run_git_command(['pull', 'origin', 'main'])
+    # Back up last, directly before the pull, so a request refused by the
+    # checks above leaves no backup file behind.
+    backup_filename, backup_note = await _backup_before_update()
+
+    # Step 1: Git pull from the ref /version/check compares against
+    remote, branch = _update_git_source()
+    git_output, git_success = _run_git_command(['pull', remote, branch])
 
     if not git_success:
         logger.error("AUDIT: Server update aborted — git pull failed: %s", _sanitize_log_value(git_output))
@@ -507,10 +556,11 @@ async def update_server(
 
     return UpdateResponse(
         status="success",
-        message=f"Update completed successfully, server restarting in {RESTART_DELAY_SECONDS} seconds",
+        message=f"Update completed successfully, server restarting in {RESTART_DELAY_SECONDS} seconds. {backup_note}",
         git_output=git_output,
         pip_output=pip_output,
         restart_scheduled=True,
         pre_restart_pid=os.getpid(),
         pre_restart_version=__version__,
+        backup_filename=backup_filename,
     )
