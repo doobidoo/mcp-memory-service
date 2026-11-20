@@ -218,8 +218,10 @@ MCP_HUB_UPDATE_REMOTE_CMD='systemctl --user start --no-block mcp-memory-update.s
 ```
 
 Only one update runs per checkout at a time; a second start while one is in progress
-exits with "another update is running". A lock left behind by a run that was killed
-is taken over by the next one.
+exits with "another update is running". The lock is an `flock` on
+`.git/mcp-memory-update.lock`, so it is gone the moment the process ends, a kill or a
+power loss included. Where `flock` does not exist (macOS) the script uses a lock
+directory instead and, after a killed run, tells you which one to remove.
 
 ## Troubleshooting
 

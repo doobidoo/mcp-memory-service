@@ -95,28 +95,20 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$REPO_DIR is not a g
 
 # One update per checkout at a time: a manual --tag run and the timer would otherwise
 # check out and install over each other, and one's rollback would undo the other.
-# mkdir is atomic and, unlike flock, also there on macOS.
 LOCK="$(git rev-parse --absolute-git-dir)/mcp-memory-update.lock"
-take_lock() {
-    if mkdir "$LOCK" 2>/dev/null; then
-        echo $$ > "$LOCK/pid"
-        return 0
-    fi
-    # The EXIT trap does not run on a power loss or a kill -9, and a lock that stays
-    # would stop every later timer run. It is abandoned if its owner is gone, or if
-    # it is older than any update can take (after a reboot the PID may be reused).
-    local owner
-    owner="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null && [ -z "$(find "$LOCK" -maxdepth 0 -mmin +360)" ]; then
-        return 1
-    fi
-    log "removing abandoned lock of process ${owner:-unknown}"
-    rm -rf "$LOCK"
-    mkdir "$LOCK" 2>/dev/null || return 1
-    echo $$ > "$LOCK/pid"
-}
-take_lock || die "another update is running (lock: $LOCK)"
-trap 'rm -rf "$LOCK"' EXIT
+if command -v flock >/dev/null 2>&1; then
+    # The kernel holds the lock on fd 9 for as long as this process lives and drops it
+    # however the process ends, power loss and kill -9 included. Nothing to clean up,
+    # nothing to recover, and two starts cannot both get it.
+    exec 9>"$LOCK"
+    flock -n 9 || die "another update is running (lock: $LOCK)"
+else
+    # No flock (macOS): mkdir is atomic too, but a killed run leaves the directory
+    # behind. It is not removed automatically, because telling an abandoned lock
+    # from a live one cannot be done without a race; a person runs this by hand here.
+    mkdir "$LOCK.d" 2>/dev/null || die "another update is running; if it was killed, remove $LOCK.d"
+    trap 'rmdir "$LOCK.d"' EXIT
+fi
 
 git fetch --quiet --tags origin
 if [ -z "$TARGET" ]; then
@@ -209,7 +201,7 @@ wait_healthy() {
 roll_back() {
     log "rolling back to $PREVIOUS"
     install_checkout "$PREVIOUS" || log "rollback install failed; fix $REPO_DIR by hand"
-    $RESTART_CMD || true
+    $RESTART_CMD 9>&- || true
     # ponytail: the database is not restored. The new release may already have
     # migrated it; if the previous one does not run on that schema, restore the
     # backup by hand. Automate once a migration actually breaks a rollback.
@@ -221,7 +213,8 @@ roll_back() {
 backup_databases "$(date +%Y%m%d-%H%M%S)"
 
 install_checkout "$TARGET" || roll_back "install failed"
-$RESTART_CMD || roll_back "restart failed"
+# 9>&-: a restart command that leaves a daemon behind must not inherit the lock.
+$RESTART_CMD 9>&- || roll_back "restart failed"
 wait_healthy || roll_back "server not healthy after ${HEALTH_WAIT}s"
 
 log "now running $TARGET"

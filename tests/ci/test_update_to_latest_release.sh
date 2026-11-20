@@ -135,24 +135,32 @@ grep -q "no oauth database at $WORK/custom/oauth.db" "$WORK/out" \
     || { echo "FAIL - a missing database was skipped without a word"; failures=$((failures + 1)); }
 grep -q "https://127.0.0.1:8123/api/health" "$WORK/curl-args" 2>/dev/null \
     || { echo "FAIL - MCP_HTTPS_ENABLED=Yes did not select https: $(cat "$WORK/curl-args" 2>/dev/null)"; failures=$((failures + 1)); }
-[ ! -e "$WORK/deploy/.git/mcp-memory-update.lock" ] \
-    || { echo "FAIL - lock left behind after a finished run"; failures=$((failures + 1)); }
+[ ! -e "$WORK/deploy/.git/mcp-memory-update.lock.d" ] \
+    || { echo "FAIL - lock directory left behind after a finished run"; failures=$((failures + 1)); }
 
 # A second run while one holds the lock must not touch the checkout, nor the lock.
 new_checkout v1.0.0
-mkdir "$WORK/deploy/.git/mcp-memory-update.lock"
-echo $$ > "$WORK/deploy/.git/mcp-memory-update.lock/pid"   # this test: alive
-run; check "a held lock blocks a second run" 1 $? v1.0.0
-[ -d "$WORK/deploy/.git/mcp-memory-update.lock" ] \
-    || { echo "FAIL - removed a lock it did not take"; failures=$((failures + 1)); }
+lock="$WORK/deploy/.git/mcp-memory-update.lock"
+if command -v flock >/dev/null 2>&1; then
+    flock "$lock" sleep 30 &
+    holder=$!
+    until [ -e "$lock" ]; do sleep 0.1; done
+    run; check "a held lock blocks a second run" 1 $? v1.0.0
+    kill "$holder" 2>/dev/null
+    pkill -P "$holder" 2>/dev/null
+    wait "$holder" 2>/dev/null
 
-# A run that was killed leaves its lock behind; the next one must not be stuck on it.
-new_checkout v1.0.0
-mkdir "$WORK/deploy/.git/mcp-memory-update.lock"
-( : ) & dead=$!
-wait "$dead"
-echo "$dead" > "$WORK/deploy/.git/mcp-memory-update.lock/pid"
-run; check "an abandoned lock is taken over" 0 $? v1.1.0
+    # The holder is dead and its lock file is still there, as after a kill -9 or a
+    # power loss. The kernel dropped the lock with the process, so the next run goes on.
+    until flock -n "$lock" true; do sleep 0.1; done
+    run; check "a lock whose holder died does not block" 0 $? v1.1.0
+else
+    # Without flock the script falls back to a lock directory it never removes itself.
+    mkdir "$lock.d"
+    run; check "a held lock blocks a second run" 1 $? v1.0.0
+    [ -d "$lock.d" ] || { echo "FAIL - removed a lock it did not take"; failures=$((failures + 1)); }
+    echo "SKIP - lock release on a dead holder needs flock (not on this machine)"
+fi
 
 # Default health command, no .env to read the port from: must not die on the lookup.
 new_checkout v1.0.0
