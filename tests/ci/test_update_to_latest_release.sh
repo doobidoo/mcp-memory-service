@@ -141,9 +141,18 @@ grep -q "https://127.0.0.1:8123/api/health" "$WORK/curl-args" 2>/dev/null \
 # A second run while one holds the lock must not touch the checkout, nor the lock.
 new_checkout v1.0.0
 mkdir "$WORK/deploy/.git/mcp-memory-update.lock"
+echo $$ > "$WORK/deploy/.git/mcp-memory-update.lock/pid"   # this test: alive
 run; check "a held lock blocks a second run" 1 $? v1.0.0
 [ -d "$WORK/deploy/.git/mcp-memory-update.lock" ] \
     || { echo "FAIL - removed a lock it did not take"; failures=$((failures + 1)); }
+
+# A run that was killed leaves its lock behind; the next one must not be stuck on it.
+new_checkout v1.0.0
+mkdir "$WORK/deploy/.git/mcp-memory-update.lock"
+( : ) & dead=$!
+wait "$dead"
+echo "$dead" > "$WORK/deploy/.git/mcp-memory-update.lock/pid"
+run; check "an abandoned lock is taken over" 0 $? v1.1.0
 
 # Default health command, no .env to read the port from: must not die on the lookup.
 new_checkout v1.0.0

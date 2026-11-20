@@ -97,8 +97,26 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$REPO_DIR is not a g
 # check out and install over each other, and one's rollback would undo the other.
 # mkdir is atomic and, unlike flock, also there on macOS.
 LOCK="$(git rev-parse --absolute-git-dir)/mcp-memory-update.lock"
-mkdir "$LOCK" 2>/dev/null || die "another update is running; if it was killed, remove $LOCK"
-trap 'rmdir "$LOCK"' EXIT
+take_lock() {
+    if mkdir "$LOCK" 2>/dev/null; then
+        echo $$ > "$LOCK/pid"
+        return 0
+    fi
+    # The EXIT trap does not run on a power loss or a kill -9, and a lock that stays
+    # would stop every later timer run. It is abandoned if its owner is gone, or if
+    # it is older than any update can take (after a reboot the PID may be reused).
+    local owner
+    owner="$(cat "$LOCK/pid" 2>/dev/null || true)"
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null && [ -z "$(find "$LOCK" -maxdepth 0 -mmin +360)" ]; then
+        return 1
+    fi
+    log "removing abandoned lock of process ${owner:-unknown}"
+    rm -rf "$LOCK"
+    mkdir "$LOCK" 2>/dev/null || return 1
+    echo $$ > "$LOCK/pid"
+}
+take_lock || die "another update is running (lock: $LOCK)"
+trap 'rm -rf "$LOCK"' EXIT
 
 git fetch --quiet --tags origin
 if [ -z "$TARGET" ]; then

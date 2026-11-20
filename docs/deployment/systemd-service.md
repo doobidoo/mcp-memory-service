@@ -218,7 +218,8 @@ MCP_HUB_UPDATE_REMOTE_CMD='systemctl --user start --no-block mcp-memory-update.s
 ```
 
 Only one update runs per checkout at a time; a second start while one is in progress
-exits with "another update is running".
+exits with "another update is running". A lock left behind by a run that was killed
+is taken over by the next one.
 
 ## Troubleshooting
 
