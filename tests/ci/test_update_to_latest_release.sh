@@ -116,6 +116,35 @@ if grep -q "now running" "$WORK/out"; then
     failures=$((failures + 1))
 fi
 
+# Settings come from the checkout's .env when the environment does not carry them:
+# a custom database path is backed up, and HTTPS is recognised the way the server
+# parses it (safe_get_bool_env takes "Yes"), so the probe does not hit plain HTTP.
+new_checkout v1.0.0
+mkdir -p "$WORK/custom" "$WORK/bin"
+cp "$WORK/data/sqlite_vec.db" "$WORK/custom/mine.db"
+printf 'MCP_MEMORY_BASE_DIR=%s\nMCP_MEMORY_SQLITE_PATH="%s"\nMCP_HTTPS_ENABLED=Yes\nMCP_HTTP_PORT=8123\n' \
+    "$WORK/custom" "$WORK/custom/mine.db" > "$WORK/deploy/.env"
+printf '#!/bin/sh\necho "$@" > "%s/curl-args"\n' "$WORK" > "$WORK/bin/curl"
+chmod +x "$WORK/bin/curl"
+PATH="$WORK/bin:$PATH" MCP_UPDATE_REPO_DIR="$WORK/deploy" MCP_UPDATE_RESTART_CMD=true \
+    MCP_UPDATE_HEALTH_WAIT=3 bash "$SCRIPT" > "$WORK/out" 2>&1
+check "settings are read from .env" 0 $? v1.1.0
+ls "$WORK/custom/backups/"sqlite_vec-pre-update-*.db >/dev/null 2>&1 \
+    || { echo "FAIL - custom MCP_MEMORY_SQLITE_PATH was not backed up"; failures=$((failures + 1)); }
+grep -q "no oauth database at $WORK/custom/oauth.db" "$WORK/out" \
+    || { echo "FAIL - a missing database was skipped without a word"; failures=$((failures + 1)); }
+grep -q "https://127.0.0.1:8123/api/health" "$WORK/curl-args" 2>/dev/null \
+    || { echo "FAIL - MCP_HTTPS_ENABLED=Yes did not select https: $(cat "$WORK/curl-args" 2>/dev/null)"; failures=$((failures + 1)); }
+[ ! -e "$WORK/deploy/.git/mcp-memory-update.lock" ] \
+    || { echo "FAIL - lock left behind after a finished run"; failures=$((failures + 1)); }
+
+# A second run while one holds the lock must not touch the checkout, nor the lock.
+new_checkout v1.0.0
+mkdir "$WORK/deploy/.git/mcp-memory-update.lock"
+run; check "a held lock blocks a second run" 1 $? v1.0.0
+[ -d "$WORK/deploy/.git/mcp-memory-update.lock" ] \
+    || { echo "FAIL - removed a lock it did not take"; failures=$((failures + 1)); }
+
 # Default health command, no .env to read the port from: must not die on the lookup.
 new_checkout v1.0.0
 MCP_UPDATE_REPO_DIR="$WORK/deploy" bash "$SCRIPT" --dry-run > "$WORK/out" 2>&1

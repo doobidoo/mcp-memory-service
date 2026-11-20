@@ -209,6 +209,17 @@ To have a client trigger the hub when the client itself updates, set
 After its own update it starts `mcp-memory-update.service` on the hub over SSH. The
 client only starts the unit; the hub still decides what to install.
 
+The default remote command is for a hub that runs the unit as a system service:
+`sudo -n systemctl start --no-block mcp-memory-update.service`. For the user service
+installed above, also set
+
+```bash
+MCP_HUB_UPDATE_REMOTE_CMD='systemctl --user start --no-block mcp-memory-update.service'
+```
+
+Only one update runs per checkout at a time; a second start while one is in progress
+exits with "another update is running".
+
 ## Troubleshooting
 
 ### Service Won't Start

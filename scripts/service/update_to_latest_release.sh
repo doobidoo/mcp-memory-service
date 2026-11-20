@@ -19,7 +19,7 @@
 #   MCP_UPDATE_HEALTH_CMD    default: curl against /api/health on MCP_HTTP_PORT
 #   MCP_UPDATE_HEALTH_WAIT   seconds to wait for a healthy server (default: 120)
 #   MCP_UPDATE_KEEP_BACKUPS  pre-update backups to keep (default: 5)
-#   MCP_MEMORY_BASE_DIR      data directory (default: ~/.local/share/mcp-memory)
+#   Database paths, port and HTTPS come from the environment or the checkout's .env.
 #
 # Units that run this on a schedule: mcp-memory-update.service / .timer next to it.
 set -euo pipefail
@@ -33,7 +33,28 @@ REPO_DIR="${MCP_UPDATE_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && 
 RESTART_CMD="${MCP_UPDATE_RESTART_CMD:-systemctl --user restart mcp-memory-http.service}"
 HEALTH_WAIT="${MCP_UPDATE_HEALTH_WAIT:-120}"
 KEEP_BACKUPS="${MCP_UPDATE_KEEP_BACKUPS:-5}"
-DATA_DIR="${MCP_MEMORY_BASE_DIR:-$HOME/.local/share/mcp-memory}"
+
+# The server reads its settings from .env; this script may run without them in its
+# environment (the update unit has no EnvironmentFile). Look in both, environment
+# first, without sourcing the file. A missing file or key yields an empty string.
+env_value() { grep -E "^$1=" "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true; }
+setting() {
+    local value="${!1:-}"
+    [ -n "$value" ] || value="$(env_value "$1")"
+    printf '%s' "$value"
+}
+
+# Same resolution as config/base.py, config/storage.py and config/oauth.py.
+DATA_DIR="$(setting MCP_MEMORY_BASE_DIR)"
+if [ -z "$DATA_DIR" ]; then
+    DATA_DIR="$HOME/.local/share/mcp-memory"
+    [ "$(uname)" = Darwin ] && DATA_DIR="$HOME/Library/Application Support/mcp-memory"
+fi
+SQLITE_DB="$(setting MCP_MEMORY_SQLITE_PATH)"
+[ -n "$SQLITE_DB" ] || SQLITE_DB="$(setting MCP_MEMORY_SQLITEVEC_PATH)"
+[ -n "$SQLITE_DB" ] || SQLITE_DB="$DATA_DIR/sqlite_vec.db"
+OAUTH_DB="$(setting MCP_OAUTH_SQLITE_PATH)"
+[ -n "$OAUTH_DB" ] || OAUTH_DB="$DATA_DIR/oauth.db"
 PYTHON="$REPO_DIR/.venv/bin/python"
 [ -x "$PYTHON" ] || PYTHON="$REPO_DIR/venv/bin/python"
 
@@ -54,21 +75,30 @@ log() { echo "[update] $*"; }
 die() { echo "[update] ERROR: $*" >&2; exit 1; }
 
 if [ -z "${MCP_UPDATE_HEALTH_CMD:-}" ]; then
-    # Read the two settings the URL depends on from .env without sourcing the file.
-    # A missing file or key is not an error: the defaults below apply.
-    env_value() { grep -E "^$1=" "$REPO_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true; }
-    port="${MCP_HTTP_PORT:-$(env_value MCP_HTTP_PORT)}"
-    https="${MCP_HTTPS_ENABLED:-$(env_value MCP_HTTPS_ENABLED)}"
+    port="$(setting MCP_HTTP_PORT)"
     scheme=http
-    # -k: a loopback liveness probe that sends no credentials; the certificate is
-    # normally issued for the public name, not for 127.0.0.1.
-    [ "$https" = "true" ] && scheme="https" && insecure="-k"
+    # The values safe_get_bool_env() in config/base.py takes for true.
+    case "$(setting MCP_HTTPS_ENABLED | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+        true|1|yes|on|enabled)
+            # -k: a loopback liveness probe that sends no credentials; the certificate
+            # is normally issued for the public name, not for 127.0.0.1.
+            scheme=https
+            insecure="-k"
+            ;;
+    esac
     MCP_UPDATE_HEALTH_CMD="curl -fsS ${insecure:-} -m 5 -o /dev/null $scheme://127.0.0.1:${port:-8000}/api/health"
 fi
 
 cd "$REPO_DIR"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$REPO_DIR is not a git checkout"
 [ -x "$PYTHON" ] || die "no interpreter at $REPO_DIR/.venv/bin/python or $REPO_DIR/venv/bin/python"
+
+# One update per checkout at a time: a manual --tag run and the timer would otherwise
+# check out and install over each other, and one's rollback would undo the other.
+# mkdir is atomic and, unlike flock, also there on macOS.
+LOCK="$(git rev-parse --absolute-git-dir)/mcp-memory-update.lock"
+mkdir "$LOCK" 2>/dev/null || die "another update is running; if it was killed, remove $LOCK"
+trap 'rmdir "$LOCK"' EXIT
 
 git fetch --quiet --tags origin
 if [ -z "$TARGET" ]; then
@@ -102,13 +132,20 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 backup_databases() {
-    local stamp="$1" db
+    local stamp="$1" db source
     mkdir -p "$DATA_DIR/backups"
     for db in sqlite_vec oauth; do
-        [ -f "$DATA_DIR/$db.db" ] || continue
+        source="$SQLITE_DB"
+        [ "$db" = oauth ] && source="$OAUTH_DB"
+        if [ ! -f "$source" ]; then
+            # Legitimate on a cloudflare/milvus backend or without OAuth, but say so:
+            # a wrong path must not look like a backup that was taken.
+            log "no $db database at $source, nothing backed up for it"
+            continue
+        fi
         # sqlite3's online backup: consistent while the server keeps writing, which a
         # plain cp of a WAL database is not.
-        "$PYTHON" - "$DATA_DIR/$db.db" "$DATA_DIR/backups/$db-pre-update-$stamp.db" <<'PY'
+        "$PYTHON" - "$source" "$DATA_DIR/backups/$db-pre-update-$stamp.db" <<'PY'
 import sqlite3
 import sys
 
