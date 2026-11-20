@@ -38,6 +38,34 @@ SSE_HEARTBEAT_INTERVAL = safe_get_int_env('MCP_SSE_HEARTBEAT', 30, min_value=5, 
 SSE_EVENT_REPLAY_BUFFER_SIZE = safe_get_int_env('MCP_SSE_REPLAY_BUFFER_SIZE', 1000, min_value=0, max_value=100000)
 API_KEY = os.getenv('MCP_API_KEY', None)  # Optional authentication
 
+# Example values this repository has printed in its docs, compose files and
+# scripts. A key anyone can read there is not a credential, so the HTTP server
+# refuses to start with one. Exact matches only: this is a list of strings we
+# published, not a strength check.
+PLACEHOLDER_API_KEYS = frozenset({
+    'your-secure-api-key-here',
+    'your-secure-api-key',
+    'your-secure-key-here',
+    'your-secure-key',
+    'your-secret-key-here',
+    'your-secret-key',
+    'your-api-key-here',
+    'your-api-key',
+    'your-generated-key',
+    'your-key-here',
+    'your-key',
+    'your_key',
+})
+
+
+def reject_placeholder_api_key() -> None:
+    """Abort HTTP startup when MCP_API_KEY is a documented example value."""
+    if API_KEY and API_KEY.strip().lower() in PLACEHOLDER_API_KEYS:
+        raise RuntimeError(
+            "MCP_API_KEY is set to an example value from the documentation, which is "
+            "public. Generate a real key (openssl rand -hex 32) and set MCP_API_KEY to it."
+        )
+
 # Request body size limits (mitigate disk/memory exhaustion and buffer-overflow
 # attempts). The global cap applies to every request except large-upload routes
 # (document ingestion); the auth cap is a tighter bound for /oauth/* endpoints.

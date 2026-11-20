@@ -37,6 +37,7 @@ try:
     from .. import __version__
 except (ImportError, AttributeError):
     __version__ = "0.0.0.dev0"
+from ..config.transport import reject_placeholder_api_key
 from ..config import (
     HTTP_PORT,
     HTTP_HOST,
@@ -571,6 +572,9 @@ def create_app() -> FastAPI:
 
 
 # Create the app instance
+# Refuse to build the HTTP app around a key that is printed in the docs.
+reject_placeholder_api_key()
+
 app = create_app()
 
 
