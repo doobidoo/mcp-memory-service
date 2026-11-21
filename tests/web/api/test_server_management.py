@@ -32,6 +32,7 @@ import asyncio
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -477,3 +478,120 @@ def test_refused_update_leaves_no_backup(test_app, fake_backup):
 
     assert response.status_code == 409
     assert fake_backup.events == []
+
+
+# Restart under the Windows wrapper (#1943)
+#
+# A BackgroundTask that calls sys.exit() only raises SystemExit, which Starlette
+# logs as an ASGI exception while the server keeps serving. The restart has to
+# end the process with os._exit(): with the wrapper's marker set it exits with
+# the restart code and spawns nothing, otherwise it spawns a replacement first.
+
+@pytest.fixture
+def windows_restart(monkeypatch):
+    """Run _restart_server_delayed as on Windows, recording os._exit and Popen."""
+    calls = SimpleNamespace(exits=[], popen=[])
+    monkeypatch.setattr(sys, 'platform', 'win32')
+    monkeypatch.setattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 512, raising=False)
+    monkeypatch.setattr(server_module, 'RESTART_DELAY_SECONDS', 0)
+    monkeypatch.setattr(server_module.os, '_exit', lambda code: calls.exits.append(code))
+
+    def fake_popen(*args, **kwargs):
+        calls.popen.append(args)
+
+    monkeypatch.setattr(server_module.subprocess, 'Popen', fake_popen)
+    return calls
+
+
+async def test_supervised_restart_exits_with_the_restart_code_and_spawns_nothing(windows_restart, monkeypatch):
+    monkeypatch.setenv('MCP_WRAPPER_SUPERVISED', '1')
+
+    await server_module._restart_server_delayed()
+
+    assert windows_restart.exits == [75]
+    assert windows_restart.popen == []
+
+
+async def test_unsupervised_windows_restart_spawns_then_exits_zero(windows_restart, monkeypatch):
+    monkeypatch.delenv('MCP_WRAPPER_SUPERVISED', raising=False)
+
+    await server_module._restart_server_delayed()
+
+    assert len(windows_restart.popen) == 1
+    assert windows_restart.exits == [0]
+
+
+async def test_restart_error_path_exits_with_os_exit(windows_restart, monkeypatch):
+    monkeypatch.delenv('MCP_WRAPPER_SUPERVISED', raising=False)
+
+    def broken_popen(*args, **kwargs):
+        raise OSError('boom')
+
+    monkeypatch.setattr(server_module.subprocess, 'Popen', broken_popen)
+
+    await server_module._restart_server_delayed()
+
+    assert windows_restart.exits == [1]
+
+
+def test_restart_exit_code_avoids_the_codes_python_and_uv_already_use():
+    assert server_module.SUPERVISED_RESTART_EXIT_CODE not in {0, 1, 2, 3, 130, 143, 0xC000013A}
+
+
+# Runs the restart in a real interpreter, the way the ASGI server does: uvicorn
+# catches BaseException from a background task and goes on serving, so anything
+# that raises SystemExit instead of ending the process shows up as STILL RUNNING.
+# Popen is stubbed so that a regression cannot spawn a real replacement.
+_RESTART_PROBE = '''
+import asyncio, subprocess
+from mcp_memory_service.web.api import server
+server.RESTART_DELAY_SECONDS = 0
+
+def popen(*args, **kwargs):
+    print('POPEN CALLED')
+    if {fail}:
+        raise OSError('boom')
+
+subprocess.Popen = popen
+try:
+    asyncio.run(server._restart_server_delayed())
+except BaseException as exc:
+    print('SWALLOWED', type(exc).__name__)
+print('STILL RUNNING')
+'''
+
+
+def _run_restart_probe(env_extra, fail_popen=False):
+    env = {k: v for k, v in os.environ.items() if k != 'MCP_WRAPPER_SUPERVISED'}
+    env.update(env_extra)
+    return subprocess.run(
+        [sys.executable, '-c', _RESTART_PROBE.format(fail=fail_popen)],
+        check=False, capture_output=True, text=True, env=env, timeout=60,
+    )
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='the restart branches under test are the Windows ones')
+def test_supervised_restart_really_ends_the_process_with_the_restart_code():
+    proc = _run_restart_probe({'MCP_WRAPPER_SUPERVISED': '1'})
+
+    assert proc.returncode == 75, (proc.stdout, proc.stderr)
+    assert 'STILL RUNNING' not in proc.stdout
+    assert 'POPEN CALLED' not in proc.stdout
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='the restart branches under test are the Windows ones')
+def test_unsupervised_restart_really_ends_the_process_after_spawning():
+    proc = _run_restart_probe({})
+
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert 'POPEN CALLED' in proc.stdout
+    assert 'STILL RUNNING' not in proc.stdout
+
+
+@pytest.mark.skipif(sys.platform != 'win32', reason='the restart branches under test are the Windows ones')
+def test_failed_restart_really_ends_the_process_instead_of_raising_system_exit():
+    proc = _run_restart_probe({}, fail_popen=True)
+
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert 'STILL RUNNING' not in proc.stdout
+    assert 'SWALLOWED' not in proc.stdout
