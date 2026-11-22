@@ -1,6 +1,6 @@
 {
   "name": "@doobidoo/mcp-memory-service-dsh",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Recalls project memories from an MCP Memory Service into every new DeepSeek Harness agent session.",
   "type": "module",
