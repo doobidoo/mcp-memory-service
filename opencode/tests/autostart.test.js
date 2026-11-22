@@ -12,8 +12,9 @@
 
 import { test } from "node:test"
 import assert from "node:assert"
+import http from "node:http"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 
 import { _internal } from "../memory-plugin.js"
@@ -45,7 +46,7 @@ test("autoStart is off unless the configuration enables it", async () => {
   let spawnCalls = 0
   let healthCalls = 0
   const started = await ensureMemoryService(configWith({ enabled: false }), {
-    getHealth: async () => { healthCalls += 1; return { status: "healthy" } },
+    health: async () => { healthCalls += 1; return { status: "healthy" } },
     spawn: () => { spawnCalls += 1 },
   })
   assert.strictEqual(started, null)
@@ -56,7 +57,7 @@ test("autoStart is off unless the configuration enables it", async () => {
 test("a reachable service is reused instead of starting a second instance", async () => {
   let spawnCalls = 0
   const started = await ensureMemoryService(configWith({ enabled: true }), {
-    getHealth: async () => ({ status: "healthy" }),
+    health: async () => ({ status: "healthy" }),
     spawn: () => { spawnCalls += 1 },
   })
   assert.strictEqual(started, null)
@@ -71,7 +72,7 @@ test("the default launcher is given the port of the configured endpoint", async 
   config.memoryService.endpoint = "http://127.0.0.1:8123"
 
   const started = await ensureMemoryService(config, {
-    getHealth: async () => {
+    health: async () => {
       healthCalls += 1
       if (healthCalls === 1) throw new Error("down")
       return { status: "healthy" }
@@ -93,6 +94,7 @@ test("the default launcher is given the port of the configured endpoint", async 
     options: {
       stdio: "ignore",
       windowsHide: true,
+      cwd: homedir(),
       detached: true,
     },
   }])
@@ -108,7 +110,7 @@ test("a custom command is spawned exactly as configured", async () => {
     command: ["/opt/memory/start-service", "--background"],
     startTimeoutMs: 5000,
   }), {
-    getHealth: async () => {
+    health: async () => {
       healthCalls += 1
       if (healthCalls === 1) throw new Error("down")
       return { status: "healthy" }
@@ -130,7 +132,7 @@ test("a custom command is spawned exactly as configured", async () => {
 test("Windows does not detach the child", async () => {
   let detached
   await ensureMemoryService(configWith({ enabled: true, startTimeoutMs: 50 }), {
-    getHealth: async () => { throw new Error("down") },
+    health: async () => { throw new Error("down") },
     sleep: noSleep,
     platform: "win32",
     spawn: (_command, _args, options) => { detached = options.detached; return fakeChild() },
@@ -146,7 +148,7 @@ test("a service that never answers is bounded by startTimeoutMs", async () => {
     startTimeoutMs: 50,
   }), {
     // Accepts the connection and never answers.
-    getHealth: () => new Promise(() => {}),
+    health: () => new Promise(() => {}),
     sleep: noSleep,
     spawn: () => fakeChild(),
     log: async (message) => { messages.push(message) },
@@ -158,6 +160,39 @@ test("a service that never answers is bounded by startTimeoutMs", async () => {
   assert.ok(started)
 })
 
+test("the start decision uses the storage-free health route", async () => {
+  // A detailed health check that hangs while /api/health answers must not make
+  // the plugin think the service is down: `memory launch` could then replace a
+  // listener that the dashboard and other clients are using.
+  const server = http.createServer((req, res) => {
+    if (req.url === "/api/health") {
+      res.writeHead(200, { "content-type": "application/json" })
+      res.end('{"status":"healthy"}')
+    }
+    // /api/health/detailed never answers.
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const { port } = server.address()
+
+  try {
+    const config = configWith({ enabled: true, startTimeoutMs: 200 })
+    config.memoryService.endpoint = `http://127.0.0.1:${port}`
+    config.memoryService.timeoutMs = 5000
+
+    let spawnCalls = 0
+    const started = await ensureMemoryService(config, {
+      spawn: () => { spawnCalls += 1; return fakeChild() },
+      platform: "linux",
+    })
+
+    assert.strictEqual(started, null)
+    assert.strictEqual(spawnCalls, 0)
+  } finally {
+    server.closeAllConnections?.()
+    server.close()
+  }
+})
+
 test("an empty command is reported and nothing is started", async () => {
   const messages = []
   const started = await ensureMemoryService(configWith({
@@ -165,7 +200,7 @@ test("an empty command is reported and nothing is started", async () => {
     command: [],
     startTimeoutMs: 50,
   }), {
-    getHealth: async () => { throw new Error("down") },
+    health: async () => { throw new Error("down") },
     sleep: noSleep,
     spawn: () => { throw new Error("must not spawn") },
     log: async (message) => { messages.push(message) },
@@ -218,7 +253,7 @@ test("a project-level autoStart is ignored and does not spawn", async () => {
 
     let spawnCalls = 0
     const started = await ensureMemoryService(config, {
-      getHealth: async () => { throw new Error("down") },
+      health: async () => { throw new Error("down") },
       spawn: () => { spawnCalls += 1 },
     })
     assert.strictEqual(started, null)

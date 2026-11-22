@@ -257,7 +257,9 @@ By default the plugin is a client: it expects the memory service to already be r
 ```
 
 - A reachable endpoint is used as-is. A service already started by the OS or by another editor is never duplicated.
+- The start decision uses `/api/health`, which answers without touching storage. A slow `/api/health/detailed` cannot make a running service look stopped and start a second launcher over it.
 - `command` is an argv array, not a shell string. The default `["memory", "launch"]` gets `--port <port of memoryService.endpoint>` appended, because `memory launch` moves to a free port when the configured one is taken, and a server that moved would never be found by the health poll. A custom command is spawned exactly as configured, so it has to bind the port from `endpoint` itself.
+- The launcher runs from the user's home directory, not from the project. Python puts the working directory on `sys.path`, so a checkout could otherwise shadow `uvicorn`, and the server's `.env` lookup reads the current directory first. A cloned repository must not be able to influence either.
 - `startTimeoutMs` is one deadline for the first health check and every poll after it. If the service does not answer in time, the session continues without memories instead of failing; an endpoint that accepts the connection and never answers cannot hold up OpenCode's start either.
 - `OPENCODE_MEMORY_AUTOSTART=1` enables auto-start without a configuration file; command and timeout still come from the configuration.
 

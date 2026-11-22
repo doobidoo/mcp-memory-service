@@ -1143,11 +1143,17 @@ function startCommand(autoStart, endpoint) {
   return command
 }
 
+// /api/health answers without touching storage, so a slow backend cannot make a
+// running service look stopped. The detailed route is left to the dashboard.
+async function healthProbe(config) {
+  await requestJson(config, "/api/health")
+}
+
 async function ensureMemoryService(config, deps = {}) {
   const autoStart = config.memoryService.autoStart
   if (!autoStart?.enabled) return null
 
-  const health = deps.getHealth || getHealth
+  const health = deps.health || healthProbe
   const spawnProcess = deps.spawn || spawn
   const pause = deps.sleep || sleep
   const log = deps.log || (async () => {})
@@ -1171,6 +1177,10 @@ async function ensureMemoryService(config, deps = {}) {
     child = spawnProcess(command, args, {
       stdio: "ignore",
       windowsHide: true,
+      // Never run the launcher from the project checkout: Python puts the cwd on
+      // sys.path (a planted uvicorn.py would run) and the server's .env lookup
+      // reads cwd/.env. The home directory is the user's, not the repository's.
+      cwd: homedir(),
       // POSIX: own process group, so the launcher's server child is not orphaned
       // into the editor's group. Windows has no equivalent here.
       detached: platform !== "win32",
