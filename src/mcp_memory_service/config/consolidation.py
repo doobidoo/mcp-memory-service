@@ -80,7 +80,10 @@ CONSOLIDATION_CONFIG = {
 
     # Incremental consolidation settings
     'batch_size': int(os.getenv('MCP_CONSOLIDATION_BATCH_SIZE', '500')),
-    'incremental_mode': os.getenv('MCP_CONSOLIDATION_INCREMENTAL', 'true').lower() == 'true'
+    'incremental_mode': os.getenv('MCP_CONSOLIDATION_INCREMENTAL', 'true').lower() == 'true',
+
+    # Run log settings
+    'run_log_keep': safe_get_int_env('MCP_CONSOLIDATION_RUN_LOG_KEEP', 50, min_value=1),
 }
 
 # Consolidation scheduling settings (for APScheduler integration)

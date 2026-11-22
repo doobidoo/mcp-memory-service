@@ -45,6 +45,7 @@ from .relationship_inference import (
     RelationshipInferenceEngine,
     apply_review_band,
 )
+from .run_log import RUN_LOG_TYPE, build_run_log, store_run_log
 from .run_tracker import RunTracker
 from ..compat import _sanitize_log_value
 from ..utils.time_parser import memory_statement_time
@@ -81,7 +82,11 @@ def _supersede_pair(source: Memory, target: Memory) -> Tuple[str, str]:
 # Protocol for storage backend interface
 class StorageProtocol(Protocol):
     async def get_all_memories(
-        self, memory_type: Optional[str] = None
+        self,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        memory_type: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[Memory]: pass
     async def get_memories_by_time_range(
         self, start_time: float, end_time: float, include_embeddings: bool = False
@@ -410,12 +415,15 @@ class DreamInspiredConsolidator:
             self.logger.debug("BASE_DIR unavailable for consolidation run tracker")
         return None
 
-    async def consolidate(self, time_horizon: str, **kwargs) -> ConsolidationReport:
+    async def consolidate(
+        self, time_horizon: str, trigger: str = "manual", **kwargs
+    ) -> ConsolidationReport:
         """
         Run full consolidation pipeline for given time horizon.
 
         Args:
             time_horizon: 'daily', 'weekly', 'monthly', 'quarterly', 'yearly'
+            trigger: 'scheduled' or 'manual', recorded in the run log
             **kwargs: Additional parameters for consolidation
 
         Returns:
@@ -472,24 +480,52 @@ class DreamInspiredConsolidator:
             self.health_monitor.record_error(
                 "consolidator", e, {"time_horizon": time_horizon}
             )
+            report.errors.append(str(e))
             raise
         except Exception as e:
             self.logger.error("Error during %s consolidation: %s", _sanitize_log_value(time_horizon), _sanitize_log_value(e))
             self.health_monitor.record_error(
                 "consolidator", e, {"time_horizon": time_horizon}
             )
-            report.errors.append(str(e))
             return self._finalize_report(report, [str(e)])
+        except asyncio.CancelledError:
+            report.errors.append("Cancelled")
+            raise
         finally:
             if is_incremental and self.run_tracker:
                 self.run_tracker.release("incremental")
             if run_id is not None:
                 # Also reached on cancellation (a timeout around this call),
                 # where succeeded is still False.
-                await self._notify(
-                    CONSOLIDATION_COMPLETED,
-                    {"run_id": run_id, "time_horizon": time_horizon, "success": succeeded},
-                )
+                try:
+                    await self._log_run(report, run_id, trigger, succeeded)
+                finally:
+                    await self._notify(
+                        CONSOLIDATION_COMPLETED,
+                        {
+                            "run_id": run_id,
+                            "time_horizon": time_horizon,
+                            "success": succeeded,
+                        },
+                    )
+
+    async def _log_run(
+        self, report: ConsolidationReport, run_id: str, trigger: str, succeeded: bool
+    ) -> None:
+        """Store the run as a run log memory; its failure never fails the run (#2097).
+
+        Incremental runs that found nothing to do are not logged.
+        """
+        nothing_done = succeeded and not report.memories_processed
+        if report.time_horizon == "incremental" and nothing_done:
+            return
+        try:
+            run_log = build_run_log(report, run_id, trigger, succeeded)
+            await store_run_log(self.storage, run_log, self.config.run_log_keep)
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to store consolidation run log: %s", _sanitize_log_value(exc)
+            )
 
     async def _notify(self, event_type: str, data: Dict[str, Any]) -> None:
         """Hand one lifecycle event to the notifier; its failure never fails the run."""
@@ -761,20 +797,25 @@ class DreamInspiredConsolidator:
             # Bootstrap: use the configured window on first run
             if last_run is None:
                 last_run = (now - window).timestamp()
-            end_time = now.timestamp()
-            memories = await self.storage.get_memories_by_time_range(
-                last_run, end_time, include_embeddings=True,
-            )
-            return memories
+            return await self._get_memories_in_range(last_run, now.timestamp())
 
-        memories = await self.storage.get_memories_by_time_range(
-            (now - window).timestamp(), now.timestamp(), include_embeddings=True,
+        memories = await self._get_memories_in_range(
+            (now - window).timestamp(), now.timestamp()
         )
 
         if self.config.incremental_mode:
             memories = self._take_oldest_batch(memories)
 
         return memories
+
+    async def _get_memories_in_range(
+        self, start_time: float, end_time: float
+    ) -> List[Memory]:
+        """Memories created in the range, with embeddings, without run logs (#2097)."""
+        memories = await self.storage.get_memories_by_time_range(
+            start_time, end_time, include_embeddings=True,
+        )
+        return [m for m in memories if m.memory_type != RUN_LOG_TYPE]
 
     async def _get_forgetting_candidates(
         self, time_horizon: str
@@ -797,9 +838,7 @@ class DreamInspiredConsolidator:
         min_age_cutoff = (now - timedelta(days=min_age_days)).timestamp()
 
         # Query everything older than the floor (the stale tail)
-        candidates = await self.storage.get_memories_by_time_range(
-            0.0, min_age_cutoff, include_embeddings=True,
-        )
+        candidates = await self._get_memories_in_range(0.0, min_age_cutoff)
 
         # Always bound the read so a deployment with thousands of stale
         # memories does not load them all into one run.

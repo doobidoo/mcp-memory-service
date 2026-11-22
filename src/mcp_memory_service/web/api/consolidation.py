@@ -21,9 +21,12 @@ including manual triggers and scheduler status queries.
 
 import logging
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
+from ...consolidation.run_log import RUN_LOG_TYPE
+from ...storage.base import MemoryStorage
+from ..dependencies import get_storage
 from ..oauth.middleware import require_read_access, require_write_access, AuthenticationResult
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,11 @@ class SchedulerStatusResponse(BaseModel):
     next_monthly: Optional[str] = Field(None, description="Next monthly run time (ISO format)")
     jobs_executed: int = Field(description="Total successful jobs executed")
     jobs_failed: int = Field(description="Total failed jobs")
+
+
+class ConsolidationRunsResponse(BaseModel):
+    """Response model for the consolidation run log."""
+    runs: list[Dict[str, Any]] = Field(description="Recorded runs, newest first")
 
 
 class RecommendationsResponse(BaseModel):
@@ -166,6 +174,32 @@ async def get_scheduler_status(user: AuthenticationResult = Depends(require_read
     except Exception:
         logger.error("Failed to get scheduler status")
         raise HTTPException(status_code=500, detail="Failed to get status")
+
+
+@router.get("/runs", response_model=ConsolidationRunsResponse)
+async def list_consolidation_runs(
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of runs"),
+    node: Optional[str] = Query(None, description="Only runs of this node"),
+    horizon: Optional[str] = Query(None, description="Only runs of this time horizon"),
+    user: AuthenticationResult = Depends(require_read_access),
+    storage: MemoryStorage = Depends(get_storage),
+) -> Dict[str, Any]:
+    """
+    List the recorded consolidation runs of every node, newest first (#2097).
+
+    Each run is the metadata of its run log memory: run_id, node, horizon,
+    trigger, agent_id, hostname, started_at, ended_at, duration_seconds,
+    success, the five counters and errors.
+
+    Example:
+        GET /api/consolidation/runs?limit=20&node=mac-mini&horizon=daily
+    """
+    filters = (("node", node), ("horizon", horizon))
+    tags = [f"{key}:{value}" for key, value in filters if value]
+    runs = await storage.get_all_memories(
+        limit=limit, memory_type=RUN_LOG_TYPE, tags=tags or None, tag_match="all"
+    )
+    return {"runs": [run.metadata for run in runs]}
 
 
 # Maps the consolidator's internal recommendation values onto this endpoint's

@@ -35,8 +35,8 @@ class TestObservationSubtypes:
         assert validate_memory_type(subtype) is True
 
     def test_observation_subtypes_count(self):
-        """Observation should have 13 subtypes (10 original + 3 new)."""
-        assert len(TAXONOMY["observation"]) == 13
+        """Observation should have 14 subtypes (10 original + 4 new)."""
+        assert len(TAXONOMY["observation"]) == 14
 
     def test_existing_subtypes_preserved(self):
         """Original observation subtypes should still be present."""
