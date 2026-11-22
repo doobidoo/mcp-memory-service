@@ -19,7 +19,7 @@ import path from "node:path"
 
 import { _internal } from "../memory-plugin.js"
 
-const { DEFAULT_CONFIG, ensureMemoryService, loadConfig } = _internal
+const { DEFAULT_CONFIG, endpointPort, ensureMemoryService, loadConfig } = _internal
 
 function configWith(autoStart) {
   return {
@@ -62,6 +62,15 @@ test("a reachable service is reused instead of starting a second instance", asyn
   })
   assert.strictEqual(started, null)
   assert.strictEqual(spawnCalls, 0)
+})
+
+test("endpointPort keeps standard ports and rejects garbage", () => {
+  assert.strictEqual(endpointPort("http://127.0.0.1:8123"), 8123)
+  // URL drops :80 and :443, and the launcher must not fall back to 8000 while
+  // the plugin polls the standard port.
+  assert.strictEqual(endpointPort("http://127.0.0.1"), 80)
+  assert.strictEqual(endpointPort("https://memory.example.com"), 443)
+  assert.strictEqual(endpointPort("not a url"), null)
 })
 
 test("the default launcher is given the port of the configured endpoint", async () => {
@@ -213,11 +222,14 @@ test("an empty command is reported and nothing is started", async () => {
 async function withHome(entries, run) {
   const root = await mkdtemp(path.join(tmpdir(), "opencode-memory-config-"))
   const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
   const previousConfig = process.env.OPENCODE_MEMORY_PLUGIN_CONFIG
   const previousAutoStart = process.env.OPENCODE_MEMORY_AUTOSTART
   delete process.env.OPENCODE_MEMORY_PLUGIN_CONFIG
   delete process.env.OPENCODE_MEMORY_AUTOSTART
   process.env.HOME = root
+  // Windows homedir() reads USERPROFILE, not HOME.
+  process.env.USERPROFILE = root
   try {
     for (const [relativePath, content] of Object.entries(entries)) {
       const filePath = path.join(root, relativePath)
@@ -227,6 +239,8 @@ async function withHome(entries, run) {
     return await run(root)
   } finally {
     process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
     if (previousConfig === undefined) delete process.env.OPENCODE_MEMORY_PLUGIN_CONFIG
     else process.env.OPENCODE_MEMORY_PLUGIN_CONFIG = previousConfig
     if (previousAutoStart === undefined) delete process.env.OPENCODE_MEMORY_AUTOSTART
@@ -249,7 +263,7 @@ test("a project-level autoStart is ignored and does not spawn", async () => {
 
     assert.strictEqual(config.memoryService.autoStart.enabled, false)
     assert.deepStrictEqual(config.memoryService.autoStart.command, DEFAULT_CONFIG.memoryService.autoStart.command)
-    assert.match(warnings.join("\n"), /Ignoring memoryService\.autoStart from .*\.opencode\/memory-plugin\.json/)
+    assert.match(warnings.join("\n"), /Ignoring memoryService\.autoStart from .*\.opencode[\\/]memory-plugin\.json/)
 
     let spawnCalls = 0
     const started = await ensureMemoryService(config, {

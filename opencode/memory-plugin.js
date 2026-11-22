@@ -1122,8 +1122,14 @@ async function answersBefore(health, config, deadline, pause) {
 
 function endpointPort(endpoint) {
   try {
-    const { port } = new URL(endpoint)
-    return port ? Number(port) : null
+    const { port, protocol } = new URL(endpoint)
+    if (port) return Number(port)
+    // URL drops the protocol's standard port, so an endpoint written without
+    // one still has a port: the launcher must not fall back to 8000 while the
+    // plugin polls 80 or 443.
+    if (protocol === "https:") return 443
+    if (protocol === "http:") return 80
+    return null
   } catch {
     return null
   }
@@ -1891,6 +1897,7 @@ export const _internal = {
   applySelfSignedCertsOption,
   claimStaleInboxLock,
   createInboxChecker,
+  endpointPort,
   ensureMemoryService,
   environmentOverrides,
   formatInboxBlock,
