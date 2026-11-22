@@ -272,7 +272,6 @@ const app = {{
   translations: en,
   fallbackTranslations: en,
   escapeHtml: s => s,
-  setLoading() {{}},
   showToast() {{}},
   updateLanguageSwitcher() {{}},
   async apiCall() {{ return {{ status: 'success', filename: 'notes.md', total_found: app._found, memories: [] }}; }},

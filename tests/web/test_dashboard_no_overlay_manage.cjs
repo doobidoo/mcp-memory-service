@@ -2,8 +2,7 @@
 // The long manage operations no longer cover the page with the loading overlay (#2009):
 // removeDocument() and the four bulk operations report busy to the island on their
 // existing sources, disable the triggering button while the request runs, and keep
-// their failure on the island. View loads that the island does not report keep the
-// overlay, asserted here through loadBrowseData().
+// their failure on the island. There is no full-page overlay left to cover anything.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -38,17 +37,11 @@ function dashboard(elements) {
     app.loadDashboardData = async () => {};
     app.loadUploadHistory = async () => {};
     app.confirmBulkOperation = async () => true;
-    app.setLoading = () => { throw new Error('the page overlay was shown'); };
     return { app, island };
 }
 
 function button() {
     return { disabled: false };
-}
-
-function overlay() {
-    const calls = [];
-    return { calls, classList: { remove: (c) => calls.push(`show:${c}`), add: (c) => calls.push(`hide:${c}`) } };
 }
 
 test('removeDocument shows no overlay, disables the button and reports busy to the island', async () => {
@@ -216,18 +209,4 @@ test('delete untagged shows no overlay, disables its button and reports busy', a
     await pending;
     assert.equal(deleteUntaggedBtn.disabled, false);
     assert.ok(island.cleared.includes('delete-untagged'));
-});
-
-test('a view load the island does not report still covers the page', async () => {
-    const indicator = overlay();
-    const { app } = dashboard({ loadingOverlay: indicator });
-    delete app.setLoading; // restore the real prototype method
-    let release;
-    app.apiCall = () => new Promise((resolve) => { release = resolve; });
-    const pending = app.loadBrowseData();
-    await new Promise((r) => setTimeout(r, 0));
-    assert.ok(indicator.calls.some((c) => c.startsWith('show:')));
-    release({});
-    await pending;
-    assert.ok(indicator.calls.some((c) => c.startsWith('hide:')));
 });

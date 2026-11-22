@@ -95,7 +95,6 @@ class MemoryDashboard {
         this.supportedLanguages = ['en', 'zh'];
         this.languageMetadata = {}; // Stores language metadata (flags, names, etc.)
         this.searchResults = [];
-        this.isLoading = false;
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
         // Upload ids with a removal in flight. A re-render replaces the button with an
@@ -1466,7 +1465,6 @@ class MemoryDashboard {
      * Load initial dashboard data
      */
     async loadDashboardData({ silent = false } = {}) {
-        if (!silent) this.setLoading(true);
 
         try {
             // Load recent memories for dashboard display
@@ -1486,8 +1484,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading dashboard data:', error);
             if (!silent) this.showToast(this.t('toast.loadDashboardFail', 'Failed to load dashboard data'), 'error');
-        } finally {
-            if (!silent) this.setLoading(false);
         }
     }
 
@@ -1495,7 +1491,6 @@ class MemoryDashboard {
      * Load browse view data (tags)
      */
     async loadBrowseData() {
-        this.setLoading(true);
         try {
             // Load tags with counts from the dedicated endpoint
             const tagsResponse = await this.apiCall('/tags');
@@ -1506,8 +1501,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading browse data:', error);
             this.showToast(this.t('toast.loadBrowseFail', 'Failed to load browse data'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -1515,7 +1508,6 @@ class MemoryDashboard {
      * Load documents view data
      */
     async loadDocumentsData() {
-        this.setLoading(true);
         try {
             // Load upload history
             await this.loadUploadHistory();
@@ -1524,8 +1516,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading documents data:', error);
             this.showToast(this.t('toast.loadDocumentsFail', 'Failed to load documents data'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -3254,7 +3244,6 @@ class MemoryDashboard {
         if (!query.trim()) return;
 
         this.switchView('search');
-        this.setLoading(true);
 
         try {
             const results = await this.searchMemories(query);
@@ -3264,8 +3253,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Search error:', error);
             this.showToast(this.t('toast.searchFailed', 'Search failed'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -5151,26 +5138,10 @@ class MemoryDashboard {
     }
 
     /**
-     * Loading state management
-     */
-    setLoading(loading) {
-        this.isLoading = loading;
-        const indicator = document.getElementById('loadingOverlay');
-        if (indicator) {
-            if (loading) {
-                indicator.classList.remove('hidden');
-            } else {
-                indicator.classList.add('hidden');
-            }
-        }
-    }
-
-    /**
      * View document memory chunks
      */
     async viewDocumentMemory(uploadId) {
         try {
-            this.setLoading(true);
             const response = await this.apiCall(`/documents/search-content/${uploadId}`);
 
             if (response.status === 'success' || response.status === 'partial') {
@@ -5232,8 +5203,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error viewing document memory:', error);
             this.showToast(this.t('toast.errorLoadingDocumentMemories', 'Error loading document memories'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -5342,7 +5311,6 @@ class MemoryDashboard {
      */
     async searchDocumentContent(query) {
         try {
-            this.setLoading(true);
             const resultsContainer = document.getElementById('docSearchResults');
             const resultsList = document.getElementById('docSearchResultsList');
             const resultsCount = document.getElementById('docSearchCount');
@@ -5405,8 +5373,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error searching documents:', error);
             this.showToast(this.t('toast.errorPerformingSearch', 'Error performing search'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -6434,7 +6400,6 @@ class MemoryDashboard {
     }
 
     async ontologyWrite(endpoint, method, body) {
-        this.setLoading(true);
         try {
             await this.apiCall(endpoint, method, body);
             this.showToast(this.t('toast.ontologyUpdated', 'Ontology updated'), 'success');
@@ -6446,8 +6411,6 @@ class MemoryDashboard {
             console.error('Ontology write failed:', error);
             this.showToast(error.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
             return false;
-        } finally {
-            this.setLoading(false);
         }
     }
 
