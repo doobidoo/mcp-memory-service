@@ -26,6 +26,9 @@ print_status() {
 # Change to docker directory
 cd "$(dirname "$0")"
 
+# docker-compose.http.yml refuses to start without a key
+export MCP_API_KEY="${MCP_API_KEY:-$(openssl rand -hex 32)}"
+
 echo ""
 echo "1. Building Docker image..."
 docker-compose build --quiet
@@ -73,7 +76,7 @@ fi
 # Test with API key
 API_TEST=$(curl -s -X POST http://localhost:8000/api/memories \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-secure-api-key-here" \
+  -H "Authorization: Bearer $MCP_API_KEY" \
   -d '{"content": "Docker test memory", "tags": ["test"]}' 2>/dev/null | grep -q "success\|unauthorized" && echo "ok" || echo "fail")
 
 if [ "$API_TEST" = "ok" ]; then

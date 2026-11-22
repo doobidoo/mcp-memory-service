@@ -100,6 +100,9 @@ class ConsolidationConfig:
     batch_size: int = 500  # Memories to process per consolidation run
     incremental_mode: bool = True  # Enable oldest-first batch processing
 
+    # Run log settings
+    run_log_keep: int = 50  # Run log memories each node keeps (#2097)
+
 @dataclass
 class ConsolidationReport:
     """Report of consolidation operations performed."""

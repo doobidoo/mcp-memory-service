@@ -9,9 +9,10 @@
 # Storage configuration
 export MCP_MEMORY_STORAGE_BACKEND=sqlite_vec
 
-# API authentication - CHANGE THIS TO A SECURE KEY!
+# API authentication - set MCP_API_KEY before running this script.
 # Generate a secure key with: openssl rand -base64 32
-export MCP_API_KEY="your-secure-api-key-here"
+: "${MCP_API_KEY:?Set MCP_API_KEY first. Generate one with: openssl rand -base64 32}"
+export MCP_API_KEY
 
 # HTTPS configuration with custom certificates
 export MCP_HTTPS_ENABLED=true

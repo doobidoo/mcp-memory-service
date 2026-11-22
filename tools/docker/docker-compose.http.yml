@@ -1,7 +1,12 @@
 version: '3.8'
 
 # Docker Compose configuration for HTTP/API mode
-# Usage: docker-compose -f docker-compose.http.yml up -d
+# Usage:
+#   echo "MCP_API_KEY=$(openssl rand -hex 32)" > .env
+#   docker-compose -f docker-compose.http.yml up -d
+#
+# MCP_API_KEY is required and has no default: a default would be a credential
+# anyone can read in this file.
 
 services:
   mcp-memory-service:
@@ -9,7 +14,9 @@ services:
       context: ../..
       dockerfile: tools/docker/Dockerfile
     ports:
-      - "${HTTP_PORT:-8000}:8000"  # Map to different port if needed
+      # Published on loopback only. Set HTTP_BIND=0.0.0.0 to expose the API to
+      # the network, HTTP_PORT to map to a different host port.
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8000}:8000"
     volumes:
       # Single data directory for all storage
       - ./data:/app/data
@@ -32,7 +39,7 @@ services:
       # HTTP configuration
       - MCP_HTTP_PORT=8000
       - MCP_HTTP_HOST=0.0.0.0
-      - MCP_API_KEY=${MCP_API_KEY:-your-secure-api-key-here}
+      - MCP_API_KEY=${MCP_API_KEY:?MCP_API_KEY is not set. Generate one with 'openssl rand -hex 32' and put it in tools/docker/.env}
       
       # Optional: HTTPS configuration
       # - MCP_HTTPS_ENABLED=true

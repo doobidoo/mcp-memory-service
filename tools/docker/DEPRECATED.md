@@ -35,6 +35,7 @@ Use one of these two configurations:
 
 2. **HTTP/API Mode** (for web access, REST API):
    ```bash
+   echo "MCP_API_KEY=$(openssl rand -hex 32)" > .env
    docker-compose -f docker-compose.http.yml up -d
    ```
 
