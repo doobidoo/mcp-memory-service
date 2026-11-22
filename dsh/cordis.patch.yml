@@ -1,0 +1,20 @@
+# MCP Memory Service as an MCP server in a DeepSeek Harness profile.
+#
+# Merge this entry into $DSH_HOME/profiles/<profile>/cordis.patch.yml. That file
+# is a YAML array; keep its existing rows and append this one, then restart DSH.
+#
+# The service must already be running:
+#   MCP_ALLOW_ANONYMOUS_ACCESS=true memory server --http
+#
+# Authenticated service: uncomment the headers block and start DSH with
+# MCP_API_KEY in its environment.
+- insert:
+    - id: memory-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: memory
+        transport: streamable-http
+        url: http://127.0.0.1:8000/mcp
+        # headers:
+        #   X-API-Key: !!js process.env.MCP_API_KEY
+        failOnStartupError: true

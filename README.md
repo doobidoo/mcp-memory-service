@@ -216,7 +216,7 @@ For long-lived services, prefer Docker Milvus or Zilliz Cloud over Milvus Lite �
 ## ⚡ Works With Your Favorite AI Tools
 
 - **Agent frameworks (REST):** LangGraph · CrewAI · AutoGen · OpenClaw/Nanobot · any HTTP client
-- **CLI and terminal (MCP):** Claude Code · Gemini CLI · OpenCode · Codex CLI · Goose · Aider · Amp
+- **CLI and terminal (MCP):** Claude Code · Gemini CLI · OpenCode · Codex CLI · DeepSeek Harness · Goose · Aider · Amp
 - **Desktop and IDE (MCP):** Claude Desktop · VS Code · Cursor · Windsurf · Raycast · JetBrains · Zed
 - **Chat (MCP):** ChatGPT (Developer Mode) · claude.ai (Remote MCP over HTTPS)
 
