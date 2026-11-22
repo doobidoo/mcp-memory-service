@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from ..compat import _sanitize_log_value
 from ..models.memory import Memory
+from .run_log import RUN_LOG_TYPE
 
 
 @dataclass
@@ -67,6 +68,7 @@ class InsightGenerator:
         Returns:
             List of InsightCard objects.
         """
+        memories = [m for m in memories if m.get("memory_type") != RUN_LOG_TYPE]
         insights: List[InsightCard] = []
         insights.extend(self._detect_patterns(memories))
         insights.extend(self._detect_trends(memories))

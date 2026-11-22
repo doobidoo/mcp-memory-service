@@ -890,7 +890,9 @@ class ConsolidationScheduler:
         
         try:
             # Run the consolidation
-            report = await self.consolidator.consolidate(time_horizon)
+            report = await self.consolidator.consolidate(
+                time_horizon, trigger="scheduled"
+            )
             
             # Run belief derivation (opt-in via MCP_BELIEFS_ENABLED)
             belief_stats = {}
