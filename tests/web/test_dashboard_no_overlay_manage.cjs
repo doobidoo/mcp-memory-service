@@ -84,16 +84,38 @@ test('a second removal of the same upload is ignored while the first is in fligh
     await new Promise((r) => setTimeout(r, 0));
     // The dashboard re-renders on a language switch and wires a fresh, enabled button.
     // Not awaited: without the guard this second call would never settle.
+    const clearsBefore = island.cleared.length;
     app.removeDocument('u3', 'a.txt', button());
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(calls, 1);
     assert.equal(island.reports.filter(([id]) => id === 'document-remove-u3').length, 1);
+    // The ignored click must not hide the running removal from the island.
+    assert.equal(island.cleared.length, clearsBefore);
     release({ status: 'success', memories_deleted: 1 });
     await first;
     // Once the request finished, the same upload can be removed again.
     app.apiCall = async () => { calls += 1; return { status: 'success', memories_deleted: 1 }; };
     await app.removeDocument('u3', 'a.txt', button());
     assert.equal(calls, 2);
+});
+
+test('a failed removal re-enables the button that a re-render put on screen', async () => {
+    const removeBtn = button();
+    const { app, island } = dashboard({ 'document-remove-btn': removeBtn });
+    let reject;
+    app.apiCall = () => new Promise((_resolve, rejectFn) => { reject = rejectFn; });
+    const pending = app.removeDocument('u4', 'a.txt', removeBtn);
+    await new Promise((r) => setTimeout(r, 0));
+    // A language switch re-renders the list and wires a fresh button for the upload
+    // while the DELETE is still running.
+    const rerendered = button();
+    app._trackRemovalButton('u4', rerendered);
+    assert.equal(rerendered.disabled, true);
+    reject(new Error('network down'));
+    await pending;
+    assert.equal(rerendered.disabled, false);
+    assert.equal(app._pendingRemovals.has('u4'), false);
+    assert.equal(island.reports.at(-1)[1].state, 'error');
 });
 
 test('a failed removal stays on the island as a dismissible error and releases the button', async () => {

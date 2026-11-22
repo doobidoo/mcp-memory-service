@@ -101,6 +101,10 @@ class MemoryDashboard {
         // Upload ids with a removal in flight. A re-render replaces the button with an
         // enabled one, so the guard has to live on the dashboard, not on the DOM node.
         this._pendingRemovals = new Set();
+        // The button currently on screen per pending upload. A re-render replaces the
+        // node removeDocument() was handed, and the finally block has to re-enable the
+        // visible one or a failed removal cannot be retried.
+        this._pendingRemovalButtons = new Map();
 
         // Authentication state
         this.authState = {
@@ -1615,6 +1619,11 @@ class MemoryDashboard {
         }).join('');
 
         historyContainer.innerHTML = historyHtml;
+        // A re-render during a removal rebuilds these buttons; keep the ones that
+        // are on screen now disabled and reachable from the finally block.
+        historyContainer.querySelectorAll('.upload-item').forEach((item) => {
+            this._trackRemovalButton(item.dataset.uploadId, item.querySelector('.btn-remove'));
+        });
     }
 
     /**
@@ -4077,7 +4086,7 @@ class MemoryDashboard {
                 const removeBtn = groupEl.querySelector('.btn-remove');
                 if (removeBtn) {
                     // A re-render during a removal must not hand out a fresh, enabled button.
-                    if (this._pendingRemovals.has(group.upload_id)) removeBtn.disabled = true;
+                    this._trackRemovalButton(group.upload_id, removeBtn);
                     removeBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         await this.removeDocument(group.upload_id, group.source_file, removeBtn);
@@ -5244,18 +5253,22 @@ class MemoryDashboard {
     async removeDocument(uploadId, filename, button = null) {
         console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
 
+        // One removal per upload: a second click after a re-render (Dashboard or
+        // Documents) must not start another DELETE, and it must not clear the island
+        // row that the running removal owns.
+        if (this._pendingRemovals.has(uploadId)) {
+            console.log('Removal already in flight for:', uploadId);
+            return;
+        }
+
         if (!confirm(this.t('documents.removeConfirm', 'Remove "{filename}" and all its memory chunks?\n\nThis action cannot be undone.', { filename }))) {
             console.log('User cancelled removal');
             return;
         }
 
         this._clearOperationError(`document-remove-${uploadId}`);
-        // One removal per upload: a second click after a re-render must not start another DELETE.
-        if (this._pendingRemovals.has(uploadId)) {
-            console.log('Removal already in flight for:', uploadId);
-            return;
-        }
         this._pendingRemovals.add(uploadId);
+        this._pendingRemovalButtons.set(uploadId, button);
         // No page overlay: the island shows the removal, the button shows it is running.
         if (button) button.disabled = true;
         this._reportOperation(`document-remove-${uploadId}`, {
@@ -5304,9 +5317,24 @@ class MemoryDashboard {
                 { fallback: filename }
             );
         } finally {
+            // A re-render while the request ran replaced the button we were handed;
+            // re-enable the one that is on screen now so a failed removal can be
+            // retried without waiting for the next render.
+            const current = this._pendingRemovalButtons.get(uploadId) || button;
             this._pendingRemovals.delete(uploadId);
-            if (button) button.disabled = false;
+            this._pendingRemovalButtons.delete(uploadId);
+            if (current) current.disabled = false;
         }
+    }
+
+    /**
+     * Track the button that is currently on screen for an upload and keep it
+     * disabled while a removal for that upload is in flight.
+     */
+    _trackRemovalButton(uploadId, button) {
+        if (!button || !uploadId || !this._pendingRemovals.has(uploadId)) return;
+        this._pendingRemovalButtons.set(uploadId, button);
+        button.disabled = true;
     }
 
     /**
