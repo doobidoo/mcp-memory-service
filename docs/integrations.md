@@ -28,9 +28,8 @@ Automatic lifecycle integrations are also available for
 [Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
 [Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
 project context, capture learnings, and checkpoint session outcomes. DeepSeek Harness
-connects over MCP and ships a retrieval-only Cordis plugin in
-[`dsh/`](../dsh/README.md); capture is tracked in
-[#2111](https://github.com/doobidoo/mcp-memory-service/issues/2111).
+connects over MCP and ships a Cordis bundle in [`dsh/`](../dsh/README.md) for
+project context and turn capture.
 
 Hermes has an installer that registers the server and verifies a round trip:
 [`agents/hermes/README.md`](../agents/hermes/README.md).

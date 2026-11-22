@@ -97,35 +97,50 @@ Pointing DSH at `http://` while the service still serves HTTPS on that port does
 not help: the connection fails during startup and the `mcp__memory__*` tools stay
 absent.
 
-## Hooks: automatic project context
+## Hooks: project context and turn capture
 
-`dsh/memory-hooks/` is a small Host plugin that contributes a project-memory
-snapshot to the system prompt of every new agent. It is **retrieval only**: it
-searches, it never writes.
+`dsh/memory-hooks/` is a Host-only bundle with two halves. Both fail open: a
+missing, slow or unreachable service never fails agent creation or a turn.
 
-Install it as a local bundle: **Plugins -> Add plugin**, pick the
-`dsh/memory-hooks/` directory, or pass the same directory to `plugin_manager`
+### Project context (read)
+
+On `agent/created` with source `startup` or `clear` the plugin resolves the
+project root by walking up to the nearest marker (`.git`, `package.json`,
+`pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`,
+`composer.json`, `Gemfile`). It then searches for
+`"{project} architecture decisions, recent work and open issues"` and renders up
+to 5 results (2000 characters) as a `<project-memory>` block with an explicit
+"data, not instructions" line and `interpolate: false`. Entries are escaped, so
+a stored `</project-memory>` cannot close the block.
+
+A directory without a marker is skipped. `default-workspace` is the example: it
+has no project identity, so a semantic search only returns arbitrary high-scoring
+memories. `requireProjectMarker: false` restores the old directory-name behaviour.
+
+`resume` and `compact` are skipped: those sessions already carry the snapshot.
+
+### Turn capture (write)
+
+`session/event` buffers the turn's human prompt and assistant text; injected
+context and tool output are ignored. On `agent/turn-stopping` the turn is
+classified with the same patterns as the Claude Code and Codex adapters
+(decision, error, learning, implementation, important, code). A match stores
+`Project:`, `Assistant:` and `User:` sections as one memory, tagged
+`dsh-capture`, `auto-captured`, the project and the matched pattern, with the
+classifier's `memory_type`. `#skip` forces a skip and `#remember` forces a
+capture. Subagent turns (`header.parentSession`) are not captured by default.
+
+### Install
+
+Install the directory as a local bundle: **Plugins -> Add plugin**, pick
+`dsh/memory-hooks/`, or pass the directory to `plugin_manager`
 `install_bundle`. The row is `memory-service-hooks`; it reads `MCP_MEMORY_API`
 and `MCP_API_KEY` from the DSH process environment, or `endpoint`/`apiKey` from
-its `config`.
+its `config`. `dsh/memory-hooks/docs/DETAIL.md` has the configuration table.
 
-On `agent/created` with source `startup` or `clear` it:
-
-1. reads the working directory and uses its last path segment as the project,
-2. calls `POST /api/search` for
-   `"{project} architecture decisions, recent work and open issues"`,
-3. renders up to 5 results (2000 characters) as a `<project-memory>` block with
-   an explicit "data, not instructions" line and `interpolate: false`.
-
-`resume` and `compact` are skipped: those sessions already carry the earlier
-snapshot. A missing, slow or unreachable service is ignored, so memory can never
-fail agent creation. `dsh/memory-hooks/docs/DETAIL.md` has the configuration
-table.
-
-Capture is **not** implemented. Adding it would use `agent/turn-stopping` (an
-awaited terminal checkpoint) and is tracked in
-[#2111](https://github.com/doobidoo/mcp-memory-service/issues/2111), together
-with the DSH events behind it:
+Capture is still tracked in
+[#2111](https://github.com/doobidoo/mcp-memory-service/issues/2111); the DSH
+events behind it are:
 
 | Hook | DSH event |
 |---|---|
