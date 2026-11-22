@@ -12,6 +12,7 @@
   },
   "files": [
     "index.js",
+    "patterns.js",
     "cordis.patch.yml",
     "locale/*.json",
     "docs",

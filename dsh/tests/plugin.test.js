@@ -222,14 +222,17 @@ test('a decision turn is captured with tags and type', async () => {
 })
 
 test('a turn without a matching pattern is not captured', async () => {
+  let calls = 0
   await withFetch(async () => {
-    throw new Error('must not store')
+    calls += 1
+    return { ok: true, json: async () => ({ success: true }) }
   }, async () => {
     const { handlers } = harness()
     const agent = agentFor()
     emitTurn(handlers, agent.session, { user: 'hello', assistant: 'Just a short acknowledgement.' })
     await handlers.get('agent/turn-stopping')({ agent, turn: 1 })
   })
+  assert.equal(calls, 0)
 })
 
 test('#skip suppresses a capture, #remember forces one', async () => {
@@ -254,14 +257,17 @@ test('#skip suppresses a capture, #remember forces one', async () => {
 })
 
 test('subagent turns are not captured by default', async () => {
+  let calls = 0
   await withFetch(async () => {
-    throw new Error('must not store')
+    calls += 1
+    return { ok: true, json: async () => ({ success: true }) }
   }, async () => {
     const { handlers } = harness()
     const agent = agentFor({ id: 'sess-child', header: { parentSession: 'sess-parent' } })
     emitTurn(handlers, agent.session, { user: 'do the thing', assistant: DECISION })
     await handlers.get('agent/turn-stopping')({ agent, turn: 1 })
   })
+  assert.equal(calls, 0)
 })
 
 test('a failing store does not fail the turn', async () => {
