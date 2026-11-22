@@ -149,6 +149,22 @@ events behind it are:
 | Read the transcript | `session/event` (`user/message`, `assistant/message`, `turn/end`) |
 | Cleanup | `agent/disposed` |
 
+## Live functional test
+
+`dsh/tests/functional-live.mjs` runs six scenarios against a running service:
+project snapshot from a marker above the cwd, skip for a directory without a
+marker, decision capture with tags and type, `#skip`, the subagent default and a
+forced `#remember`. It deletes every memory it creates and is deliberately not a
+`*.test.js` file, so CI does not pick it up without a service.
+
+```bash
+MCP_API_KEY=... MCP_MEMORY_ENDPOINT=https://localhost:8000 \
+  ELECTRON_RUN_AS_NODE=1 "$DSH_NODE_EXECUTABLE" dsh/tests/functional-live.mjs
+```
+
+Run it with the DSH runtime so the service certificate is trusted, and point
+`MCP_MEMORY_ENDPOINT` at the endpoint (default `http://127.0.0.1:8000`).
+
 Upstream DSH also has experimental `@deepseek-ai/dsh-hooks-claude-code` and
 `@deepseek-ai/dsh-hooks-codex` packages that bridge a Claude Code or Codex
 `hooks.json` into DSH. They are referenced in the shipped docs but are not part
