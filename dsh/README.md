@@ -87,11 +87,14 @@ HTTP: they read caller-supplied filesystem paths.
 DSH's MCP client has no option to accept a self-signed certificate. If the
 service runs with `MCP_HTTPS_ENABLED=true` and a self-signed certificate, either
 
-- point DSH at `http://127.0.0.1:8000/mcp` (loopback only), or
+- disable TLS for the local service (`MCP_HTTPS_ENABLED=false`, no
+  `MCP_SSL_CERT_FILE`/`MCP_SSL_KEY_FILE`), restart it bound to `127.0.0.1`, and
+  point DSH at `http://127.0.0.1:8000/mcp`, or
 - use a certificate chain the DSH process trusts (`NODE_EXTRA_CA_CERTS` when it
   is launched from a shell, or a certificate from a public CA).
 
-Otherwise the connection fails during startup and the `mcp__memory__*` tools stay
+Pointing DSH at `http://` while the service still serves HTTPS on that port does
+not help: the connection fails during startup and the `mcp__memory__*` tools stay
 absent.
 
 ## Hooks
