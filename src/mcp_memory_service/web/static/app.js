@@ -98,6 +98,9 @@ class MemoryDashboard {
         this.isLoading = false;
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
+        // Upload ids with a removal in flight. A re-render replaces the button with an
+        // enabled one, so the guard has to live on the dashboard, not on the DOM node.
+        this._pendingRemovals = new Set();
 
         // Authentication state
         this.authState = {
@@ -4073,6 +4076,8 @@ class MemoryDashboard {
                 // Remove button
                 const removeBtn = groupEl.querySelector('.btn-remove');
                 if (removeBtn) {
+                    // A re-render during a removal must not hand out a fresh, enabled button.
+                    if (this._pendingRemovals.has(group.upload_id)) removeBtn.disabled = true;
                     removeBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         await this.removeDocument(group.upload_id, group.source_file, removeBtn);
@@ -5245,6 +5250,12 @@ class MemoryDashboard {
         }
 
         this._clearOperationError(`document-remove-${uploadId}`);
+        // One removal per upload: a second click after a re-render must not start another DELETE.
+        if (this._pendingRemovals.has(uploadId)) {
+            console.log('Removal already in flight for:', uploadId);
+            return;
+        }
+        this._pendingRemovals.add(uploadId);
         // No page overlay: the island shows the removal, the button shows it is running.
         if (button) button.disabled = true;
         this._reportOperation(`document-remove-${uploadId}`, {
@@ -5293,6 +5304,7 @@ class MemoryDashboard {
                 { fallback: filename }
             );
         } finally {
+            this._pendingRemovals.delete(uploadId);
             if (button) button.disabled = false;
         }
     }

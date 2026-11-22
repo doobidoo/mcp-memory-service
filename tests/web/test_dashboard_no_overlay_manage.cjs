@@ -71,6 +71,31 @@ test('removeDocument shows no overlay, disables the button and reports busy to t
     assert.ok(island.cleared.includes('document-remove-u1'));
 });
 
+test('a second removal of the same upload is ignored while the first is in flight', async () => {
+    const removeBtn = button();
+    const { app, island } = dashboard({ 'document-remove-btn': removeBtn });
+    let calls = 0;
+    let release;
+    app.apiCall = () => {
+        calls += 1;
+        return new Promise((resolve) => { release = resolve; });
+    };
+    const first = app.removeDocument('u3', 'a.txt', removeBtn);
+    await new Promise((r) => setTimeout(r, 0));
+    // The dashboard re-renders on a language switch and wires a fresh, enabled button.
+    // Not awaited: without the guard this second call would never settle.
+    app.removeDocument('u3', 'a.txt', button());
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(calls, 1);
+    assert.equal(island.reports.filter(([id]) => id === 'document-remove-u3').length, 1);
+    release({ status: 'success', memories_deleted: 1 });
+    await first;
+    // Once the request finished, the same upload can be removed again.
+    app.apiCall = async () => { calls += 1; return { status: 'success', memories_deleted: 1 }; };
+    await app.removeDocument('u3', 'a.txt', button());
+    assert.equal(calls, 2);
+});
+
 test('a failed removal stays on the island as a dismissible error and releases the button', async () => {
     const removeBtn = button();
     const { app, island } = dashboard({ 'document-remove-btn': removeBtn });
