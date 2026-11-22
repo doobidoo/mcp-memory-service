@@ -95,9 +95,15 @@ class MemoryDashboard {
         this.supportedLanguages = ['en', 'zh'];
         this.languageMetadata = {}; // Stores language metadata (flags, names, etc.)
         this.searchResults = [];
-        this.isLoading = false;
         this.liveSearchEnabled = true;
         this.debounceTimer = null;
+        // Upload ids with a removal in flight. A re-render replaces the button with an
+        // enabled one, so the guard has to live on the dashboard, not on the DOM node.
+        this._pendingRemovals = new Set();
+        // The button currently on screen per pending upload. A re-render replaces the
+        // node removeDocument() was handed, and the finally block has to re-enable the
+        // visible one or a failed removal cannot be retried.
+        this._pendingRemovalButtons = new Map();
 
         // Authentication state
         this.authState = {
@@ -1459,7 +1465,6 @@ class MemoryDashboard {
      * Load initial dashboard data
      */
     async loadDashboardData({ silent = false } = {}) {
-        if (!silent) this.setLoading(true);
 
         try {
             // Load recent memories for dashboard display
@@ -1479,8 +1484,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading dashboard data:', error);
             if (!silent) this.showToast(this.t('toast.loadDashboardFail', 'Failed to load dashboard data'), 'error');
-        } finally {
-            if (!silent) this.setLoading(false);
         }
     }
 
@@ -1488,7 +1491,6 @@ class MemoryDashboard {
      * Load browse view data (tags)
      */
     async loadBrowseData() {
-        this.setLoading(true);
         try {
             // Load tags with counts from the dedicated endpoint
             const tagsResponse = await this.apiCall('/tags');
@@ -1499,8 +1501,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading browse data:', error);
             this.showToast(this.t('toast.loadBrowseFail', 'Failed to load browse data'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -1508,7 +1508,6 @@ class MemoryDashboard {
      * Load documents view data
      */
     async loadDocumentsData() {
-        this.setLoading(true);
         try {
             // Load upload history
             await this.loadUploadHistory();
@@ -1517,8 +1516,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error loading documents data:', error);
             this.showToast(this.t('toast.loadDocumentsFail', 'Failed to load documents data'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -1612,6 +1609,11 @@ class MemoryDashboard {
         }).join('');
 
         historyContainer.innerHTML = historyHtml;
+        // A re-render during a removal rebuilds these buttons; keep the ones that
+        // are on screen now disabled and reachable from the finally block.
+        historyContainer.querySelectorAll('.upload-item').forEach((item) => {
+            this._trackRemovalButton(item.dataset.uploadId, item.querySelector('.btn-remove'));
+        });
     }
 
     /**
@@ -1782,7 +1784,7 @@ class MemoryDashboard {
                 if (button.classList.contains('btn-view-memory')) {
                     this.viewDocumentMemory(uploadId);
                 } else if (button.classList.contains('btn-remove')) {
-                    this.removeDocument(uploadId, filename);
+                    this.removeDocument(uploadId, filename, button);
                 }
             });
         }
@@ -3242,7 +3244,6 @@ class MemoryDashboard {
         if (!query.trim()) return;
 
         this.switchView('search');
-        this.setLoading(true);
 
         try {
             const results = await this.searchMemories(query);
@@ -3252,8 +3253,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Search error:', error);
             this.showToast(this.t('toast.searchFailed', 'Search failed'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -4073,9 +4072,11 @@ class MemoryDashboard {
                 // Remove button
                 const removeBtn = groupEl.querySelector('.btn-remove');
                 if (removeBtn) {
+                    // A re-render during a removal must not hand out a fresh, enabled button.
+                    this._trackRemovalButton(group.upload_id, removeBtn);
                     removeBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        await this.removeDocument(group.upload_id, group.source_file);
+                        await this.removeDocument(group.upload_id, group.source_file, removeBtn);
                         // removeDocument() already handles view refresh
                     });
                 }
@@ -5137,26 +5138,10 @@ class MemoryDashboard {
     }
 
     /**
-     * Loading state management
-     */
-    setLoading(loading) {
-        this.isLoading = loading;
-        const indicator = document.getElementById('loadingOverlay');
-        if (indicator) {
-            if (loading) {
-                indicator.classList.remove('hidden');
-            } else {
-                indicator.classList.add('hidden');
-            }
-        }
-    }
-
-    /**
      * View document memory chunks
      */
     async viewDocumentMemory(uploadId) {
         try {
-            this.setLoading(true);
             const response = await this.apiCall(`/documents/search-content/${uploadId}`);
 
             if (response.status === 'success' || response.status === 'partial') {
@@ -5218,8 +5203,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error viewing document memory:', error);
             this.showToast(this.t('toast.errorLoadingDocumentMemories', 'Error loading document memories'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -5236,8 +5219,16 @@ class MemoryDashboard {
     /**
      * Remove document and its memories
      */
-    async removeDocument(uploadId, filename) {
+    async removeDocument(uploadId, filename, button = null) {
         console.log('removeDocument called with:', { uploadId, filename, currentView: this.currentView });
+
+        // One removal per upload: a second click after a re-render (Dashboard or
+        // Documents) must not start another DELETE, and it must not clear the island
+        // row that the running removal owns.
+        if (this._pendingRemovals.has(uploadId)) {
+            console.log('Removal already in flight for:', uploadId);
+            return;
+        }
 
         if (!confirm(this.t('documents.removeConfirm', 'Remove "{filename}" and all its memory chunks?\n\nThis action cannot be undone.', { filename }))) {
             console.log('User cancelled removal');
@@ -5245,8 +5236,17 @@ class MemoryDashboard {
         }
 
         this._clearOperationError(`document-remove-${uploadId}`);
+        this._pendingRemovals.add(uploadId);
+        this._pendingRemovalButtons.set(uploadId, button);
+        // No page overlay: the island shows the removal, the button shows it is running.
+        if (button) button.disabled = true;
+        this._reportOperation(`document-remove-${uploadId}`, {
+            state: 'busy',
+            progress: 'unknown',
+            label: { fallback: filename },
+            text: { key: 'island.document.removing', fallback: 'Removing document' },
+        });
         try {
-            this.setLoading(true);
             console.log('Making DELETE request to:', `/documents/remove/${uploadId}`);
 
             const response = await this.apiCall(`/documents/remove/${uploadId}`, 'DELETE');
@@ -5261,6 +5261,7 @@ class MemoryDashboard {
                     }),
                     'success'
                 );
+                this.statusIsland?.clear(`document-remove-${uploadId}`);
                 // Refresh the current view (Dashboard or Documents tab)
                 console.log('Refreshing view:', this.currentView);
                 if (this.currentView === 'dashboard') {
@@ -5285,8 +5286,24 @@ class MemoryDashboard {
                 { fallback: filename }
             );
         } finally {
-            this.setLoading(false);
+            // A re-render while the request ran replaced the button we were handed;
+            // re-enable the one that is on screen now so a failed removal can be
+            // retried without waiting for the next render.
+            const current = this._pendingRemovalButtons.get(uploadId) || button;
+            this._pendingRemovals.delete(uploadId);
+            this._pendingRemovalButtons.delete(uploadId);
+            if (current) current.disabled = false;
         }
+    }
+
+    /**
+     * Track the button that is currently on screen for an upload and keep it
+     * disabled while a removal for that upload is in flight.
+     */
+    _trackRemovalButton(uploadId, button) {
+        if (!button || !uploadId || !this._pendingRemovals.has(uploadId)) return;
+        this._pendingRemovalButtons.set(uploadId, button);
+        button.disabled = true;
     }
 
     /**
@@ -5294,7 +5311,6 @@ class MemoryDashboard {
      */
     async searchDocumentContent(query) {
         try {
-            this.setLoading(true);
             const resultsContainer = document.getElementById('docSearchResults');
             const resultsList = document.getElementById('docSearchResultsList');
             const resultsCount = document.getElementById('docSearchCount');
@@ -5357,8 +5373,6 @@ class MemoryDashboard {
         } catch (error) {
             console.error('Error searching documents:', error);
             this.showToast(this.t('toast.errorPerformingSearch', 'Error performing search'), 'error');
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -6386,7 +6400,6 @@ class MemoryDashboard {
     }
 
     async ontologyWrite(endpoint, method, body) {
-        this.setLoading(true);
         try {
             await this.apiCall(endpoint, method, body);
             this.showToast(this.t('toast.ontologyUpdated', 'Ontology updated'), 'success');
@@ -6398,8 +6411,6 @@ class MemoryDashboard {
             console.error('Ontology write failed:', error);
             this.showToast(error.message || this.t('toast.operationFailed', 'Operation failed'), 'error');
             return false;
-        } finally {
-            this.setLoading(false);
         }
     }
 
@@ -6593,7 +6604,15 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('bulk-delete-tag');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const deleteBtn = document.getElementById('deleteByTagBtn');
+        if (deleteBtn) deleteBtn.disabled = true;
+        this._reportOperation('bulk-delete-tag', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     tag: tag,
@@ -6602,6 +6621,7 @@ class MemoryDashboard {
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('bulk-delete-tag');
                 await this.loadManageData(); // Refresh data
                 await this.loadDashboardData(); // Refresh dashboard stats
             } else {
@@ -6619,7 +6639,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteTag.title', fallback: 'Delete by Tag' }
             );
         } finally {
-            this.setLoading(false);
+            if (deleteBtn) deleteBtn.disabled = false;
         }
     }
 
@@ -6632,12 +6652,21 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('cleanup-duplicates');
-        this.setLoading(true);
+        // No page overlay: the island shows the cleanup, the button shows it is running.
+        const cleanupBtn = document.getElementById('cleanupDuplicatesBtn');
+        if (cleanupBtn) cleanupBtn.disabled = true;
+        this._reportOperation('cleanup-duplicates', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/cleanup-duplicates', 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('cleanup-duplicates');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6655,7 +6684,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.cleanup.title', fallback: 'Cleanup Duplicates' }
             );
         } finally {
-            this.setLoading(false);
+            if (cleanupBtn) cleanupBtn.disabled = false;
         }
     }
 
@@ -6676,7 +6705,15 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('bulk-delete-date');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const deleteDateBtn = document.getElementById('deleteByDateBtn');
+        if (deleteDateBtn) deleteDateBtn.disabled = true;
+        this._reportOperation('bulk-delete-date', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall('/manage/bulk-delete', 'POST', {
                     before_date: date
@@ -6684,6 +6721,7 @@ class MemoryDashboard {
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('bulk-delete-date');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6701,7 +6739,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteDate.title', fallback: 'Delete by Date' }
             );
         } finally {
-            this.setLoading(false);
+            if (deleteDateBtn) deleteDateBtn.disabled = false;
         }
     }
 
@@ -6723,12 +6761,21 @@ class MemoryDashboard {
         }
 
         this._clearOperationError('delete-untagged');
-        this.setLoading(true);
+        // No page overlay: the island shows the deletion, the button shows it is running.
+        const untaggedBtn = document.getElementById('deleteUntaggedBtn');
+        if (untaggedBtn) untaggedBtn.disabled = true;
+        this._reportOperation('delete-untagged', {
+            state: 'busy',
+            progress: 'unknown',
+            label: { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' },
+            text: { key: 'manage.bulk.deleting', fallback: 'Deleting memories' },
+        });
         try {
             const result = await this.apiCall(`/manage/delete-untagged?confirm_count=${count}`, 'POST');
 
             if (result.success) {
                 this.showToast(result.message, 'success');
+                this.statusIsland?.clear('delete-untagged');
                 await this.loadManageData();
                 await this.loadDashboardData();
             } else {
@@ -6746,7 +6793,7 @@ class MemoryDashboard {
                 { key: 'manage.bulk.deleteUntagged.title', fallback: 'Delete Untagged' }
             );
         } finally {
-            this.setLoading(false);
+            if (untaggedBtn) untaggedBtn.disabled = false;
         }
     }
 

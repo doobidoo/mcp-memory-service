@@ -29,7 +29,6 @@ function dashboard() {
     app.statusIsland = model;
     const toasts = [];
     app.showToast = (...args) => toasts.push(args);
-    app.setLoading = () => {};
     app.loadUploadHistory = async () => {};
     app.updateUploadButton = () => {};
     app.loadManageData = async () => {};

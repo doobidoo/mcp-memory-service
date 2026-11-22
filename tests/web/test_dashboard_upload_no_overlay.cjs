@@ -1,5 +1,6 @@
 // Run with: node --test tests/web/test_dashboard_upload_no_overlay.cjs
-// handleDocumentUpload() no longer covers the page with the loading overlay (#2009):
+// handleDocumentUpload() no longer covers the page with the loading overlay (#2009), and the
+// overlay itself is gone from the dashboard (#2096):
 // the island reports the transfer, the upload button is disabled while it runs, and a
 // second trigger is ignored.
 const { test } = require('node:test');
@@ -24,7 +25,6 @@ function dashboard() {
     app.processingMode = 'individual';
     app.loadUploadHistory = async () => {};
     app.setupDocumentsEventListeners = () => {};
-    app.setLoading = () => { throw new Error('the page overlay was shown'); };
     return { app, island, button };
 }
 
@@ -56,4 +56,15 @@ test('a failed upload reports the file error and releases the guard', async () =
     await app.handleDocumentUpload();
     assert.equal(errors.length, 1);
     assert.equal(app._uploading, false);
+});
+
+test('the full-page loading overlay is gone from the dashboard (#2096)', () => {
+    const { app } = dashboard();
+    assert.equal(typeof app.setLoading, 'undefined');
+    assert.equal('isLoading' in app, false);
+    const dir = 'src/mcp_memory_service/web/static/';
+    const js = fs.readFileSync(dir + 'app.js', 'utf8');
+    assert.doesNotMatch(js, /setLoading|isLoading|loadingOverlay/);
+    assert.doesNotMatch(fs.readFileSync(dir + 'index.html', 'utf8'), /loadingOverlay|loading-overlay/);
+    assert.doesNotMatch(fs.readFileSync(dir + 'style.css', 'utf8'), /loading-overlay/);
 });
