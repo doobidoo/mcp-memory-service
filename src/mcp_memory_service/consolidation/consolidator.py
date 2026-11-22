@@ -62,6 +62,11 @@ CONSOLIDATION_COMPLETED = "consolidation_completed"
 # Receives (event_type, data). The consolidator awaits it and swallows its errors.
 ConsolidationNotifier = Callable[[str, Dict[str, Any]], Awaitable[None]]
 
+# Deadline for storing a run log and pruning old ones (#2097). It also runs
+# when a timeout cancels the run, where a remote backend's retries would
+# otherwise hold the caller for minutes.
+RUN_LOG_TIMEOUT_SECONDS = 5.0
+
 
 def _said_at(memory: Memory) -> float:
     """When a memory was said (see memory_statement_time), 0.0 if unknown (#1858)."""
@@ -521,7 +526,10 @@ class DreamInspiredConsolidator:
             return
         try:
             run_log = build_run_log(report, run_id, trigger, succeeded)
-            await store_run_log(self.storage, run_log, self.config.run_log_keep)
+            await asyncio.wait_for(
+                store_run_log(self.storage, run_log, self.config.run_log_keep),
+                timeout=RUN_LOG_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             self.logger.warning(
                 "Failed to store consolidation run log: %s", _sanitize_log_value(exc)

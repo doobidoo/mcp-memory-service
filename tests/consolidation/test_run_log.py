@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from mcp_memory_service.consolidation import consolidator as consolidator_module
 from mcp_memory_service.consolidation.base import ConsolidationError
 from mcp_memory_service.consolidation.compression import SemanticCompressionEngine
 from mcp_memory_service.consolidation.consolidator import (
@@ -269,6 +270,28 @@ async def test_a_run_cancelled_during_its_log_write_still_completes(
     with pytest.raises(asyncio.CancelledError):
         await run
 
+    assert len(completed) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_timed_out_run_does_not_wait_on_a_slow_log_write(
+    storage, consolidator, completed, monkeypatch
+):
+    async def stuck(*args, **kwargs):
+        await asyncio.sleep(60)
+
+    async def slow_store(memory, **kwargs):
+        await asyncio.sleep(3)
+
+    monkeypatch.setattr(consolidator_module, "RUN_LOG_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(storage, "get_memories_by_time_range", stuck)
+    monkeypatch.setattr(storage, "store", slow_store)
+    started = time.monotonic()
+
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(consolidator.consolidate("incremental"), timeout=0.1)
+
+    assert time.monotonic() - started < 1
     assert len(completed) == 1
 
 
