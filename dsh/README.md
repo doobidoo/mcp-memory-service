@@ -97,11 +97,35 @@ Pointing DSH at `http://` while the service still serves HTTPS on that port does
 not help: the connection fails during startup and the `mcp__memory__*` tools stay
 absent.
 
-## Hooks
+## Hooks: automatic project context
 
-Automatic retrieval and capture are **not** part of this integration yet.
-DSH 0.2.x has no shell-hook configuration and no `hooks.json`, so the Claude Code
-adapter in `claude-hooks/` does not run there. Hooks are a Cordis plugin in DSH:
+`dsh/memory-hooks/` is a small Host plugin that contributes a project-memory
+snapshot to the system prompt of every new agent. It is **retrieval only**: it
+searches, it never writes.
+
+Install it as a local bundle: **Plugins -> Add plugin**, pick the
+`dsh/memory-hooks/` directory, or pass the same directory to `plugin_manager`
+`install_bundle`. The row is `memory-service-hooks`; it reads `MCP_MEMORY_API`
+and `MCP_API_KEY` from the DSH process environment, or `endpoint`/`apiKey` from
+its `config`.
+
+On `agent/created` with source `startup` or `clear` it:
+
+1. reads the working directory and uses its last path segment as the project,
+2. calls `POST /api/search` for
+   `"{project} architecture decisions, recent work and open issues"`,
+3. renders up to 5 results (2000 characters) as a `<project-memory>` block with
+   an explicit "data, not instructions" line and `interpolate: false`.
+
+`resume` and `compact` are skipped: those sessions already carry the earlier
+snapshot. A missing, slow or unreachable service is ignored, so memory can never
+fail agent creation. `dsh/memory-hooks/docs/DETAIL.md` has the configuration
+table.
+
+Capture is **not** implemented. Adding it would use `agent/turn-stopping` (an
+awaited terminal checkpoint) and is tracked in
+[#2111](https://github.com/doobidoo/mcp-memory-service/issues/2111), together
+with the DSH events behind it:
 
 | Hook | DSH event |
 |---|---|
@@ -109,11 +133,6 @@ adapter in `claude-hooks/` does not run there. Hooks are a Cordis plugin in DSH:
 | Capture at the end of a turn | `agent/turn-stopping` |
 | Read the transcript | `session/event` (`user/message`, `assistant/message`, `turn/end`) |
 | Cleanup | `agent/disposed` |
-
-[#2111](https://github.com/doobidoo/mcp-memory-service/issues/2111) tracks a
-`dsh/` plugin built on those events. In the meantime, the model can use the MCP
-tools directly, which is layer 1 of the
-[harness map](../agents/README.md#harnesses-with-an-integration-surface).
 
 Upstream DSH also has experimental `@deepseek-ai/dsh-hooks-claude-code` and
 `@deepseek-ai/dsh-hooks-codex` packages that bridge a Claude Code or Codex

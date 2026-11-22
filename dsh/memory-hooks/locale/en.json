@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "MCP Memory Service",
+    "description": "Recalls project memories from a local MCP Memory Service into every new agent session.",
+    "detail": "docs/DETAIL.md"
+  }
+}
