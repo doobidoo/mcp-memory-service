@@ -12,7 +12,12 @@
       "{project} architecture decisions",
       "{project} recent work",
       "{project} open issues"
-    ]
+    ],
+    "autoStart": {
+      "enabled": false,
+      "command": ["memory", "launch"],
+      "startTimeoutMs": 5000
+    }
   },
   "output": {
     "verbose": true,

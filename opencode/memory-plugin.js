@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import http from "node:http"
@@ -74,6 +75,16 @@ const DEFAULT_CONFIG = {
       "{project} recent work",
       "{project} open issues",
     ],
+    // Start the service from the plugin when nothing answers. Off by default,
+    // and only ever read from the user configuration, never from a project
+    // checkout: the value decides which command the editor runs.
+    autoStart: {
+      enabled: false,
+      // `memory launch` already does the background start, PID tracking, log
+      // redirection and health polling; the plugin only waits for the endpoint.
+      command: ["memory", "launch"],
+      startTimeoutMs: 5000,
+    },
   },
   output: {
     verbose: true,
@@ -187,6 +198,11 @@ function environmentOverrides() {
     overrides.inbox.agentId = inboxAgentId
   }
 
+  const autoStartEnabled = parseBoolean(process.env.OPENCODE_MEMORY_AUTOSTART)
+  if (autoStartEnabled !== undefined) {
+    overrides.memoryService.autoStart = { enabled: autoStartEnabled }
+  }
+
   return overrides
 }
 
@@ -197,6 +213,10 @@ function mergeConfig(base, overrides = {}) {
     memoryService: {
       ...base.memoryService,
       ...(overrides.memoryService || {}),
+      autoStart: {
+        ...base.memoryService.autoStart,
+        ...(overrides.memoryService?.autoStart || {}),
+      },
     },
     output: {
       ...base.output,
@@ -240,13 +260,28 @@ function pluginConfigPaths(directory, options = {}) {
   return paths.filter(Boolean)
 }
 
-async function loadConfig(directory) {
+function projectConfigPaths(directory) {
+  if (!directory) return []
+  return [
+    path.join(directory, ".opencode", "memory-plugin.json"),
+    path.join(directory, ".opencode", "memory-awareness.json"),
+  ]
+}
+
+async function loadConfig(directory, { warn } = {}) {
   let config = DEFAULT_CONFIG
+  const projectPaths = new Set(projectConfigPaths(directory))
 
   for (const configPath of pluginConfigPaths(directory)) {
     try {
       const raw = await readFile(configPath, "utf8")
       const parsed = JSON.parse(raw)
+      // A cloned repository must not be able to name the command the editor
+      // runs, so autoStart is only honoured from the user configuration.
+      if (projectPaths.has(configPath) && parsed?.memoryService?.autoStart) {
+        delete parsed.memoryService.autoStart
+        await warn?.(`Ignoring memoryService.autoStart from ${configPath}; it is only read from the user configuration`)
+      }
       config = mergeConfig(config, parsed)
       break
     } catch {
@@ -1054,6 +1089,113 @@ async function getHealth(config) {
   }
 }
 
+// The service is normally a daemon of its own (systemd unit, launchd agent,
+// Startup entry). autoStart lets the plugin start it when nothing answers. It is
+// opt-in, it never starts a second instance, and it never stops one: the service
+// is shared with the dashboard and other MCP clients.
+const AUTO_START_POLL_MS = 250
+
+// Race one health probe against the remaining budget and clear the timer, so a
+// service that accepts the connection and never answers cannot outlive it.
+function withTimeout(promise, ms) {
+  let timer
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), Math.max(0, ms))
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+async function probe(health, config, deadline) {
+  return withTimeout(
+    Promise.resolve().then(() => health(config)).then(() => true).catch(() => false),
+    deadline - Date.now(),
+  )
+}
+
+async function answersBefore(health, config, deadline, pause) {
+  while (true) {
+    if (await probe(health, config, deadline)) return true
+    if (Date.now() >= deadline) return false
+    await pause(Math.min(AUTO_START_POLL_MS, Math.max(0, deadline - Date.now())))
+  }
+}
+
+function endpointPort(endpoint) {
+  try {
+    const { port } = new URL(endpoint)
+    return port ? Number(port) : null
+  } catch {
+    return null
+  }
+}
+
+// `memory launch` moves to a free port when the configured one is taken, so the
+// plugin hands it the port of its own endpoint: a server on another port would
+// never be found by the poll below. Only the default launcher takes the flag; a
+// custom command is spawned exactly as configured.
+function startCommand(autoStart, endpoint) {
+  const command = [...(autoStart.command || [])]
+  const isDefaultLauncher = command.length === 2 && command[0] === "memory" && command[1] === "launch"
+  const port = endpointPort(endpoint)
+  if (isDefaultLauncher && port && !command.includes("--port")) {
+    command.push("--port", String(port))
+  }
+  return command
+}
+
+async function ensureMemoryService(config, deps = {}) {
+  const autoStart = config.memoryService.autoStart
+  if (!autoStart?.enabled) return null
+
+  const health = deps.getHealth || getHealth
+  const spawnProcess = deps.spawn || spawn
+  const pause = deps.sleep || sleep
+  const log = deps.log || (async () => {})
+  const platform = deps.platform || process.platform
+
+  // One deadline covers the probe and every poll below: a service that accepts
+  // the connection and never answers must not hold up the editor's start.
+  const timeoutMs = Math.max(0, Number(autoStart.startTimeoutMs) || 0)
+  const deadline = Date.now() + timeoutMs
+
+  if (await probe(health, config, deadline)) return null
+
+  const [command, ...args] = startCommand(autoStart, config.memoryService.endpoint)
+  if (!command) {
+    await log("autoStart.command is empty; memory service not started")
+    return null
+  }
+
+  let child
+  try {
+    child = spawnProcess(command, args, {
+      stdio: "ignore",
+      windowsHide: true,
+      // POSIX: own process group, so the launcher's server child is not orphaned
+      // into the editor's group. Windows has no equivalent here.
+      detached: platform !== "win32",
+    })
+  } catch (error) {
+    await log(`Memory service auto-start failed: ${error.message}`)
+    return null
+  }
+
+  // Two editors starting at the same instant can both spawn a launcher; there is
+  // no cross-process lock, but `memory launch` reuses a healthy server (PID file
+  // plus health check) instead of starting a second one.
+  child.on?.("error", (error) => {
+    void log(`Memory service auto-start failed: ${error.message}`)
+  })
+  // The editor must not wait for the service when it exits, and the service
+  // outlives the editor: the dashboard and other MCP clients share it.
+  child.unref?.()
+
+  if (await answersBefore(health, config, deadline, pause)) return child
+
+  await log(`Memory service did not answer within ${timeoutMs} ms; continuing without it`)
+  return child
+}
+
 function tagsForProject(projectName, config) {
   const tags = [...config.memoryService.searchTags]
   if (config.memoryService.includeProjectTag) {
@@ -1105,7 +1247,11 @@ async function loadSessionMemories({ config, directory, logInfo, logWarn, health
 }
 
 const createPlugin = async ({ directory, client }) => {
-  const config = await loadConfig(directory)
+  const config = await loadConfig(directory, {
+    warn: async (message) => {
+      try { await client?.app?.log?.({ service: "opencode-memory", level: "warn", message }) } catch (_) {}
+    },
+  })
   const sessionState = new Map()
   const healthState = { checked: false }
   const harvestFirstRun = { done: false }
@@ -1144,6 +1290,10 @@ const createPlugin = async ({ directory, client }) => {
     if (!config.output.verbose) return
     try { await client?.app?.log?.({ service: "opencode-memory", level: "warn", message }) } catch (_) {}
   }
+
+  // Opt-in and off by default: when nothing answers, start the configured
+  // command. A service that is already running is used as-is.
+  await ensureMemoryService(config, { log: logWarn })
 
   const refreshSession = (sessionID, sessionDirectory) => {
     const existingState = sessionState.get(sessionID)
@@ -1731,10 +1881,12 @@ export const _internal = {
   applySelfSignedCertsOption,
   claimStaleInboxLock,
   createInboxChecker,
+  ensureMemoryService,
   environmentOverrides,
   formatInboxBlock,
   inboxOverlapMs,
   inboxStateKey,
+  loadConfig,
   searchInboxMemories,
   writeInboxMarker,
   sessionIdentity,
