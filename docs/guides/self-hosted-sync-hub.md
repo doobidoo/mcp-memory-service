@@ -332,4 +332,6 @@ start the clients.
       re-embed or rebuild **every client's local database** before restarting it.
 - [ ] Hub started with `memory launch` or `run_http_server.py`, never `memory server --http`
       (it ignores `MCP_HTTPS_ENABLED`).
+- [ ] Optional: the hub follows release tags on its own, see
+      [Following releases automatically](../deployment/systemd-service.md#following-releases-automatically).
 - [ ] Scheduled sync on a client: the HTTP process runs there too (stdio alone never schedules it).

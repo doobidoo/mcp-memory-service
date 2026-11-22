@@ -120,6 +120,7 @@ Answer questions in Issues or help other users.
 For a containerized environment:
 ```bash
 docker-compose up -d  # For MCP mode
+echo "MCP_API_KEY=$(openssl rand -hex 32)" > .env  # HTTP API mode refuses to start without a key
 docker-compose -f docker-compose.http.yml up -d  # For HTTP API mode
 ```
 

@@ -67,6 +67,9 @@ def _assert_bind_is_authenticated(host: str, port: int) -> None:
     deployment GHSA-2hh8-qjxc-43x3 describes. Documenting "do not expose SSE"
     is not a control. Refusing to start is.
     """
+    # A key printed in the docs must not count as "authentication configured".
+    from ..config.transport import reject_placeholder_api_key  # inline import: mirrors _auth_configured
+    reject_placeholder_api_key()
     if _is_loopback_host(host) or _auth_configured():
         return
     raise RuntimeError(
