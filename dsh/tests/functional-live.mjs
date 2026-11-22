@@ -65,8 +65,10 @@ async function search(query) {
 
 async function remove(hash) {
   if (!hash) return
-  await request(`/api/memories/${hash}`, { method: 'DELETE' })
-  created.delete(hash)
+  const result = await request(`/api/memories/${hash}`, { method: 'DELETE' })
+  // Only a confirmed deletion leaves the cleanup set, so a failed DELETE keeps
+  // the hash visible in the final "left behind" report and the exit code.
+  if (result.ok && result.body?.success !== false) created.delete(hash)
 }
 
 function harness(rawConfig, cwd) {
@@ -112,6 +114,7 @@ function emitTurn(handlers, session, { user, assistant }) {
 // Record the store response so the test can verify the exact memory without
 // depending on semantic ranking right after the write.
 const calls = []
+const tracked = []
 const realFetch = globalThis.fetch
 globalThis.fetch = async (url, init) => {
   const response = await realFetch(url, init)
@@ -120,6 +123,11 @@ globalThis.fetch = async (url, init) => {
     entry.status = response.status
     entry.bodyPromise = response.clone().json().catch(() => null)
     entry.textPromise = response.clone().text().catch(() => '')
+    // Track every successful store as soon as its response arrives, before any
+    // scenario assertion can fail: a broken test must still clean up after itself.
+    tracked.push(entry.bodyPromise.then((body) => {
+      if (body?.content_hash) created.add(body.content_hash)
+    }).catch(() => {}))
   }
   calls.push(entry)
   return response
@@ -212,7 +220,6 @@ await scenario('capture: a decision turn is stored with tags and type', async ()
 
   const hash = (await posts[0].bodyPromise)?.content_hash
   assert.ok(hash, `store response must carry a content hash (status ${posts[0].status}: ${(await posts[0].textPromise).slice(0, 200)})`)
-  created.add(hash)
   const stored = (await request(`/api/memories/${hash}`)).body
   assert.ok((stored?.content ?? '').includes(sentinel), 'stored content must contain the sentinel')
   return `stored ${hash.slice(0, 12)}, tags=${stored.tags.join(',')}, type=${stored.memory_type}`
@@ -256,12 +263,12 @@ await scenario('capture: #remember forces a capture below the threshold', async 
   assert.equal(payload.memory_type, 'note')
   const hash = (await posts[0].bodyPromise)?.content_hash
   assert.ok(hash, `store response must carry a content hash (status ${posts[0].status}: ${(await posts[0].textPromise).slice(0, 200)})`)
-  created.add(hash)
   const stored = (await request(`/api/memories/${hash}`)).body
   assert.ok((stored?.content ?? '').includes(sentinel), 'forced capture must contain the sentinel')
   return 'forced capture stored with type note'
 })
 
+await Promise.all(tracked)
 for (const dir of cleanupDirs) await rm(dir, { recursive: true, force: true })
 for (const hash of [...created]) await remove(hash)
 
@@ -271,5 +278,9 @@ for (const result of results) {
   console.log(`${result.status.padEnd(4)}  ${result.name.padEnd(width)}  ${result.detail}`)
 }
 const failed = results.filter((r) => r.status === 'FAIL')
-console.log(`\n${results.length - failed.length}/${results.length} scenarios passed; ${created.size} test memories left behind.`)
-process.exit(failed.length === 0 ? 0 : 1)
+const leftovers = [...created]
+console.log(`\n${results.length - failed.length}/${results.length} scenarios passed; ${leftovers.length} test memories left behind.`)
+if (leftovers.length > 0) {
+  console.log(`Could not delete: ${leftovers.join(', ')}`)
+}
+process.exit(failed.length === 0 && leftovers.length === 0 ? 0 : 1)
