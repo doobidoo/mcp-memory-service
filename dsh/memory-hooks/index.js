@@ -46,7 +46,18 @@ function buildQuery(template, project) {
 }
 
 function escapeAttribute(value) {
-  return String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+  return escapeData(value).replaceAll('"', '&quot;')
+}
+
+/**
+ * Escape recalled text so it cannot close the wrapper or open a tag of its own.
+ * & is escaped first so an existing entity is not double-decoded by the reader.
+ */
+function escapeData(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function normalizeMemories(body) {
@@ -57,26 +68,45 @@ function normalizeMemories(body) {
   return list.map((entry) => entry?.memory ?? entry)
 }
 
+function memoryLine(memory) {
+  const raw = String(memory?.content ?? '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ''
+  const kind = typeof memory?.memory_type === 'string' && memory.memory_type ? `[${memory.memory_type}] ` : ''
+  const clipped = raw.length > 240 ? `${raw.slice(0, 239)}…` : raw
+  return `- ${kind}${escapeData(clipped)}`
+}
+
 /**
- * Render the system-prompt snapshot. Returns an empty string when nothing was
- * found, so an empty contribution never enters the prompt.
+ * Render the system-prompt snapshot. The wrapper and the data warning are
+ * reserved before any entry is added, so a size cap can never cut the closing
+ * tag or leave an entry outside the block. Returns an empty string when nothing
+ * was found or the cap is too small to hold the envelope.
  */
 export function formatProjectContext(project, memories, maxChars) {
+  const open = `<project-memory project="${escapeAttribute(project)}">`
+  const prefix = `${open}\n${SNAPSHOT_PREFIX}\n`
+  const suffix = '\n</project-memory>'
+  const budget = maxChars - prefix.length - suffix.length
+  if (budget <= 0) return ''
+
   const lines = []
+  let used = 0
   for (const memory of memories) {
-    const content = String(memory?.content ?? '').replace(/\s+/g, ' ').trim()
-    if (!content) continue
-    const kind = typeof memory?.memory_type === 'string' && memory.memory_type ? `[${memory.memory_type}] ` : ''
-    lines.push(`- ${kind}${content.length > 240 ? `${content.slice(0, 239)}…` : content}`)
+    const line = memoryLine(memory)
+    if (!line) continue
+    const cost = line.length + (lines.length > 0 ? 1 : 0)
+    if (used + cost <= budget) {
+      lines.push(line)
+      used += cost
+      continue
+    }
+    // Entries are all-or-nothing: a partial line could end inside an escaped
+    // entity, so this one is skipped and a later, shorter entry may still fit.
+    continue
   }
+
   if (lines.length === 0) return ''
-  const text = [
-    `<project-memory project="${escapeAttribute(project)}">`,
-    SNAPSHOT_PREFIX,
-    ...lines,
-    '</project-memory>',
-  ].join('\n')
-  return text.length <= maxChars ? text : `${text.slice(0, Math.max(0, maxChars - 1))}…`
+  return `${prefix}${lines.join('\n')}${suffix}`
 }
 
 async function searchMemories(config, query, outerSignal) {
