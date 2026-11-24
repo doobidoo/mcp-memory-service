@@ -119,13 +119,19 @@ class TestStoreScopeOnLite:
             HASH_A1, HASH_A2, 0.9, ["semantic"], relationship_type="related",
         ) is True
         # Cross-store pairs are refused, the write-side form of the both-ends
-        # rule #2121 applies on read.
+        # rule #2121 applies on read — so the refused pair leaves no edge behind.
         assert await graph.store_association(
             HASH_A1, HASH_B1, 0.9, ["semantic"], relationship_type="related",
         ) is False
 
-        assert HASH_A2 in {c for c, _s, _d in await graph.common_neighbors(HASH_A1)}
-        assert HASH_B1 not in {c for c, _s, _d in await graph.common_neighbors(HASH_A1)}
+        connected = {h for h, _depth in await graph.find_connected(HASH_A1)}
+        assert HASH_A2 in connected
+        assert HASH_B1 not in connected
 
-    async def test_unknown_memory_is_refused(self, graph):
-        assert await graph.store_entity_link("f" * 64, "Ghost", "concept") is False
+    async def test_unknown_memory_lands_in_the_default_store(self, graph):
+        """A memory the collection does not hold belongs to no store, so its edge
+        falls back to the collection default rather than a named partition."""
+        assert await graph.store_entity_link("f" * 64, "Ghost", "concept") is True
+
+        assert await graph.find_memories_by_entity("Ghost", store="default") == ["f" * 64]
+        assert await graph.find_memories_by_entity("Ghost", store=STORE_A) == []

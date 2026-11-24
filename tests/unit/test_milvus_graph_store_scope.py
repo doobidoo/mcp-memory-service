@@ -189,9 +189,19 @@ class TestMemoryStoreResolution:
             output_fields=["store"],
         )
 
-    async def test_unknown_memory_returns_none(self):
+    async def test_unknown_memory_falls_back_to_the_default_store(self):
+        """A memory the collection does not hold belongs to no store, like an
+        unwritten row: it lands in the collection default."""
         graph = _make_graph()
         graph.client.get.return_value = []
+
+        assert await graph._memory_store(HASH_A) == "default"
+
+    async def test_a_failed_lookup_is_not_guessed(self):
+        graph = _make_graph()
+        graph.client.get.side_effect = RuntimeError("connection reset")
+        # The pre-#1962 fallback also fails, so there is nothing to report.
+        graph.client.get.side_effect = RuntimeError("connection reset")
 
         assert await graph._memory_store(HASH_A) is None
 
@@ -220,12 +230,22 @@ class TestEntityLinkWritesTheStore:
         assert rows[0]["store"] == STORE_A
         assert rows[0]["source_hash"] == HASH_A
 
-    async def test_refuses_a_memory_it_cannot_place(self):
+    async def test_refuses_when_the_store_cannot_be_resolved(self):
+        """A lookup that fails must not be guessed into a partition."""
         graph = _make_graph()
-        graph.client.get.return_value = []
+        graph.client.get.side_effect = RuntimeError("connection reset")
 
         assert await graph.store_entity_link(HASH_A, "FastAPI", "technology") is False
         graph.client.upsert.assert_not_called()
+
+    async def test_unknown_memory_lands_in_the_default_store(self):
+        graph = _make_graph()
+        graph.client.get.return_value = []
+
+        assert await graph.store_entity_link(HASH_A, "FastAPI", "technology") is True
+
+        rows = graph.client.upsert.call_args.kwargs["data"]
+        assert rows[0]["store"] == "default"
 
     async def test_legacy_collection_keeps_the_old_row_shape(self):
         graph = _make_graph(has_store=False)
@@ -262,14 +282,25 @@ class TestAssociationWritesTheStore:
         ) is False
         graph.client.upsert.assert_not_called()
 
-    async def test_unknown_endpoint_is_refused(self):
+    async def test_failed_lookup_refuses_the_pair(self):
+        graph = _make_graph()
+        graph.client.get.side_effect = [
+            _memory_rows(STORE_A), RuntimeError("connection reset"),
+        ]
+
+        assert await graph.store_association(
+            HASH_A, HASH_C, 0.9, ["semantic"], relationship_type="related",
+        ) is False
+        graph.client.upsert.assert_not_called()
+
+    async def test_unknown_endpoint_is_not_cross_store(self):
+        """An unknown end falls back to default, so a named-store pair differs."""
         graph = _make_graph()
         graph.client.get.side_effect = [_memory_rows(STORE_A), []]
 
         assert await graph.store_association(
             HASH_A, HASH_C, 0.9, ["semantic"], relationship_type="related",
         ) is False
-        graph.client.upsert.assert_not_called()
 
 
 class TestReadersCarryTheStore:

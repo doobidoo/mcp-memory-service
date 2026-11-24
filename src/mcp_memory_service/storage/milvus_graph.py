@@ -337,9 +337,13 @@ class MilvusGraphStorage:
         Edges are confirmed through the memory that owns them, the same rule
         ``GraphStorage`` applies by joining ``memories`` (#2118). A memory
         collection that predates the ``store`` field (#1962) reports
-        ``"default"`` for every row it holds. ``None`` means the memory itself is
-        unknown, and callers refuse the write rather than stamping an edge into a
-        partition it does not belong to.
+        ``"default"`` for every row it holds.
+
+        A memory the collection does not hold has no store to belong to, so it
+        reports ``"default"`` too — the same partition a row written without the
+        key lands in. Only a failed lookup returns ``None``, and that is refused
+        by the callers: guessing across a transient error could stamp a real
+        memory's edge into the wrong partition.
         """
         if not self._memory_collection:
             return None
@@ -367,7 +371,7 @@ class MilvusGraphStorage:
             return "default" if rows else None
 
         if not rows:
-            return None
+            return "default"
         return rows[0].get("store") or "default"
 
     async def _association_store(
