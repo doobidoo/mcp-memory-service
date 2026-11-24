@@ -52,6 +52,36 @@ from ..models.ontology import is_symmetric_relationship, validate_relationship
 
 logger = logging.getLogger(__name__)
 
+
+def _named_store_refused(storage, store: Optional[str], method: str) -> bool:
+    """Whether a named-store read must be refused on the Milvus graph.
+
+    The association collection has no store field yet, so it cannot confine an
+    entity read to one partition. Refusing is the only honest answer: falling
+    through to the unscoped query would hand a store-scoped caller another
+    store's entities, which is the leak #2118 closes for SQLite. #2119 adds the
+    field, the filter and the real implementation.
+
+    ``None`` and ``"all"`` are unscoped, as everywhere else. Warns once per
+    instance rather than once per call.
+    """
+    if store in (None, "all"):
+        return False
+    if not getattr(storage, "_store_scope_warned", False):
+        try:
+            storage._store_scope_warned = True
+        except AttributeError:
+            # A slotted or foreign storage cannot carry the flag; the warning
+            # then repeats, which is louder than silence but still honest.
+            pass
+        logger.warning(
+            "Milvus graph storage cannot confine %s to store %s yet (#2119); "
+            "returning no results for a named store",
+            _sanitize_log_value(method),
+            _sanitize_log_value(store),
+        )
+    return True
+
 # Milvus per-call result limit ceiling.
 _MILVUS_MAX_LIMIT = 16384
 
@@ -1067,12 +1097,20 @@ class MilvusGraphStorage:
             logger.error("Failed to store entity link: %s", _sanitize_log_value(exc))
             return False
 
-    async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def list_entities(
+        self, limit: int = 50, store: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """List all known entities with link count and last activity.
 
         Milvus has no GROUP BY, so the has_entity edges are drained and
         aggregated in Python — the same shape GraphStorage returns via SQL.
+
+        ``store`` is accepted for parity with GraphStorage (#2118) and refused
+        with an empty result until #2119 teaches this backend the field.
         """
+        if _named_store_refused(self, store, "list_entities"):
+            return []
+
         if not self._ensure_ready():
             return []
 
@@ -1104,9 +1142,16 @@ class MilvusGraphStorage:
         return ordered[:limit]
 
     async def find_memories_by_entity(
-        self, entity_name: str, limit: int = 20
+        self, entity_name: str, limit: int = 20, store: Optional[str] = None
     ) -> List[str]:
-        """Find memory hashes linked to a given entity name, newest first."""
+        """Find memory hashes linked to a given entity name, newest first.
+
+        ``store`` is accepted for parity with GraphStorage (#2118) and refused
+        with an empty result until #2119 teaches this backend the field.
+        """
+        if _named_store_refused(self, store, "find_memories_by_entity"):
+            return []
+
         if not self._ensure_ready():
             return []
 
@@ -1121,8 +1166,17 @@ class MilvusGraphStorage:
         rows.sort(key=lambda r: float(r.get("created_at") or 0.0), reverse=True)
         return [r["source_hash"] for r in rows[:limit] if r.get("source_hash")]
 
-    async def get_entities_for_memory(self, memory_hash: str) -> List[str]:
-        """Get entity names linked to a memory hash."""
+    async def get_entities_for_memory(
+        self, memory_hash: str, store: Optional[str] = None
+    ) -> List[str]:
+        """Get entity names linked to a memory hash.
+
+        ``store`` is accepted for parity with GraphStorage (#2118) and refused
+        with an empty result until #2119 teaches this backend the field.
+        """
+        if _named_store_refused(self, store, "get_entities_for_memory"):
+            return []
+
         if not self._ensure_ready():
             return []
 
@@ -1137,8 +1191,17 @@ class MilvusGraphStorage:
         names = [self._entity_name_from_row(r) for r in rows]
         return [n for n in names if n]
 
-    async def get_entity_profile(self, entity_name: str) -> Dict[str, Any]:
-        """Get entity profile: memory count, entity types, last activity."""
+    async def get_entity_profile(
+        self, entity_name: str, store: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get entity profile: memory count, entity types, last activity.
+
+        ``store`` is accepted for parity with GraphStorage (#2118) and refused
+        with an empty result until #2119 teaches this backend the field.
+        """
+        if _named_store_refused(self, store, "get_entity_profile"):
+            return {}
+
         if not self._ensure_ready():
             return {}
 
@@ -1269,13 +1332,20 @@ class MilvusGraphStorage:
         self,
         memory_hash: str,
         min_shared: int = 1,
+        store: Optional[str] = None,
     ) -> List[Tuple[str, int, int]]:
         """Find memories sharing neighbours with ``memory_hash``.
 
         Returns ``(candidate_hash, shared_count, source_degree)`` for the top
         10 candidates, excluding the source itself and anything already
         directly connected — matching GraphStorage's self-join query.
+
+        ``store`` is accepted for parity with GraphStorage (#2118) and refused
+        with an empty result until #2119 teaches this backend the field.
         """
+        if _named_store_refused(self, store, "common_neighbors"):
+            return []
+
         if not self._ensure_ready():
             return []
 

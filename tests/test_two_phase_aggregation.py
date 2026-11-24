@@ -180,7 +180,7 @@ class TestSelectExploreEntities:
 
         graph = AsyncMock()
         graph.get_entities_for_memory = AsyncMock(
-            side_effect=lambda memory_hash: {
+            side_effect=lambda memory_hash, store=None: {
                 "high": ["Python", "Testing"],
                 "low": ["Testing", "python", "SQLite"],
             }[memory_hash]
@@ -220,7 +220,7 @@ class TestSelectExploreEntities:
         )
 
         assert result == [{"entity_name": "Global", "count": 3}]
-        graph.list_entities.assert_awaited_once_with(limit=1)
+        graph.list_entities.assert_awaited_once_with(limit=1, store=None)
         # The fallback path has no retrieved-chunk link to report, so the
         # builder still leaves those entities' chunks empty.
         assert hashes_by_entity == {}

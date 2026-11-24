@@ -149,6 +149,69 @@ class GraphStorage:
         self._lock = asyncio.Lock()  # Instance-level lock for thread safety
         logger.info(f"Initialized GraphStorage with database: {_sanitize_log_value(db_path)}")
 
+    @staticmethod
+    def _store_predicate(
+        store: Optional[str], alias: str = "memory_graph"
+    ) -> Tuple[str, List[Any]]:
+        """SQL fragment confining edges to one store, plus its parameters.
+
+        Entity links and associations live in ``memory_graph``, which has no
+        store column of its own. It is opened from the same SQLite file as
+        ``memories`` (both callers pass the memory database path), so an edge is
+        confined through the store of its ``source_hash`` memory: an entity link
+        points at the memory that carries the entity, and an association is
+        written by the store that owns the pair (#2118).
+
+        ``None`` and ``"all"`` are unscoped and produce nothing, which leaves
+        every pre-#2118 query path byte-identical.
+        """
+        if store in (None, "all"):
+            return "", []
+        return (
+            f"AND {alias}.source_hash IN "
+            "(SELECT content_hash FROM memories WHERE store = ?)",
+            [store],
+        )
+
+    @classmethod
+    def _common_neighbors_sql(cls, store: Optional[str]) -> Tuple[str, List[Any]]:
+        """Self-join query for ``common_neighbors``, plus its store parameters.
+
+        Both the seed edges and the expansion edges are confined, so a named
+        store never reaches a candidate through another partition's memory
+        (#2118). Returns the SQL with ``(memory_hash, memory_hash, memory_hash,
+        *store_params, memory_hash, min_shared)`` as its parameters.
+        """
+        seed_filter, seed_params = cls._store_predicate(store)
+        join_filter, join_params = cls._store_predicate(store, alias="mg")
+        sql = f"""
+                    WITH my_neighbors AS (
+                        -- All direct neighbors of the source (both directions)
+                        SELECT CASE WHEN source_hash = ? THEN target_hash ELSE source_hash END as neighbor
+                        FROM memory_graph
+                        WHERE (source_hash = ? OR target_hash = ?) {seed_filter}
+                    ),
+                    my_degree AS (
+                        SELECT COUNT(*) as deg FROM my_neighbors
+                    ),
+                    candidates AS (
+                        -- For each of my neighbors, find THEIR neighbors (2-hop from me)
+                        SELECT CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END as candidate
+                        FROM my_neighbors mn
+                        JOIN memory_graph mg ON (mg.source_hash = mn.neighbor OR mg.target_hash = mn.neighbor) {join_filter}
+                        WHERE CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END != ?
+                    )
+                    SELECT c.candidate, COUNT(*) as shared_count, (SELECT deg FROM my_degree) as source_degree
+                    FROM candidates c
+                    -- Exclude already-connected nodes
+                    WHERE c.candidate NOT IN (SELECT neighbor FROM my_neighbors)
+                    GROUP BY c.candidate
+                    HAVING COUNT(*) >= ?
+                    ORDER BY shared_count DESC
+                    LIMIT 10
+                """
+        return sql, [*seed_params, *join_params]
+
     async def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection with optimizations."""
         if self._connection is None:
@@ -900,17 +963,25 @@ class GraphStorage:
             logger.error(f"Failed to store entity link: {_sanitize_log_value(e)}")
             return False
 
-    async def list_entities(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """List all known entities with count and types."""
+    async def list_entities(
+        self, limit: int = 50, store: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List known entities with count and types.
+
+        ``store`` counts only the links that store's memories made, so an entity
+        that also appears elsewhere is reported at this store's size (#2118).
+        """
+        store_filter, store_params = self._store_predicate(store)
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT target_hash as entity_name, COUNT(*) as count, MAX(created_at) as last_activity
                     FROM memory_graph WHERE relationship_type = 'has_entity'
+                    {store_filter}
                     GROUP BY target_hash ORDER BY count DESC LIMIT ?
-                """, (limit,))
+                """, (*store_params, limit))
                 return [{"entity_name": row['entity_name'], "count": row['count'],
                          "last_activity": row['last_activity']} for row in cursor.fetchall()]
             finally:
@@ -919,19 +990,31 @@ class GraphStorage:
             logger.error(f"Failed to list entities: {_sanitize_log_value(e)}")
             return []
 
-    async def find_memories_by_entity(self, entity_name: str, limit: int = 20) -> List[str]:
-        """Find memory hashes linked to a given entity name."""
+    async def find_memories_by_entity(
+        self, entity_name: str, limit: int = 20, store: Optional[str] = None
+    ) -> List[str]:
+        """Find memory hashes linked to a given entity name.
+
+        Args:
+            entity_name: Entity surface form the links point at.
+            limit: Maximum hashes to return.
+            store: Optional store to confine the lookup to (#2118). A named
+                store returns only links made by that store's memories; ``None``
+                and ``"all"`` keep the historical global lookup.
+        """
         if not entity_name:
             return []
+        store_filter, store_params = self._store_predicate(store)
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT source_hash FROM memory_graph
                     WHERE target_hash = ? AND relationship_type = 'has_entity'
+                    {store_filter}
                     ORDER BY created_at DESC LIMIT ?
-                """, (entity_name, limit))
+                """, (entity_name, *store_params, limit))
                 return [row['source_hash'] for row in cursor.fetchall()]
             finally:
                 cursor.close()
@@ -939,17 +1022,26 @@ class GraphStorage:
             logger.error(f"Failed to find memories by entity: {_sanitize_log_value(e)}")
             return []
 
-    async def get_entities_for_memory(self, memory_hash: str) -> List[str]:
-        """Get entity names linked to a memory hash."""
+    async def get_entities_for_memory(
+        self, memory_hash: str, store: Optional[str] = None
+    ) -> List[str]:
+        """Get entity names linked to a memory hash.
+
+        ``store`` confines the answer to links the memory's own store carries,
+        so a hash from another partition reports no entities instead of the
+        global set (#2118).
+        """
         if not memory_hash:
             return []
+        store_filter, store_params = self._store_predicate(store)
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
                 cursor.execute(
-                    "SELECT target_hash FROM memory_graph WHERE source_hash = ? AND relationship_type = 'has_entity'",
-                    (memory_hash,)
+                    "SELECT target_hash FROM memory_graph WHERE source_hash = ? "
+                    f"AND relationship_type = 'has_entity' {store_filter}",
+                    (memory_hash, *store_params)
                 )
                 return [row['target_hash'] for row in cursor.fetchall()]
             finally:
@@ -957,27 +1049,36 @@ class GraphStorage:
         except Exception:
             return []
 
-    async def get_entity_profile(self, entity_name: str) -> Dict[str, Any]:
-        """Get entity profile: memory count, entity types, last activity."""
+    async def get_entity_profile(
+        self, entity_name: str, store: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get entity profile: memory count, entity types, last activity.
+
+        ``store`` reports this store's view of the entity; a name that only
+        exists in another partition comes back empty (#2118).
+        """
         if not entity_name:
             return {}
+        store_filter, store_params = self._store_predicate(store)
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT COUNT(*) as count, MAX(created_at) as last_activity
                     FROM memory_graph
                     WHERE target_hash = ? AND relationship_type = 'has_entity'
-                """, (entity_name,))
+                    {store_filter}
+                """, (entity_name, *store_params))
                 row = cursor.fetchone()
                 if not row or row['count'] == 0:
                     return {}
                 # Gather distinct entity_types
-                cursor.execute("""
+                cursor.execute(f"""
                     SELECT DISTINCT metadata FROM memory_graph
                     WHERE target_hash = ? AND relationship_type = 'has_entity'
-                """, (entity_name,))
+                    {store_filter}
+                """, (entity_name, *store_params))
                 types = set()
                 for r in cursor.fetchall():
                     try:
@@ -1071,7 +1172,8 @@ class GraphStorage:
     async def common_neighbors(
         self,
         memory_hash: str,
-        min_shared: int = 1
+        min_shared: int = 1,
+        store: Optional[str] = None
     ) -> List[Tuple[str, int, int]]:
         """
         Find memories that share neighbors with the given memory.
@@ -1082,40 +1184,21 @@ class GraphStorage:
         Args:
             memory_hash: Source memory hash
             min_shared: Minimum shared neighbors to include
+            store: Optional store to confine the traversal to (#2118). Both the
+                seed edges and the expansion edges are filtered, so a named
+                store never reaches a candidate through another partition's
+                memory. ``None`` and ``"all"`` stay global.
 
         Returns:
             List of (candidate_hash, shared_count, source_degree) tuples
         """
+        sql, store_params = self._common_neighbors_sql(store)
         try:
             conn = await self._get_connection()
             cursor = conn.cursor()
             try:
-                cursor.execute("""
-                    WITH my_neighbors AS (
-                        -- All direct neighbors of the source (both directions)
-                        SELECT CASE WHEN source_hash = ? THEN target_hash ELSE source_hash END as neighbor
-                        FROM memory_graph
-                        WHERE source_hash = ? OR target_hash = ?
-                    ),
-                    my_degree AS (
-                        SELECT COUNT(*) as deg FROM my_neighbors
-                    ),
-                    candidates AS (
-                        -- For each of my neighbors, find THEIR neighbors (2-hop from me)
-                        SELECT CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END as candidate
-                        FROM my_neighbors mn
-                        JOIN memory_graph mg ON (mg.source_hash = mn.neighbor OR mg.target_hash = mn.neighbor)
-                        WHERE CASE WHEN mg.source_hash = mn.neighbor THEN mg.target_hash ELSE mg.source_hash END != ?
-                    )
-                    SELECT c.candidate, COUNT(*) as shared_count, (SELECT deg FROM my_degree) as source_degree
-                    FROM candidates c
-                    -- Exclude already-connected nodes
-                    WHERE c.candidate NOT IN (SELECT neighbor FROM my_neighbors)
-                    GROUP BY c.candidate
-                    HAVING COUNT(*) >= ?
-                    ORDER BY shared_count DESC
-                    LIMIT 10
-                """, (memory_hash, memory_hash, memory_hash, memory_hash, min_shared))
+                cursor.execute(sql, (memory_hash, memory_hash, memory_hash,
+                                     *store_params, memory_hash, min_shared))
 
                 return [(row['candidate'], row['shared_count'], row['source_degree'])
                         for row in cursor.fetchall()]
