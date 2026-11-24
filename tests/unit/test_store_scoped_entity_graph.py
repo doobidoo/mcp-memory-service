@@ -36,6 +36,12 @@ MEM_A1 = "a1" * 32
 MEM_A2 = "a2" * 32
 MEM_B1 = "b1" * 32
 MEM_B2 = "b2" * 32
+# A pair of in-store memories that a foreign memory associates with on both
+# sides, plus a soft-deleted memory that still carries an entity link.
+MEM_X1 = "x1" * 32
+MEM_X2 = "x2" * 32
+MEM_Y1 = "y1" * 32
+MEM_D1 = "d1" * 32
 
 
 def _seed_database(db_path: Path) -> None:
@@ -48,7 +54,8 @@ def _seed_database(db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            "CREATE TABLE memories (content_hash TEXT PRIMARY KEY, store TEXT NOT NULL)"
+            "CREATE TABLE memories ("
+            "content_hash TEXT PRIMARY KEY, store TEXT NOT NULL, deleted_at REAL)"
         )
         conn.execute(
             """
@@ -65,8 +72,18 @@ def _seed_database(db_path: Path) -> None:
             """
         )
         conn.executemany(
-            "INSERT INTO memories (content_hash, store) VALUES (?, ?)",
-            [(MEM_A1, STORE_A), (MEM_A2, STORE_A), (MEM_B1, STORE_B), (MEM_B2, STORE_B)],
+            "INSERT INTO memories (content_hash, store, deleted_at) VALUES (?, ?, ?)",
+            [
+                (MEM_A1, STORE_A, None),
+                (MEM_A2, STORE_A, None),
+                (MEM_B1, STORE_B, None),
+                (MEM_B2, STORE_B, None),
+                (MEM_X1, STORE_A, None),
+                (MEM_X2, STORE_A, None),
+                (MEM_Y1, STORE_B, None),
+                # Soft-deleted: its edges must not count for a scoped read.
+                (MEM_D1, STORE_A, 1234.0),
+            ],
         )
         # Entity links: source is the memory, target is the entity name.
         conn.executemany(
@@ -80,6 +97,20 @@ def _seed_database(db_path: Path) -> None:
                 (MEM_B1, "Shared", json.dumps({"entity_type": "concept"})),
                 (MEM_B1, "OnlyB", json.dumps({"entity_type": "concept"})),
                 (MEM_B2, "Shared", json.dumps({"entity_type": "concept"})),
+                (MEM_D1, "Ghost", json.dumps({"entity_type": "concept"})),
+            ],
+        )
+        # A foreign memory (Y1, store beta) associated with both X1 and X2 in
+        # store alpha. Symmetric "related" edges are stored in both directions.
+        conn.executemany(
+            "INSERT INTO memory_graph (source_hash, target_hash, similarity,"
+            " connection_types, metadata, created_at, relationship_type)"
+            " VALUES (?, ?, 0.8, '[\"semantic\"]', '{}', 2.0, 'related')",
+            [
+                (MEM_X1, MEM_Y1),
+                (MEM_Y1, MEM_X1),
+                (MEM_X2, MEM_Y1),
+                (MEM_Y1, MEM_X2),
             ],
         )
         conn.commit()
@@ -156,6 +187,29 @@ class TestEntityReadsAreStoreScoped:
         unscoped = await graph.common_neighbors(MEM_A1)
         assert MEM_B1 in {candidate for candidate, _shared, _deg in unscoped}
 
+    async def test_cross_store_association_does_not_bridge_two_in_store_memories(self, graph):
+        """Both endpoints of an association have to be in the store.
+
+        Y1 lives in store beta and associates with X1 and X2 in alpha. Confining
+        only the source hash would let X2 surface as related to X1 through Y1.
+        """
+        scoped = await graph.common_neighbors(MEM_X1, store=STORE_A)
+
+        assert MEM_X2 not in {candidate for candidate, _shared, _deg in scoped}
+        # Control: unscoped, the foreign memory is the bridge.
+        unscoped = await graph.common_neighbors(MEM_X1)
+        assert MEM_X2 in {candidate for candidate, _shared, _deg in unscoped}
+
+    async def test_soft_deleted_memory_does_not_count(self, graph):
+        """A deleted memory's entity link is not part of a scoped read."""
+        assert await graph.find_memories_by_entity("Ghost", store=STORE_A) == []
+        assert await graph.get_entities_for_memory(MEM_D1, store=STORE_A) == []
+        assert await graph.get_entity_profile("Ghost", store=STORE_A) == {}
+
+        # Control: the unscoped path reads only memory_graph and still reports
+        # it. That gap is pre-existing and out of scope here.
+        assert await graph.find_memories_by_entity("Ghost") == [MEM_D1]
+
     async def test_related_entities_do_not_leak_across_stores(self, graph):
         scoped = await _discover_related_entities(graph, [MEM_A1], 1, store=STORE_A)
         scoped_names = {entity["name"] for entity in scoped}
@@ -210,7 +264,16 @@ class TestStorePredicateContract:
 
         assert "source_hash IN" in fragment
         assert "memories" in fragment
+        assert "deleted_at IS NULL" in fragment
         assert params == [STORE_A]
+
+    def test_both_endpoints_adds_the_target_check_for_associations(self):
+        fragment, params = GraphStorage._store_predicate(STORE_A, both_endpoints=True)
+
+        assert "target_hash IN" in fragment
+        # Entity names are targets of has_entity rows and are exempt.
+        assert "relationship_type = 'has_entity'" in fragment
+        assert params == [STORE_A, STORE_A]
 
 
 class _FakeGraphStorage:

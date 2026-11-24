@@ -151,39 +151,58 @@ class GraphStorage:
 
     @staticmethod
     def _store_predicate(
-        store: Optional[str], alias: str = "memory_graph"
+        store: Optional[str],
+        alias: str = "memory_graph",
+        both_endpoints: bool = False,
     ) -> Tuple[str, List[Any]]:
         """SQL fragment confining edges to one store, plus its parameters.
 
         Entity links and associations live in ``memory_graph``, which has no
         store column of its own. It is opened from the same SQLite file as
         ``memories`` (both callers pass the memory database path), so an edge is
-        confined through the store of its ``source_hash`` memory: an entity link
-        points at the memory that carries the entity, and an association is
-        written by the store that owns the pair (#2118).
+        confined through the store of the memory behind it (#2118). Soft-deleted
+        memories are excluded, the same rule ``get_by_hash`` applies.
+
+        An edge "lives in" a store when every endpoint that is a memory lives
+        there. ``source_hash`` is always a memory, so it is always checked.
+        ``target_hash`` is an entity name on ``has_entity`` rows and a memory on
+        every association, so ``both_endpoints`` adds the target check for the
+        associations only — an association whose far end sits in another store
+        must not be traversed, or two in-store memories would be linked through
+        a foreign one (Greptile, #2121).
 
         ``None`` and ``"all"`` are unscoped and produce nothing, which leaves
         every pre-#2118 query path byte-identical.
         """
         if store in (None, "all"):
             return "", []
-        return (
-            f"AND {alias}.source_hash IN "
-            "(SELECT content_hash FROM memories WHERE store = ?)",
-            [store],
+        in_store = (
+            "IN (SELECT content_hash FROM memories "
+            "WHERE store = ? AND deleted_at IS NULL)"
         )
+        fragment = f"AND {alias}.source_hash {in_store}"
+        params: List[Any] = [store]
+        if both_endpoints:
+            fragment += (
+                f" AND ({alias}.relationship_type = 'has_entity'"
+                f" OR {alias}.target_hash {in_store})"
+            )
+            params.append(store)
+        return fragment, params
 
     @classmethod
     def _common_neighbors_sql(cls, store: Optional[str]) -> Tuple[str, List[Any]]:
         """Self-join query for ``common_neighbors``, plus its store parameters.
 
-        Both the seed edges and the expansion edges are confined, so a named
-        store never reaches a candidate through another partition's memory
-        (#2118). Returns the SQL with ``(memory_hash, memory_hash, memory_hash,
+        Both the seed edges and the expansion edges are confined on both
+        endpoints, so a named store never reaches a candidate through another
+        partition's memory (#2118). Returns the SQL with ``(memory_hash, memory_hash, memory_hash,
         *store_params, memory_hash, min_shared)`` as its parameters.
         """
-        seed_filter, seed_params = cls._store_predicate(store)
-        join_filter, join_params = cls._store_predicate(store, alias="mg")
+        seed_filter, seed_params = cls._store_predicate(store, both_endpoints=True)
+        join_filter, join_params = cls._store_predicate(
+            store, alias="mg", both_endpoints=True
+        )
         sql = f"""
                     WITH my_neighbors AS (
                         -- All direct neighbors of the source (both directions)
