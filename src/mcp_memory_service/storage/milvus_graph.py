@@ -53,6 +53,25 @@ from ..models.ontology import is_symmetric_relationship, validate_relationship
 logger = logging.getLogger(__name__)
 
 
+def _row_is_deleted(row: Dict[str, Any]) -> bool:
+    """Whether a memory row carries the soft-delete tombstone (#1255).
+
+    Milvus keeps ``deleted_at`` inside the ``metadata`` JSON string, the same
+    place ``MilvusMemoryStorage._fetch_live_row`` reads it from. An unreadable
+    metadata value is treated as live, matching that method.
+    """
+    raw = row.get("metadata")
+    if not raw:
+        return False
+    if isinstance(raw, dict):
+        return raw.get("deleted_at") is not None
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("deleted_at") is not None
+
+
 def _named_store_refused(storage, store: Optional[str], method: str) -> bool:
     """Whether a named-store read must be refused on the Milvus graph.
 
@@ -67,7 +86,7 @@ def _named_store_refused(storage, store: Optional[str], method: str) -> bool:
     """
     if store in (None, "all"):
         return False
-    if getattr(storage, "_has_store", False):
+    if getattr(storage, "_has_store", None) is True:
         return False
     if not getattr(storage, "_store_scope_warned", False):
         try:
@@ -161,10 +180,16 @@ class MilvusGraphStorage:
         self.collection_name = f"{collection_name}_graph"
         self.client: Optional[MilvusClient] = None
         self._lock = asyncio.Lock()
-        # Whether the association collection carries the ``store`` field. Set by
-        # _ensure_collection(); False until then, which keeps a named-store read
-        # failing closed on a collection that predates it.
-        self._has_store = False
+        # Whether the association collection carries the ``store`` field: True,
+        # False once confirmed absent, None while detection has not succeeded.
+        # Only a confirmed False may skip the field. None refuses writes and
+        # named-store reads, because a collection that does carry it would
+        # otherwise default every row to "default" and expose named-store links
+        # there (Greptile on #2119).
+        self._has_store: Optional[bool] = None
+        # Cached field names of the paired memory collection, and the lock-free
+        # guard that makes the probe run once.
+        self._memory_fields: Optional[Set[str]] = None
 
         logger.info(
             "Initialized MilvusGraphStorage (uri=%s, collection=%s)",
@@ -299,13 +324,17 @@ class MilvusGraphStorage:
             )
             fields = {field.get("name") for field in described.get("fields", [])}
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
+            # Unknown, not "no field": a collection that does carry ``store``
+            # must not be treated as legacy, or its writers would omit the key
+            # and land every named-store edge in the default partition.
+            self._has_store = None
+            logger.error(
                 "Could not describe association collection '%s': %s; "
-                "named-store reads will be refused",
+                "store-scoped graph writes and reads are refused until the "
+                "schema can be read",
                 self.collection_name,
                 _sanitize_log_value(exc),
             )
-            self._has_store = False
             return
 
         self._has_store = "store" in fields
@@ -331,47 +360,69 @@ class MilvusGraphStorage:
             return base
         return f"{base} and {store_filter}" if base else store_filter
 
+    async def _memory_fields_cached(self) -> Optional[Set[str]]:
+        """Field names of the paired memory collection, or None if unreadable.
+
+        Probed once. The schema decides how the store and the tombstone are
+        read, so a failed probe must not be mistaken for "no store field" — the
+        old retry-on-exception path returned ``"default"`` for a memory that
+        merely timed out on its first call (Greptile on #2119).
+        """
+        if self._memory_fields is not None:
+            return self._memory_fields
+        if not self._memory_collection:
+            return None
+        try:
+            described = await self._call_client(
+                "describe_collection", collection_name=self._memory_collection
+            )
+            self._memory_fields = {
+                field.get("name") for field in described.get("fields", [])
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Could not describe memory collection '%s': %s",
+                _sanitize_log_value(self._memory_collection),
+                _sanitize_log_value(exc),
+            )
+            return None
+        return self._memory_fields
+
     async def _memory_store(self, memory_hash: str) -> Optional[str]:
         """Store of ``memory_hash`` in the paired memory collection, or None.
 
         Edges are confirmed through the memory that owns them, the same rule
-        ``GraphStorage`` applies by joining ``memories`` (#2118). A memory
-        collection that predates the ``store`` field (#1962) reports
-        ``"default"`` for every row it holds.
+        ``GraphStorage`` applies by joining ``memories`` (#2118).
 
         A memory the collection does not hold has no store to belong to, so it
-        reports ``"default"`` too — the same partition a row written without the
-        key lands in. Only a failed lookup returns ``None``, and that is refused
-        by the callers: guessing across a transient error could stamp a real
-        memory's edge into the wrong partition.
+        reports ``"default"`` — the same partition a row written without the key
+        lands in. ``None`` means the lookup could not answer (unreadable schema,
+        failed call, or a soft-deleted memory), and the callers refuse the write
+        rather than stamping a real memory's edge into another partition.
         """
-        if not self._memory_collection:
+        fields = await self._memory_fields_cached()
+        if fields is None:
             return None
+
+        wants = [name for name in ("store", "metadata") if name in fields]
+        kwargs: Dict[str, Any] = {"collection_name": self._memory_collection,
+                                  "ids": [memory_hash]}
+        if wants:
+            kwargs["output_fields"] = wants
         try:
-            rows = await self._call_client(
-                "get",
-                collection_name=self._memory_collection,
-                ids=[memory_hash],
-                output_fields=["store"],
+            rows = await self._call_client("get", **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to resolve the store of memory %s: %s",
+                _sanitize_log_value(memory_hash),
+                _sanitize_log_value(exc),
             )
-        except Exception:  # noqa: BLE001 - field absent on a pre-#1962 collection
-            try:
-                rows = await self._call_client(
-                    "get",
-                    collection_name=self._memory_collection,
-                    ids=[memory_hash],
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "Failed to resolve the store of memory %s: %s",
-                    _sanitize_log_value(memory_hash),
-                    _sanitize_log_value(exc),
-                )
-                return None
-            return "default" if rows else None
+            return None
 
         if not rows:
             return "default"
+        if _row_is_deleted(rows[0]):
+            return None
         return rows[0].get("store") or "default"
 
     async def _association_store(
@@ -505,6 +556,12 @@ class MilvusGraphStorage:
 
         try:
             store: Optional[str] = None
+            if self._has_store is None:
+                logger.error(
+                    "Refusing association: the association collection's store "
+                    "field state is unknown (#2119)"
+                )
+                return False
             if self._has_store:
                 store = await self._association_store(source_hash, target_hash)
                 if store is None:
@@ -1230,6 +1287,12 @@ class MilvusGraphStorage:
             return False
 
         store: Optional[str] = None
+        if self._has_store is None:
+            logger.error(
+                "Refusing entity link: the association collection's store field "
+                "state is unknown (#2119)"
+            )
+            return False
         if self._has_store:
             store = await self._memory_store(memory_hash)
             if store is None:

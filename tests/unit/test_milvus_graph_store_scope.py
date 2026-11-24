@@ -50,7 +50,7 @@ HASH_B = "b" * 64
 HASH_C = "c" * 64
 
 
-def _make_graph(has_store: bool = True) -> MilvusGraphStorage:
+def _make_graph(has_store=True) -> MilvusGraphStorage:
     """A MilvusGraphStorage with __init__ skipped and both collections mocked."""
     graph = MilvusGraphStorage.__new__(MilvusGraphStorage)
     graph.uri = "./milvus.db"
@@ -61,6 +61,7 @@ def _make_graph(has_store: bool = True) -> MilvusGraphStorage:
     graph._lock = asyncio.Lock()
     graph._has_store = has_store
     graph._store_scope_warned = False
+    graph._memory_fields = {"id", "store", "metadata"}
     return graph
 
 
@@ -186,7 +187,7 @@ class TestMemoryStoreResolution:
         graph.client.get.assert_called_once_with(
             collection_name="unit_memories",
             ids=[HASH_A],
-            output_fields=["store"],
+            output_fields=["store", "metadata"],
         )
 
     async def test_unknown_memory_falls_back_to_the_default_store(self):
@@ -198,25 +199,46 @@ class TestMemoryStoreResolution:
         assert await graph._memory_store(HASH_A) == "default"
 
     async def test_a_failed_lookup_is_not_guessed(self):
+        """A timeout must not be mistaken for "no store field"."""
         graph = _make_graph()
-        graph.client.get.side_effect = RuntimeError("connection reset")
-        # The pre-#1962 fallback also fails, so there is nothing to report.
         graph.client.get.side_effect = RuntimeError("connection reset")
 
         assert await graph._memory_store(HASH_A) is None
 
+    async def test_unreadable_memory_schema_is_not_guessed(self):
+        graph = _make_graph()
+        graph._memory_fields = None
+        graph.client.describe_collection.side_effect = RuntimeError("unreachable")
+
+        assert await graph._memory_store(HASH_A) is None
+        graph.client.get.assert_not_called()
+
+    async def test_soft_deleted_memory_is_refused(self):
+        graph = _make_graph()
+        graph.client.get.return_value = [
+            {"id": HASH_A, "store": STORE_A, "metadata": json.dumps({"deleted_at": 123.0})}
+        ]
+
+        assert await graph._memory_store(HASH_A) is None
+
+    async def test_live_memory_with_metadata_is_accepted(self):
+        graph = _make_graph()
+        graph.client.get.return_value = [
+            {"id": HASH_A, "store": STORE_A, "metadata": json.dumps({"source": "test"})}
+        ]
+
+        assert await graph._memory_store(HASH_A) == STORE_A
+
     async def test_pre_1962_memory_collection_reports_the_default_store(self):
         """A memory collection without the field holds only default memories."""
         graph = _make_graph()
-
-        def _get(**kwargs):
-            if "output_fields" in kwargs:
-                raise RuntimeError("field store not exist")
-            return [{"id": HASH_A}]
-
-        graph.client.get.side_effect = _get
+        graph._memory_fields = {"id", "fields"}
+        graph.client.get.return_value = [{"id": HASH_A}]
 
         assert await graph._memory_store(HASH_A) == "default"
+        graph.client.get.assert_called_once_with(
+            collection_name="unit_memories", ids=[HASH_A],
+        )
 
 
 class TestEntityLinkWritesTheStore:
@@ -247,6 +269,13 @@ class TestEntityLinkWritesTheStore:
         rows = graph.client.upsert.call_args.kwargs["data"]
         assert rows[0]["store"] == "default"
 
+    async def test_unknown_schema_state_refuses_the_write(self):
+        """A failed schema read must not be treated as a legacy collection."""
+        graph = _make_graph(has_store=None)
+
+        assert await graph.store_entity_link(HASH_A, "FastAPI", "technology") is False
+        graph.client.upsert.assert_not_called()
+
     async def test_legacy_collection_keeps_the_old_row_shape(self):
         graph = _make_graph(has_store=False)
 
@@ -258,6 +287,14 @@ class TestEntityLinkWritesTheStore:
 
 
 class TestAssociationWritesTheStore:
+    async def test_unknown_schema_state_refuses_the_pair(self):
+        graph = _make_graph(has_store=None)
+
+        assert await graph.store_association(
+            HASH_A, HASH_B, 0.9, ["semantic"], relationship_type="related",
+        ) is False
+        graph.client.upsert.assert_not_called()
+
     async def test_symmetric_pair_carries_the_store_on_both_rows(self):
         graph = _make_graph()
         graph.client.get.side_effect = [
@@ -340,6 +377,13 @@ class TestReadersCarryTheStore:
         await graph.common_neighbors(HASH_A, store=STORE_A)
 
         assert graph._query_edges_both.call_args.kwargs["store"] == STORE_A
+
+    async def test_unknown_schema_refuses_a_named_store(self):
+        graph = _make_graph(has_store=None)
+        graph._query_entity_edges = AsyncMock(return_value=[])
+
+        assert await graph.find_memories_by_entity("FastAPI", store=STORE_A) == []
+        graph._query_entity_edges.assert_not_called()
 
     async def test_legacy_collection_refuses_a_named_store(self):
         graph = _make_graph(has_store=False)
