@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "MCP Memory Service",
+    "description": "在每个新会话开始时，从本地 MCP Memory Service 载入项目记忆。",
+    "detail": "docs/DETAIL.md"
+  }
+}

@@ -219,6 +219,7 @@ TAXONOMY: Final[Dict[str, List[str]]] = {
         "user_correction",
         "tool_outcome",
         "preference_signal",
+        "consolidation-run",
     ],
     "decision": [
         "architecture",

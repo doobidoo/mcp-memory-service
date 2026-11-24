@@ -1,0 +1,26 @@
+{
+  "name": "@doobidoo/mcp-memory-service-dsh",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Recalls project memories from an MCP Memory Service into every new DeepSeek Harness agent session.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "patterns.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

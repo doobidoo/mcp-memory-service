@@ -18,6 +18,7 @@ CSV document loader for tabular data files.
 
 import csv
 import logging
+import re
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 import asyncio
@@ -258,8 +259,11 @@ class CSVLoader(DocumentLoader):
         """
         delimiters = [',', ';', '\t', '|', ':']
 
-        # Sample first few lines
-        lines = content.split('\n')[:5]
+        # Sample the first few lines. Split only at CSV line endings and drop blank
+        # rows: a trailing newline would otherwise add an empty sample line whose
+        # zero count breaks the consistency check below and silently falls back to
+        # a comma.
+        lines = [line for line in re.split(r'\r\n|\r|\n', content) if line.strip()][:5]
         if len(lines) < 2:
             return ','  # Default fallback
 

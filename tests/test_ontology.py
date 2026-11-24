@@ -457,7 +457,7 @@ class TestBurst20NewProjectManagementTypes:
         src/mcp_memory_service/models/ontology.py gains or loses a type.
         """
         all_types = get_all_types()
-        assert len(all_types) == 81, f"Expected 81 types, got {len(all_types)}"
+        assert len(all_types) == 82, f"Expected 82 types, got {len(all_types)}"
 
 
 class TestBurst21CustomMemoryTypeConfiguration:

@@ -1,0 +1,12 @@
+# DeepSeek Harness bundle: project memory context.
+#
+# Installed through DeepSeek Harness (Plugins -> Add plugin, or
+# `plugin_manager` install_bundle with this directory). The row below is the
+# bundle's own plugin; the endpoint and key can also come from the environment
+# of the DSH process.
+- insert:
+    - id: memory-service-hooks
+      name: '@doobidoo/mcp-memory-service-dsh'
+      config:
+        endpoint: !!js "process.env.MCP_MEMORY_API || 'http://127.0.0.1:8000'"
+        apiKey: !!js "process.env.MCP_API_KEY || ''"

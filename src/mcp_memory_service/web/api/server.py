@@ -18,6 +18,7 @@ Server management endpoints for the HTTP interface.
 Provides server status, version checking, updates, and restart capabilities.
 """
 
+import contextlib
 import os
 import sys
 import time
@@ -48,6 +49,11 @@ logger = logging.getLogger(__name__)
 
 # Constants
 RESTART_DELAY_SECONDS = 3
+# Exit code that tells the Windows wrapper (run_http_server_background.ps1) "relaunch me now";
+# keep in sync with $RestartExitCode there. 75 is sysexits' EX_TEMPFAIL, not used by Python or uv.
+SUPERVISED_RESTART_EXIT_CODE = 75
+# Set to "1" by the wrapper for the server it launches, so a restart can exit and let it relaunch.
+SUPERVISED_ENV_VAR = "MCP_WRAPPER_SUPERVISED"
 GIT_TIMEOUT_SECONDS = 30
 PIP_TIMEOUT_SECONDS = 300
 
@@ -285,6 +291,24 @@ def _get_restart_args() -> List[str]:
     return [sys.executable] + list(sys.argv)
 
 
+def _is_supervised() -> bool:
+    """True when the Windows wrapper launched this process and will relaunch it on exit."""
+    return os.environ.get(SUPERVISED_ENV_VAR) == "1"
+
+
+def _exit_process(code: int) -> None:
+    """End the process now.
+
+    sys.exit() inside a BackgroundTask only raises SystemExit, which Starlette
+    logs as an ASGI exception while the server keeps serving, so exit with
+    os._exit() after flushing what a buffered stdout would otherwise lose.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(OSError, ValueError):
+            stream.flush()
+    os._exit(code)
+
+
 async def _restart_server_delayed():
     """Restart the server after a delay to allow HTTP response to complete."""
     await asyncio.sleep(RESTART_DELAY_SECONDS)
@@ -294,25 +318,27 @@ async def _restart_server_delayed():
     args = _get_restart_args()
 
     try:
-        if sys.platform == 'win32':
-            # Windows: Start a new process, then exit
+        if sys.platform != 'win32':
+            # Linux/Mac: Replace process with execv
+            os.execv(sys.executable, args)
+        elif _is_supervised():
+            # Under the Windows wrapper: exit with the restart code; the wrapper
+            # relaunches once the port is free, so no unmanaged replacement.
+            _exit_process(SUPERVISED_RESTART_EXIT_CODE)
+        else:
+            # Windows, unsupervised: start a new process, then exit
             subprocess.Popen(
                 args,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
             )
-        else:
-            # Linux/Mac: Replace process with execv
-            os.execv(sys.executable, args)
-
-        # Exit current process (Windows only reaches here)
-        sys.exit(0)
+            _exit_process(0)
     except PermissionError:
         logger.error("Failed to restart server: insufficient permissions")
     except FileNotFoundError:
         logger.error("Failed to restart server: executable not found: %s", _sanitize_log_value(sys.executable))
     except Exception as e:
         logger.error("Failed to restart server: %s - %s", _sanitize_log_value(type(e).__name__), _sanitize_log_value(e))
-        sys.exit(1)
+        _exit_process(1)
 
 
 # Endpoints

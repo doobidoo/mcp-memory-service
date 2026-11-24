@@ -36,6 +36,9 @@ $PythonLogFile = Join-Path $LogDir "http-server-python.log"
 $PidFile = Join-Path $env:LOCALAPPDATA "mcp-memory\http-server.pid"
 $MaxRestarts = 3
 $RestartDelaySeconds = 60
+# Exit code the server uses to ask for an immediate relaunch (dashboard restart/update).
+# Keep in sync with SUPERVISED_RESTART_EXIT_CODE in src/mcp_memory_service/web/api/server.py.
+$RestartExitCode = 75
 
 # Ensure log directory exists
 if (-not (Test-Path $LogDir)) {
@@ -222,13 +225,29 @@ while ($RestartCount -lt $MaxRestarts) {
         # file. It avoids the .NET event handler runspace bug where
         # `$script:LogFile` was not captured, which silently dropped every
         # line of server output in the previous implementation.
-        $Process = Start-Process -FilePath $ExePath `
-            -ArgumentList $ExeArgs `
-            -WorkingDirectory $ProjectRoot `
-            -NoNewWindow `
-            -PassThru `
-            -RedirectStandardOutput $PythonLogFile `
-            -RedirectStandardError $PythonErrFile
+        #
+        # MCP_WRAPPER_SUPERVISED tells the server it runs under this wrapper, so a
+        # dashboard restart exits with $RestartExitCode and the loop below
+        # relaunches it instead of a replacement nobody supervises. It is set only
+        # around Start-Process (the child copies its environment at creation) and
+        # removed again, so it cannot outlive this script in a console that ran
+        # it in-process and then starts a server by hand.
+        $env:MCP_WRAPPER_SUPERVISED = "1"
+        try {
+            $Process = Start-Process -FilePath $ExePath `
+                -ArgumentList $ExeArgs `
+                -WorkingDirectory $ProjectRoot `
+                -NoNewWindow `
+                -PassThru `
+                -RedirectStandardOutput $PythonLogFile `
+                -RedirectStandardError $PythonErrFile
+        } finally {
+            Remove-Item Env:\MCP_WRAPPER_SUPERVISED -ErrorAction SilentlyContinue
+        }
+
+        # Windows PowerShell 5.1 leaves ExitCode $null for a -PassThru process
+        # unless its Handle was read while it was running. Touch it right away.
+        $null = $Process.Handle
 
         # Save PID
         Set-Content -Path $PidFile -Value $Process.Id
@@ -247,7 +266,7 @@ while ($RestartCount -lt $MaxRestarts) {
             Remove-Item $PythonErrFile -Force -ErrorAction SilentlyContinue
         }
 
-        Write-Log "Server exited with code $ExitCode" $(if ($ExitCode -eq 0) { "INFO" } else { "ERROR" })
+        Write-Log "Server exited with code $ExitCode" $(if (($ExitCode -eq 0) -or ($ExitCode -eq $RestartExitCode)) { "INFO" } else { "ERROR" })
 
         # Clean up PID file
         if (Test-Path $PidFile) {
@@ -258,6 +277,13 @@ while ($RestartCount -lt $MaxRestarts) {
         if ($ExitCode -eq 0) {
             Write-Log "Server stopped gracefully. Not restarting."
             break
+        }
+
+        # Restart requested by the server: relaunch now. This is not a crash, so
+        # it neither uses up a restart attempt nor waits $RestartDelaySeconds.
+        if ($ExitCode -eq $RestartExitCode) {
+            Write-Log "Server requested a restart (exit code $RestartExitCode). Restarting immediately."
+            continue
         }
 
     } catch {
