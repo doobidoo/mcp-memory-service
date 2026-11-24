@@ -56,16 +56,18 @@ logger = logging.getLogger(__name__)
 def _named_store_refused(storage, store: Optional[str], method: str) -> bool:
     """Whether a named-store read must be refused on the Milvus graph.
 
-    The association collection has no store field yet, so it cannot confine an
-    entity read to one partition. Refusing is the only honest answer: falling
-    through to the unscoped query would hand a store-scoped caller another
-    store's entities, which is the leak #2118 closes for SQLite. #2119 adds the
-    field, the filter and the real implementation.
+    A collection created before #2119 carries no ``store`` field and cannot
+    confine, so a named store is refused rather than served globally — falling
+    through would hand a store-scoped caller another store's entities. A
+    collection that has the field is filtered instead, see
+    ``MilvusGraphStorage._store_filter``.
 
     ``None`` and ``"all"`` are unscoped, as everywhere else. Warns once per
     instance rather than once per call.
     """
     if store in (None, "all"):
+        return False
+    if getattr(storage, "_has_store", False):
         return False
     if not getattr(storage, "_store_scope_warned", False):
         try:
@@ -153,9 +155,16 @@ class MilvusGraphStorage:
 
         self.uri = uri
         self.token = token
+        # The memory collection this graph belongs to. Edges are confined to a
+        # store through it (#2119), the way GraphStorage joins ``memories``.
+        self._memory_collection = collection_name
         self.collection_name = f"{collection_name}_graph"
         self.client: Optional[MilvusClient] = None
         self._lock = asyncio.Lock()
+        # Whether the association collection carries the ``store`` field. Set by
+        # _ensure_collection(); False until then, which keeps a named-store read
+        # failing closed on a collection that predates it.
+        self._has_store = False
 
         logger.info(
             "Initialized MilvusGraphStorage (uri=%s, collection=%s)",
@@ -181,6 +190,7 @@ class MilvusGraphStorage:
         assert self.client is not None
 
         if self.client.has_collection(collection_name=self.collection_name):
+            self._detect_store_field()
             logger.info(
                 "Reusing existing association collection '%s'",
                 self.collection_name,
@@ -230,6 +240,16 @@ class MilvusGraphStorage:
             field_name="created_at",
             datatype=DataType.DOUBLE,
         )
+        # The store an edge belongs to (#2119). Unlike SQLite, this collection is
+        # separate from the memories, so the store has to travel with the edge. A
+        # row written without the key lands in "default", like an unnamed store
+        # on the other backends.
+        schema.add_field(
+            field_name="store",
+            datatype=DataType.VARCHAR,
+            max_length=64,
+            default_value="default",
+        )
         # Zilliz Cloud / remote Milvus requires at least one vector field.
         # We add a 1-dim dummy vector that is never searched — only the
         # scalar indexes on source_hash / target_hash are used for queries.
@@ -244,6 +264,7 @@ class MilvusGraphStorage:
         # removed there and rejects collection creation outright.
         index_params.add_index(field_name="source_hash", index_type="INVERTED")
         index_params.add_index(field_name="target_hash", index_type="INVERTED")
+        index_params.add_index(field_name="store", index_type="INVERTED")
         index_params.add_index(
             field_name="_dummy_vec",
             index_type="AUTOINDEX",
@@ -255,12 +276,130 @@ class MilvusGraphStorage:
             schema=schema,
             index_params=index_params,
         )
+        self._has_store = True
         logger.info(
             "Created association collection '%s' with scalar indexes",
             self.collection_name,
         )
 
     # -- Helper --------------------------------------------------------------
+
+    def _detect_store_field(self) -> None:
+        """Record whether the existing collection carries the ``store`` field.
+
+        Collections created before #2119 have none. There is no in-place
+        migration on Milvus Lite (``add_collection_field`` answers
+        ``UNIMPLEMENTED``, the same finding as #1962 on the memory collection),
+        so a named-store read fails closed until the collection is recreated.
+        """
+        assert self.client is not None
+        try:
+            described = self.client.describe_collection(
+                collection_name=self.collection_name
+            )
+            fields = {field.get("name") for field in described.get("fields", [])}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not describe association collection '%s': %s; "
+                "named-store reads will be refused",
+                self.collection_name,
+                _sanitize_log_value(exc),
+            )
+            self._has_store = False
+            return
+
+        self._has_store = "store" in fields
+        if not self._has_store:
+            logger.warning(
+                "Association collection '%s' has no 'store' field (#2119); "
+                "named-store graph reads are refused until it is recreated",
+                self.collection_name,
+            )
+
+    def _store_filter(self, store: Optional[str]) -> Optional[str]:
+        """Milvus expression confining edges to ``store``, or None when unscoped."""
+        if store in (None, "all"):
+            return None
+        return f'store == "{escape_expr_value(store)}"'
+
+    def _scope_filter(
+        self, base: Optional[str], store: Optional[str]
+    ) -> Optional[str]:
+        """Combine a base expression with the store filter."""
+        store_filter = self._store_filter(store)
+        if not store_filter:
+            return base
+        return f"{base} and {store_filter}" if base else store_filter
+
+    async def _memory_store(self, memory_hash: str) -> Optional[str]:
+        """Store of ``memory_hash`` in the paired memory collection, or None.
+
+        Edges are confirmed through the memory that owns them, the same rule
+        ``GraphStorage`` applies by joining ``memories`` (#2118). A memory
+        collection that predates the ``store`` field (#1962) reports
+        ``"default"`` for every row it holds. ``None`` means the memory itself is
+        unknown, and callers refuse the write rather than stamping an edge into a
+        partition it does not belong to.
+        """
+        if not self._memory_collection:
+            return None
+        try:
+            rows = await self._call_client(
+                "get",
+                collection_name=self._memory_collection,
+                ids=[memory_hash],
+                output_fields=["store"],
+            )
+        except Exception:  # noqa: BLE001 - field absent on a pre-#1962 collection
+            try:
+                rows = await self._call_client(
+                    "get",
+                    collection_name=self._memory_collection,
+                    ids=[memory_hash],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "Failed to resolve the store of memory %s: %s",
+                    _sanitize_log_value(memory_hash),
+                    _sanitize_log_value(exc),
+                )
+                return None
+            return "default" if rows else None
+
+        if not rows:
+            return None
+        return rows[0].get("store") or "default"
+
+    async def _association_store(
+        self, source_hash: str, target_hash: str
+    ) -> Optional[str]:
+        """Store an association may be written to, or None to refuse it.
+
+        Both ends have to be memories of the same store: an edge bridging two
+        partitions would be reachable from either one, which is the read-side
+        rule #2121 enforces for SQLite. Only called when the collection carries
+        the field, so a legacy collection keeps writing edges as before.
+        """
+        source_store = await self._memory_store(source_hash)
+        target_store = await self._memory_store(target_hash)
+        if source_store is None or target_store is None:
+            logger.warning(
+                "Refusing association %s -> %s: a memory is unknown, so the "
+                "edge cannot be placed in a store (#2119)",
+                _sanitize_log_value(source_hash),
+                _sanitize_log_value(target_hash),
+            )
+            return None
+        if source_store != target_store:
+            logger.warning(
+                "Refusing cross-store association %s (%s) -> %s (%s) (#2119)",
+                _sanitize_log_value(source_hash),
+                _sanitize_log_value(source_store),
+                _sanitize_log_value(target_hash),
+                _sanitize_log_value(target_store),
+            )
+            return None
+        return source_store
 
     def _ensure_ready(self) -> bool:
         """Return True if the client is connected, False otherwise."""
@@ -361,6 +500,12 @@ class MilvusGraphStorage:
             return False
 
         try:
+            store: Optional[str] = None
+            if self._has_store:
+                store = await self._association_store(source_hash, target_hash)
+                if store is None:
+                    return False
+
             if created_at is None:
                 created_at = datetime.now(timezone.utc).timestamp()
             ct_json = json.dumps(connection_types)
@@ -379,6 +524,8 @@ class MilvusGraphStorage:
                     "_dummy_vec": _DUMMY_VEC_VALUE,
                 }
             ]
+            if store is not None:
+                rows[0]["store"] = store
 
             if is_symmetric_relationship(relationship_type):
                 rows.append(
@@ -394,6 +541,8 @@ class MilvusGraphStorage:
                         "_dummy_vec": _DUMMY_VEC_VALUE,
                     }
                 )
+                if store is not None:
+                    rows[1]["store"] = store
                 logger.debug(
                     "Storing bidirectional association: %s ↔ %s (type: %s)",
                     source_hash, target_hash, relationship_type,
@@ -458,6 +607,7 @@ class MilvusGraphStorage:
         self,
         hashes: Set[str],
         relationship_types: Optional[List[str]] = None,
+        store: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Query edges where source OR target IN ``hashes`` (single round-trip)."""
         if not hashes:
@@ -480,6 +630,9 @@ class MilvusGraphStorage:
                 )
                 rt_filter = f'relationship_type in [{safe_rts}]'
             expr = f'({expr}) and {rt_filter}'
+        scope = self._scope_filter(None, store)
+        if scope:
+            expr = f'({expr}) and {scope}'
 
         try:
             return await self._drain_edges(
@@ -1072,6 +1225,17 @@ class MilvusGraphStorage:
         if not memory_hash or not entity_name:
             return False
 
+        store: Optional[str] = None
+        if self._has_store:
+            store = await self._memory_store(memory_hash)
+            if store is None:
+                logger.warning(
+                    "Refusing entity link for unknown memory %s: the edge "
+                    "cannot be placed in a store (#2119)",
+                    _sanitize_log_value(memory_hash),
+                )
+                return False
+
         try:
             target = _entity_key(entity_name)
             row = {
@@ -1087,6 +1251,8 @@ class MilvusGraphStorage:
                 "created_at": datetime.now(timezone.utc).timestamp(),
                 "_dummy_vec": _DUMMY_VEC_VALUE,
             }
+            if store is not None:
+                row["store"] = store
             await self._call_client(
                 "upsert",
                 collection_name=self.collection_name,
@@ -1105,8 +1271,7 @@ class MilvusGraphStorage:
         Milvus has no GROUP BY, so the has_entity edges are drained and
         aggregated in Python — the same shape GraphStorage returns via SQL.
 
-        ``store`` is accepted for parity with GraphStorage (#2118) and refused
-        with an empty result until #2119 teaches this backend the field.
+        ``store`` counts only the links that store's memories made (#2119).
         """
         if _named_store_refused(self, store, "list_entities"):
             return []
@@ -1114,7 +1279,9 @@ class MilvusGraphStorage:
         if not self._ensure_ready():
             return []
 
-        rows = await self._query_entity_edges()
+        rows = await self._query_entity_edges(
+            extra_filter=self._scope_filter(None, store)
+        )
         if not rows:
             return []
 
@@ -1146,8 +1313,8 @@ class MilvusGraphStorage:
     ) -> List[str]:
         """Find memory hashes linked to a given entity name, newest first.
 
-        ``store`` is accepted for parity with GraphStorage (#2118) and refused
-        with an empty result until #2119 teaches this backend the field.
+        ``store`` confines the lookup to links that store's memories made
+        (#2119); ``None`` and ``"all"`` stay global.
         """
         if _named_store_refused(self, store, "find_memories_by_entity"):
             return []
@@ -1160,7 +1327,7 @@ class MilvusGraphStorage:
 
         key = _entity_key(entity_name)
         rows = await self._query_entity_edges(
-            extra_filter=f'target_hash == "{key}"',
+            extra_filter=self._scope_filter(f'target_hash == "{key}"', store),
             output_fields=["source_hash", "created_at"],
         )
         rows.sort(key=lambda r: float(r.get("created_at") or 0.0), reverse=True)
@@ -1171,8 +1338,8 @@ class MilvusGraphStorage:
     ) -> List[str]:
         """Get entity names linked to a memory hash.
 
-        ``store`` is accepted for parity with GraphStorage (#2118) and refused
-        with an empty result until #2119 teaches this backend the field.
+        ``store`` confines the answer to links the memory's own store carries
+        (#2119), so a hash from another partition reports no entities.
         """
         if _named_store_refused(self, store, "get_entities_for_memory"):
             return []
@@ -1185,7 +1352,7 @@ class MilvusGraphStorage:
 
         h_esc = escape_expr_value(memory_hash)
         rows = await self._query_entity_edges(
-            extra_filter=f'source_hash == "{h_esc}"',
+            extra_filter=self._scope_filter(f'source_hash == "{h_esc}"', store),
             output_fields=["metadata"],
         )
         names = [self._entity_name_from_row(r) for r in rows]
@@ -1196,8 +1363,8 @@ class MilvusGraphStorage:
     ) -> Dict[str, Any]:
         """Get entity profile: memory count, entity types, last activity.
 
-        ``store`` is accepted for parity with GraphStorage (#2118) and refused
-        with an empty result until #2119 teaches this backend the field.
+        ``store`` reports this store's view of the entity (#2119); a name that
+        only exists in another partition comes back empty.
         """
         if _named_store_refused(self, store, "get_entity_profile"):
             return {}
@@ -1210,7 +1377,7 @@ class MilvusGraphStorage:
 
         key = _entity_key(entity_name)
         rows = await self._query_entity_edges(
-            extra_filter=f'target_hash == "{key}"',
+            extra_filter=self._scope_filter(f'target_hash == "{key}"', store),
             output_fields=["metadata", "created_at"],
         )
         if not rows:
@@ -1340,8 +1507,8 @@ class MilvusGraphStorage:
         10 candidates, excluding the source itself and anything already
         directly connected — matching GraphStorage's self-join query.
 
-        ``store`` is accepted for parity with GraphStorage (#2118) and refused
-        with an empty result until #2119 teaches this backend the field.
+        ``store`` confines both hops, so a named store never reaches a candidate
+        through another partition's memory (#2119).
         """
         if _named_store_refused(self, store, "common_neighbors"):
             return []
@@ -1353,7 +1520,7 @@ class MilvusGraphStorage:
             return []
 
         # 1-hop: every direct neighbour, in either direction.
-        own_edges = await self._query_edges_both({memory_hash})
+        own_edges = await self._query_edges_both({memory_hash}, store=store)
         neighbors = self._neighbors_of(own_edges, memory_hash)
 
         source_degree = len(neighbors)
@@ -1366,7 +1533,7 @@ class MilvusGraphStorage:
 
         # 2-hop: neighbours of neighbours, counted with multiplicity so the
         # shared_count matches the SQL COUNT(*) over the join.
-        second = await self._query_edges_both(neighbor_set)
+        second = await self._query_edges_both(neighbor_set, store=store)
         counts = self._count_second_hop(second, neighbor_counts, memory_hash)
 
         candidates = [
