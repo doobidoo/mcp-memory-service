@@ -17,6 +17,7 @@ hidden") promise the column behaviour, so these assert the promise.
 import os
 import shutil
 import tempfile
+import time
 
 import pytest
 import pytest_asyncio
@@ -172,3 +173,163 @@ async def test_second_update_of_already_superseded_old_is_refused(storage):
     assert ok2 is False, "updating an already-superseded row must be refused, not forked"
     # ...and the original forward link is untouched (still points to h2, not overwritten).
     assert _columns(storage, old)["superseded_by"] == h2
+
+
+
+@pytest.mark.asyncio
+async def test_repeated_content_creates_linked_versions_with_monotonic_numbers(storage):
+    """A→B→A→B keeps four distinct rows and a monotonic history."""
+    original = "Restore cycle original content."
+    edited = "Restore cycle edited content."
+    h1 = await _store(storage, original)
+    ok2, _, h2 = await storage.update_memory_versioned(h1, edited)
+    ok3, _, repeated_h1 = await storage.update_memory_versioned(h2, original)
+    ok4, _, repeated_h2 = await storage.update_memory_versioned(repeated_h1, edited)
+
+    assert ok2 and ok3 and ok4
+    hashes = [h1, h2, repeated_h1, repeated_h2]
+    assert len(set(hashes)) == 4
+    assert storage.conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 4
+    history = await storage.get_memory_history(h1)
+    assert [row["content_hash"] for row in history] == hashes
+    assert [row["version"] for row in history] == [1, 2, 3, 4]
+    assert [row["active"] for row in history] == [False, False, False, True]
+    for previous, current in zip(history, history[1:]):
+        assert current["parent_id"] == previous["content_hash"]
+        assert previous["superseded_by"] == current["content_hash"]
+
+
+@pytest.mark.asyncio
+async def test_repeated_middle_content_appends_to_three_version_lineage(storage):
+    """Repeating B from C appends v4 instead of reactivating B as v2."""
+    contents = ["Three-version A.", "Three-version B.", "Three-version C."]
+    h1 = await _store(storage, contents[0])
+    _, _, h2 = await storage.update_memory_versioned(h1, contents[1])
+    _, _, h3 = await storage.update_memory_versioned(h2, contents[2])
+
+    ok, message, repeated = await storage.update_memory_versioned(h3, contents[1])
+
+    assert ok, message
+    assert repeated not in {h1, h2, h3}
+    history = await storage.get_memory_history(h1)
+    assert [row["content_hash"] for row in history] == [h1, h2, h3, repeated]
+    assert [row["version"] for row in history] == [1, 2, 3, 4]
+    assert [row["active"] for row in history] == [False, False, False, True]
+    assert history[-1]["parent_id"] == h3
+    assert history[-2]["superseded_by"] == repeated
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_rejects_hash_from_unrelated_memory(storage):
+    """Exact dedup still applies when the matching row is outside this history."""
+    current = await _store(storage, "Current memory with unrelated duplicate guard.")
+    other = await _store(storage, "Independent memory with unrelated duplicate guard.")
+
+    ok, message, restored = await storage.update_memory_versioned(
+        current, "Independent memory with unrelated duplicate guard."
+    )
+
+    assert not ok
+    assert restored is None
+    assert "Duplicate content" in message
+    assert _columns(storage, current)["superseded_by"] is None
+    assert _columns(storage, other)["superseded_by"] is None
+
+
+
+@pytest.mark.asyncio
+async def test_same_hash_capitalization_change_is_saved_as_a_new_version(storage):
+    """Normalized-hash collisions must not report success without saving the text."""
+    original = "hello"
+    h1 = await _store(storage, original)
+
+    ok, message, h2 = await storage.update_memory_versioned(h1, "Hello")
+
+    assert ok, message
+    assert h2 != h1
+    assert (await storage.get_by_hash(h2)).content == "Hello"
+    assert (await storage.get_by_hash(h1)).content == "hello"
+    assert _columns(storage, h1)["superseded_by"] == h2
+    assert _columns(storage, h2) == {
+        "superseded_by": None,
+        "parent_id": h1,
+        "version": 2,
+    }
+
+
+
+@pytest.mark.asyncio
+async def test_repeated_content_preserves_point_in_time_visibility(storage):
+    """A repeated version must not appear before it was actually created."""
+    original = "Point-in-time original content."
+    edited = "Point-in-time edited content."
+    h1 = await _store(storage, original)
+    _, _, h2 = await storage.update_memory_versioned(h1, edited)
+    before_repeat = time.time()
+    time.sleep(0.01)
+
+    ok, message, repeated = await storage.update_memory_versioned(h2, original)
+
+    assert ok, message
+    historical = await storage.retrieve("Point-in-time", n_results=10, as_of=before_repeat)
+    assert {result.memory.content_hash for result in historical} == {h2}
+    current = await storage.retrieve("Point-in-time", n_results=10)
+    assert {result.memory.content_hash for result in current} == {repeated}
+    superseded_at = storage.conn.execute(
+        "SELECT superseded_at FROM memories WHERE content_hash = ?", (h1,)
+    ).fetchone()[0]
+    assert superseded_at is not None
+
+
+@pytest.mark.asyncio
+async def test_repeated_content_runs_conflict_checks_excluding_replaced_version(
+    storage, monkeypatch
+):
+    """The normal store conflict path runs for repeated content."""
+    original = "Conflict check original content."
+    edited = "Conflict check edited content."
+    independent = "Conflict check independent content."
+    h1 = await _store(storage, original)
+    _, _, h2 = await storage.update_memory_versioned(h1, edited)
+    independent_hash = await _store(storage, independent)
+    calls = []
+
+    def conflicts(new_hash, new_content, embedding, exclude_hash=None, store=None):
+        calls.append((new_hash, exclude_hash))
+        return [{
+            "existing_hash": independent_hash,
+            "existing_content": independent,
+            "similarity": 0.99,
+            "divergence": 0.5,
+        }]
+
+    monkeypatch.setattr(storage, "_detect_conflicts", conflicts)
+    ok, message, repeated = await storage.update_memory_versioned(h2, original)
+
+    assert ok, message
+    assert calls == [(repeated, h2)]
+    assert "conflict:unresolved" in (await storage.get_by_hash(repeated)).tags
+    assert "conflict:unresolved" in (await storage.get_by_hash(independent_hash)).tags
+
+
+@pytest.mark.asyncio
+async def test_deleted_family_member_does_not_affect_hash_selection(storage):
+    """A deleted ancestor must not re-enter the family in the final query."""
+    contents = ["Deleted family A.", "Deleted family B.", "Deleted family C."]
+    h1 = await _store(storage, contents[0])
+    _, _, h2 = await storage.update_memory_versioned(h1, contents[1])
+    _, _, h3 = await storage.update_memory_versioned(h2, contents[2])
+    storage.conn.execute(
+        "UPDATE memories SET deleted_at = ? WHERE content_hash = ?",
+        (time.time(), h2),
+    )
+    storage.conn.commit()
+
+    assert storage._version_family_members(h3) == [(h3, 3)]
+    repeated = Memory(
+        content=contents[1],
+        content_hash=generate_content_hash(contents[1]),
+        tags=["__test__"],
+    )
+    assert storage._prepare_versioned_update(h3, 3, repeated) == 4
+    assert repeated.content_hash == generate_content_hash(contents[1])
