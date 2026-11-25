@@ -2825,11 +2825,13 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._has_store:
             return ["default"]
         try:
-            rows = await self._drain_rows("", ["store"])
+            rows = await self._drain_rows("", self._row_fields(("id", "metadata")))
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_stores failed: %s", _sanitize_log_value(exc))
             return ["default"]
-        stores = {self._row_store(row) for row in rows}
+        # Tombstoned rows carry no live memory, so their store is not populated
+        # (review on #2133). _row_is_live reads the metadata tombstone.
+        stores = {self._row_store(row) for row in rows if self._row_is_live(row)}
         return sorted(stores) if stores else ["default"]
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:

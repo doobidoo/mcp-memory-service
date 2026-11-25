@@ -287,10 +287,25 @@ class TestReviewFollowUps:
         """The exporter walks this list; the base ["default"] would skip named stores."""
         storage = _make_storage()
         storage._drain_rows = AsyncMock(
-            return_value=[{"store": STORE}, {"store": OTHER}, {"store": STORE}]
+            return_value=[
+                {"store": STORE, "metadata": "{}"},
+                {"store": OTHER, "metadata": "{}"},
+                {"store": STORE, "metadata": "{}"},
+            ]
         )
 
         assert await storage.get_stores() == [STORE, OTHER]
+
+    async def test_get_stores_skips_a_fully_tombstoned_store(self):
+        storage = _make_storage()
+        storage._drain_rows = AsyncMock(
+            return_value=[
+                {"store": STORE, "metadata": "{}"},
+                {"store": OTHER, "metadata": '{"deleted_at": 1.0}'},
+            ]
+        )
+
+        assert await storage.get_stores() == [STORE]
 
     async def test_get_stores_falls_back_to_default_on_a_legacy_collection(self):
         storage = _make_storage(has_store=False)
