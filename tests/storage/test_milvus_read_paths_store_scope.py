@@ -359,3 +359,40 @@ class TestTombstonesAreNotListed:
         ])
 
         assert await storage.get_memory_timestamps() == [2.0]
+
+    async def test_count_subtracts_tombstoned_rows(self):
+        """`memory_list` pairs this total with a listing that drops tombstones."""
+        storage = _make_storage()
+        storage._call_client = AsyncMock(return_value=[{"count(*)": 2}])
+        storage._drain_rows = AsyncMock(return_value=[
+            {"id": "h2", "metadata": '{"deleted_at": 1.0}'},
+            # Mentions the key without being deleted: must not be subtracted.
+            {"id": "h3", "metadata": '{"deleted_at": null}'},
+        ])
+
+        assert await storage.count_all_memories(store=STORE) == 1
+        narrowed = _captured_filter(storage._drain_rows.call_args)
+        assert 'metadata like "%deleted_at%"' in narrowed
+        assert f'store == "{STORE}"' in narrowed
+
+    async def test_count_without_superseded_skips_tombstoned_rows(self):
+        storage = _make_storage()
+        storage._drain_rows = AsyncMock(return_value=[
+            {"id": "h1", "metadata": "{}"},
+            {"id": "h2", "metadata": '{"deleted_at": 1.0}'},
+            {"id": "h3", "metadata": '{"superseded_by": "h1"}'},
+        ])
+
+        assert await storage.count_all_memories(include_superseded=False) == 1
+
+    async def test_rebuild_listing_skips_tombstoned_rows(self):
+        """The entity rebuild compares this list against `count_all_memories`."""
+        storage = _make_storage()
+        storage._iterate_all_rows = AsyncMock(return_value=[
+            {"id": "h1", "content": "live", "metadata": "{}", "store": STORE},
+            {"id": "h2", "content": "dead", "metadata": '{"deleted_at": 1.0}', "store": STORE},
+        ])
+
+        pairs = await storage.get_all_memories_with_store()
+
+        assert [(m.content_hash, store) for m, store in pairs] == [("h1", STORE)]

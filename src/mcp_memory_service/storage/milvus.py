@@ -4021,7 +4021,8 @@ class MilvusMemoryStorage(MemoryStorage):
                 filter=tag_filter,
                 output_fields=["count(*)"],
             )
-            return self._extract_count(rows)
+            # The paged tag listing drops tombstones, so its total does too.
+            return self._extract_count(rows) - await self._count_tombstones(tag_filter)
         except Exception as exc:  # noqa: BLE001
             logger.error("count_memories_by_tag failed: %s", _sanitize_log_value(exc))
             return 0
@@ -4246,7 +4247,7 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return {"error": "Milvus storage not initialized"}
 
-        week_ago = time.time() - 7 * 24 * 60 * 60
+        recent_filter = f"created_at >= {time.time() - 7 * 24 * 60 * 60}"
 
         try:
             total_rows = await self._call_client(
@@ -4258,11 +4259,12 @@ class MilvusMemoryStorage(MemoryStorage):
             recent_rows = await self._call_client(
                 "query",
                 collection_name=self.collection_name,
-                filter=f"created_at >= {week_ago}",
+                filter=recent_filter,
                 output_fields=["count(*)"],
             )
-            total = self._extract_count(total_rows)
-            recent = self._extract_count(recent_rows)
+            # Live rows only, like the listings these totals are shown with.
+            total = self._extract_count(total_rows) - await self._count_tombstones("")
+            recent = self._extract_count(recent_rows) - await self._count_tombstones(recent_filter)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Milvus stats query failed: %s", _sanitize_log_value(exc))
             total = recent = 0
@@ -4846,13 +4848,16 @@ class MilvusMemoryStorage(MemoryStorage):
         list against ``count_all_memories`` and attributes every pair from that
         same list (#2123). Rows of a collection without the field, and rows
         written without the key, report ``"default"``, as :meth:`_row_store`
-        does everywhere else.
+        does everywhere else. Tombstoned rows are left out, as they are from
+        that count.
         """
         if not self._ensure_initialized():
             return []
         rows = await self._iterate_all_rows("", with_store=True)
         pairs: List[Tuple[Memory, str]] = []
         for row in rows:
+            if not self._row_is_live(row):
+                continue
             mem = self._entity_to_memory(row)
             if mem is not None:
                 pairs.append((mem, self._row_store(row)))
@@ -4873,7 +4878,8 @@ class MilvusMemoryStorage(MemoryStorage):
 
         ``include_superseded=False`` leaves out versions replaced by a newer
         one, matching ``get_all_memories`` so ``memory_list`` totals and
-        ``has_more`` agree with its pages (#1803, #1824).
+        ``has_more`` agree with its pages (#1803, #1824). Tombstoned rows are
+        left out for the same reason: the listings drop them.
         Destructive maintenance propagates count errors via its read policy.
         """
         if agent_id is not None:
@@ -4922,7 +4928,10 @@ class MilvusMemoryStorage(MemoryStorage):
                 if should_raise_read_error():
                     raise
                 return 0
-            return sum(1 for row in rows if not self._row_is_superseded(row))
+            return sum(
+                1 for row in rows
+                if self._row_is_live(row) and not self._row_is_superseded(row)
+            )
 
         try:
             rows = await self._call_client(
@@ -4931,7 +4940,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 filter=filter_expr,
                 output_fields=["count(*)"],
             )
-            return self._extract_count(rows)
+            return self._extract_count(rows) - await self._count_tombstones(filter_expr)
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
             if should_raise_read_error():
@@ -4944,56 +4953,68 @@ class MilvusMemoryStorage(MemoryStorage):
         metadata = _safe_json_loads(row.get("metadata", ""), "milvus_superseded_row")
         return bool(metadata.get("superseded_by"))
 
-    async def _count_stale_memories(
-        self, base_filter: str, stale_days: int, drop_superseded: bool = False,
-    ) -> int:
-        """Count memories not accessed in the last ``stale_days`` days.
+    async def _count_tombstones(self, filter_expr: str) -> int:
+        """Rows under ``filter_expr`` that carry a soft-delete tombstone.
 
-        Cross-references the ``_access`` side-collection to determine which
-        memories are stale. Memories without an access record fall back to
-        ``created_at`` for staleness determination.
+        ``count(*)`` cannot look inside the metadata JSON, so the count read
+        subtracts these. The ``like`` only narrows the scan to rows that mention
+        the key at all; :meth:`_row_is_live` then decides, so a stored
+        ``"deleted_at": null`` is not taken for a tombstone.
+        """
+        rows = await self._drain_rows(
+            self._combine_filter(filter_expr, 'metadata like "%deleted_at%"'),
+            ["id", "metadata"],
+        )
+        return sum(1 for row in rows if not self._row_is_live(row))
 
-        Uses QueryIterator for both queries to handle arbitrarily large
-        collections without hitting the single-query limit cap.
+    async def _drain_stale_rows(
+        self, base_filter: str, stale_days: int, drop_superseded: bool,
+    ) -> List[Dict[str, Any]]:
+        """Live rows under ``base_filter`` not accessed in ``stale_days`` days.
+
+        Cross-references the ``_access`` side-collection; a memory without an
+        access record falls back to ``created_at``. Both scans use QueryIterator,
+        so neither is cut at the single-query limit cap.
+
+        The stale count and the stale listing both read through here, so a total
+        and its pages share one definition. Tombstoned and, when asked,
+        superseded rows are dropped before a caller slices, so neither can take
+        a page slot (#2133 review).
         """
         threshold = time.time() - stale_days * 86400
 
         # Drain both collections under a single lock acquisition to avoid deadlock
-        try:
-            async with self._write_lock:
-                if self.client is None:
-                    return 0
-                all_rows = await asyncio.to_thread(
-                    self._drain_main_ids_and_created_at, base_filter, drop_superseded,
+        async with self._write_lock:
+            if self.client is None:
+                return []
+            all_rows = await asyncio.to_thread(
+                self._drain_main_ids_and_created_at, base_filter, True,
+            )
+            active_rows: List[Dict[str, Any]] = []
+            if self._has_access_collection:
+                active_rows = await asyncio.to_thread(
+                    self._drain_active_hashes, threshold,
                 )
-                if drop_superseded:
-                    all_rows = [r for r in all_rows if not self._row_is_superseded(r)]
-                active_rows: List[Dict[str, Any]] = []
-                if self._has_access_collection:
-                    active_rows = await asyncio.to_thread(
-                        self._drain_active_hashes, threshold,
-                    )
+
+        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
+        return [
+            row for row in all_rows
+            if row.get("id")
+            and row["id"] not in active_hashes
+            and row.get("created_at", 0) < threshold
+            and self._row_is_live(row)
+            and not (drop_superseded and self._row_is_superseded(row))
+        ]
+
+    async def _count_stale_memories(
+        self, base_filter: str, stale_days: int, drop_superseded: bool = False,
+    ) -> int:
+        """Count memories not accessed in the last ``stale_days`` days."""
+        try:
+            return len(await self._drain_stale_rows(base_filter, stale_days, drop_superseded))
         except Exception as exc:  # noqa: BLE001
             logger.warning("_count_stale_memories failed: %s", _sanitize_log_value(exc))
             return 0
-
-        if not all_rows:
-            return 0
-
-        # Build active hash set
-        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
-
-        # Count stale: not in active set AND created_at < threshold
-        stale_count = 0
-        for row in all_rows:
-            rid = row.get("id")
-            if rid and rid not in active_hashes:
-                # Not recently accessed — check created_at as fallback
-                created_at = row.get("created_at", 0)
-                if created_at < threshold:
-                    stale_count += 1
-
-        return stale_count
 
     async def _get_stale_memories(
         self,
@@ -5007,44 +5028,15 @@ class MilvusMemoryStorage(MemoryStorage):
     ) -> List[Memory]:
         """Return memories not accessed in the last ``stale_days`` days.
 
-        Mirrors the cross-collection logic in ``_count_stale_memories`` but
-        returns full Memory objects instead of a count.  Pagination
-        (limit/offset) is applied *after* staleness filtering.
+        Reads the same rows as ``_count_stale_memories`` but returns full
+        Memory objects instead of a count.  Pagination (limit/offset) is
+        applied *after* the staleness and live-row filtering.
         """
-        threshold = time.time() - stale_days * 86400
-
-        # Determine stale content_hashes via _access side-collection
         try:
-            async with self._write_lock:
-                if self.client is None:
-                    return []
-                all_rows = await asyncio.to_thread(
-                    self._drain_main_ids_and_created_at, base_filter, drop_superseded,
-                )
-                if drop_superseded:
-                    all_rows = [r for r in all_rows if not self._row_is_superseded(r)]
-                active_rows: List[Dict[str, Any]] = []
-                if self._has_access_collection:
-                    active_rows = await asyncio.to_thread(
-                        self._drain_active_hashes, threshold,
-                    )
+            stale_rows = await self._drain_stale_rows(base_filter, stale_days, drop_superseded)
         except Exception as exc:  # noqa: BLE001
             logger.warning("_get_stale_memories failed: %s", _sanitize_log_value(exc))
             return []
-
-        if not all_rows:
-            return []
-
-        active_hashes = {row.get("id") for row in active_rows if row.get("id")}
-
-        # Collect stale hashes (not recently accessed AND created_at < threshold)
-        stale_rows: List[Dict[str, Any]] = []
-        for row in all_rows:
-            rid = row.get("id")
-            if rid and rid not in active_hashes:
-                created_at = row.get("created_at", 0)
-                if created_at < threshold:
-                    stale_rows.append(row)
 
         if not stale_rows:
             return []

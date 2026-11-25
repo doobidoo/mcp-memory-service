@@ -110,3 +110,33 @@ async def test_live_memory_is_visible_and_not_deleted(storage):
 @pytest.mark.asyncio
 async def test_is_deleted_false_for_absent_memory(storage):
     assert (await storage.is_deleted(generate_content_hash("never stored"))) is False
+
+
+@pytest.mark.asyncio
+async def test_count_and_listing_agree_once_a_memory_is_tombstoned(storage):
+    """`memory_list` shows a page next to this total, so both drop the tombstone.
+
+    Runs against a real collection because the count narrows its tombstone scan
+    with a ``like`` on the metadata string, which a mocked client cannot vouch
+    for (#2133 review).
+    """
+    kept = await _store_live(storage, "a memory that stays")
+    gone = await _store_live(storage, "a memory that gets tombstoned")
+    ok, msg = await storage.update_memory_metadata(
+        gone, {"metadata": {"deleted_at": time.time()}}
+    )
+    assert ok, msg
+
+    listed = await storage.get_all_memories(limit=None)
+
+    assert [m.content_hash for m in listed] == [kept]
+    assert await storage.count_all_memories() == 1
+    assert await storage.count_all_memories(include_superseded=False) == 1
+    assert await storage.count_all_memories(memory_type="note", tags=["t"]) == 1
+    assert [m.content_hash for m, _ in await storage.get_all_memories_with_store()] == [kept]
+    # The tag total sits next to the paged tag listing, the stats total next to
+    # the dashboard's list: neither may count the tombstone either.
+    assert [m.content_hash for m in await storage.search_by_tags(["t"])] == [kept]
+    assert await storage.count_memories_by_tag(["t"]) == 1
+    stats = await storage.get_stats()
+    assert (stats["total_memories"], stats["memories_this_week"]) == (1, 1)
