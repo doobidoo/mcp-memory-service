@@ -208,6 +208,11 @@ class MilvusMemoryStorage(MemoryStorage):
     # A named-store call against a legacy collection is refused with one
     # warning per instance, not one per call.
     _legacy_store_warned = False
+    # Whether the paired graph collection carries ``store`` (#2119). None until
+    # probed. Every read path confines now, and a legacy collection refuses a
+    # named store, so the flag can be claimed (#1958).
+    _graph_has_store: Optional[bool] = None
+    get_by_hash_is_store_scoped = True
 
     @property
     def max_content_length(self) -> Optional[int]:
@@ -881,6 +886,44 @@ class MilvusMemoryStorage(MemoryStorage):
                 self.collection_name, _sanitize_log_value(store),
             )
         return True, None
+
+    async def _graph_collection_has_store(self) -> bool:
+        """Whether ``{collection}_graph`` carries the ``store`` field (#2119).
+
+        Probed once. A graph collection created before #2119 has none, so an
+        edge cannot be attributed to a partition and a named-store graph view
+        fails closed rather than showing every one.
+        """
+        if self._graph_has_store is not None:
+            return self._graph_has_store
+        graph_collection = f"{self.collection_name}_graph"
+        try:
+            described = await self._call_client(
+                "describe_collection", collection_name=graph_collection
+            )
+            fields = {field.get("name") for field in described.get("fields", [])}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not describe graph collection '%s': %s",
+                _sanitize_log_value(graph_collection),
+                _sanitize_log_value(exc),
+            )
+            return False
+        self._graph_has_store = "store" in fields
+        if not self._graph_has_store:
+            logger.warning(
+                "Graph collection '%s' has no 'store' field; a store-scoped "
+                "graph view is refused until it is recreated (#2123).",
+                _sanitize_log_value(graph_collection),
+            )
+        return self._graph_has_store
+
+    @staticmethod
+    def _store_filter(confine_to: Optional[str]) -> Optional[str]:
+        """``store == "<name>"`` for a confined read, or None when unscoped (#1958)."""
+        if confine_to is None:
+            return None
+        return f'store == "{escape_expr_value(confine_to)}"'
 
     def _row_fields(self, base: Tuple[str, ...]) -> List[str]:
         """``base`` plus ``store`` when the collection has it."""
@@ -2300,9 +2343,14 @@ class MilvusMemoryStorage(MemoryStorage):
         if query_embedding is None:
             return []
 
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+
         tag_filter, ok = self._build_tag_filter(tags)
         if not ok:
             return []
+        tag_filter = self._combine_filter(tag_filter, self._store_filter(confine_to))
 
         fetch_n = self._retrieve_fetch_limit(n_results, tag_filter)
         if self._has_bm25:
@@ -2511,11 +2559,18 @@ class MilvusMemoryStorage(MemoryStorage):
         if not tags:
             return 0, "No tags provided", []
 
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return 0, f"Store-scoped delete is not supported by this collection", []
+
         tag_filter, matched = self._tag_like_clauses(tags, joiner="or")
         if not matched:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
-        hashes = await self._collect_hashes(tag_filter, any_of_tags=tags)
+        hashes = await self._collect_hashes(
+            self._combine_filter(tag_filter, self._store_filter(confine_to)),
+            any_of_tags=tags,
+        )
         if not hashes:
             return 0, f"No memories found matching any of the {len(tags)} tags", []
 
@@ -2729,7 +2784,12 @@ class MilvusMemoryStorage(MemoryStorage):
         if not needle:
             return []
         safe = escape_expr_value(needle)
-        filter_expr = f'content_lower like "%{safe}%"'
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+        filter_expr = self._combine_filter(
+            f'content_lower like "%{safe}%"', self._store_filter(confine_to)
+        )
         return await self._query_memories(
             filter_expr=filter_expr,
             limit=None,
@@ -3456,6 +3516,383 @@ class MilvusMemoryStorage(MemoryStorage):
         results = await self.retrieve(query, n_results)
         return [r.memory for r in results]
 
+    # -- search_memories building blocks (#1958 split) -----------------------
+    #
+    # The search entry point used to hold validation, time parsing, filter
+    # building, three execution modes and the response construction in one
+    # 277-line body. It exceeded the complexity budget, which blocked the store
+    # confinement (#1958) that had to be added inside it. Each block below is
+    # one of those steps; behaviour is unchanged.
+
+    @staticmethod
+    def _validate_search_call(
+        agent_id: Optional[str], mode: str, quality_boost: float
+    ) -> Optional[str]:
+        """Reject a call the backend cannot serve, before touching storage."""
+        if agent_id is not None:
+            return (
+                "agent_id filtering is not implemented for the Milvus backend "
+                "(sqlite-vec only in this phase). See PR #1297."
+            )
+        if mode not in ("semantic", "exact", "hybrid", "ranked"):
+            return (
+                f"Invalid mode: {mode}. Must be 'semantic', 'exact', 'hybrid', "
+                f"or 'ranked'"
+            )
+        if not 0.0 <= quality_boost <= 1.0:
+            return f"Invalid quality_boost: {quality_boost}"
+        return None
+
+    @staticmethod
+    def _search_time_window(
+        time_expr: Optional[str],
+        after: Optional[str],
+        before: Optional[str],
+    ) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+        """Resolve ``time_expr`` or the ``after``/``before`` bounds.
+
+        Returns ``(start, end, error)``. An unparseable ``time_expr`` is ignored
+        with a warning, as before; a bad ``after``/``before`` fails the call.
+        """
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+
+        if time_expr:
+            try:
+                from ..utils.time_parser import parse_time_expression
+                start_time, end_time = parse_time_expression(time_expr)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to parse time_expr '%s', ignoring time filter: %s",
+                    _sanitize_log_value(time_expr), _sanitize_log_value(exc),
+                )
+            return start_time, end_time, None
+
+        if after:
+            try:
+                from ..utils.time_parser import parse_boundary  # inline import
+                start_time = parse_boundary(after)
+            except ValueError:
+                return None, None, f"Invalid after date: {after}"
+        if before:
+            try:
+                from ..utils.time_parser import parse_boundary  # inline import
+                end_time = parse_boundary(before)
+            except ValueError:
+                return None, None, f"Invalid before date: {before}"
+        return start_time, end_time, None
+
+    @staticmethod
+    def _search_as_of(as_of: Optional[str]) -> Tuple[Optional[float], Optional[str]]:
+        """Point-in-time bound (#1724). An invalid value fails the call."""
+        if as_of is None:
+            return None, None
+        try:
+            from ..utils.time_parser import parse_as_of  # inline import
+            return parse_as_of(as_of), None
+        except ValueError:
+            return None, (
+                f"Invalid as_of date format: {as_of}. Use YYYY, YYYY-MM, or an "
+                f"ISO date/datetime"
+            )
+
+    def _search_filter(
+        self,
+        start_time: Optional[float],
+        end_time: Optional[float],
+        tags: Optional[List[str]],
+        tag_match: str,
+        store: Optional[str],
+    ) -> Tuple[str, Optional[str]]:
+        """Build the server-side filter, including the store confinement.
+
+        Returns ``(combined_filter, error)``. The store clause goes last so the
+        partition narrows whatever the caller asked for (#1958).
+        """
+        filter_parts: List[str] = []
+        if start_time is not None:
+            filter_parts.append(f"created_at >= {start_time}")
+        if end_time is not None:
+            filter_parts.append(f"created_at <= {end_time}")
+        if tags:
+            tag_expr, matched = self._tag_like_clauses(
+                tags, joiner="and" if tag_match == "all" else "or"
+            )
+            if matched:
+                filter_parts.append(tag_expr)
+
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return "", "Store-scoped search is not supported by this collection"
+        store_clause = self._store_filter(confine_to)
+        if store_clause:
+            filter_parts.append(store_clause)
+
+        return " and ".join(filter_parts) if filter_parts else "", None
+
+    async def _search_exact(
+        self,
+        query: Optional[str],
+        combined_filter: str,
+        start_time: Optional[float],
+        end_time: Optional[float],
+        tags: Optional[List[str]],
+        tag_match: str,
+        store: Optional[str],
+    ) -> Tuple[List[MemoryQueryResult], int, Optional[str]]:
+        """``mode="exact"``: one pushed-down content query, or a post-filtered fallback."""
+        if not query:
+            return [], 0, "query required for exact mode"
+
+        if self._has_content_lower and combined_filter:
+            # Push all filters (content + time + tags + store) to Milvus in one
+            # query. Escape like wildcards first, as get_by_exact_content does,
+            # so "_" and "%" in the query match literally (#1684).
+            needle = escape_expr_value(_escape_like(query.lower()))
+            content_filter = f'content_lower like "%{needle}%"'
+            final_filter = (
+                f"({combined_filter}) and ({content_filter})"
+                if combined_filter else content_filter
+            )
+            matched_memories = await self._query_memories(
+                filter_expr=final_filter,
+                limit=None,
+                sort_desc_key="created_at",
+            )
+        else:
+            matched_memories = await self.get_by_exact_content(query, store=store)
+            if start_time is not None:
+                matched_memories = [
+                    m for m in matched_memories
+                    if m.created_at and m.created_at >= start_time
+                ]
+            if end_time is not None:
+                matched_memories = [
+                    m for m in matched_memories
+                    if m.created_at and m.created_at <= end_time
+                ]
+            if tags:
+                if tag_match == "all":
+                    matched_memories = [
+                        m for m in matched_memories if all(t in m.tags for t in tags)
+                    ]
+                else:
+                    matched_memories = [
+                        m for m in matched_memories if any(t in m.tags for t in tags)
+                    ]
+
+        results = [
+            MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
+            for m in matched_memories
+        ]
+        return results, len(results), None
+
+    async def _search_semantic(
+        self,
+        query: str,
+        mode: str,
+        limit: int,
+        combined_filter: str,
+        quality_boost: float,
+        ranking_weights: Optional[dict],
+    ) -> Tuple[List[MemoryQueryResult], int, Optional[str]]:
+        """The query path: vector (or hybrid) search, then optional reranking."""
+        # ranked over-fetches like quality_boost, then multi-signal reranks
+        fetch_limit = limit * 3 if (quality_boost > 0 or mode == "ranked") else limit
+        query_embedding = self._embed_query(query)
+        if query_embedding is None:
+            return [], 0, "Failed to generate query embedding"
+
+        fetch_n = self._retrieve_fetch_limit(fetch_limit, combined_filter)
+        if self._has_bm25:
+            hits = await self._run_hybrid_search(
+                query, query_embedding, combined_filter, fetch_n
+            )
+        else:
+            hits = await self._run_search(query_embedding, combined_filter, fetch_n)
+
+        results = self._rank_and_trim(hits, query, len(hits), 0.0)
+        pre_filter_count = len(results)
+
+        if quality_boost > 0:
+            semantic_weight = 1.0 - quality_boost
+            for r in results:
+                orig = r.relevance_score
+                r.relevance_score = (
+                    semantic_weight * orig + quality_boost * r.memory.quality_score
+                )
+            results.sort(key=lambda r: r.relevance_score, reverse=True)
+
+        if mode == "ranked" and results:
+            from ..reasoning.ranked_search import apply_ranked_rerank, RankedSearchWeights
+            weights = RankedSearchWeights.from_dict(ranking_weights)
+            results = apply_ranked_rerank(results, weights=weights)
+
+        return results, pre_filter_count, None
+
+    async def _search_scan(
+        self, combined_filter: str, as_of_ts: Optional[float]
+    ) -> Tuple[List[MemoryQueryResult], int]:
+        """Time/tag only: read the matching set newest first.
+
+        Milvus has no server-side ``ORDER BY``, so a single ``query(limit=...)``
+        returned whichever rows the server scanned first, which in practice are
+        the oldest (#1782). ``as_of`` is bound server-side too, because the
+        newest-first slice would otherwise keep only rows newer than ``as_of``
+        and ``_post_filter_as_of`` would then drop them all.
+        """
+        scan_filter = combined_filter
+        if as_of_ts is not None:
+            scan_filter = self._combine_filter(
+                combined_filter, f"created_at <= {as_of_ts}"
+            )
+        try:
+            matched_memories = await self._query_memories(
+                filter_expr=scan_filter,
+                limit=None,
+                sort_desc_key="created_at",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
+            return [], 0
+        results = [
+            MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
+            for mem in matched_memories
+        ]
+        return results, len(results)
+
+    def _search_response(
+        self,
+        results: List[MemoryQueryResult],
+        pre_filter_count: int,
+        query: Optional[str],
+        mode: str,
+        as_of_ts: Optional[float],
+        include_superseded: bool,
+        limit: int,
+        include_debug: bool,
+        *,
+        debug_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Apply the lineage/as_of/superseded filters, trim, and build the response."""
+        # Issue #1724: always load the replacement lineage (needed for the status
+        # flags below, independently of as_of), then the point-in-time bound,
+        # then the plain superseded filter.
+        for r in results:
+            r.superseded_by = r.memory.metadata.get("superseded_by") or None
+        if as_of_ts is not None:
+            results = self._post_filter_as_of(results, as_of_ts)
+        if not include_superseded:
+            results = [r for r in results if not r.memory.metadata.get("superseded_by")]
+        results = results[:limit]
+
+        memories = []
+        for r in results:
+            mem_dict = r.memory.to_dict()
+            mem_dict["similarity_score"] = r.relevance_score
+            if r.debug_info:
+                mem_dict["debug_info"] = r.debug_info
+            # Issue #1724: status flags, mirroring the base class.
+            if include_superseded:
+                sup_by = r.superseded_by
+                mem_dict["status"] = "superseded" if sup_by else "current"
+                if sup_by:
+                    mem_dict["superseded_by"] = sup_by
+            memories.append(mem_dict)
+
+        response: Dict[str, Any] = {
+            "memories": memories,
+            "total": len(memories),
+            "query": query,
+            "mode": mode,
+        }
+        if include_debug:
+            response["debug"] = {
+                **debug_context,
+                "pre_filter_count": pre_filter_count,
+                "post_filter_count": len(memories),
+                "limit": limit,
+            }
+        return response
+
+    async def _search_impl(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one search call. The public method only adapts its signature."""
+        def _error(message: str) -> Dict[str, Any]:
+            return {"memories": [], "total": 0, "query": request["query"],
+                    "mode": request["mode"], "error": message}
+
+        error = self._validate_search_call(
+            request["agent_id"], request["mode"], request["quality_boost"]
+        )
+        if error:
+            return _error(error)
+        if not self._ensure_initialized():
+            return _error("Milvus storage not initialized")
+
+        start_time, end_time, error = self._search_time_window(
+            request["time_expr"], request["after"], request["before"]
+        )
+        if error:
+            return _error(error)
+        as_of_ts, error = self._search_as_of(request["as_of"])
+        if error:
+            return _error(error)
+        combined_filter, error = self._search_filter(
+            start_time, end_time, request["tags"], request["tag_match"], request["store"]
+        )
+        if error:
+            return _error(error)
+
+        results, pre_filter_count, error = await self._dispatch_search(
+            request, combined_filter, start_time, end_time, as_of_ts
+        )
+        if error:
+            return _error(error)
+
+        return self._search_response(
+            results, pre_filter_count, request["query"], request["mode"], as_of_ts,
+            request["include_superseded"], request["limit"], request["include_debug"],
+            debug_context={
+                "time_filter": {
+                    "time_expr": request["time_expr"], "after": request["after"],
+                    "before": request["before"], "start_timestamp": start_time,
+                    "end_timestamp": end_time,
+                },
+                "tag_filter": request["tags"],
+                "quality_boost": request["quality_boost"],
+                "milvus_filter": combined_filter,
+            },
+        )
+
+    async def _dispatch_search(
+        self,
+        request: Dict[str, Any],
+        combined_filter: str,
+        start_time: Optional[float],
+        end_time: Optional[float],
+        as_of_ts: Optional[float],
+    ) -> Tuple[List[MemoryQueryResult], int, Optional[str]]:
+        """Pick the execution path for ``mode`` and run it."""
+        mode = request["mode"]
+        query = request["query"]
+
+        if mode == "exact":
+            return await self._search_exact(
+                query, combined_filter, start_time, end_time,
+                request["tags"], request["tag_match"], request["store"],
+            )
+        if mode == "ranked" and not query:
+            return [], 0, "query required for ranked mode"
+        if not query and not combined_filter:
+            return [], 0, "At least one filter required (query, time, or tags)"
+        if query:
+            return await self._search_semantic(
+                query, mode, request["limit"], combined_filter,
+                request["quality_boost"], request["ranking_weights"],
+            )
+        results, pre_filter_count = await self._search_scan(combined_filter, as_of_ts)
+        return results, pre_filter_count, None
+
     async def search_memories(
         self,
         query: Optional[str] = None,
@@ -3489,242 +3926,23 @@ class MilvusMemoryStorage(MemoryStorage):
         superseded_by in metadata but not the replacement moment, so
         superseded rows are conservatively excluded from as_of queries.
         """
-        if agent_id is not None:
-            return {"memories": [], "total": 0, "query": query, "mode": mode,
-                    "error": "agent_id filtering is not implemented for the Milvus backend "
-                             "(sqlite-vec only in this phase). See PR #1297."}
-        if not self._ensure_initialized():
-            return {"memories": [], "total": 0, "query": query, "mode": mode,
-                    "error": "Milvus storage not initialized"}
-
-        # Validate inputs
-        if mode not in ("semantic", "exact", "hybrid", "ranked"):
-            return {"memories": [], "total": 0, "query": query, "mode": mode,
-                    "error": f"Invalid mode: {mode}. Must be 'semantic', 'exact', 'hybrid', or 'ranked'"}
-        if not 0.0 <= quality_boost <= 1.0:
-            return {"memories": [], "total": 0, "query": query, "mode": mode,
-                    "error": f"Invalid quality_boost: {quality_boost}"}
-
-        # -- Parse time filters --
-        start_time: Optional[float] = None
-        end_time: Optional[float] = None
-
-        if time_expr:
-            try:
-                from ..utils.time_parser import parse_time_expression
-                start_time, end_time = parse_time_expression(time_expr)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to parse time_expr '%s', ignoring time filter: %s", time_expr, _sanitize_log_value(exc))
-
-        if not time_expr:
-            if after:
-                try:
-                    from ..utils.time_parser import parse_boundary  # inline import
-                    start_time = parse_boundary(after)
-                except ValueError:
-                    return {"memories": [], "total": 0, "query": query, "mode": mode,
-                            "error": f"Invalid after date: {after}"}
-            if before:
-                try:
-                    from ..utils.time_parser import parse_boundary  # inline import
-                    end_time = parse_boundary(before)
-                except ValueError:
-                    return {"memories": [], "total": 0, "query": query, "mode": mode,
-                            "error": f"Invalid before date: {before}"}
-
-        # Issue #1724: point-in-time bound, parsed like the base class. Invalid
-        # values fail the call rather than silently returning present-time data.
-        as_of_ts: Optional[float] = None
-        if as_of is not None:
-            try:
-                from ..utils.time_parser import parse_as_of  # inline import
-                as_of_ts = parse_as_of(as_of)
-            except ValueError:
-                return {"memories": [], "total": 0, "query": query, "mode": mode,
-                        "error": f"Invalid as_of date format: {as_of}. Use YYYY, YYYY-MM, or an ISO date/datetime"}
-
-        # -- Build Milvus filter expression (push filters server-side) --
-        filter_parts: List[str] = []
-        if start_time is not None:
-            filter_parts.append(f"created_at >= {start_time}")
-        if end_time is not None:
-            filter_parts.append(f"created_at <= {end_time}")
-        if tags:
-            tag_expr, matched = self._tag_like_clauses(
-                tags, joiner="and" if tag_match == "all" else "or"
-            )
-            if matched:
-                filter_parts.append(tag_expr)
-
-        combined_filter = " and ".join(filter_parts) if filter_parts else ""
-
-        # -- Execute search based on mode --
-        results: List[MemoryQueryResult] = []
-        pre_filter_count = 0
-
-        if mode == "exact":
-            if not query:
-                return {"memories": [], "total": 0, "query": query, "mode": mode,
-                        "error": "query required for exact mode"}
-
-            if self._has_content_lower and combined_filter:
-                # Push all filters (content + time + tags) to Milvus in one query
-                # Escape like wildcards first, as get_by_exact_content does, so
-                # "_" and "%" in the query match literally (#1684).
-                needle = escape_expr_value(_escape_like(query.lower()))
-                content_filter = f'content_lower like "%{needle}%"'
-                final_filter = (
-                    f"({combined_filter}) and ({content_filter})"
-                    if combined_filter else content_filter
-                )
-                matched_memories = await self._query_memories(
-                    filter_expr=final_filter,
-                    limit=None,
-                    sort_desc_key="created_at",
-                )
-                results = [
-                    MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
-                    for m in matched_memories
-                ]
-                pre_filter_count = len(results)
-            else:
-                # Fallback: fetch by content, then post-filter
-                matched_memories = await self.get_by_exact_content(query)
-                results = [
-                    MemoryQueryResult(memory=m, relevance_score=1.0, debug_info=None)
-                    for m in matched_memories
-                ]
-                pre_filter_count = len(results)
-                if start_time is not None:
-                    results = [r for r in results if r.memory.created_at and r.memory.created_at >= start_time]
-                if end_time is not None:
-                    results = [r for r in results if r.memory.created_at and r.memory.created_at <= end_time]
-                if tags:
-                    if tag_match == "all":
-                        results = [r for r in results if all(t in r.memory.tags for t in tags)]
-                    else:
-                        results = [r for r in results if any(t in r.memory.tags for t in tags)]
-
-        elif mode in ("semantic", "hybrid", "ranked"):
-            if mode == "ranked" and not query:
-                return {"memories": [], "total": 0, "query": query, "mode": mode,
-                        "error": "query required for ranked mode"}
-            if not query and not combined_filter:
-                return {"memories": [], "total": 0, "query": query, "mode": mode,
-                        "error": "At least one filter required (query, time, or tags)"}
-
-            if query:
-                # ranked over-fetches like quality_boost, then multi-signal reranks
-                fetch_limit = limit * 3 if (quality_boost > 0 or mode == "ranked") else limit
-                query_embedding = self._embed_query(query)
-                if query_embedding is None:
-                    return {"memories": [], "total": 0, "query": query, "mode": mode,
-                            "error": "Failed to generate query embedding"}
-
-                fetch_n = self._retrieve_fetch_limit(fetch_limit, combined_filter)
-                if self._has_bm25:
-                    hits = await self._run_hybrid_search(
-                        query, query_embedding, combined_filter, fetch_n
-                    )
-                else:
-                    hits = await self._run_search(query_embedding, combined_filter, fetch_n)
-
-                results = self._rank_and_trim(hits, query, len(hits), 0.0)
-                pre_filter_count = len(results)
-
-                # Apply quality boost reranking
-                if quality_boost > 0:
-                    semantic_weight = 1.0 - quality_boost
-                    for r in results:
-                        orig = r.relevance_score
-                        r.relevance_score = (
-                            semantic_weight * orig + quality_boost * r.memory.quality_score
-                        )
-                    results.sort(key=lambda r: r.relevance_score, reverse=True)
-
-                # Apply multi-signal ranked reranking (time decay + access + quality)
-                if mode == "ranked" and results:
-                    from ..reasoning.ranked_search import apply_ranked_rerank, RankedSearchWeights
-                    weights = RankedSearchWeights.from_dict(ranking_weights)
-                    results = apply_ranked_rerank(results, weights=weights)
-            else:
-                # Time/tag only. Milvus has no server-side ORDER BY, so a single
-                # query(limit=...) returned whichever rows the server scanned
-                # first, which in practice are the oldest. Read the matching set
-                # newest first, as sqlite_vec does, and let the superseded filter
-                # and the limit below trim it (#1782).
-                # Bound by as_of server-side too: the newest-first slice below
-                # would otherwise keep only rows newer than as_of, which
-                # _post_filter_as_of then drops, leaving nothing.
-                scan_filter = combined_filter
-                if as_of_ts is not None:
-                    scan_filter = self._combine_filter(
-                        combined_filter, f"created_at <= {as_of_ts}"
-                    )
-                try:
-                    matched_memories = await self._query_memories(
-                        filter_expr=scan_filter,
-                        limit=None,
-                        sort_desc_key="created_at",
-                    )
-                    results = [
-                        MemoryQueryResult(memory=mem, relevance_score=0.5, debug_info=None)
-                        for mem in matched_memories
-                    ]
-                    pre_filter_count = len(results)
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("search_memories: query failed: %s", _sanitize_log_value(exc))
-
-        # Issue #1724: always load the replacement lineage (needed by the
-        # status flags below, independently of as_of), then apply the
-        # point-in-time bound, then the plain superseded filter.
-        for r in results:
-            r.superseded_by = r.memory.metadata.get("superseded_by") or None
-        if as_of_ts is not None:
-            results = self._post_filter_as_of(results, as_of_ts)
-
-        # Filter superseded
-        if not include_superseded:
-            results = [r for r in results if not r.memory.metadata.get("superseded_by")]
-
-        # Limit
-        results = results[:limit]
-
-        # Build response
-        memories = []
-        for r in results:
-            mem_dict = r.memory.to_dict()
-            mem_dict["similarity_score"] = r.relevance_score
-            if r.debug_info:
-                mem_dict["debug_info"] = r.debug_info
-            # Issue #1724: status flags, mirroring the base class.
-            if include_superseded:
-                sup_by = r.superseded_by
-                mem_dict["status"] = "superseded" if sup_by else "current"
-                if sup_by:
-                    mem_dict["superseded_by"] = sup_by
-            memories.append(mem_dict)
-
-        response: Dict[str, Any] = {
-            "memories": memories,
-            "total": len(memories),
+        return await self._search_impl({
+            "agent_id": agent_id,
             "query": query,
             "mode": mode,
-        }
-
-        if include_debug:
-            response["debug"] = {
-                "time_filter": {"time_expr": time_expr, "after": after, "before": before,
-                                "start_timestamp": start_time, "end_timestamp": end_time},
-                "tag_filter": tags,
-                "quality_boost": quality_boost,
-                "milvus_filter": combined_filter,
-                "pre_filter_count": pre_filter_count,
-                "post_filter_count": len(memories),
-                "limit": limit,
-            }
-
-        return response
+            "limit": limit,
+            "tags": tags,
+            "tag_match": tag_match,
+            "time_expr": time_expr,
+            "after": after,
+            "before": before,
+            "as_of": as_of,
+            "quality_boost": quality_boost,
+            "ranking_weights": ranking_weights,
+            "include_superseded": include_superseded,
+            "include_debug": include_debug,
+            "store": store,
+        })
 
     # -- Low-priority optional overrides -------------------------------------
 
@@ -4062,18 +4280,19 @@ class MilvusMemoryStorage(MemoryStorage):
                     return 0
         return 0
 
-    async def _scan_tags(self) -> List[List[str]]:
+    async def _scan_tags(self, store_filter: Optional[str] = None) -> List[List[str]]:
         """Return the tag list of every stored memory, one entry per memory.
 
         Shared by get_all_tags and get_all_tags_with_counts so the two readers
-        cannot disagree about which tags exist (issue #213).
+        cannot disagree about which tags exist (issue #213). ``store_filter``
+        confines the scan to one partition (#1958).
         """
         if not self._ensure_initialized():
             return []
 
         try:
             # Full scan: one query() stops at 16384 rows without saying so (#1785).
-            rows = await self._drain_rows("", ["tags"])
+            rows = await self._drain_rows(store_filter or "", ["tags"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("tag scan failed: %s", _sanitize_log_value(exc))
             return []
@@ -4092,8 +4311,12 @@ class MilvusMemoryStorage(MemoryStorage):
         web/api/memories.py::get_tags calls this without a hasattr guard, so its
         absence surfaced as HTTP 501 on the dashboard Browse tab (issue #213).
         """
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+
         counts: Counter = Counter()
-        for tags in await self._scan_tags():
+        for tags in await self._scan_tags(self._store_filter(confine_to)):
             counts.update(tags)
         return [
             {"tag": tag, "count": count}
@@ -4150,7 +4373,14 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return []
 
-        time_filter = self._time_window_filter(start_timestamp, end_timestamp)
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+
+        store_filter = self._store_filter(confine_to)
+        time_filter = self._combine_filter(
+            self._time_window_filter(start_timestamp, end_timestamp), store_filter
+        )
 
         if query:
             query_embedding = self._embed_query(query)
@@ -4167,6 +4397,7 @@ class MilvusMemoryStorage(MemoryStorage):
             start_timestamp=start_timestamp,
             end_timestamp=end_timestamp,
             n_results=n_results,
+            store_filter=store_filter,
         )
         return [
             MemoryQueryResult(
@@ -4238,6 +4469,7 @@ class MilvusMemoryStorage(MemoryStorage):
         start_timestamp: Optional[float],
         end_timestamp: Optional[float],
         n_results: int,
+        store_filter: Optional[str] = None,
     ) -> List[Memory]:
         """Return newest live memories with bounded, newest-first range queries.
 
@@ -4280,7 +4512,9 @@ class MilvusMemoryStorage(MemoryStorage):
                 if range_end <= nth_newest:
                     continue
 
-            range_filter = self._time_window_filter(range_start, range_end)
+            range_filter = self._combine_filter(
+                self._time_window_filter(range_start, range_end), store_filter
+            )
             memories, raw_count = await self._query_time_window(
                 range_filter, batch_size
             )
@@ -4299,7 +4533,9 @@ class MilvusMemoryStorage(MemoryStorage):
                 if newer_start <= range_end:
                     heapq.heappush(intervals, (-range_end, newer_start, range_end))
 
-                exact_filter = self._time_window_filter(timestamp, timestamp)
+                exact_filter = self._combine_filter(
+                    self._time_window_filter(timestamp, timestamp), store_filter
+                )
                 async with aclosing(
                     self._iter_time_window_batches(exact_filter, batch_size)
                 ) as batches:
@@ -4495,6 +4731,11 @@ class MilvusMemoryStorage(MemoryStorage):
             else:
                 return []
 
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+        filters.append(self._store_filter(confine_to))
+
         filter_expr = self._combine_filter(*filters)
 
         # When stale_days is set, perform cross-collection filtering.
@@ -4554,6 +4795,11 @@ class MilvusMemoryStorage(MemoryStorage):
                 filters.append(tag_filter)
             else:
                 return 0
+
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return 0
+        filters.append(self._store_filter(confine_to))
 
         filter_expr = self._combine_filter(*filters)
 
@@ -4735,7 +4981,13 @@ class MilvusMemoryStorage(MemoryStorage):
     ) -> List[Memory]:
         if not self._ensure_initialized():
             return []
-        filter_expr = f"created_at >= {start_time} and created_at <= {end_time}"
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+        filter_expr = self._combine_filter(
+            f"created_at >= {start_time} and created_at <= {end_time}",
+            self._store_filter(confine_to),
+        )
         return await self._query_memories(
             filter_expr=filter_expr,
             limit=None,
@@ -4747,10 +4999,18 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return []
 
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return []
+
         filter_expr = ""
         if days is not None:
             cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()
             filter_expr = f"created_at >= {cutoff}"
+
+        filter_expr = self._combine_filter(filter_expr, self._store_filter(confine_to))
+        if not filter_expr:
+            filter_expr = ""
 
         try:
             # Full scan: one query() stops at 16384 rows without saying so (#1785).
@@ -4968,6 +5228,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         caller: str,
         output_fields: Optional[List[str]] = None,
+        filter_expr: str = "",
     ) -> List[Dict[str, Any]]:
         """Drain every edge from ``{collection_name}_graph``.
 
@@ -4997,6 +5258,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     return []
                 return await asyncio.to_thread(
                     self._drain_graph_edges, graph_collection, output_fields,
+                    filter_expr,
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -5123,8 +5385,21 @@ class MilvusMemoryStorage(MemoryStorage):
         if limit <= 0:
             return empty
 
+        refused, confine_to = self._store_scope(store)
+        if refused:
+            return empty
+        edge_filter = ""
+        if confine_to is not None:
+            # Edges carry the store since #2119. A graph collection created
+            # before that has none, so a named store fails closed here instead
+            # of rendering every partition (#1958).
+            if not await self._graph_collection_has_store():
+                return empty
+            edge_filter = self._store_filter(confine_to) or ""
+
         rows = await self._drain_all_graph_edges(
             "get_graph_visualization_data",
+            filter_expr=edge_filter,
             output_fields=[
                 "id", "source_hash", "target_hash",
                 "relationship_type", "similarity", "connection_types",
@@ -5251,6 +5526,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         graph_collection: str,
         output_fields: Optional[List[str]] = None,
+        filter_expr: str = "",
     ) -> List[Dict[str, Any]]:
         """Sync helper that drains all edges from the graph collection.
 
@@ -5260,7 +5536,7 @@ class MilvusMemoryStorage(MemoryStorage):
         assert self.client is not None
         iterator = self.client.query_iterator(
             collection_name=graph_collection,
-            filter="",
+            filter=filter_expr,
             output_fields=output_fields or ["id", "source_hash", "target_hash"],
             batch_size=self._QUERY_ITER_BATCH,
         )
