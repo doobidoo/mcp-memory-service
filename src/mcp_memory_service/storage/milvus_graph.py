@@ -199,10 +199,22 @@ class MilvusGraphStorage:
     # -- Initialization ------------------------------------------------------
 
     async def initialize(self, create_if_missing: bool = True) -> None:
-        """Connect, optionally leaving an absent collection untouched for previews."""
+        """Connect, optionally leaving an absent collection untouched for previews.
+
+        A preview still reads the schema of a collection that exists, so its
+        store-field state is the one a real run would act on (#2123).
+        """
         await asyncio.to_thread(self._connect_client)
         if create_if_missing:
             await asyncio.to_thread(self._ensure_collection)
+        else:
+            await asyncio.to_thread(self._detect_existing_store_field)
+
+    def _detect_existing_store_field(self) -> None:
+        """Read the store-field state without creating a missing collection."""
+        assert self.client is not None
+        if self.client.has_collection(collection_name=self.collection_name):
+            self._detect_store_field()
 
     def _connect_client(self) -> None:
         kwargs: Dict[str, Any] = {"uri": self.uri}
