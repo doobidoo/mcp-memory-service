@@ -368,7 +368,7 @@ class TestSearchMemories:
         Before, the error escaped the iterator and search_memories returned an
         empty successful result, and every later search failed the same way.
         """
-        import mcp_memory_service.storage.milvus as milvus_module
+        import mcp_memory_service.storage.milvus as milvus_module  # inline import: patched per test
 
         storage = _make_storage()
         storage.uri = "milvus-test.db"
@@ -403,7 +403,7 @@ class TestSearchMemories:
     @pytest.mark.asyncio
     async def test_iterator_scan_does_not_reconnect_on_other_errors(self, monkeypatch):
         """Only the Lite dead-channel signature triggers a reconnect."""
-        import mcp_memory_service.storage.milvus as milvus_module
+        import mcp_memory_service.storage.milvus as milvus_module  # inline import: patched per test
 
         storage = _make_storage()
         storage.uri = "milvus-test.db"
