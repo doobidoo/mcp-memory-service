@@ -4324,12 +4324,18 @@ class MilvusMemoryStorage(MemoryStorage):
 
         try:
             # Full scan: one query() stops at 16384 rows without saying so (#1785).
-            rows = await self._drain_rows(store_filter or "", ["tags"])
+            rows = await self._drain_rows(
+                store_filter or "", self._row_fields(("tags",))
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("tag scan failed: %s", _sanitize_log_value(exc))
             return []
 
-        return [_string_to_tags(row.get("tags")) for row in rows]
+        return [
+            _string_to_tags(row.get("tags"))
+            for row in rows
+            if self._row_is_live(row)
+        ]
 
     async def get_all_tags(self) -> List[str]:
         seen: set[str] = set()
@@ -5110,12 +5116,17 @@ class MilvusMemoryStorage(MemoryStorage):
 
         try:
             # Full scan: one query() stops at 16384 rows without saying so (#1785).
-            rows = await self._drain_rows(filter_expr, ["created_at"])
+            rows = await self._drain_rows(
+                filter_expr, self._row_fields(("created_at",))
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_memory_timestamps failed: %s", _sanitize_log_value(exc))
             return []
 
-        timestamps = [row["created_at"] for row in rows if row.get("created_at") is not None]
+        timestamps = [
+            row["created_at"] for row in rows
+            if row.get("created_at") is not None and self._row_is_live(row)
+        ]
         return sorted(timestamps, reverse=True)
 
     # ------------------------------------------------------------------
@@ -5722,6 +5733,10 @@ class MilvusMemoryStorage(MemoryStorage):
         memories: List[Memory] = []
         hydrated = 0
         for row in rows:
+            # Milvus keeps the tombstone inside metadata, so a listing has to
+            # drop it here; every other backend does it in SQL (#2133 review).
+            if not self._row_is_live(row):
+                continue
             mem = self._entity_to_memory(row, include_embedding=include_embeddings)
             if mem is not None:
                 memories.append(mem)

@@ -326,3 +326,36 @@ class TestReviewFollowUps:
 
         if storage._fetch_live_hashes.await_count:
             assert storage._fetch_live_hashes.call_args.kwargs["store"] == STORE
+
+
+class TestTombstonesAreNotListed:
+    """Milvus keeps the tombstone inside metadata, so each listing drops it (#2133 review)."""
+
+    async def test_query_memories_drops_tombstoned_rows(self):
+        storage = _make_storage()
+        storage._iterate_all_rows = AsyncMock(return_value=[
+            {"id": "h1", "content": "live", "metadata": "{}"},
+            {"id": "h2", "content": "dead", "metadata": '{"deleted_at": 1.0}'},
+        ])
+
+        memories = await storage._query_memories("", limit=None)
+
+        assert [m.content_hash for m in memories] == ["h1"]
+
+    async def test_scan_tags_skips_tombstoned_rows(self):
+        storage = _make_storage()
+        storage._drain_rows = AsyncMock(return_value=[
+            {"tags": "keep", "metadata": "{}"},
+            {"tags": "gone", "metadata": '{"deleted_at": 1.0}'},
+        ])
+
+        assert await storage._scan_tags() == [["keep"]]
+
+    async def test_timestamps_skip_tombstoned_rows(self):
+        storage = _make_storage()
+        storage._drain_rows = AsyncMock(return_value=[
+            {"created_at": 2.0, "metadata": "{}"},
+            {"created_at": 1.0, "metadata": '{"deleted_at": 1.0}'},
+        ])
+
+        assert await storage.get_memory_timestamps() == [2.0]
