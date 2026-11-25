@@ -282,7 +282,9 @@ class TestSearchMemories:
         result = await storage.search_memories(query="exact match", mode="exact")
 
         assert result["total"] == 1
-        storage.get_by_exact_content.assert_called_once_with("exact match")
+        # The fallback carries the scope through, otherwise it would read every
+        # partition while the pushed-down path confines (#1958).
+        storage.get_by_exact_content.assert_called_once_with("exact match", store="default")
 
     @pytest.mark.asyncio
     async def test_time_filter_pushed_to_milvus(self):
