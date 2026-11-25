@@ -2777,8 +2777,12 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return []
 
+        refused, _ = self._store_scope(store)
+        if refused:
+            return []
+
         if not self._has_content_lower:
-            return await self._get_by_exact_content_fallback(content)
+            return await self._get_by_exact_content_fallback(content, store=store)
 
         needle = _escape_like(content.lower())
         if not needle:
@@ -2796,11 +2800,37 @@ class MilvusMemoryStorage(MemoryStorage):
             sort_desc_key="created_at",
         )
 
-    async def _get_by_exact_content_fallback(self, content: str) -> List[Memory]:
-        """Client-side scan for collections without ``content_lower`` field."""
-        memories = await self.get_all_memories()
+    async def _get_by_exact_content_fallback(
+        self, content: str, store: Optional[str] = None
+    ) -> List[Memory]:
+        """Client-side scan for collections without ``content_lower`` field.
+
+        ``store`` is forwarded, so the scan stays in the claimed partition
+        instead of reading the default one (#1958 review).
+        """
+        memories = await self.get_all_memories(store=store)
         needle = content.lower()
         return [m for m in memories if needle in (m.content or "").lower()]
+
+    async def get_stores(self) -> List[str]:
+        """Every store that currently holds a live row (#1958 review).
+
+        The base implementation returns ``["default"]``, which was harmless while
+        ``get_all_memories(store="default")`` meant "everything". Now that it
+        confines, an export walking that list would silently skip every named
+        store, so the distinct ``store`` values are read from the collection.
+        """
+        if not self._ensure_initialized():
+            return ["default"]
+        if not self._has_store:
+            return ["default"]
+        try:
+            rows = await self._drain_rows("", ["store"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_stores failed: %s", _sanitize_log_value(exc))
+            return ["default"]
+        stores = {self._row_store(row) for row in rows}
+        return sorted(stores) if stores else ["default"]
 
     async def cleanup_duplicates(self) -> Tuple[int, str]:
         # With content_hash as the primary key, Milvus rejects duplicate PKs
@@ -5357,7 +5387,9 @@ class MilvusMemoryStorage(MemoryStorage):
 
     _GET_BY_ID_CHUNK = 500
 
-    async def _fetch_memories_by_hashes(self, hashes: List[str]) -> List[Memory]:
+    async def _fetch_memories_by_hashes(
+        self, hashes: List[str], store: Optional[str] = None
+    ) -> List[Memory]:
         """Fetch memories by primary key, chunked to bound each RPC's size.
 
         Hashes with no surviving row are silently skipped — callers here treat
@@ -5374,23 +5406,33 @@ class MilvusMemoryStorage(MemoryStorage):
                     "get",
                     collection_name=self.collection_name,
                     ids=chunk,
-                    output_fields=list(self._OUTPUT_FIELDS),
+                    output_fields=self._row_fields(self._OUTPUT_FIELDS),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Batch hash fetch failed: %s", _sanitize_log_value(exc))
                 continue
             for row in rows or []:
                 memory = self._entity_to_memory(row)
-                if memory is not None and memory.metadata.get("deleted_at") is None:
-                    memories.append(memory)
+                if memory is None or memory.metadata.get("deleted_at") is not None:
+                    continue
+                if store is not None and self._row_store(row) != store:
+                    continue
+                memories.append(memory)
         return memories
 
-    async def _fetch_live_hashes(self, hashes: List[str]) -> set[str]:
+    async def _fetch_live_hashes(
+        self, hashes: List[str], store: Optional[str] = None
+    ) -> set[str]:
         """Return the subset of ``hashes`` with a live memory row.
 
         Graph ranking only needs primary keys and tombstone status, so this uses
         bounded scalar queries instead of loading full memory records for every
         endpoint in a potentially large graph.
+
+        ``store`` also drops rows whose memory currently lives elsewhere. An edge
+        outlives its memory when ``_delete_graph_edges()`` fails, and the hash can
+        be re-stored in another store, so the edge's own store cannot be trusted
+        (#1958 review).
         """
         if not hashes or not self._ensure_initialized():
             return set()
@@ -5404,7 +5446,7 @@ class MilvusMemoryStorage(MemoryStorage):
                     "query",
                     collection_name=self.collection_name,
                     filter=f"id in [{id_list}]",
-                    output_fields=["id", "metadata"],
+                    output_fields=self._row_fields(("id", "metadata")),
                     limit=len(chunk),
                 )
             except Exception as exc:  # noqa: BLE001
@@ -5415,8 +5457,11 @@ class MilvusMemoryStorage(MemoryStorage):
                 continue
             for row in rows or []:
                 row_id = row.get("id")
-                if row_id and self._row_is_live(row):
-                    live.add(row_id)
+                if not row_id or not self._row_is_live(row):
+                    continue
+                if store is not None and self._row_store(row) != store:
+                    continue
+                live.add(row_id)
         return live
 
     async def get_graph_visualization_data(
@@ -5509,7 +5554,9 @@ class MilvusMemoryStorage(MemoryStorage):
             lookup_hashes = {src for src, _targets in batch}
             for _src, targets in batch:
                 lookup_hashes.update(targets)
-            live_hashes = await self._fetch_live_hashes(sorted(lookup_hashes))
+            live_hashes = await self._fetch_live_hashes(
+                sorted(lookup_hashes), store=confine_to
+            )
 
             for src, targets in batch:
                 if src not in live_hashes:
@@ -5537,7 +5584,9 @@ class MilvusMemoryStorage(MemoryStorage):
         connection_counts = dict(ranked)
         node_hashes = set(connection_counts)
 
-        memories = await self._fetch_memories_by_hashes(sorted(node_hashes))
+        memories = await self._fetch_memories_by_hashes(
+            sorted(node_hashes), store=confine_to
+        )
         memories = [
             memory for memory in memories
             if memory.content_hash in node_hashes

@@ -260,3 +260,54 @@ class TestRecallWindowSplitting:
 
         # h0 is not recallable; the pool is trimmed to the newest single result.
         assert set(candidates) == {"h5"}
+
+
+class TestReviewFollowUps:
+    """The three findings from the review of #2133."""
+
+    async def test_exact_content_fallback_forwards_the_store(self):
+        """A collection without content_lower must not fall back to the default store."""
+        storage = _make_storage()
+        storage._has_content_lower = False
+        storage.get_all_memories = AsyncMock(return_value=[])
+
+        await storage.get_by_exact_content("needle", store=STORE)
+
+        assert storage.get_all_memories.call_args.kwargs["store"] == STORE
+
+    async def test_exact_content_fallback_refuses_a_named_store_on_legacy(self):
+        storage = _make_storage(has_store=False)
+        storage._has_content_lower = False
+        storage.get_all_memories = AsyncMock(return_value=[])
+
+        assert await storage.get_by_exact_content("needle", store=OTHER) == []
+        storage.get_all_memories.assert_not_called()
+
+    async def test_get_stores_reads_the_distinct_stores(self):
+        """The exporter walks this list; the base ["default"] would skip named stores."""
+        storage = _make_storage()
+        storage._drain_rows = AsyncMock(
+            return_value=[{"store": STORE}, {"store": OTHER}, {"store": STORE}]
+        )
+
+        assert await storage.get_stores() == [STORE, OTHER]
+
+    async def test_get_stores_falls_back_to_default_on_a_legacy_collection(self):
+        storage = _make_storage(has_store=False)
+
+        assert await storage.get_stores() == ["default"]
+
+    async def test_graph_nodes_are_dropped_when_the_memory_moved_store(self):
+        """An edge outlives its memory, so the live row's store decides."""
+        storage = _make_storage()
+        storage._graph_has_store = True
+        storage._drain_all_graph_edges = AsyncMock(
+            return_value=[{"id": "e1", "source_hash": "s1", "target_hash": "t1"}]
+        )
+        storage._fetch_live_hashes = AsyncMock(return_value=set())
+        storage._fetch_memories_by_hashes = AsyncMock(return_value=[])
+
+        await storage.get_graph_visualization_data(store=STORE)
+
+        if storage._fetch_live_hashes.await_count:
+            assert storage._fetch_live_hashes.call_args.kwargs["store"] == STORE
