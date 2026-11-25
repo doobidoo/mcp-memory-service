@@ -3009,22 +3009,32 @@ class MilvusMemoryStorage(MemoryStorage):
                 inherited_metadata.pop("evolution_reason", None)
 
                 new_hash = generate_content_hash(new_content)
-                new_memory = Memory(
-                    content=new_content,
-                    content_hash=new_hash,
-                    tags=resolved_tags,
-                    memory_type=resolved_type,
-                    metadata=inherited_metadata,
-                )
-                with (
-                    _exclude_versioned_parent(content_hash),
-                    _store_with_vector(new_embedding),
-                ):
-                    # The new version stays in the old row's store, as on
-                    # sqlite_vec (mixins/metadata.py).
-                    store_ok, store_msg = await self.store(
-                        new_memory, skip_semantic_dedup=True, store=row_store
+                salt = 0
+                while True:
+                    new_memory = Memory(
+                        content=new_content,
+                        content_hash=new_hash,
+                        tags=resolved_tags,
+                        memory_type=resolved_type,
+                        metadata=inherited_metadata,
                     )
+                    with (
+                        _exclude_versioned_parent(content_hash),
+                        _store_with_vector(new_embedding),
+                    ):
+                        # The new version stays in the old row's store, as on
+                        # sqlite_vec (mixins/metadata.py).
+                        store_ok, store_msg = await self.store(
+                            new_memory, skip_semantic_dedup=True, store=row_store
+                        )
+                    if store_ok or store_msg != "Duplicate content detected (exact match)":
+                        break
+                    # After A→B the row for A is still stored (superseded), so
+                    # restoring A collides with it. Salt the hash with the parent
+                    # and a counter until unique, the same repeated-text handling
+                    # sqlite-vec applies (mixins/metadata.py).
+                    salt += 1
+                    new_hash = generate_content_hash(f"{new_content}\0{content_hash}\0{salt}")
                 if not store_ok:
                     return False, f"Failed to store new version: {store_msg}", None
 

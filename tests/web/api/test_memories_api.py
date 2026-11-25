@@ -996,3 +996,74 @@ def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_stor
         "matched_hash": old_hash,
     }]
     assert f"superseded {old_hash}" in payload["message"]
+
+
+@pytest.mark.integration
+def test_update_memory_content_splits_oversized_text_with_versioned_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """Oversized edits take the split path even on versioned backends: a single
+    versioned insert would exceed field caps such as Milvus' 65,535 bytes."""
+    evolve = AsyncMock(side_effect=AssertionError("oversized edit used the versioned path"))
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.MemoryService.evolve_memory", evolve
+    )
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    long_text = " ".join(f"word{index}" for index in range(30))
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) > 1
+    assert all(len(memory["content"]) <= 80 for memory in listed)
+    joined = " ".join(memory["content"] for memory in sorted(
+        listed, key=lambda memory: memory["metadata"]["chunk_index"]
+    ))
+    for word in ("word0", "word29"):
+        assert word in joined
+    evolve.assert_not_called()
+
+
+@pytest.mark.integration
+def test_update_memory_split_edit_applies_case_and_field_changes(
+    test_app, initialized_storage, monkeypatch
+):
+    """A reused chunk must match the edited text exactly and carry the edited
+    fields: hashing ignores case, so 'Hello' must not reuse the 'hello' row."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    suffix = " ".join(f"word{index}" for index in range(30))
+    original = f"hello world\n\n{suffix}"
+    stored = test_app.post(
+        "/api/memories", json={"content": original, "tags": ["original"]}
+    )
+    assert stored.status_code == 200, stored.text
+
+    edited = f"Hello world\n\n{suffix}"
+    response = test_app.put(
+        f"/api/memories/{stored.json()['content_hash']}",
+        json={"content": edited, "tags": ["edited"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    contents = [memory["content"] for memory in listed]
+    assert "Hello world" in contents
+    assert "hello world" not in contents
+    for memory in listed:
+        assert memory["tags"] == ["edited"]

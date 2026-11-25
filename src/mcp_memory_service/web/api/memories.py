@@ -631,13 +631,50 @@ async def _store_unversioned_split_replacement(
     )
     stored_chunks = []
     original_reused = False
+    scope = (
+        {"store": resolve_store(store)}
+        if getattr(storage, "get_by_hash_is_store_scoped", False)
+        else {}
+    )
     for index, chunk in enumerate(chunks):
         chunk_hash = generate_content_hash(chunk)
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-        if existing is not None:
+        if existing is not None and existing.content == chunk:
+            # Reuse only an exact text match, then bring the row's fields in
+            # line with the edit: a hash match alone says nothing about tags,
+            # type or metadata (#2129).
             original_reused = original_reused or chunk_hash == content_hash
+            chunk_metadata = _chunk_metadata(
+                replacement.metadata, index, len(chunks),
+                replacement.content_hash, chunk_hash,
+            )
+            if (
+                set(existing.tags or []) != set(replacement.tags)
+                or existing.memory_type != replacement.memory_type
+                or (existing.metadata or {}) != chunk_metadata
+            ):
+                fields_ok, fields_message = await storage.update_memory_metadata(
+                    chunk_hash,
+                    {
+                        "tags": replacement.tags,
+                        "memory_type": replacement.memory_type,
+                        "metadata": chunk_metadata,
+                    },
+                    preserve_timestamps=True,
+                    **scope,
+                )
+                if not fields_ok:
+                    return False, (
+                        f"Failed to apply edited fields to reused chunk: {fields_message}"
+                    ), None, False
+                existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
             stored_chunks.append(existing)
             continue
+        if existing is not None:
+            # Same hash but different text (hashing ignores case): the edit is
+            # real, so store it under a salted hash instead of silently keeping
+            # the old row (#2129).
+            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         chunk_memory = Memory(
             content=chunk,
             content_hash=chunk_hash,
@@ -713,7 +750,20 @@ async def _update_memory_content(
 ) -> MemoryUpdateResponse:
     """Update content through versioning or the unversioned replacement path."""
     original_deleted = True
-    if hasattr(storage, "update_memory_versioned"):
+    # Length check before choosing the versioned path: evolve_memory() inserts
+    # the full text as one row, which backends with a field cap (Milvus limits
+    # content to 65,535 bytes) reject. Oversized edits always take the split
+    # path, on versioned backends too.
+    max_length = getattr(storage, "max_content_length", None)
+    if ENABLE_AUTO_SPLIT and max_length and len(request.content) > max_length:
+        replacement = _build_memory_replacement(existing_memory, request)
+        success, message, new_hash, original_kept = await _store_unversioned_split_replacement(
+            storage, memory_service, content_hash, store, replacement, max_length
+        )
+        original_deleted = not original_kept
+        if success and not new_hash:
+            new_hash = content_hash
+    elif hasattr(storage, "update_memory_versioned"):
         version_store = (
             resolve_store(store)
             if getattr(storage, "get_by_hash_is_store_scoped", False)
