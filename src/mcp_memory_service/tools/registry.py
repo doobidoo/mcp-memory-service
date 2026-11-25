@@ -110,7 +110,7 @@ and for the structured summary at the end of a session memory_commit_session.
                         },
                         "type": {
                             "type": "string",
-                            "description": 'Optional memory type. Validated against the built-in ontology. Common base types: observation, decision, learning, error, pattern, planning, ceremony, milestone, stakeholder, meeting, research, communication. Common subtypes: note, reference, code_edit, command, document, insight, gotcha, bug, action_item, finding. Unknown types are silently coerced to \'observation\' and the response includes a warning. Register additional types via the MCP_CUSTOM_MEMORY_TYPES env var, e.g. \'{"foo": ["sub_a", "sub_b"]}\'. See docs/memory-ontology.md for the full taxonomy.',
+                            "description": 'Optional memory type. Validated against the built-in ontology. Common base types: observation, decision, learning, error, pattern, planning, ceremony, milestone, stakeholder, meeting, research, communication. Common subtypes: note, reference, code_edit, command, document, insight, gotcha, bug, action_item, finding. Unknown types are silently coerced to \'observation\' and the response includes a warning. Register a type at runtime without a restart with `memory ontology add <name> [--parent <base type>]`, or `POST /api/ontology/memory-types`. The MCP_CUSTOM_MEMORY_TYPES env var still sets types process-wide at startup, e.g. \'{"foo": ["sub_a", "sub_b"]}\'. See docs/memory-ontology.md for the full taxonomy.',
                         },
                     },
                 },
