@@ -46,27 +46,60 @@ async def _open_graph(
         await graph.close()
 
 
+async def _confines_store(graph: MilvusGraphStorage) -> bool:
+    """Whether the Milvus graph refuses a shares_entity pair across two stores.
+
+    True when the association collection carries ``store``, and for a preview
+    of a missing collection, which the real run creates with the field. An
+    unreadable schema refuses every write, so the rebuild stops before it
+    deletes anything rather than after.
+    """
+    if graph._has_store is None:
+        if await graph._call_client(
+            "has_collection", collection_name=graph.collection_name
+        ):
+            raise RuntimeError(
+                "Milvus association collection schema could not be read, so "
+                "every graph write would be refused (#2119); no edges deleted"
+            )
+        return True
+    return graph._has_store
+
+
 async def _rebuild(server: Any, dry_run: bool, report: dict) -> None:
     storage = await server._ensure_storage_initialized()
     primary = storage.primary if isinstance(storage, HybridMemoryStorage) else storage
     async with _open_graph(primary, dry_run) as graph:
         # None means every named store; limit=None drains Milvus's full iterator.
+        # On Milvus the same scan carries each row's store, so the list that is
+        # counted is the list the pairs are attributed from (#2123).
         with strict_reads():
-            memories = await primary.get_all_memories(limit=None, store=None)
+            if isinstance(primary, MilvusMemoryStorage):
+                rows = await primary.get_all_memories_with_store()
+            else:
+                rows = [
+                    (m, None)
+                    for m in await primary.get_all_memories(limit=None, store=None)
+                ]
             expected = await primary.count_all_memories(store=None)
-        if len(memories) != expected:
+        if len(rows) != expected:
             raise RuntimeError(
                 "Memory scan was incomplete or the store changed; no edges deleted"
             )
         # Milvus listings include tombstones stored inside metadata, unlike
         # SQLite's deleted_at SQL filter. Verify the raw count before filtering.
         if isinstance(graph, MilvusGraphStorage):
-            memories = [
-                m for m in memories if m.metadata.get("deleted_at") is None
+            rows = [
+                (m, store) for m, store in rows
+                if m.metadata.get("deleted_at") is None
             ]
+        memories = [m for m, _ in rows]
+        store_of = None
+        if isinstance(graph, MilvusGraphStorage) and await _confines_store(graph):
+            store_of = {m.content_hash: store for m, store in rows}
         snapshot = await graph.get_edge_snapshot()
         key = (lambda name: name) if isinstance(graph, GraphStorage) else _entity_key
-        plan = EntityRebuildPlan(snapshot, entity_key=key)
+        plan = EntityRebuildPlan(snapshot, entity_key=key, store_of=store_of)
         await plan.build(memories)
         report.update(plan.describe())
         if not dry_run:

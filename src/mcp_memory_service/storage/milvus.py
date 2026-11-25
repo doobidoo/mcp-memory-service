@@ -4516,6 +4516,27 @@ class MilvusMemoryStorage(MemoryStorage):
             drop_superseded=not include_superseded,
         )
 
+    async def get_all_memories_with_store(self) -> List[Tuple[Memory, str]]:
+        """Every row, newest first, paired with the store it belongs to.
+
+        The same scan as ``get_all_memories(limit=None, store=None)``, with
+        ``store`` added to the requested fields, so the entity rebuild checks one
+        list against ``count_all_memories`` and attributes every pair from that
+        same list (#2123). Rows of a collection without the field, and rows
+        written without the key, report ``"default"``, as :meth:`_row_store`
+        does everywhere else.
+        """
+        if not self._ensure_initialized():
+            return []
+        rows = await self._iterate_all_rows("", with_store=True)
+        pairs: List[Tuple[Memory, str]] = []
+        for row in rows:
+            mem = self._entity_to_memory(row)
+            if mem is not None:
+                pairs.append((mem, self._row_store(row)))
+        pairs.sort(key=lambda pair: pair[0].created_at or 0.0, reverse=True)
+        return pairs
+
     async def count_all_memories(
         self,
         memory_type: Optional[str] = None,
@@ -5379,6 +5400,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         filter_expr: str,
         include_embeddings: bool = False,
+        with_store: bool = False,
     ) -> List[Dict[str, Any]]:
         """Collect every row matching ``filter_expr`` using ``QueryIterator``.
 
@@ -5389,12 +5411,15 @@ class MilvusMemoryStorage(MemoryStorage):
             include_embeddings: If True, request the ``vector`` field in
                 ``output_fields`` so :meth:`_entity_to_memory` can hydrate
                 ``Memory.embedding``.
+            with_store: If True, also request ``store`` when the collection
+                has it, for :meth:`_row_store`.
         """
         async with self._write_lock:
             if self.client is None:
                 raise RuntimeError("MilvusMemoryStorage was not initialized")
             return await self._scan_with_lite_retry(
                 self._drain_query_iterator, filter_expr, include_embeddings,
+                with_store,
             )
 
     async def _scan_with_lite_retry(self, drain, *args):
@@ -5424,6 +5449,7 @@ class MilvusMemoryStorage(MemoryStorage):
         self,
         filter_expr: str,
         include_embeddings: bool = False,
+        with_store: bool = False,
     ) -> List[Dict[str, Any]]:
         """Sync helper that drains a ``QueryIterator`` into a plain list.
 
@@ -5437,6 +5463,8 @@ class MilvusMemoryStorage(MemoryStorage):
             if include_embeddings
             else self._OUTPUT_FIELDS_BASE
         )
+        if with_store:
+            fields = tuple(self._row_fields(fields))
         iterator = self.client.query_iterator(
             collection_name=self.collection_name,
             filter=filter_expr or "",

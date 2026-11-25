@@ -173,6 +173,8 @@ async def test_store_memory_unknown_type_warns_about_coercion():
     assert "Warning" in text
     assert "'foo'" in text
     assert "'observation'" in text
+    # #2127: the runtime command first, the env var as the startup alternative.
+    assert "memory ontology add foo" in text
     assert "MCP_CUSTOM_MEMORY_TYPES" in text
 
 

@@ -409,56 +409,6 @@ SOLUTIONS:
             Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails,
                       the exception propagates to abort the hosting mutation.
         """
-        # Kill-switch: only append events if explicitly enabled
-        if not os.getenv('MCP_SYNC_EVENTLOG', '').lower() in ('on', 'true', '1'):
-            return
-
-        # Generate event identity (UUIDv4, coordination-free)
-        event_id = str(uuid.uuid4())
-
-        # Get agent_id from environment or memory metadata. SQLite treats NULL as distinct
-        # in a UNIQUE(agent_id, event_id), so a NULL agent would let the same event_id be
-        # inserted twice, breaking replay idempotency (greptile P1). Use a non-null sentinel
-        # for unattributed/legacy events so the uniqueness constraint always applies.
-        agent_id = os.getenv('MCP_AGENT_ID')
-        if not agent_id and payload.get('metadata'):
-            agent_id = payload['metadata'].get('agent_id')
-        if not agent_id:
-            agent_id = 'unknown'  # non-null sentinel: keeps UNIQUE(agent_id, event_id) effective
-
-        # Current timestamp
-        created_at = time.time()
-        created_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at))
-
-        # Schema version for envelope (ADR-0007)
-        schema_version = 1
-
-        # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011. Imported historical
-        # events can provide their source clock instead; treating their import time as
-        # event time would let an old tombstone beat a newer peer edit.
-        if hlc_override is None:
-            # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of
-            # NULL-HLC rows is a one-time startup step (_seed_last_hlc_on_first_boot), so
-            # the write hot path never scans sync_events.
-            cursor = conn.execute(
-                "SELECT key, value FROM metadata "
-                "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
-            )
-            hlc_metadata = dict(cursor.fetchall())
-            last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
-            last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
-
-            # HLC send/local rule: pt = physical time (epoch milliseconds)
-            pt = int(time.time() * 1000)
-            if pt > last_physical:
-                hlc_physical = pt
-                hlc_logical = 0
-            else:
-                hlc_physical = last_physical
-                hlc_logical = last_logical + 1
-        else:
-            hlc_physical, hlc_logical = hlc_override
-        # Record embedding version metadata for create operations (ADR-0014)
         embedding_model = None
         embedding_dim = None
         if op == 'create' and hasattr(self, 'embedding_model_name') and hasattr(self, 'embedding_dimension'):
@@ -471,35 +421,10 @@ SOLUTIONS:
             else:
                 embedding_model = self.embedding_model_name
             embedding_dim = self.embedding_dimension
-        
-        # INSERT event with HLC values and embedding metadata
-        # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
-        conn.execute("""
-            INSERT OR IGNORE INTO sync_events (
-                schema_version, agent_id, event_id, op, content_hash, 
-                payload, created_at, created_at_iso, hlc_physical, hlc_logical,
-                embedding_model, embedding_dim
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            schema_version, agent_id, event_id, op, content_hash,
-            json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical,
-            embedding_model, embedding_dim
-        ))
-
-        # Local events advance last_hlc in the same transaction (ADR-0011). An imported
-        # historical event retains its source clock but must not rewind or advance the
-        # local event generator.
-        if hlc_override is None:
-            conn.execute(
-                "INSERT OR REPLACE INTO metadata (key, value) "
-                "VALUES ('sync_hlc_physical', ?)",
-                (str(hlc_physical),),
-            )
-            conn.execute(
-                "INSERT OR REPLACE INTO metadata (key, value) "
-                "VALUES ('sync_hlc_logical', ?)",
-                (str(hlc_logical),),
-            )
+        append_sync_event(
+            conn, op, content_hash, payload, hlc_override,
+            embedding_model=embedding_model, embedding_dim=embedding_dim,
+        )
 
     def _seed_last_hlc_on_first_boot(self, conn) -> None:
         """Seed/reconcile last_hlc from existing sync_events at startup (after migration 016).
@@ -609,3 +534,112 @@ SOLUTIONS:
         await asyncio.to_thread(_close_locked)
         self.conn = None
         logger.info("SQLite-vec storage connection closed")
+
+
+def append_sync_event(
+    conn,
+    op: str,
+    content_hash: str,
+    payload: dict,
+    hlc_override: tuple[int, int] | None = None,
+    *,
+    embedding_model: str | None = None,
+    embedding_dim: int | None = None,
+) -> None:
+    """Append sync event to event log within same transaction as the hosting mutation.
+
+    SYNCHRONOUS, and performs NO commit internally (ADR-0008): the atomicity
+    comes from the commit of the hosting mutation. Module-level so a caller
+    without a storage instance — the ontology CLI (#2128) — records the event the
+    storage would, instead of writing a row that never reaches the other nodes.
+
+    Args:
+        conn: Database connection (must be in an active transaction)
+        op: Operation type ('create', 'delete', 'update_metadata')
+        content_hash: Hash of the memory being mutated
+        payload: JSON-serializable payload for the event
+        hlc_override: Optional historical HLC for an imported event.
+        embedding_model: Embedding identity for a create event, if any.
+        embedding_dim: Embedding dimension for a create event, if any.
+
+    Raises:
+        Exception: If MCP_SYNC_EVENTLOG is enabled and the append fails, the
+            exception propagates to abort the hosting mutation.
+    """
+    # Kill-switch: only append events if explicitly enabled
+    if not os.getenv('MCP_SYNC_EVENTLOG', '').lower() in ('on', 'true', '1'):
+        return
+
+    # Generate event identity (UUIDv4, coordination-free)
+    event_id = str(uuid.uuid4())
+
+    # Get agent_id from environment or memory metadata. SQLite treats NULL as distinct
+    # in a UNIQUE(agent_id, event_id), so a NULL agent would let the same event_id be
+    # inserted twice, breaking replay idempotency (greptile P1). Use a non-null sentinel
+    # for unattributed/legacy events so the uniqueness constraint always applies.
+    agent_id = os.getenv('MCP_AGENT_ID')
+    if not agent_id and payload.get('metadata'):
+        agent_id = payload['metadata'].get('agent_id')
+    if not agent_id:
+        agent_id = 'unknown'  # non-null sentinel: keeps UNIQUE(agent_id, event_id) effective
+
+    # Current timestamp
+    created_at = time.time()
+    created_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(created_at))
+
+    # Schema version for envelope (ADR-0007)
+    schema_version = 1
+
+    # Calculate HLC (Hybrid Logical Clock) - ADR-0010/0011. Imported historical
+    # events can provide their source clock instead; treating their import time as
+    # event time would let an old tombstone beat a newer peer edit.
+    if hlc_override is None:
+        # Read last_hlc from metadata (default to (0,0) if not seeded yet). Repair of
+        # NULL-HLC rows is a one-time startup step (_seed_last_hlc_on_first_boot), so
+        # the write hot path never scans sync_events.
+        cursor = conn.execute(
+            "SELECT key, value FROM metadata "
+            "WHERE key IN ('sync_hlc_physical', 'sync_hlc_logical')"
+        )
+        hlc_metadata = dict(cursor.fetchall())
+        last_physical = int(hlc_metadata.get('sync_hlc_physical', '0'))
+        last_logical = int(hlc_metadata.get('sync_hlc_logical', '0'))
+
+        # HLC send/local rule: pt = physical time (epoch milliseconds)
+        pt = int(time.time() * 1000)
+        if pt > last_physical:
+            hlc_physical = pt
+            hlc_logical = 0
+        else:
+            hlc_physical = last_physical
+            hlc_logical = last_logical + 1
+    else:
+        hlc_physical, hlc_logical = hlc_override
+    # INSERT event with HLC values and embedding metadata
+    # Use INSERT OR IGNORE to handle duplicate (agent_id, event_id) gracefully
+    conn.execute("""
+        INSERT OR IGNORE INTO sync_events (
+            schema_version, agent_id, event_id, op, content_hash, 
+            payload, created_at, created_at_iso, hlc_physical, hlc_logical,
+            embedding_model, embedding_dim
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        schema_version, agent_id, event_id, op, content_hash,
+        json.dumps(payload), created_at, created_at_iso, hlc_physical, hlc_logical,
+        embedding_model, embedding_dim
+    ))
+
+    # Local events advance last_hlc in the same transaction (ADR-0011). An imported
+    # historical event retains its source clock but must not rewind or advance the
+    # local event generator.
+    if hlc_override is None:
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) "
+            "VALUES ('sync_hlc_physical', ?)",
+            (str(hlc_physical),),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) "
+            "VALUES ('sync_hlc_logical', ?)",
+            (str(hlc_logical),),
+        )

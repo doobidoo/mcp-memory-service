@@ -72,8 +72,25 @@ the custom one.
 
 ## Registering custom types
 
-Set `MCP_CUSTOM_MEMORY_TYPES` to a JSON object mapping base type → list
-of subtypes. Empty list is allowed if you don't need subtypes.
+There are two ways to add a type, and they differ in when they take effect.
+
+**On a running system**, write the type to the database overlay. It needs no
+restart and reaches every process on the same database file:
+
+```bash
+memory ontology add lesson                    # new base type
+memory ontology add standup --parent meeting  # subtype of an existing base type
+memory ontology list                          # what has been added
+```
+
+The same is available over HTTP as `POST /api/ontology/memory-types`, and in
+process as `await storage.add_memory_type(...)`. See
+[Types stored in the database](#types-stored-in-the-database-sqlite_vec) for the
+rules that apply.
+
+**At startup, process-wide**, set `MCP_CUSTOM_MEMORY_TYPES` to a JSON object
+mapping base type → list of subtypes. Empty list is allowed if you don't need
+subtypes. This needs a restart and is not shared with other nodes.
 
 ```bash
 # Single new base type, no subtypes
@@ -116,7 +133,18 @@ is cached in-process. With `memory restart` (CLI) or
 
 On the `sqlite_vec` backend, custom types can also live in the memory
 database itself, in the `ontology_entries` table (#1897). They are merged
-after the built-ins and `MCP_CUSTOM_MEMORY_TYPES`, and they need no restart:
+after the built-ins and `MCP_CUSTOM_MEMORY_TYPES`, and they need no restart.
+
+From a shell, without a running server (the command opens the database
+directly, the way `memory check-db` does):
+
+```bash
+memory ontology add lesson
+memory ontology add standup --parent meeting
+memory ontology list
+```
+
+In process:
 
 ```python
 await storage.add_memory_type("legal")                      # new base type
