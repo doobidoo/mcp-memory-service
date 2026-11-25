@@ -361,6 +361,79 @@ def _resolve_db_path():
     return os.path.join(base, 'sqlite_vec.db')
 
 
+@cli.group("ontology")
+def ontology_cmd():
+    """Inspect and extend the ontology stored in the database (#2126).
+
+    The overlay needs no restart: a running server picks a new type up on its
+    next ontology_version check, which is why this exists — the alternative
+    (MCP_CUSTOM_MEMORY_TYPES) is process-wide and needs a restart.
+    """
+
+
+@ontology_cmd.command("add")
+@click.argument("name")
+@click.option("--parent", default=None,
+              help="Base type to extend. Omit to add a new base type.")
+@click.option('--db-path', default=None, help='Path to SQLite database (auto-detected if omitted)')
+def ontology_add(name, parent, db_path):
+    """Register a memory type, e.g. `memory ontology add lesson`."""
+    import sqlite3  # inline import: keep optional dependencies lazy
+    from ..storage.ontology_overlay import (
+        upsert_memory_type,
+        validate_memory_type_entry,
+    )
+
+    db_path = db_path or _resolve_db_path()
+    if not os.path.exists(db_path):
+        click.echo(f"❌ Database not found: {db_path}", err=True)
+        sys.exit(1)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        try:
+            canonical, canonical_parent = validate_memory_type_entry(name, parent)
+            upsert_memory_type(conn, canonical, canonical_parent)
+        except ValueError as e:
+            click.echo(f"❌ {e}", err=True)
+            sys.exit(1)
+    finally:
+        conn.close()
+
+    where = f"subtype of '{canonical_parent}'" if canonical_parent else "base type"
+    click.echo(f"✅ Registered memory type '{canonical}' ({where}).")
+    click.echo("   Running servers pick it up on their next ontology version check.")
+
+
+@ontology_cmd.command("list")
+@click.option('--db-path', default=None, help='Path to SQLite database (auto-detected if omitted)')
+def ontology_list(db_path):
+    """List the types added to the ontology, with their parent type."""
+    import sqlite3  # inline import: keep optional dependencies lazy
+    from ..storage.ontology_overlay import read_memory_type_overlay
+
+    db_path = db_path or _resolve_db_path()
+    if not os.path.exists(db_path):
+        click.echo(f"❌ Database not found: {db_path}", err=True)
+        sys.exit(1)
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = [(key, parent) for key, parent, live in read_memory_type_overlay(conn) if live]
+    except sqlite3.OperationalError as e:
+        click.echo(f"❌ Cannot read the ontology: {e}", err=True)
+        sys.exit(1)
+    finally:
+        conn.close()
+
+    if not rows:
+        click.echo("No types added to the ontology yet. The built-in taxonomy still applies.")
+        return
+    click.echo(f"{len(rows)} type(s) added to the built-in taxonomy:\n")
+    for key, parent in sorted(rows):
+        click.echo(f"   {key}" + (f"  (subtype of {parent})" if parent else "  (base type)"))
+
+
 @cli.command("check-db")
 @click.option('--db-path', default=None, help='Path to SQLite database (auto-detected if omitted)')
 def check_db(db_path):

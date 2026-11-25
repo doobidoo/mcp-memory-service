@@ -68,7 +68,7 @@ Welcome to the comprehensive documentation for MCP Memory Service - a Model Cont
 - **[Memory Metadata API](api/memory-metadata-api.md)** - Advanced metadata operations
 - **[Tag Standardization](api/tag-standardization.md)** - Tag schema and conventions
 - **[Token-Efficient Retrieval](guides/token-efficient-retrieval.md)** - Keep retrieval cheap in long sessions
-- **[Memory Type Ontology](memory-ontology.md)** - Built-in taxonomy and the `MCP_CUSTOM_MEMORY_TYPES` env var
+- **[Memory Type Ontology](memory-ontology.md)** - Built-in taxonomy, the runtime overlay (`memory ontology add`, `POST /api/ontology/memory-types`) and the `MCP_CUSTOM_MEMORY_TYPES` env var
 - **[Team Setup](setup-guide.md#path-4-full-stack)** - Full-stack path for shared deployments
 - **[Wiki](https://github.com/doobidoo/mcp-memory-service/wiki)** - Programmatic usage and long-form guides
 
