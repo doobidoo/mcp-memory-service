@@ -237,3 +237,26 @@ class TestLegacyCollectionFailsClosed:
         await storage.get_all_memories(store="all")
 
         assert "store ==" not in _captured_filter(storage._query_memories.call_args)
+
+
+class TestRecallWindowSplitting:
+    """The split helpers keep the newest-first guarantee when ranges saturate."""
+
+    @staticmethod
+    def _memory(index: int):
+        from mcp_memory_service.models.memory import Memory
+
+        memory = Memory(content="x", content_hash=f"h{index}")
+        memory.created_at = float(index)
+        return memory
+
+    def test_remember_live_keeps_only_the_recallable_and_trims_to_newest(self):
+        storage = _make_storage()
+        storage._is_recallable_memory = staticmethod(lambda m: m.created_at != 0.0)
+        candidates: dict = {}
+        memories = [self._memory(i) for i in range(6)]
+
+        storage._remember_live(candidates, memories, n_results=1, batch_size=1)
+
+        # h0 is not recallable; the pool is trimmed to the newest single result.
+        assert set(candidates) == {"h5"}

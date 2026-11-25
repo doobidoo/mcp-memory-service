@@ -4490,71 +4490,32 @@ class MilvusMemoryStorage(MemoryStorage):
         intervals = [(-upper, lower, upper)]
         candidates: Dict[str, Memory] = {}
 
-        def remember_live(memories: List[Memory]) -> None:
-            for memory in memories:
-                if self._is_recallable_memory(memory):
-                    candidates[memory.content_hash] = memory
-            if len(candidates) > max(batch_size, n_results * 4):
-                newest = sorted(
-                    candidates.values(),
-                    key=lambda memory: memory.created_at or 0.0,
-                    reverse=True,
-                )[:n_results]
-                candidates.clear()
-                candidates.update({memory.content_hash: memory for memory in newest})
-
         while intervals:
             _, range_start, range_end = heapq.heappop(intervals)
-            if len(candidates) >= n_results:
-                nth_newest = min(
-                    memory.created_at or 0.0 for memory in candidates.values()
-                )
-                if range_end <= nth_newest:
-                    continue
+            if self._window_is_saturated(candidates, n_results, range_end):
+                continue
 
             range_filter = self._combine_filter(
                 self._time_window_filter(range_start, range_end), store_filter
             )
-            memories, raw_count = await self._query_time_window(
-                range_filter, batch_size
-            )
-            remember_live(memories)
+            memories, raw_count = await self._query_time_window(range_filter, batch_size)
+            self._remember_live(candidates, memories, n_results, batch_size)
 
             if raw_count < batch_size:
                 continue
 
             timestamps = {memory.created_at or 0.0 for memory in memories}
             if len(timestamps) == 1:
-                timestamp = timestamps.pop()
-                older_end = math.nextafter(timestamp, float("-inf"))
-                newer_start = math.nextafter(timestamp, float("inf"))
-                if range_start <= older_end:
-                    heapq.heappush(intervals, (-older_end, range_start, older_end))
-                if newer_start <= range_end:
-                    heapq.heappush(intervals, (-range_end, newer_start, range_end))
-
-                exact_filter = self._combine_filter(
-                    self._time_window_filter(timestamp, timestamp), store_filter
+                await self._split_single_timestamp(
+                    intervals, timestamps.pop(), range_start, range_end,
+                    batch_size, store_filter, candidates, n_results,
                 )
-                async with aclosing(
-                    self._iter_time_window_batches(exact_filter, batch_size)
-                ) as batches:
-                    async for exact, raw_count in batches:
-                        remember_live(exact)
-                        if len(candidates) >= n_results or raw_count < batch_size:
-                            break
                 continue
 
             if range_end - range_start <= 1e-6:
-                if len(candidates) >= n_results:
-                    continue
-                rows = await self._iterate_all_rows(range_filter)
-                fallback_memories = []
-                for row in rows:
-                    memory = self._entity_to_memory(row)
-                    if memory is not None:
-                        fallback_memories.append(memory)
-                remember_live(fallback_memories)
+                await self._dense_range_fallback(
+                    candidates, range_filter, n_results, batch_size,
+                )
                 continue
 
             midpoint = (range_start + range_end) / 2
@@ -4567,6 +4528,88 @@ class MilvusMemoryStorage(MemoryStorage):
             reverse=True,
         )
         return newest[:n_results]
+
+    @staticmethod
+    def _window_is_saturated(
+        candidates: Dict[str, Memory], n_results: int, range_end: float
+    ) -> bool:
+        """Whether this range is older than the nth-newest candidate already found."""
+        if len(candidates) < n_results:
+            return False
+        nth_newest = min(memory.created_at or 0.0 for memory in candidates.values())
+        return range_end <= nth_newest
+
+    def _remember_live(
+        self,
+        candidates: Dict[str, Memory],
+        memories: List[Memory],
+        n_results: int,
+        batch_size: int,
+    ) -> None:
+        """Keep the recallable ones, trimming the pool to the newest ``n_results``."""
+        for memory in memories:
+            if self._is_recallable_memory(memory):
+                candidates[memory.content_hash] = memory
+        if len(candidates) > max(batch_size, n_results * 4):
+            newest = sorted(
+                candidates.values(),
+                key=lambda memory: memory.created_at or 0.0,
+                reverse=True,
+            )[:n_results]
+            candidates.clear()
+            candidates.update({memory.content_hash: memory for memory in newest})
+
+    async def _split_single_timestamp(
+        self,
+        intervals: List[Tuple[float, float, float]],
+        timestamp: float,
+        range_start: float,
+        range_end: float,
+        batch_size: int,
+        store_filter: Optional[str],
+        candidates: Dict[str, Memory],
+        n_results: int,
+    ) -> None:
+        """A saturated range that holds one timestamp: split it and drain that value.
+
+        The range halves cannot shrink further (they bound the same instant), so
+        the iteration over the exact filter is what makes progress.
+        """
+        older_end = math.nextafter(timestamp, float("-inf"))
+        newer_start = math.nextafter(timestamp, float("inf"))
+        if range_start <= older_end:
+            heapq.heappush(intervals, (-older_end, range_start, older_end))
+        if newer_start <= range_end:
+            heapq.heappush(intervals, (-range_end, newer_start, range_end))
+
+        exact_filter = self._combine_filter(
+            self._time_window_filter(timestamp, timestamp), store_filter
+        )
+        async with aclosing(
+            self._iter_time_window_batches(exact_filter, batch_size)
+        ) as batches:
+            async for exact, raw_count in batches:
+                self._remember_live(candidates, exact, n_results, batch_size)
+                if len(candidates) >= n_results or raw_count < batch_size:
+                    break
+
+    async def _dense_range_fallback(
+        self,
+        candidates: Dict[str, Memory],
+        range_filter: str,
+        n_results: int,
+        batch_size: int,
+    ) -> None:
+        """Last resort for an interval too dense to split: read it row by row."""
+        if len(candidates) >= n_results:
+            return
+        rows = await self._iterate_all_rows(range_filter)
+        fallback_memories = []
+        for row in rows:
+            memory = self._entity_to_memory(row)
+            if memory is not None:
+                fallback_memories.append(memory)
+        self._remember_live(candidates, fallback_memories, n_results, batch_size)
 
     async def _iter_time_window_batches(
         self,
