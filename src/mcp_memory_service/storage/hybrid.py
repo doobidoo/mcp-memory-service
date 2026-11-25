@@ -153,6 +153,9 @@ class SyncOperation:
             self.timestamp = time.time()
 
 
+# push_cursor row that tracks how far sync_events has been forwarded to the secondary (#1506).
+FORWARD_CURSOR_ID = "hybrid-secondary"
+
 # Secondary types already warned about a store they cannot take (#1915), so the
 # warning is logged once per type instead of once per queued memory.
 _STORE_NOT_FORWARDED_WARNED: Set[type] = set()
@@ -1388,6 +1391,9 @@ class BackgroundSyncService:
                         for warning in capacity_status.get('warnings', []):
                             logger.warning(warning)
 
+                if healthy:
+                    await self._forward_applied_events()
+
                 # Periodic drift detection (v8.25.0+)
                 if healthy and self.drift_check_enabled:
                     time_since_last_check = time.time() - self.last_drift_check_time
@@ -1402,6 +1408,81 @@ class BackgroundSyncService:
 
         except Exception as e:
             logger.error("Error during periodic sync: %s", _sanitize_log_value(e))
+
+    async def _forward_applied_events(self, limit: int = 100, max_batches: int = 10) -> int:
+        """Push what delta-sync applied on this hub to the secondary (#1506).
+
+        ``apply_remote_event`` writes the primary's SQLite directly, so a create,
+        edit or delete a spoke pushed here never passes through the queue that
+        ``HybridMemoryStorage.store/update/delete`` feed, and the secondary only
+        held the hub's own writes. This tails ``sync_events`` from a persisted cursor
+        (the ``push_cursor`` row ``hybrid-secondary``), so a restart or a down
+        secondary loses nothing: the cursor moves only after a batch went through.
+
+        Each hash is forwarded from its current state, compared with the secondary's
+        copy. A change that already matches there is skipped, which is also what stops
+        a forwarded edit or delete coming back from the secondary and being applied a
+        second time. An edit goes with the hub's own ``updated_at``: stamped with the
+        time of the push instead, the secondary's copy would look newer to the next
+        drift scan and be written back into the hub as a fresh edit. The cap bounds
+        the first catch-up over an existing log.
+        """
+        from .sync.orchestrator import advance_push_cursor, get_push_cursor
+        from .ontology_overlay import EVENT_FILTERS
+
+        forwarded = 0
+        for _ in range(max_batches):
+            cursor = get_push_cursor(self.primary, FORWARD_CURSOR_ID)
+            rows = self.primary.conn.execute(
+                "SELECT seq, content_hash, op FROM sync_events WHERE seq > ?"
+                + EVENT_FILTERS["memory"] + " ORDER BY seq LIMIT ?",
+                (cursor, limit),
+            ).fetchall()
+            if not rows:
+                break
+            latest_op = {content_hash: op for _, content_hash, op in rows}
+            for content_hash, op in latest_op.items():
+                await self._forward_one(content_hash, op)
+            advance_push_cursor(self.primary, FORWARD_CURSOR_ID, rows[-1][0])
+            forwarded += len(latest_op)
+            if len(rows) < limit:
+                break
+        return forwarded
+
+    async def _forward_one(self, content_hash: str, op: str) -> None:
+        """Bring the secondary's copy of one hash in line with the primary."""
+        state = await self.primary.get_sync_state_for_hash(content_hash)
+        if state is None:
+            return
+        remote = await self.secondary.get_by_hash(content_hash)
+        if state[1] is not None:
+            if remote is not None:
+                await self._process_single_operation(
+                    SyncOperation(operation='delete', content_hash=content_hash))
+            return
+        local = await self.primary.get_by_hash(content_hash)
+        if local is None:  # removed since the state read; its delete event comes next
+            return
+        if remote is None:
+            row = self.primary.conn.execute(
+                "SELECT store FROM memories WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            if row is None:  # removed since the state read; a later event carries it
+                return
+            await self._process_single_operation(
+                SyncOperation(operation='store', memory=local, store=row[0], recreate=True))
+        elif (set(remote.tags or []) != set(local.tags or [])
+              or remote.memory_type != local.memory_type
+              or (remote.metadata or {}) != (local.metadata or {})):
+            # Compared by value, not by the batch's last op: a delete then a recreate of
+            # the same content must still converge.
+            await self._process_single_operation(SyncOperation(
+                operation='update', content_hash=content_hash,
+                updates={'tags': local.tags, 'memory_type': local.memory_type,
+                         'metadata': local.metadata,
+                         'updated_at': local.updated_at,
+                         'updated_at_iso': local.updated_at_iso},
+                preserve_timestamps=False))
 
     async def _detect_and_sync_drift(self, dry_run: bool = False) -> Dict[str, int]:
         """
