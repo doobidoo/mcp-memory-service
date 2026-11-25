@@ -140,6 +140,7 @@ GUARDED_MODULES = [
     "mcp_memory_service/storage/sync/bootstrap.py",
     "mcp_memory_service/web/api/configuration.py",
     "mcp_memory_service/web/api/documents.py",
+    "mcp_memory_service/storage/sync/orchestrator.py",
 ]
 
 # The levels check 6.5 looks at, verbatim.
@@ -1074,3 +1075,19 @@ def test_lazy_scan_flags_handler_and_web_api_values():
     # An f-string in one of these modules' logger calls is caught by the AST scan.
     fstring_sample = 'logger.info(f"Extracted subgraph: {len(subgraph[\'nodes\'])} nodes")\n'
     assert _ast_findings(fstring_sample)
+
+
+@pytest.mark.unit
+def test_lazy_scan_flags_sync_apply_reason():
+    """The apply reason storage/sync/orchestrator.py logs must stay wrapped.
+
+    `result.reason` comes from apply_remote_event() in storage/sync/apply.py,
+    and several reasons carry the peer's data or an exception text (the
+    envelope's schema_version, "Apply failed: {e}"). Dropping the wrapper in
+    the "Applied event" or "not applied" line would break the module scan;
+    this sentinel fails at the sample level first.
+    """
+    bare = 'logger.warning("Event %s (seq=%s) not applied: %s", _sanitize_log_value(event_id), _sanitize_log_value(event_seq), result.reason)\n'
+    wrapped = 'logger.warning("Event %s (seq=%s) not applied: %s", _sanitize_log_value(event_id), _sanitize_log_value(event_seq), _sanitize_log_value(result.reason))\n'
+    assert _lazy_findings(bare)
+    assert not _lazy_findings(wrapped)
