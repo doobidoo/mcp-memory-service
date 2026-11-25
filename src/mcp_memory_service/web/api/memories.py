@@ -216,6 +216,117 @@ def memory_to_response(memory: Memory) -> MemoryResponse:
     )
 
 
+def _client_hostname(request: MemoryCreateRequest, http_request: Request) -> Optional[str]:
+    """Hostname for consistent tagging (the tagging itself happens in the service).
+
+    Client-provided hostname first, then the X-Client-Hostname header, then
+    this server's hostname (the original behavior).
+    """
+    if not INCLUDE_HOSTNAME:
+        return None
+    return (
+        request.client_hostname
+        or http_request.headers.get('X-Client-Hostname')
+        or socket.gethostname()
+    )
+
+
+def _tags_with_agent(request: MemoryCreateRequest, http_request: Request) -> List[str]:
+    """The request's tags, plus agent:<id> when the X-Agent-ID header names one."""
+    tags = list(request.tags)
+    agent_id = http_request.headers.get('X-Agent-ID')
+    if agent_id and f"agent:{agent_id}" not in tags:
+        tags.append(f"agent:{agent_id}")
+    return tags
+
+
+async def _broadcast_stored(result: dict, store: str) -> None:
+    """Send the memory_stored SSE event; a failed broadcast never fails the request."""
+    try:
+        # A chunked store is announced with its first chunk.
+        stored = result["memory"] if "memory" in result else result["memories"][0]
+        memory_data = {
+            "content_hash": stored["content_hash"],
+            "content": stored["content"],
+            "tags": stored["tags"],
+            "memory_type": stored["memory_type"],
+        }
+        await sse_manager.broadcast_event(create_memory_stored_event(memory_data, store=store))
+    except Exception as e:
+        logger.warning("Failed to broadcast memory_stored event: %s", _sanitize_log_value(e))
+
+
+def _coercion_warning(requested: Optional[str], effective: Optional[str]) -> str:
+    """Name the runtime registration when an unknown memory_type was coerced (#2127).
+
+    Memory.__post_init__ rewrites a type the ontology does not know to
+    "observation". Without an explicit warning the caller sees "success"
+    while their type filter silently breaks. `is not None` (not truthy), so
+    an explicit empty string, also coerced to 'observation', still warns;
+    this mirrors the MCP handler's presence-based check.
+    """
+    if requested is None or not effective or requested == effective:
+        return ""
+    return (
+        f" Warning: requested memory_type '{requested}' is not in "
+        f"the ontology — stored as '{effective}'. Register it without a "
+        f"restart with `memory ontology add {requested}`, or at startup via "
+        f"MCP_CUSTOM_MEMORY_TYPES, e.g. '{{\"{requested}\": []}}'."
+    )
+
+
+def _refused_chunks_note(result: dict) -> str:
+    """#1560: name the chunks a recorded delete kept out, and how to bring them back."""
+    refused_chunks = result.get("refused_chunks") or []
+    if not refused_chunks:
+        return ""
+    return (
+        f"; {len(refused_chunks)} chunk(s) not stored: deleted on "
+        f"{refused_chunks[0]['deleted_at']}, pass restore_deleted=true "
+        f"to bring them back"
+    )
+
+
+def _created_response(result: dict, requested_type: Optional[str]) -> MemoryCreateResponse:
+    """The success response for a single memory, or for a chunked store by its first chunk."""
+    if "memory" in result:
+        stored = result["memory"]
+        message = _with_supersede_note(result, "Memory stored successfully")
+    else:
+        stored = result["memories"][0]
+        message = _with_supersede_note(
+            result, f"Memory stored as {result['total_chunks']} chunks"
+        ) + _refused_chunks_note(result)
+    return MemoryCreateResponse(
+        success=True,
+        message=message + _coercion_warning(requested_type, stored.get("memory_type")),
+        content_hash=stored["content_hash"],
+        memory=stored,
+        **_dedup_response_fields(result),
+    )
+
+
+def _not_stored_response(result: dict) -> MemoryCreateResponse:
+    """The answer to a store the MemoryService did not perform."""
+    refused = result.get("refused_recreate")
+    if refused:
+        # #1560: re-sending content this server deleted conflicts with the
+        # recorded delete — 409, naming the delete, until the client says
+        # restore_deleted=true. Not a 200/success=false: bundled clients
+        # would log and move on, and the memory would quietly come back
+        # on the next sync.
+        raise HTTPException(
+            status_code=409,
+            detail={"message": result.get("error", "Not stored"), **refused},
+        )
+    return MemoryCreateResponse(
+        success=False,
+        message=str(result.get("error", "Failed to store memory")),
+        content_hash=None,
+        **_dedup_response_fields(result),
+    )
+
+
 @router.post("/memories", response_model=MemoryCreateResponse, tags=["memories"])
 async def store_memory(
     request: MemoryCreateRequest,
@@ -230,27 +341,8 @@ async def store_memory(
     hostname tagging, and metadata enrichment.
     """
     try:
-        # Resolve hostname for consistent tagging (logic stays in API layer, tagging in service)
-        client_hostname = None
-        if INCLUDE_HOSTNAME:
-            # Prioritize client-provided hostname, then header, then fallback to server
-            # 1. Check if client provided hostname in request body
-            if request.client_hostname:
-                client_hostname = request.client_hostname
-            # 2. Check for X-Client-Hostname header
-            elif http_request.headers.get('X-Client-Hostname'):
-                client_hostname = http_request.headers.get('X-Client-Hostname')
-            # 3. Fallback to server hostname (original behavior)
-            else:
-                client_hostname = socket.gethostname()
-
-        # Auto-tag with agent identity if provided via header
-        tags = list(request.tags)
-        agent_id = http_request.headers.get('X-Agent-ID')
-        if agent_id:
-            agent_tag = f"agent:{agent_id}"
-            if agent_tag not in tags:
-                tags.append(agent_tag)
+        client_hostname = _client_hostname(request, http_request)
+        tags = _tags_with_agent(request, http_request)
 
         if request.store == "all":
             raise HTTPException(
@@ -274,103 +366,11 @@ async def store_memory(
             restore_deleted=request.restore_deleted,
         )
 
-        if result["success"]:
-            # Broadcast SSE event for successful memory storage
-            try:
-                # Handle both single memory and chunked responses
-                if "memory" in result:
-                    memory_data = {
-                        "content_hash": result["memory"]["content_hash"],
-                        "content": result["memory"]["content"],
-                        "tags": result["memory"]["tags"],
-                        "memory_type": result["memory"]["memory_type"]
-                    }
-                else:
-                    # For chunked responses, use the first chunk's data
-                    first_memory = result["memories"][0]
-                    memory_data = {
-                        "content_hash": first_memory["content_hash"],
-                        "content": first_memory["content"],
-                        "tags": first_memory["tags"],
-                        "memory_type": first_memory["memory_type"]
-                    }
+        if not result["success"]:
+            return _not_stored_response(result)
+        await _broadcast_stored(result, request.store)
+        return _created_response(result, request.memory_type)
 
-                event = create_memory_stored_event(memory_data, store=request.store)
-                await sse_manager.broadcast_event(event)
-            except Exception as e:
-                # Don't fail the request if SSE broadcasting fails
-                logger.warning("Failed to broadcast memory_stored event: %s", _sanitize_log_value(e))
-
-            # Surface ontology coercion: when the requested memory_type is not
-            # in the ontology, Memory.__post_init__ silently rewrites it to
-            # "observation". Without an explicit warning the caller sees
-            # "success" while their type filter silently breaks.
-            def _coercion_warning(effective: Optional[str]) -> str:
-                requested = request.memory_type
-                # Use `is not None` (not truthy) so an explicit empty string —
-                # also coerced to 'observation' — still surfaces the warning.
-                # Mirrors the MCP handler's presence-based check.
-                if requested is not None and effective and requested != effective:
-                    return (
-                        f" Warning: requested memory_type '{requested}' is not in "
-                        f"the ontology — stored as '{effective}'. Register custom "
-                        f"types via MCP_CUSTOM_MEMORY_TYPES, "
-                        f"e.g. '{{\"{requested}\": []}}'."
-                    )
-                return ""
-
-            # Return appropriate response based on MemoryService result
-            if "memory" in result:
-                # Single memory response
-                base_msg = _with_supersede_note(result, "Memory stored successfully")
-                return MemoryCreateResponse(
-                    success=True,
-                    message=base_msg + _coercion_warning(result["memory"].get("memory_type")),
-                    content_hash=result["memory"]["content_hash"],
-                    memory=result["memory"],
-                    **_dedup_response_fields(result),
-                )
-            else:
-                # Chunked memory response
-                first_memory = result["memories"][0]
-                base_msg = _with_supersede_note(
-                    result, f"Memory stored as {result['total_chunks']} chunks"
-                )
-                refused_chunks = result.get("refused_chunks") or []
-                if refused_chunks:
-                    # #1560: not the whole content — name the chunks a recorded delete
-                    # kept out, and how to bring them back.
-                    base_msg += (
-                        f"; {len(refused_chunks)} chunk(s) not stored: deleted on "
-                        f"{refused_chunks[0]['deleted_at']}, pass restore_deleted=true "
-                        f"to bring them back"
-                    )
-                return MemoryCreateResponse(
-                    success=True,
-                    message=base_msg + _coercion_warning(first_memory.get("memory_type")),
-                    content_hash=first_memory["content_hash"],
-                    memory=first_memory,
-                    **_dedup_response_fields(result),
-                )
-        else:
-            refused = result.get("refused_recreate")
-            if refused:
-                # #1560: re-sending content this server deleted conflicts with the
-                # recorded delete — 409, naming the delete, until the client says
-                # restore_deleted=true. Not a 200/success=false: bundled clients
-                # would log and move on, and the memory would quietly come back
-                # on the next sync.
-                raise HTTPException(
-                    status_code=409,
-                    detail={"message": result.get("error", "Not stored"), **refused},
-                )
-            return MemoryCreateResponse(
-                success=False,
-                message=str(result.get("error", "Failed to store memory")),
-                content_hash=None,
-                **_dedup_response_fields(result),
-            )
-            
     except HTTPException:
         # Validation errors (e.g. store='all' on a write) must reach the client
         # as their real status code instead of being flattened to 500.
