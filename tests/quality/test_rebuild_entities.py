@@ -167,21 +167,31 @@ async def test_rebuild_covers_all_stores_and_deleted_rows(backend, monkeypatch):
     assert await graph.store_entity_link(gone.content_hash, "stale", "tag")
     if isinstance(primary, MilvusMemoryStorage):
         tombstone = await _store(primary, 4, ["task:tombstone"])
-        assert (await primary.update_memory_metadata(
-            tombstone.content_hash, {"metadata": {"deleted_at": time.time()}}
-        ))[0]
+        # Link before the tombstone: since #2119 the graph refuses a new link
+        # on a soft-deleted memory, so the stale edge has to predate it.
         assert await graph.store_entity_link(
             tombstone.content_hash, "tombstone", "tag"
         )
+        assert (await primary.update_memory_metadata(
+            tombstone.content_hash, {"metadata": {"deleted_at": time.time()}}
+        ))[0]
     snapshots = [await primary.get_by_hash(m.content_hash) for m in (a, b)]
 
     result = await _run(storage, dry_run=False)
     assert result["success"], result
     assert result["memories_scanned"] == 2
-    assert result["edges_after"] == {"has_entity": 2, "shares_entity": 2}
     assert await graph.get_entities_for_memory(gone.content_hash) == []
     assert await graph.find_memories_by_entity("tombstone") == []
-    assert await graph.has_edge(a.content_hash, b.content_hash, "shares_entity")
+    # a and b are in different stores. SQLite writes the pair and hides it from
+    # store-scoped reads (#2121); Milvus refuses it, so the rebuild skips it (#2123).
+    cross_store = isinstance(primary, MilvusMemoryStorage)
+    assert result["edges_after"] == {
+        "has_entity": 2, "shares_entity": 0 if cross_store else 2,
+    }
+    assert result["shares_entity_pairs_skipped_cross_store"] == int(cross_store)
+    assert await graph.has_edge(
+        a.content_hash, b.content_hash, "shares_entity"
+    ) is not cross_store
     assert [await primary.get_by_hash(m.content_hash) for m in (a, b)] == snapshots
 
 

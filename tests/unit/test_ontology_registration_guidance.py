@@ -69,3 +69,29 @@ class TestDocs:
         source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
         assert CLI_HINT in source
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "src/mcp_memory_service/server/handlers/memory.py",
+        "src/mcp_memory_service/web/api/memories.py",
+    ],
+)
+class TestCoercionWarnings:
+    """The warning a caller reads right after a coerced store (#2127).
+
+    Both files build it at the moment the caller wants the answer, so both name
+    the command that needs no restart and keep the env var for startup.
+    """
+
+    def test_names_the_runtime_command(self, relative_path):
+        source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert CLI_HINT in source
+
+    def test_keeps_the_env_var_as_the_startup_alternative(self, relative_path):
+        source = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert "MCP_CUSTOM_MEMORY_TYPES" in source
+        assert "at startup" in source

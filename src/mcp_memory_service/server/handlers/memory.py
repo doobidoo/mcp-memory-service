@@ -294,6 +294,172 @@ async def _auto_capture_note(server, arguments: dict, content, result: dict, con
     return ""
 
 
+def _restore_deleted_flag(arguments: dict) -> bool:
+    """The caller's restore_deleted, which must be a real boolean (#1560).
+
+    `bool("false")` is True. The /mcp route hands tool arguments to this
+    handler without validating them against the tool schema, so a restore
+    must be asked for with a real boolean, never a string.
+    """
+    restore_deleted = arguments.get("restore_deleted", False)
+    if not isinstance(restore_deleted, bool):
+        raise ValueError(
+            "restore_deleted must be a boolean (true/false), "
+            f"got {type(restore_deleted).__name__}"
+        )
+    return restore_deleted
+
+
+def _not_stored_response(result: dict) -> List[types.TextContent]:
+    """Answer a store the MemoryService refused, or raise when it failed."""
+    error_msg = f"{result.get('error', 'Unknown error')}{_dedup_outcome_note(result)}"
+    if result.get("refused_recreate"):
+        # #1560: a refused re-create is the answer the caller chose by not
+        # passing restore_deleted — plain text, not isError. Unlike the
+        # failures #1601 covers, nothing was lost here: the tombstone is
+        # intact and the message says how to proceed.
+        return [types.TextContent(type="text", text=error_msg)]
+    # A refused write is a failure. Return-as-text made the MCP envelope
+    # report isError=False while nothing was stored, so automation counted
+    # it as success (#1601). Raise: the SDK answers isError=True.
+    raise RuntimeError(f"Error storing memory: {error_msg}")
+
+
+def _raise_on_failed_chunks(result: dict) -> None:
+    """Partial writes are failures too (#1601).
+
+    Some chunks never reached the database, so reporting success lets a
+    harvester skip them permanently.
+    """
+    failed_chunks = result.get("failed_chunks") or 0
+    if failed_chunks:
+        raise RuntimeError(
+            f"Error storing memory: {failed_chunks} of "
+            f"{result.get('total_chunks', '?')} chunks failed to store"
+        )
+
+
+def _stored_headline(result: dict) -> tuple:
+    """The success line with its dedup notes, and the type the memory was stored as."""
+    if "memories" in result:
+        # Chunked response - multiple memories created
+        num_chunks = len(result["memories"])
+        original_hash = result.get("original_hash", "unknown")
+        message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash})"
+        effective_type = result["memories"][0].get("memory_type") if result["memories"] else None
+    else:
+        message = f"Memory stored successfully (hash: {result['memory']['content_hash']})"
+        effective_type = result["memory"].get("memory_type")
+    return message + _dedup_outcome_note(result), effective_type
+
+
+def _coercion_warning(requested, effective) -> str:
+    """Name the runtime registration when an unknown memory_type was coerced (#2127).
+
+    Memory.__post_init__ rewrites a type the ontology does not know to
+    "observation" and only logs it. Without this echo the caller sees
+    "success" while their type filter silently breaks.
+    """
+    if not effective or effective == requested:
+        return ""
+    return (
+        f"\nWarning: requested memory_type '{requested}' is not in the "
+        f"ontology — stored as '{effective}'. "
+        f"Register it without a restart with `memory ontology add {requested}`, "
+        f"or at startup via the MCP_CUSTOM_MEMORY_TYPES env var, "
+        f"e.g. '{{\"{requested}\": []}}'."
+    )
+
+
+def _contradiction_note(result: dict) -> str:
+    """Issue #1216 (1b): say when a near-duplicate was filed as a contradiction."""
+    if result.get("filed_as_contradiction"):
+        # A value-swap rescued from dedup rejection, not silently dropped.
+        return (
+            "\n⚠️ Filed as a contradiction of an existing near-duplicate and "
+            "quarantined, rather than dropped as a duplicate."
+        )
+    failed = result.get("contradiction_filing_failed")
+    if not failed:
+        return ""
+    # Stored past dedup, but the quarantine step failed: say so, and name the
+    # memory so it can be quarantined or deleted by hand.
+    stored_hash = (result.get("memory") or {}).get("content_hash", "")
+    err = (failed.get("quarantine") or {}).get("message", "unknown error")
+    # The backend error can carry paths / SQL / provider detail: keep it in
+    # the log (sanitized), give the client a stable public message.
+    logger.warning(
+        "Quarantine filing failed for %s (contradicts %s): %s",
+        stored_hash[:8], str(failed.get("contradicts", ""))[:8], _sanitize_log_value(err),
+    )
+    return (
+        f"\n⚠️ Stored past semantic dedup because it contradicts near-duplicate "
+        f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED. "
+        f"It is stored and active, not quarantined — quarantine or delete "
+        f"{stored_hash[:8]} manually."
+    )
+
+
+def _store_result_message(result: dict, memory_type, type_was_explicit: bool) -> str:
+    """The response text for a successful store: headline, dedup, coercion, contradiction.
+
+    Only a type the caller asked for is checked for coercion: the default
+    "note" applied when the type is omitted never warns.
+    """
+    message, effective_type = _stored_headline(result)
+    if type_was_explicit:
+        message += _coercion_warning(memory_type, effective_type)
+    return message + _contradiction_note(result)
+
+
+def _schedule_background_checks(server, content, result: dict, store: str):
+    """MCP_NLI_ON_STORE_ASYNC (issue #1630): run the checks in the background.
+
+    The write does not wait for the model; the result goes to the log, not to
+    this response. Returns the note to append, or None when scheduling failed
+    and the checks should run inline instead.
+    """
+    try:
+        from ...consolidation.quarantine import schedule_on_store_checks
+
+        if schedule_on_store_checks(server.storage, content, result["memory"]["content_hash"], store=store):
+            return "\n(contradiction checks scheduled in the background)"
+        return "\n(contradiction checks skipped: background capacity is full)"
+    except Exception as e:
+        logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))
+        return None
+
+
+async def _belief_note_after_store(server, content, result: dict, store: str) -> str:
+    """§6: check the memory just stored against active beliefs."""
+    try:
+        from ...consolidation.belief_service import BeliefService
+        from ...consolidation.quarantine import check_beliefs_on_store
+
+        quarantine_result = await check_beliefs_on_store(
+            server.storage, BeliefService(server.storage),
+            content, result["memory"]["content_hash"], store=store,
+        )
+        if quarantine_result and quarantine_result.get("status") == "quarantined":
+            result["quarantine_warning"] = quarantine_result
+            return "\n⚠️ Memory quarantined: contradicts an active belief."
+    except Exception as e:
+        logger.debug("Belief quarantine check failed: %s", _sanitize_log_value(e))
+    return ""
+
+
+async def _on_store_checks_note(server, content, result: dict, store: str) -> str:
+    """Phase 3: the opt-in contradiction checks on store, for single memories only."""
+    if os.environ.get("MCP_NLI_ON_STORE", "false").lower() != "true" or "memory" not in result:
+        return ""
+    if os.environ.get("MCP_NLI_ON_STORE_ASYNC", "").strip().lower() in {"true", "1", "yes"}:
+        scheduled = _schedule_background_checks(server, content, result, store)
+        if scheduled is not None:
+            return scheduled
+    note = await _nli_note_after_store(server, result, store)
+    return note + await _belief_note_after_store(server, content, result, store)
+
+
 async def handle_store_memory(server, arguments: dict) -> List[types.TextContent]:
     content = arguments.get("content")
     metadata = arguments.get("metadata", {})
@@ -306,171 +472,37 @@ async def handle_store_memory(server, arguments: dict) -> List[types.TextContent
         # Initialize storage lazily when needed (also initializes memory_service)
         await server._ensure_storage_initialized()
 
-        # Extract parameters for MemoryService call
-        tags = metadata.get("tags", "")
         # Track whether the user explicitly supplied a type. The default
         # "note" is silently applied when omitted, so we should only warn
         # about coercion for explicit, user-provided types.
         type_was_explicit = "type" in metadata
         memory_type = metadata.get("type", "note")  # HTTP server uses metadata.type
-        client_hostname = arguments.get("client_hostname")
-        # RFC mcp-hostname-stamping: resolve server host when the client did not
-        # supply one and the flag is on (best-effort; see _resolve_hostname).
-        client_hostname = _resolve_hostname(client_hostname)
         conversation_id = arguments.get("conversation_id")
-        agent_id = arguments.get("agent_id")
         store = arguments.get("store", "default")
-        restore_deleted = arguments.get("restore_deleted", False)
-        if not isinstance(restore_deleted, bool):
-            # `bool("false")` is True. The /mcp route hands tool arguments to this
-            # handler without validating them against the tool schema, so a
-            # restore must be asked for with a real boolean, never a string (#1560).
-            raise ValueError(
-                "restore_deleted must be a boolean (true/false), "
-                f"got {type(restore_deleted).__name__}"
-            )
 
         # Call shared MemoryService business logic
         result = await server.memory_service.store_memory(
             content=content,
-            tags=tags,
+            tags=metadata.get("tags", ""),
             memory_type=memory_type,
             metadata=metadata,
-            client_hostname=client_hostname,
+            # RFC mcp-hostname-stamping: resolve server host when the client did
+            # not supply one and the flag is on (best-effort; see _resolve_hostname).
+            client_hostname=_resolve_hostname(arguments.get("client_hostname")),
             conversation_id=conversation_id,
-            agent_id=agent_id,
+            agent_id=arguments.get("agent_id"),
             store=store,
-            restore_deleted=restore_deleted,
+            restore_deleted=_restore_deleted_flag(arguments),
         )
 
         # Convert MemoryService result to MCP response format
         if not result.get("success"):
-            error_msg = result.get("error", "Unknown error")
-            error_msg = f"{error_msg}{_dedup_outcome_note(result)}"
-            if result.get("refused_recreate"):
-                # #1560: a refused re-create is the answer the caller chose by not
-                # passing restore_deleted — plain text, not isError. Unlike the
-                # failures #1601 covers, nothing was lost here: the tombstone is
-                # intact and the message says how to proceed.
-                return [types.TextContent(type="text", text=error_msg)]
-            # A refused write is a failure. Return-as-text made the MCP envelope
-            # report isError=False while nothing was stored, so automation counted
-            # it as success (#1601). Raise: the SDK answers isError=True.
-            raise RuntimeError(f"Error storing memory: {error_msg}")
+            return _not_stored_response(result)
+        _raise_on_failed_chunks(result)
 
-        # Partial writes are failures too: some chunks never reached the database,
-        # so reporting success lets a harvester skip them permanently (#1601).
-        failed_chunks = result.get("failed_chunks") or 0
-        if failed_chunks:
-            raise RuntimeError(
-                f"Error storing memory: {failed_chunks} of "
-                f"{result.get('total_chunks', '?')} chunks failed to store"
-            )
-
-        if "memories" in result:
-            # Chunked response - multiple memories created
-            num_chunks = len(result["memories"])
-            original_hash = result.get("original_hash", "unknown")
-            message = f"Successfully stored {num_chunks} memory chunks (original hash: {original_hash})"
-            message += _dedup_outcome_note(result)
-            effective_type = result["memories"][0].get("memory_type") if result["memories"] else None
-        else:
-            # Single memory response
-            memory_hash = result["memory"]["content_hash"]
-            message = f"Memory stored successfully (hash: {memory_hash})"
-            message += _dedup_outcome_note(result)
-            effective_type = result["memory"].get("memory_type")
-
-        # Surface ontology coercion: when the requested memory_type is not
-        # in the ontology, Memory.__post_init__ silently rewrites it to
-        # "observation" and only logs a warning. Without this echo the
-        # caller sees "success" while their type filter silently breaks.
-        if (
-            type_was_explicit
-            and effective_type
-            and effective_type != memory_type
-        ):
-            message += (
-                f"\nWarning: requested memory_type '{memory_type}' is not in the "
-                f"ontology — stored as '{effective_type}'. "
-                f"Register custom types via the MCP_CUSTOM_MEMORY_TYPES env var, "
-                f"e.g. '{{\"{memory_type}\": []}}'."
-            )
-
-        # Issue #1216 (1b): a value-swap rescued from dedup rejection and filed as
-        # a contradiction instead of being silently dropped.
-        if result.get("filed_as_contradiction"):
-            message += (
-                "\n⚠️ Filed as a contradiction of an existing near-duplicate and "
-                "quarantined, rather than dropped as a duplicate."
-            )
-        elif result.get("contradiction_filing_failed"):
-            # Stored past dedup, but the quarantine step failed: say so, and
-            # name the memory so it can be quarantined or deleted by hand.
-            failed = result["contradiction_filing_failed"]
-            stored_hash = (result.get("memory") or {}).get("content_hash", "")
-            err = (failed.get("quarantine") or {}).get("message", "unknown error")
-            # The backend error can carry paths / SQL / provider detail: keep it
-            # in the log (sanitized), give the client a stable public message.
-            logger.warning(
-                "Quarantine filing failed for %s (contradicts %s): %s",
-                stored_hash[:8], str(failed.get("contradicts", ""))[:8], _sanitize_log_value(err),
-            )
-            message += (
-                f"\n⚠️ Stored past semantic dedup because it contradicts near-duplicate "
-                f"{failed.get('contradicts', '')[:8]}, but quarantining it FAILED. "
-                f"It is stored and active, not quarantined — quarantine or delete "
-                f"{stored_hash[:8]} manually."
-            )
-
-        # Phase 3: NLI contradiction check on store (opt-in, single memories only)
-        nli_on_store = os.environ.get("MCP_NLI_ON_STORE", "false").lower() == "true"
-
-        # Modo assíncrono (MCP_NLI_ON_STORE_ASYNC, issue #1630): a escrita não
-        # espera o LLM. As duas verificações abaixo rodam em background e o
-        # resultado vai para o log, não para esta resposta.
-        if (
-            nli_on_store
-            and result.get("success")
-            and "memory" in result
-            and os.environ.get("MCP_NLI_ON_STORE_ASYNC", "").strip().lower() in {"true", "1", "yes"}
-        ):
-            try:
-                from ...consolidation.quarantine import schedule_on_store_checks
-
-                agendado = schedule_on_store_checks(
-                    server.storage, content, result["memory"]["content_hash"], store=store
-                )
-                if agendado:
-                    message += "\n(contradiction checks scheduled in the background)"
-                else:
-                    message += "\n(contradiction checks skipped: background capacity is full)"
-                nli_on_store = False
-            except Exception as e:
-                logger.debug("Could not schedule background NLI checks: %s", _sanitize_log_value(e))
-
-        if nli_on_store and result.get("success") and "memory" in result:
-            message += await _nli_note_after_store(server, result, store)
-
-        # §6: Check against active beliefs (if belief service available)
-        if nli_on_store and result.get("success") and "memory" in result:
-            try:
-                from ...consolidation.belief_service import BeliefService
-                from ...consolidation.quarantine import check_beliefs_on_store
-
-                belief_svc = BeliefService(server.storage)
-                quarantine_result = await check_beliefs_on_store(
-                    server.storage, belief_svc,
-                    content, result["memory"]["content_hash"], store=store,
-                )
-                if quarantine_result and quarantine_result.get("status") == "quarantined":
-                    result["quarantine_warning"] = quarantine_result
-                    message += "\n⚠️ Memory quarantined: contradicts an active belief."
-            except Exception as e:
-                logger.debug("Belief quarantine check failed: %s", _sanitize_log_value(e))
-
+        message = _store_result_message(result, memory_type, type_was_explicit)
+        message += await _on_store_checks_note(server, content, result, store)
         message += await _auto_capture_note(server, arguments, content, result, conversation_id)
-
         return [types.TextContent(type="text", text=message)]
 
     except Exception as e:

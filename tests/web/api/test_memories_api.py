@@ -118,6 +118,22 @@ def test_store_memory_with_agent_id_header_appends_agent_tag(test_app):
 
 
 @pytest.mark.integration
+def test_store_memory_coercion_warning_names_the_runtime_command(test_app):
+    """#2127: an unknown memory_type is coerced; the warning says how to register it now."""
+    response = test_app.post(
+        "/api/memories",
+        json={"content": "A lesson about retries and backoff", "memory_type": "bogus_type_2127"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["memory"]["memory_type"] == "observation"
+    assert "requested memory_type 'bogus_type_2127'" in data["message"]
+    assert "memory ontology add bogus_type_2127" in data["message"]
+    assert "MCP_CUSTOM_MEMORY_TYPES" in data["message"]
+
+
+@pytest.mark.integration
 def test_store_memory_without_agent_id_header_no_agent_tag(test_app):
     """Without X-Agent-ID header, no agent: tag is added."""
     response = test_app.post(
