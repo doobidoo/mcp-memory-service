@@ -86,13 +86,6 @@ async def _rebuild(server: Any, dry_run: bool, report: dict) -> None:
             raise RuntimeError(
                 "Memory scan was incomplete or the store changed; no edges deleted"
             )
-        # Milvus listings include tombstones stored inside metadata, unlike
-        # SQLite's deleted_at SQL filter. Verify the raw count before filtering.
-        if isinstance(graph, MilvusGraphStorage):
-            rows = [
-                (m, store) for m, store in rows
-                if m.metadata.get("deleted_at") is None
-            ]
         memories = [m for m, _ in rows]
         store_of = None
         if isinstance(graph, MilvusGraphStorage) and await _confines_store(graph):
