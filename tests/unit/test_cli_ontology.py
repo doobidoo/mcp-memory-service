@@ -32,14 +32,17 @@ from pathlib import Path
 
 import pytest
 
-MIGRATION_022 = (
+MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[2]
     / "src"
     / "mcp_memory_service"
     / "storage"
     / "migrations"
-    / "022_add_ontology_entries.sql"
 )
+# 015/016 build the sync event log and 022 the overlay. The embedding columns
+# that 017 adds are applied below by hand: that migration also touches
+# `memories`, which this fixture has no reason to create.
+MIGRATIONS = ["015_add_sync_events.sql", "016_add_hlc_to_sync_events.sql"]
 
 
 def _make_database(path: Path) -> None:
@@ -47,7 +50,14 @@ def _make_database(path: Path) -> None:
     conn = sqlite3.connect(path)
     try:
         conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        conn.execute(MIGRATION_022.read_text(encoding="utf-8"))
+        for name in MIGRATIONS:
+            conn.executescript((MIGRATIONS_DIR / name).read_text(encoding="utf-8"))
+        conn.executescript(
+            (MIGRATIONS_DIR / "022_add_ontology_entries.sql").read_text(encoding="utf-8")
+        )
+        # The envelope columns from 017, which the event insert names.
+        conn.execute("ALTER TABLE sync_events ADD COLUMN embedding_model TEXT")
+        conn.execute("ALTER TABLE sync_events ADD COLUMN embedding_dim INTEGER")
         conn.commit()
     finally:
         conn.close()
@@ -64,12 +74,21 @@ def _overlay_rows(path: Path) -> list[tuple[str, str | None]]:
         conn.close()
 
 
-def _run(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
+def _run(tmp_path: Path, *args: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     # config/base.py write-tests its base directory at import time; point it at
     # the temp dir so the command never looks at a real installation.
     env["MCP_MEMORY_BASE_DIR"] = str(tmp_path)
     env["MCP_MEMORY_BACKUPS_PATH"] = str(tmp_path / "backups")
+    env.pop("MCP_MEMORY_SQLITE_PATH", None)
+    env.pop("MCP_MEMORY_SQLITEVEC_PATH", None)
+    env.pop("MCP_SYNC_EVENTLOG", None)
+    # The command imports `config`, which validates its archive paths at import
+    # time; keep them inside the temp dir instead of a real installation.
+    env["MCP_CONSOLIDATION_ARCHIVE_PATH"] = str(tmp_path / "consolidation_archive")
+    env.pop("MCP_MEMORY_ARCHIVE_PATH", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "mcp_memory_service.cli.main", *args],
         capture_output=True,
@@ -120,6 +139,60 @@ class TestOntologyAdd:
         assert result.returncode == 1
         assert "not a base memory type" in result.stderr
         assert _overlay_rows(db) == []
+
+    def test_a_subtype_of_a_type_added_in_the_same_database_is_accepted(self, tmp_path, db):
+        """The database's own types have to be visible to the parent check.
+
+        A fresh CLI process knows only the built-in taxonomy, so without the
+        overlay source `--parent legal` was rejected right after `add legal`.
+        """
+        assert _run(tmp_path, "ontology", "add", "legal", "--db-path", str(db)).returncode == 0
+
+        result = _run(
+            tmp_path, "ontology", "add", "contract", "--parent", "legal", "--db-path", str(db),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert _overlay_rows(db) == [("contract", "legal"), ("legal", None)]
+
+    def test_the_database_is_resolved_from_the_server_config(self, tmp_path, db):
+        """No --db-path: MCP_MEMORY_BASE_DIR decides, as it does for the server."""
+        result = _run(tmp_path, "ontology", "add", "lesson")
+
+        assert result.returncode == 0, result.stderr
+        assert _overlay_rows(db) == [("lesson", None)]
+
+    def test_records_a_sync_event_when_the_event_log_is_on(self, tmp_path, db):
+        """Otherwise the cluster never learns the type and keeps coercing it."""
+        result = _run(
+            tmp_path, "ontology", "add", "lesson", "--db-path", str(db),
+            extra_env={"MCP_SYNC_EVENTLOG": "on"},
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert _overlay_rows(db) == [("lesson", None)]
+        conn = sqlite3.connect(db)
+        try:
+            events = conn.execute(
+                "SELECT op, content_hash FROM sync_events WHERE op = 'ontology_upsert'"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(events) == 1
+
+    def test_records_no_event_when_the_event_log_is_off(self, tmp_path, db):
+        result = _run(
+            tmp_path, "ontology", "add", "lesson", "--db-path", str(db),
+            extra_env={"MCP_SYNC_EVENTLOG": "off"},
+        )
+
+        assert result.returncode == 0, result.stderr
+        conn = sqlite3.connect(db)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM sync_events").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0
 
     def test_a_missing_database_fails_cleanly(self, tmp_path):
         result = _run(

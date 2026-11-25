@@ -21,9 +21,11 @@ ML dependencies (torch, transformers) at CLI startup time. Lifecycle commands
 making them start in under 3 seconds instead of 24+ seconds.
 """
 
-import click
-import sys
 import os
+import sys
+from typing import Optional
+
+import click
 
 
 def _get_version():
@@ -361,6 +363,46 @@ def _resolve_db_path():
     return os.path.join(base, 'sqlite_vec.db')
 
 
+def _ontology_db_path(db_path: Optional[str]) -> str:
+    """The server's database path, or the explicit override (#2126).
+
+    Resolved through ``config`` rather than ``_resolve_db_path()``: that helper
+    reads only the two SQLite path variables, so with ``MCP_MEMORY_BASE_DIR``
+    selecting the server's data directory it would point at the OS default and
+    either miss the database or change an unrelated one (Greptile on #2128).
+    """
+    if db_path:
+        return db_path
+    from ..config import SQLITE_VEC_PATH, STORAGE_BACKEND  # noqa: PLC0415 - lazy
+
+    if not SQLITE_VEC_PATH:
+        click.echo(
+            f"❌ No SQLite database for the '{STORAGE_BACKEND}' backend; the "
+            "ontology overlay lives in sqlite_vec. Pass --db-path or use the "
+            "REST API on the running server.",
+            err=True,
+        )
+        sys.exit(1)
+    return str(SQLITE_VEC_PATH)
+
+
+def _open_ontology(db_path: str):
+    """Register the overlay source so validation sees the database's own types.
+
+    Without this, a fresh CLI process knows only the built-in types and the
+    environment, so `add contract --parent legal` would reject `legal` even
+    though `add legal` had just written it (Greptile on #2128).
+    """
+    import sqlite3  # inline import: keeps the module import list small
+    from ..models import ontology
+    from ..storage.ontology_overlay import OverlaySource
+
+    conn = sqlite3.connect(db_path)
+    source = OverlaySource(db_path)
+    ontology.set_overlay_source(source)
+    return conn, source, ontology
+
+
 @cli.group("ontology")
 def ontology_cmd():
     """Inspect and extend the ontology stored in the database (#2126).
@@ -379,25 +421,27 @@ def ontology_cmd():
 def ontology_add(name, parent, db_path):
     """Register a memory type, e.g. `memory ontology add lesson`."""
     import sqlite3  # inline import: keep optional dependencies lazy
-    from ..storage.ontology_overlay import (
-        upsert_memory_type,
-        validate_memory_type_entry,
-    )
+    from ..storage.mixins.base import append_sync_event
+    from ..storage.ontology_overlay import upsert_memory_type, validate_memory_type_entry
 
-    db_path = db_path or _resolve_db_path()
+    db_path = _ontology_db_path(db_path)
     if not os.path.exists(db_path):
         click.echo(f"❌ Database not found: {db_path}", err=True)
         sys.exit(1)
 
-    conn = sqlite3.connect(db_path)
+    conn, source, ontology = _open_ontology(db_path)
     try:
         try:
+            ontology.invalidate_overlay()
             canonical, canonical_parent = validate_memory_type_entry(name, parent)
-            upsert_memory_type(conn, canonical, canonical_parent)
-        except ValueError as e:
+            # Same emit the storage passes, so a synced cluster receives the type
+            # in the same transaction (Greptile on #2128).
+            upsert_memory_type(conn, canonical, canonical_parent, append_sync_event)
+        except (ValueError, sqlite3.OperationalError) as e:
             click.echo(f"❌ {e}", err=True)
             sys.exit(1)
     finally:
+        ontology.clear_overlay_source(source)
         conn.close()
 
     where = f"subtype of '{canonical_parent}'" if canonical_parent else "base type"
@@ -412,19 +456,24 @@ def ontology_list(db_path):
     import sqlite3  # inline import: keep optional dependencies lazy
     from ..storage.ontology_overlay import read_memory_type_overlay
 
-    db_path = db_path or _resolve_db_path()
+    db_path = _ontology_db_path(db_path)
     if not os.path.exists(db_path):
         click.echo(f"❌ Database not found: {db_path}", err=True)
         sys.exit(1)
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        rows = [(key, parent) for key, parent, live in read_memory_type_overlay(conn) if live]
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            rows = [
+                (key, parent)
+                for key, parent, live in read_memory_type_overlay(conn)
+                if live
+            ]
+        finally:
+            conn.close()
     except sqlite3.OperationalError as e:
         click.echo(f"❌ Cannot read the ontology: {e}", err=True)
         sys.exit(1)
-    finally:
-        conn.close()
 
     if not rows:
         click.echo("No types added to the ontology yet. The built-in taxonomy still applies.")
