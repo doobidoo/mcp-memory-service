@@ -360,19 +360,24 @@ class TestTombstonesAreNotListed:
 
         assert await storage.get_memory_timestamps() == [2.0]
 
-    async def test_count_subtracts_tombstoned_rows(self):
+    async def test_count_leaves_tombstoned_rows_out(self):
         """`memory_list` pairs this total with a listing that drops tombstones."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[{"count(*)": 2}])
+        # One row whose metadata never mentions the key.
+        storage._call_client = AsyncMock(return_value=[{"count(*)": 1}])
         storage._drain_rows = AsyncMock(return_value=[
             {"id": "h2", "metadata": '{"deleted_at": 1.0}'},
-            # Mentions the key without being deleted: must not be subtracted.
+            # Mentions the key without being deleted: still a live row.
             {"id": "h3", "metadata": '{"deleted_at": null}'},
         ])
 
-        assert await storage.count_all_memories(store=STORE) == 1
+        assert await storage.count_all_memories(store=STORE) == 2
+        counted = storage._call_client.call_args.kwargs["filter"]
+        assert 'not (metadata like "%deleted_at%")' in counted
+        assert f'store == "{STORE}"' in counted
         narrowed = _captured_filter(storage._drain_rows.call_args)
         assert 'metadata like "%deleted_at%"' in narrowed
+        assert "not (" not in narrowed
         assert f'store == "{STORE}"' in narrowed
 
     async def test_count_without_superseded_skips_tombstoned_rows(self):

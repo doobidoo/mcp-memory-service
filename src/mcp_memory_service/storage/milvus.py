@@ -4015,14 +4015,8 @@ class MilvusMemoryStorage(MemoryStorage):
             return 0
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=tag_filter,
-                output_fields=["count(*)"],
-            )
             # The paged tag listing drops tombstones, so its total does too.
-            return self._extract_count(rows) - await self._count_tombstones(tag_filter)
+            return await self._count_live(tag_filter)
         except Exception as exc:  # noqa: BLE001
             logger.error("count_memories_by_tag failed: %s", _sanitize_log_value(exc))
             return 0
@@ -4250,21 +4244,9 @@ class MilvusMemoryStorage(MemoryStorage):
         recent_filter = f"created_at >= {time.time() - 7 * 24 * 60 * 60}"
 
         try:
-            total_rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter="",
-                output_fields=["count(*)"],
-            )
-            recent_rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=recent_filter,
-                output_fields=["count(*)"],
-            )
             # Live rows only, like the listings these totals are shown with.
-            total = self._extract_count(total_rows) - await self._count_tombstones("")
-            recent = self._extract_count(recent_rows) - await self._count_tombstones(recent_filter)
+            total = await self._count_live("")
+            recent = await self._count_live(recent_filter)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Milvus stats query failed: %s", _sanitize_log_value(exc))
             total = recent = 0
@@ -4934,13 +4916,7 @@ class MilvusMemoryStorage(MemoryStorage):
             )
 
         try:
-            rows = await self._call_client(
-                "query",
-                collection_name=self.collection_name,
-                filter=filter_expr,
-                output_fields=["count(*)"],
-            )
-            return self._extract_count(rows) - await self._count_tombstones(filter_expr)
+            return await self._count_live(filter_expr)
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
             if should_raise_read_error():
@@ -4953,19 +4929,29 @@ class MilvusMemoryStorage(MemoryStorage):
         metadata = _safe_json_loads(row.get("metadata", ""), "milvus_superseded_row")
         return bool(metadata.get("superseded_by"))
 
-    async def _count_tombstones(self, filter_expr: str) -> int:
-        """Rows under ``filter_expr`` that carry a soft-delete tombstone.
+    async def _count_live(self, filter_expr: str) -> int:
+        """Rows under ``filter_expr`` that carry no soft-delete tombstone.
 
-        ``count(*)`` cannot look inside the metadata JSON, so the count read
-        subtracts these. The ``like`` only narrows the scan to rows that mention
-        the key at all; :meth:`_row_is_live` then decides, so a stored
-        ``"deleted_at": null`` is not taken for a tombstone.
+        ``count(*)`` cannot look inside the metadata JSON, so it counts the
+        rows whose metadata never mentions the key, and a scan adds the ones
+        that mention it and are live anyway (a stored ``"deleted_at": null``;
+        :meth:`_row_is_live` decides). Neither read counts a tombstone, so a
+        purge between the two cannot turn deleted rows into live ones, which
+        subtracting a later tombstone scan from a raw count did (#2133 review).
         """
-        rows = await self._drain_rows(
-            self._combine_filter(filter_expr, 'metadata like "%deleted_at%"'),
-            ["id", "metadata"],
+        mentions_key = 'metadata like "%deleted_at%"'
+        counted = await self._call_client(
+            "query",
+            collection_name=self.collection_name,
+            filter=self._combine_filter(filter_expr, f"not ({mentions_key})"),
+            output_fields=["count(*)"],
         )
-        return sum(1 for row in rows if not self._row_is_live(row))
+        rows = await self._drain_rows(
+            self._combine_filter(filter_expr, mentions_key), ["id", "metadata"],
+        )
+        return self._extract_count(counted) + sum(
+            1 for row in rows if self._row_is_live(row)
+        )
 
     async def _drain_stale_rows(
         self, base_filter: str, stale_days: int, drop_superseded: bool,

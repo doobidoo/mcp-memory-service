@@ -140,3 +140,38 @@ async def test_count_and_listing_agree_once_a_memory_is_tombstoned(storage):
     assert await storage.count_memories_by_tag(["t"]) == 1
     stats = await storage.get_stats()
     assert (stats["total_memories"], stats["memories_this_week"]) == (1, 1)
+
+
+async def _stats_totals(storage):
+    stats = await storage.get_stats()
+    return stats["total_memories"] + stats["memories_this_week"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("live_total", [
+    lambda storage: storage.count_all_memories(),
+    lambda storage: storage.count_memories_by_tag(["t"]),
+    _stats_totals,
+], ids=["count_all_memories", "count_memories_by_tag", "get_stats"])
+async def test_purge_between_the_count_reads_does_not_revive_tombstones(
+    storage, monkeypatch, live_total,
+):
+    """A purge landing between a count's two reads leaves the total at the live rows.
+
+    The count used to subtract a later tombstone scan from an earlier raw
+    ``count(*)``, so tombstones purged in between were reported as live
+    memories (#2136).
+    """
+    for content in ("first tombstone", "second tombstone"):
+        gone = await _store_live(storage, content)
+        await storage.update_memory_metadata(gone, {"metadata": {"deleted_at": time.time()}})
+    drain = storage._drain_rows
+
+    async def _purge_then_drain(filter_expr, output_fields):
+        monkeypatch.setattr(storage, "_drain_rows", drain)
+        assert await storage.purge_deleted(older_than_days=-1) == 2
+        return await drain(filter_expr, output_fields)
+
+    monkeypatch.setattr(storage, "_drain_rows", _purge_then_drain)
+
+    assert await live_total(storage) == 0
