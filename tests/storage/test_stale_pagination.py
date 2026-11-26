@@ -65,6 +65,47 @@ async def test_milvus_stale_page_sorts_created_at_and_id_before_offset():
     assert query["include_embeddings"] is True
 
 
+def _milvus_with_stale_rows(rows):
+    storage = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
+    storage._write_lock = asyncio.Lock()
+    storage.client = object()
+    storage._has_access_collection = False
+    storage._drain_main_ids_and_created_at = lambda _filter, _include_metadata=False: rows
+    storage._query_memories = AsyncMock(return_value=[])
+    return storage
+
+
+_STALE_ROWS_WITH_TOMBSTONE = [
+    {"id": "dead", "created_at": 3, "metadata": '{"deleted_at": 1.0}'},
+    {"id": "live-new", "created_at": 2, "metadata": "{}"},
+    {"id": "live-old", "created_at": 1, "metadata": "{}"},
+]
+
+
+@pytest.mark.asyncio
+async def test_milvus_stale_page_is_not_spent_on_a_tombstone():
+    """A deleted row ahead of the page must not take its slot (#2133 review).
+
+    The newest stale row is tombstoned. Sliced before the live check, a
+    ``limit=1`` page held only that row and came back empty although two live
+    stale memories follow it.
+    """
+    storage = _milvus_with_stale_rows(_STALE_ROWS_WITH_TOMBSTONE)
+
+    await storage._get_stale_memories("", stale_days=1, limit=1)
+
+    query = storage._query_memories.await_args.kwargs
+    assert query["filter_expr"] == 'id == "live-new"'
+
+
+@pytest.mark.asyncio
+async def test_milvus_stale_count_matches_the_stale_listing():
+    """The stale total leaves tombstones out, like the pages it is shown with."""
+    storage = _milvus_with_stale_rows(_STALE_ROWS_WITH_TOMBSTONE)
+
+    assert await storage._count_stale_memories("", stale_days=1) == 2
+
+
 @pytest.mark.asyncio
 async def test_sqlite_vec_stale_page_breaks_created_at_ties_by_content_hash(
     temp_db_path,
