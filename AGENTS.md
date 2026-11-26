@@ -17,18 +17,19 @@ from the repository root:
 
 - `.venv/bin/python install.py`: install with platform-specific dependency selection.
 - `.venv/bin/python -m pip install -e '.[dev]'`: install editable code and development tools.
+  A venv made by `uv` has no pip; use `uv pip install --python .venv/bin/python -e '.[dev]'` there.
 - `.venv/bin/python scripts/validation/check_dev_setup.py`: verify the editable installation.
 - `.venv/bin/memory launch`: start the HTTP service and dashboard; `.venv/bin/memory server` runs MCP stdio.
 - `.venv/bin/pytest tests/`: run tests; `.venv/bin/pytest tests/unit/<test_file>.py -q` targets a file.
 - `.venv/bin/pytest --cov=mcp_memory_service tests/`: collect coverage.
-- `.venv/bin/black --check src/ tests/` and `.venv/bin/ruff check src/ tests/`: check formatting and lint.
 - `.venv/bin/python -m build`: build distribution artifacts.
 - `bash scripts/pr/pre_pr_check.sh`: the pre-PR gate; it picks `.venv/bin/python` itself.
 
 ## Coding Style & Naming Conventions
 
-Follow PEP 8 with four-space indentation, Black's 88-character lines, and double
-quotes. Use `snake_case` for functions/modules and `PascalCase` for classes.
+Follow PEP 8 with four-space indentation, 88-character lines, and double
+quotes. The tree is not Black- or Ruff-clean, so do not run a formatter over
+files you touch; keep the diff to your change. Use `snake_case` for functions/modules and `PascalCase` for classes.
 Add type hints to function signatures and Google-style docstrings to public APIs.
 Follow neighboring code and use specific exceptions.
 
