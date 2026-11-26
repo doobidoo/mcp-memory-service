@@ -1,5 +1,7 @@
 # mcp-memory-service
 
+[![Protodex Verified](https://img.shields.io/badge/Protodex-Verified_MCP-2DD9E0?style=flat-square&logo=github)](https://protodex.io/servers/doobidoo-mcp-memory-service.html)
+
 ## Persistent Shared Memory for AI Agent Pipelines
 
 Open-source memory backend for AI agents — **REST API, MCP, OAuth, CLI, dashboard**. One self-hosted service, every transport.
