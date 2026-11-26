@@ -4016,7 +4016,7 @@ class MilvusMemoryStorage(MemoryStorage):
 
         try:
             # The paged tag listing drops tombstones, so its total does too.
-            return await self._count_live(tag_filter)
+            return len(await self._drain_live_rows(tag_filter, ["id"]))
         except Exception as exc:  # noqa: BLE001
             logger.error("count_memories_by_tag failed: %s", _sanitize_log_value(exc))
             return 0
@@ -4241,12 +4241,14 @@ class MilvusMemoryStorage(MemoryStorage):
         if not self._ensure_initialized():
             return {"error": "Milvus storage not initialized"}
 
-        recent_filter = f"created_at >= {time.time() - 7 * 24 * 60 * 60}"
+        week_ago = time.time() - 7 * 24 * 60 * 60
 
         try:
             # Live rows only, like the listings these totals are shown with.
-            total = await self._count_live("")
-            recent = await self._count_live(recent_filter)
+            # Both figures come from the same scan, so they agree with each other.
+            rows = await self._drain_live_rows("", ["id", "created_at"])
+            total = len(rows)
+            recent = sum(1 for row in rows if row.get("created_at", 0) >= week_ago)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Milvus stats query failed: %s", _sanitize_log_value(exc))
             total = recent = 0
@@ -4899,29 +4901,18 @@ class MilvusMemoryStorage(MemoryStorage):
                 filter_expr, stale_days, drop_superseded=not include_superseded,
             )
 
-        if not include_superseded:
-            # superseded_by lives in the metadata JSON, which Milvus cannot
-            # filter on, so count(*) would include old versions. Scan the
-            # metadata and count the current ones instead.
-            try:
-                rows = await self._drain_rows(filter_expr, ["id", "metadata"])
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
-                if should_raise_read_error():
-                    raise
-                return 0
-            return sum(
-                1 for row in rows
-                if self._row_is_live(row) and not self._row_is_superseded(row)
-            )
-
+        # Tombstones and superseded_by both live in the metadata JSON, which
+        # Milvus cannot filter on, so the rows are scanned and counted here.
         try:
-            return await self._count_live(filter_expr)
+            rows = await self._drain_live_rows(filter_expr, ["id"])
         except Exception as exc:  # noqa: BLE001
             logger.warning("count_all_memories failed: %s", _sanitize_log_value(exc))
             if should_raise_read_error():
                 raise
             return 0
+        if include_superseded:
+            return len(rows)
+        return sum(1 for row in rows if not self._row_is_superseded(row))
 
     @staticmethod
     def _row_is_superseded(row: Dict[str, Any]) -> bool:
@@ -4929,29 +4920,21 @@ class MilvusMemoryStorage(MemoryStorage):
         metadata = _safe_json_loads(row.get("metadata", ""), "milvus_superseded_row")
         return bool(metadata.get("superseded_by"))
 
-    async def _count_live(self, filter_expr: str) -> int:
+    async def _drain_live_rows(
+        self, filter_expr: str, output_fields: List[str],
+    ) -> List[Dict[str, Any]]:
         """Rows under ``filter_expr`` that carry no soft-delete tombstone.
 
-        ``count(*)`` cannot look inside the metadata JSON, so it counts the
-        rows whose metadata never mentions the key, and a scan adds the ones
-        that mention it and are live anyway (a stored ``"deleted_at": null``;
-        :meth:`_row_is_live` decides). Neither read counts a tombstone, so a
-        purge between the two cannot turn deleted rows into live ones, which
-        subtracting a later tombstone scan from a raw count did (#2133 review).
+        The live totals are counted from this one scan. ``count(*)`` cannot look
+        inside the metadata JSON, and pairing it with a second read for the
+        tombstones lets a write between the two reads count a deleted row as
+        live or a live row twice (#2136).
         """
-        mentions_key = 'metadata like "%deleted_at%"'
-        counted = await self._call_client(
-            "query",
-            collection_name=self.collection_name,
-            filter=self._combine_filter(filter_expr, f"not ({mentions_key})"),
-            output_fields=["count(*)"],
-        )
-        rows = await self._drain_rows(
-            self._combine_filter(filter_expr, mentions_key), ["id", "metadata"],
-        )
-        return self._extract_count(counted) + sum(
-            1 for row in rows if self._row_is_live(row)
-        )
+        # A full scan per count. A scalar ``deleted`` field would let count(*)
+        # answer this again, should the scan show up on large collections.
+        fields = list(dict.fromkeys([*output_fields, "metadata"]))
+        rows = await self._drain_rows(filter_expr, fields)
+        return [row for row in rows if self._row_is_live(row)]
 
     async def _drain_stale_rows(
         self, base_filter: str, stale_days: int, drop_superseded: bool,
