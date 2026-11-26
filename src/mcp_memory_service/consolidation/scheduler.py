@@ -570,6 +570,7 @@ class ConsolidationScheduler:
         if storage is None:
             self.logger.warning("Delta-sync cycle skipped: consolidator has no storage")
             return
+        await self._forward_to_secondary(storage)
         peers = self._resolve_sync_peers()
         if not peers:
             self.logger.debug("Delta-sync cycle: no peers configured (MCP_SYNC_PEERS unset)")
@@ -578,6 +579,30 @@ class ConsolidationScheduler:
         for peer_id, peer in peers:
             await self._run_sync_peer_cycle(
                 storage, peer_id, peer, sync_from_peer, push_to_peer
+            )
+
+    async def _forward_to_secondary(self, storage: Any) -> None:
+        """A hybrid hub replays the events it applied to its secondary (#1506).
+
+        No-op for any storage without a secondary. Never raises: the cursor only moves
+        after the secondary acknowledged, so a failed cycle is retried by the next one.
+        """
+        from ..storage.hybrid import HybridMemoryStorage
+        if not isinstance(storage, HybridMemoryStorage) or storage.secondary is None:
+            return
+        try:
+            from ..storage.sync.forwarder import forward_to_secondary
+            result = await forward_to_secondary(storage)
+            if result is not None and (result.events_pushed or result.events_failed):
+                self.logger.info(
+                    "Secondary forward: %s forwarded, %s failed",
+                    result.events_pushed, result.events_failed,
+                )
+        except Exception as exc:
+            self.execution_stats['failed_jobs'] += 1
+            self.logger.error(
+                "Secondary forward failed: %s: %s",
+                _sanitize_log_value(type(exc).__name__), _sanitize_log_value(exc),
             )
 
     async def _run_sync_peer_cycle(
