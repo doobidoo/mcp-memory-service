@@ -63,8 +63,9 @@ def _create(content, n, *, store="default", tags=("orig",)):
     return h, _event("create", h, payload, n, hlc=10 * n)
 
 
-def _edit(h, n, tags):
-    payload = {"content_hash": h, "updates": {"tags": tags}, "updated_at": time.time() - 30}
+def _edit(h, n, tags, *, at=None):
+    # Stamped after the create (NOW), as a real edit is: an older stamp reads as stale.
+    payload = {"content_hash": h, "updates": {"tags": tags}, "updated_at": at or NOW + n}
     return _event("update_metadata", h, payload, n, hlc=10 * n)
 
 
@@ -226,3 +227,137 @@ async def test_failed_forward_does_not_skip_the_drift_check(hub, d1, cloudflare_
     assert d1.row(h) is None
     assert drift_runs == [1], "a failed forward skipped the drift check"
     assert hub.sync_service.sync_stats["forward_failures"] == 1
+
+
+@pytest.mark.asyncio
+async def test_newer_secondary_edit_is_not_overwritten_by_a_late_forward(hub, d1, cloudflare_storage):  # noqa: F811
+    h, create = _create("Another device edits this in the secondary first.", 1)
+    _apply(hub, create)
+    await hub.sync_service._periodic_sync()
+
+    # The hub applies an older spoke edit, and before it is forwarded another device
+    # writes a newer edit straight to the secondary.
+    _apply(hub, _edit(h, 2, ["orig", "spoke-older"]))
+    newer = NOW + 60
+    ok, _ = await cloudflare_storage.update_memory_metadata(
+        h, {"tags": ["device-newer"], "updated_at": newer}, preserve_timestamps=False)
+    assert ok
+
+    hub.sync_service.last_drift_check_time = 0  # this cycle also runs the drift check
+    await hub.sync_service._periodic_sync()
+
+    assert _d1_tags(d1, h) == ["device-newer"]
+    assert abs(d1.row(h)["updated_at"] - newer) < 1.0
+    # The drift check in the same cycle brought the newer copy back to the hub.
+    assert sorted((await hub.primary.get_by_hash(h)).tags) == ["device-newer"]
+
+
+def _delete_then_recreate(hub, content, *, store):
+    """A delete and a recreate of the same content, both applied between two cycles."""
+    h, recreate = _create(content, 3, store=store)
+    _apply(hub, _delete(h, 2))
+    recreated_at = NOW + 100
+    recreate["payload"].update({"created_at": recreated_at, "updated_at": recreated_at,
+                                "recreate_of": "e2"})
+    _apply(hub, recreate)
+    return recreated_at
+
+
+@pytest.mark.asyncio
+async def test_delete_then_recreate_replaces_the_secondary_copy(hub, d1):  # noqa: F811
+    content = "Deleted, then recreated with a new creation time."
+    h, create = _create(content, 1, store="a")
+    _apply(hub, create)
+    await hub.sync_service._periodic_sync()
+
+    # The secondary still holds the old live row when the cycle runs.
+    recreated_at = _delete_then_recreate(hub, content, store="a")
+    await hub.sync_service._periodic_sync()
+
+    row = d1.row(h)
+    assert row["store"] == "a" and row["deleted_at"] is None
+    assert abs(row["created_at"] - recreated_at) < 1.0
+    await _drift_and_forward_again(hub, d1)
+
+
+@pytest.mark.asyncio
+async def test_recreate_in_another_store_keeps_the_copy_and_the_cursor_moving(hub, d1, caplog):  # noqa: F811
+    content = "Deleted in store a, recreated in store b."
+    h, create = _create(content, 1, store="a")
+    _apply(hub, create)
+    await hub.sync_service._periodic_sync()
+
+    _delete_then_recreate(hub, content, store="b")
+    await hub.sync_service._periodic_sync()
+
+    # Cloudflare refuses to move a hash between stores; its copy is kept, not lost.
+    row = d1.row(h)
+    assert row["store"] == "a" and row["deleted_at"] is None
+    assert "another store" in caplog.text
+    assert hub.sync_service.sync_stats.get("forward_failures", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_tombstone_in_another_store_does_not_hold_the_cursor(hub, d1, caplog):  # noqa: F811
+    content = "Deleted in store a on both sides, recreated in store b."
+    h, create = _create(content, 1, store="a")
+    _apply(hub, create)
+    await hub.sync_service._periodic_sync()
+    _apply(hub, _delete(h, 2))
+    await hub.sync_service._periodic_sync()
+    assert d1.row(h)["deleted_at"] is not None
+
+    # Only the tombstone is left in store a; the live lookups cannot see it.
+    _, recreate = _create(content, 3, store="b")
+    recreate["payload"].update({"created_at": NOW + 100, "updated_at": NOW + 100,
+                                "recreate_of": "e2"})
+    _apply(hub, recreate)
+    await hub.sync_service._periodic_sync()
+
+    assert "another store" in caplog.text
+    assert hub.sync_service.sync_stats.get("forward_failures", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_secondary_read_keeps_the_delete_pending(hub, d1, cloudflare_storage, monkeypatch):  # noqa: F811
+    h, create = _create("The secondary cannot be read when this delete arrives.", 1)
+    _apply(hub, create)
+    await hub.sync_service._periodic_sync()
+    _apply(hub, _delete(h, 2))
+
+    async def reads_fail(method, url, **kwargs):
+        # Only the per-hash read fails; the health check before it still passes.
+        if kwargs.get("json", {}).get("sql", "").startswith("SELECT * FROM memories WHERE content_hash"):
+            raise ConnectionError("D1 read timed out")
+        return await d1(method, url, **kwargs)
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", reads_fail)
+    await hub.sync_service._periodic_sync()
+    assert d1.row(h)["deleted_at"] is None
+
+    monkeypatch.setattr(cloudflare_storage, "_retry_request", d1)
+    await hub.sync_service._periodic_sync()
+
+    assert d1.row(h)["deleted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_primary_read_keeps_the_write_pending(hub, d1, monkeypatch):  # noqa: F811
+    h, create = _create("The hub's own read fails once while forwarding this.", 1)
+    _apply(hub, create)
+    real_get = hub.primary.get_by_hash
+    calls = []
+
+    async def fails_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return None  # what get_by_hash returns when its query raised
+        return await real_get(*args, **kwargs)
+
+    monkeypatch.setattr(hub.primary, "get_by_hash", fails_once)
+    await hub.sync_service._periodic_sync()
+    assert d1.row(h) is None
+
+    await hub.sync_service._periodic_sync()
+
+    assert d1.row(h) is not None

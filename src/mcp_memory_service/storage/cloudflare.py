@@ -1652,54 +1652,61 @@ class CloudflareStorage(MemoryStorage):
     async def get_by_hash(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
         """Get a memory by its content hash using direct O(1) D1 lookup."""
         try:
-            # Query D1 for the memory. Soft-deleted rows must not resurface here:
-            # the Memory model carries no deleted_at field, so callers cannot tell
-            # a deleted row from a live one after construction.
-            store_sql, store_params = _store_clause(store)
-            sql = f"SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL{store_sql}"
-            payload = {"sql": sql, "params": [content_hash, *store_params]}
-            response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
-            result = response.json()
-
-            if not result.get("success") or not result.get("result", [{}])[0].get("results"):
-                return None
-
-            row = result["result"][0]["results"][0]
-
-            # Load content from R2 if needed
-            content = row["content"]
-            if row.get("r2_key") and content.startswith("[R2 Content:"):
-                content = await self._load_r2_content(row["r2_key"])
-
-            # Load tags
-            tags = await self._load_memory_tags(row["id"])
-
-            # Parse and decompress metadata
-            metadata = {}
-            if row.get("metadata_json"):
-                metadata = json.loads(row["metadata_json"])
-                # Decompress CSV-encoded quality metadata if present
-                from ..quality.metadata_codec import decompress_metadata_from_sync
-                metadata = decompress_metadata_from_sync(metadata)
-
-            # Construct Memory object
-            memory = Memory(
-                content=content,
-                content_hash=content_hash,
-                tags=tags,
-                memory_type=row.get("memory_type"),
-                metadata=metadata,
-                created_at=row.get("created_at"),
-                created_at_iso=row.get("created_at_iso"),
-                updated_at=row.get("updated_at"),
-                updated_at_iso=row.get("updated_at_iso")
-            )
-
-            return memory
-
+            return await self.get_by_hash_or_raise(content_hash, store)
         except Exception as e:
             logger.error("Failed to get memory by hash %s: %s", _sanitize_log_value(content_hash), _sanitize_log_value(e))
             return None
+
+    async def get_by_hash_or_raise(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
+        """``get_by_hash`` for callers that must tell a missing row from a failed read.
+
+        ``None`` means D1 answered and holds no live row; a failed or unsuccessful
+        query raises (#1506: the hub forwarder must not move its cursor past it).
+        """
+        # Soft-deleted rows must not resurface here: the Memory model carries no
+        # deleted_at field, so callers cannot tell a deleted row from a live one.
+        store_sql, store_params = _store_clause(store)
+        sql = f"SELECT * FROM memories WHERE content_hash = ? AND deleted_at IS NULL{store_sql}"
+        payload = {"sql": sql, "params": [content_hash, *store_params]}
+        response = await self._retry_request("POST", f"{self.d1_url}/query", json=payload)
+        result = response.json()
+
+        if not result.get("success"):
+            raise RuntimeError("Cloudflare D1 lookup by hash failed")
+        if not result.get("result", [{}])[0].get("results"):
+            return None
+
+        row = result["result"][0]["results"][0]
+        # Load content from R2 if needed
+        content = row["content"]
+        if row.get("r2_key") and content.startswith("[R2 Content:"):
+            content = await self._load_r2_content(row["r2_key"])
+
+        # Load tags
+        tags = await self._load_memory_tags(row["id"])
+
+        # Parse and decompress metadata
+        metadata = {}
+        if row.get("metadata_json"):
+            metadata = json.loads(row["metadata_json"])
+            # Decompress CSV-encoded quality metadata if present
+            from ..quality.metadata_codec import decompress_metadata_from_sync
+            metadata = decompress_metadata_from_sync(metadata)
+
+        # Construct Memory object
+        memory = Memory(
+            content=content,
+            content_hash=content_hash,
+            tags=tags,
+            memory_type=row.get("memory_type"),
+            metadata=metadata,
+            created_at=row.get("created_at"),
+            created_at_iso=row.get("created_at_iso"),
+            updated_at=row.get("updated_at"),
+            updated_at_iso=row.get("updated_at_iso")
+        )
+
+        return memory
 
     async def _delete_vectorize_vector(self, vector_id: str) -> None:
         """Delete vector from Vectorize."""

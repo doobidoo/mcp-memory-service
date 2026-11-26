@@ -201,6 +201,31 @@ def _store_kwargs(storage: Any, store: Optional[str]) -> Dict[str, str]:
     return {}
 
 
+def _needs_metadata_forward(remote: Memory, local: Memory) -> bool:
+    """Whether the primary's tags, type or metadata should overwrite the secondary's (#1506).
+
+    Compared by value, not by the batch's last op, so a delete then a recreate of the
+    same content still converges. A secondary copy edited more than a second after the
+    primary's is left alone: the drift check's newer-timestamp-wins pass brings it into
+    the primary instead of this forward erasing it.
+    """
+    if (remote.updated_at or 0) - (local.updated_at or 0) > 1.0:
+        return False
+    return _forwarded_fields(remote) != _forwarded_fields(local)
+
+
+def _forwarded_fields(memory: Memory) -> Tuple[frozenset, Optional[str], Dict[str, Any]]:
+    return frozenset(memory.tags or []), memory.memory_type, memory.metadata or {}
+
+
+def _is_older_life(remote: Memory, local: Memory) -> bool:
+    """Whether the secondary's copy was created before a delete and recreate on the primary.
+
+    One-sided: a secondary copy created later than the primary's is not replaced by it.
+    """
+    return (local.created_at or 0) - (remote.created_at or 0) > 1.0
+
+
 def _normalize_metadata_for_cloudflare(updates: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize metadata updates for Cloudflare storage backend.
@@ -1466,32 +1491,45 @@ class BackgroundSyncService:
         return forwarded
 
     async def _forward_one(self, content_hash: str, op: str) -> None:
-        """Bring the secondary's copy of one hash in line with the primary."""
+        """Bring the secondary's copy of one hash in line with the primary.
+
+        A read that fails raises instead of reading as a missing row, so the cursor
+        stays before this event and the next cycle retries it.
+        """
         state = await self.primary.get_sync_state_for_hash(content_hash)
         if state is None:
             return
-        remote = await self.secondary.get_by_hash(content_hash)
         if state[1] is not None:
-            if remote is not None:
-                await self._process_single_operation(
-                    SyncOperation(operation='delete', content_hash=content_hash))
-            return
-        local = await self.primary.get_by_hash(content_hash)
-        if local is None:  # removed since the state read; its delete event comes next
-            return
-        if remote is None:
-            row = self.primary.conn.execute(
-                "SELECT store FROM memories WHERE content_hash = ?", (content_hash,)
-            ).fetchone()
-            if row is None:  # removed since the state read; a later event carries it
-                return
+            await self._forward_deleted(content_hash)
+        else:
+            await self._forward_live(content_hash)
+
+    async def _forward_deleted(self, content_hash: str) -> None:
+        if await self._secondary_copy(content_hash) is not None:
             await self._process_single_operation(
-                SyncOperation(operation='store', memory=local, store=row[0], recreate=True))
-        elif (set(remote.tags or []) != set(local.tags or [])
-              or remote.memory_type != local.memory_type
-              or (remote.metadata or {}) != (local.metadata or {})):
-            # Compared by value, not by the batch's last op: a delete then a recreate of
-            # the same content must still converge.
+                SyncOperation(operation='delete', content_hash=content_hash))
+
+    async def _forward_live(self, content_hash: str) -> None:
+        live = await self._primary_live_row(content_hash)
+        if live is None:  # removed since the state read; its delete event comes next
+            return
+        local, store = live
+        remote, elsewhere = await self._secondary_copy_for(content_hash, store)
+        if elsewhere:
+            # Cloudflare refuses to move a hash between stores (#1878), as it does for
+            # the hub's own queued store; deleting its copy first would only lose it.
+            logger.warning("Secondary keeps %s in another store; not moved to the "
+                           "primary's store", _sanitize_log_value(content_hash[:16]))
+            return
+        if remote is not None and _is_older_life(remote, local):
+            # A delete and a recreate landed between two cycles, so the secondary still
+            # has the old row: replace it, which also carries the new creation time.
+            await self._process_single_operation(
+                SyncOperation(operation='delete', content_hash=content_hash))
+            remote = None
+        if remote is None:
+            await self._store_on_secondary(local, store)
+        elif _needs_metadata_forward(remote, local):
             await self._process_single_operation(SyncOperation(
                 operation='update', content_hash=content_hash,
                 updates={'tags': local.tags, 'memory_type': local.memory_type,
@@ -1499,6 +1537,60 @@ class BackgroundSyncService:
                          'updated_at': local.updated_at,
                          'updated_at_iso': local.updated_at_iso},
                 preserve_timestamps=False))
+
+    async def _store_on_secondary(self, local: Memory, store: str) -> None:
+        """Store the primary's copy; a hash the secondary holds in another store is skipped.
+
+        A tombstone in another store is invisible to the live lookups but refused all the
+        same (cloudflare.py ``_live_duplicate_refusal``); retrying it would hold the cursor
+        on this event forever, so it is logged like the live case instead.
+        """
+        try:
+            await self._process_single_operation(
+                SyncOperation(operation='store', memory=local, store=store, recreate=True))
+        except RuntimeError as e:
+            if "already exists in another store" not in str(e):
+                raise
+            logger.warning("Secondary keeps %s in another store; not moved to the "
+                           "primary's store", _sanitize_log_value(local.content_hash[:16]))
+
+    async def _primary_live_row(self, content_hash: str) -> Optional[Tuple[Memory, str]]:
+        """The primary's live memory and its store, or None once it is gone.
+
+        ``get_by_hash`` also answers None when its query failed, so a missing answer is
+        checked against the sync state, which raises on a failed read.
+        """
+        local = await self.primary.get_by_hash(content_hash)
+        row = self.primary.conn.execute(
+            "SELECT store FROM memories WHERE content_hash = ? AND deleted_at IS NULL",
+            (content_hash,),
+        ).fetchone()
+        if local is not None and row is not None:
+            return local, row[0]
+        state = await self.primary.get_sync_state_for_hash(content_hash)
+        if state is not None and state[1] is None:
+            raise RuntimeError("the primary could not read a live memory")
+        return None
+
+    async def _secondary_copy(self, content_hash: str, store: Optional[str] = None) -> Optional[Memory]:
+        """The secondary's live copy; None only when the secondary answered it has none."""
+        lookup = getattr(self.secondary, 'get_by_hash_or_raise', None)
+        if lookup is None:  # a secondary without a strict read keeps the lenient one
+            lookup = self.secondary.get_by_hash
+        return await (lookup(content_hash) if store is None else lookup(content_hash, store=store))
+
+    async def _secondary_copy_for(self, content_hash: str, store: str) -> Tuple[Optional[Memory], bool]:
+        """The secondary's copy in ``store``, and whether it holds the hash in another store.
+
+        A secondary whose store() takes no store keeps everything in its default store,
+        so there the hash is looked up unscoped and is never reported elsewhere.
+        """
+        if not (_takes_store(self.secondary.store) and _takes_store(self.secondary.get_by_hash)):
+            return await self._secondary_copy(content_hash), False
+        remote = await self._secondary_copy(content_hash, store=store or "default")
+        if remote is not None:
+            return remote, False
+        return None, await self._secondary_copy(content_hash) is not None
 
     async def _detect_and_sync_drift(self, dry_run: bool = False) -> Dict[str, int]:
         """
