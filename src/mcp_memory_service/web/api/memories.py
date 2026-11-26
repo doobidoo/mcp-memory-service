@@ -640,7 +640,8 @@ async def _store_unversioned_split_replacement(
         else {}
     )
     for index, chunk in enumerate(chunks):
-        chunk_hash = generate_content_hash(chunk)
+        plain_chunk_hash = generate_content_hash(chunk)
+        chunk_hash = plain_chunk_hash
         if chunk_hash in claimed_chunk_hashes:
             chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
@@ -648,6 +649,17 @@ async def _store_unversioned_split_replacement(
             chunk_hash == content_hash
             or (existing.metadata or {}).get("original_hash") == replacement.content_hash
         )
+        if (
+            existing is not None
+            and not (existing.content == chunk and can_reuse)
+            and chunk_hash == plain_chunk_hash
+        ):
+            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+            existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+            can_reuse = existing is not None and chunk_hash not in claimed_chunk_hashes and (
+                chunk_hash == content_hash
+                or (existing.metadata or {}).get("original_hash") == replacement.content_hash
+            )
         if existing is not None and existing.content == chunk and can_reuse:
             # Only the original row or a chunk from this replacement may be
             # updated in place; an independent memory keeps its own fields.
@@ -679,10 +691,6 @@ async def _store_unversioned_split_replacement(
             claimed_chunk_hashes.add(chunk_hash)
             stored_chunks.append(existing)
             continue
-        if existing is not None:
-            # A case-only hash match or another memory's exact-text chunk must
-            # not be overwritten; store this replacement under a fresh hash.
-            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         chunk_memory = Memory(
             content=chunk,
             content_hash=chunk_hash,

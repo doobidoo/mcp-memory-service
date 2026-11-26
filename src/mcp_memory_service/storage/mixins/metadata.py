@@ -924,7 +924,7 @@ class MetadataMixin:
         return enriched
 
     def _version_family_members(self, content_hash: str) -> List[Tuple[str, Optional[int]]]:
-        """Return every hash and version in the current row's bidirectional chain."""
+        """Return every hash and version in the bidirectional parent/supersession chain."""
         return self.conn.execute(
             """
             WITH RECURSIVE version_family(content_hash) AS (
@@ -937,6 +937,20 @@ class MetadataMixin:
                 SELECT m.content_hash FROM memories m
                 JOIN version_family f ON m.parent_id = f.content_hash
                 WHERE m.deleted_at IS NULL
+                UNION
+                SELECT m.superseded_by FROM memories m
+                JOIN version_family f ON m.content_hash = f.content_hash
+                WHERE m.superseded_by IS NOT NULL AND m.superseded_by <> ''
+                AND m.deleted_at IS NULL
+                UNION
+                SELECT m.content_hash FROM memories m
+                JOIN version_family f ON m.superseded_by = f.content_hash
+                WHERE m.deleted_at IS NULL
+                AND EXISTS (
+                    SELECT 1 FROM memories current
+                    WHERE current.content_hash = f.content_hash
+                    AND current.deleted_at IS NULL
+                )
             )
             SELECT content_hash, version FROM memories
             WHERE content_hash IN (SELECT content_hash FROM version_family)

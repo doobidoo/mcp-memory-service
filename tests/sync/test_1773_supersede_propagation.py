@@ -244,3 +244,29 @@ async def test_repeated_content_after_initial_sync_reaches_peer(peers, monkeypat
     assert _supersede_state(b, h1)[0] == h2
     assert _supersede_state(b, h2)[0] == repeated
     assert _supersede_state(b, repeated)[0] is None
+
+
+@pytest.mark.asyncio
+async def test_restore_on_synced_peer_follows_superseded_lineage(peers, monkeypatch):
+    """A peer can restore A after sync carried superseded_by but not parent_id."""
+    a, b = peers
+    monkeypatch.setenv("MCP_AGENT_ID", "alpha")
+    original = "Peer restore original content"
+    edited = "Peer restore edited content"
+    h1 = await _store(a, original)
+    ok, message, h2 = await a.update_memory_versioned(h1, edited)
+    assert ok, message
+    _sync(a, b)
+    assert b.conn.execute(
+        "SELECT parent_id FROM memories WHERE content_hash = ?", (h2,)
+    ).fetchone()[0] is None
+
+    monkeypatch.setenv("MCP_AGENT_ID", "beta")
+    ok, message, repeated = await b.update_memory_versioned(h2, original)
+
+    assert ok, message
+    assert repeated not in {h1, h2}
+    assert _supersede_state(b, h2)[0] == repeated
+    restored = await b.get_by_hash(repeated)
+    assert restored is not None
+    assert restored.content == original

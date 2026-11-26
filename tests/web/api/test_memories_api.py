@@ -1123,6 +1123,56 @@ def test_update_memory_split_does_not_modify_unrelated_matching_chunk(
 
 
 @pytest.mark.integration
+def test_update_memory_split_reuses_salted_chunk_on_later_edit(
+    test_app, initialized_storage, monkeypatch
+):
+    """A later identical split edit reuses its existing position-specific chunk."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    independent = test_app.post(
+        "/api/memories",
+        json={"content": "shared paragraph", "tags": ["independent"]},
+    )
+    independent_hash = independent.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: ["target original", "shared paragraph", "tail"],
+    )
+    edited = "target original\n\nshared paragraph\n\ntail"
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": edited, "tags": ["edited"]}
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is True
+    salted_hash = generate_content_hash(f"shared paragraph\0{target_hash}\0{1}")
+    assert test_app.get(f"/api/memories/{salted_hash}").status_code == 200
+
+    second = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": edited, "tags": ["edited again"]},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert second.json()["content_hash"] == target_hash
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) == 4
+    salted = test_app.get(f"/api/memories/{salted_hash}").json()
+    assert salted["tags"] == ["edited again"]
+    assert salted["metadata"]["chunk_index"] == 1
+    untouched = test_app.get(f"/api/memories/{independent_hash}").json()
+    assert untouched["tags"] == ["independent"]
+
+
+@pytest.mark.integration
 def test_update_memory_fallback_merges_supplied_metadata(
     test_app, initialized_storage, monkeypatch
 ):
