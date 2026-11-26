@@ -11,16 +11,19 @@ per-change release fragments.
 
 ## Build, Test, and Development Commands
 
-Run from the repository root in a virtual environment:
+The project environment is the virtualenv at `.venv` (Python 3.12). The system
+`python` and `pytest` are not the project interpreter, so call the venv binaries
+from the repository root:
 
-- `python install.py`: install with platform-specific dependency selection.
-- `python -m pip install -e '.[dev]'`: install editable code and development tools.
-- `python scripts/validation/check_dev_setup.py`: verify the editable installation.
-- `memory launch`: start the HTTP service and dashboard; `memory server` runs MCP stdio.
-- `pytest tests/`: run tests; `pytest tests/unit/<test_file>.py -q` targets a file.
-- `pytest --cov=mcp_memory_service tests/`: collect coverage.
-- `black --check src/ tests/` and `ruff check src/ tests/`: check formatting and lint.
-- `python -m build`: build distribution artifacts.
+- `.venv/bin/python install.py`: install with platform-specific dependency selection.
+- `.venv/bin/python -m pip install -e '.[dev]'`: install editable code and development tools.
+- `.venv/bin/python scripts/validation/check_dev_setup.py`: verify the editable installation.
+- `.venv/bin/memory launch`: start the HTTP service and dashboard; `.venv/bin/memory server` runs MCP stdio.
+- `.venv/bin/pytest tests/`: run tests; `.venv/bin/pytest tests/unit/<test_file>.py -q` targets a file.
+- `.venv/bin/pytest --cov=mcp_memory_service tests/`: collect coverage.
+- `.venv/bin/black --check src/ tests/` and `.venv/bin/ruff check src/ tests/`: check formatting and lint.
+- `.venv/bin/python -m build`: build distribution artifacts.
+- `bash scripts/pr/pre_pr_check.sh`: the pre-PR gate; it picks `.venv/bin/python` itself.
 
 ## Coding Style & Naming Conventions
 
