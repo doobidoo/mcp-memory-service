@@ -202,3 +202,27 @@ async def test_removed_metadata_key_reaches_the_secondary(hub, d1):  # noqa: F81
     await hub.sync_service._forward_one(h, "update_metadata")
 
     assert "b" not in (await hub.secondary.get_by_hash(h)).metadata
+
+
+@pytest.mark.asyncio
+async def test_failed_forward_does_not_skip_the_drift_check(hub, d1, cloudflare_storage, monkeypatch):  # noqa: F811
+    h, create = _create("The secondary refuses this one write.", 1)
+    _apply(hub, create)
+
+    async def refuse(*args, **kwargs):
+        raise RuntimeError("store refused")
+
+    drift_runs = []
+
+    async def drift(*args, **kwargs):
+        drift_runs.append(1)
+        return {}
+
+    monkeypatch.setattr(cloudflare_storage, "store", refuse)
+    monkeypatch.setattr(hub.sync_service, "_detect_and_sync_drift", drift)
+    hub.sync_service.last_drift_check_time = 0
+    await hub.sync_service._periodic_sync()
+
+    assert d1.row(h) is None
+    assert drift_runs == [1], "a failed forward skipped the drift check"
+    assert hub.sync_service.sync_stats["forward_failures"] == 1

@@ -1392,7 +1392,16 @@ class BackgroundSyncService:
                             logger.warning(warning)
 
                 if healthy:
-                    await self._forward_applied_events()
+                    # Isolated from the health check: a push that fails is retried next
+                    # cycle from the same cursor, and must neither mark the secondary
+                    # unavailable nor skip the drift check below (#1506).
+                    try:
+                        await self._forward_applied_events()
+                    except Exception as e:
+                        self.sync_stats['forward_failures'] = self.sync_stats.get('forward_failures', 0) + 1
+                        logger.warning(
+                            "Forwarding applied sync events failed, retrying next cycle: %s",
+                            _sanitize_log_value(e))
 
                 # Periodic drift detection (v8.25.0+)
                 if healthy and self.drift_check_enabled:
@@ -1442,7 +1451,14 @@ class BackgroundSyncService:
                 break
             latest_op = {content_hash: op for _, content_hash, op in rows}
             for content_hash, op in latest_op.items():
-                await self._forward_one(content_hash, op)
+                try:
+                    await self._forward_one(content_hash, op)
+                except Exception:
+                    # The cursor stays before this batch, so nothing is skipped; the
+                    # hash is named so a write the secondary keeps refusing is visible.
+                    logger.warning("Forwarding %s to the secondary failed; the cursor "
+                                   "stays at %s", _sanitize_log_value(content_hash[:16]), cursor)
+                    raise
             advance_push_cursor(self.primary, FORWARD_CURSOR_ID, rows[-1][0])
             forwarded += len(latest_op)
             if len(rows) < limit:
