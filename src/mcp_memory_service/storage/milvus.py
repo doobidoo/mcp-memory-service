@@ -2955,12 +2955,14 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return success
 
-    async def _is_versioned_ancestor(
+    async def _is_current_or_versioned_ancestor(
         self, candidate_hash: str, current_hash: str, store: str
     ) -> bool:
-        """Return whether a stored row leads forward to the current version."""
+        """Return whether a row is the current version or one of its ancestors."""
         visited = set()
         while candidate_hash not in visited:
+            if candidate_hash == current_hash:
+                return True
             visited.add(candidate_hash)
             candidate = await self.get_by_hash(candidate_hash, store=store)
             if candidate is None:
@@ -3049,7 +3051,7 @@ class MilvusMemoryStorage(MemoryStorage):
                         break
                     # Only an earlier row in this version chain may be bypassed.
                     # An independent memory with the same text stays untouched.
-                    if not await self._is_versioned_ancestor(
+                    if not await self._is_current_or_versioned_ancestor(
                         new_hash, content_hash, row_store
                     ):
                         break

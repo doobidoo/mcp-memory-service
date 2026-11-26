@@ -122,3 +122,18 @@ async def test_unrelated_superseded_duplicate_is_not_in_the_version_chain():
     assert new_hash is None
     assert len(rows) == 2
     assert rows[_A_HASH].metadata == {"superseded_by": "c" * 64}
+
+
+@pytest.mark.asyncio
+async def test_capitalization_edit_does_not_collide_with_current_row():
+    original = "hello"
+    original_hash = generate_content_hash(original)
+    rows = {original_hash: _memory(original, original_hash)}
+    storage = _make_storage(rows)
+
+    ok, message, new_hash = await storage.update_memory_versioned(original_hash, "Hello")
+
+    assert ok, message
+    assert new_hash is not None and new_hash != original_hash
+    assert rows[new_hash].content == "Hello"
+    assert rows[original_hash].metadata["superseded_by"] == new_hash
