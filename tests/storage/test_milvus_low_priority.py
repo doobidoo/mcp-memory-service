@@ -133,9 +133,11 @@ class TestCountMemoriesByTag:
 
     @pytest.mark.asyncio
     async def test_returns_count(self):
-        """Returns the count from Milvus query."""
+        """Returns the number of live rows the scan yields."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[{"count(*)": 42}])
+        storage._drain_rows = AsyncMock(
+            return_value=[{"id": str(i), "metadata": "{}"} for i in range(42)]
+        )
 
         count = await storage.count_memories_by_tag(["python"])
 
@@ -153,7 +155,7 @@ class TestCountMemoriesByTag:
     async def test_query_failure_returns_zero(self):
         """Returns 0 on query failure."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(side_effect=Exception("network error"))
+        storage._drain_rows = AsyncMock(side_effect=Exception("network error"))
 
         count = await storage.count_memories_by_tag(["python"])
 
