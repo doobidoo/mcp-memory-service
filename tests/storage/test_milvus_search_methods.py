@@ -282,7 +282,9 @@ class TestSearchMemories:
         result = await storage.search_memories(query="exact match", mode="exact")
 
         assert result["total"] == 1
-        storage.get_by_exact_content.assert_called_once_with("exact match")
+        # The fallback carries the scope through, otherwise it would read every
+        # partition while the pushed-down path confines (#1958).
+        storage.get_by_exact_content.assert_called_once_with("exact match", store="default")
 
     @pytest.mark.asyncio
     async def test_time_filter_pushed_to_milvus(self):
@@ -366,7 +368,7 @@ class TestSearchMemories:
         Before, the error escaped the iterator and search_memories returned an
         empty successful result, and every later search failed the same way.
         """
-        import mcp_memory_service.storage.milvus as milvus_module
+        import mcp_memory_service.storage.milvus as milvus_module  # inline import: patched per test
 
         storage = _make_storage()
         storage.uri = "milvus-test.db"
@@ -401,7 +403,7 @@ class TestSearchMemories:
     @pytest.mark.asyncio
     async def test_iterator_scan_does_not_reconnect_on_other_errors(self, monkeypatch):
         """Only the Lite dead-channel signature triggers a reconnect."""
-        import mcp_memory_service.storage.milvus as milvus_module
+        import mcp_memory_service.storage.milvus as milvus_module  # inline import: patched per test
 
         storage = _make_storage()
         storage.uri = "milvus-test.db"

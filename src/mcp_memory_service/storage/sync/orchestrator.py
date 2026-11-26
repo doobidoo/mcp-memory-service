@@ -150,7 +150,8 @@ async def sync_from_peer(
                 if event_seq is not None:
                     last_good_seq = event_seq
                 logger.debug("Applied event %s: %s",
-                             _sanitize_log_value(event.get('event_id', 'unknown')), result.reason)
+                             _sanitize_log_value(event.get('event_id', 'unknown')),
+                             _sanitize_log_value(result.reason))
             elif getattr(result, "skippable", False):
                 # Permanently non-materializable event (e.g. create with irrecoverable
                 # empty content). Advance past it so a handful of bad events cannot block
@@ -168,7 +169,7 @@ async def sync_from_peer(
                 # applied=False means the event was not accepted (not a benign dup).
                 logger.warning("Event %s (seq=%s) not applied: %s",
                              _sanitize_log_value(event.get('event_id', 'unknown')),
-                             _sanitize_log_value(event_seq), result.reason)
+                             _sanitize_log_value(event_seq), _sanitize_log_value(result.reason))
                 events_failed += 1
                 page_failed = True
                 break
