@@ -363,22 +363,32 @@ class TestTombstonesAreNotListed:
     async def test_count_leaves_tombstoned_rows_out(self):
         """`memory_list` pairs this total with a listing that drops tombstones."""
         storage = _make_storage()
-        # One row whose metadata never mentions the key.
-        storage._call_client = AsyncMock(return_value=[{"count(*)": 1}])
         storage._drain_rows = AsyncMock(return_value=[
+            {"id": "h1", "metadata": "{}"},
             {"id": "h2", "metadata": '{"deleted_at": 1.0}'},
             # Mentions the key without being deleted: still a live row.
             {"id": "h3", "metadata": '{"deleted_at": null}'},
         ])
 
         assert await storage.count_all_memories(store=STORE) == 2
-        counted = storage._call_client.call_args.kwargs["filter"]
-        assert 'not (metadata like "%deleted_at%")' in counted
-        assert f'store == "{STORE}"' in counted
-        narrowed = _captured_filter(storage._drain_rows.call_args)
-        assert 'metadata like "%deleted_at%"' in narrowed
-        assert "not (" not in narrowed
-        assert f'store == "{STORE}"' in narrowed
+        assert f'store == "{STORE}"' in _captured_filter(storage._drain_rows.call_args)
+
+    @pytest.mark.parametrize("live_total", [
+        lambda storage: storage.count_all_memories(),
+        lambda storage: storage.count_memories_by_tag(["t"]),
+        lambda storage: storage.get_stats(),
+    ], ids=["count_all_memories", "count_memories_by_tag", "get_stats"])
+    async def test_a_live_total_is_one_read(self, live_total):
+        """Two reads let a write between them count a row twice or revive a tombstone (#2136)."""
+        storage = _make_storage()
+        storage._call_client = AsyncMock(return_value=[{"count(*)": 5}])
+        storage._drain_rows = AsyncMock(return_value=[])
+        storage.get_all_tags = AsyncMock(return_value=[])
+
+        await live_total(storage)
+
+        storage._drain_rows.assert_awaited_once()
+        storage._call_client.assert_not_called()
 
     async def test_count_without_superseded_skips_tombstoned_rows(self):
         storage = _make_storage()
