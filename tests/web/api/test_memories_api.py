@@ -1149,3 +1149,87 @@ def test_update_memory_fallback_merges_supplied_metadata(
     metadata = response.json()["memory"]["metadata"]
     assert metadata["source"] == "keep"
     assert metadata["conversation_id"] == "new"
+
+
+@pytest.mark.integration
+def test_update_memory_split_keeps_repeated_chunks_in_separate_rows(
+    test_app, initialized_storage, monkeypatch
+):
+    """Repeated text at two positions must not reuse and overwrite one row."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: ["same", "same", "tail"],
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": "same same tail"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) == 3
+    assert [memory["content"] for memory in listed].count("same") == 2
+    assert len({memory["content_hash"] for memory in listed}) == 3
+    assert sorted(memory["metadata"]["chunk_index"] for memory in listed) == [0, 1, 2]
+
+
+@pytest.mark.integration
+def test_update_memory_content_with_milvus_forwards_the_store(
+    test_app, initialized_storage, monkeypatch
+):
+    """The PUT route and service pass the selected store into Milvus versioning."""
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    original = Memory(
+        content="Milvus original",
+        content_hash=generate_content_hash("Milvus original"),
+        tags=["original"],
+        memory_type="note",
+    )
+    updated = Memory(
+        content="Milvus edited",
+        content_hash=generate_content_hash("Milvus edited"),
+        tags=["original"],
+        memory_type="note",
+    )
+    storage = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
+    storage._initialized = True
+    storage.client = object()
+    storage._generate_embedding = lambda _content: [0.1, 0.2, 0.3, 0.4]
+    storage._get_for_write = AsyncMock(return_value=(original, "default"))
+    storage.store = AsyncMock(return_value=(True, "Memory stored successfully"))
+    storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
+
+    async def get_by_hash(content_hash, store=None):
+        if store not in (None, "default"):
+            return None
+        return {original.content_hash: original, updated.content_hash: updated}.get(content_hash)
+
+    storage.get_by_hash = get_by_hash
+    set_storage(storage)
+    post_store = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.MemoryService._run_post_store_steps",
+        post_store,
+    )
+
+    response = test_app.put(
+        f"/api/memories/{original.content_hash}?store=default",
+        json={"content": updated.content},
+    )
+    set_storage(initialized_storage)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["content_hash"] == updated.content_hash
+    assert storage._get_for_write.await_args.args == (original.content_hash, "default")
+    assert storage.update_memory_metadata.await_args.kwargs["store"] == "default"

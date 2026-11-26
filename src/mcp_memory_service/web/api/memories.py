@@ -632,6 +632,7 @@ async def _store_unversioned_split_replacement(
         overlap=CONTENT_SPLIT_OVERLAP,
     )
     stored_chunks = []
+    claimed_chunk_hashes = set()
     original_reused = False
     scope = (
         {"store": resolve_store(store)}
@@ -640,8 +641,10 @@ async def _store_unversioned_split_replacement(
     )
     for index, chunk in enumerate(chunks):
         chunk_hash = generate_content_hash(chunk)
+        if chunk_hash in claimed_chunk_hashes:
+            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-        can_reuse = existing is not None and (
+        can_reuse = existing is not None and chunk_hash not in claimed_chunk_hashes and (
             chunk_hash == content_hash
             or (existing.metadata or {}).get("original_hash") == replacement.content_hash
         )
@@ -673,6 +676,7 @@ async def _store_unversioned_split_replacement(
                         f"Failed to apply edited fields to reused chunk: {fields_message}"
                     ), None, False
                 existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+            claimed_chunk_hashes.add(chunk_hash)
             stored_chunks.append(existing)
             continue
         if existing is not None:
@@ -696,6 +700,7 @@ async def _store_unversioned_split_replacement(
         )
         if not success:
             return False, message, None, False
+        claimed_chunk_hashes.add(chunk_hash)
         stored_chunks.append(chunk_memory)
 
     if not original_reused:

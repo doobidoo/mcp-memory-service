@@ -3074,6 +3074,7 @@ class MilvusMemoryStorage(MemoryStorage):
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """Non-destructive versioned update: store a new revision, supersede the old.
 
@@ -3099,7 +3100,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 except Exception as exc:  # noqa: BLE001
                     return False, f"Failed to generate embedding: {exc}", None
 
-                existing, row_store = await self._get_for_write(content_hash, None)
+                existing, row_store = await self._get_for_write(content_hash, store)
                 if existing is None:
                     return False, f"Memory {content_hash} not found", None
                 if (existing.metadata or {}).get("superseded_by") is not None:
@@ -3158,6 +3159,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 try:
                     linked, link_message = await self.update_memory_metadata(
                         content_hash, meta_updates, preserve_timestamps=True,
+                        store=row_store,
                     )
                 except Exception as link_exc:  # noqa: BLE001
                     cleaned = await self._cleanup_unlinked_version(new_hash)
