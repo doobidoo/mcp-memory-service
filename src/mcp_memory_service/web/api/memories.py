@@ -549,7 +549,9 @@ def _build_memory_replacement(
     inherited_metadata = dict(existing_memory.metadata or {})
     inherited_metadata.pop("superseded_by", None)
     inherited_metadata.pop("evolution_reason", None)
-    final_metadata = dict(request.metadata) if request.metadata else inherited_metadata
+    final_metadata = inherited_metadata
+    if request.metadata:
+        final_metadata.update(request.metadata)
     for key in ("tags", "type"):
         final_metadata.pop(key, None)
     content_hash = generate_content_hash(request.content)
@@ -639,10 +641,13 @@ async def _store_unversioned_split_replacement(
     for index, chunk in enumerate(chunks):
         chunk_hash = generate_content_hash(chunk)
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-        if existing is not None and existing.content == chunk:
-            # Reuse only an exact text match, then bring the row's fields in
-            # line with the edit: a hash match alone says nothing about tags,
-            # type or metadata (#2129).
+        can_reuse = existing is not None and (
+            chunk_hash == content_hash
+            or (existing.metadata or {}).get("original_hash") == replacement.content_hash
+        )
+        if existing is not None and existing.content == chunk and can_reuse:
+            # Only the original row or a chunk from this replacement may be
+            # updated in place; an independent memory keeps its own fields.
             original_reused = original_reused or chunk_hash == content_hash
             chunk_metadata = _chunk_metadata(
                 replacement.metadata, index, len(chunks),
@@ -671,9 +676,8 @@ async def _store_unversioned_split_replacement(
             stored_chunks.append(existing)
             continue
         if existing is not None:
-            # Same hash but different text (hashing ignores case): the edit is
-            # real, so store it under a salted hash instead of silently keeping
-            # the old row (#2129).
+            # A case-only hash match or another memory's exact-text chunk must
+            # not be overwritten; store this replacement under a fresh hash.
             chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         chunk_memory = Memory(
             content=chunk,
@@ -752,10 +756,20 @@ async def _update_memory_content(
     original_deleted = True
     # Length check before choosing the versioned path: evolve_memory() inserts
     # the full text as one row, which backends with a field cap (Milvus limits
-    # content to 65,535 bytes) reject. Oversized edits always take the split
-    # path, on versioned backends too.
+    # content to 65,535 bytes) reject. The destructive split fallback is only
+    # valid on backends without version history.
     max_length = getattr(storage, "max_content_length", None)
     if ENABLE_AUTO_SPLIT and max_length and len(request.content) > max_length:
+        if hasattr(storage, "update_memory_versioned"):
+            return MemoryUpdateResponse(
+                success=False,
+                message=(
+                    f"Content exceeds the {max_length}-character storage limit; "
+                    "oversized edits are not supported on versioned storage"
+                ),
+                content_hash=content_hash,
+                memory=memory_to_response(existing_memory),
+            )
         replacement = _build_memory_replacement(existing_memory, request)
         success, message, new_hash, original_kept = await _store_unversioned_split_replacement(
             storage, memory_service, content_hash, store, replacement, max_length

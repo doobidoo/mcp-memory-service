@@ -2955,6 +2955,24 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return success
 
+    async def _is_versioned_ancestor(
+        self, candidate_hash: str, current_hash: str, store: str
+    ) -> bool:
+        """Return whether a stored row leads forward to the current version."""
+        visited = set()
+        while candidate_hash not in visited:
+            visited.add(candidate_hash)
+            candidate = await self.get_by_hash(candidate_hash, store=store)
+            if candidate is None:
+                return False
+            successor = (candidate.metadata or {}).get("superseded_by")
+            if successor == current_hash:
+                return True
+            if not isinstance(successor, str):
+                return False
+            candidate_hash = successor
+        return False
+
     async def update_memory_versioned(
         self,
         content_hash: str,
@@ -3029,10 +3047,12 @@ class MilvusMemoryStorage(MemoryStorage):
                         )
                     if store_ok or store_msg != "Duplicate content detected (exact match)":
                         break
-                    # After A→B the row for A is still stored (superseded), so
-                    # restoring A collides with it. Salt the hash with the parent
-                    # and a counter until unique, the same repeated-text handling
-                    # sqlite-vec applies (mixins/metadata.py).
+                    # Only an earlier row in this version chain may be bypassed.
+                    # An independent memory with the same text stays untouched.
+                    if not await self._is_versioned_ancestor(
+                        new_hash, content_hash, row_store
+                    ):
+                        break
                     salt += 1
                     new_hash = generate_content_hash(f"{new_content}\0{content_hash}\0{salt}")
                 if not store_ok:

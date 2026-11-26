@@ -1015,11 +1015,10 @@ def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_stor
 
 
 @pytest.mark.integration
-def test_update_memory_content_splits_oversized_text_with_versioned_support(
+def test_update_memory_rejects_oversized_text_with_versioned_support(
     test_app, initialized_storage, monkeypatch
 ):
-    """Oversized edits take the split path even on versioned backends: a single
-    versioned insert would exceed field caps such as Milvus' 65,535 bytes."""
+    """An oversized versioned edit must not delete the original or its history."""
     evolve = AsyncMock(side_effect=AssertionError("oversized edit used the versioned path"))
     monkeypatch.setattr(
         "mcp_memory_service.services.memory_service.MemoryService.evolve_memory", evolve
@@ -1036,15 +1035,14 @@ def test_update_memory_content_splits_oversized_text_with_versioned_support(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["success"] is True
+    assert body["success"] is False
+    assert body["content_hash"] == old_hash
+    assert "storage limit" in body["message"]
+    original = test_app.get(f"/api/memories/{old_hash}")
+    assert original.status_code == 200
+    assert original.json()["content"] == "short original"
     listed = test_app.get("/api/memories").json()["memories"]
-    assert len(listed) > 1
-    assert all(len(memory["content"]) <= 80 for memory in listed)
-    joined = " ".join(memory["content"] for memory in sorted(
-        listed, key=lambda memory: memory["metadata"]["chunk_index"]
-    ))
-    for word in ("word0", "word29"):
-        assert word in joined
+    assert [memory["content"] for memory in listed] == ["short original"]
     evolve.assert_not_called()
 
 
@@ -1083,3 +1081,71 @@ def test_update_memory_split_edit_applies_case_and_field_changes(
     assert "hello world" not in contents
     for memory in listed:
         assert memory["tags"] == ["edited"]
+
+
+@pytest.mark.integration
+def test_update_memory_split_does_not_modify_unrelated_matching_chunk(
+    test_app, initialized_storage, monkeypatch
+):
+    """A matching chunk owned by another memory must keep its original fields."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    independent = test_app.post(
+        "/api/memories",
+        json={
+            "content": "shared paragraph",
+            "tags": ["independent"],
+            "metadata": {"source": "keep"},
+        },
+    )
+    independent_hash = independent.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    suffix = " ".join(f"word{index}" for index in range(30))
+
+    response = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": f"shared paragraph\n\n{suffix}", "tags": ["edited"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["content_hash"] != independent_hash
+    untouched = test_app.get(f"/api/memories/{independent_hash}")
+    assert untouched.status_code == 200
+    assert untouched.json()["tags"] == ["independent"]
+    assert untouched.json()["metadata"] == {"source": "keep"}
+
+
+@pytest.mark.integration
+def test_update_memory_fallback_merges_supplied_metadata(
+    test_app, initialized_storage, monkeypatch
+):
+    """Content edits on fallback backends retain metadata omitted by the request."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post(
+        "/api/memories",
+        json={
+            "content": "original",
+            "metadata": {"source": "keep", "conversation_id": "old"},
+        },
+    )
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}",
+        json={"content": "edited", "metadata": {"conversation_id": "new"}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    metadata = response.json()["memory"]["metadata"]
+    assert metadata["source"] == "keep"
+    assert metadata["conversation_id"] == "new"
