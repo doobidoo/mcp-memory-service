@@ -596,7 +596,26 @@ async def _store_unversioned_replacement(
         store=resolve_store(store),
     )
     if not success:
-        return False, message, None, False
+        if "Duplicate content detected (exact match)" not in message:
+            return False, message, None, False
+        lookup_store = (
+            resolve_store(store)
+            if getattr(storage, "get_by_hash_is_store_scoped", False)
+            else None
+        )
+        existing = await storage.get_by_hash(replacement.content_hash, store=lookup_store)
+        # A previous attempt may have stored the replacement before the
+        # original deletion failed. Resume only when every editable field matches;
+        # another memory that merely shares the text is still a conflict.
+        if (
+            existing is None
+            or existing.content != replacement.content
+            or set(existing.tags or []) != set(replacement.tags)
+            or existing.memory_type != replacement.memory_type
+            or (existing.metadata or {}) != (replacement.metadata or {})
+        ):
+            return False, message, None, False
+        message = "Replacement already stored; retrying original deletion"
 
     delete_success, delete_message = await storage.delete(
         content_hash, store=resolve_store(store)

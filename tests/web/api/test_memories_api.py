@@ -842,6 +842,98 @@ def test_update_memory_content_falls_back_without_versioned_update_support(
 
 
 @pytest.mark.integration
+def test_update_memory_content_retries_after_original_delete_fails(
+    test_app, initialized_storage, monkeypatch
+):
+    """A stored replacement does not block the next update attempt."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "Original content"})
+    old_hash = stored.json()["content_hash"]
+    original_delete = initialized_storage.delete
+    delete_failed = False
+
+    async def fail_original_delete_once(content_hash, store=None):
+        nonlocal delete_failed
+        if content_hash == old_hash and not delete_failed:
+            delete_failed = True
+            return False, "Temporary delete failure"
+        return await original_delete(content_hash, store=store)
+
+    monkeypatch.setattr(initialized_storage, "delete", fail_original_delete_once)
+
+    first = test_app.put(f"/api/memories/{old_hash}", json={"content": "Edited content"})
+
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is False
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 200
+    memories = test_app.get("/api/memories").json()["memories"]
+    replacement_hash = next(
+        memory["content_hash"] for memory in memories if memory["content"] == "Edited content"
+    )
+
+    second = test_app.put(f"/api/memories/{old_hash}", json={"content": "Edited content"})
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert second.json()["content_hash"] == replacement_hash
+    assert second.json()["memory"]["content"] == "Edited content"
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    memories = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in memories] == ["Edited content"]
+
+
+@pytest.mark.integration
+def test_update_memory_split_retries_after_original_delete_fails(
+    test_app, initialized_storage, monkeypatch
+):
+    """A retry reuses stored chunks and retries only the original deletion."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 80)
+    )
+    original_delete = initialized_storage.delete
+    delete_failed = False
+
+    async def fail_original_delete_once(content_hash, store=None):
+        nonlocal delete_failed
+        if content_hash == old_hash and not delete_failed:
+            delete_failed = True
+            return False, "Temporary delete failure"
+        return await original_delete(content_hash, store=store)
+
+    monkeypatch.setattr(initialized_storage, "delete", fail_original_delete_once)
+    long_text = " ".join(f"word{index}" for index in range(30))
+
+    first = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is False
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 200
+    first_chunks = test_app.get("/api/memories").json()["memories"]
+    first_hashes = {memory["content_hash"] for memory in first_chunks}
+
+    second = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    memories = test_app.get("/api/memories").json()["memories"]
+    assert len(memories) > 1
+    assert {memory["content_hash"] for memory in memories} == first_hashes - {old_hash}
+    joined = " ".join(
+        memory["content"]
+        for memory in sorted(memories, key=lambda memory: memory["metadata"]["chunk_index"])
+    )
+    assert "word0" in joined and "word29" in joined
+
+
+@pytest.mark.integration
 def test_update_memory_content_supports_an_unscoped_backend(
     test_app, initialized_storage, monkeypatch
 ):
