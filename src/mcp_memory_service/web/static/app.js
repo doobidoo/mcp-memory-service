@@ -534,19 +534,6 @@ class MemoryDashboard {
                 : this.t('search.modeManual', modeText.textContent);
         }
 
-        // Compact sync control: the widget's data-i18n key is the initial
-        // "Checking..." default. Re-render the live status word from the
-        // control's state class, so switching languages does not reset a
-        // running sync to "Checking..." until the next poll.
-        const syncStatusText = document.getElementById('syncStatusText');
-        if (syncStatusText) {
-            const syncState = syncStatusText.closest('.sync-control-compact')
-                ?.className.match(/\b(paused|syncing|pending|error|synced)\b/)?.[1];
-            if (syncState) {
-                syncStatusText.textContent = this.t(`sync.status.${syncState}`, syncStatusText.textContent);
-            }
-        }
-
         this.statusIsland?.refresh();
 
         // 更新语言按钮状态
@@ -1156,6 +1143,7 @@ class MemoryDashboard {
             state: 'busy',
             text: { key: 'sync.status.syncing', fallback: 'Syncing' },
             progress: data.progress_percentage,
+            actions: this._syncEventActions('syncing'),
         });
 
         // Update memory count in real-time if on dashboard
@@ -1174,8 +1162,23 @@ class MemoryDashboard {
     handleSyncCompleted(data) {
         console.log('Sync completed:', data);
 
+        // Inside a force sync this is only the pull: the upload follows in the same
+        // request, so the row stays running and forceSync() settles it at the end.
+        if (this._isForceSyncing) {
+            this._reportSync({
+                state: 'busy',
+                text: { key: 'sync.status.syncing', fallback: 'Syncing' },
+                progress: 'unknown',
+                actions: this._syncEventActions('syncing'),
+            });
+            return;
+        }
+
         const synced = { key: 'sync.status.synced', fallback: 'Synced' };
-        this._reportSync({ state: 'success', text: synced, settle: { state: 'ready', text: synced } });
+        // The poll that follows keeps this confirmation, so the row carries its own
+        // actions: without them "Sync now" is gone until the next regular poll.
+        const actions = this._syncEventActions('synced');
+        this._reportSync({ state: 'success', text: synced, actions, settle: { state: 'ready', text: synced, actions } });
 
         // Refresh dashboard data to show updated counts
         if (this.currentView === 'dashboard') {
@@ -2195,8 +2198,28 @@ class MemoryDashboard {
             return;
         }
         const entry = this._syncIslandEntry(syncStatus);
-        if (entry.state !== 'error' && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
+        // An explicit paused/stopped answer must replace a running row at once:
+        // the progress guard otherwise keeps it for up to a minute and hides Resume.
+        const paused = syncStatus.is_paused || !syncStatus.is_running;
+        if (entry.state !== 'error' && !paused) {
+            if (this._syncProgressRunning(current)) {
+                // The percentage stays, but after a resume the row must offer Pause again.
+                this._reportSync({ state: 'busy', text: current.text, progress: current.progress, actions: [this._syncPauseAction()] });
+                return;
+            }
+            if (current?.state === 'success' && entry.state === 'ready') return;
+        }
         this._reportSync(entry);
+    }
+
+    /**
+     * The actions for a row an SSE event writes. The events carry no status, so the
+     * last poll answer decides between pause and resume; its `status` is from before
+     * the event and is replaced by what the event says.
+     */
+    _syncEventActions(status) {
+        const last = this._lastSyncStatus;
+        return last?.is_hybrid ? this._syncActions({ ...last, status }) : [];
     }
 
     /**
@@ -2210,20 +2233,56 @@ class MemoryDashboard {
             && Date.now() - (this._syncProgressAt || 0) < 60000;
     }
 
+    /**
+     * The actions the sync row offers, from the status the poll holds (#2007):
+     * pause while a sync runs, resume while paused, "sync now" the rest of the
+     * time. They live where the status lives — on the island row — instead of the
+     * compact dashboard control, which a node without hybrid sync never saw anyway.
+     */
+    _syncActions(syncStatus) {
+        if (syncStatus.is_paused || !syncStatus.is_running) {
+            return [{
+                id: 'resume',
+                label: { key: 'sync.resumeTitle', fallback: 'Resume sync' },
+                run: () => this.resumeSync(),
+            }];
+        }
+        // "pending" means queued background uploads; the worker is still running,
+        // so Pause is the useful control there too. Only an idle queue gets Sync now.
+        if (syncStatus.status === 'syncing' || syncStatus.status === 'pending') {
+            return [this._syncPauseAction()];
+        }
+        return [{
+            id: 'sync-now',
+            label: { key: 'sync.nowTitle', fallback: 'Sync now' },
+            run: () => this.forceSync(),
+        }];
+    }
+
+    /** Pause rides on the running row; the SSE progress handler reuses it. */
+    _syncPauseAction() {
+        return {
+            id: 'pause',
+            label: { key: 'sync.pauseTitle', fallback: 'Pause sync' },
+            run: () => this.pauseSync(),
+        };
+    }
+
     /** The island entry for a sync status; the poll carries no percentage. */
     _syncIslandEntry(syncStatus) {
+        const actions = this._syncActions(syncStatus);
         if (syncStatus.is_paused || !syncStatus.is_running) {
-            return { state: 'ready', text: { key: 'sync.status.paused', fallback: 'Paused' } };
+            return { state: 'ready', text: { key: 'sync.status.paused', fallback: 'Paused' }, actions };
         }
         switch (syncStatus.status) {
             case 'syncing':
-                return { state: 'busy', progress: 'unknown', text: { key: 'sync.status.syncing', fallback: 'Syncing' } };
+                return { state: 'busy', progress: 'unknown', text: { key: 'sync.status.syncing', fallback: 'Syncing' }, actions };
             case 'pending':
-                return { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' } };
+                return { state: 'ready', text: { key: 'sync.status.pending', fallback: 'Pending' }, actions };
             case 'error':
-                return { state: 'error', text: { key: 'sync.status.error', fallback: 'Error' } };
+                return { state: 'error', text: { key: 'sync.status.error', fallback: 'Error' }, actions };
             default:
-                return { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' } };
+                return { state: 'ready', text: { key: 'sync.status.synced', fallback: 'Synced' }, actions };
         }
     }
 
@@ -2313,9 +2372,10 @@ class MemoryDashboard {
     /**
      * Check hybrid backend sync status
      */
-    async checkSyncStatus() {
-        // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state
-        if (this._isForceSyncing) {
+    async checkSyncStatus(force = false) {
+        // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state.
+        // An explicit pause/resume must still refresh the row while the force request is in flight.
+        if (this._isForceSyncing && !force) {
             return;
         }
 
@@ -2324,88 +2384,8 @@ class MemoryDashboard {
             this.updateDeltaSyncStatus(syncStatus.delta_sync);
             this._reportDeltaSyncStatus(syncStatus.delta_sync);
             this._reportSyncStatus(syncStatus);
-
-            // Get compact sync control element
-            const syncControl = document.getElementById('syncControl');
-            if (!syncControl) {
-                console.warn('Sync control element not found');
-                return;
-            }
-
-            if (!syncStatus.is_hybrid) {
-                syncControl.style.display = 'none';
-                return;
-            }
-
-            // Show sync control for hybrid mode
-            syncControl.style.display = 'block';
-
-            // Update sync status UI elements
-            const statusText = document.getElementById('syncStatusText');
-            const syncProgress = document.getElementById('syncProgress');
-            const pauseButton = document.getElementById('pauseSyncButton');
-            const resumeButton = document.getElementById('resumeSyncButton');
-            const syncButton = document.getElementById('forceSyncButton');
-
-            // Update pause/resume button visibility based on running state
-            const isPaused = syncStatus.is_paused || !syncStatus.is_running;
-
-            // Attach event listeners if not already attached
-            if (pauseButton && !pauseButton._listenerAttached) {
-                pauseButton.addEventListener('click', () => {
-                    this.pauseSync();
-                });
-                pauseButton._listenerAttached = true;
-            }
-            if (resumeButton && !resumeButton._listenerAttached) {
-                resumeButton.addEventListener('click', () => {
-                    this.resumeSync();
-                });
-                resumeButton._listenerAttached = true;
-            }
-            if (syncButton && !syncButton._listenerAttached) {
-                syncButton.addEventListener('click', () => {
-                    this.forceSync();
-                });
-                syncButton._listenerAttached = true;
-            }
-
-            if (pauseButton) {
-                pauseButton.style.display = isPaused ? 'none' : 'flex';
-            }
-            if (resumeButton) {
-                resumeButton.style.display = isPaused ? 'flex' : 'none';
-            }
-
-            // Determine status and update UI (dot color is handled by CSS classes)
-            if (isPaused) {
-                statusText.textContent = this.t('sync.status.paused', 'Paused');
-                syncProgress.textContent = '';
-                syncControl.className = 'sync-control-compact paused';
-                if (syncButton) syncButton.disabled = true;
-            } else if (syncStatus.status === 'syncing') {
-                statusText.textContent = this.t('sync.status.syncing', 'Syncing');
-                syncProgress.textContent = syncStatus.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: syncStatus.operations_pending }) : '';
-                syncControl.className = 'sync-control-compact syncing';
-                if (syncButton) syncButton.disabled = true;
-            } else if (syncStatus.status === 'pending') {
-                statusText.textContent = this.t('sync.status.pending', 'Pending');
-                syncProgress.textContent = this.t('sync.opsCount', '{count} ops', { count: syncStatus.operations_pending });
-                syncControl.className = 'sync-control-compact pending';
-                if (syncButton) syncButton.disabled = false;
-            } else if (syncStatus.status === 'error') {
-                statusText.textContent = this.t('sync.status.error', 'Error');
-                syncProgress.textContent = this.t('sync.failedCount', '{count} failed', { count: syncStatus.operations_failed });
-                syncControl.className = 'sync-control-compact error';
-                if (syncButton) syncButton.disabled = false;
-            } else {
-                // synced status
-                statusText.textContent = this.t('sync.status.synced', 'Synced');
-                syncProgress.textContent = '';
-                syncControl.className = 'sync-control-compact synced';
-                if (syncButton) syncButton.disabled = false;
-            }
-
+            // The SSE progress handler rides on this to keep its pause action current.
+            this._lastSyncStatus = syncStatus;
         } catch (error) {
             this._stopSyncCountdown();
             console.error('Error checking sync status:', error);
@@ -2414,9 +2394,7 @@ class MemoryDashboard {
                 deltaControl.className = 'sync-control-compact delta-sync-control error';
                 document.getElementById('deltaSyncStatus').textContent = this.t('sync.statusUnavailable', 'Status unavailable');
             }
-            // Hide sync control on error (likely not hybrid mode)
-            const syncControl = document.getElementById('syncControl');
-            if (syncControl) syncControl.style.display = 'none';
+
         }
     }
 
@@ -2594,17 +2572,6 @@ class MemoryDashboard {
             if (result.success) {
                 this.showToast(this.t('toast.syncPaused', 'Sync paused'), 'success');
 
-                // Update UI immediately using API response data
-                const pauseButton = document.getElementById('pauseSyncButton');
-                const resumeButton = document.getElementById('resumeSyncButton');
-                const statusText = document.getElementById('syncStatusText');
-                const syncControl = document.getElementById('syncControl');
-
-                if (pauseButton) pauseButton.style.display = 'none';
-                if (resumeButton) resumeButton.style.display = 'flex';
-                if (statusText) statusText.textContent = this.t('sync.status.paused', 'Paused');
-                if (syncControl) syncControl.className = 'sync-control-compact paused';
-
                 // Small delay to allow backend state to propagate before checking status
                 await new Promise(resolve => setTimeout(resolve, 200));
             } else {
@@ -2613,7 +2580,7 @@ class MemoryDashboard {
                     'error'
                 );
             }
-            await this.checkSyncStatus();
+            await this.checkSyncStatus(true);
         } catch (error) {
             console.error('Error pausing sync:', error);
             this.showToast(this.t('toast.syncPauseFail', 'Failed to pause sync'), 'error');
@@ -2629,17 +2596,6 @@ class MemoryDashboard {
             if (result.success) {
                 this.showToast(this.t('toast.syncResumed', 'Sync resumed'), 'success');
 
-                // Update UI immediately using API response data
-                const pauseButton = document.getElementById('pauseSyncButton');
-                const resumeButton = document.getElementById('resumeSyncButton');
-                const statusText = document.getElementById('syncStatusText');
-                const syncControl = document.getElementById('syncControl');
-
-                if (pauseButton) pauseButton.style.display = 'flex';
-                if (resumeButton) resumeButton.style.display = 'none';
-                if (statusText) statusText.textContent = this.t('sync.status.synced', 'Synced');
-                if (syncControl) syncControl.className = 'sync-control-compact synced';
-
                 // Small delay to allow backend state to propagate before checking status
                 await new Promise(resolve => setTimeout(resolve, 200));
             } else {
@@ -2648,7 +2604,7 @@ class MemoryDashboard {
                     'error'
                 );
             }
-            await this.checkSyncStatus();
+            await this.checkSyncStatus(true);
         } catch (error) {
             console.error('Error resuming sync:', error);
             this.showToast(this.t('toast.syncResumeFail', 'Failed to resume sync'), 'error');
@@ -2891,30 +2847,26 @@ class MemoryDashboard {
      * Manually force sync to Cloudflare
      */
     async forceSync() {
-        const syncButton = document.getElementById('forceSyncButton');
+        // One force request at a time: a second one would repeat the work, and
+        // whichever finished first would clear the flag under the other.
+        if (this._isForceSyncing) return;
+        // Also keeps periodic polling from overwriting the row during the request.
+        this._isForceSyncing = true;
         this._clearOperationError('sync-request');
-        const originalText = syncButton.innerHTML;
 
         try {
             // Check if sync was paused before force sync
             const statusBefore = await this.apiCall('/sync/status');
             const wasPaused = statusBefore.is_paused;
 
-            // Set flag to prevent periodic polling from overwriting UI during force sync
-            this._isForceSyncing = true;
-
-            // Disable button and show loading state (just egg timer, no text - widget shows "Syncing")
-            syncButton.disabled = true;
-            syncButton.innerHTML = '<span class="sync-button-icon">⏳</span>';
-
-            // IMMEDIATELY update sync control widget to show syncing state
-            const statusText = document.getElementById('syncStatusText');
-            const syncProgress = document.getElementById('syncProgress');
-            const syncControl = document.getElementById('syncControl');
-
-            if (statusText) statusText.textContent = this.t('sync.status.syncing', 'Syncing');
-            if (syncProgress) syncProgress.textContent = statusBefore.operations_pending > 0 ? this.t('sync.pendingOps', '{count} pending', { count: statusBefore.operations_pending }) : '';
-            if (syncControl) syncControl.className = 'sync-control-compact syncing';
+            // The island owns the feedback now: show the run at once, since a force
+            // sync may finish without a single SSE progress event.
+            this._reportSync({
+                state: 'busy',
+                text: { key: 'sync.status.syncing', fallback: 'Syncing' },
+                progress: 'unknown',
+                actions: [this._syncPauseAction()],
+            });
 
             // Show toast when sync starts
             this.showToast(this.t('toast.syncStarting', 'Starting sync...'), 'info');
@@ -2957,10 +2909,6 @@ class MemoryDashboard {
         } finally {
             // Clear flag to allow periodic polling to resume
             this._isForceSyncing = false;
-
-            // Re-enable button
-            syncButton.disabled = false;
-            syncButton.innerHTML = originalText;
 
             // Refresh sync status immediately
             await this.checkSyncStatus();

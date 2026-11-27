@@ -16,7 +16,8 @@ APP_JS = (STATIC / "app.js").read_text(encoding="utf-8")
 TOKEN_RE = re.compile(r"\{[A-Za-z0-9_]+\}")
 TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
 
-# Keys wired in index.html through a data-i18n* attribute.
+# Keys wired in index.html through a data-i18n* attribute. The compact sync
+# control's keys left the markup with the control itself (#2007).
 MARKUP_KEYS = [
     "header.searchLabel",
     "header.addMemoryTitle",
@@ -24,13 +25,11 @@ MARKUP_KEYS = [
     "header.settingsTitle",
     "header.languageLabel",
     "sync.deltaSync",
-    "sync.checking",
-    "sync.pauseTitle",
-    "sync.resumeTitle",
-    "sync.nowTitle",
 ]
 
-# Keys looked up from app.js through this.t(...).
+# Keys looked up from app.js through this.t(...). The three action titles are
+# looked up for the island's sync row now (#2007); the compact control's
+# progress words (sync.pendingOps, sync.opsCount, sync.failedCount) died with it.
 SCRIPT_KEYS = [
     "sync.status.paused",
     "sync.status.syncing",
@@ -38,9 +37,9 @@ SCRIPT_KEYS = [
     "sync.status.error",
     "sync.status.synced",
     "sync.statusUnavailable",
-    "sync.pendingOps",
-    "sync.opsCount",
-    "sync.failedCount",
+    "sync.pauseTitle",
+    "sync.resumeTitle",
+    "sync.nowTitle",
     "sync.scheduleEveryNext",
     "sync.notScheduled",
     "sync.automaticDisabled",
@@ -102,8 +101,8 @@ STATE_KEYS = [
 
 # app.js regions this slice touches, as (start anchor, end anchor) pairs.
 BLOCKS = [
-    ("handleSyncCompleted(data)", "handleSyncDeltaCompleted(data)"),
-    ("async checkSyncStatus()", "async checkBackupStatus()"),
+    ("_syncActions(syncStatus) {", "async checkSyncStatus("),
+    ("async checkSyncStatus(", "async checkBackupStatus()"),
     ("async forceSync()", "const result = await this.apiCall('/sync/force', 'POST');"),
     ("updateConnectionStatus(status)", "async apiCall(endpoint"),
 ]
@@ -165,7 +164,7 @@ def test_non_english_catalogs_translate_the_panel():
 
 
 def test_markup_sites_reference_their_keys():
-    # The header buttons and the two sync controls sit in separate regions of
+    # The header buttons and the delta-sync panel sit in separate regions of
     # index.html; every key is unique, so match the whole file.
     unwired = [
         key
@@ -177,6 +176,9 @@ def test_markup_sites_reference_their_keys():
     ]
 
     assert not unwired, f"Not wired in index.html: {unwired}"
+    # The compact control left with its three title keys (#2007).
+    for dead in ("sync.checking", "sync.pauseTitle", "sync.resumeTitle", "sync.nowTitle"):
+        assert not re.search(rf'data-i18n(?:-html|-title|-placeholder|-aria)?="{re.escape(dead)}"', INDEX_HTML), dead
     # The visible "Delta sync" heading and the section's aria-label share a key.
     assert INDEX_HTML.count('data-i18n-aria="sync.deltaSync"') == 1
     assert INDEX_HTML.count('data-i18n="sync.deltaSync"') == 1
@@ -199,16 +201,21 @@ def test_script_sites_reference_their_keys():
     # The insecure-connection toast fires from init(), outside those blocks.
     assert "'toast.connectionInsecure'" in APP_JS
 
-    # A language switch re-renders the live status word instead of resetting
-    # it to the widget's "Checking..." default.
+    # A language switch re-renders the island rows from their stored catalog
+    # keys; the removed compact control needs no bespoke re-render anymore.
     apply_block = APP_JS[
         APP_JS.index('async applyTranslations()'):APP_JS.index('updateLanguageSwitcher()')
     ]
-    assert "`sync.status.${syncState}`" in apply_block
+    assert "this.statusIsland?.refresh()" in apply_block
+    assert "syncStatusText" not in apply_block, "the compact control is gone (#2007)"
 
     # The badge's status word is resolved through a template literal.
     sync_block = blocks[1]
     assert "`sync.status.${state}`" in sync_block
+
+    # The compact control's progress words died with it (#2007).
+    for dead in ("sync.pendingOps", "sync.opsCount", "sync.failedCount"):
+        assert f"'{dead}'" not in APP_JS, dead
 
     # Static labels created by updateDeltaSyncStatus() carry their data-i18n
     # key (the text() helper's i18nKey argument) so applyTranslations()
