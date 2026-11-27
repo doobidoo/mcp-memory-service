@@ -1265,6 +1265,65 @@ def test_update_memory_split_reuses_salted_chunk_on_later_edit(
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize(
+    "middle, has_independent",
+    [("shared paragraph", True), ("target original", False)],
+    ids=["plain-hash-taken-by-other-memory", "repeated-chunk"],
+)
+def test_update_memory_split_reuses_salted_chunk_when_only_the_tail_changes(
+    test_app, initialized_storage, monkeypatch, middle, has_independent
+):
+    """A later split edit with a different full text still reuses its salted chunk."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    if has_independent:
+        test_app.post(
+            "/api/memories", json={"content": middle, "tags": ["independent"]}
+        )
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    chunks = ["target original", middle, "tail"]
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: list(chunks),
+    )
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": "\n\n".join(chunks), "tags": ["edited"]},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is True
+    salted_hash = generate_content_hash(f"{middle}\0{target_hash}\0{1}")
+    assert test_app.get(f"/api/memories/{salted_hash}").status_code == 200
+
+    chunks[2] = "changed tail"
+    second = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": "\n\n".join(chunks), "tags": ["edited again"]},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True, second.text
+    assert second.json()["content_hash"] == target_hash
+    new_full_hash = generate_content_hash("\n\n".join(chunks))
+    salted = test_app.get(f"/api/memories/{salted_hash}").json()
+    assert salted["tags"] == ["edited again"]
+    assert salted["metadata"]["chunk_index"] == 1
+    assert salted["metadata"]["original_hash"] == new_full_hash
+    contents = [
+        memory["content"] for memory in test_app.get("/api/memories").json()["memories"]
+    ]
+    assert contents.count(middle) == 2
+    assert "changed tail" in contents
+
+
+@pytest.mark.integration
 def test_update_memory_fallback_merges_supplied_metadata(
     test_app, initialized_storage, monkeypatch
 ):

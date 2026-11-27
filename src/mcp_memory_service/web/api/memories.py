@@ -630,6 +630,26 @@ async def _store_unversioned_replacement(
     return True, message, replacement.content_hash, False
 
 
+def _owns_chunk_row(
+    existing: Optional[Memory],
+    chunk_hash: str,
+    plain_chunk_hash: str,
+    content_hash: str,
+    replacement_hash: str,
+) -> bool:
+    """Whether a split edit of content_hash may update the row at chunk_hash in place."""
+    if existing is None:
+        return False
+    return (
+        chunk_hash == content_hash
+        # A salted hash is derived from the edited memory's own hash and the
+        # chunk position, so only an earlier split edit of this memory can have
+        # written the row, whatever full text that edit carried.
+        or chunk_hash != plain_chunk_hash
+        or (existing.metadata or {}).get("original_hash") == replacement_hash
+    )
+
+
 async def _store_unversioned_split_replacement(
     storage: MemoryStorage,
     memory_service: MemoryService,
@@ -664,9 +684,8 @@ async def _store_unversioned_split_replacement(
         if chunk_hash in claimed_chunk_hashes:
             chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-        can_reuse = existing is not None and chunk_hash not in claimed_chunk_hashes and (
-            chunk_hash == content_hash
-            or (existing.metadata or {}).get("original_hash") == replacement.content_hash
+        can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
+            existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
         )
         if (
             existing is not None
@@ -675,9 +694,8 @@ async def _store_unversioned_split_replacement(
         ):
             chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
             existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-            can_reuse = existing is not None and chunk_hash not in claimed_chunk_hashes and (
-                chunk_hash == content_hash
-                or (existing.metadata or {}).get("original_hash") == replacement.content_hash
+            can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
+                existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
             )
         if existing is not None and existing.content == chunk and can_reuse:
             # Only the original row or a chunk from this replacement may be
