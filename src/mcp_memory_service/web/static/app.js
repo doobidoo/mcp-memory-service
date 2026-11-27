@@ -2159,7 +2159,10 @@ class MemoryDashboard {
             return;
         }
         const entry = this._syncIslandEntry(syncStatus);
-        if (entry.state !== 'error' && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
+        // An explicit paused/stopped answer must replace a running row at once:
+        // the progress guard otherwise keeps it for up to a minute and hides Resume.
+        const paused = syncStatus.is_paused || !syncStatus.is_running;
+        if (entry.state !== 'error' && !paused && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
         this._reportSync(entry);
     }
 
@@ -2188,7 +2191,9 @@ class MemoryDashboard {
                 run: () => this.resumeSync(),
             }];
         }
-        if (syncStatus.status === 'syncing') {
+        // "pending" means queued background uploads; the worker is still running,
+        // so Pause is the useful control there too. Only an idle queue gets Sync now.
+        if (syncStatus.status === 'syncing' || syncStatus.status === 'pending') {
             return [this._syncPauseAction()];
         }
         return [{
@@ -2717,6 +2722,7 @@ class MemoryDashboard {
                 state: 'busy',
                 text: { key: 'sync.status.syncing', fallback: 'Syncing' },
                 progress: 'unknown',
+                actions: [this._syncPauseAction()],
             });
 
             // Show toast when sync starts

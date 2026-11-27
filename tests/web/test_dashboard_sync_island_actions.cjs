@@ -61,7 +61,7 @@ test('the sync row offers pause while running, resume while paused, sync now oth
         [hybrid('synced', { is_paused: true }), 'resume', 'no pause while paused'],
         [hybrid('syncing', { is_running: false }), 'resume', 'a stopped sync counts as paused'],
         [hybrid('synced'), 'sync-now', ''],
-        [hybrid('pending'), 'sync-now', ''],
+        [hybrid('pending'), 'pause', 'queued uploads keep Pause'],
         [hybrid('error'), 'sync-now', ''],
     ];
     for (const [status, ids, message] of cases) {
@@ -83,7 +83,7 @@ test('the row actions call the dashboard methods', () => {
     model.get('sync').actions[0].run();
     app._reportSyncStatus(hybrid('pending'));
     model.get('sync').actions[0].run();
-    assert.deepEqual(calls, ['pause', 'resume', 'force']);
+    assert.deepEqual(calls, ['pause', 'resume', 'pause']);
 });
 
 test('the action labels are catalog keys that exist in every catalog', () => {
@@ -122,6 +122,18 @@ test('a paused or non-hybrid node gets no pause from a stray progress event', ()
     assert.equal(actionIds(model.get('sync')), '', 'and none without hybrid sync');
 });
 
+test('an explicit pause replaces a running row and exposes Resume', () => {
+    const { app, model } = syncDashboard();
+    app._lastSyncStatus = hybrid('syncing');
+    app._reportSyncStatus(hybrid('syncing'));
+    app.handleSyncProgress({ progress_percentage: 40 });
+    assert.equal(model.get('sync').state, 'busy');
+    app._reportSyncStatus(hybrid('syncing', { is_paused: true }));
+    assert.equal(model.get('sync').state, 'ready');
+    assert.equal(model.get('sync').text.key, 'sync.status.paused');
+    assert.equal(actionIds(model.get('sync')), 'resume');
+});
+
 test('a backend without hybrid sync still reports nothing', () => {
     const { app, model } = syncDashboard();
     app._reportSyncStatus({ is_hybrid: false, status: 'synced' });
@@ -142,6 +154,7 @@ test('force sync reports the run at once and settles from the poll afterwards', 
     const busy = reports.filter(([id, entry]) => id === 'sync' && entry.state === 'busy');
     assert.ok(busy.length >= 1, 'the run is on the island while it goes');
     assert.equal(busy[0][1].progress, 'unknown');
+    assert.equal(busy[0][1].actions[0].id, 'pause', 'the initial report keeps Pause');
     assert.deepEqual([model.get('sync').state, model.get('sync').text.key], ['ready', 'sync.status.synced'],
         'the poll that follows the run settles the row');
 });
