@@ -359,13 +359,10 @@ class SessionHarvester:
         if not hasattr(self.memory_service, "storage") or not self.memory_service.storage:
             return False, None
 
-        # A caller confined to one store may only evolve a memory of that store.
-        # Where get_by_hash ignores ``store`` that cannot be guaranteed, so the
-        # candidate is stored as its own memory instead (as memory_update refuses).
+        # A caller confined to one store may only evolve a memory of that store:
+        # the similarity search and the versioned update both take ``store``.
         store_kw = {}
         if store not in (None, "all"):
-            if not getattr(self.memory_service.storage, "get_by_hash_is_store_scoped", False):
-                return False, None
             store_kw = {"store": store}
 
         try:

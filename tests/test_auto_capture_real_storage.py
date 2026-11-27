@@ -199,22 +199,6 @@ async def test_capture_evolves_inside_its_own_store(memory_service, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_evolve_memory_refuses_a_store_where_get_by_hash_is_unscoped(
-    memory_service, monkeypatch
-):
-    """Where get_by_hash ignores ``store``, confinement cannot be shown: refuse."""
-    default_hash = await _seed_default(memory_service, monkeypatch)
-    monkeypatch.setattr(memory_service.storage, "get_by_hash_is_store_scoped", False)
-
-    ok, _msg, child = await memory_service.evolve_memory(
-        default_hash, "Attempted cross-store evolution", store="project_a"
-    )
-
-    assert not ok and child is None
-    assert _default_rows(memory_service.storage) == [(default_hash, None)]
-
-
-@pytest.mark.asyncio
 async def test_evolve_memory_refuses_a_hash_from_another_store(memory_service):
     """The service refuses on its own, whatever its caller checked before."""
     stored = await memory_service.store_memory(
@@ -243,9 +227,8 @@ class _Server:
 async def test_unnamed_store_still_evolves_where_get_by_hash_is_unscoped(
     memory_service, monkeypatch
 ):
-    """handle_store_memory falls back to store "default". Forwarding that fallback
-    would switch evolution off for every caller on a backend whose get_by_hash
-    ignores ``store`` (Cloudflare, Milvus), named store or not."""
+    """handle_store_memory falls back to store "default"; evolution must still
+    run for a caller that named no store, whatever the backend's flag says."""
     from mcp_memory_service.server.handlers.memory import handle_store_memory
 
     storage = memory_service.storage

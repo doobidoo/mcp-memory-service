@@ -84,10 +84,36 @@ async def test_store_grant_covers_include_beliefs(server):
     ("memory_explore", {"query": "x", "store": "projectA"}),
     ("memory_detail", {"entity_id": "e", "store": "projectA"}),
 ])
-async def test_store_grant_cannot_read_the_unpartitioned_graph(server, tool, arguments):
-    """Entity names and related entities come from a graph with no store, so
-    a per-store grant would see other stores' entities."""
+async def test_store_grant_reaches_the_store_scoped_graph_reads(server, tool, arguments):
+    """Entity lookups are confined through the store of each linked memory
+    (#2118, #2119) and chunk rows are read with ``store`` (#2120), so a
+    per-store grant authorizes memory_explore and memory_detail."""
     result = await _call(server, tool, arguments, "read:projectA")
+    assert not result.isError
+    assert server.handled == [arguments]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool, arguments", [
+    ("memory_explore", {"query": "x", "store": "projectA"}),
+    ("memory_detail", {"entity_id": "e", "store": "projectA"}),
+])
+async def test_store_grant_on_graph_reads_refused_where_backend_cannot_confine(
+    server, tool, arguments
+):
+    """remote_http against a peer without store_scoped_access keeps the flag
+    False; the per-store grant must not reach the graph tools there either."""
+    server.storage.get_by_hash_is_store_scoped = False
+    result = await _call(server, tool, arguments, "read:projectA")
+    assert result.isError
+    assert server.handled == []
+
+
+@pytest.mark.asyncio
+async def test_memory_graph_stays_on_the_global_grant(server):
+    """connected/path/subgraph walk association edges that take no ``store``."""
+    arguments = {"action": "connected", "hash": "h", "store": "projectA"}
+    result = await _call(server, "memory_graph", arguments, "read:projectA")
     assert result.isError
     assert server.handled == []
 

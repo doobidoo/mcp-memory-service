@@ -17,6 +17,7 @@ These drive the real /mcp shim and the real REST routes against sqlite-vec,
 with the authenticated user replaced by one holding exactly the given scope.
 """
 
+import json
 import os
 import tempfile
 
@@ -309,25 +310,25 @@ def test_store_grant_refused_on_a_backend_that_cannot_confine(make_client, stora
 
 
 @pytest.mark.integration
-def test_global_hash_lookup_fails_closed_for_scopes_backend_cannot_enforce(
-    make_client, storage, hash_memories_in_two_stores, monkeypatch,
+def test_global_hash_lookup_is_confined_by_the_backend(
+    make_client, storage, hash_memories_in_two_stores,
 ):
-    _ignore_store_like_cloudflare(storage, monkeypatch)
+    """No handler guard is left (#2120): the backend confines the lookup, so a
+    named store returns only its own memory and another store's hash is
+    missing."""
     client = make_client("read")
-    error = (
-        "Error: store-scoped content_hash lookup is not supported on this "
-        "storage backend"
-    )
-    for arguments in (
-        {"content_hash": hash_memories_in_two_stores["projectA"]},
-        {
-            "content_hash": hash_memories_in_two_stores["projectA"],
-            "store": "projectA",
-        },
-    ):
-        response = _call(client, "memory_search", arguments)
-        text = response.json()["result"]["content"][0]["text"]
-        assert text == error
+    own = _call(client, "memory_search", {
+        "content_hash": hash_memories_in_two_stores["projectA"], "store": "projectA",
+    })
+    own_text = own.json()["result"]["content"][0]["text"]
+    assert "hash lookup memory in projectA" in own_text
+
+    other = _call(client, "memory_search", {
+        "content_hash": hash_memories_in_two_stores["projectB"], "store": "projectA",
+    })
+    other_text = other.json()["result"]["content"][0]["text"]
+    assert "hash lookup memory in projectB" not in other_text
+    assert "not supported" not in other_text
 
     cross_store = _call(client, "memory_search", {
         "content_hash": hash_memories_in_two_stores["projectB"], "store": "all",
@@ -458,3 +459,53 @@ async def test_write_grant_conflict_detection_stays_in_the_granted_store(
         (in_default, in_default),
     ).fetchone()[0]
     assert edges == 0
+
+
+# --------------------------------------------------------------------------
+# Graph reads under a per-store grant (#2120)
+# --------------------------------------------------------------------------
+
+@pytest_asyncio.fixture
+async def entity_in_two_stores(storage, temp_db, monkeypatch):
+    """One entity, ``Shared``, linked from a memory in each of two stores, with
+    the graph opened on the same SQLite file the handlers use."""
+    from mcp_memory_service.server.handlers import graph as graph_handlers
+    from mcp_memory_service.storage.graph import GraphStorage
+
+    monkeypatch.setattr(graph_handlers, "STORAGE_BACKEND", "sqlite_vec")
+    monkeypatch.setattr(graph_handlers, "SQLITE_VEC_PATH", temp_db)
+    hashes = {}
+    graph = GraphStorage(temp_db)
+    try:
+        for store in ("projectA", "projectB"):
+            text = f"Shared entity note kept in {store}"
+            memory = Memory(content=text, content_hash=generate_content_hash(text), tags=["e"])
+            ok, _ = await storage.store(memory, store=store)
+            assert ok
+            assert await graph.store_entity_link(memory.content_hash, "Shared", "concept")
+            hashes[store] = memory.content_hash
+    finally:
+        await graph.close()
+    return hashes
+
+
+@pytest.mark.integration
+def test_store_grant_memory_detail_returns_only_the_granted_store(
+    make_client, entity_in_two_stores,
+):
+    client = make_client("read:projectA")
+    response = _call(client, "memory_detail", {"entity_id": "shared", "store": "projectA"})
+    assert not _refused(response)
+    detail = json.loads(response.json()["result"]["content"][0]["text"])
+    assert [chunk["hash"] for chunk in detail["chunks"]] == [entity_in_two_stores["projectA"]]
+    assert "projectB" not in json.dumps(detail)
+
+
+@pytest.mark.integration
+def test_store_grant_memory_detail_refused_where_backend_cannot_confine(
+    make_client, storage, entity_in_two_stores, monkeypatch,
+):
+    monkeypatch.setattr(storage, "get_by_hash_is_store_scoped", False)
+    client = make_client("read:projectA")
+    response = _call(client, "memory_detail", {"entity_id": "shared", "store": "projectA"})
+    assert _refused(response)

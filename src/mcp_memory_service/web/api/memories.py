@@ -512,14 +512,8 @@ async def delete_memory(
         if not existing:
             raise HTTPException(status_code=404, detail="Memory not found")
 
-        # Confine the delete itself, not only the lookup before it. Backends
-        # that cannot confine do not accept a named ``store`` yet.
-        scope = (
-            {"store": resolve_store(store)}
-            if getattr(storage, "get_by_hash_is_store_scoped", False)
-            else {}
-        )
-        success, message = await storage.delete(content_hash, **scope)
+        # Confine the delete itself, not only the lookup before it.
+        success, message = await storage.delete(content_hash, store=resolve_store(store))
         
         # Broadcast SSE event for memory deletion
         try:
@@ -598,11 +592,7 @@ async def _store_unversioned_replacement(
     if not success:
         if "Duplicate content detected (exact match)" not in message:
             return False, message, None, False
-        lookup_store = (
-            resolve_store(store)
-            if getattr(storage, "get_by_hash_is_store_scoped", False)
-            else None
-        )
+        lookup_store = resolve_store(store)
         existing = await storage.get_by_hash(replacement.content_hash, store=lookup_store)
         # A previous attempt may have stored the replacement before the
         # original deletion failed. Resume only when every editable field matches;
@@ -659,11 +649,7 @@ async def _store_unversioned_split_replacement(
     max_length: int,
 ) -> Tuple[bool, str, Optional[str], bool]:
     """Split an oversized replacement the same way store_memory() does."""
-    lookup_store = (
-        resolve_store(store)
-        if getattr(storage, "get_by_hash_is_store_scoped", False)
-        else None
-    )
+    lookup_store = resolve_store(store)
     chunks = split_content(
         replacement.content,
         max_length=max_length,
@@ -673,11 +659,6 @@ async def _store_unversioned_split_replacement(
     stored_chunks = []
     claimed_chunk_hashes = set()
     original_reused = False
-    scope = (
-        {"store": resolve_store(store)}
-        if getattr(storage, "get_by_hash_is_store_scoped", False)
-        else {}
-    )
     for index, chunk in enumerate(chunks):
         plain_chunk_hash = generate_content_hash(chunk)
         chunk_hash = plain_chunk_hash
@@ -718,7 +699,7 @@ async def _store_unversioned_split_replacement(
                         "metadata": chunk_metadata,
                     },
                     preserve_timestamps=True,
-                    **scope,
+                    store=resolve_store(store),
                 )
                 if not fields_ok:
                     return False, (
@@ -828,11 +809,7 @@ async def _update_memory_content(
         if success and not new_hash:
             new_hash = content_hash
     elif hasattr(storage, "update_memory_versioned"):
-        version_store = (
-            resolve_store(store)
-            if getattr(storage, "get_by_hash_is_store_scoped", False)
-            else None
-        )
+        version_store = resolve_store(store)
         success, message, new_hash = await memory_service.evolve_memory(
             content_hash,
             request.content,
@@ -890,16 +867,11 @@ async def _update_memory_metadata_fields(
             memory=memory_to_response(existing_memory),
         )
 
-    scope = (
-        {"store": resolve_store(store)}
-        if getattr(storage, "get_by_hash_is_store_scoped", False)
-        else {}
-    )
     success, message = await storage.update_memory_metadata(
         content_hash=content_hash,
         updates=updates,
         preserve_timestamps=True,
-        **scope,
+        store=resolve_store(store),
     )
     if not success:
         return MemoryUpdateResponse(
@@ -908,7 +880,7 @@ async def _update_memory_metadata_fields(
             content_hash=content_hash,
         )
 
-    updated_memory = await storage.get_by_hash(content_hash)
+    updated_memory = await storage.get_by_hash(content_hash, store=resolve_store(store))
     return MemoryUpdateResponse(
         success=True,
         message=message,

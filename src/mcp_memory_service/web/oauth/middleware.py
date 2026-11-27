@@ -112,12 +112,12 @@ class AuthenticationResult:
         """Raise 403 if ``operation`` on ``store`` is not permitted.
 
         A grant that holds only through ``operation:<store>`` additionally needs
-        a backend that confines hash lookups to the store. cloudflare and
-        milvus accept ``store`` on get_by_hash and ignore it (remote_http honors
-        it only against a peer that advertises ``store_scoped_access``), so there
-        a store-restricted credential would read or delete another partition's
-        memory by hash; it is refused until the storage layer enforces
-        ``store`` (#1683). Global grants are unaffected.
+        a backend that confines hash-addressed operations to the store.
+        sqlite_vec, hybrid, cloudflare and milvus do; remote_http does only
+        against a peer that advertises ``store_scoped_access``, and against an
+        older peer a store-restricted credential is refused here rather than
+        handed to a backend that would answer for every partition. Global
+        grants are unaffected.
         """
         if self.has_store_scope(operation, store) and not self.has_scope(operation):
             if not _storage_confines_store():
@@ -146,9 +146,11 @@ class AuthenticationResult:
 
 
 def _storage_confines_store() -> bool:
-    """Whether the active backend's get_by_hash honours ``store``.
+    """Whether the active backend confines hash-addressed operations to ``store``.
 
-    Fails closed: no initialized storage counts as not confining.
+    Read on the live storage object, so it answers per backend: remote_http
+    sets it from the peer's capabilities at runtime. Fails closed: no
+    initialized storage counts as not confining.
     """
     from ..dependencies import get_storage  # inline import: keeps the storage stack out of OAuth module import
     try:

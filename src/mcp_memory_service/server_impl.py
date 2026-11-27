@@ -1633,20 +1633,24 @@ class MemoryServer:
     # on a backend whose get_by_hash honours it. A per-store grant
     # (read:<s>/write:<s>) authorizes only these: every other tool acts on all
     # partitions, so naming a store there must not unlock it. memory_explore
-    # and memory_detail are left out: the entity graph is not partitioned, so
-    # their entity names and related entities span every store (#1683).
+    # and memory_detail joined once the entity lookups were confined through
+    # the store of the memory behind each link (#2118, #2119) and the chunk
+    # rows read with ``store`` (#2120). memory_graph stays on the global grant:
+    # its connected/path/subgraph actions walk association edges that take no
+    # ``store`` on either graph backend.
     STORE_CONFINED_TOOLS = frozenset({
         "memory_store", "memory_store_session", "memory_search", "memory_list",
-        "memory_delete", "memory_update",
+        "memory_delete", "memory_update", "memory_explore", "memory_detail",
     })
 
     async def store_grant_target(self, name: Optional[str], arguments: Optional[dict] = None) -> Optional[str]:
         """Return the store a per-store grant may authorize this call for.
 
         ``None`` means only the global grant will do: the call names no store
-        (or ``all``), the tool ignores ``store``, or the backend's get_by_hash
-        ignores ``store`` and so cannot
-        prove confinement (storage-layer enforcement is #1683). The SDK dispatch
+        (or ``all``), the tool ignores ``store``, or the live backend does not
+        confine ``store``. Every local backend does; remote_http does only
+        against a peer that advertises ``store_scoped_access``, so its flag is
+        read here on the storage object rather than assumed. The SDK dispatch
         gate and the /mcp shim both ask this, so the transports cannot disagree.
         """
         arguments = arguments or {}
