@@ -84,7 +84,7 @@ class TestHydrateChunksScoring:
         mem2.content = "Memory two content"
         mem2.quality_score = 0.6
 
-        async def get_by_hash(h):
+        async def get_by_hash(h, store=None):
             return {"h1": mem1, "h2": mem2}.get(h)
 
         storage.get_by_hash = get_by_hash

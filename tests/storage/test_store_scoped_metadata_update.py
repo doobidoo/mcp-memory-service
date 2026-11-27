@@ -236,12 +236,11 @@ class _RecordingStorage:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scoped, expected", [(True, "b"), (False, None)])
-async def test_rest_update_passes_store_only_to_scoped_backends(scoped, expected):
-    """PUT /memories/{hash} confines the write itself on backends that can.
-
-    A backend that ignores ``store`` (cloudflare, milvus, remote_http) does not
-    accept the keyword yet, so it must not receive it.
+@pytest.mark.parametrize("scoped", [True, False])
+async def test_rest_update_passes_store_to_every_backend(scoped):
+    """PUT /memories/{hash} confines the write itself, on every backend: each
+    one takes ``store`` on update_memory_metadata, and remote_http refuses a
+    named store against a peer without store_scoped_access (#2120).
     """
     from mcp_memory_service.web.api.memories import MemoryUpdateRequest, update_memory
 
@@ -250,4 +249,61 @@ async def test_rest_update_passes_store_only_to_scoped_backends(scoped, expected
         "abc", MemoryUpdateRequest(tags=["x"]), store="b", storage=storage, user=None
     )
 
-    assert storage.update_kwargs.get("store") == expected
+    assert storage.update_kwargs.get("store") == "b"
+
+
+class _RecordingContentStorage(_RecordingStorage):
+    """An unversioned backend whose replacement store hits an exact duplicate,
+    so the edit looks the replacement up before giving up."""
+
+    def __init__(self, scoped):
+        super().__init__(scoped)
+        self.lookups = []
+
+    async def get_by_hash(self, content_hash, store=None):
+        self.lookups.append((content_hash, store))
+        if content_hash == "abc":
+            return Memory(content="x", content_hash=content_hash, tags=["orig"])
+        return None
+
+    async def store(self, memory, **kwargs):
+        return False, "Duplicate content detected (exact match)"
+
+
+class _RecordingVersionedStorage(_RecordingStorage):
+    async def update_memory_versioned(self, *args, **kwargs):
+        raise AssertionError("the edit goes through memory_service.evolve_memory")
+
+
+class _RecordingMemoryService:
+    def __init__(self):
+        self.evolve_kwargs = None
+
+    async def evolve_memory(self, content_hash, new_content, **kwargs):
+        self.evolve_kwargs = kwargs
+        return False, "stop here", None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoped", [True, False])
+async def test_rest_content_edit_passes_store_to_every_backend(scoped):
+    """A content edit reads and writes inside the claimed store whatever the
+    flag says: the replacement lookup on unversioned backends and the versioned
+    path both carry ``store`` (#2120)."""
+    from mcp_memory_service.web.api.memories import MemoryUpdateRequest, update_memory
+
+    storage = _RecordingContentStorage(scoped)
+    await update_memory(
+        "abc", MemoryUpdateRequest(content="new text"), store="b",
+        storage=storage, memory_service=_RecordingMemoryService(), user=None,
+    )
+    replacement_lookups = [s for h, s in storage.lookups if h != "abc"]
+    assert replacement_lookups == ["b"]
+
+    versioned = _RecordingVersionedStorage(scoped)
+    service = _RecordingMemoryService()
+    await update_memory(
+        "abc", MemoryUpdateRequest(content="new text"), store="b",
+        storage=versioned, memory_service=service, user=None,
+    )
+    assert service.evolve_kwargs.get("store") == "b"

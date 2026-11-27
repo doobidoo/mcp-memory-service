@@ -3,10 +3,10 @@
 The transport gate authorizes the *claimed* store, but the update resolves by
 content_hash. The handler pre-resolves the hash within the claimed store:
 
-- backends whose get_by_hash honors ``store`` (get_by_hash_is_store_scoped=True)
-  report a hash from another store as not-found, before any write;
-- backends that accept but ignore ``store`` can't prove confinement, so a
-  store-scoped update fails closed (refused).
+every backend's get_by_hash confines to ``store`` (remote_http refuses a named
+store against a peer without store_scoped_access, which also reads as
+missing), so a hash from another store is reported as not found before any
+write. The handler no longer reads the capability flag (#2120).
 """
 import pytest
 
@@ -18,12 +18,16 @@ class _Storage:
         self.get_by_hash_is_store_scoped = scoped
         self._found = found
         self.updated = False
+        self.lookup_stores = []
+        self.update_kwargs = None
 
     async def get_by_hash(self, content_hash, store=None):
+        self.lookup_stores.append(store)
         return object() if self._found else None
 
-    async def update_memory_metadata(self, **_kwargs):
+    async def update_memory_metadata(self, **kwargs):
         self.updated = True
+        self.update_kwargs = kwargs
         return (True, "updated")
 
 
@@ -36,17 +40,16 @@ class _Server:
 
 
 @pytest.mark.asyncio
-async def test_update_fails_closed_on_store_ignoring_backend():
-    """A store-scoped update is refused on a backend whose get_by_hash ignores
-    store — it cannot prove the hash is confined to the claimed partition. The
-    refusal raises (-> isError), so it cannot look like a completed write."""
+async def test_update_confines_lookup_and_write_whatever_the_flag():
+    """The flag no longer gates the handler: the claimed store goes to the
+    lookup and to the write on every backend."""
     storage = _Storage(scoped=False, found=True)
-    with pytest.raises(PermissionError, match="not supported on this storage backend"):
-        await handle_update_memory_metadata(
-            _Server(storage),
-            {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
-        )
-    assert storage.updated is False
+    await handle_update_memory_metadata(
+        _Server(storage),
+        {"content_hash": "abc", "updates": {"tags": ["t"]}, "store": "projectA"},
+    )
+    assert storage.lookup_stores == ["projectA"]
+    assert storage.update_kwargs.get("store") == "projectA"
 
 
 @pytest.mark.asyncio

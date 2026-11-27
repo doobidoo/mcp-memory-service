@@ -735,12 +735,6 @@ class MemoryService:
 
         store_kw: Dict[str, Any] = {}
         if store not in (None, "all"):
-            if not getattr(self.storage, "get_by_hash_is_store_scoped", False):
-                return (
-                    False,
-                    "Store-scoped memory evolution is not supported by the active storage backend",
-                    None,
-                )
             store_kw = {"store": store}
 
         # Storage inherits omitted tags/type from the old version; keep that

@@ -912,18 +912,22 @@ async def _resolve_entity_name(graph, entity_id: str, store=None):
     )
 
 
-async def _hydrate_chunks(storage, memory_hashes, scoring=None, graph=None, entity_degree=0):
+async def _hydrate_chunks(
+    storage, memory_hashes, scoring=None, graph=None, entity_degree=0, store=None
+):
     """Fetch real chunk content for an entity's linked memories.
 
     Ranks by quality_score when available (simple sort, no composite scoring).
     Returns shape: {hash, content, relevance} where relevance = quality_score or None.
+    ``store`` confines each row read to the caller's partition (``None`` or
+    ``"all"`` is unscoped).
 
     When scoring="composite": enrich with composite_score + score_components,
     re-rank by composite (opt-in, Issue #55).
     """
     chunks = []
     for h in memory_hashes:
-        mem = await storage.get_by_hash(h)
+        mem = await storage.get_by_hash(h, store=store)
         content = (mem.content or "")[:500] if mem else None
         quality = getattr(mem, "quality_score", None) if mem else None
         chunks.append({
@@ -1015,20 +1019,14 @@ async def get_entity_detail(
 
     # Per-store confinement (read). The entity graph carries no store of its
     # own, so the graph layer confines every entity lookup through the store of
-    # the memory behind each link (#2118); the old `limit * 10` scan-then-filter
-    # window is gone with it. A backend whose get_by_hash ignores ``store``
-    # still cannot honour a store-restricted credential, so that case keeps
-    # failing closed until #2120 removes the guard.
-    if store is not None and store != "all" and not getattr(
-        storage, "get_by_hash_is_store_scoped", False
-    ):
-        raise ValueError("store-scoped memory_detail is not supported on this backend")
-
+    # the memory behind each link (#2118), and the chunk rows are read with the
+    # same ``store`` (#2120).
     memory_hashes = await graph.find_memories_by_entity(name, limit=limit, store=store)
 
     entity_degree = len(memory_hashes)  # proxy for centrality
     chunks = await _hydrate_chunks(
-        storage, memory_hashes, scoring=scoring, graph=graph, entity_degree=entity_degree
+        storage, memory_hashes, scoring=scoring, graph=graph,
+        entity_degree=entity_degree, store=store,
     )
     related_entities = (
         await _discover_related_entities(graph, memory_hashes, max_hops, store=store)

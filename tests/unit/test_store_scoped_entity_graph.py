@@ -142,8 +142,10 @@ class _Storage:
 
     def __init__(self, contents: dict[str, str]):
         self._contents = contents
+        self.lookup_stores = []
 
     async def get_by_hash(self, content_hash, store=None):
+        self.lookup_stores.append(store)
         if content_hash in self._contents:
             return _Memory(self._contents[content_hash])
         return None
@@ -238,6 +240,27 @@ class TestEntityDetailIsStoreScoped:
 
         assert {chunk["hash"] for chunk in detail["chunks"]} == {MEM_A1, MEM_A2}
         assert {entity["name"] for entity in detail["related_entities"]} <= {"Shared", "OnlyA"}
+
+    async def test_chunk_rows_are_read_with_the_claimed_store(self, graph):
+        storage = _Storage({MEM_A1: "alpha one", MEM_A2: "alpha two"})
+
+        await get_entity_detail(
+            storage, graph, entity_id="shared", store=STORE_A, entity_name="Shared",
+        )
+
+        assert storage.lookup_stores and set(storage.lookup_stores) == {STORE_A}
+
+    async def test_unconfining_flag_no_longer_refuses_a_named_store(self, graph):
+        """The fail-closed ValueError is gone (#2120): per-store credentials are
+        gated at the transport, and the backend confines or refuses the read."""
+        storage = _Storage({MEM_A1: "alpha one", MEM_A2: "alpha two"})
+        storage.get_by_hash_is_store_scoped = False
+
+        detail = await get_entity_detail(
+            storage, graph, entity_id="shared", store=STORE_A, entity_name="Shared",
+        )
+
+        assert {chunk["hash"] for chunk in detail["chunks"]} == {MEM_A1, MEM_A2}
 
     async def test_detail_of_an_entity_only_in_another_store_is_empty(self, graph):
         storage = _Storage({MEM_B1: "beta one"})

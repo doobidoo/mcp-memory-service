@@ -85,23 +85,26 @@ async def test_hash_lookup_preserves_store_scope(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("requested_store", [None, "project-a"])
-async def test_hash_lookup_rejects_scopes_backend_cannot_enforce(
-    search_server, requested_store
+@pytest.mark.parametrize("scoped", [True, False])
+@pytest.mark.parametrize("requested_store, expected_store", [
+    (None, "default"), ("project-a", "project-a"),
+])
+async def test_hash_lookup_hands_the_store_to_every_backend(
+    search_server, scoped, requested_store, expected_store
 ):
+    """The backend confines the lookup; the handler no longer reads the flag
+    (#2120). remote_http refuses a named store against an old peer itself."""
     server, storage = search_server
-    storage.get_by_hash_is_store_scoped = False
+    storage.get_by_hash_is_store_scoped = scoped
+    storage.get_by_hash.return_value = None
     arguments = {"content_hash": CONTENT_HASH}
     if requested_store is not None:
         arguments["store"] = requested_store
 
     response = await handle_memory_search(server, arguments)
 
-    assert response[0].text == (
-        "Error: store-scoped content_hash lookup is not supported on this "
-        "storage backend"
-    )
-    storage.get_by_hash.assert_not_awaited()
+    assert "not supported" not in response[0].text
+    storage.get_by_hash.assert_awaited_once_with(CONTENT_HASH, store=expected_store)
 
 
 @pytest.mark.asyncio

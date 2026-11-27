@@ -1312,10 +1312,10 @@ _HASH_LOOKUP_SUPPORTED_ARGUMENTS = frozenset({
 
 
 async def _retrieve_by_hash(storage, content_hash: str, store):
-    if store is not None and not getattr(storage, "get_by_hash_is_store_scoped", False):
-        return {
-            "error": "store-scoped content_hash lookup is not supported on this storage backend"
-        }, None
+    # Every backend confines get_by_hash to ``store`` (remote_http refuses a
+    # named store against a peer that does not advertise store_scoped_access,
+    # and reports the memory as missing), so a hash from another store comes
+    # back as not found (#2120).
     memory = await storage.get_by_hash(content_hash, store=store)
     memories = [memory.to_dict()] if memory else []
     return {
@@ -1862,15 +1862,13 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
         # gate authorizes the *claimed* store, but the update resolves by
         # content_hash and would otherwise ignore it — so a token scoped to one
         # store could update another store's memory. When a store is claimed,
-        # resolve the hash within it first: on backends whose get_by_hash honors
-        # ``store`` a hash from another store comes back missing -> not found;
-        # backends that ignore ``store`` can't prove confinement, so a
-        # store-scoped update fails closed there (real storage-layer enforcement
-        # is the follow-up issue, after which this pre-check can be removed).
+        # resolve the hash within it first: get_by_hash confines to ``store`` on
+        # every backend, so a hash from another store comes back missing -> not
+        # found (remote_http refuses a named store against a peer that does not
+        # advertise store_scoped_access, which reads the same way) (#2120).
         claimed_store = arguments.get("store")
         # Handed to the storage calls below as well, so the lookup and the write
-        # themselves are confined (#1875). Only set after the capability check,
-        # so a backend that would ignore ``store`` never receives it.
+        # themselves are confined (#1875).
         scope: dict = {}
         if claimed_store is not None and claimed_store != "all":
             # Raise rather than return: a refused update must surface as a tool
@@ -1879,11 +1877,6 @@ async def handle_update_memory_metadata(server, arguments: dict) -> List[types.T
             # both map a raised exception to isError; the broad except below
             # re-raises PermissionError so it is not flattened into a
             # success-looking TextContent.
-            if not getattr(storage, "get_by_hash_is_store_scoped", False):
-                raise PermissionError(
-                    "store-scoped updates are not supported on this storage backend; "
-                    "omit 'store' or use a globally-scoped credential"
-                )
             if await storage.get_by_hash(content_hash, store=claimed_store) is None:
                 raise PermissionError("memory not found in the requested store")
             scope = {"store": claimed_store}

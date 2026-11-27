@@ -546,11 +546,12 @@ class MemoryStorage(ABC):
         """
         raise NotImplementedError("Subclasses must implement get_by_exact_content")
 
-    # Whether get_by_hash honors ``store`` (confines the lookup to that
-    # partition). Backends that accept ``store`` but ignore it leave this
-    # False, so a store-scoped hash-addressed operation must fail closed on
-    # them until the storage layer enforces ``store`` everywhere (follow-up
-    # issue). Overridden True on sqlite_vec and hybrid.
+    # Whether get_by_hash, delete and update_memory_metadata confine to
+    # ``store``. True on sqlite_vec, hybrid, cloudflare and milvus; remote_http
+    # sets it at runtime from the peer's ``store_scoped_access`` and refuses a
+    # named store until then. A per-store credential is accepted only where
+    # this is True (store_grant_target, require_store_scope). The default stays
+    # False so a backend that has not said it confines is not trusted to.
     get_by_hash_is_store_scoped: bool = False
 
     @abstractmethod
@@ -914,8 +915,6 @@ class MemoryStorage(ABC):
             preserve_timestamps: Whether to preserve original created_at timestamp
             store: Confine the update to this store; a memory in another store
                 is reported as not found. ``None`` or ``"all"`` is unscoped.
-                Only backends with ``get_by_hash_is_store_scoped`` honor it
-                (#1683); callers pass it only to those.
 
         Returns:
             Tuple of (success, message)
