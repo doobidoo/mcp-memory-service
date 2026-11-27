@@ -596,7 +596,8 @@ class ConsolidationScheduler:
             if result is not None and (result.events_pushed or result.events_failed):
                 self.logger.info(
                     "Secondary forward: %s forwarded, %s failed",
-                    result.events_pushed, result.events_failed,
+                    _sanitize_log_value(result.events_pushed),
+                    _sanitize_log_value(result.events_failed),
                 )
         except Exception as exc:
             self.execution_stats['failed_jobs'] += 1

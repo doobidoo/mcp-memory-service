@@ -43,7 +43,7 @@ def secondary_id_for(secondary: Any) -> str:
 
 def _row_store(conn, content_hash: str) -> str | None:
     row = conn.execute(
-        "SELECT store FROM memories WHERE content_hash = ?", (content_hash,)
+        "SELECT store FROM memories WHERE content_hash = ? AND deleted_at IS NULL", (content_hash,)
     ).fetchone()
     return row[0] if row else None
 
@@ -79,27 +79,15 @@ class SecondaryForwarder:
         return {"results": results, "failed": failed}
 
     async def _forward_one(self, event: dict[str, Any]) -> str:
-        from ..hybrid import SyncOperation
-
         op = event["op"]
         content_hash = event["content_hash"]
-        primary = self.hybrid.primary
-        secondary = self.hybrid.secondary
-
         if op == "delete":
-            state = await primary.get_sync_state_for_hash(content_hash)
-            if state is not None and state[1] is None:
-                # Re-created on the hub after this delete: the delete is stale, and the
-                # create event later in the log carries the live row to the secondary.
-                return "skipped_recreated"
-            ok, message = await secondary.delete(content_hash)
-            if not ok and not any(p in (message or "").lower() for p in _ALREADY_GONE):
-                raise RuntimeError(f"delete refused: {message}")
-            return "applied"
+            return await self._forward_delete(content_hash)
 
         # create / update_metadata: replay the CURRENT primary row, not the event body.
         # The hub already resolved conflicts when it applied the event, so the row is
         # the winner; a later event for the same hash will replay it again, harmlessly.
+        primary = self.hybrid.primary
         state = await primary.get_sync_state_for_hash(content_hash)
         if state is None or state[1] is not None:
             return "skipped_gone"  # tombstoned since: its delete event follows in the log
@@ -107,26 +95,51 @@ class SecondaryForwarder:
         if memory is None:
             raise RuntimeError("primary row unreadable")
         if op == "update_metadata":
-            updates = {"tags": memory.tags, "memory_type": memory.memory_type,
-                       "metadata": memory.metadata}
-            try:
-                await self.hybrid.sync_service._process_single_operation(
-                    SyncOperation(operation="update", content_hash=content_hash,
-                                  updates=updates, preserve_timestamps=True)
-                )
-                return "applied"
-            except Exception as exc:  # noqa: BLE001  the secondary never got the row
-                # The secondary never got the row (it predates the forwarder): create it.
-                logger.debug("Update not applied on the secondary, creating: %s",
-                             _sanitize_log_value(exc))
-        store = _row_store(_sqlite(self.hybrid).conn, content_hash)
+            return await self._forward_edit(memory)
+        return await self._forward_create(memory)
+
+    async def _forward_delete(self, content_hash: str) -> str:
+        state = await self.hybrid.primary.get_sync_state_for_hash(content_hash)
+        if state is not None and state[1] is None:
+            # Re-created on the hub after this delete: the delete is stale, and the
+            # create event later in the log carries the live row to the secondary.
+            return "skipped_recreated"
+        ok, message = await self.hybrid.secondary.delete(content_hash)
+        if not ok and not any(p in (message or "").lower() for p in _ALREADY_GONE):
+            raise RuntimeError(f"delete refused: {message}")
+        return "applied"
+
+    async def _forward_edit(self, memory: Any) -> str:
+        from ..hybrid import SyncOperation
+
+        updates = {"tags": memory.tags, "memory_type": memory.memory_type,
+                   "metadata": memory.metadata}
+        try:
+            await self.hybrid.sync_service._process_single_operation(
+                SyncOperation(operation="update", content_hash=memory.content_hash,
+                              updates=updates, preserve_timestamps=True)
+            )
+            return "applied"
+        except Exception as exc:  # noqa: BLE001  maybe the secondary never got the row
+            logger.debug("Update not applied on the secondary, creating: %s",
+                         _sanitize_log_value(exc))
+        # The row may predate the forwarder: create it. A duplicate refusal here means the
+        # row exists and the update itself failed, so it is NOT a delivered edit: raise,
+        # the cursor stays put and the next cycle retries the update.
+        return await self._forward_create(memory, duplicate_is_delivered=False)
+
+    async def _forward_create(self, memory: Any, duplicate_is_delivered: bool = True) -> str:
+        from ..hybrid import SyncOperation
+
+        store = _row_store(_sqlite(self.hybrid).conn, memory.content_hash)
         try:
             await self.hybrid.sync_service._process_single_operation(
                 SyncOperation(operation="store", memory=memory, store=store)
             )
         except RuntimeError as exc:
-            # A hub-own write already travelled through the hybrid queue.
-            if "duplicate content" not in str(exc).lower():
+            # For a create, a duplicate means a hub-own write already travelled through
+            # the hybrid queue.
+            if not duplicate_is_delivered or "duplicate content" not in str(exc).lower():
                 raise
         return "applied"
 
