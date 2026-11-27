@@ -11,6 +11,7 @@ Reference: https://github.com/doobidoo/mcp-memory-service/issues/888
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -31,7 +32,6 @@ from mcp_memory_service.storage.milvus import MilvusMemoryStorage  # noqa: E402
 
 def _make_storage() -> MilvusMemoryStorage:
     """Return a MilvusMemoryStorage skipping __init__."""
-    import asyncio
     storage = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
     storage.collection_name = "unit_test_collection"
     storage.embedding_dimension = 4
@@ -44,6 +44,8 @@ def _make_storage() -> MilvusMemoryStorage:
     storage._lock = None
     storage._write_lock = asyncio.Lock()
     storage._call_client = AsyncMock()
+    # The count reads subtract the tombstones a scan finds; none by default.
+    storage._drain_rows = AsyncMock(return_value=[])
     storage._generate_embedding = MagicMock(return_value=[0.1, 0.2, 0.3, 0.4])
     return storage
 
@@ -131,9 +133,11 @@ class TestCountMemoriesByTag:
 
     @pytest.mark.asyncio
     async def test_returns_count(self):
-        """Returns the count from Milvus query."""
+        """Returns the number of live rows the scan yields."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(return_value=[{"count(*)": 42}])
+        storage._drain_rows = AsyncMock(
+            return_value=[{"id": str(i), "metadata": "{}"} for i in range(42)]
+        )
 
         count = await storage.count_memories_by_tag(["python"])
 
@@ -151,7 +155,7 @@ class TestCountMemoriesByTag:
     async def test_query_failure_returns_zero(self):
         """Returns 0 on query failure."""
         storage = _make_storage()
-        storage._call_client = AsyncMock(side_effect=Exception("network error"))
+        storage._drain_rows = AsyncMock(side_effect=Exception("network error"))
 
         count = await storage.count_memories_by_tag(["python"])
 

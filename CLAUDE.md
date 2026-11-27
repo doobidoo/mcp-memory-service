@@ -82,21 +82,12 @@ This repo uses a project virtualenv at `.venv` (Python 3.12). The system `python
 .venv/bin/python -m pip install -e .            # editable install
 ```
 
-The venv is not guaranteed to carry the dev tooling: a `uv`-created one holds the
-runtime dependencies only, with no `pip` and no `pytest`. `scripts/pr/pre_pr_check.sh`
-resolves its interpreter from `.venv/bin/` before it looks at `$VIRTUAL_ENV`, so it
-cannot be pointed elsewhere, and it discards the output of its own `pip install
-pytest-cov`. The result is a bare `FAIL - Test suite` at step `[3/9]` with no test
-names under it. That is an environment failure, not a broken change. Repair it with:
+The venv is not guaranteed to carry the dev tooling. A bare `FAIL - Test suite` at step
+`[3/9]` of `pre_pr_check.sh` with no test names under it is an environment failure, not
+a broken change; the repair command is in
+[`.claude/directives/development-setup.md`](.claude/directives/development-setup.md).
 
-```bash
-uv pip install --python .venv/bin/python pip pytest pytest-cov pytest-asyncio \
-    pytest-subtests pytest-timeout pytest-mock
-```
-
-`pytest-timeout` is required, not optional -- the gate passes `--timeout=120`.
-
-The commands below are written as bare `python`/`pytest` for brevity — run them via `.venv/bin/...`. `git commit` needs no `PATH` prefix: the pre-commit hook (`scripts/hooks/pre-commit`) picks `.venv/bin/python` itself, then `$VIRTUAL_ENV`, and only then system Python (since 76c371ba). If it still reports "Package not installed", either the checkout's `.venv` lacks the package (`uv pip install --python .venv/bin/python -e .`) or there is no `.venv` at all, as in a fresh worktree (activate a venv); see Troubleshooting. Do not reintroduce `PATH=".venv/bin:$PATH" git commit`: lean-ctx blocks inline `PATH` overrides. `uv` is also used (`uv.lock` present); `uv pip install -e .` and `uv run memory ...` work too.
+The commands below are written as bare `python`/`pytest` for brevity — run them via `.venv/bin/...`. `git commit` needs no `PATH` prefix: the pre-commit hook (`scripts/hooks/pre-commit`) picks `.venv/bin/python` itself. If it reports "Package not installed", see Troubleshooting. Do not reintroduce `PATH=".venv/bin:$PATH" git commit`: lean-ctx blocks inline `PATH` overrides.
 
 ### Development Server
 
@@ -160,15 +151,10 @@ all in `conftest.py`:
 Tests force `MCP_MEMORY_STORAGE_BACKEND=sqlite_vec` unless
 `MCP_TEST_ALLOW_CLOUD_BACKEND=true`. Do not weaken any of this to make a test pass.
 
-### Fixtures and conventions (`conftest.py`)
+### Test data tag
 
-`temp_db_path` gives an auto-cleaned temp directory, `unique_content` generates
-non-duplicate test content, and `test_store` auto-tags everything with
-`TEST_MEMORY_TAG = "__test__"`, which is reserved for automatic cleanup. Never use
-that tag for real data.
-
-Markers in `pytest.ini`: `unit`, `integration` (needs storage), `performance`,
-`asyncio` (auto-detected).
+`test_store` auto-tags everything with `TEST_MEMORY_TAG = "__test__"`, which is reserved
+for automatic cleanup. Never use that tag for real data.
 
 ## Configuration
 
@@ -202,6 +188,10 @@ Claude Desktop wiring: see README.
 
 ## Development Guidelines
 
+Where the rules below are silent, PEP 20 (`python -c "import this"`) breaks the
+tie; the lines this project already applies as rules are listed in
+[CONTRIBUTING.md](CONTRIBUTING.md#design-principles-the-zen-of-python).
+
 ### Quality gates
 
 Three layers: pre-commit (under 5s, Groq/Gemini complexity plus security, blocks on
@@ -212,45 +202,25 @@ a weekly pyscn review with trend tracking. Health score below 50 blocks a releas
 A-B, meaning 8 or lower.
 
 The PR gate's complexity check is scoped to the diff: a finding counts only when it
-names a function the change actually touched (`scripts/pr/lib/touched_functions.py`).
-An untouched function above the budget in the same file is the file's pre-existing
-state and does not block — it used to, which made the gate unpassable for anyone
-working in `storage/hybrid.py` or `storage/base.py`. Everything the gate does report
-blocks; there is no "warning" tier below it.
+names a function the change actually touched. Everything the gate does report blocks;
+there is no "warning" tier below it. Background:
+[`.claude/directives/code-quality-workflow.md`](.claude/directives/code-quality-workflow.md).
 
 ### Log injection guard (v10.68.0, from CodeQL GHSA-84hp-mqvj-3p8h)
 
-User-provided values in raw f-string log calls trigger CodeQL `py/log-injection`.
-Wrap them:
-
-```python
-from mcp_memory_service.compat import _sanitize_log_value
-logger.info(f"Stored: {_sanitize_log_value(content)}")
-```
-
-The helper strips newline, carriage return and escape characters, which prevents log
-forging and ANSI injection. `pre_pr_check.sh` check 6.5 detects unwrapped f-string
-logger calls. For paths, validate with `Path(user_input).resolve()` and verify the
-result is under the expected base directory.
+Rule 7 in practice: `_sanitize_log_value()` strips newline, carriage return and escape
+characters, which prevents log forging and ANSI injection. `pre_pr_check.sh` check 6.5
+detects unwrapped f-string logger calls. For paths, validate with
+`Path(user_input).resolve()` and verify the result is under the expected base directory.
 
 ### Memory field access (cause of three production bugs)
 
-`tags`, `memory_type`, `content_hash` and `created_at` are top-level attributes of the
-`Memory` dataclass. `metadata` is a separate dict for custom key-value pairs only and
-never holds standard fields.
-
-```python
-memory.tags               # correct
-memory.memory_type or ''  # correct, with fallback
-
-memory.metadata.get('tags', [])  # wrong, silently returns []
-memory['tags']                   # wrong, raises AttributeError
-```
-
-The metadata form fails silently, which is why it reached production three times
-(PRs #466, #467, #469 in v10.13.1): a broken REST filter returning zero results, tags
-rendered character by character, and crashing prompt handlers. Flag any
-`metadata.get('tags')` or `metadata.get('memory_type')` in review.
+Rule 6 in practice: `tags`, `memory_type`, `content_hash` and `created_at` are top-level
+attributes of the `Memory` dataclass. `metadata` is a separate dict for custom key-value
+pairs only. `memory.metadata.get('tags', [])` silently returns `[]` and `memory['tags']`
+raises, which is how the metadata form reached production three times (PRs #466, #467,
+#469 in v10.13.1). Flag any `metadata.get('tags')` or `metadata.get('memory_type')` in
+review.
 
 ### External data parsers
 
@@ -308,11 +278,9 @@ Work is not "done" until the relevant checks below have been run and pass. Repor
 
 **Every code change:**
 - [ ] Relevant tests pass: `.venv/bin/pytest tests/<area>` (or `.venv/bin/pytest -k <pattern>`); run the full suite before a release.
-- [ ] `bash scripts/pr/pre_pr_check.sh` passes — the MANDATORY pre-PR gate (blocks on security findings and health score <50, includes the log-injection check).
-- [ ] New code stays within the complexity budget (A-B grade, complexity ≤8).
-- [ ] User-provided values in `logger.*` calls are wrapped with `_sanitize_log_value()`.
-- [ ] `Memory` fields are accessed by attribute (`memory.tags`), never `memory.metadata.get('tags')`.
-- [ ] If a feature/port/command was removed: `grep -r "<term>" docs/ README.md` and clean up references in the same change.
+- [ ] `bash scripts/pr/pre_pr_check.sh` passes (Non-Negotiable 3).
+- [ ] Non-Negotiables 6 and 7 hold for new code, and it stays within the complexity budget (A-B grade, complexity ≤8).
+- [ ] If a feature/port/command was removed: references cleaned up in the same change (see Gotchas).
 
 **Dashboard changes (`web/static/`):** verified in a browser (node tests cover rules, not layout) — include a screenshot or a note of what was exercised.
 
@@ -335,7 +303,7 @@ https://github.com/doobidoo/mcp-memory-service/wiki
 - **CLAUDE.md** - Architecture changes, new patterns, development workflows
 - **README.md** - New features, installation changes, user-facing updates
 - **CHANGELOG.md** - Every version bump (via the release workflow)
-- **site/index.html** - Landing page: MINOR/MAJOR releases only (title, og:title, hero badge, "What's New" cards, test count, release link). No manual publish step: merging to main triggers `.github/workflows/deploy-site.yml`, which deploys `site/` to Cloudflare Pages (mcpmemory.services). **GitHub Pages stays enabled and that is intentional**: it serves `docs/` from `main`, where `docs/index.html` is a 19-line stub redirecting to mcpmemory.services, so `doobidoo.github.io/mcp-memory-service/` keeps working for the links still pointing at it. Every push to main therefore fires a `pages build and deployment` run — expected, not a stray workflow. Never put version strings or content in `docs/index.html`; `site/index.html` is canonical.
+- **site/index.html** - Landing page: MINOR/MAJOR releases only (title, og:title, hero badge, "What's New" cards, test count, release link). Merging to main deploys it; there is no manual publish step. Never put version strings or content in `docs/index.html`; `site/index.html` is canonical. Why GitHub Pages stays enabled: [`.claude/directives/forge-topology.md`](.claude/directives/forge-topology.md).
 - **Wiki** - Detailed guides, troubleshooting, tutorials
 
 ## Skill routing
@@ -350,18 +318,13 @@ Key routing rules:
 - Release or version bump → invoke /release, never bump by hand
 - Server won't start, MCP tools hang, sync or backend trouble → invoke /memory-service-doctor
 - Evaluating an external repo, tool, or MCP server for adoption → invoke /repo-adoption-eval
-- Architecture, workflow, sequence or state diagrams → invoke /archify
 - Drafting prose (posts, comments, emails, release notes) → invoke /human-writing; for LinkedIn specifically, /linkedin-draft
 - Bugs and unexpected behavior → invoke superpowers:systematic-debugging before proposing a fix
 - New feature or behavior change → invoke superpowers:brainstorming before writing code
 
-Skills named here must exist and be enabled. The older `(gstack)` routes
-(/office-hours, /plan-*, /autoplan, /investigate, /qa, /review, /ship,
-/land-and-deploy, /context-save, /context-restore and ~45 more) were **deleted** on
-2026-09-06 — the whole bundle was disabled and unused, and it is gone from
-`~/.claude/skills`. `/codeberg-pr-review` was replaced by `/pr-review` the same day.
-If a route here does not resolve, check `~/.claude/skills` and the `skillOverrides`
-block in `~/.claude/settings.json` before assuming the skill is missing.
+Skills named here must exist and be enabled. If a route does not resolve, check
+`~/.claude/skills` and the `skillOverrides` block in `~/.claude/settings.json` before
+assuming the skill is missing.
 
 ## graphify
 

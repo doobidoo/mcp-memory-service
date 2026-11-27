@@ -121,3 +121,12 @@ ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
 3. **Skip checks** - If neither available, commit proceeds
 
 See `.claude/agents/code-quality-guard.md` (local developer config, untracked since 00995fe7) for detailed workflows.
+
+## PR gate complexity scope
+
+The PR gate's complexity check is scoped to the diff: a finding counts only when it
+names a function the change actually touched (`scripts/pr/lib/touched_functions.py`).
+An untouched function above the budget in the same file is the file's pre-existing
+state and does not block — it used to, which made the gate unpassable for anyone
+working in `storage/hybrid.py` or `storage/base.py`. Everything the gate does report
+blocks; there is no "warning" tier below it.

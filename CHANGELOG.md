@@ -17,6 +17,212 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [13.0.0] - 2026-11-20
+
+### Added
+
+- **The status island now reports scheduled delta-sync cycles (#2003).**
+  A node that syncs with a hub through delta sync showed nothing on the island, so a
+  peer that kept failing looked the same as one that had never been configured.
+  `checkSyncStatus()` now reports the `delta-sync` source from data it already loads:
+  `ready` once every peer's last cycle succeeded, `error` naming the failing peer when
+  one did not, and `pending` while a peer is still waiting for its first cycle. A
+  completed cycle reported over SSE becomes a confirmation that steps back to `ready`
+  after a few seconds. There is no busy state and no percentage: the server announces a
+  cycle only when it ends. `error` follows the server's own `peer.health` verdict, so a
+  cycle whose ontology exchange is retried next cycle (`incomplete`) does not turn the
+  island red, and a cycle that is still running reads as `Syncing` instead of `Pending`.
+  One peer's completion never covers another peer's error and settles to the peers'
+  combined state, a configured but switched-off schedule reads `Disabled`, the
+  failure is not dismissible because the next poll would report it again, and a
+  confirmation refreshes what it settles to from every poll while it is on screen.
+- **Document imports report to the status island (#2004, jilsnshah).**
+  An import's progress was visible only while the Documents tab was open.
+  `monitorUploadProgress()` now reports every `GET /api/documents/status/{upload_id}`
+  answer to the island as its own row, `upload-<id>`, named after the file: waiting
+  while `queued`, a percentage while `processing`, a confirmation that leaves by itself
+  when `completed`, and the first server error, closable, when `failed` or when a
+  `completed` import still carries errors (a batch where only some files or chunks
+  were stored). Parallel imports are separate rows, and a single failed poll keeps the
+  last state instead of reporting an error. The poll now stops only on `completed` or
+  `failed`, so a batch that reaches 100% before it is marked completed still ends with
+  a confirmation.
+- **A manual backup now reports to the dashboard's status island (#2005, OnlineBunker).**
+  `createBackup()` showed a "Creating backup..." toast that disappeared after five
+  seconds while the request kept running, and a failure was only a toast too. The run
+  now appears as the island's "Backup" source: busy without a percentage while
+  `POST /api/backup/now` is in flight, a confirmation with the file name and size when
+  it succeeds, and a dismissible failure with a retry action when it does not. The
+  three toasts are gone; the island carries the whole run, and starting a backup
+  from Settings closes the modal so the run, its result and the retry action stay
+  visible (the island lives in the header, below the modal). Unsaved preference
+  edits are stashed when the modal closes for a backup and restored when Settings
+  reopens, so starting a backup no longer discards them. Only fields that differ
+  from the saved preferences are stashed, so a choice saved while the backup runs
+  (such as the header theme toggle) is not overwritten on the next save, and the
+  stash survives overlapping Settings opens until the modal is visible.
+- **Consolidation reports its progress to the dashboard (#2011).**
+  `consolidate()` now owns the run's lifecycle for every caller (scheduler, HTTP API,
+  MCP tool): it announces `consolidation_started`, a `consolidation_phase` when a phase
+  that runs starts (relevance, clustering, associations, compression, forgetting,
+  finalizing), and exactly one `consolidation_completed` per announced start, also
+  when the selection is empty, the report carries errors (`success: false`), an
+  exception is raised, or the call is cancelled. Events carry a `run_id`; the
+  `time_horizon` and `success` fields of `consolidation_completed` are unchanged. The
+  events go through an optional notifier given to `DreamInspiredConsolidator` (a no-op
+  by default; the web application wires it to SSE), and a failing notifier never fails
+  the run. The scheduler no longer sends its own completion. The status island shows a
+  running consolidation as busy with the current phase as text (no percentage), and
+  the end of an older run no longer clears a newer one that is still going.
+- **Dashboard: a single memory can now be opened, bookmarked and shared by URL (#2065,#2046, Shivraj-G).**
+  Opening a memory in the details modal left the address unchanged, so copying the URL could not reopen it and a refresh lost the selection, and Share copied the content text (or shared the bare dashboard URL). The modal now sets `?memory=<content_hash>`: opening that link, refreshing, or going Back/Forward reopens the memory, closing the modal restores the previous URL, and a missing or edited memory shows a clear message (an edit changes the content hash, so old links to it report not found). Share copies the direct link or passes it to the native share sheet; the previous text copy remains available as a new "Copy content" button.
+- **A server that is a git checkout can follow release tags on its own (#2098).**
+  A sync hub nobody logs in to falls behind, and `POST /api/server/update` pulls
+  `origin/main` without a backup, which is not what a hub should run.
+  `scripts/service/update_to_latest_release.sh` moves a checkout to the newest
+  `vX.Y.Z` tag: online backup of `sqlite_vec.db` and `oauth.db`, checkout, reinstall,
+  restart, health probe, and back to the previous revision if the install or the probe
+  fails. Pre-releases are never picked and a checkout ahead of the newest release is
+  left alone. `mcp-memory-update.service` and `.timer` run it daily, and
+  `scripts/update_and_restart.sh` can start that unit on a hub over SSH when
+  `MCP_HUB_UPDATE_SSH_HOST` is set. See "Following releases automatically" in
+  `docs/deployment/systemd-service.md`.
+
+### Fixed
+
+- **Per-store credentials work on Cloudflare (closes #1915, tonydzi).** With the read paths
+  and the hybrid sync queue confined to `store`, `CloudflareStorage` now sets
+  `get_by_hash_is_store_scoped`, so a `read:<s>`/`write:<s>` credential is granted
+  `memory_search`, `memory_list` and the other store-confined tools for that store, as on
+  sqlite-vec, instead of being refused. Three gaps closed first. `store()` staged the Vectorize
+  vector and R2 body, both keyed by content hash alone, before D1 rejected a duplicate row,
+  so storing content that already lived in another store overwrote that memory's vector
+  metadata; it now refuses an exact duplicate before staging, with the same message as
+  sqlite-vec. Storing content whose D1 row is a tombstone in another store purged that
+  tombstone and moved the hash into the caller's store; that is refused now too, with the same message, while
+  re-storing content deleted from the same store works as before.
+  `DELETE /api/memories/{hash}?store=` checked the hash in the store but then
+  deleted unscoped; the delete itself now carries the store on backends that confine.
+- **A failed scheduled consolidation was shown nowhere on the dashboard (#2006, dodoshell).**
+  The scheduler sends `consolidation_completed` with the time horizon and whether the run
+  succeeded, but the dashboard only refreshed its numbers on it. A finished run is now
+  confirmed on the status island as its own "Consolidation" source for a few seconds,
+  with the horizon in the text, and a failed run stays on the island until the reader
+  closes it.
+- **Keep long-operation dashboard failures visible (#2008, OnlineBunker).** Import submissions, forced sync, exports, document removal, bulk maintenance and server actions now leave dismissible status-island errors instead of five-second toasts. Explicit retries clear their own failure; if the optional island is unavailable, the error stays as a click-to-dismiss toast. Cross-mode upload retries clear matching file failures without clearing unrelated files, and accepted force-update retries keep Settings progress visible.
+- **Starting a document upload no longer covers the dashboard with the loading overlay (#2009).**
+  `handleDocumentUpload()` blocked the whole page with `setLoading(true)` although the
+  status island already reports imports. It now reports the transfer to the island as a
+  busy "Documents" source, disables the upload button while the request runs and ignores
+  a second trigger. The overlay stays on the other `setLoading` call sites, which the
+  island does not report.
+- **The dashboard stays within the viewport on tablet widths (#2012).** The localized navigation could exceed the available row width between the mobile and desktop breakpoints; it now wraps at tablet widths, while the header keeps its compact icon controls so long translations do not force horizontal scrolling.
+- **`between` month ranges across New Year are no longer inverted.** `time_expr="between november and january"` resolved each month to its most recent occurrence on its own, so the start landed after the end and `memory_search`, the HTTP time search and recall returned nothing. When a `between` range is still inverted after anchoring, the start now moves to the year before the end, the same rule yearless M/D ranges follow since #1347.
+- **Directory ingestion silently ignored `memory_type` and `chunk_overlap` (#2040).**
+  Calls to `memory_ingest` with `directory_path` did not parse `memory_type` or
+  `chunk_overlap`, and `FileIngestionProcessor` did not accept them or configure
+  loaders with them. As a result, all memories created during directory ingestion
+  silently defaulted to `memory_type="document"` and the loader's default chunk overlap.
+  The arguments are now propagated through `handle_ingest_directory` and configured on
+  both loaders and created memory objects.
+- **Document upload API swallowed 400 validation errors as 500 and leaked temporary files (#2041).**
+  `POST /api/documents/upload` and `POST /api/documents/batch-upload` caught generic `Exception` without re-raising `HTTPException`, transforming client validation errors into 500 Internal Server Errors. Batch uploads that failed validation also orphaned temporary files created for preceding files. `HTTPException` is now re-raised and temporary files are cleaned up on failure.
+- **The dashboard quick-search placeholder is readable in both themes.** It now
+  uses the theme's muted text color instead of the browser default, which stayed
+  a dark gray on the dark input background: `#92a6b8` on `#0a111b` is a 7.55:1
+  contrast ratio, against 4.11:1 before. `opacity: 1` also stops Firefox from
+  dimming the placeholder to 54% by default.
+  Focusing the field also keeps the theme's surface now: `.search-input:focus`
+  set a literal white background, which put the dark theme's light text and
+  placeholder on white (2.51:1 for the focused placeholder, 6.9:1 after).
+- **Character-based chunking no longer emits a duplicate trailing chunk.**
+  `TextChunker._chunk_by_characters` (used by the CSV and JSON loaders) stepped back by the overlap even after a chunk had reached the end of the text, so it appended one extra chunk that was entirely contained in the previous one and stored the same tail twice. The loop now stops once a chunk reaches the end of the text.
+- **Cloudflare analytics counted deleted memories (#2059).** On the standalone `cloudflare` backend, the timestamp query behind the memory growth, activity heatmap and activity breakdown endpoints (`_fetch_d1_timestamps()`) read every row of `memories`, tombstones included, so memories that had been deleted were still counted. Both of its statements, with and without a cutoff, now filter on `deleted_at IS NULL`.
+- **Duplicate refusals no longer name the other store (closes #2060).** `content_hash` is
+  unique across stores, so storing content that already exists in a different store is
+  refused. The refusal used to say which store held it, which let a store-scoped credential
+  learn store names that are often tenant or project names. It now says only
+  `Duplicate content detected (exact match); already exists in another store`, on sqlite-vec
+  and Cloudflare alike. The same-store message is unchanged. An operator can still find the
+  row with `store="all"`.
+- **Cloudflare search confined to a named store no longer comes back empty when a larger store's vectors are nearer.**
+  Vectorize holds every store's vectors and `retrieve()` only dropped the other stores' matches after the query, so a small store next to a big one could get back few results or none. A named store now asks Vectorize for the full neighbour page, stops loading once `n_results` of its own matches are found, and the incomplete-recall warning reports how many candidates belonged to other stores.
+- **Hub ONNX models failed past 512 tokens and embedding regeneration aborted on existing rows (#2073, #2074, @SalyyS1).**
+  Pre-exported Hugging Face Hub models such as `intfloat/multilingual-e5-small` ship `tokenizer.json` with `"truncation": null`, so inputs longer than the position embedding table crashed ONNX Runtime with `BroadcastIterator::Init`, and `scripts/maintenance/regenerate_embeddings.py` used `INSERT OR REPLACE` on the `sqlite-vec` `vec0` virtual table, raising `UNIQUE constraint failed` whenever a row already had a vector. `_init_model` now enables truncation when unset using the model's usable sequence length (accounting for RoBERTa/XLM-RoBERTa/MPNet padding offsets and ignoring Hugging Face `model_max_length` sentinels), and `regenerate_embeddings.py` replaces vectors via per-row savepoints inside 10-row batch transactions.
+- `delete_memories` fallback path validates time boundaries upfront with `parse_boundary()` and preserves sub-day timestamp precision (#2079).
+- **`GET /api/search/similar/{content_hash}` returned 404 in multi-memory databases (#2083).**
+  The endpoint passed the 64-character SHA-256 hex string to `storage.retrieve()`, running a vector similarity search instead of looking up the memory by primary key. When the database had more than one memory, the nearest vector match to the hex string almost never matched the target memory, causing the lookup to fail. The endpoint now calls `storage.get_by_hash()`, guaranteeing O(1) indexed retrieval and eliminating unnecessary embedding computation.
+- **Natural language time search `between` ranges now preserve month years, accept `now`, and fall through on non-dates (#2086).**
+  Queries with non-date words between `between` and `and` (such as "between Alice and Bob yesterday") returned `(None, None)` instead of falling through to match the relative date, failing time search queries with 400. In addition, explicit years following month names in the second position were truncated to bare month names and resolved to the current year, and `now` was rejected. Range extraction and `between` range parsing now keep complete endpoints with sentence punctuation tolerance, skip yearless re-anchoring when explicit month years are present, and fall through cleanly.
+- Preserve sentence-ending punctuation (`.`, `!`, `?`) and sentence boundary detection in sentence-aware text chunking.
+- **Directory ingestion accepts comma-separated extensions (#2092, @alksv1).** The documented `--extensions pdf,md` option previously skipped ordinary PDF and Markdown files. It now imports both file types, and repeating `--extensions` still works.
+- **The dashboard's Update pulled `origin/main` whatever the update check compared against, and changed the checkout without a backup (#2100).** `POST /api/server/update` ran a hardcoded `git pull origin main`, while `GET /api/version/check` reads `MCP_UPDATE_GIT_REMOTE` and `MCP_UPDATE_GIT_BRANCH`, so an install that set them was told about one branch and updated from another. Both now resolve the remote and branch in one place, and the pull is `git pull <remote> <branch>` (default `origin main`). The update also backs up the database directly before the pull, after the confirm, dirty-tree and installer checks; the response names the backup in `backup_filename`. A backend without a local database file (Cloudflare) skips the backup and says so, and any other backup failure returns 500 without running `git pull`.
+- **The HTTP compose file shipped a working API key that was printed in the docs (GHSA-xv2j-8j5x-m228, de3erve).**
+  `tools/docker/docker-compose.http.yml` fell back to the literal `your-secure-api-key-here`
+  when `MCP_API_KEY` was unset and published port 8000 on every interface, so a quickstart
+  deployment accepted a key anyone could read in `tools/docker/README.md`. The compose file
+  now has no default and refuses to start without `MCP_API_KEY`, and it publishes on
+  `127.0.0.1` unless `HTTP_BIND` says otherwise. Independently of Docker, the HTTP server
+  and the SSE / Streamable HTTP transports refuse to start when `MCP_API_KEY` equals one of the example values from this repository's
+  documentation. `examples/start_https_example.sh` requires the variable instead of exporting
+  the placeholder. **If you run the HTTP compose file without your own `MCP_API_KEY`, set one
+  now** (`openssl rand -hex 32`) and treat the stored memories as exposed to your network.
+  Deployments that reach the container from other machines need `HTTP_BIND=0.0.0.0`.
+
+### Removed
+
+- **BREAKING: five tools renamed to the `memory_*` prefix, old names removed (#2052).**
+  `commit_session_legacy` is now `memory_commit_session`, `get_bootstrap_profile` is
+  `memory_bootstrap_profile`, `get_onboarding_guide` is `memory_onboarding_guide`,
+  `get_quarantined_memories` is `memory_quarantine_list` and `unquarantine_memory` is
+  `memory_quarantine_release`. Arguments and stored data are unchanged. There is no
+  alias layer, so prompts, tool allowlists and scripts that name an old tool must be
+  updated; see `docs/MIGRATION.md`. The server instructions and the onboarding guide
+  already use the new names. The descriptions of the store and retrieval tools now
+  say when to use each one and which sibling to use instead.
+
+  | Old name | New name |
+  | --- | --- |
+  | `commit_session_legacy` | `memory_commit_session` |
+  | `get_bootstrap_profile` | `memory_bootstrap_profile` |
+  | `get_onboarding_guide` | `memory_onboarding_guide` |
+  | `get_quarantined_memories` | `memory_quarantine_list` |
+  | `unquarantine_memory` | `memory_quarantine_release` |
+
+  The old names are gone and no longer resolve. Clients must update.
+
+### Internal
+
+- Semantic dedup now reads its nearest neighbor through the same KNN pushdown retrieval uses (`MATCH` + `k` + `rowid IN`) instead of ranking the whole 24h window per store — ~4x faster on the SQL layer at busy window sizes (229 ms -> 58 ms at 20k rows), with the answer row verified identical to the scan (#2032).
+- **Remote setup guide names a browser inspector for checking the endpoint (#2055).**
+  The testing section of `docs/remote-mcp-setup.md` only had curl. It now points to
+  Glama's hosted MCP Inspector for listing tools and running single calls, and says
+  what that costs: the proxy sees the token and the traffic, and tool calls change
+  real data.
+- **CONTRIBUTING.md decides repeated unclaimed PRs (#2064).** The decision table had
+  no row for an author who keeps opening PRs without claiming the issue. After a
+  written warning on an earlier unclaimed PR, the next one is closed without review.
+  The section also says that GitHub assigns only people who commented on the issue,
+  so an assignment can wait for that comment.
+- **Maintainer comments no longer block an automatic claim (#2068).**
+  A maintainer settling an issue's scope in prose that reads like a claim or a
+  withdrawal ("...no longer...") sent the next contributor's `/claim` on a free
+  issue to manual confirmation. Maintainer comments now join the claim history
+  only as explicit `/claim` commands, which collaborators may still use; the
+  claiming contributor's own prose keeps its full meaning.
+- **CONTRIBUTING.md says when an account is blocked (#2076).** The decision table
+  stopped at "closed without review" for an author who had been warned. An author who
+  opens another unclaimed PR after such a close now has it closed and the account
+  blocked from the repository; the section spells out the sequence of pointer,
+  warning, close and block.
+- **A bot tells PR authors promptly what blocks their PR (#2077).** Open review
+  threads, a conflict with `main` and a red changelog or tests-prove-fix check are
+  named in one comment, once per item, usually within a couple of hours. The scan
+  is a second step of the Merge Train job and adds no workflow runs. The 48-hour
+  review reminder stays as the second stage.
+- **`quality/onnx_ranker.py`, `server/handlers/graph.py`, `server/handlers/quality.py`, `storage/sync/bootstrap.py`, `web/api/configuration.py` and `web/api/documents.py` join `GUARDED_MODULES` (#1146).**
+  The three remaining f-string logger calls are converted to lazy `%`-style; the quality handler's `error_msg`, the upload's `file_path`, the OAuth `client_id`/`auth_method` in the two configuration AUDIT lines and the bootstrap summary that carries the peer's watermark are wrapped with `_sanitize_log_value`; the graph handler reads its path, node and edge counts into named values before logging them. A sentinel test pins the wrapper requirement across the six modules.
+
 ## [12.11.0] - 2026-11-16
 
 ### Security

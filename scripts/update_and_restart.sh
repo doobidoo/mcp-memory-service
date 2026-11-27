@@ -501,6 +501,19 @@ else
     fi
 fi
 
+# Optional: ask a sync hub to move to the latest release as well. The hub decides
+# what to install (scripts/service/update_to_latest_release.sh, release tags only);
+# this only starts its update unit. A failure here never fails the local update.
+if [ -n "${MCP_HUB_UPDATE_SSH_HOST:-}" ]; then
+    log_step "Asking hub ${MCP_HUB_UPDATE_SSH_HOST} to check for a new release..."
+    if ssh -o BatchMode=yes -o ConnectTimeout=10 -- "$MCP_HUB_UPDATE_SSH_HOST" \
+        "${MCP_HUB_UPDATE_REMOTE_CMD:-sudo -n systemctl start --no-block mcp-memory-update.service}"; then
+        log_success "Hub update unit started"
+    else
+        log_warning "Could not start the hub update unit (the hub's own timer will catch up)"
+    fi
+fi
+
 # Step 8: Summary
 TOTAL_TIME=$(elapsed_time)
 

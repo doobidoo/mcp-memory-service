@@ -36,7 +36,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $cursor) {
         nodes {
-          isResolved isOutdated
+          id isResolved isOutdated
           comments(last: 20) { nodes { author { login } createdAt url } }
         }
         pageInfo { hasNextPage endCursor }

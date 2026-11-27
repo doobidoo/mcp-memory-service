@@ -209,6 +209,28 @@ h3 { font-size: var(--text-xl); }
     box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
 }
 
+/* The focused field stays on the surface of the active theme. A hardcoded white
+   put the dark theme's light text and placeholder on a white field: the focused
+   placeholder measured 2.51:1 there, against 6.9:1 on --neutral-100. */
+body.dark-mode .search-input:focus {
+    background: var(--neutral-100);
+}
+
+/* Typed text follows the theme as well. The input has no colour of its own, so
+   the UA keeps fieldtext black: on --neutral-100 that measured 1.21:1. */
+body.dark-mode .search-input {
+    color: var(--neutral-600);
+}
+
+/* Browsers pick a placeholder color of their own, which is a dark gray that the
+   dark theme's input background swallows. --neutral-500 is the muted text color
+   of each theme, so one rule covers both. opacity: 1 undoes Firefox, which dims
+   placeholders to 0.54 by default. */
+.search-input::placeholder {
+    color: var(--neutral-500);
+    opacity: 1;
+}
+
 .search-btn {
     position: absolute;
     right: var(--space-2);
@@ -1527,25 +1549,6 @@ body.dark-mode .form-group label {
 }
 
 /* Loading and Status Components */
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(255, 255, 255, 0.9);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: var(--space-4);
-    z-index: 2000;
-}
-
-.loading-overlay.active {
-    display: flex;
-}
-
 .loading-spinner {
     width: 40px;
     height: 40px;

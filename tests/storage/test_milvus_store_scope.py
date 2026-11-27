@@ -214,12 +214,32 @@ async def test_versioned_update_keeps_the_new_version_in_the_old_store():
     storage = _make_storage(has_store=True)
     storage._call_client = _client([_row(store="team")])
 
-    ok, msg, new_hash = await storage.update_memory_versioned(_HASH, "body, revised")
+    ok, msg, new_hash = await storage.update_memory_versioned(
+        _HASH, "body, revised", store="team"
+    )
 
     assert ok, msg
     (insert,) = _calls(storage._call_client, "insert")
     assert insert["data"][0]["id"] == new_hash
     assert insert["data"][0]["store"] == "team"
+    (upsert,) = _calls(storage._call_client, "upsert")
+    assert upsert["data"][0]["store"] == "team"
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_in_another_store_is_refused_without_a_write():
+    storage = _make_storage(has_store=True)
+    storage._call_client = _client([_row(store="team")])
+
+    ok, msg, new_hash = await storage.update_memory_versioned(
+        _HASH, "body, revised", store="ops"
+    )
+
+    assert ok is False
+    assert "not found" in msg
+    assert new_hash is None
+    assert _calls(storage._call_client, "insert") == []
+    assert _calls(storage._call_client, "upsert") == []
 
 
 # -- Hash-addressed calls are confined ----------------------------------------

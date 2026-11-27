@@ -56,8 +56,10 @@ def _make_storage(uri: str = "./milvus.db") -> MilvusMemoryStorage:
     storage._has_access_collection = False
     storage._lock = None
     storage._call_client = AsyncMock()
+    # The count reads subtract the tombstones a scan finds; none by default.
+    storage._drain_rows = AsyncMock(return_value=[])
     storage._generate_embedding = MagicMock(return_value=[0.1, 0.2, 0.3, 0.4])
-    storage._fetch_live_hashes = AsyncMock(side_effect=lambda hashes: set(hashes))
+    storage._fetch_live_hashes = AsyncMock(side_effect=lambda hashes, store=None: set(hashes))
     return storage
 
 
@@ -206,7 +208,7 @@ class TestGraphVisualizationData:
             _edge("a", "b"), _edge("a", "c"), _edge("d", "e"),
         ])
         storage._fetch_memories_by_hashes = AsyncMock(
-            side_effect=lambda hashes: [_memory(h) for h in hashes]
+            side_effect=lambda hashes, store=None: [_memory(h) for h in hashes]
         )
 
         result = await storage.get_graph_visualization_data(min_connections=2)
@@ -222,7 +224,7 @@ class TestGraphVisualizationData:
             _edge("a", "b", "causes"), _edge("a", "b", "related"),
         ])
         storage._fetch_memories_by_hashes = AsyncMock(
-            side_effect=lambda hashes: [_memory(h) for h in hashes]
+            side_effect=lambda hashes, store=None: [_memory(h) for h in hashes]
         )
 
         result = await storage.get_graph_visualization_data()
@@ -254,10 +256,10 @@ class TestGraphVisualizationData:
         ])
         live_hashes = {"live-source", "live-target"}
         storage._fetch_live_hashes = AsyncMock(
-            side_effect=lambda hashes: set(hashes) & live_hashes
+            side_effect=lambda hashes, store=None: set(hashes) & live_hashes
         )
         storage._fetch_memories_by_hashes = AsyncMock(
-            side_effect=lambda hashes: [_memory(h) for h in hashes]
+            side_effect=lambda hashes, store=None: [_memory(h) for h in hashes]
         )
 
         result = await storage.get_graph_visualization_data(limit=1)
@@ -274,7 +276,7 @@ class TestGraphVisualizationData:
             _edge("a", "b"), _edge("c", "d"), _edge("e", "f"),
         ])
         storage._fetch_memories_by_hashes = AsyncMock(
-            side_effect=lambda hashes: [_memory(h) for h in hashes]
+            side_effect=lambda hashes, store=None: [_memory(h) for h in hashes]
         )
 
         result = await storage.get_graph_visualization_data(limit=1)
@@ -468,6 +470,9 @@ class TestDrainRowsLock:
         storage = _make_storage()
         storage._write_lock = asyncio.Lock()
         storage._call_client = MilvusMemoryStorage._call_client.__get__(
+            storage, MilvusMemoryStorage,
+        )
+        storage._drain_rows = MilvusMemoryStorage._drain_rows.__get__(
             storage, MilvusMemoryStorage,
         )
         scan_started = threading.Event()

@@ -185,6 +185,7 @@ MILVUS_PARITY_CALL_SHAPES = {
                 "new_tags": ["updated"],
                 "new_memory_type": "decision",
                 "reason": "source changed",
+                "store": "team",
             },
         ),
     ],

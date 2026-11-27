@@ -120,6 +120,7 @@ Answer questions in Issues or help other users.
 For a containerized environment:
 ```bash
 docker-compose up -d  # For MCP mode
+echo "MCP_API_KEY=$(openssl rand -hex 32)" > .env  # HTTP API mode refuses to start without a key
 docker-compose -f docker-compose.http.yml up -d  # For HTTP API mode
 ```
 
@@ -155,12 +156,15 @@ when the PR is reviewed. The same situation gets the same answer, whoever is inv
 | The issue is free: no assignee, no earlier claim, no other open PR | The PR author is assigned, gets a pointer to this section, and the PR is reviewed normally |
 | The issue is free and several unclaimed PRs exist | The earliest PR that passes review gets the issue; the others are closed |
 | The author was warned on an earlier unclaimed PR that the next one would be closed | The unclaimed PR is closed without review, whatever the state of the issue. The author may claim the issue and open a new PR |
+| The author had a PR closed under the row above and opens another unclaimed PR | The PR is closed and the account is blocked from the repository |
 | A claim is 3 days old with no PR, no draft and no update on the issue | A maintainer asks once on the issue |
 | No answer 2 days after that question | The claim expires, the assignment is removed, and the issue is free again |
 | A PR changes `src/` without an issue | Small and clearly scoped: `skip-issue`. Otherwise it waits until an issue is opened and agreed |
 
 A warning is given in writing on the PR, links to this section, and comes on the
-second unclaimed PR at the earliest; the first one only gets the pointer. GitHub lets
+second unclaimed PR at the earliest; the first one only gets the pointer. A block
+therefore comes on the fourth unclaimed PR at the earliest, after a pointer, a warning
+and a close that names this table. GitHub lets
 a maintainer assign only people who have commented on the issue, so "the PR author is
 assigned" can wait for a comment from you on the issue.
 
@@ -205,7 +209,10 @@ and passes. Removing an
 assignment also refreshes the check against the current assignees.
 
 A pull request that changes `src/` without linking any issue is labelled
-`no-issue` the same way. Link the issue, or open one. A maintainer can mark a small
+`no-issue` the same way. Link the issue, or open one. Linking means a reference
+in the pull request description: `Fixes #N` when the PR closes the issue,
+`Refs #N` when it covers only part of it. An issue number in the title alone
+does not link anything. A maintainer can mark a small
 or otherwise approved contribution `skip-issue`: this bypasses both checks and
 clears stale `unclaimed` and `no-issue` labels. Removing the exception restores
 the normal checks. Owners, members, collaborators and bots remain exempt. The
@@ -314,6 +321,25 @@ Open a PR from your fork to the main repository with:
 - Use type hints for all function signatures
 - Write descriptive variable and function names
 - Add docstrings to all public functions/classes (Google style)
+
+### Design Principles: The Zen of Python
+
+The style guide says how code should look. Where it is silent,
+[PEP 20](https://peps.python.org/pep-0020/) breaks the tie
+(`python -c "import this"`). It is not an extra gate: CI does not check it,
+reviewers cite it. Several rules in this project are one of its lines applied:
+
+- **Errors should never pass silently.** `memory.metadata.get('tags', [])`
+  returns `[]` instead of failing, and that reached production three times.
+  Read `Memory` fields by attribute (`memory.tags`). See also
+  [Error Handling](#error-handling).
+- **Explicit is better than implicit.** Type hints on every function signature,
+  and specific exception types.
+- **Simple is better than complex. Flat is better than nested.** The complexity
+  budget is 8 per function, and `scripts/pr/pre_pr_check.sh` blocks on the
+  functions a change touches.
+- **In the face of ambiguity, refuse the temptation to guess.** Download and
+  inspect a real sample before writing a parser for external data.
 
 ### Code Organization
 
@@ -500,6 +526,10 @@ When adding features or making significant changes:
   silently), and stop once all threads are resolved and the checks are green. A 5/5
   confidence score is not required. Commits still follow the conventional format
   above; do not stage with `git add -A`.
+- When a PR has review threads waiting on you, conflicts with `main`, or a red
+  changelog or tests-prove-fix check, a bot says so on the PR, usually within a couple
+  of hours. It writes again only when something new is open, and then lists
+  everything that still is.
 - Address review feedback promptly. When a review thread has waited 48 hours on
   you, a bot posts one reminder on the PR. If your threads are still unanswered three
   days after that reminder, the PR is labelled `maintainer-takeover`, and a

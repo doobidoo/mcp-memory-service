@@ -1,10 +1,13 @@
 """Plan entity-graph replacement before making any destructive writes."""
 
+import logging
 from collections import Counter, defaultdict, deque
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from .entities import Entity, EntityExtractor
 from .entity_linker import ENTITY_RELATIONSHIPS, EntityLinker, MAX_LINKS_PER_ENTITY
+
+logger = logging.getLogger(__name__)
 
 
 def _tags(value: object) -> list[str]:
@@ -29,12 +32,23 @@ class EntityRebuildPlan:
     including the just-inserted memory. Protected pairs cannot be overwritten
     by symmetric shares_entity writes. Counts are physical edge rows; pairs
     are reported separately.
+
+    ``store_of`` maps each scanned memory hash to its store. With a map, a
+    shares_entity pair is kept only when both ends are known and in the same
+    store, the rule the Milvus graph enforces at store time (#2119, #2123);
+    without one (SQLite and hybrid) every pair is kept, as before.
     """
 
     def __init__(
-        self, snapshot: list[dict], entity_key: Callable[[str], str]
+        self,
+        snapshot: list[dict],
+        entity_key: Callable[[str], str],
+        store_of: Optional[dict[str, str]] = None,
     ) -> None:
         self.entity_key = entity_key
+        self.store_of = store_of
+        self.skipped_cross_store = 0
+        self.skipped_unknown_store = 0
         self.protected = {
             (row["source_hash"], row["target_hash"])
             for row in snapshot
@@ -109,6 +123,32 @@ class EntityRebuildPlan:
                 memory.content_hash, [e.name for e in entities], self
             )
             self.memories_scanned += 1
+        if self.store_of is not None:
+            self._drop_pairs_outside_one_store()
+
+    def _drop_pairs_outside_one_store(self) -> None:
+        """Remove pairs the store-scoped graph would refuse, so apply() never sees them.
+
+        Done once after the replay, so the preview counts them too. Equivalent
+        to refusing them as they are proposed: the candidate window holds at
+        most MAX_LINKS_PER_ENTITY hashes, so the linker's cap never cuts a
+        candidate and a dropped pair cannot have displaced another.
+        """
+        for pair in list(self.associations):
+            stores = [self.store_of.get(memory_hash) for memory_hash in pair]
+            if None in stores:
+                self.skipped_unknown_store += 1
+            elif stores[0] != stores[1]:
+                self.skipped_cross_store += 1
+            else:
+                continue
+            del self.associations[pair]
+        if self.skipped_cross_store or self.skipped_unknown_store:
+            logger.warning(
+                "Entity rebuild skipped %d cross-store and %d unattributed "
+                "shares_entity pairs; the graph keeps edges within one store (#2123)",
+                self.skipped_cross_store, self.skipped_unknown_store,
+            )
 
     def describe(self) -> dict:
         """Return the preview without exposing memory contents."""
@@ -122,6 +162,8 @@ class EntityRebuildPlan:
             "shares_entity_pairs_before": self.pairs_before,
             "shares_entity_pairs_after": len(self.associations),
             "protected_edges": len(self.protected),
+            "shares_entity_pairs_skipped_cross_store": self.skipped_cross_store,
+            "shares_entity_pairs_skipped_unknown_store": self.skipped_unknown_store,
         }
 
     async def apply(self, graph: Any, report: dict) -> None:

@@ -21,13 +21,15 @@ framework at `http://localhost:8000`. Framework-specific guides live in
 
 ### CLI and terminal (MCP)
 
-Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · Goose · Aider ·
-GitHub Copilot CLI · Amp · Continue · Zed · Cody
+Claude Code · Gemini CLI · Gemini Code Assist · OpenCode · Codex CLI · DeepSeek Harness ·
+Goose · Aider · GitHub Copilot CLI · Amp · Continue · Zed · Cody
 
 Automatic lifecycle integrations are also available for
 [Claude Code](../claude-hooks/README.md), [OpenCode](../opencode/README.md), and
 [Codex](../codex/README.md). The Codex adapter uses the HTTP API to retrieve
-project context, capture learnings, and checkpoint session outcomes.
+project context, capture learnings, and checkpoint session outcomes. DeepSeek Harness
+connects over MCP and ships a Cordis bundle in [`dsh/`](../dsh/README.md) for
+project context and turn capture.
 
 Hermes has an installer that registers the server and verifies a round trip:
 [`agents/hermes/README.md`](../agents/hermes/README.md).

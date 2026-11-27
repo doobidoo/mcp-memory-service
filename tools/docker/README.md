@@ -169,8 +169,13 @@ docker-compose up -d
 
 ### HTTP API Mode (for REST API, Web Dashboard)
 ```bash
+echo "MCP_API_KEY=$(openssl rand -hex 32)" > .env
 docker-compose -f docker-compose.http.yml up -d
 ```
+
+`MCP_API_KEY` has no default; compose refuses to start without it. The API is
+published on `127.0.0.1` only. Set `HTTP_BIND=0.0.0.0` in `.env` to reach it from
+other machines.
 
 ## 📝 What's New (v5.0.4)
 
@@ -193,7 +198,8 @@ Thanks to feedback from Joe Esposito, we've completely simplified the Docker set
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MCP_MODE` | Operation mode: `mcp` or `http` | `mcp` |
-| `MCP_API_KEY` | API key for HTTP mode | `your-secure-api-key-here` |
+| `MCP_API_KEY` | API key for HTTP mode | none, required |
+| `HTTP_BIND` | Host address the HTTP port is published on | `127.0.0.1` |
 | `HTTP_PORT` | Host port for HTTP mode | `8000` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
