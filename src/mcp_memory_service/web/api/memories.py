@@ -672,6 +672,24 @@ def _salt_chunk_hash(chunk: str, content_hash: str, index: int) -> str:
     return generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
 
 
+async def _owns_current_generation(
+    storage: MemoryStorage, lookup_store: Optional[str], ledger: List[str]
+) -> bool:
+    """Whether the list on the store is still the one this edit wrote.
+
+    Two edits of the same memory can start from the same list. The one that wrote
+    last owns the generation; the other must not delete anything, or the saved list
+    ends up naming a chunk that is no longer there.
+    """
+    if not ledger:
+        return False
+    owner = await storage.get_by_hash(ledger[0], store=lookup_store)
+    if owner is None:
+        return False
+    current = (owner.metadata or {}).get(SPLIT_CHUNKS_KEY)
+    return isinstance(current, list) and list(current) == list(ledger)
+
+
 async def _plan_split_chunks(
     storage: MemoryStorage,
     lookup_store: Optional[str],
@@ -827,18 +845,24 @@ async def _store_unversioned_split_replacement(
 
     # Written first, deleted after: a failure here leaves the memory larger than
     # expected, never empty.
-    for stale_hash in sorted(previous_split_hashes - set(ledger) - {content_hash}):
-        stale = await storage.get_by_hash(stale_hash, store=lookup_store)
-        if stale is None or (stale.metadata or {}).get(SPLIT_OF_KEY) != split_of:
-            continue
-        deleted, delete_message = await storage.delete(
-            stale_hash, store=resolve_store(store)
-        )
-        if not deleted:
-            return False, (
-                f"Stored replacement chunks, but failed to delete chunk "
-                f"{stale_hash} of the previous edit: {delete_message}"
-            ), None, False
+    #
+    # Another edit of the same memory can start from this same list and write after
+    # this one. Its ledger is the authority then, and removing a chunk it kept would
+    # leave the saved list pointing at a row that is gone. So the generation is read
+    # back first: only the edit whose ledger is still on the row cleans up.
+    if previous_split_hashes and await _owns_current_generation(storage, lookup_store, ledger):
+        for stale_hash in sorted(previous_split_hashes - set(ledger) - {content_hash}):
+            stale = await storage.get_by_hash(stale_hash, store=lookup_store)
+            if stale is None or (stale.metadata or {}).get(SPLIT_OF_KEY) != split_of:
+                continue
+            deleted, delete_message = await storage.delete(
+                stale_hash, store=resolve_store(store)
+            )
+            if not deleted:
+                return False, (
+                    f"Stored replacement chunks, but failed to delete chunk "
+                    f"{stale_hash} of the previous edit: {delete_message}"
+                ), None, False
 
     if not original_reused:
         delete_success, delete_message = await storage.delete(

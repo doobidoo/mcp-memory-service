@@ -1477,3 +1477,38 @@ def test_update_memory_split_edit_replaces_the_previous_edit_chunks(
     ) == [("changed tail", 2), ("middle", 1), ("target original", 0)]
     assert {memory["metadata"]["original_hash"] for memory in listed} == {new_full_hash}
     assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 404
+
+@pytest.mark.integration
+async def test_owns_current_generation_only_for_the_ledger_on_the_row(initialized_storage):
+    """Only the edit whose list is still on the row may clean up (#2143).
+
+    Two edits of the same memory can start from the same list; the one that wrote
+    last owns the generation, and the other must not delete chunks that list still
+    names.
+    """
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.utils.hashing import generate_content_hash
+    from mcp_memory_service.web.api.memories import (
+        SPLIT_CHUNKS_KEY,
+        SPLIT_OF_KEY,
+        _owns_current_generation,
+    )
+
+    first = generate_content_hash("chunk one")
+    second = generate_content_hash("chunk two")
+    stored, message = await initialized_storage.store(
+        Memory(
+            content="chunk one",
+            content_hash=first,
+            tags=[],
+            memory_type="observation",
+            metadata={SPLIT_OF_KEY: "generation", SPLIT_CHUNKS_KEY: [first, second]},
+        )
+    )
+    assert stored, message
+
+    assert await _owns_current_generation(initialized_storage, None, [first, second]) is True
+    # A different list, or a shorter one, belongs to another edit of this memory.
+    assert await _owns_current_generation(initialized_storage, None, [second, first]) is False
+    assert await _owns_current_generation(initialized_storage, None, [first]) is False
+    assert await _owns_current_generation(initialized_storage, None, []) is False
