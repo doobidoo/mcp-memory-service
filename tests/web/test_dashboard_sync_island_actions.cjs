@@ -112,14 +112,50 @@ test('a running sync keeps its pause action through SSE progress events', () => 
     assert.equal(actionIds(model.get('sync')), 'pause', 'the progress event does not strip the action');
 });
 
-test('a paused or non-hybrid node gets no pause from a stray progress event', () => {
+test('a progress event keeps Resume while paused and offers nothing without hybrid sync', () => {
     const { app, model } = syncDashboard();
+    // Pause stops the background worker, not a manual pull: its events keep coming.
     app._lastSyncStatus = hybrid('syncing', { is_paused: true });
     app.handleSyncProgress({ progress_percentage: 10 });
-    assert.equal(actionIds(model.get('sync')), '', 'no pause while paused');
+    assert.equal(actionIds(model.get('sync')), 'resume', 'resume, not pause, while paused');
     app._lastSyncStatus = { is_hybrid: false, is_running: true, is_paused: false, status: 'synced' };
     app.handleSyncProgress({ progress_percentage: 20 });
-    assert.equal(actionIds(model.get('sync')), '', 'and none without hybrid sync');
+    assert.equal(actionIds(model.get('sync')), '', 'none without hybrid sync');
+    delete app._lastSyncStatus;
+    app.handleSyncProgress({ progress_percentage: 30 });
+    assert.equal(actionIds(model.get('sync')), '', 'and none before the first poll answered');
+});
+
+test('resuming during a pull swaps Resume back to Pause and keeps the percentage', () => {
+    const { app, model } = syncDashboard();
+    app._lastSyncStatus = hybrid('syncing', { is_paused: true });
+    app.handleSyncProgress({ progress_percentage: 40 });
+    assert.equal(actionIds(model.get('sync')), 'resume');
+    app._reportSyncStatus(hybrid('synced'));
+    assert.deepEqual([model.get('sync').state, model.get('sync').progress], ['busy', 40]);
+    assert.equal(actionIds(model.get('sync')), 'pause');
+});
+
+test('a finished sync keeps its action on the confirmation and on the settled row', () => {
+    // The status cached before the run decides; a stale "pending" must not leave
+    // Pause on a row that says "Synced".
+    const cases = [
+        [hybrid('pending'), 'sync-now'],
+        [hybrid('syncing', { is_paused: true }), 'resume'],
+        [{ is_hybrid: false, is_running: false, is_paused: false, status: 'synced' }, ''],
+        [undefined, ''],
+    ];
+    for (const [last, ids] of cases) {
+        const { app, model } = syncDashboard();
+        app._lastSyncStatus = last;
+        app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
+        const done = model.get('sync');
+        assert.equal(done.state, 'success');
+        assert.equal(actionIds(done), ids, 'on the confirmation');
+        assert.ok(model.expire('sync', done.seq));
+        assert.equal(model.get('sync').state, 'ready');
+        assert.equal(actionIds(model.get('sync')), ids, 'and after it stepped back');
+    }
 });
 
 test('an explicit pause replaces a running row and exposes Resume', () => {

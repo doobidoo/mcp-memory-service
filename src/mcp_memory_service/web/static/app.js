@@ -1139,15 +1139,11 @@ class MemoryDashboard {
 
         // The event comes every ten memories; the island shows its percentage.
         this._syncProgressAt = Date.now();
-        // The events carry no status, so pause rides on the last poll answer: without
-        // it the running row would lose its action until the next poll answers.
-        const last = this._lastSyncStatus;
-        const running = last && last.is_hybrid && !last.is_paused && last.is_running !== false;
         this._reportSync({
             state: 'busy',
             text: { key: 'sync.status.syncing', fallback: 'Syncing' },
             progress: data.progress_percentage,
-            actions: running ? [this._syncPauseAction()] : [],
+            actions: this._syncEventActions('syncing'),
         });
 
         // Update memory count in real-time if on dashboard
@@ -1167,7 +1163,10 @@ class MemoryDashboard {
         console.log('Sync completed:', data);
 
         const synced = { key: 'sync.status.synced', fallback: 'Synced' };
-        this._reportSync({ state: 'success', text: synced, settle: { state: 'ready', text: synced } });
+        // The poll that follows keeps this confirmation, so the row carries its own
+        // actions: without them "Sync now" is gone until the next regular poll.
+        const actions = this._syncEventActions('synced');
+        this._reportSync({ state: 'success', text: synced, actions, settle: { state: 'ready', text: synced, actions } });
 
         // Refresh dashboard data to show updated counts
         if (this.currentView === 'dashboard') {
@@ -2190,8 +2189,25 @@ class MemoryDashboard {
         // An explicit paused/stopped answer must replace a running row at once:
         // the progress guard otherwise keeps it for up to a minute and hides Resume.
         const paused = syncStatus.is_paused || !syncStatus.is_running;
-        if (entry.state !== 'error' && !paused && (this._syncProgressRunning(current) || (current?.state === 'success' && entry.state === 'ready'))) return;
+        if (entry.state !== 'error' && !paused) {
+            if (this._syncProgressRunning(current)) {
+                // The percentage stays, but after a resume the row must offer Pause again.
+                this._reportSync({ state: 'busy', text: current.text, progress: current.progress, actions: [this._syncPauseAction()] });
+                return;
+            }
+            if (current?.state === 'success' && entry.state === 'ready') return;
+        }
         this._reportSync(entry);
+    }
+
+    /**
+     * The actions for a row an SSE event writes. The events carry no status, so the
+     * last poll answer decides between pause and resume; its `status` is from before
+     * the event and is replaced by what the event says.
+     */
+    _syncEventActions(status) {
+        const last = this._lastSyncStatus;
+        return last?.is_hybrid ? this._syncActions({ ...last, status }) : [];
     }
 
     /**
