@@ -25,6 +25,7 @@ import pytest
 import pytest_asyncio
 import tempfile
 import os
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 from tests.unit.dedup_fixtures import XERJ_UPDATE_PAIRS
@@ -654,6 +655,405 @@ def test_store_memory_reports_semantic_dedup_outcome(
 
 
 @pytest.mark.integration
+def test_update_memory_content_uses_versioned_update_with_dedup_enabled(
+    test_app, initialized_storage, monkeypatch
+):
+    """An edit must not be rejected as a semantic duplicate of its original."""
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = "reject"
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    _install_cosine_embeddings(initialized_storage, [(old, None), (new, cosine)])
+
+    first = test_app.post("/api/memories", json={"content": old, "tags": ["original"]})
+    assert first.status_code == 200, first.text
+    old_hash = first.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}",
+        json={"content": new, "tags": ["edited"], "memory_type": "not-a-real-type"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == new
+    assert body["memory"]["tags"] == ["edited"]
+    assert body["memory"]["memory_type"] == "observation"
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [new]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+    assert events[1].data["memory_type"] == "observation"
+    assert all(event.store == "default" for event in events)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("versioned", [True, False])
+def test_update_memory_content_restores_earlier_text(
+    test_app, initialized_storage, monkeypatch, versioned
+):
+    """Both update paths allow A→B→A and emit replacement events each time."""
+    if not versioned:
+        from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+        monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    original = "Dashboard historical original text"
+    edited = "Dashboard historical edited text"
+    stored = test_app.post("/api/memories", json={"content": original})
+    original_hash = stored.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    changed = test_app.put(
+        f"/api/memories/{original_hash}", json={"content": edited}
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["success"] is True
+    edited_hash = changed.json()["content_hash"]
+
+    restored = test_app.put(
+        f"/api/memories/{edited_hash}",
+        json={
+            "content": original,
+            "tags": ["restored"],
+            "memory_type": "decision",
+            "metadata": {"source": "restore-test"},
+        },
+    )
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["success"] is True
+    restored_hash = restored.json()["content_hash"]
+    if versioned:
+        assert restored_hash != original_hash
+    else:
+        assert restored_hash == original_hash
+    assert restored.json()["memory"]["content"] == original
+    assert restored.json()["memory"]["tags"] == ["restored"]
+    assert restored.json()["memory"]["memory_type"] == "decision"
+    assert restored.json()["memory"]["metadata"]["source"] == "restore-test"
+    previous_status = 200 if versioned else 404
+    assert test_app.get(f"/api/memories/{edited_hash}").status_code == previous_status
+    assert test_app.get(f"/api/memories/{restored_hash}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [original]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == [
+        "memory_deleted",
+        "memory_stored",
+        "memory_deleted",
+        "memory_stored",
+    ]
+    assert [event.data["content_hash"] for event in events] == [
+        original_hash,
+        edited_hash,
+        edited_hash,
+        restored_hash,
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("versioned", [True, False])
+def test_update_memory_content_saves_same_hash_text_changes(
+    test_app, initialized_storage, monkeypatch, versioned
+):
+    """Capitalization changes are saved on versioned and fallback backends."""
+    if not versioned:
+        from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+        monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "hello"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": "Hello"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == "Hello"
+    previous_status = 200 if versioned else 404
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == previous_status
+    assert test_app.get(f"/api/memories/{body['content_hash']}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == ["Hello"]
+
+
+@pytest.mark.integration
+def test_update_memory_content_falls_back_without_versioned_update_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """Backends without versioned updates still replace near-duplicate content."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    old, new, cosine = XERJ_UPDATE_PAIRS[0]
+    initialized_storage.semantic_dedup_enabled = True
+    initialized_storage.semantic_dedup_mode = "reject"
+    initialized_storage.semantic_dedup_threshold = 0.85
+    initialized_storage.semantic_dedup_near_identical_threshold = 0.97
+    _install_cosine_embeddings(initialized_storage, [(old, None), (new, cosine)])
+
+    stored = test_app.post(
+        "/api/memories",
+        json={
+            "content": old,
+            "tags": ["original"],
+            "memory_type": "decision",
+            "metadata": {"source": "dashboard"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    old_hash = stored.json()["content_hash"]
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": new})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert body["memory"]["content"] == new
+    assert body["memory"]["tags"] == ["original"]
+    assert body["memory"]["memory_type"] == "decision"
+    assert body["memory"]["metadata"]["source"] == "dashboard"
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    assert test_app.get(f"/api/memories/{body['content_hash']}").status_code == 200
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == [new]
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+
+
+@pytest.mark.integration
+def test_update_memory_content_retries_after_original_delete_fails(
+    test_app, initialized_storage, monkeypatch
+):
+    """A stored replacement does not block the next update attempt."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "Original content"})
+    old_hash = stored.json()["content_hash"]
+    original_delete = initialized_storage.delete
+    delete_failed = False
+
+    async def fail_original_delete_once(content_hash, store=None):
+        nonlocal delete_failed
+        if content_hash == old_hash and not delete_failed:
+            delete_failed = True
+            return False, "Temporary delete failure"
+        return await original_delete(content_hash, store=store)
+
+    monkeypatch.setattr(initialized_storage, "delete", fail_original_delete_once)
+
+    first = test_app.put(f"/api/memories/{old_hash}", json={"content": "Edited content"})
+
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is False
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 200
+    memories = test_app.get("/api/memories").json()["memories"]
+    replacement_hash = next(
+        memory["content_hash"] for memory in memories if memory["content"] == "Edited content"
+    )
+
+    second = test_app.put(f"/api/memories/{old_hash}", json={"content": "Edited content"})
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert second.json()["content_hash"] == replacement_hash
+    assert second.json()["memory"]["content"] == "Edited content"
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    memories = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in memories] == ["Edited content"]
+
+
+@pytest.mark.integration
+def test_update_memory_split_retries_after_original_delete_fails(
+    test_app, initialized_storage, monkeypatch
+):
+    """A retry reuses stored chunks and retries only the original deletion."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 80)
+    )
+    original_delete = initialized_storage.delete
+    delete_failed = False
+
+    async def fail_original_delete_once(content_hash, store=None):
+        nonlocal delete_failed
+        if content_hash == old_hash and not delete_failed:
+            delete_failed = True
+            return False, "Temporary delete failure"
+        return await original_delete(content_hash, store=store)
+
+    monkeypatch.setattr(initialized_storage, "delete", fail_original_delete_once)
+    long_text = " ".join(f"word{index}" for index in range(30))
+
+    first = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is False
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 200
+    first_chunks = test_app.get("/api/memories").json()["memories"]
+    first_hashes = {memory["content_hash"] for memory in first_chunks}
+
+    second = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+    memories = test_app.get("/api/memories").json()["memories"]
+    assert len(memories) > 1
+    assert {memory["content_hash"] for memory in memories} == first_hashes - {old_hash}
+    joined = " ".join(
+        memory["content"]
+        for memory in sorted(memories, key=lambda memory: memory["metadata"]["chunk_index"])
+    )
+    assert "word0" in joined and "word29" in joined
+
+
+@pytest.mark.integration
+def test_update_memory_content_supports_an_unscoped_backend(
+    test_app, initialized_storage, monkeypatch
+):
+    """Backends without store partitions must not receive a forced default scope."""
+    monkeypatch.setattr(initialized_storage, "get_by_hash_is_store_scoped", False)
+    stored = test_app.post("/api/memories", json={"content": "Original content"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}", json={"content": "Edited content"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["memory"]["content"] == "Edited content"
+
+
+@pytest.mark.integration
+def test_update_memory_content_splits_oversized_text_without_versioned_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """Oversized fallback edits are split the way store_memory() splits."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    long_text = " ".join(f"word{index}" for index in range(30))
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] != old_hash
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 404
+
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) > 1
+    assert all(len(memory["content"]) <= 80 for memory in listed)
+    joined = " ".join(memory["content"] for memory in sorted(
+        listed, key=lambda memory: memory["metadata"]["chunk_index"]
+    ))
+    for word in ("word0", "word29"):
+        assert word in joined
+    for memory in listed:
+        chunk_metadata = memory["metadata"]
+        assert chunk_metadata["total_chunks"] == len(listed)
+        assert chunk_metadata["original_hash"]
+        assert chunk_metadata["chunk_index"] < len(listed)
+
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_deleted", "memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+    assert events[1].data["content_hash"] == body["content_hash"]
+
+
+@pytest.mark.integration
+def test_update_memory_content_reuses_original_when_split_matches(
+    test_app, initialized_storage, monkeypatch
+):
+    """Appending a paragraph keeps the original hash instead of rejecting it."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    appended = "short original\n\n" + " ".join(
+        f"word{index}" for index in range(30)
+    )
+    broadcast = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.sse_manager.broadcast_event", broadcast
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": appended})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    assert body["content_hash"] == old_hash
+    assert test_app.get(f"/api/memories/{old_hash}").status_code == 200
+
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) > 1
+    assert any(memory["content"] == "short original" for memory in listed)
+    joined = " ".join(memory["content"] for memory in listed)
+    assert "word0" in joined and "word29" in joined
+
+    events = [call.args[0] for call in broadcast.await_args_list]
+    assert [event.event_type for event in events] == ["memory_stored"]
+    assert events[0].data["content_hash"] == old_hash
+
+
+@pytest.mark.integration
+def test_update_memory_rejects_blank_content(test_app):
+    stored = test_app.post("/api/memories", json={"content": "Keep this memory"})
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": " \n\t "})
+
+    assert response.status_code == 422, response.text
+    current = test_app.get(f"/api/memories/{old_hash}")
+    assert current.status_code == 200
+    assert current.json()["content"] == "Keep this memory"
+
+
+@pytest.mark.integration
 def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_storage, monkeypatch):
     """A split REST write names the memory a chunk superseded."""
     from mcp_memory_service.utils.content_splitter import split_content
@@ -704,3 +1104,333 @@ def test_chunked_store_reports_semantic_dedup_outcome(test_app, initialized_stor
         "matched_hash": old_hash,
     }]
     assert f"superseded {old_hash}" in payload["message"]
+
+
+@pytest.mark.integration
+def test_update_memory_rejects_oversized_text_with_versioned_support(
+    test_app, initialized_storage, monkeypatch
+):
+    """An oversized versioned edit must not delete the original or its history."""
+    evolve = AsyncMock(side_effect=AssertionError("oversized edit used the versioned path"))
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.MemoryService.evolve_memory", evolve
+    )
+    stored = test_app.post("/api/memories", json={"content": "short original"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    long_text = " ".join(f"word{index}" for index in range(30))
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": long_text})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is False
+    assert body["content_hash"] == old_hash
+    assert "storage limit" in body["message"]
+    original = test_app.get(f"/api/memories/{old_hash}")
+    assert original.status_code == 200
+    assert original.json()["content"] == "short original"
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert [memory["content"] for memory in listed] == ["short original"]
+    evolve.assert_not_called()
+
+
+@pytest.mark.integration
+def test_update_memory_split_edit_applies_case_and_field_changes(
+    test_app, initialized_storage, monkeypatch
+):
+    """A reused chunk must match the edited text exactly and carry the edited
+    fields: hashing ignores case, so 'Hello' must not reuse the 'hello' row."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    suffix = " ".join(f"word{index}" for index in range(30))
+    original = f"hello world\n\n{suffix}"
+    stored = test_app.post(
+        "/api/memories", json={"content": original, "tags": ["original"]}
+    )
+    assert stored.status_code == 200, stored.text
+
+    edited = f"Hello world\n\n{suffix}"
+    response = test_app.put(
+        f"/api/memories/{stored.json()['content_hash']}",
+        json={"content": edited, "tags": ["edited"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    contents = [memory["content"] for memory in listed]
+    assert "Hello world" in contents
+    assert "hello world" not in contents
+    for memory in listed:
+        assert memory["tags"] == ["edited"]
+
+
+@pytest.mark.integration
+def test_update_memory_split_does_not_modify_unrelated_matching_chunk(
+    test_app, initialized_storage, monkeypatch
+):
+    """A matching chunk owned by another memory must keep its original fields."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    independent = test_app.post(
+        "/api/memories",
+        json={
+            "content": "shared paragraph",
+            "tags": ["independent"],
+            "metadata": {"source": "keep"},
+        },
+    )
+    independent_hash = independent.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length",
+        property(lambda self: 80),
+    )
+    suffix = " ".join(f"word{index}" for index in range(30))
+
+    response = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": f"shared paragraph\n\n{suffix}", "tags": ["edited"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["content_hash"] != independent_hash
+    untouched = test_app.get(f"/api/memories/{independent_hash}")
+    assert untouched.status_code == 200
+    assert untouched.json()["tags"] == ["independent"]
+    assert untouched.json()["metadata"] == {"source": "keep"}
+
+
+@pytest.mark.integration
+def test_update_memory_split_reuses_salted_chunk_on_later_edit(
+    test_app, initialized_storage, monkeypatch
+):
+    """A later identical split edit reuses its existing position-specific chunk."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    independent = test_app.post(
+        "/api/memories",
+        json={"content": "shared paragraph", "tags": ["independent"]},
+    )
+    independent_hash = independent.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: ["target original", "shared paragraph", "tail"],
+    )
+    edited = "target original\n\nshared paragraph\n\ntail"
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": edited, "tags": ["edited"]}
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is True
+    salted_hash = generate_content_hash(f"shared paragraph\0{target_hash}\0{1}")
+    assert test_app.get(f"/api/memories/{salted_hash}").status_code == 200
+
+    second = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": edited, "tags": ["edited again"]},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    assert second.json()["content_hash"] == target_hash
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) == 4
+    salted = test_app.get(f"/api/memories/{salted_hash}").json()
+    assert salted["tags"] == ["edited again"]
+    assert salted["metadata"]["chunk_index"] == 1
+    untouched = test_app.get(f"/api/memories/{independent_hash}").json()
+    assert untouched["tags"] == ["independent"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "middle, has_independent",
+    [("shared paragraph", True), ("target original", False)],
+    ids=["plain-hash-taken-by-other-memory", "repeated-chunk"],
+)
+def test_update_memory_split_reuses_salted_chunk_when_only_the_tail_changes(
+    test_app, initialized_storage, monkeypatch, middle, has_independent
+):
+    """A later split edit with a different full text still reuses its salted chunk."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    if has_independent:
+        test_app.post(
+            "/api/memories", json={"content": middle, "tags": ["independent"]}
+        )
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    chunks = ["target original", middle, "tail"]
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: list(chunks),
+    )
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": "\n\n".join(chunks), "tags": ["edited"]},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["success"] is True
+    salted_hash = generate_content_hash(f"{middle}\0{target_hash}\0{1}")
+    assert test_app.get(f"/api/memories/{salted_hash}").status_code == 200
+
+    chunks[2] = "changed tail"
+    second = test_app.put(
+        f"/api/memories/{target_hash}",
+        json={"content": "\n\n".join(chunks), "tags": ["edited again"]},
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True, second.text
+    assert second.json()["content_hash"] == target_hash
+    new_full_hash = generate_content_hash("\n\n".join(chunks))
+    salted = test_app.get(f"/api/memories/{salted_hash}").json()
+    assert salted["tags"] == ["edited again"]
+    assert salted["metadata"]["chunk_index"] == 1
+    assert salted["metadata"]["original_hash"] == new_full_hash
+    contents = [
+        memory["content"] for memory in test_app.get("/api/memories").json()["memories"]
+    ]
+    assert contents.count(middle) == 2
+    assert "changed tail" in contents
+
+
+@pytest.mark.integration
+def test_update_memory_fallback_merges_supplied_metadata(
+    test_app, initialized_storage, monkeypatch
+):
+    """Content edits on fallback backends retain metadata omitted by the request."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post(
+        "/api/memories",
+        json={
+            "content": "original",
+            "metadata": {"source": "keep", "conversation_id": "old"},
+        },
+    )
+    old_hash = stored.json()["content_hash"]
+
+    response = test_app.put(
+        f"/api/memories/{old_hash}",
+        json={"content": "edited", "metadata": {"conversation_id": "new"}},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    metadata = response.json()["memory"]["metadata"]
+    assert metadata["source"] == "keep"
+    assert metadata["conversation_id"] == "new"
+
+
+@pytest.mark.integration
+def test_update_memory_split_keeps_repeated_chunks_in_separate_rows(
+    test_app, initialized_storage, monkeypatch
+):
+    """Repeated text at two positions must not reuse and overwrite one row."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    stored = test_app.post("/api/memories", json={"content": "short"})
+    old_hash = stored.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: ["same", "same", "tail"],
+    )
+
+    response = test_app.put(f"/api/memories/{old_hash}", json={"content": "same same tail"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    assert len(listed) == 3
+    assert [memory["content"] for memory in listed].count("same") == 2
+    assert len({memory["content_hash"] for memory in listed}) == 3
+    assert sorted(memory["metadata"]["chunk_index"] for memory in listed) == [0, 1, 2]
+
+
+@pytest.mark.integration
+def test_update_memory_content_with_milvus_forwards_the_store(
+    test_app, initialized_storage, monkeypatch
+):
+    """The PUT route and service pass the selected store into Milvus versioning."""
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.storage.milvus import MilvusMemoryStorage
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    original = Memory(
+        content="Milvus original",
+        content_hash=generate_content_hash("Milvus original"),
+        tags=["original"],
+        memory_type="note",
+    )
+    updated = Memory(
+        content="Milvus edited",
+        content_hash=generate_content_hash("Milvus edited"),
+        tags=["original"],
+        memory_type="note",
+    )
+    storage = MilvusMemoryStorage.__new__(MilvusMemoryStorage)
+    storage._initialized = True
+    storage.client = object()
+    storage._generate_embedding = lambda _content: [0.1, 0.2, 0.3, 0.4]
+    storage._get_for_write = AsyncMock(return_value=(original, "default"))
+    storage.store = AsyncMock(return_value=(True, "Memory stored successfully"))
+    storage.update_memory_metadata = AsyncMock(return_value=(True, "ok"))
+
+    async def get_by_hash(content_hash, store=None):
+        if store not in (None, "default"):
+            return None
+        return {original.content_hash: original, updated.content_hash: updated}.get(content_hash)
+
+    storage.get_by_hash = get_by_hash
+    set_storage(storage)
+    post_store = AsyncMock()
+    monkeypatch.setattr(
+        "mcp_memory_service.services.memory_service.MemoryService._run_post_store_steps",
+        post_store,
+    )
+
+    response = test_app.put(
+        f"/api/memories/{original.content_hash}?store=default",
+        json={"content": updated.content},
+    )
+    set_storage(initialized_storage)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True
+    assert response.json()["content_hash"] == updated.content_hash
+    assert storage._get_for_write.await_args.args == (original.content_hash, "default")
+    assert storage.update_memory_metadata.await_args.kwargs["store"] == "default"

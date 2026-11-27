@@ -73,7 +73,7 @@ REUSED_STRINGS = {
 # app.js: key -> how many this.t() / setTranslatedText() calls use it.
 JS_SITES = {key: 1 for key in {**NEW_STRINGS, **REUSED_STRINGS}}
 JS_SITES.update({
-    "toast.memoryUpdatedSuccess": 2,  # metadata-only PUT and content change
+    "toast.memoryUpdatedSuccess": 1,  # shared metadata and versioned-content PUT
     "toast.memoryDetailsLoading": 2,  # 3D and 2D graph node click
     "toast.memoryDetailsLoadFailed": 2,
     "quality.noMemories": 2,  # top and bottom quality lists

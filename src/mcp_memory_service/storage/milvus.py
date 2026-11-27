@@ -3047,6 +3047,26 @@ class MilvusMemoryStorage(MemoryStorage):
         )
         return success
 
+    async def _is_current_or_versioned_ancestor(
+        self, candidate_hash: str, current_hash: str, store: str
+    ) -> bool:
+        """Return whether a row is the current version or one of its ancestors."""
+        visited = set()
+        while candidate_hash not in visited:
+            if candidate_hash == current_hash:
+                return True
+            visited.add(candidate_hash)
+            candidate = await self.get_by_hash(candidate_hash, store=store)
+            if candidate is None:
+                return False
+            successor = (candidate.metadata or {}).get("superseded_by")
+            if successor == current_hash:
+                return True
+            if not isinstance(successor, str):
+                return False
+            candidate_hash = successor
+        return False
+
     async def update_memory_versioned(
         self,
         content_hash: str,
@@ -3054,6 +3074,7 @@ class MilvusMemoryStorage(MemoryStorage):
         new_tags: Optional[List[str]] = None,
         new_memory_type: Optional[str] = None,
         reason: Optional[str] = None,
+        store: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """Non-destructive versioned update: store a new revision, supersede the old.
 
@@ -3079,7 +3100,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 except Exception as exc:  # noqa: BLE001
                     return False, f"Failed to generate embedding: {exc}", None
 
-                existing, row_store = await self._get_for_write(content_hash, None)
+                existing, row_store = await self._get_for_write(content_hash, store)
                 if existing is None:
                     return False, f"Memory {content_hash} not found", None
                 if (existing.metadata or {}).get("superseded_by") is not None:
@@ -3101,22 +3122,34 @@ class MilvusMemoryStorage(MemoryStorage):
                 inherited_metadata.pop("evolution_reason", None)
 
                 new_hash = generate_content_hash(new_content)
-                new_memory = Memory(
-                    content=new_content,
-                    content_hash=new_hash,
-                    tags=resolved_tags,
-                    memory_type=resolved_type,
-                    metadata=inherited_metadata,
-                )
-                with (
-                    _exclude_versioned_parent(content_hash),
-                    _store_with_vector(new_embedding),
-                ):
-                    # The new version stays in the old row's store, as on
-                    # sqlite_vec (mixins/metadata.py).
-                    store_ok, store_msg = await self.store(
-                        new_memory, skip_semantic_dedup=True, store=row_store
+                salt = 0
+                while True:
+                    new_memory = Memory(
+                        content=new_content,
+                        content_hash=new_hash,
+                        tags=resolved_tags,
+                        memory_type=resolved_type,
+                        metadata=inherited_metadata,
                     )
+                    with (
+                        _exclude_versioned_parent(content_hash),
+                        _store_with_vector(new_embedding),
+                    ):
+                        # The new version stays in the old row's store, as on
+                        # sqlite_vec (mixins/metadata.py).
+                        store_ok, store_msg = await self.store(
+                            new_memory, skip_semantic_dedup=True, store=row_store
+                        )
+                    if store_ok or store_msg != "Duplicate content detected (exact match)":
+                        break
+                    # Only an earlier row in this version chain may be bypassed.
+                    # An independent memory with the same text stays untouched.
+                    if not await self._is_current_or_versioned_ancestor(
+                        new_hash, content_hash, row_store
+                    ):
+                        break
+                    salt += 1
+                    new_hash = generate_content_hash(f"{new_content}\0{content_hash}\0{salt}")
                 if not store_ok:
                     return False, f"Failed to store new version: {store_msg}", None
 
@@ -3126,6 +3159,7 @@ class MilvusMemoryStorage(MemoryStorage):
                 try:
                     linked, link_message = await self.update_memory_metadata(
                         content_hash, meta_updates, preserve_timestamps=True,
+                        store=row_store,
                     )
                 except Exception as link_exc:  # noqa: BLE001
                     cleaned = await self._cleanup_unlinked_version(new_hash)

@@ -21,7 +21,7 @@ import heapq
 import logging
 import socket
 from collections import Counter
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Tuple
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
@@ -30,10 +30,17 @@ from ...storage.base import MemoryStorage
 from ...storage.mixins.base import deserialize_embedding
 from ...storage.resonance_db import ResonanceDB
 from ...models.memory import Memory
-from ...models.ontology import get_all_types
-from ...services.memory_service import MemoryService
+from ...models.ontology import coerce_memory_type, get_all_types
+from ...services.memory_service import MemoryService, _chunk_metadata
+from ...utils.hashing import generate_content_hash
+from ...utils.content_splitter import split_content
 from ...compat import _sanitize_log_value
-from ...config import INCLUDE_HOSTNAME
+from ...config import (
+    INCLUDE_HOSTNAME,
+    ENABLE_AUTO_SPLIT,
+    CONTENT_PRESERVE_BOUNDARIES,
+    CONTENT_SPLIT_OVERLAP,
+)
 # OAuth config no longer needed - auth is always enabled
 from ..dependencies import get_storage, get_memory_service
 from .store_scope import resolve_store
@@ -74,10 +81,19 @@ class MemoryCreateRequest(BaseModel):
 
 
 class MemoryUpdateRequest(BaseModel):
-    """Request model for updating memory metadata (tags, type, metadata only)."""
+    """Request model for updating memory content, tags, type, and metadata."""
+    content: Optional[str] = Field(None, description="Updated memory content, stored as a new version")
     tags: Optional[List[str]] = Field(None, description="Updated tags to categorize the memory")
     memory_type: Optional[str] = Field(None, description="Updated memory type (e.g., 'note', 'reminder', 'fact')")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Updated metadata for the memory")
+
+    @field_validator("content")
+    @classmethod
+    def _content_must_not_be_blank(cls, value: Optional[str]) -> Optional[str]:
+        """Reject blank content instead of creating a zero-vector version."""
+        if value is not None and not value.strip():
+            raise ValueError("content must not be empty or whitespace-only")
+        return value
 
 
 class MemoryResponse(BaseModel):
@@ -526,19 +542,395 @@ async def delete_memory(
         raise HTTPException(status_code=500, detail="Failed to delete memory. Please try again.")
 
 
+def _build_memory_replacement(
+    existing_memory: Memory, request: MemoryUpdateRequest
+) -> Memory:
+    """Build a replacement while retaining fields omitted by the caller."""
+    inherited_metadata = dict(existing_memory.metadata or {})
+    inherited_metadata.pop("superseded_by", None)
+    inherited_metadata.pop("evolution_reason", None)
+    final_metadata = inherited_metadata
+    if request.metadata:
+        final_metadata.update(request.metadata)
+    for key in ("tags", "type"):
+        final_metadata.pop(key, None)
+    content_hash = generate_content_hash(request.content)
+    if content_hash == existing_memory.content_hash:
+        content_hash = generate_content_hash(
+            f"{request.content}\0{existing_memory.content_hash}"
+        )
+    return Memory(
+        content=request.content,
+        content_hash=content_hash,
+        tags=(
+            request.tags
+            if request.tags is not None
+            else [tag for tag in existing_memory.tags if tag != "conflict:unresolved"]
+        ),
+        memory_type=(
+            coerce_memory_type(request.memory_type)
+            if request.memory_type is not None
+            else existing_memory.memory_type
+        ),
+        metadata=final_metadata,
+    )
+
+
+async def _store_unversioned_replacement(
+    storage: MemoryStorage,
+    memory_service: MemoryService,
+    content_hash: str,
+    store: str,
+    replacement: Memory,
+) -> Tuple[bool, str, Optional[str], bool]:
+    """Store a replacement and remove its original on unversioned backends."""
+    max_length = getattr(storage, "max_content_length", None)
+    if ENABLE_AUTO_SPLIT and max_length and len(replacement.content) > max_length:
+        return await _store_unversioned_split_replacement(
+            storage, memory_service, content_hash, store, replacement, max_length
+        )
+
+    success, message = await storage.store(
+        replacement,
+        skip_semantic_dedup=True,
+        store=resolve_store(store),
+    )
+    if not success:
+        if "Duplicate content detected (exact match)" not in message:
+            return False, message, None, False
+        lookup_store = (
+            resolve_store(store)
+            if getattr(storage, "get_by_hash_is_store_scoped", False)
+            else None
+        )
+        existing = await storage.get_by_hash(replacement.content_hash, store=lookup_store)
+        # A previous attempt may have stored the replacement before the
+        # original deletion failed. Resume only when every editable field matches;
+        # another memory that merely shares the text is still a conflict.
+        if (
+            existing is None
+            or existing.content != replacement.content
+            or set(existing.tags or []) != set(replacement.tags)
+            or existing.memory_type != replacement.memory_type
+            or (existing.metadata or {}) != (replacement.metadata or {})
+        ):
+            return False, message, None, False
+        message = "Replacement already stored; retrying original deletion"
+
+    delete_success, delete_message = await storage.delete(
+        content_hash, store=resolve_store(store)
+    )
+    if not delete_success:
+        return False, (
+            f"Stored replacement {replacement.content_hash}, but failed to delete "
+            f"original memory: {delete_message}"
+        ), None, False
+
+    await memory_service._run_post_store_steps(replacement)
+    return True, message, replacement.content_hash, False
+
+
+def _owns_chunk_row(
+    existing: Optional[Memory],
+    chunk_hash: str,
+    plain_chunk_hash: str,
+    content_hash: str,
+    replacement_hash: str,
+) -> bool:
+    """Whether a split edit of content_hash may update the row at chunk_hash in place."""
+    if existing is None:
+        return False
+    return (
+        chunk_hash == content_hash
+        # A salted hash is derived from the edited memory's own hash and the
+        # chunk position, so only an earlier split edit of this memory can have
+        # written the row, whatever full text that edit carried.
+        or chunk_hash != plain_chunk_hash
+        or (existing.metadata or {}).get("original_hash") == replacement_hash
+    )
+
+
+async def _store_unversioned_split_replacement(
+    storage: MemoryStorage,
+    memory_service: MemoryService,
+    content_hash: str,
+    store: str,
+    replacement: Memory,
+    max_length: int,
+) -> Tuple[bool, str, Optional[str], bool]:
+    """Split an oversized replacement the same way store_memory() does."""
+    lookup_store = (
+        resolve_store(store)
+        if getattr(storage, "get_by_hash_is_store_scoped", False)
+        else None
+    )
+    chunks = split_content(
+        replacement.content,
+        max_length=max_length,
+        preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
+        overlap=CONTENT_SPLIT_OVERLAP,
+    )
+    stored_chunks = []
+    claimed_chunk_hashes = set()
+    original_reused = False
+    scope = (
+        {"store": resolve_store(store)}
+        if getattr(storage, "get_by_hash_is_store_scoped", False)
+        else {}
+    )
+    for index, chunk in enumerate(chunks):
+        plain_chunk_hash = generate_content_hash(chunk)
+        chunk_hash = plain_chunk_hash
+        if chunk_hash in claimed_chunk_hashes:
+            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+        existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+        can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
+            existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
+        )
+        if (
+            existing is not None
+            and not (existing.content == chunk and can_reuse)
+            and chunk_hash == plain_chunk_hash
+        ):
+            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+            existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+            can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
+                existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
+            )
+        if existing is not None and existing.content == chunk and can_reuse:
+            # Only the original row or a chunk from this replacement may be
+            # updated in place; an independent memory keeps its own fields.
+            original_reused = original_reused or chunk_hash == content_hash
+            chunk_metadata = _chunk_metadata(
+                replacement.metadata, index, len(chunks),
+                replacement.content_hash, chunk_hash,
+            )
+            if (
+                set(existing.tags or []) != set(replacement.tags)
+                or existing.memory_type != replacement.memory_type
+                or (existing.metadata or {}) != chunk_metadata
+            ):
+                fields_ok, fields_message = await storage.update_memory_metadata(
+                    chunk_hash,
+                    {
+                        "tags": replacement.tags,
+                        "memory_type": replacement.memory_type,
+                        "metadata": chunk_metadata,
+                    },
+                    preserve_timestamps=True,
+                    **scope,
+                )
+                if not fields_ok:
+                    return False, (
+                        f"Failed to apply edited fields to reused chunk: {fields_message}"
+                    ), None, False
+                existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
+            claimed_chunk_hashes.add(chunk_hash)
+            stored_chunks.append(existing)
+            continue
+        chunk_memory = Memory(
+            content=chunk,
+            content_hash=chunk_hash,
+            tags=replacement.tags,
+            memory_type=replacement.memory_type,
+            metadata=_chunk_metadata(
+                replacement.metadata, index, len(chunks),
+                replacement.content_hash, chunk_hash,
+            ),
+        )
+        success, message = await storage.store(
+            chunk_memory,
+            skip_semantic_dedup=True,
+            store=resolve_store(store),
+        )
+        if not success:
+            return False, message, None, False
+        claimed_chunk_hashes.add(chunk_hash)
+        stored_chunks.append(chunk_memory)
+
+    if not original_reused:
+        delete_success, delete_message = await storage.delete(
+            content_hash, store=resolve_store(store)
+        )
+        if not delete_success:
+            return False, (
+                f"Stored replacement chunks, but failed to delete "
+                f"original memory: {delete_message}"
+            ), None, False
+
+    for chunk_memory in stored_chunks:
+        await memory_service._run_post_store_steps(chunk_memory)
+    return True, f"Stored as {len(stored_chunks)} chunks", stored_chunks[0].content_hash, original_reused
+
+
+async def _broadcast_memory_update(
+    storage: MemoryStorage, content_hash: str, new_hash: str, store: str,
+    original_deleted: bool = True,
+) -> Optional[Memory]:
+    """Read the stored replacement and notify other dashboard clients."""
+    updated_memory = await storage.get_by_hash(new_hash, store=resolve_store(store))
+    if updated_memory is None:
+        return None
+
+    try:
+        if original_deleted:
+            old_event = create_memory_deleted_event(content_hash, True, store=store)
+            await sse_manager.broadcast_event(old_event)
+        new_event = create_memory_stored_event(
+            {
+                "content_hash": updated_memory.content_hash,
+                "content": updated_memory.content,
+                "tags": updated_memory.tags,
+                "memory_type": updated_memory.memory_type,
+            },
+            store=store,
+        )
+        await sse_manager.broadcast_event(new_event)
+    except Exception as e:
+        logger.warning(
+            "Failed to broadcast memory update events: %s",
+            _sanitize_log_value(e),
+        )
+    return updated_memory
+
+
+async def _update_memory_content(
+    storage: MemoryStorage,
+    memory_service: MemoryService,
+    content_hash: str,
+    existing_memory: Memory,
+    request: MemoryUpdateRequest,
+    store: str,
+) -> MemoryUpdateResponse:
+    """Update content through versioning or the unversioned replacement path."""
+    original_deleted = True
+    # Length check before choosing the versioned path: evolve_memory() inserts
+    # the full text as one row, which backends with a field cap (Milvus limits
+    # content to 65,535 bytes) reject. The destructive split fallback is only
+    # valid on backends without version history.
+    max_length = getattr(storage, "max_content_length", None)
+    if ENABLE_AUTO_SPLIT and max_length and len(request.content) > max_length:
+        if hasattr(storage, "update_memory_versioned"):
+            return MemoryUpdateResponse(
+                success=False,
+                message=(
+                    f"Content exceeds the {max_length}-character storage limit; "
+                    "oversized edits are not supported on versioned storage"
+                ),
+                content_hash=content_hash,
+                memory=memory_to_response(existing_memory),
+            )
+        replacement = _build_memory_replacement(existing_memory, request)
+        success, message, new_hash, original_kept = await _store_unversioned_split_replacement(
+            storage, memory_service, content_hash, store, replacement, max_length
+        )
+        original_deleted = not original_kept
+        if success and not new_hash:
+            new_hash = content_hash
+    elif hasattr(storage, "update_memory_versioned"):
+        version_store = (
+            resolve_store(store)
+            if getattr(storage, "get_by_hash_is_store_scoped", False)
+            else None
+        )
+        success, message, new_hash = await memory_service.evolve_memory(
+            content_hash,
+            request.content,
+            tags=request.tags,
+            memory_type=request.memory_type,
+            metadata=request.metadata,
+            store=version_store,
+        )
+    else:
+        replacement = _build_memory_replacement(existing_memory, request)
+        success, message, new_hash, original_kept = await _store_unversioned_replacement(
+            storage, memory_service, content_hash, store, replacement
+        )
+        original_deleted = not original_kept
+        if success and not new_hash:
+            new_hash = content_hash
+
+    if success and new_hash:
+        updated_memory = await _broadcast_memory_update(
+            storage, content_hash, new_hash, store, original_deleted=original_deleted
+        )
+        return MemoryUpdateResponse(
+            success=True,
+            message=message,
+            content_hash=new_hash,
+            memory=memory_to_response(updated_memory) if updated_memory else None,
+        )
+    return MemoryUpdateResponse(
+        success=False,
+        message=message,
+        content_hash=content_hash,
+    )
+
+
+async def _update_memory_metadata_fields(
+    storage: MemoryStorage,
+    content_hash: str,
+    existing_memory: Memory,
+    request: MemoryUpdateRequest,
+    store: str,
+) -> MemoryUpdateResponse:
+    """Apply non-content fields without changing the memory hash."""
+    updates = {}
+    if request.tags is not None:
+        updates["tags"] = request.tags
+    if request.memory_type is not None:
+        updates["memory_type"] = request.memory_type
+    if request.metadata is not None:
+        updates["metadata"] = request.metadata
+    if not updates:
+        return MemoryUpdateResponse(
+            success=True,
+            message="No updates provided - memory unchanged",
+            content_hash=content_hash,
+            memory=memory_to_response(existing_memory),
+        )
+
+    scope = (
+        {"store": resolve_store(store)}
+        if getattr(storage, "get_by_hash_is_store_scoped", False)
+        else {}
+    )
+    success, message = await storage.update_memory_metadata(
+        content_hash=content_hash,
+        updates=updates,
+        preserve_timestamps=True,
+        **scope,
+    )
+    if not success:
+        return MemoryUpdateResponse(
+            success=False,
+            message=message,
+            content_hash=content_hash,
+        )
+
+    updated_memory = await storage.get_by_hash(content_hash)
+    return MemoryUpdateResponse(
+        success=True,
+        message=message,
+        content_hash=content_hash,
+        memory=memory_to_response(updated_memory) if updated_memory else None,
+    )
+
+
 @router.put("/memories/{content_hash}", response_model=MemoryUpdateResponse, tags=["memories"])
 async def update_memory(
     content_hash: str,
     request: MemoryUpdateRequest,
     store: str = Query("default", description="Target store partition (default: 'default'). Use 'all' for every store."),
     storage: MemoryStorage = Depends(get_storage),
+    memory_service: MemoryService = Depends(get_memory_service),
     user: AuthenticationResult = Depends(require_store_write)
 ):
-    """
-    Update memory metadata (tags, type, metadata) without changing content or timestamps.
+    """Update a memory in place, or store changed content as its next version.
 
-    This endpoint allows updating only the metadata aspects of a memory while preserving
-    the original content and creation timestamp. Only provided fields will be updated.
+    Tags, type, and metadata updates preserve the content and creation timestamp.
+    Changed content uses versioned updates when supported. Other backends store a
+    replacement and delete the original without semantic deduplication.
     """
     if store == "all":
         raise HTTPException(
@@ -552,54 +944,14 @@ async def update_memory(
         if not existing_memory:
             raise HTTPException(status_code=404, detail=f"Memory with hash {content_hash} not found")
 
-        # Build the updates dictionary with only provided fields
-        updates = {}
-        if request.tags is not None:
-            updates['tags'] = request.tags
-        if request.memory_type is not None:
-            updates['memory_type'] = request.memory_type
-        if request.metadata is not None:
-            updates['metadata'] = request.metadata
-
-        # If no updates provided, return current memory
-        if not updates:
-            return MemoryUpdateResponse(
-                success=True,
-                message="No updates provided - memory unchanged",
-                content_hash=content_hash,
-                memory=memory_to_response(existing_memory)
+        if request.content is not None and request.content != existing_memory.content:
+            return await _update_memory_content(
+                storage, memory_service, content_hash, existing_memory, request, store
             )
 
-        # Perform the update, confined to the store in the storage layer too
-        # (#1875). Backends that cannot confine do not accept ``store`` yet.
-        scope = (
-            {"store": resolve_store(store)}
-            if getattr(storage, "get_by_hash_is_store_scoped", False)
-            else {}
+        return await _update_memory_metadata_fields(
+            storage, content_hash, existing_memory, request, store
         )
-        success, message = await storage.update_memory_metadata(
-            content_hash=content_hash,
-            updates=updates,
-            preserve_timestamps=True,
-            **scope,
-        )
-
-        if success:
-            # Get the updated memory
-            updated_memory = await storage.get_by_hash(content_hash)
-
-            return MemoryUpdateResponse(
-                success=True,
-                message=message,
-                content_hash=content_hash,
-                memory=memory_to_response(updated_memory) if updated_memory else None
-            )
-        else:
-            return MemoryUpdateResponse(
-                success=False,
-                message=message,
-                content_hash=content_hash
-            )
 
     except HTTPException:
         raise
