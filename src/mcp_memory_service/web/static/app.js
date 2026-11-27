@@ -2226,8 +2226,7 @@ class MemoryDashboard {
     }
 
     /**
-     * Check hybrid backend sync status. The island owns the status and its
-     * actions (#2007); this only feeds it and keeps the delta-sync panel current.
+     * Check hybrid backend sync status
      */
     async checkSyncStatus() {
         // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state
