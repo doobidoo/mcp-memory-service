@@ -158,6 +158,40 @@ test('a finished sync keeps its action on the confirmation and on the settled ro
     }
 });
 
+test('a pull that completes inside a force sync keeps the row running', () => {
+    // The server sends sync_completed after the pull and uploads afterwards: the
+    // row must not offer "Sync now" while the force request is still in flight.
+    const { app, model } = syncDashboard();
+    app._lastSyncStatus = hybrid('synced');
+    app._isForceSyncing = true;
+    app.handleSyncCompleted({ synced_count: 100, total_count: 100, time_taken_seconds: 1 });
+    assert.deepEqual([model.get('sync').state, model.get('sync').progress], ['busy', 'unknown']);
+    assert.equal(actionIds(model.get('sync')), 'pause');
+});
+
+test('a second force sync does not start while one is in flight', async () => {
+    const { app, answers } = syncDashboard();
+    let forced = 0;
+    let release;
+    const calls = app.apiCall;
+    app.apiCall = async (endpoint, method) => {
+        if (endpoint !== '/sync/force') return calls(endpoint, method);
+        forced += 1;
+        await new Promise((resolve) => { release = resolve; });
+        return { success: true, operations_synced: 0, time_taken_seconds: 0 };
+    };
+    answers['/sync/status'] = [hybrid('synced')];
+    app.currentView = 'browse';
+    const first = app.forceSync();
+    await new Promise((resolve) => setImmediate(resolve));
+    await app.forceSync();
+    assert.equal(forced, 1, 'the overlapping call returned without a request');
+    assert.equal(app._isForceSyncing, true, 'and left the flag of the running one alone');
+    release();
+    await first;
+    assert.equal(app._isForceSyncing, false);
+});
+
 test('an explicit pause replaces a running row and exposes Resume', () => {
     const { app, model } = syncDashboard();
     app._lastSyncStatus = hybrid('syncing');

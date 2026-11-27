@@ -1162,6 +1162,18 @@ class MemoryDashboard {
     handleSyncCompleted(data) {
         console.log('Sync completed:', data);
 
+        // Inside a force sync this is only the pull: the upload follows in the same
+        // request, so the row stays running and forceSync() settles it at the end.
+        if (this._isForceSyncing) {
+            this._reportSync({
+                state: 'busy',
+                text: { key: 'sync.status.syncing', fallback: 'Syncing' },
+                progress: 'unknown',
+                actions: this._syncEventActions('syncing'),
+            });
+            return;
+        }
+
         const synced = { key: 'sync.status.synced', fallback: 'Synced' };
         // The poll that follows keeps this confirmation, so the row carries its own
         // actions: without them "Sync now" is gone until the next regular poll.
@@ -2835,15 +2847,17 @@ class MemoryDashboard {
      * Manually force sync to Cloudflare
      */
     async forceSync() {
+        // One force request at a time: a second one would repeat the work, and
+        // whichever finished first would clear the flag under the other.
+        if (this._isForceSyncing) return;
+        // Also keeps periodic polling from overwriting the row during the request.
+        this._isForceSyncing = true;
         this._clearOperationError('sync-request');
 
         try {
             // Check if sync was paused before force sync
             const statusBefore = await this.apiCall('/sync/status');
             const wasPaused = statusBefore.is_paused;
-
-            // Set flag to prevent periodic polling from overwriting UI during force sync
-            this._isForceSyncing = true;
 
             // The island owns the feedback now: show the run at once, since a force
             // sync may finish without a single SSE progress event.
