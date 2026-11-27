@@ -67,3 +67,32 @@ def test_row_store_lookup_ignores_a_tombstoned_row():
     conn.execute("INSERT INTO memories VALUES ('live', 'a', NULL), ('gone', 'b', 1.0)")
     assert _row_store(conn, "live") == "a"
     assert _row_store(conn, "gone") is None
+
+
+@pytest.mark.asyncio
+async def test_recreated_row_refreshes_tags_on_the_secondary(
+    hub, spoke, d1, cloudflare_storage  # noqa: F811
+):
+    """Delete + re-create with new tags before forwarding: the delete is skipped as
+    stale, the create is refused as a duplicate, and the old tags must still be replaced."""
+    memory = _memory("Recreated on the spoke with different tags.")
+    await _spoke_writes_reach_hub(spoke, hub, memory)
+    await forward_to_secondary(hub)
+
+    ok, msg = await spoke.delete(memory.content_hash)
+    assert ok, msg
+    again = _memory(memory.content)
+    again.tags = ["spoke", "recreated"]
+    ok, msg = await spoke.store(again, skip_semantic_dedup=True)
+    assert ok, msg
+    _hub_applies_spoke_log(spoke, hub)
+
+    result = await forward_to_secondary(hub)
+
+    assert result.events_failed == 0
+    tags = {r[0] for r in d1.db.execute(
+        "SELECT t.name FROM memory_tags mt JOIN tags t ON t.id = mt.tag_id "
+        "JOIN memories m ON m.id = mt.memory_id WHERE m.content_hash = ?",
+        (memory.content_hash,),
+    ).fetchall()}
+    assert tags == {"spoke", "recreated"}

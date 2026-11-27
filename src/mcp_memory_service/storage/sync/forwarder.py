@@ -109,16 +109,19 @@ class SecondaryForwarder:
             raise RuntimeError(f"delete refused: {message}")
         return "applied"
 
-    async def _forward_edit(self, memory: Any) -> str:
+    async def _apply_update(self, memory: Any) -> None:
         from ..hybrid import SyncOperation
 
         updates = {"tags": memory.tags, "memory_type": memory.memory_type,
                    "metadata": memory.metadata}
+        await self.hybrid.sync_service._process_single_operation(
+            SyncOperation(operation="update", content_hash=memory.content_hash,
+                          updates=updates, preserve_timestamps=True)
+        )
+
+    async def _forward_edit(self, memory: Any) -> str:
         try:
-            await self.hybrid.sync_service._process_single_operation(
-                SyncOperation(operation="update", content_hash=memory.content_hash,
-                              updates=updates, preserve_timestamps=True)
-            )
+            await self._apply_update(memory)
             return "applied"
         except Exception as exc:  # noqa: BLE001  maybe the secondary never got the row
             logger.debug("Update not applied on the secondary, creating: %s",
@@ -141,6 +144,10 @@ class SecondaryForwarder:
             # the hybrid queue.
             if not duplicate_is_delivered or "duplicate content" not in str(exc).lower():
                 raise
+            # A delete + re-create on a spoke can land before the delete is forwarded
+            # (the delete is skipped as stale), so the secondary still holds the OLD
+            # row: refresh its tags and metadata from the primary row before acking.
+            await self._apply_update(memory)
         return "applied"
 
     def _record(self, event: dict[str, Any]) -> None:
