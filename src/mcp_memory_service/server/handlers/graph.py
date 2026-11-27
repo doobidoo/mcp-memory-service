@@ -927,7 +927,8 @@ async def _hydrate_chunks(
     """
     chunks = []
     for h in memory_hashes:
-        mem = await storage.get_by_hash(h, store=store)
+        # ``all`` is the tools' unscoped sentinel; the storage API spells it None.
+        mem = await storage.get_by_hash(h, store=None if store == "all" else store)
         content = (mem.content or "")[:500] if mem else None
         quality = getattr(mem, "quality_score", None) if mem else None
         chunks.append({

@@ -151,6 +151,22 @@ class _Storage:
         return None
 
 
+class _StoreFilteringStorage(_Storage):
+    """Rows carry a store, and a non-None ``store`` filters on it, as SQLite does."""
+
+    def __init__(self, rows: dict[str, tuple[str, str]]):
+        super().__init__({h: content for h, (content, _) in rows.items()})
+        self._row_store = {h: row_store for h, (_, row_store) in rows.items()}
+
+    async def get_by_hash(self, content_hash, store=None):
+        self.lookup_stores.append(store)
+        if content_hash not in self._contents:
+            return None
+        if store is not None and self._row_store[content_hash] != store:
+            return None
+        return _Memory(self._contents[content_hash])
+
+
 class TestEntityReadsAreStoreScoped:
     async def test_list_entities_counts_only_the_claimed_store(self, graph):
         entities = {e["entity_name"]: e["count"] for e in await graph.list_entities(store=STORE_A)}
@@ -249,6 +265,23 @@ class TestEntityDetailIsStoreScoped:
         )
 
         assert storage.lookup_stores and set(storage.lookup_stores) == {STORE_A}
+
+    async def test_all_reads_chunk_rows_unscoped(self, graph):
+        """``store="all"`` spans every store in the graph, so the chunk rows are
+        read unscoped too. A backend that filters on ``store`` (SQLite adds
+        ``AND store = ?``) would otherwise miss every row and return no text."""
+        storage = _StoreFilteringStorage(
+            {MEM_A1: ("alpha one", STORE_A), MEM_A2: ("alpha two", STORE_A),
+             MEM_B1: ("beta one", STORE_B), MEM_B2: ("beta two", STORE_B)}
+        )
+
+        detail = await get_entity_detail(
+            storage, graph, entity_id="shared", store="all", entity_name="Shared",
+        )
+
+        assert set(storage.lookup_stores) == {None}
+        assert detail["chunks"]
+        assert all(chunk["content"] for chunk in detail["chunks"])
 
     async def test_unconfining_flag_no_longer_refuses_a_named_store(self, graph):
         """The fail-closed ValueError is gone (#2120): per-store credentials are
