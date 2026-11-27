@@ -367,7 +367,9 @@ test('the poll does not erase a running sync, whatever it answers', () => {
         assert.deepEqual([model.get('sync').state, model.get('sync').progress], ['busy', 30], `poll answered ${status}`);
     }
     app._reportSyncStatus({ ...pollDuringPull('synced'), is_paused: true });
-    assert.equal(model.get('sync').progress, 30, 'paused');
+    assert.equal(model.get('sync').state, 'ready', 'paused is an explicit answer, not a poll to ignore');
+    assert.equal(model.get('sync').text.key, 'sync.status.paused');
+    assert.equal(model.get('sync').actions.map((action) => action.id).join(','), 'resume');
 
     app.handleSyncProgress({ synced_count: 60, total_count: 100, progress_percentage: 60 });
     assert.equal(model.get('sync').progress, 60, 'the next event still moves the bar');
