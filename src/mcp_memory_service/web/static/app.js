@@ -2233,9 +2233,10 @@ class MemoryDashboard {
     /**
      * Check hybrid backend sync status
      */
-    async checkSyncStatus() {
-        // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state
-        if (this._isForceSyncing) {
+    async checkSyncStatus(force = false) {
+        // Skip UI updates during force sync to prevent periodic polling from overwriting the syncing state.
+        // An explicit pause/resume must still refresh the row while the force request is in flight.
+        if (this._isForceSyncing && !force) {
             return;
         }
 
@@ -2439,7 +2440,7 @@ class MemoryDashboard {
                     'error'
                 );
             }
-            await this.checkSyncStatus();
+            await this.checkSyncStatus(true);
         } catch (error) {
             console.error('Error pausing sync:', error);
             this.showToast(this.t('toast.syncPauseFail', 'Failed to pause sync'), 'error');
@@ -2463,7 +2464,7 @@ class MemoryDashboard {
                     'error'
                 );
             }
-            await this.checkSyncStatus();
+            await this.checkSyncStatus(true);
         } catch (error) {
             console.error('Error resuming sync:', error);
             this.showToast(this.t('toast.syncResumeFail', 'Failed to resume sync'), 'error');

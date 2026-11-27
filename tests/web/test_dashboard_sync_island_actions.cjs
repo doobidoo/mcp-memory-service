@@ -180,6 +180,17 @@ test('pause and resume work without the removed card elements', async () => {
     assert.deepEqual(app.toasts[1], ['Sync resumed', 'success']);
 });
 
+test('an explicit pause refreshes the row while a force sync is in flight', async () => {
+    const { app, model, answers } = syncDashboard();
+    app.updateDeltaSyncStatus = () => {};
+    app._isForceSyncing = true;
+    answers['/sync/status'] = [hybrid('syncing', { is_paused: true })];
+    await Object.getPrototypeOf(app).checkSyncStatus.call(app, true);
+    assert.equal(model.get('sync').state, 'ready');
+    assert.equal(model.get('sync').text.key, 'sync.status.paused');
+    assert.equal(actionIds(model.get('sync')), 'resume');
+});
+
 test('the compact control is gone from the markup and the code; the delta panel stays', () => {
     const html = fs.readFileSync(STATIC + 'index.html', 'utf8');
     for (const gone of ['id="syncControl"', 'pauseSyncButton', 'resumeSyncButton', 'forceSyncButton',
