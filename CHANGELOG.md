@@ -17,6 +17,142 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [13.1.0] - 2026-11-27
+
+### Added
+
+- **Every consolidation run is recorded as a memory, so its history survives restarts and reaches other nodes (#2097, seung-waedet).**
+  A run used to leave nothing behind but an SSE event and, for scheduled runs, an
+  in-memory list the next restart cleared, so a failed overnight run or a run on
+  another node could not be seen. `consolidate()` now stores one `consolidation-run`
+  memory per run, scheduled, manual or failed, tagged `horizon:<h>` and `node:<id>`
+  (`MCP_AGENT_ID`, else the hostname), with the report counters, the errors, the run
+  id and a new `trigger` (`scheduled` or `manual`) in its metadata. The normal sync
+  carries it to other nodes, and a failing write never fails the run. Incremental runs
+  that found nothing are not recorded. Each node keeps its newest 50 runs
+  (`MCP_CONSOLIDATION_RUN_LOG_KEEP`); set `MCP_AGENT_ID` where the hostname changes, as
+  in containers, or every new hostname starts a history of its own. Consolidation,
+  forgetting, compression and insight cards skip these memories.
+  `GET /api/consolidation/runs` (read scope) lists them newest first, filtered by
+  `node` and `horizon`.
+- **The OpenCode plugin can start the memory service when nothing answers (#2088, testx1011).**
+  `memoryService.autoStart` is off by default. With `enabled: true` the plugin runs the
+  configured argv (`["memory", "launch"]` by default, with the port taken from
+  `memoryService.endpoint`, because `memory launch` moves to a free port when the
+  configured one is taken) once the health check fails, and waits under a single
+  `startTimeoutMs` deadline before the session continues without memories. The launcher
+  runs from the user's home directory, so a cloned checkout cannot shadow `uvicorn` or
+  supply the server's `.env`, and the start decision uses the storage-free
+  `/api/health`, so a slow detailed check cannot make a running service look stopped. A
+  reachable endpoint is used as-is and a started service is never stopped: the
+  dashboard, a second editor and other MCP clients share it. The block is honoured from
+  the user configuration only, so a cloned repository cannot name the command the editor
+  runs; server settings such as `MCP_ALLOW_ANONYMOUS_ACCESS` stay in the service's own
+  `.env`.
+- **DeepSeek Harness gets a project-memory plugin (#2111, #2114).** DSH has no
+  shell hooks, so `dsh/memory-hooks/` is a Cordis bundle: on `agent/created` it
+  searches the service for the working directory's project and contributes one
+  delimited `<project-memory>` snapshot (5 results, 2000 characters) to the
+  agent's system prompt, labelled as recalled data and never as instructions.
+  Retrieval only; capture is still open. A missing or slow service is ignored, so
+  agent creation never fails because memory is unavailable.
+- **DeepSeek Harness captures turn outcomes and skips non-project directories
+  (#2111, #2115).** The `dsh/memory-hooks/` bundle now buffers each turn's human
+  prompt and assistant text through `session/event` and stores it on
+  `agent/turn-stopping` when the shared classifier matches a decision, error,
+  learning, implementation, important or code pattern. `#skip` forces a skip,
+  `#remember` forces a capture, subagent turns stay out by default, and the
+  stored memory is tagged `dsh-capture`. Project context now requires a project
+  marker (`.git`, `package.json`, `pyproject.toml`, ...) and walks up to the
+  root, so a workspace like `default-workspace` no longer gets arbitrary
+  high-scoring memories injected; `requireProjectMarker: false` restores the old
+  directory-name behaviour.
+- **`memory ontology add` / `list`, and a tool schema that names them (#2126).** The ontology has been writable at runtime since #1897 — `ontology_entries`, `storage.add_memory_type()`, and `POST /api/ontology/memory-types` — but the schema an agent reads for the `type` field named only `MCP_CUSTOM_MEMORY_TYPES`, which needs a restart and is process-wide. An agent storing `memory_type: lesson` was told to set an environment variable and never learned the overlay existed. The schema now names `memory ontology add <name>` first, and the command is new: it writes the overlay straight from the CLI against the resolved database path, so no server is needed. `memory ontology add lesson`, `memory ontology add standup --parent meeting`, `memory ontology list`. docs/memory-ontology.md now separates the runtime path from the startup one at the top of "Registering custom types" instead of leading with the env var.
+
+### Fixed
+
+- **A hybrid hub forwards the delta-sync events it applied to its Cloudflare secondary (#1506).** `apply_remote_event` writes through the primary's SQLite connection, so a spoke's create, edit or delete reached the hub and every other spoke but never D1, which silently became a partial copy holding only the hub's own writes. The scheduled sync cycle now tails the hub's `sync_events` with a persisted per-secondary cursor (the `push_cursor` table and `push_to_peer` loop spokes already use) and replays each event to the secondary: a create or edit stores or updates the current row in its store, a delete deletes it. The cursor moves only after the secondary acknowledged, so a restart or a D1 outage between "applied" and "forwarded" re-delivers instead of dropping. A hub that upgrades starts at the end of its log; the drift scan keeps the backlog. Each forwarded event is recorded in the new `secondary_forwarded` table (migration 023), the identity a later pull-side guard can check. Part 1 of 2: the pull-side echo guard follows separately.
+- **Windows dashboard restart left the old server running, and the scheduled-task wrapper misread exit codes (#1943, munjikesh).**
+  The restart background task called `sys.exit()`, which only raises `SystemExit` inside the ASGI app, so the process kept serving. It now ends with `os._exit()`: under `run_http_server_background.ps1` (marked by `MCP_WRAPPER_SUPERVISED`) with exit code 75, which the wrapper relaunches at once without using up a crash attempt or the restart delay, and unsupervised after starting a replacement. The wrapper also reads `.Handle` after `Start-Process`, because Windows PowerShell 5.1 otherwise returns `$null` for the exit code and logged even a graceful stop as an error.
+- **Milvus read paths honour the claimed store, and the backend claims store scoping (#1958, part of #1683).** Since #1962 the hash-addressed calls confine, but the eleven read paths accepted `store` and dropped it — `search_memories`, `retrieve`, `recall`, `get_all_memories`, `count_all_memories`, `get_memories_by_time_range`, `get_by_exact_content`, `get_all_tags_with_counts`, `get_memory_timestamps`, `delete_by_tags` and `get_graph_visualization_data`. A `read:<store>` credential would have searched, listed, counted and recalled across every partition, which is why `get_by_hash_is_store_scoped` stayed `False` on this backend. Each path now builds its filter through `_store_scope()`, so `None` and `"all"` stay unscoped and `"default"` confines like the other backends; a collection without the `store` field refuses a named store instead of serving every partition. The graph view reads the association collection's own `store` field from #2119 and fails closed when that collection predates it. The flag is `True` now, so `memory_explore` and `memory_detail` can take per-store grants once #2120 adds them to `STORE_CONFINED_TOOLS`.
+- **Dashboard edits no longer reject a memory as a duplicate of itself (#2044, zlg-codes).** Content changes now use the original memory's versioned-update endpoint, while tag-only edits ignore outer whitespace instead of creating a new version. Oversized edits split on every backend, Milvus stores restored text as a new version within the selected store, and reused chunks must match the edited text and fields exactly. Repeated chunks keep separate rows and position indexes.
+- **Document removal and the bulk operations no longer cover the dashboard with the
+  loading overlay (#2009).** `removeDocument()` and the four Manage bulk operations now
+  report busy to the status island on their existing sources, clear the entry on success
+  and keep their failure there, disable the triggering button while the request runs and
+  rely on it instead of `setLoading(true)`. A removal in flight is tracked per upload id,
+  so a re-render cannot start a second delete for the same document. The overlay stays on
+  the view loads, search, the document viewer and ontology writes, which the island does
+  not report.
+- **CSV files with a trailing newline keep their detected delimiter (#2093).**
+  `_detect_delimiter()` split the sample on `\n`, so a trailing newline or a blank row
+  added an empty sample line with zero delimiters, the consistency check failed and
+  detection fell back to a comma. Files separated by `;`, tab, `|` or `:` were then
+  ingested as a single column, losing the header and the table structure. The sample now
+  splits only at CSV line endings and drops blank rows.
+- **Store-scoped entity reads no longer cross partitions (#2118, part of #1880).** `memory_graph` has no store column, so every `GraphStorage` entity read was global: `list_entities`, `get_entity_profile`, `find_memories_by_entity` and `get_entities_for_memory` counted and returned links from every store, and `_discover_related_entities` walked `common_neighbors` unfiltered. A credential scoped to one store therefore received `related_entities` reachable only through another store's memories — `chunks` was already confined by post-filtering `get_by_hash`, `related_entities` was not. The graph shares its SQLite file with `memories`, so each of those reads now confines through the store of the edge's source memory, and `memory_detail` passes its claimed store down instead of scanning a `limit * 10` window and discarding the difference. `None` and `"all"` stay unscoped, so single-store installs and every unscoped caller see exactly what they saw before. `MilvusGraphStorage` accepts the same `store` keyword to keep the signature-parity guard green and returns nothing for a named store until #2119 gives its collection the field — refusing rather than serving the global answer.
+- **Milvus graph: edges carry the store, and entity reads honour it (#2119, part of #1880).** The association collection is separate from the memories, so unlike the SQLite graph (#2118) it cannot join to find out which partition an edge belongs to — and nobody who writes an edge knows it, because `Memory` carries no store and the call sites hold only the hash. The collection now has a `store` field (`VARCHAR`, `default_value="default"`, INVERTED index), and the backend resolves the store from the paired memory collection when it writes an entity link or an association. A cross-store association pair is refused, and a memory the collection does not hold falls back to the default partition — the same place an unwritten row lands — while a lookup that actually fails is refused rather than guessed. `list_entities`, `get_entity_profile`, `find_memories_by_entity`, `get_entities_for_memory` and `common_neighbors` filter on it, `None` and `"all"` stay unscoped. A collection created before the field has nothing to confine on, so a named store is refused there until it is recreated — the same decision as #1879 on the memory collection. A `shares_entity` pair that spans two stores is now unwritable on Milvus, so a rebuild over a multi-store backend stops at the first one; the graph is derived data and re-running regenerates it, and making the rebuild store-aware is #2123.
+- **A coerced memory type still pointed at the env var that needs a restart (#2127, Dhruv-Sharma29).**
+  When a store names a type the ontology does not know, the MCP `memory_store` response and
+  `POST /api/memories` warn that it was stored as `observation`. Both warnings told the caller
+  to set `MCP_CUSTOM_MEMORY_TYPES`, which only takes effect after a restart, although #2126
+  added a runtime path. They now name `memory ontology add <name>` first and keep the env var
+  as the startup alternative. To make that one-line change possible, `handle_store_memory` and
+  the REST `store_memory` were split into module-level helpers (failure handling, the response
+  message, the on-store checks); every other part of both responses is unchanged.
+- **An entity rebuild over a multi-store Milvus backend completes instead of stopping
+  after it has deleted the old edges (#2123).** Since #2119 the Milvus graph refuses a
+  `shares_entity` pair whose two memories live in different stores, and the rebuild
+  planned such pairs, deleted every entity edge, then raised on the first refused write.
+  The Milvus scan the rebuild counts now carries each row's store, and the plan drops a
+  pair whose ends are in two stores, or whose store it cannot tell, before the preview is
+  shown. The report gains `shares_entity_pairs_skipped_cross_store` and
+  `shares_entity_pairs_skipped_unknown_store`, with one warning per run. A preview now
+  reads the association collection's schema, and an unreadable schema stops the rebuild
+  before anything is deleted, with a message that names it. SQLite and hybrid are
+  unchanged.
+- **A Milvus count no longer reports purged tombstones as live memories (#2136).**
+  `count_all_memories`, `count_memories_by_tag` and the two totals in `get_stats`
+  subtracted a later tombstone scan from an earlier raw `count(*)`, so a
+  `purge_deleted()` landing between the two reads turned the deleted rows into live
+  ones for that call. The count now adds up rows that carry no tombstone instead of
+  subtracting the ones that do, so a purge between the reads has nothing to inflate.
+- **A Milvus live total is counted from one scan, so a concurrent metadata write cannot
+  count a memory twice (#2139).** The fix for #2136 still made two reads: a `count(*)`
+  over the rows whose metadata never mentions `deleted_at` and a scan of the rows that
+  do. A write that added `"deleted_at": null` between them moved a live row from the
+  first set into the second. `count_all_memories`, `count_memories_by_tag` and both
+  totals in `get_stats` now read the rows once; the price is a scan where there was a
+  `count(*)`.
+- **The dashboard's compact sync control is gone; its actions live on the status
+  island (#2007).** Pause, resume and "sync now" are now actions of the `sync`
+  source's island row, offered by the same status the row already shows: pause
+  while a sync runs, resume while paused, "sync now" the rest of the time. A
+  node without hybrid sync sees neither row nor actions, exactly as it never saw
+  the control. `forceSync()` reports the run to the island at once, since a
+  force sync may finish without a single SSE progress event, and a running sync
+  keeps its pause action across SSE progress events. The delta-sync panel stays.
+
+### Internal
+
+- **The dashboard's full-page loading overlay is removed (#2096).**
+  `setLoading()`, `this.isLoading`, the `#loadingOverlay` element and the `.loading-overlay` CSS rules never showed anything: the stylesheet hid the overlay with `display: none` and no code added the `active` class that would show it. The 24 `setLoading` calls in `app.js` and the `finally` blocks that held only a `setLoading(false)` are deleted. The `.loading-spinner` rule and the `status.loading` translation key stay, as inline spinners and settings fields still use them.
+- **DeepSeek Harness is documented as another MCP client (#2112).** DSH's
+  `dsh-mcp-client` speaks Streamable HTTP, and the service already serves MCP at
+  `/mcp` from the same core as the stdio transport; `dsh/README.md` carries the
+  profile row, the authenticated variant, the tool namespace `mcp__memory__<tool>`
+  and the TLS limit (DSH cannot accept a self-signed certificate). Automatic
+  retrieval and capture are not included: DSH 0.2.x has no shell hooks, tracked
+  in #2111.
+- **The DeepSeek Harness bundle ships a live functional test (#2116).**
+  `dsh/tests/functional-live.mjs` runs six scenarios against a real service:
+  project snapshot from a marker above the working directory, skip for a
+  directory without a marker, decision capture with tags and type, `#skip`, the
+  subagent default and a forced `#remember`. It deletes every memory it creates
+  and stays out of the CI glob because it needs a running service.
+- **`storage/sync/orchestrator.py` joins `GUARDED_MODULES` (#1146).**
+  The apply reason in the "Applied event" and "not applied" log lines, which can carry the peer's envelope data or an exception text from `apply_remote_event()`, is wrapped with `_sanitize_log_value`. A sentinel test pins the wrapper.
+
 ## [13.0.0] - 2026-11-20
 
 ### Added

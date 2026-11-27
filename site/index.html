@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v13.0.0</title>
+<title>Memory for AI Agents — REST, MCP, OAuth, CLI · mcp-memory-service v13.1.0</title>
 <meta name="description" content="Open-source, self-hosted memory for AI agents. Store decisions once and find them again by meaning, over MCP, REST or the CLI. Semantic search and a knowledge graph.">
-<meta property="og:title" content="MCP Memory Service v13.0.0">
+<meta property="og:title" content="MCP Memory Service v13.1.0">
 <meta property="og:description" content="Open-source, self-hosted memory for AI agents: MCP, REST API, OAuth 2.1, CLI and dashboard. Semantic search, knowledge graph, automatic consolidation.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="MCP Memory Service">
@@ -300,7 +300,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
       <li><a href="https://github.com/doobidoo/mcp-memory-service/wiki" target="_blank" rel="noopener">Docs</a></li>
       <li><a href="https://github.com/doobidoo/mcp-memory-service" target="_blank" rel="noopener">GitHub</a></li>
     </ul>
-    <span class="ver">v13.0</span>
+    <span class="ver">v13.1</span>
   </nav>
   <nav class="language-switcher" aria-label="Choose language">
 <!-- locale-navigation:start -->
@@ -355,7 +355,7 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
   <dl class="facts">
     <div><dt>local reads on SQLite-vec, approx.</dt><dd>5 ms</dd></div>
     <div><dt><a href="https://github.com/doobidoo/mcp-memory-service/blob/main/docs/BENCHMARKS.md" target="_blank" rel="noopener">LongMemEval R@5</a>, session mode, no LLM calls</dt><dd>86%</dd></div>
-    <div><dt>tests</dt><dd>7,047</dd></div>
+    <div><dt>tests</dt><dd>7,507</dd></div>
     <div><dt>AI apps supported</dt><dd>25+</dd></div>
   </dl>
 </div>
@@ -403,32 +403,32 @@ blockquote{font-family:var(--serif);font-weight:400;font-size:1.2rem;line-height
 
 <section class="sec" id="features">
   <div class="wrap">
-    <h2>What's new in v13.0</h2>
-    <p class="lede">Five tools are renamed to the memory_* prefix with no aliases, the HTTP compose file no longer ships a working API key, and a server can follow release tags on its own.</p>
+    <h2>What's new in v13.1</h2>
+    <p class="lede">An agent can register a memory type without a restart, every consolidation run is kept as a memory, and DeepSeek Harness and OpenCode get memory integrations.</p>
     <ul class="rel">
       <li>
-        <span class="tag">Breaking</span>
+        <span class="tag">Ontology</span>
         <div>
-          <h3>Five tools renamed to the memory_* prefix</h3>
-          <p><code>commit_session_legacy</code>, <code>get_bootstrap_profile</code>, <code>get_onboarding_guide</code>, <code>get_quarantined_memories</code> and <code>unquarantine_memory</code> are now <code>memory_commit_session</code>, <code>memory_bootstrap_profile</code>, <code>memory_onboarding_guide</code>, <code>memory_quarantine_list</code> and <code>memory_quarantine_release</code>. The old names are gone, so update prompts, allowlists and scripts. See docs/MIGRATION.md.</p>
+          <h3>Register a memory type without a restart</h3>
+          <p><code>memory ontology add lesson</code> writes the runtime overlay straight from the CLI, and the <code>type</code> field in the tool schema now names it instead of the startup-only environment variable. <code>memory ontology list</code> shows what is registered.</p>
         </div>
       </li>
       <li>
-        <span class="tag">Security</span>
+        <span class="tag">Consolidation</span>
         <div>
-          <h3>The HTTP compose file requires its own API key (GHSA-xv2j-8j5x-m228)</h3>
-          <p><code>docker-compose.http.yml</code> now fails without <code>MCP_API_KEY</code>, publishes on 127.0.0.1 unless <code>HTTP_BIND</code> is set, and the HTTP server refuses to start with a documented example key. Set your own key before upgrading.</p>
+          <h3>Every consolidation run is recorded as a memory</h3>
+          <p>Scheduled, manual and failed runs are stored with their counters and errors, reach other nodes through the normal sync, and are listed newest first at <code>GET /api/consolidation/runs</code>.</p>
         </div>
       </li>
       <li>
-        <span class="tag">Service</span>
+        <span class="tag">Integrations</span>
         <div>
-          <h3>A server follows release tags on its own</h3>
-          <p>A server that is a git checkout can follow release tags, and the dashboard update now pulls the configured ref and backs up before it changes the checkout.</p>
+          <h3>DeepSeek Harness and OpenCode</h3>
+          <p>A DeepSeek Harness plugin injects project memories into new agents and captures turn outcomes. The OpenCode plugin can start the memory service when nothing answers, off by default.</p>
         </div>
       </li>
     </ul>
-    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v13.0.0" target="_blank" rel="noopener">Full release notes for v13.0.0</a></p>
+    <p class="more"><a href="https://github.com/doobidoo/mcp-memory-service/releases/tag/v13.1.0" target="_blank" rel="noopener">Full release notes for v13.1.0</a></p>
   </div>
 </section>
 
