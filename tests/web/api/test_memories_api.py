@@ -1434,3 +1434,46 @@ def test_update_memory_content_with_milvus_forwards_the_store(
     assert response.json()["content_hash"] == updated.content_hash
     assert storage._get_for_write.await_args.args == (original.content_hash, "default")
     assert storage.update_memory_metadata.await_args.kwargs["store"] == "default"
+
+
+@pytest.mark.integration
+def test_update_memory_split_edit_replaces_the_previous_edit_chunks(
+    test_app, initialized_storage, monkeypatch
+):
+    """A second oversized edit leaves only its own chunks in the store (#2143)."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    chunks = ["target original", "middle", "tail"]
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: list(chunks),
+    )
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": "\n\n".join(chunks)}
+    )
+    assert first.status_code == 200, first.text
+    old_tail_hash = generate_content_hash("tail")
+    assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 200
+
+    chunks[2] = "changed tail"
+    second = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": "\n\n".join(chunks)}
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    new_full_hash = generate_content_hash("\n\n".join(chunks))
+    assert sorted(
+        (memory["content"], memory["metadata"]["chunk_index"]) for memory in listed
+    ) == [("changed tail", 2), ("middle", 1), ("target original", 0)]
+    assert {memory["metadata"]["original_hash"] for memory in listed} == {new_full_hash}
+    assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 404

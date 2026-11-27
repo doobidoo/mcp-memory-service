@@ -224,7 +224,12 @@ def _with_chunk_dedup(response: dict, decisions: List[Dict[str, Any]]) -> dict:
 
 
 def _chunk_metadata(
-    metadata: Dict[str, Any], index: int, total: int, content_hash: str, chunk_hash: str
+    metadata: Dict[str, Any],
+    index: int,
+    total: int,
+    content_hash: str,
+    chunk_hash: str,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Metadata for one chunk of a split memory."""
     chunk_metadata = dict(metadata, chunk_index=index, total_chunks=total, original_hash=content_hash)
@@ -233,6 +238,8 @@ def _chunk_metadata(
     # time is read as describing other text.
     if chunk_metadata.get("source_content_hash") == content_hash:
         chunk_metadata["source_content_hash"] = chunk_hash
+    if extra:
+        chunk_metadata.update(extra)
     return chunk_metadata
 
 
