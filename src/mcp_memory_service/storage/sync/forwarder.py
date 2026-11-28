@@ -22,6 +22,7 @@ Passport
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from typing import Any
 
@@ -48,6 +49,58 @@ def _row_store(conn, content_hash: str) -> str | None:
     return row[0] if row else None
 
 
+_ECHO_OPS = {"delete": ("delete",), "edit": ("create", "update", "update_metadata")}
+_ECHO_CHUNK = 500  # hashes per lookup, under SQLite's bound-parameter limit
+# How long an unacknowledged forward can still own a D1 stamp. It covers a hub that died
+# between the secondary's ack and its own record and retries on the next sync cycle;
+# after that a pending row stops silencing changes to its hash.
+PENDING_ECHO_WINDOW = 3600.0
+
+
+def forwarded_echoes(primary: Any, secondary: Any, stamps: dict[str, float], kind: str) -> set[str]:
+    """Hashes whose secondary state is only the echo of the hub's own forward.
+
+    The pull sees a memory row or a tombstone, not an event, so it cannot tell a spoke
+    edit the hub forwarded from an edit an outside machine made on D1. D1 stamps the
+    forwarded write (``updated_at`` on a tag change, ``deleted_at`` on a delete) with
+    the hub's clock, inside the window ``SecondaryForwarder`` records around the call:
+    ``started_at`` before the secondary is called, ``forwarded_at`` after it
+    acknowledged. A stamp inside that window was written by the forward. A forward
+    still pending (``acked = 0``: in flight, or the hub died between the secondary's
+    ack and its own record) owns stamps up to ``PENDING_ECHO_WINDOW`` after it started.
+
+    ``kind`` is ``"delete"`` (tombstones) or ``"edit"`` (rows newer than the hub's).
+    Returns an empty set when the hub predates the forward table (no forwarder ran);
+    any other database error is raised, so a busy database cannot switch the guard off.
+    """
+    conn = getattr(primary, "conn", None)
+    if conn is None or not stamps:
+        return set()
+    ops = _ECHO_OPS[kind]
+    sid = secondary_id_for(secondary)
+    hashes = list(stamps)
+    echoes: set[str] = set()
+    try:
+        for i in range(0, len(hashes), _ECHO_CHUNK):
+            chunk = hashes[i:i + _ECHO_CHUNK]
+            rows = conn.execute(
+                "SELECT content_hash, started_at, forwarded_at, acked FROM secondary_forwarded "
+                f"WHERE secondary_id = ? AND op IN ({','.join('?' * len(ops))}) "
+                f"AND content_hash IN ({','.join('?' * len(chunk))}) AND started_at IS NOT NULL",
+                (sid, *ops, *chunk),
+            ).fetchall()
+            for content_hash, started_at, forwarded_at, acked in rows:
+                stamp = stamps[content_hash]
+                end = started_at + PENDING_ECHO_WINDOW if not acked else forwarded_at
+                if started_at <= stamp <= end:
+                    echoes.add(content_hash)
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc) or "no such column" in str(exc):
+            return set()  # migrations 023/024 not applied: no forwarder ever ran here
+        raise
+    return echoes
+
+
 class SecondaryForwarder:
     """``PushPeerAdapter`` whose peer is the hybrid hub's own secondary backend."""
 
@@ -62,6 +115,7 @@ class SecondaryForwarder:
         failed = 0
         for event in events:
             try:
+                self._begin(event)
                 status = await self._forward_one(event)
             except Exception as exc:  # noqa: BLE001  the cursor must stop at the first failure
                 logger.warning(
@@ -150,18 +204,49 @@ class SecondaryForwarder:
             await self._apply_update(memory)
         return "applied"
 
-    def _record(self, event: dict[str, Any]) -> None:
-        """Remember which event put which (hash, op) on the secondary."""
+    def _begin(self, event: dict[str, Any]) -> None:
+        """Mark the forward as in flight BEFORE the secondary is called.
+
+        The pull's echo guard needs the window D1 may stamp in. Writing it first means a
+        pull that runs mid-forward, or after a crash between the secondary's ack and
+        ``_record``, still sees the forward. A retry keeps the earliest ``started_at``,
+        since a crashed attempt may already have stamped D1.
+        """
         s = _sqlite(self.hybrid)
+        now = time.time()
         with _sync_lock(self.hybrid):
             s.conn.execute(
                 """
-                INSERT OR REPLACE INTO secondary_forwarded
-                    (secondary_id, agent_id, event_id, content_hash, op, forwarded_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO secondary_forwarded
+                    (secondary_id, agent_id, event_id, content_hash, op, forwarded_at,
+                     started_at, acked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT (secondary_id, agent_id, event_id) DO UPDATE SET
+                    started_at = MIN(COALESCE(started_at, excluded.started_at),
+                                     excluded.started_at),
+                    acked = 0
                 """,
                 (self.secondary_id, event.get("agent_id") or "unknown", event["event_id"],
-                 event["content_hash"], event["op"], time.time()),
+                 event["content_hash"], event["op"], now, now),
+            )
+            s.conn.commit()
+
+    def _record(self, event: dict[str, Any]) -> None:
+        """Remember which event put which (hash, op) on the secondary, and close its window."""
+        s = _sqlite(self.hybrid)
+        now = time.time()
+        with _sync_lock(self.hybrid):
+            s.conn.execute(
+                """
+                INSERT INTO secondary_forwarded
+                    (secondary_id, agent_id, event_id, content_hash, op, forwarded_at,
+                     started_at, acked)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                ON CONFLICT (secondary_id, agent_id, event_id) DO UPDATE SET
+                    forwarded_at = excluded.forwarded_at, acked = 1
+                """,
+                (self.secondary_id, event.get("agent_id") or "unknown", event["event_id"],
+                 event["content_hash"], event["op"], now, now),
             )
             s.conn.commit()
 

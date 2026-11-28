@@ -359,6 +359,21 @@ async def _fetch_secondary_sync_state(secondary) -> Optional[Dict[str, Any]]:
     return {"live_hashes": live_hashes, "tombstones": tombstones}
 
 
+def _without_forwarded_echoes(primary, secondary, tombstones: Dict[str, float]) -> Dict[str, float]:
+    """Drop the tombstones a hybrid hub wrote on its secondary by forwarding a delete (#1506).
+
+    D1 stamps a forwarded delete with the time of the forward, which can be later than a
+    re-create the hub applied since; applying that tombstone would delete the live row.
+    """
+    from .sync.forwarder import forwarded_echoes
+
+    echoes = forwarded_echoes(primary, secondary, tombstones, "delete")
+    if not echoes:
+        return tombstones
+    logger.debug("Skipping %s tombstones the hub forwarded itself", len(echoes))
+    return {h: t for h, t in tombstones.items() if h not in echoes}
+
+
 async def _reconcile_remote_tombstones(
     primary,
     tombstones: Dict[str, float],
@@ -718,7 +733,9 @@ class BackgroundSyncService:
             remote_tombstones = sync_state['tombstones']
             conflicts: Set[str] = set()
             tombstone_counts = await _reconcile_remote_tombstones(
-                self.primary, remote_tombstones, conflicts
+                self.primary,
+                _without_forwarded_echoes(self.primary, self.secondary, remote_tombstones),
+                conflicts,
             )
             undelivered_restores = _select_undelivered_restores(
                 primary_memories, remote_tombstones, conflicts
@@ -1403,6 +1420,13 @@ class BackgroundSyncService:
         except Exception as e:
             logger.error("Error during periodic sync: %s", _sanitize_log_value(e))
 
+    def _is_forwarded_edit_echo(self, content_hash: str, cf_updated_at: float) -> bool:
+        from .sync.forwarder import forwarded_echoes
+
+        return bool(forwarded_echoes(
+            self.primary, self.secondary, {content_hash: cf_updated_at}, "edit"
+        ))
+
     async def _detect_and_sync_drift(self, dry_run: bool = False) -> Dict[str, int]:
         """
         Detect and sync memories with divergent metadata between backends.
@@ -1482,6 +1506,13 @@ class BackgroundSyncService:
                     local_updated_at = local_memory.updated_at or 0
 
                     # Allow 1 second tolerance for timestamp precision
+                    if cf_updated_at - local_updated_at > 1.0 and self._is_forwarded_edit_echo(
+                        cf_memory.content_hash, cf_updated_at
+                    ):
+                        # D1 stamped the hub's own forwarded edit later than the hub's
+                        # row (#1506): not a remote change, nothing to pull.
+                        continue
+
                     if abs(cf_updated_at - local_updated_at) > 1.0:
                         stats['drift_detected'] += 1
                         logger.debug("Drift detected for %s: Cloudflare=%.2f, Local=%.2f", _sanitize_log_value(cf_memory.content_hash[:8]), cf_updated_at, local_updated_at)
@@ -1809,7 +1840,10 @@ class HybridMemoryStorage(MemoryStorage):
                     )
                 else:
                     tombstone_counts = await _reconcile_remote_tombstones(
-                        self.primary, sync_state['tombstones']
+                        self.primary,
+                        _without_forwarded_echoes(
+                            self.primary, self.secondary, sync_state['tombstones']
+                        ),
                     )
 
             # Get memory count from both storages to compare
