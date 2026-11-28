@@ -1506,18 +1506,18 @@ class BackgroundSyncService:
                     local_updated_at = local_memory.updated_at or 0
 
                     # Allow 1 second tolerance for timestamp precision
+                    if cf_updated_at - local_updated_at > 1.0 and self._is_forwarded_edit_echo(
+                        cf_memory.content_hash, cf_updated_at
+                    ):
+                        # D1 stamped the hub's own forwarded edit later than the hub's
+                        # row (#1506): not a remote change, nothing to pull.
+                        continue
+
                     if abs(cf_updated_at - local_updated_at) > 1.0:
                         stats['drift_detected'] += 1
                         logger.debug("Drift detected for %s: Cloudflare=%.2f, Local=%.2f", _sanitize_log_value(cf_memory.content_hash[:8]), cf_updated_at, local_updated_at)
 
                         # Use "newer timestamp wins" strategy
-                        if cf_updated_at > local_updated_at and self._is_forwarded_edit_echo(
-                            cf_memory.content_hash, cf_updated_at
-                        ):
-                            # D1 stamped the hub's own forwarded edit later than the
-                            # hub's row (#1506): not a remote change, nothing to pull.
-                            stats['drift_detected'] -= 1
-                            continue
                         if cf_updated_at > local_updated_at:
                             # Cloudflare is newer - update local
                             if not dry_run:
