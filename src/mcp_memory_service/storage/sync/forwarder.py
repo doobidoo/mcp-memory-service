@@ -22,6 +22,7 @@ Passport
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from typing import Any
 
@@ -46,6 +47,44 @@ def _row_store(conn, content_hash: str) -> str | None:
         "SELECT store FROM memories WHERE content_hash = ? AND deleted_at IS NULL", (content_hash,)
     ).fetchone()
     return row[0] if row else None
+
+
+_ECHO_OPS = {"delete": ("delete",), "edit": ("create", "update_metadata")}
+
+
+def forwarded_echoes(primary: Any, secondary: Any, stamps: dict[str, float], kind: str) -> set[str]:
+    """Hashes whose secondary state is only the echo of the hub's own forward.
+
+    The pull sees a memory row or a tombstone, not an event, so it cannot tell a spoke
+    edit the hub forwarded from an edit an outside machine made on D1. D1 stamps the
+    forwarded write (``updated_at`` on a tag change, ``deleted_at`` on a delete) with
+    the hub's clock, and ``_record`` writes ``forwarded_at`` with the same clock right
+    after the secondary acknowledged. A stamp at or before ``forwarded_at`` of a
+    matching forward was therefore written by that forward; a later one came from
+    somewhere else and still applies.
+
+    ``kind`` is ``"delete"`` (tombstones) or ``"edit"`` (rows newer than the hub's).
+    Returns an empty set when the hub has no forward table (no forwarder ran).
+    """
+    conn = getattr(primary, "conn", None)
+    if conn is None or not stamps:
+        return set()
+    ops = _ECHO_OPS[kind]
+    sid = secondary_id_for(secondary)
+    marks = ",".join("?" * len(ops))
+    echoes: set[str] = set()
+    try:
+        for content_hash, stamp in stamps.items():
+            row = conn.execute(
+                f"SELECT 1 FROM secondary_forwarded WHERE secondary_id = ? AND content_hash = ? "
+                f"AND op IN ({marks}) AND forwarded_at >= ? LIMIT 1",
+                (sid, content_hash, *ops, stamp),
+            ).fetchone()
+            if row:
+                echoes.add(content_hash)
+    except sqlite3.OperationalError:  # table absent: migration 023 not applied here
+        return set()
+    return echoes
 
 
 class SecondaryForwarder:
