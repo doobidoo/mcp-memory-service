@@ -51,6 +51,10 @@ def _row_store(conn, content_hash: str) -> str | None:
 
 _ECHO_OPS = {"delete": ("delete",), "edit": ("create", "update", "update_metadata")}
 _ECHO_CHUNK = 500  # hashes per lookup, under SQLite's bound-parameter limit
+# How long an unacknowledged forward can still own a D1 stamp. It covers a hub that died
+# between the secondary's ack and its own record and retries on the next sync cycle;
+# after that a pending row stops silencing changes to its hash.
+PENDING_ECHO_WINDOW = 3600.0
 
 
 def forwarded_echoes(primary: Any, secondary: Any, stamps: dict[str, float], kind: str) -> set[str]:
@@ -63,7 +67,7 @@ def forwarded_echoes(primary: Any, secondary: Any, stamps: dict[str, float], kin
     ``started_at`` before the secondary is called, ``forwarded_at`` after it
     acknowledged. A stamp inside that window was written by the forward. A forward
     still pending (``acked = 0``: in flight, or the hub died between the secondary's
-    ack and its own record) has no upper bound yet.
+    ack and its own record) owns stamps up to ``PENDING_ECHO_WINDOW`` after it started.
 
     ``kind`` is ``"delete"`` (tombstones) or ``"edit"`` (rows newer than the hub's).
     Returns an empty set when the hub predates the forward table (no forwarder ran);
@@ -87,7 +91,8 @@ def forwarded_echoes(primary: Any, secondary: Any, stamps: dict[str, float], kin
             ).fetchall()
             for content_hash, started_at, forwarded_at, acked in rows:
                 stamp = stamps[content_hash]
-                if stamp >= started_at and (not acked or stamp <= forwarded_at):
+                end = started_at + PENDING_ECHO_WINDOW if not acked else forwarded_at
+                if started_at <= stamp <= end:
                     echoes.add(content_hash)
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc) or "no such column" in str(exc):

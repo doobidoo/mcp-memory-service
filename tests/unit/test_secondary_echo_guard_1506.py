@@ -276,3 +276,27 @@ async def test_a_failure_to_open_the_window_counts_as_a_failed_forward(
 
     assert result.events_failed == 1
     assert d1.row(memory.content_hash) is None  # nothing reached D1 without a window
+
+
+def test_a_stale_pending_forward_stops_silencing_its_hash():
+    import sqlite3
+
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE secondary_forwarded (secondary_id TEXT, agent_id TEXT, event_id TEXT, "
+        "content_hash TEXT, op TEXT, forwarded_at REAL, started_at REAL, acked INTEGER)"
+    )
+
+    class _Primary:
+        conn = db
+
+    class _Secondary:
+        pass
+
+    sid = forwarder_module.secondary_id_for(_Secondary())
+    db.execute("INSERT INTO secondary_forwarded VALUES (?, 'a', 'e', 'h', 'delete', 1000.0, 1000.0, 0)", (sid,))
+    window = forwarder_module.PENDING_ECHO_WINDOW
+
+    assert forwarder_module.forwarded_echoes(_Primary(), _Secondary(), {"h": 1005.0}, "delete") == {"h"}
+    later = {"h": 1000.0 + window + 1}  # an outside delete long after the forward died
+    assert forwarder_module.forwarded_echoes(_Primary(), _Secondary(), later, "delete") == set()
