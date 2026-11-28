@@ -109,8 +109,8 @@ class SecondaryForwarder:
         results: list[dict[str, Any]] = []
         failed = 0
         for event in events:
-            self._begin(event)
             try:
+                self._begin(event)
                 status = await self._forward_one(event)
             except Exception as exc:  # noqa: BLE001  the cursor must stop at the first failure
                 logger.warning(

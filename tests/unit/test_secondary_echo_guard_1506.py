@@ -238,3 +238,42 @@ def test_a_busy_database_does_not_switch_the_guard_off(cloudflare_storage):  # n
 
     with pytest.raises(sqlite3.OperationalError):
         forwarder_module.forwarded_echoes(_Primary(), cloudflare_storage, {"h": 1.0}, "delete")
+
+
+def test_migration_024_gives_part_1_rows_a_window():
+    import pathlib
+    import sqlite3
+
+    migrations = pathlib.Path(forwarder_module.__file__).parents[1] / "migrations"
+    db = sqlite3.connect(":memory:")
+    db.executescript((migrations / "023_add_secondary_forwarded.sql").read_text(encoding="utf-8"))
+    db.execute("INSERT INTO secondary_forwarded VALUES ('s', 'a', 'e', 'h', 'delete', 1000.0)")
+    db.executescript((migrations / "024_add_secondary_forwarded_window.sql").read_text(encoding="utf-8"))
+
+    class _Primary:
+        conn = db
+
+    class _Secondary:
+        pass
+
+    db.execute("UPDATE secondary_forwarded SET secondary_id = ?", (forwarder_module.secondary_id_for(_Secondary()),))
+    assert db.execute("SELECT started_at, acked FROM secondary_forwarded").fetchone() == (700.0, 1)
+    assert forwarder_module.forwarded_echoes(_Primary(), _Secondary(), {"h": 999.0}, "delete") == {"h"}
+    assert forwarder_module.forwarded_echoes(_Primary(), _Secondary(), {"h": 1001.0}, "delete") == set()
+
+
+@pytest.mark.asyncio
+async def test_a_failure_to_open_the_window_counts_as_a_failed_forward(
+    hub, spoke, d1, cloudflare_storage, monkeypatch  # noqa: F811
+):
+    memory = _memory("The hub database is busy when the forward starts.")
+    await _spoke_writes_reach_hub(spoke, hub, memory)
+
+    def _busy(self, event):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(forwarder_module.SecondaryForwarder, "_begin", _busy)
+    result = await forward_to_secondary(hub)
+
+    assert result.events_failed == 1
+    assert d1.row(memory.content_hash) is None  # nothing reached D1 without a window
