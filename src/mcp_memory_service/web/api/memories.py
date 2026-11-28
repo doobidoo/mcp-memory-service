@@ -739,11 +739,17 @@ def _split_chunk_metadata(
     ledger: List[str],
 ) -> Dict[str, Any]:
     """Metadata of one chunk of a split edit, with the markers a later edit needs."""
+    # _chunk_metadata() copies whatever the replacement carries, and on a second
+    # edit that is a later chunk whose metadata still holds chunk 0's list. Left in,
+    # every chunk would name the whole family, and an edit of one of them would clean
+    # up rows it does not own. The list belongs to chunk 0 of this edit only.
+    inherited = dict(replacement.metadata or {})
+    inherited.pop(SPLIT_CHUNKS_KEY, None)
     extra = {SPLIT_OF_KEY: split_of}
     if index == 0:
         extra[SPLIT_CHUNKS_KEY] = ledger
     return _chunk_metadata(
-        replacement.metadata, index, total,
+        inherited, index, total,
         replacement.content_hash, chunk_hash, extra,
     )
 
@@ -836,9 +842,13 @@ async def _store_unversioned_split_replacement(
         content_hash, replacement.content_hash, split_of,
     )
     ledger = [chunk_hash for _chunk, chunk_hash, _existing in planned]
+    stale_hashes = sorted(previous_split_hashes - set(ledger) - {content_hash})
+    # The rows waiting to be deleted stay named on chunk 0 until they are gone. A
+    # delete that fails leaves them in the store, and a retry that reads only the new
+    # list would never look at them again and report success.
     written, message, stored_chunks, original_reused = await _write_split_chunks(
         storage, planned, replacement, content_hash,
-        store, lookup_store, split_of, ledger,
+        store, lookup_store, split_of, ledger + stale_hashes,
     )
     if not written:
         return False, message, None, False
@@ -850,8 +860,10 @@ async def _store_unversioned_split_replacement(
     # this one. Its ledger is the authority then, and removing a chunk it kept would
     # leave the saved list pointing at a row that is gone. So the generation is read
     # back first: only the edit whose ledger is still on the row cleans up.
-    if previous_split_hashes and await _owns_current_generation(storage, lookup_store, ledger):
-        for stale_hash in sorted(previous_split_hashes - set(ledger) - {content_hash}):
+    if stale_hashes and await _owns_current_generation(
+        storage, lookup_store, ledger + stale_hashes
+    ):
+        for stale_hash in stale_hashes:
             stale = await storage.get_by_hash(stale_hash, store=lookup_store)
             if stale is None or (stale.metadata or {}).get(SPLIT_OF_KEY) != split_of:
                 continue
@@ -862,6 +874,24 @@ async def _store_unversioned_split_replacement(
                 return False, (
                     f"Stored replacement chunks, but failed to delete chunk "
                     f"{stale_hash} of the previous edit: {delete_message}"
+                ), None, False
+
+        # Those rows are gone, so the list stops naming them: it keeps describing what
+        # the store holds instead of growing by one entry per edit.
+        owner = await storage.get_by_hash(ledger[0], store=lookup_store)
+        if owner is not None:
+            trimmed = dict(owner.metadata or {})
+            trimmed[SPLIT_CHUNKS_KEY] = list(ledger)
+            trimmed_ok, trimmed_message = await storage.update_memory_metadata(
+                ledger[0],
+                {"metadata": trimmed},
+                preserve_timestamps=True,
+                store=resolve_store(store),
+            )
+            if not trimmed_ok:
+                return False, (
+                    f"Deleted the previous chunks, but failed to trim the chunk "
+                    f"list: {trimmed_message}"
                 ), None, False
 
     if not original_reused:

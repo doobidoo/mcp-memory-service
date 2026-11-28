@@ -1477,6 +1477,13 @@ def test_update_memory_split_edit_replaces_the_previous_edit_chunks(
     ) == [("changed tail", 2), ("middle", 1), ("target original", 0)]
     assert {memory["metadata"]["original_hash"] for memory in listed} == {new_full_hash}
     assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 404
+    # Only chunk 0 carries the list: a later chunk that copied it would send its own
+    # edit after the whole family (#2143).
+    for memory in listed:
+        if memory["metadata"]["chunk_index"] == 0:
+            assert memory["metadata"]["split_chunk_hashes"]
+        else:
+            assert "split_chunk_hashes" not in memory["metadata"]
 
 @pytest.mark.integration
 async def test_owns_current_generation_only_for_the_ledger_on_the_row(initialized_storage):
@@ -1512,3 +1519,24 @@ async def test_owns_current_generation_only_for_the_ledger_on_the_row(initialize
     assert await _owns_current_generation(initialized_storage, None, [second, first]) is False
     assert await _owns_current_generation(initialized_storage, None, [first]) is False
     assert await _owns_current_generation(initialized_storage, None, []) is False
+
+def test_split_chunk_metadata_does_not_inherit_the_chunk_list():
+    """A later chunk must not copy chunk 0's list out of the replacement (#2143)."""
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.web.api.memories import (
+        SPLIT_CHUNKS_KEY,
+        _split_chunk_metadata,
+    )
+
+    replacement = Memory(
+        content="edited",
+        content_hash="full-hash",
+        metadata={SPLIT_CHUNKS_KEY: ["chunk-0", "chunk-1"], "kept": "yes"},
+    )
+    ledger = ["chunk-0", "chunk-1"]
+    first = _split_chunk_metadata(replacement, 0, 2, "chunk-0", "generation", ledger)
+    second = _split_chunk_metadata(replacement, 1, 2, "chunk-1", "generation", ledger)
+
+    assert first[SPLIT_CHUNKS_KEY] == ledger
+    assert SPLIT_CHUNKS_KEY not in second
+    assert second["kept"] == "yes"
