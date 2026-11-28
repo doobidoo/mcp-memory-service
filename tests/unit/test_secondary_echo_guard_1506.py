@@ -194,3 +194,47 @@ async def test_outside_delete_on_the_secondary_after_a_forward_still_applies(
 
     state = await hub.primary.get_sync_state_for_hash(memory.content_hash)
     assert state is None or state[1] is not None  # the outside delete reached the hub
+
+
+@pytest.mark.asyncio
+async def test_delete_echo_is_recognised_after_a_crash_before_the_hub_recorded_it(
+    hub, spoke, d1, monkeypatch  # noqa: F811
+):
+    memory = _memory("D1 took the delete, then the hub died before writing it down.")
+    await _spoke_writes_reach_hub(spoke, hub, memory)
+    await forward_to_secondary(hub)
+    ok, msg = await spoke.delete(memory.content_hash)
+    assert ok, msg
+    _hub_applies_spoke_log(spoke, hub)
+    ok, msg = await spoke.store(_memory(memory.content), skip_semantic_dedup=True)
+    assert ok, msg
+
+    def _crash(self, event):
+        raise RuntimeError("hub died after the secondary acknowledged")
+
+    record = forwarder_module.SecondaryForwarder._record
+    monkeypatch.setattr(forwarder_module.SecondaryForwarder, "_record", _crash)
+    with pytest.raises(RuntimeError):
+        await _forward_late(hub, monkeypatch)
+    monkeypatch.setattr(forwarder_module.SecondaryForwarder, "_record", record)
+    assert d1.row(memory.content_hash)["deleted_at"] is not None  # D1 has the tombstone
+    _hub_applies_spoke_log(spoke, hub)  # the re-create arrives; pull runs before a retry
+
+    await _pull(hub)
+
+    state = await hub.primary.get_sync_state_for_hash(memory.content_hash)
+    assert state is not None and state[1] is None
+
+
+def test_a_busy_database_does_not_switch_the_guard_off(cloudflare_storage):  # noqa: F811
+    import sqlite3
+
+    class _Busy:
+        def execute(self, *args):
+            raise sqlite3.OperationalError("database is locked")
+
+    class _Primary:
+        conn = _Busy()
+
+    with pytest.raises(sqlite3.OperationalError):
+        forwarder_module.forwarded_echoes(_Primary(), cloudflare_storage, {"h": 1.0}, "delete")
