@@ -18,6 +18,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const { resolveConfigPath } = require('../utilities/config-loader');
 const { MemoryClient } = require('../utilities/memory-client');
+const { classifyUserEntry } = require('../utilities/transcript-filter');
 
 // Import pattern detection
 const {
@@ -160,8 +161,16 @@ async function parseTranscript(transcriptPath) {
                 // Claude Code stores tool results under the user role; skip those.
                 if (isToolResultOnly(content)) continue;
 
-                lastUser = extractTextContent(content);
-                if (lastUser) break;
+                // Skip attachments (reminders, local command output) and keep
+                // looking for the typed prompt. A notification or peer message
+                // starts a turn of its own: stop, so the reply is not paired
+                // with an older prompt that was already captured.
+                const { kind, text } = classifyUserEntry(msg, extractTextContent(content));
+                if (kind === 'turnStart') break;
+                if (text) {
+                    lastUser = text;
+                    break;
+                }
             }
         }
 
@@ -289,6 +298,15 @@ async function main() {
         // Parse transcript
         const transcript = await parseTranscript(transcriptPath);
         if (!transcript) {
+            process.exit(0);
+        }
+
+        // No typed prompt for this reply (it answers a notification or peer
+        // message): nothing to pair it with, so do not store "[no message]".
+        if (!transcript.userMessage) {
+            if (config.autoCapture.debugMode) {
+                console.log('[auto-capture] No user prompt for this turn, skipping');
+            }
             process.exit(0);
         }
 

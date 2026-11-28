@@ -15,6 +15,7 @@ const { detectProjectContext } = require('../utilities/project-detector');
 const { formatSessionConsolidation } = require('../utilities/context-formatter');
 const { detectUserOverrides, logOverride } = require('../utilities/user-override-detector');
 const { MemoryClient } = require('../utilities/memory-client');
+const { cleanUserText } = require('../utilities/transcript-filter');
 
 /**
  * Load hook configuration
@@ -563,6 +564,12 @@ async function parseTranscript(transcriptPath) {
                                 .filter(block => block.type === 'text')
                                 .map(block => block.text)
                                 .join('\n');
+                        }
+
+                        // Drop harness-injected user entries and <system-reminder>
+                        // spans so summaries only see what the user typed.
+                        if (msg.role === 'user') {
+                            contentText = cleanUserText(entry, contentText);
                         }
 
                         if (contentText) {
