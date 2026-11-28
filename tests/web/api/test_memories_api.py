@@ -1434,3 +1434,109 @@ def test_update_memory_content_with_milvus_forwards_the_store(
     assert response.json()["content_hash"] == updated.content_hash
     assert storage._get_for_write.await_args.args == (original.content_hash, "default")
     assert storage.update_memory_metadata.await_args.kwargs["store"] == "default"
+
+
+@pytest.mark.integration
+def test_update_memory_split_edit_replaces_the_previous_edit_chunks(
+    test_app, initialized_storage, monkeypatch
+):
+    """A second oversized edit leaves only its own chunks in the store (#2143)."""
+    from mcp_memory_service.storage.mixins.metadata import MetadataMixin
+    from mcp_memory_service.utils.hashing import generate_content_hash
+
+    monkeypatch.delattr(MetadataMixin, "update_memory_versioned")
+    target = test_app.post("/api/memories", json={"content": "target original"})
+    target_hash = target.json()["content_hash"]
+    monkeypatch.setattr(
+        type(initialized_storage), "max_content_length", property(lambda _self: 10)
+    )
+    chunks = ["target original", "middle", "tail"]
+    monkeypatch.setattr(
+        "mcp_memory_service.web.api.memories.split_content",
+        lambda *_args, **_kwargs: list(chunks),
+    )
+
+    first = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": "\n\n".join(chunks)}
+    )
+    assert first.status_code == 200, first.text
+    old_tail_hash = generate_content_hash("tail")
+    assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 200
+
+    chunks[2] = "changed tail"
+    second = test_app.put(
+        f"/api/memories/{target_hash}", json={"content": "\n\n".join(chunks)}
+    )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["success"] is True
+    listed = test_app.get("/api/memories").json()["memories"]
+    new_full_hash = generate_content_hash("\n\n".join(chunks))
+    assert sorted(
+        (memory["content"], memory["metadata"]["chunk_index"]) for memory in listed
+    ) == [("changed tail", 2), ("middle", 1), ("target original", 0)]
+    assert {memory["metadata"]["original_hash"] for memory in listed} == {new_full_hash}
+    assert test_app.get(f"/api/memories/{old_tail_hash}").status_code == 404
+    # Only chunk 0 carries the list: a later chunk that copied it would send its own
+    # edit after the whole family (#2143).
+    for memory in listed:
+        if memory["metadata"]["chunk_index"] == 0:
+            assert memory["metadata"]["split_chunk_hashes"]
+        else:
+            assert "split_chunk_hashes" not in memory["metadata"]
+
+@pytest.mark.integration
+async def test_owns_current_generation_only_for_the_ledger_on_the_row(initialized_storage):
+    """Only the edit whose list is still on the row may clean up (#2143).
+
+    Two edits of the same memory can start from the same list; the one that wrote
+    last owns the generation, and the other must not delete chunks that list still
+    names.
+    """
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.utils.hashing import generate_content_hash
+    from mcp_memory_service.web.api.memories import (
+        SPLIT_CHUNKS_KEY,
+        SPLIT_OF_KEY,
+        _owns_current_generation,
+    )
+
+    first = generate_content_hash("chunk one")
+    second = generate_content_hash("chunk two")
+    stored, message = await initialized_storage.store(
+        Memory(
+            content="chunk one",
+            content_hash=first,
+            tags=[],
+            memory_type="observation",
+            metadata={SPLIT_OF_KEY: "generation", SPLIT_CHUNKS_KEY: [first, second]},
+        )
+    )
+    assert stored, message
+
+    assert await _owns_current_generation(initialized_storage, None, [first, second]) is True
+    # A different list, or a shorter one, belongs to another edit of this memory.
+    assert await _owns_current_generation(initialized_storage, None, [second, first]) is False
+    assert await _owns_current_generation(initialized_storage, None, [first]) is False
+    assert await _owns_current_generation(initialized_storage, None, []) is False
+
+def test_split_chunk_metadata_does_not_inherit_the_chunk_list():
+    """A later chunk must not copy chunk 0's list out of the replacement (#2143)."""
+    from mcp_memory_service.models.memory import Memory
+    from mcp_memory_service.web.api.memories import (
+        SPLIT_CHUNKS_KEY,
+        _split_chunk_metadata,
+    )
+
+    replacement = Memory(
+        content="edited",
+        content_hash="full-hash",
+        metadata={SPLIT_CHUNKS_KEY: ["chunk-0", "chunk-1"], "kept": "yes"},
+    )
+    ledger = ["chunk-0", "chunk-1"]
+    first = _split_chunk_metadata(replacement, 0, 2, "chunk-0", "generation", ledger)
+    second = _split_chunk_metadata(replacement, 1, 2, "chunk-1", "generation", ledger)
+
+    assert first[SPLIT_CHUNKS_KEY] == ledger
+    assert SPLIT_CHUNKS_KEY not in second
+    assert second["kept"] == "yes"

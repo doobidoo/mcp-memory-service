@@ -21,7 +21,7 @@ import heapq
 import logging
 import socket
 from collections import Counter
-from typing import List, Optional, Dict, Any, Literal, Tuple
+from typing import List, Optional, Dict, Any, Literal, Set, Tuple
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field, field_validator
@@ -54,6 +54,11 @@ from ..oauth.middleware import (
     get_current_user,
     AuthenticationResult,
 )
+
+# Markers a split edit writes on the chunks it stores (#2143): the hash the
+# memory keeps across edits, and the chunks of its last edit.
+SPLIT_OF_KEY = "split_of"
+SPLIT_CHUNKS_KEY = "split_chunk_hashes"
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -626,6 +631,7 @@ def _owns_chunk_row(
     plain_chunk_hash: str,
     content_hash: str,
     replacement_hash: str,
+    split_of: Optional[str] = None,
 ) -> bool:
     """Whether a split edit of content_hash may update the row at chunk_hash in place."""
     if existing is None:
@@ -637,55 +643,138 @@ def _owns_chunk_row(
         # written the row, whatever full text that edit carried.
         or chunk_hash != plain_chunk_hash
         or (existing.metadata or {}).get("original_hash") == replacement_hash
+        # Chunks of an earlier split edit of this memory carry this marker, so
+        # the next edit recognises them even under their plain hash (#2143).
+        or (
+            split_of is not None
+            and (existing.metadata or {}).get(SPLIT_OF_KEY) == split_of
+        )
     )
 
 
-async def _store_unversioned_split_replacement(
+def _split_of(base_row: Optional[Memory], content_hash: str) -> str:
+    """The hash a memory keeps across split edits, so its chunks stay recognisable."""
+    if base_row is not None:
+        marker = (base_row.metadata or {}).get(SPLIT_OF_KEY)
+        if marker:
+            return marker
+    return content_hash
+
+
+def _split_chunk_hashes(row: Optional[Memory]) -> Set[str]:
+    """Hashes of the chunks the last split edit of this memory wrote."""
+    values = (row.metadata or {}).get(SPLIT_CHUNKS_KEY) if row is not None else None
+    return {value for value in values or [] if isinstance(value, str)}
+
+
+def _salt_chunk_hash(chunk: str, content_hash: str, index: int) -> str:
+    """Hash for a chunk that cannot keep its plain hash in this split edit."""
+    return generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+
+
+async def _owns_current_generation(
+    storage: MemoryStorage, lookup_store: Optional[str], ledger: List[str]
+) -> bool:
+    """Whether the list on the store is still the one this edit wrote.
+
+    Two edits of the same memory can start from the same list. The one that wrote
+    last owns the generation; the other must not delete anything, or the saved list
+    ends up naming a chunk that is no longer there.
+    """
+    if not ledger:
+        return False
+    owner = await storage.get_by_hash(ledger[0], store=lookup_store)
+    if owner is None:
+        return False
+    current = (owner.metadata or {}).get(SPLIT_CHUNKS_KEY)
+    return isinstance(current, list) and list(current) == list(ledger)
+
+
+async def _plan_split_chunks(
     storage: MemoryStorage,
-    memory_service: MemoryService,
+    lookup_store: Optional[str],
+    chunks: List[str],
     content_hash: str,
-    store: str,
-    replacement: Memory,
-    max_length: int,
-) -> Tuple[bool, str, Optional[str], bool]:
-    """Split an oversized replacement the same way store_memory() does."""
-    lookup_store = resolve_store(store)
-    chunks = split_content(
-        replacement.content,
-        max_length=max_length,
-        preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
-        overlap=CONTENT_SPLIT_OVERLAP,
-    )
-    stored_chunks = []
-    claimed_chunk_hashes = set()
-    original_reused = False
+    replacement_hash: str,
+    split_of: str,
+) -> List[Tuple[str, str, Optional[Memory]]]:
+    """Pick the row each chunk is written under and whether that row is reused."""
+    planned: List[Tuple[str, str, Optional[Memory]]] = []
+    claimed: Set[str] = set()
     for index, chunk in enumerate(chunks):
         plain_chunk_hash = generate_content_hash(chunk)
         chunk_hash = plain_chunk_hash
-        if chunk_hash in claimed_chunk_hashes:
-            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+        if chunk_hash in claimed:
+            chunk_hash = _salt_chunk_hash(chunk, content_hash, index)
         existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-        can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
-            existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
+        can_reuse = chunk_hash not in claimed and _owns_chunk_row(
+            existing, chunk_hash, plain_chunk_hash,
+            content_hash, replacement_hash, split_of,
         )
         if (
             existing is not None
             and not (existing.content == chunk and can_reuse)
             and chunk_hash == plain_chunk_hash
         ):
-            chunk_hash = generate_content_hash(f"{chunk}\0{content_hash}\0{index}")
+            chunk_hash = _salt_chunk_hash(chunk, content_hash, index)
             existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-            can_reuse = chunk_hash not in claimed_chunk_hashes and _owns_chunk_row(
-                existing, chunk_hash, plain_chunk_hash, content_hash, replacement.content_hash
+            can_reuse = chunk_hash not in claimed and _owns_chunk_row(
+                existing, chunk_hash, plain_chunk_hash,
+                content_hash, replacement_hash, split_of,
             )
+        claimed.add(chunk_hash)
         if existing is not None and existing.content == chunk and can_reuse:
-            # Only the original row or a chunk from this replacement may be
-            # updated in place; an independent memory keeps its own fields.
+            planned.append((chunk, chunk_hash, existing))
+        else:
+            planned.append((chunk, chunk_hash, None))
+    return planned
+
+
+def _split_chunk_metadata(
+    replacement: Memory,
+    index: int,
+    total: int,
+    chunk_hash: str,
+    split_of: str,
+    ledger: List[str],
+) -> Dict[str, Any]:
+    """Metadata of one chunk of a split edit, with the markers a later edit needs."""
+    # _chunk_metadata() copies whatever the replacement carries, and on a second
+    # edit that is a later chunk whose metadata still holds chunk 0's list. Left in,
+    # every chunk would name the whole family, and an edit of one of them would clean
+    # up rows it does not own. The list belongs to chunk 0 of this edit only.
+    inherited = dict(replacement.metadata or {})
+    inherited.pop(SPLIT_CHUNKS_KEY, None)
+    extra = {SPLIT_OF_KEY: split_of}
+    if index == 0:
+        extra[SPLIT_CHUNKS_KEY] = ledger
+    return _chunk_metadata(
+        inherited, index, total,
+        replacement.content_hash, chunk_hash, extra,
+    )
+
+
+async def _write_split_chunks(
+    storage: MemoryStorage,
+    planned: List[Tuple[str, str, Optional[Memory]]],
+    replacement: Memory,
+    content_hash: str,
+    store: str,
+    lookup_store: Optional[str],
+    split_of: str,
+    ledger: List[str],
+) -> Tuple[bool, str, List[Memory], bool]:
+    """Write the planned chunks, updating the reused rows in place."""
+    stored_chunks: List[Memory] = []
+    original_reused = False
+    for index, (chunk, chunk_hash, existing) in enumerate(planned):
+        chunk_metadata = _split_chunk_metadata(
+            replacement, index, len(planned), chunk_hash, split_of, ledger
+        )
+        if existing is not None:
+            # Only the original row or a chunk of this memory's split edits may
+            # be updated in place; an independent memory keeps its own fields.
             original_reused = original_reused or chunk_hash == content_hash
-            chunk_metadata = _chunk_metadata(
-                replacement.metadata, index, len(chunks),
-                replacement.content_hash, chunk_hash,
-            )
             if (
                 set(existing.tags or []) != set(replacement.tags)
                 or existing.memory_type != replacement.memory_type
@@ -704,9 +793,8 @@ async def _store_unversioned_split_replacement(
                 if not fields_ok:
                     return False, (
                         f"Failed to apply edited fields to reused chunk: {fields_message}"
-                    ), None, False
+                    ), [], False
                 existing = await storage.get_by_hash(chunk_hash, store=lookup_store)
-            claimed_chunk_hashes.add(chunk_hash)
             stored_chunks.append(existing)
             continue
         chunk_memory = Memory(
@@ -714,10 +802,7 @@ async def _store_unversioned_split_replacement(
             content_hash=chunk_hash,
             tags=replacement.tags,
             memory_type=replacement.memory_type,
-            metadata=_chunk_metadata(
-                replacement.metadata, index, len(chunks),
-                replacement.content_hash, chunk_hash,
-            ),
+            metadata=chunk_metadata,
         )
         success, message = await storage.store(
             chunk_memory,
@@ -725,9 +810,89 @@ async def _store_unversioned_split_replacement(
             store=resolve_store(store),
         )
         if not success:
-            return False, message, None, False
-        claimed_chunk_hashes.add(chunk_hash)
+            return False, message, [], False
         stored_chunks.append(chunk_memory)
+    return True, "", stored_chunks, original_reused
+
+
+async def _store_unversioned_split_replacement(
+    storage: MemoryStorage,
+    memory_service: MemoryService,
+    content_hash: str,
+    store: str,
+    replacement: Memory,
+    max_length: int,
+) -> Tuple[bool, str, Optional[str], bool]:
+    """Split an oversized replacement the same way store_memory() does."""
+    lookup_store = resolve_store(store)
+    base_row = await storage.get_by_hash(content_hash, store=lookup_store)
+    # A split edit marks the chunks it writes and records them on the row the
+    # memory keeps, so the next edit replaces that generation instead of
+    # leaving it in the store (#2143). Only this path writes those two keys.
+    split_of = _split_of(base_row, content_hash)
+    previous_split_hashes = _split_chunk_hashes(base_row)
+    chunks = split_content(
+        replacement.content,
+        max_length=max_length,
+        preserve_boundaries=CONTENT_PRESERVE_BOUNDARIES,
+        overlap=CONTENT_SPLIT_OVERLAP,
+    )
+    planned = await _plan_split_chunks(
+        storage, lookup_store, chunks,
+        content_hash, replacement.content_hash, split_of,
+    )
+    ledger = [chunk_hash for _chunk, chunk_hash, _existing in planned]
+    stale_hashes = sorted(previous_split_hashes - set(ledger) - {content_hash})
+    # The rows waiting to be deleted stay named on chunk 0 until they are gone. A
+    # delete that fails leaves them in the store, and a retry that reads only the new
+    # list would never look at them again and report success.
+    written, message, stored_chunks, original_reused = await _write_split_chunks(
+        storage, planned, replacement, content_hash,
+        store, lookup_store, split_of, ledger + stale_hashes,
+    )
+    if not written:
+        return False, message, None, False
+
+    # Written first, deleted after: a failure here leaves the memory larger than
+    # expected, never empty.
+    #
+    # Another edit of the same memory can start from this same list and write after
+    # this one. Its ledger is the authority then, and removing a chunk it kept would
+    # leave the saved list pointing at a row that is gone. So the generation is read
+    # back first: only the edit whose ledger is still on the row cleans up.
+    if stale_hashes and await _owns_current_generation(
+        storage, lookup_store, ledger + stale_hashes
+    ):
+        for stale_hash in stale_hashes:
+            stale = await storage.get_by_hash(stale_hash, store=lookup_store)
+            if stale is None or (stale.metadata or {}).get(SPLIT_OF_KEY) != split_of:
+                continue
+            deleted, delete_message = await storage.delete(
+                stale_hash, store=resolve_store(store)
+            )
+            if not deleted:
+                return False, (
+                    f"Stored replacement chunks, but failed to delete chunk "
+                    f"{stale_hash} of the previous edit: {delete_message}"
+                ), None, False
+
+        # Those rows are gone, so the list stops naming them: it keeps describing what
+        # the store holds instead of growing by one entry per edit.
+        owner = await storage.get_by_hash(ledger[0], store=lookup_store)
+        if owner is not None:
+            trimmed = dict(owner.metadata or {})
+            trimmed[SPLIT_CHUNKS_KEY] = list(ledger)
+            trimmed_ok, trimmed_message = await storage.update_memory_metadata(
+                ledger[0],
+                {"metadata": trimmed},
+                preserve_timestamps=True,
+                store=resolve_store(store),
+            )
+            if not trimmed_ok:
+                return False, (
+                    f"Deleted the previous chunks, but failed to trim the chunk "
+                    f"list: {trimmed_message}"
+                ), None, False
 
     if not original_reused:
         delete_success, delete_message = await storage.delete(
