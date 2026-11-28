@@ -14,7 +14,6 @@ The forward is delayed by moving the hub's clock (D1 stamps and ``forwarded_at``
 not by sleeping.
 """
 
-import os
 import shutil
 import tempfile
 import time as _time
