@@ -801,7 +801,8 @@ function formatMemory(memory, index = 0, options = {}) {
         if (showOnlyRelevantTags && memory.tags && memory.tags.length > 0) {
             const relevantTags = memory.tags.filter(tag => {
                 const tagLower = tag.toLowerCase();
-                return !tagLower.startsWith('source:') && 
+                return !tagLower.startsWith('source:') &&
+                       !tagLower.startsWith('sys:') &&
                        !tagLower.startsWith('claude-code-session') &&
                        !tagLower.startsWith('session-consolidation') &&
                        tagLower !== 'claude-code' &&

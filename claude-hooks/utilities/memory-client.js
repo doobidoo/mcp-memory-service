@@ -360,6 +360,160 @@ class MemoryClient {
     }
 
     /**
+     * Send one JSON request to the HTTP API and report the outcome without
+     * throwing. Unlike _performApiPost, a failure is distinguishable from an
+     * empty result, which callers that fall back on failure need.
+     * timeoutMs bounds the whole request, not just socket inactivity.
+     * @private
+     * @returns {Promise<{ok: boolean, status?: number, body?: any, error?: string}>}
+     */
+    _requestJson(method, apiPath, payload, timeoutMs) {
+        return new Promise((resolve) => {
+            let url;
+            try {
+                url = new URL(apiPath, this.httpConfig.endpoint);
+            } catch (error) {
+                resolve({ ok: false, error: `Invalid endpoint URL: ${this.httpConfig.endpoint}` });
+                return;
+            }
+            const isHttps = url.protocol === 'https:';
+            const body = payload === undefined ? null : JSON.stringify(payload);
+            const headers = {
+                'Accept': 'application/json',
+                'Connection': 'close',
+            };
+            if (this.httpConfig.apiKey) headers['X-API-Key'] = this.httpConfig.apiKey;
+            if (body !== null) {
+                headers['Content-Type'] = 'application/json';
+                headers['Content-Length'] = Buffer.byteLength(body);
+            }
+            const options = {
+                hostname: url.hostname,
+                port: url.port ? Number(url.port) : (isHttps ? 443 : 80),
+                path: url.pathname + url.search,
+                method,
+                headers,
+                agent: false,  // Disable keepAlive — one-shot CLI, avoids ECONNRESET from reused sockets
+            };
+            this._applySelfSignedCertsOption(options, isHttps);
+
+            let settled = false;
+            let timer = null;
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(result);
+            };
+
+            const requestModule = isHttps ? https : http;
+            let req;
+            try {
+                req = requestModule.request(options, (res) => {
+                    let data = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (chunk) => (data += chunk));
+                    res.on('error', (error) => finish({ ok: false, error: error.message }));
+                    res.on('end', () => {
+                        if (res.statusCode < 200 || res.statusCode >= 300) {
+                            const detail = data.trim().slice(0, 200);
+                            finish({ ok: false, status: res.statusCode, error: `HTTP ${res.statusCode}${detail ? `: ${detail}` : ''}` });
+                            return;
+                        }
+                        try {
+                            finish({ ok: true, status: res.statusCode, body: JSON.parse(data) });
+                        } catch (err) {
+                            finish({ ok: false, status: res.statusCode, error: `Parse error: ${err.message}` });
+                        }
+                    });
+                });
+            } catch (error) {
+                // request() throws synchronously on an invalid header value,
+                // e.g. an API key containing a line break.
+                finish({ ok: false, error: error.message });
+                return;
+            }
+
+            req.on('error', (error) => finish({ ok: false, error: error.message }));
+            const limitMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000;
+            timer = setTimeout(() => {
+                finish({ ok: false, error: 'Request timeout' });
+                req.destroy();
+            }, limitMs);
+
+            if (body !== null) req.write(body);
+            req.end();
+        });
+    }
+
+    /**
+     * Find memories carrying tags, newest first (POST /api/search/by-tag).
+     * HTTP only: the MCP client has no tag lookup, so over MCP this reports
+     * failure and the caller falls back.
+     * @param {string[]} tags
+     * @param {object} opts - { matchAll = true, limit = 10, timeoutMs = 3000 }
+     * @returns {Promise<{success: boolean, memories: object[], error?: string}>}
+     */
+    async findMemoriesByTags(tags, { matchAll = true, limit = 10, timeoutMs = 3000 } = {}) {
+        if (this.activeProtocol !== 'http') {
+            return { success: false, memories: [], error: `tag lookup not supported over ${this.activeProtocol || 'no connection'}` };
+        }
+        const result = await this._requestJson('POST', '/api/search/by-tag', {
+            tags,
+            match_all: matchAll,
+            limit,
+        }, timeoutMs);
+        if (!result.ok) {
+            return { success: false, memories: [], error: result.error };
+        }
+        const results = Array.isArray(result.body?.results) ? result.body.results : [];
+        return {
+            success: true,
+            memories: results.map((r) => r && r.memory).filter(Boolean),
+        };
+    }
+
+    /**
+     * Update a memory (PUT /api/memories/{hash}). Changed content is stored by
+     * the server as the memory's next version where the backend keeps version
+     * history (otherwise as a replacement), re-embedded, and returned under a
+     * new hash. The tag list is replaced by `tags`; `metadata` keys are merged
+     * into the stored metadata.
+     * HTTP only, like findMemoriesByTags.
+     * @param {string} contentHash
+     * @param {object} fields - { content, tags, memoryType, metadata }
+     * @param {object} opts - { timeoutMs = 5000 }
+     * @returns {Promise<{success: boolean, contentHash?: string, error?: string, rejected?: boolean}>}
+     *   rejected is true when the server answered and refused the update (an
+     *   HTTP error status or success: false), false when the outcome is unknown
+     *   (timeout, network error, unreadable 2xx response).
+     */
+    async updateMemory(contentHash, { content, tags, memoryType, metadata } = {}, { timeoutMs = 5000 } = {}) {
+        if (this.activeProtocol !== 'http') {
+            return { success: false, rejected: true, error: `update not supported over ${this.activeProtocol || 'no connection'}` };
+        }
+        const payload = {};
+        if (content !== undefined) payload.content = content;
+        if (tags !== undefined) payload.tags = tags;
+        if (memoryType !== undefined) payload.memory_type = memoryType;
+        if (metadata !== undefined) payload.metadata = metadata;
+        const result = await this._requestJson(
+            'PUT',
+            `/api/memories/${encodeURIComponent(contentHash)}`,
+            payload,
+            timeoutMs,
+        );
+        if (!result.ok) {
+            const answered = typeof result.status === 'number' && (result.status < 200 || result.status >= 300);
+            return { success: false, rejected: answered, error: result.error };
+        }
+        if (result.body?.success !== true) {
+            return { success: false, rejected: true, error: result.body?.message || 'Update rejected' };
+        }
+        return { success: true, contentHash: result.body.content_hash || contentHash };
+    }
+
+    /**
      * Private helper: Perform HTTP POST request to API
      * @private
      */

@@ -8,6 +8,29 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 /**
+ * Name from the [package] table of a Cargo.toml, or null.
+ *
+ * A virtual workspace root has [workspace] and no [package], and
+ * [workspace.package] cannot set a name (Cargo only inherits fields such as
+ * version and edition from it), so only [package] is read. Matching the first
+ * `name =` line anywhere would also pick up [[bin]] or metadata tables.
+ */
+function cargoPackageName(content) {
+    let table = null;
+    for (const line of content.split(/\r?\n/)) {
+        const header = line.match(/^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$/);
+        if (header) {
+            table = header[1];
+            continue;
+        }
+        if (table !== 'package') continue;
+        const nameMatch = line.match(/^\s*name\s*=\s*["']([^"']+)["']/);
+        if (nameMatch) return nameMatch[1];
+    }
+    return null;
+}
+
+/**
  * Detect programming language from file extensions
  */
 async function detectLanguage(directory) {
@@ -70,7 +93,12 @@ async function detectLanguage(directory) {
 }
 
 /**
- * Detect framework and tools from configuration files
+ * Detect framework and tools from configuration files.
+ *
+ * projectName is a name the manifest actually declares, or null. Manifests
+ * without one return null rather than a placeholder such as 'rust-project':
+ * a placeholder is truthy and would hide the git repository and directory
+ * names that detectProjectContext falls back to (#2150).
  */
 async function detectFramework(directory) {
     const frameworks = [];
@@ -96,7 +124,7 @@ async function detectFramework(directory) {
                 if (deps.svelte || deps['svelte']) frameworks.push('Svelte');
                 
                 tools.push('npm');
-                return pkg.name || 'node-project';
+                return pkg.name || null;
             },
             'pyproject.toml': async () => {
                 tools.push('Python');
@@ -111,20 +139,18 @@ async function detectFramework(directory) {
                 if (content.includes('pytest')) tools.push('pytest');
                 if (content.includes('poetry')) tools.push('Poetry');
                 
-                return nameMatch ? nameMatch[1] : 'python-project';
+                return nameMatch ? nameMatch[1] : null;
             },
             'Cargo.toml': async () => {
                 tools.push('Cargo');
                 const content = await fs.readFile(path.join(directory, 'Cargo.toml'), 'utf8');
-                
-                const nameMatch = content.match(/^name\s*=\s*["']([^"']+)["']/m);
                 
                 if (content.includes('actix-web')) frameworks.push('Actix Web');
                 if (content.includes('rocket')) frameworks.push('Rocket');
                 if (content.includes('warp')) frameworks.push('Warp');
                 if (content.includes('tokio')) frameworks.push('Tokio');
                 
-                return nameMatch ? nameMatch[1] : 'rust-project';
+                return cargoPackageName(content);
             },
             'go.mod': async () => {
                 tools.push('Go Modules');
@@ -136,17 +162,17 @@ async function detectFramework(directory) {
                 if (content.includes('gorilla/mux')) frameworks.push('Gorilla Mux');
                 if (content.includes('fiber')) frameworks.push('Fiber');
                 
-                return moduleMatch ? path.basename(moduleMatch[1]) : 'go-project';
+                return moduleMatch ? path.basename(moduleMatch[1]) : null;
             },
             'pom.xml': () => {
                 tools.push('Maven');
                 frameworks.push('Java/Maven');
-                return 'java-maven-project';
+                return null;
             },
             'build.gradle': () => {
                 tools.push('Gradle');
                 frameworks.push('Java/Gradle');
-                return 'java-gradle-project';
+                return null;
             },
             'docker-compose.yml': () => {
                 tools.push('Docker Compose');
@@ -256,7 +282,9 @@ async function detectProjectContext(directory = process.cwd()) {
         // Get Git information
         const git = getGitInfo(directory);
         
-        // Determine project name (priority: git repo > config file > directory name)
+        // Determine project name (priority: name declared in a manifest > git
+        // repository name > directory name). detectFramework returns null, not a
+        // placeholder, for a manifest without a name such as a Cargo workspace root.
         const projectName = framework.projectName || git.repoName || directoryName;
         
         // Calculate confidence score
@@ -310,7 +338,8 @@ module.exports = {
     detectProjectContext,
     detectLanguage,
     detectFramework,
-    getGitInfo
+    getGitInfo,
+    cargoPackageName
 };
 
 // Direct execution support for testing

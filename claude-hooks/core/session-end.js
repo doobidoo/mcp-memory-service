@@ -288,11 +288,127 @@ function triggerQualityEvaluation(endpoint, apiKey, contentHash, allowSelfSigned
     });
 }
 
+// Claude Code session ids are UUIDs. Only a plain token is accepted, so the
+// value is safe inside a tag; 'unknown' is the placeholder the stdin reader
+// below uses when the hook input has no session_id.
+const SESSION_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,127}$/;
+// 'sys:' is the taxonomy namespace for system-generated tags; the
+// '<source>:<id>' shape follows the mem0 importer's 'sys:mem0-run:<id>'.
+const SESSION_TAG_PREFIX = 'sys:claude-session:';
+const SESSION_LOOKUP_LIMIT = 10;
+const SESSION_LOOKUP_TIMEOUT_MS = 1000;
+// Claude Code gives all SessionEnd hooks 1.5 s together unless
+// CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS raises it; a `timeout` on a
+// plugin-provided hook does not (hooks reference, "SessionEnd").
+const DEFAULT_SESSION_END_BUDGET_MS = 1500;
+// Kept back from the lookup and the update, so a slow or failed one still
+// leaves time to store the summary the old way; below MIN_LOOKUP_MS the
+// lookup is skipped.
+const STORE_RESERVE_MS = 500;
+const MIN_LOOKUP_MS = 100;
+// Floor for the update's timeout, so a nearly spent budget still sends it.
+const MIN_REQUEST_MS = 100;
+// Process start, which is when Claude Code's budget clock starts too.
+const HOOK_STARTED_AT = Date.now() - process.uptime() * 1000;
+// Tags the server adds on its own (source:<hostname> with
+// MCP_MEMORY_INCLUDE_HOSTNAME, agent:<id> from X-Agent-ID). An update
+// replaces the tag list, so these are carried over from the stored summary.
+const SERVER_TAG_PREFIXES = ['source:', 'agent:'];
+
 /**
- * Store session consolidation to memory service
+ * When the SessionEnd budget runs out, as an epoch-ms deadline.
  */
-async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis, allowSelfSignedCerts = false) {
-    // Generate and normalize tags
+function sessionEndDeadline(env = process.env, startedAt = HOOK_STARTED_AT) {
+    const configured = Number.parseInt(env.CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS, 10);
+    const budget = Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_SESSION_END_BUDGET_MS;
+    return startedAt + budget;
+}
+
+/**
+ * Lookup timeout that leaves STORE_RESERVE_MS of the budget for the fallback
+ * store. Without a deadline (library callers, tests) the fixed cap applies.
+ */
+function lookupTimeoutMs(deadline, now = Date.now()) {
+    if (!deadline) return SESSION_LOOKUP_TIMEOUT_MS;
+    return Math.min(SESSION_LOOKUP_TIMEOUT_MS, deadline - now - STORE_RESERVE_MS);
+}
+
+/**
+ * The tags for updating `target`: the freshly generated ones plus the
+ * server-added tags `target` carries.
+ */
+function tagsForUpdate(tags, target) {
+    const carried = (target.tags || []).filter(
+        (tag) => typeof tag === 'string' && SERVER_TAG_PREFIXES.some((prefix) => tag.startsWith(prefix))
+    );
+    return [...new Set([...tags, ...carried])];
+}
+
+/**
+ * Normalize the hook input's session_id, or null when it is missing, the
+ * 'unknown' placeholder, or not a plain token.
+ */
+function normalizeSessionId(sessionId) {
+    if (typeof sessionId !== 'string') return null;
+    const normalized = sessionId.trim().toLowerCase();
+    if (normalized === 'unknown' || !SESSION_ID_PATTERN.test(normalized)) return null;
+    return normalized;
+}
+
+function sessionTag(sessionId) {
+    return `${SESSION_TAG_PREFIX}${sessionId}`;
+}
+
+/**
+ * Decide how to write a session summary, given the summaries already stored
+ * for the same session (newest first, as /api/search/by-tag returns them).
+ *
+ * Each SessionEnd re-summarizes the whole cumulative transcript, so a
+ * resumed-and-exited session would otherwise add a near-identical memory
+ * every time (#2150). The server cannot catch these: semantic dedup is off
+ * for memory_type 'session' (#898) and the timestamp footer defeats the
+ * exact-hash check.
+ *
+ * When a fallback left two summaries for one session, the longest is the one
+ * compared and updated; the other stays as it is.
+ *
+ * @returns {{action: 'store'|'skip'|'update', target?: object}}
+ *   store  - nothing stored for this session yet
+ *   skip   - the transcript has not grown since the stored summary
+ *   update - it has grown; replace the stored summary's content
+ */
+function decideSessionWrite(existing, sessionId, sessionLength) {
+    const matches = (existing || []).filter(
+        (memory) => memory && memory.content_hash && memory.metadata?.session_id === sessionId
+    );
+    if (matches.length === 0) return { action: 'store' };
+
+    const storedLength = (memory) => Number(memory.metadata?.session_analysis?.session_length) || 0;
+    // Strict '>' keeps the newest of equally long summaries.
+    const target = matches.reduce((best, memory) => (storedLength(memory) > storedLength(best) ? memory : best));
+    if ((Number(sessionLength) || 0) <= storedLength(target)) {
+        return { action: 'skip', target };
+    }
+    return { action: 'update', target };
+}
+
+/**
+ * Look up the summaries already stored for a session. Never throws: any
+ * failure is reported as {success: false} so the caller stores as before.
+ */
+async function findSessionSummaries(client, sessionId, timeoutMs) {
+    try {
+        return await client.findMemoriesByTags([sessionTag(sessionId)], {
+            matchAll: true,
+            limit: SESSION_LOOKUP_LIMIT,
+            timeoutMs,
+        });
+    } catch (error) {
+        return { success: false, memories: [], error: error.message };
+    }
+}
+
+function buildSessionTags(projectContext, analysis, sessionId) {
     const tags = [
         'claude-code-session',
         'session-consolidation',
@@ -301,11 +417,102 @@ async function storeSessionMemory(endpoint, apiKey, content, projectContext, ana
         ...analysis.topics.slice(0, 3),
         ...projectContext.frameworks.slice(0, 2),
         `confidence:${Math.round(analysis.confidence * 100)}`,
+        sessionId ? sessionTag(sessionId) : null,
     ]
         .filter(Boolean)
         .map((tag) => String(tag).toLowerCase());
 
-    const uniqueTags = [...new Set(tags)];
+    return [...new Set(tags)];
+}
+
+function buildSessionMetadata(projectContext, analysis, sessionId) {
+    return {
+        session_analysis: {
+            topics: analysis.topics,
+            decisions_count: analysis.decisions.length,
+            insights_count: analysis.insights.length,
+            code_changes_count: analysis.codeChanges.length,
+            next_steps_count: analysis.nextSteps.length,
+            session_length: analysis.sessionLength,
+            confidence: analysis.confidence,
+        },
+        project_context: {
+            name: projectContext.name,
+            language: projectContext.language,
+            frameworks: projectContext.frameworks,
+        },
+        ...(sessionId ? { session_id: sessionId } : {}),
+        generated_by: 'claude-code-session-end-hook',
+        generated_at: new Date().toISOString(),
+    };
+}
+
+/**
+ * Skip or update the session's stored summary when there is one. Returns the
+ * result to report, or null to store a new memory as before (nothing stored
+ * yet, too little time left, lookup failed, or the update was rejected).
+ *
+ * The update replaces the content and the tag list (keeping server-added
+ * tags, see SERVER_TAG_PREFIXES); the server merges the new metadata keys
+ * into the stored metadata. An update that times out or fails on the network
+ * may still have been applied, so it is not followed by a store: at worst the
+ * stored summary stays one exit behind.
+ */
+async function reconcileSessionSummary(client, sessionId, sessionLength, fields, deadline) {
+    const timeoutMs = lookupTimeoutMs(deadline);
+    if (timeoutMs < MIN_LOOKUP_MS) {
+        console.warn('[Memory Hook] Too little of the SessionEnd time budget left to look up the session summary, storing a new summary');
+        return null;
+    }
+    const lookup = await findSessionSummaries(client, sessionId, timeoutMs);
+    if (!lookup.success) {
+        console.warn(`[Memory Hook] Session summary lookup failed (${lookup.error}), storing a new summary`);
+        return null;
+    }
+
+    const decision = decideSessionWrite(lookup.memories, sessionId, sessionLength);
+    if (decision.action === 'skip') {
+        return { success: true, skipped: true, contentHash: decision.target.content_hash };
+    }
+    if (decision.action === 'update') {
+        let update;
+        try {
+            const updateOpts = deadline
+                ? { timeoutMs: Math.max(MIN_REQUEST_MS, deadline - Date.now() - STORE_RESERVE_MS) }
+                : {};
+            const updateFields = { ...fields, tags: tagsForUpdate(fields.tags, decision.target) };
+            update = await client.updateMemory(decision.target.content_hash, updateFields, updateOpts);
+        } catch (error) {
+            update = { success: false, rejected: false, error: error.message };
+        }
+        if (update.success) {
+            return {
+                success: true,
+                updated: true,
+                contentHash: update.contentHash,
+                previousHash: decision.target.content_hash,
+            };
+        }
+        if (!update.rejected) {
+            return { success: false, updateUnconfirmed: true, error: update.error };
+        }
+        console.warn(`[Memory Hook] Session summary update rejected (${update.error}), storing a new summary`);
+    }
+    return null;
+}
+
+/**
+ * Store session consolidation to memory service.
+ *
+ * With a session id and an HTTP connection, at most one summary is kept per
+ * session: a repeated SessionEnd on an unchanged transcript is skipped, and a
+ * grown one updates the stored summary (PUT, which servers with version
+ * history record as a new version). `deadline` (epoch ms) caps the lookup so
+ * the fallback store still fits in the SessionEnd budget.
+ */
+async function storeSessionMemory(endpoint, apiKey, content, projectContext, analysis, allowSelfSignedCerts = false, { sessionId = null, deadline = null } = {}) {
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    const tags = buildSessionTags(projectContext, analysis, normalizedSessionId);
 
     const client = new MemoryClient({
         protocol: 'auto',
@@ -320,38 +527,34 @@ async function storeSessionMemory(endpoint, apiKey, content, projectContext, ana
         return { success: false, error: `Connect failed: ${err.message}` };
     }
 
-    let result;
     try {
-        result = await client.storeMemory(content, {
-            tags: uniqueTags,
+        const fields = {
+            content,
+            tags,
             // 'session' is the observation subtype for this; 'session-summary'
             // is not in the ontology and was coerced to 'observation' (#177).
-            // The 'claude-code-session' and 'session-consolidation' tags above
+            // The 'claude-code-session' and 'session-consolidation' tags
             // remain the reliable way to find these.
             memoryType: 'session',
-            metadata: {
-                session_analysis: {
-                    topics: analysis.topics,
-                    decisions_count: analysis.decisions.length,
-                    insights_count: analysis.insights.length,
-                    code_changes_count: analysis.codeChanges.length,
-                    next_steps_count: analysis.nextSteps.length,
-                    session_length: analysis.sessionLength,
-                    confidence: analysis.confidence,
-                },
-                project_context: {
-                    name: projectContext.name,
-                    language: projectContext.language,
-                    frameworks: projectContext.frameworks,
-                },
-                generated_by: 'claude-code-session-end-hook',
-                generated_at: new Date().toISOString(),
-            },
+            metadata: buildSessionMetadata(projectContext, analysis, normalizedSessionId),
+        };
+        if (normalizedSessionId && client.activeProtocol === 'http') {
+            const reconciled = await reconcileSessionSummary(
+                client, normalizedSessionId, analysis.sessionLength, fields, deadline
+            );
+            if (reconciled) return reconciled;
+        } else if (normalizedSessionId) {
+            // The MCP client has no tag lookup, so there is nothing to compare with.
+            console.log('[Memory Hook] Connected over MCP, which has no tag lookup: storing a new session summary');
+        }
+        return await client.storeMemory(content, {
+            tags: fields.tags,
+            memoryType: fields.memoryType,
+            metadata: fields.metadata,
         });
     } finally {
         await client.disconnect();
     }
-    return result;
 }
 
 /**
@@ -434,12 +637,25 @@ async function onSessionEnd(context) {
             consolidation,
             projectContext,
             analysis,
-            config.memoryService?.allowSelfSignedCerts === true
+            config.memoryService?.allowSelfSignedCerts === true,
+            { sessionId: context.sessionId, deadline: context.deadline }
         );
-        
+
+        if (result.skipped) {
+            console.log('[Memory Hook] Session summary unchanged since it was last stored, skipping');
+            return;
+        }
+        if (result.updateUnconfirmed) {
+            // Not followed by a store: the server may have applied it.
+            console.warn(`[Memory Hook] Session summary update not confirmed (${result.error}), leaving the stored summary`);
+            return;
+        }
+
         const hash = result.content_hash || result.contentHash;
         if (result.success || hash) {
-            console.log(`[Memory Hook] Session consolidation stored successfully`);
+            console.log(result.updated
+                ? '[Memory Hook] Session consolidation updated (transcript grew since the last summary)'
+                : '[Memory Hook] Session consolidation stored successfully');
             if (hash) {
                 console.log(`[Memory Hook] Memory hash: ${hash.substring(0, 8)}...`);
 
@@ -485,7 +701,13 @@ module.exports = {
         analyzeConversation,
         isSessionMeaningful,
         triggerQualityEvaluation,
-        storeSessionMemory
+        storeSessionMemory,
+        normalizeSessionId,
+        decideSessionWrite,
+        sessionTag,
+        sessionEndDeadline,
+        lookupTimeoutMs,
+        tagsForUpdate
     }
 };
 
@@ -633,6 +855,7 @@ if (require.main === module) {
                     workingDirectory: stdinContext.cwd || process.cwd(),
                     sessionId: stdinContext.session_id || 'unknown',
                     reason: stdinContext.reason,
+                    deadline: sessionEndDeadline(),
                     conversation: conversation
                 };
 
@@ -643,6 +866,7 @@ if (require.main === module) {
                 context = {
                     workingDirectory: process.cwd(),
                     sessionId: 'test-session',
+                    deadline: sessionEndDeadline(),
                     conversation: mockConversation
                 };
             }

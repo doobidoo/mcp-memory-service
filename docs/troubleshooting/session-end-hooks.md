@@ -154,6 +154,12 @@ Even if SessionEnd fires correctly, memory creation requires:
 }
 ```
 
+### 4. One Summary per Session
+- The summary is tagged `sys:claude-session:<session_id>` and stores `session_id` in its metadata. `claude --resume` keeps the session id unless you pass `--fork-session`.
+- Ending again without new messages stores nothing ("Session summary unchanged since it was last stored, skipping"); a grown transcript updates the stored summary instead of adding one.
+- A failed or slow lookup, or an MCP-only connection (no tag lookup), stores a new summary as before.
+- SessionEnd hooks get 1.5 s in total unless `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` raises it (a `timeout` on a plugin hook does not). Before Claude Code v2.1.268 that variable raised only the overall budget, and each hook was still cut off after 1.5 s.
+
 ### What Gets Extracted
 
 SessionEnd analyzes your conversation to extract:
